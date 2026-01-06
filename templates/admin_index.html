@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-gear"></i> Admin Panel</h2>
+    <hr>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-tags"></i> Manage Topics</h5>
+                    <p class="card-text">Add, edit, or remove topics and subtopics for each subject.</p>
+                    <a href="{{ url_for('admin.topics') }}" class="btn btn-primary">
+                        <i class="bi bi-arrow-right"></i> Go to Topics
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-pencil-square"></i> Tag Questions</h5>
+                    <p class="card-text">Browse and tag questions with topics, levels, and other metadata.</p>
+                    <a href="{{ url_for('admin.tags') }}" class="btn btn-primary">
+                        <i class="bi bi-arrow-right"></i> Go to Tagging
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-person-plus"></i> Add Users</h5>
+                    <p class="card-text">Create new user accounts for the system.</p>
+                    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">
+                        <i class="bi bi-arrow-right"></i> Add User
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

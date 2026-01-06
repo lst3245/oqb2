@@ -1,0 +1,121 @@
+"""
+Database models for the Online Question Bank system
+"""
+from app import db
+from flask_login import UserMixin
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Association table for question minor topics (many-to-many)
+question_minor_topics = db.Table('question_minor_topics',
+    db.Column('question_id', db.Integer, db.ForeignKey('questions.id'), primary_key=True),
+    db.Column('topic_id', db.Integer, db.ForeignKey('topics.id'), primary_key=True)
+)
+
+# Association table for question subtopics (many-to-many)
+question_subtopics = db.Table('question_subtopics',
+    db.Column('question_id', db.Integer, db.ForeignKey('questions.id'), primary_key=True),
+    db.Column('subtopic_id', db.Integer, db.ForeignKey('subtopics.id'), primary_key=True)
+)
+
+class User(UserMixin, db.Model):
+    """User model for authentication"""
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    def set_password(self, password):
+        """Hash and set password"""
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Check if password matches"""
+        return check_password_hash(self.password_hash, password)
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+class Subject(db.Model):
+    """Subject model (MATC, MAT1, MAT2, ICT, etc.)"""
+    __tablename__ = 'subjects'
+    
+    id = db.Column(db.String(10), primary_key=True)  # e.g., 'MATC'
+    name = db.Column(db.String(100), nullable=False)  # e.g., 'Mathematics Compulsory'
+    
+    # Relationships
+    topics = db.relationship('Topic', backref='subject', lazy='dynamic', cascade='all, delete-orphan')
+    questions = db.relationship('Question', backref='subject_ref', lazy='dynamic')
+    
+    def __repr__(self):
+        return f'<Subject {self.id}: {self.name}>'
+
+class Topic(db.Model):
+    """Topic model"""
+    __tablename__ = 'topics'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    
+    # Relationships
+    subtopics = db.relationship('Subtopic', backref='topic', lazy='dynamic', cascade='all, delete-orphan')
+    major_questions = db.relationship('Question', backref='major_topic', foreign_keys='Question.major_topic_id', lazy='dynamic')
+    
+    def __repr__(self):
+        return f'<Topic {self.name}>'
+
+class Subtopic(db.Model):
+    """Subtopic model"""
+    __tablename__ = 'subtopics'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    
+    def __repr__(self):
+        return f'<Subtopic {self.name}>'
+
+class Question(db.Model):
+    """Question model - represents a logical question"""
+    __tablename__ = 'questions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    qid = db.Column(db.String(100), unique=True, nullable=False, index=True)  # e.g., 'MATC_DSE_2024_P1_Q5'
+    subject = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    source = db.Column(db.String(20), nullable=False, index=True)  # DSE, CE, AL, QB
+    year = db.Column(db.Integer, nullable=True, index=True)  # NULL for QB
+    paper = db.Column(db.String(10), nullable=True)  # P1, P2, etc.
+    section = db.Column(db.String(5), nullable=True)  # A, B, etc.
+    qno = db.Column(db.Integer, nullable=False)  # Question number (integer part of Q5)
+    q_type = db.Column(db.String(10), nullable=False, default='CQ')  # MC, CQ
+    level = db.Column(db.Integer, nullable=False, default=1)  # 1, 2, 3
+    major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    assets = db.relationship('QuestionAsset', backref='question', lazy='dynamic', cascade='all, delete-orphan')
+    minor_topics = db.relationship('Topic', secondary=question_minor_topics, lazy='dynamic',
+                                   backref=db.backref('minor_questions', lazy='dynamic'))
+    subtopics = db.relationship('Subtopic', secondary=question_subtopics, lazy='dynamic',
+                               backref=db.backref('questions', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<Question {self.qid}>'
+
+class QuestionAsset(db.Model):
+    """QuestionAsset model - represents physical files for a question"""
+    __tablename__ = 'question_assets'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False, index=True)
+    asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', name='asset_type_enum'), nullable=False)
+    file_format = db.Column(db.Enum('IMG', 'DOC', name='file_format_enum'), nullable=False)
+    language = db.Column(db.Enum('EN', 'CH', 'BI', name='language_enum'), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)  # Relative path
+    
+    def __repr__(self):
+        return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language})>'

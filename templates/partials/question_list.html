@@ -1,0 +1,95 @@
+<!-- Question list partial for HTMX updates -->
+{% if questions %}
+    <!-- Select All -->
+    <div class="mb-3">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="selectAll" 
+                   onchange="toggleSelectAll(this)" checked>
+            <label class="form-check-label" for="selectAll">
+                <strong>Select All ({{ total }} questions)</strong>
+            </label>
+        </div>
+    </div>
+
+    <!-- Questions -->
+    {% for question in questions %}
+    <div class="card question-card">
+        <div class="card-body">
+            <div class="row">
+                <!-- Checkbox -->
+                <div class="col-auto">
+                    <input class="form-check-input" type="checkbox" 
+                           name="question_checkbox" value="{{ question.id }}" checked>
+                </div>
+                
+                <!-- Question Info -->
+                <div class="col-md-3">
+                    <h6 class="mb-1">{{ question.qid }}</h6>
+                    <small class="text-muted">
+                        {{ question.source }}
+                        {% if question.year %} {{ question.year }}{% endif %}
+                        {% if question.paper %} {{ question.paper }}{% endif %}
+                        {% if question.section %} Sec {{ question.section }}{% endif %}
+                    </small><br>
+                    <span class="badge bg-secondary">Level {{ question.level }}</span>
+                    <span class="badge bg-info">{{ question.q_type }}</span>
+                    <span class="badge bg-primary">{{ question.major_topic }}</span>
+                </div>
+                
+                <!-- Preview Image -->
+                <div class="col-md-6">
+                    {% if question.que_asset_id %}
+                        <img src="{{ url_for('dashboard.get_asset_preview', asset_id=question.que_asset_id) }}" 
+                             class="question-image" 
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">
+                    {% else %}
+                        <div class="alert alert-warning">No preview available</div>
+                    {% endif %}
+                </div>
+                
+                <!-- Actions -->
+                <div class="col-md-2">
+                    <div class="btn-group-vertical w-100">
+                        {% if question.has_ans %}
+                        <button type="button" class="btn btn-sm btn-outline-primary" 
+                                onclick="previewAsset({{ question.id }}, 'ANS')">
+                            <i class="bi bi-eye"></i> View Answer
+                        </button>
+                        {% endif %}
+                        {% if question.has_sol %}
+                        <button type="button" class="btn btn-sm btn-outline-success" 
+                                onclick="previewAsset({{ question.id }}, 'SOL')">
+                            <i class="bi bi-eye"></i> View Solution
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                    <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="#" 
+                           hx-get="{{ url_for('dashboard.filter_questions', page=p) }}"
+                           hx-target="#questionList">{{ p }}</a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+
+{% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No questions found. Try adjusting your filters.
+    </div>
+{% endif %}

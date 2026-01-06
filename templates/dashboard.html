@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <!-- Filter Sidebar -->
+        <div class="col-md-3">
+            <div class="card filter-sidebar">
+                <div class="card-header">
+                    <h5><i class="bi bi-funnel"></i> Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form id="filterForm" hx-post="{{ url_for('dashboard.filter_questions') }}" 
+                          hx-target="#questionList" hx-indicator="#loading">
+                        
+                        <!-- Subject -->
+                        <div class="mb-3">
+                            <label class="form-label">Subject</label>
+                            <select class="form-select" name="subject" id="subjectSelect" required>
+                                <option value="">Select Subject</option>
+                                {% for subject in subjects %}
+                                <option value="{{ subject.id }}">{{ subject.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Source Type -->
+                        <div class="mb-3">
+                            <label class="form-label">Source Type</label>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source_type" 
+                                           id="sourceDSE" value="DSE" checked>
+                                    <label class="form-check-label" for="sourceDSE">DSE</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source_type" 
+                                           id="sourceCE" value="CE">
+                                    <label class="form-check-label" for="sourceCE">CE</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source_type" 
+                                           id="sourceAL" value="AL">
+                                    <label class="form-check-label" for="sourceAL">AL</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source_type" 
+                                           id="sourceQB" value="QB">
+                                    <label class="form-check-label" for="sourceQB">Question Bank</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Years (for PP only) -->
+                        <div class="mb-3" id="yearFilter">
+                            <label class="form-label">Years</label>
+                            <div id="yearCheckboxes">
+                                <small class="text-muted">Select subject first</small>
+                            </div>
+                        </div>
+
+                        <!-- Section -->
+                        <div class="mb-3">
+                            <label class="form-label">Section</label>
+                            <select class="form-select" name="section">
+                                <option value="all">All</option>
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                            </select>
+                        </div>
+
+                        <!-- Topics -->
+                        <div class="mb-3">
+                            <label class="form-label">Topics</label>
+                            <select class="form-select" name="topics" id="topicSelect" multiple size="4">
+                                <option value="">Select subject first</option>
+                            </select>
+                            <small class="text-muted">Hold Ctrl to select multiple</small>
+                        </div>
+
+                        <!-- Cross Topic -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="crosstopic" 
+                                   name="is_crosstopic" value="1">
+                            <label class="form-check-label" for="crosstopic">
+                                Include cross-topic questions
+                            </label>
+                        </div>
+
+                        <!-- Subtopics -->
+                        <div class="mb-3" id="subtopicContainer" style="display:none;">
+                            <label class="form-label">Subtopics</label>
+                            <select class="form-select" name="subtopics" id="subtopicSelect" multiple size="4">
+                            </select>
+                        </div>
+
+                        <!-- Level -->
+                        <div class="mb-3">
+                            <label class="form-label">Level</label>
+                            <div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="levels" 
+                                           value="1" id="level1" checked>
+                                    <label class="form-check-label" for="level1">1</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="levels" 
+                                           value="2" id="level2" checked>
+                                    <label class="form-check-label" for="level2">2</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="levels" 
+                                           value="3" id="level3" checked>
+                                    <label class="form-check-label" for="level3">3</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Question Type -->
+                        <div class="mb-3">
+                            <label class="form-label">Question Type</label>
+                            <select class="form-select" name="q_type">
+                                <option value="all">All</option>
+                                <option value="MC">Multiple Choice</option>
+                                <option value="CQ">Conventional</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Question List -->
+        <div class="col-md-9">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="bi bi-list-ul"></i> Questions</h5>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-success" id="generateBtn" 
+                                onclick="generateDocument()">
+                            <i class="bi bi-file-earmark-word"></i> Generate Document
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="loading" class="htmx-indicator text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                    <div id="questionList">
+                        {% if questions %}
+                            {% include 'partials/question_list.html' %}
+                        {% else %}
+                            <p class="text-muted text-center">Use filters to search for questions</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewModalLabel">Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center" id="previewModalBody">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Subject change - load topics and years
+document.getElementById('subjectSelect').addEventListener('change', function() {
+    const subjectId = this.value;
+    const sourceType = document.querySelector('input[name="source_type"]:checked').value;
+    
+    if (subjectId) {
+        // Load topics
+        fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
+            .then(r => r.json())
+            .then(topics => {
+                const topicSelect = document.getElementById('topicSelect');
+                topicSelect.innerHTML = topics.length ? 
+                    topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('') :
+                    '<option value="">No topics available</option>';
+            });
+        
+        // Load years for PP
+        if (['DSE', 'CE', 'AL'].includes(sourceType)) {
+            fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
+                .then(r => r.json())
+                .then(years => {
+                    const yearDiv = document.getElementById('yearCheckboxes');
+                    yearDiv.innerHTML = years.map(y => `
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="years" value="${y}" id="year${y}">
+                            <label class="form-check-label" for="year${y}">${y}</label>
+                        </div>
+                    `).join('');
+                });
+        }
+    }
+});
+
+// Topic change - load subtopics
+document.getElementById('topicSelect').addEventListener('change', function() {
+    const selectedOptions = Array.from(this.selectedOptions);
+    const topicIds = selectedOptions.map(opt => opt.value).join(',');
+    
+    if (topicIds) {
+        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIds}`)
+            .then(r => r.json())
+            .then(subtopics => {
+                const subtopicSelect = document.getElementById('subtopicSelect');
+                const subtopicContainer = document.getElementById('subtopicContainer');
+                
+                if (subtopics.length) {
+                    subtopicSelect.innerHTML = subtopics.map(s => 
+                        `<option value="${s.id}">${s.name}</option>`
+                    ).join('');
+                    subtopicContainer.style.display = 'block';
+                } else {
+                    subtopicContainer.style.display = 'none';
+                }
+            });
+    } else {
+        document.getElementById('subtopicContainer').style.display = 'none';
+    }
+});
+
+// Preview asset
+function previewAsset(questionId, assetType) {
+    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    const modalBody = document.getElementById('previewModalBody');
+    const modalLabel = document.getElementById('previewModalLabel');
+    
+    modalLabel.textContent = `Preview ${assetType}`;
+    modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+    
+    modal.show();
+    
+    fetch(`{{ url_for('dashboard.get_question_asset', question_id=0, asset_type='') }}${questionId}/assets/${assetType}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                modalBody.innerHTML = `<p class="text-danger">${data.error}</p>`;
+            } else {
+                modalBody.innerHTML = `<img src="${data.url}" class="preview-modal-img" alt="${assetType}">`;
+            }
+        })
+        .catch(err => {
+            modalBody.innerHTML = `<p class="text-danger">Error loading preview</p>`;
+        });
+}
+
+// Generate document
+function generateDocument() {
+    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]:checked');
+    const questionIds = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (questionIds.length === 0) {
+        alert('Please select at least one question');
+        return;
+    }
+    
+    // Redirect to generation page
+    const params = new URLSearchParams();
+    questionIds.forEach(id => params.append('question_ids', id));
+    
+    window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
+}
+
+// Select/deselect all
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+    checkboxes.forEach(cb => cb.checked = checkbox.checked);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,16 @@
+# Copy this file to .env and configure your settings
+
+# Database Configuration
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_password_here
+DB_NAME=oqb2
+
+# Flask Configuration
+SECRET_KEY=your-secret-key-change-this-in-production
+FLASK_ENV=development
+FLASK_DEBUG=1
+
+# Application Settings
+SOURCE_PATH=D:/Online Question Bank/oqb2/Source
+OUTPUT_PATH=D:/Online Question Bank/oqb2/output

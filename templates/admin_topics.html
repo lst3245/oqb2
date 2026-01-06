@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Topics - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-tags"></i> Manage Topics & Subtopics</h2>
+    <hr>
+    
+    {% for data in topics_data %}
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">{{ data.subject.name }} ({{ data.subject.id }})</h5>
+        </div>
+        <div class="card-body">
+            <!-- Add Topic Button -->
+            <button class="btn btn-success btn-sm mb-3" 
+                    onclick="showAddTopicModal('{{ data.subject.id }}', '{{ data.subject.name }}')">
+                <i class="bi bi-plus-circle"></i> Add Topic
+            </button>
+            
+            <!-- Topics List -->
+            {% if data.topics %}
+                {% for topic in data.topics %}
+                <div class="border rounded p-3 mb-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="bi bi-tag"></i> {{ topic.name }}
+                        </h6>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="showEditTopicModal({{ topic.id }}, '{{ topic.name }}')">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteTopic({{ topic.id }})">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                            <button class="btn btn-sm btn-success" 
+                                    onclick="showAddSubtopicModal({{ topic.id }}, '{{ topic.name }}')">
+                                <i class="bi bi-plus"></i> Add Subtopic
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Subtopics -->
+                    {% set subtopics = topic.subtopics.all() %}
+                    {% if subtopics %}
+                    <div class="ms-4 mt-2">
+                        {% for subtopic in subtopics %}
+                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1">
+                            <span><i class="bi bi-diagram-3"></i> {{ subtopic.name }}</span>
+                            <div>
+                                <button class="btn btn-sm btn-outline-primary" 
+                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name }}')">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="deleteSubtopic({{ subtopic.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted">No topics yet. Add one above!</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Add/Edit Topic Modal -->
+<div class="modal fade" id="topicModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="topicModalLabel">Add Topic</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="topicForm">
+                    <input type="hidden" id="topicId">
+                    <input type="hidden" id="topicSubjectId">
+                    <div class="mb-3">
+                        <label class="form-label">Subject</label>
+                        <input type="text" class="form-control" id="topicSubjectName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Topic Name</label>
+                        <input type="text" class="form-control" id="topicName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveTopic()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Subtopic Modal -->
+<div class="modal fade" id="subtopicModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="subtopicModalLabel">Add Subtopic</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="subtopicForm">
+                    <input type="hidden" id="subtopicId">
+                    <input type="hidden" id="subtopicTopicId">
+                    <div class="mb-3">
+                        <label class="form-label">Topic</label>
+                        <input type="text" class="form-control" id="subtopicTopicName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Subtopic Name</label>
+                        <input type="text" class="form-control" id="subtopicName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveSubtopic()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let topicModal, subtopicModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    topicModal = new bootstrap.Modal(document.getElementById('topicModal'));
+    subtopicModal = new bootstrap.Modal(document.getElementById('subtopicModal'));
+});
+
+// Topic functions
+function showAddTopicModal(subjectId, subjectName) {
+    document.getElementById('topicModalLabel').textContent = 'Add Topic';
+    document.getElementById('topicId').value = '';
+    document.getElementById('topicSubjectId').value = subjectId;
+    document.getElementById('topicSubjectName').value = subjectName;
+    document.getElementById('topicName').value = '';
+    topicModal.show();
+}
+
+function showEditTopicModal(topicId, topicName) {
+    document.getElementById('topicModalLabel').textContent = 'Edit Topic';
+    document.getElementById('topicId').value = topicId;
+    document.getElementById('topicName').value = topicName;
+    topicModal.show();
+}
+
+function saveTopic() {
+    const topicId = document.getElementById('topicId').value;
+    const name = document.getElementById('topicName').value;
+    const subjectId = document.getElementById('topicSubjectId').value;
+    
+    const url = topicId ? 
+        `{{ url_for('admin.edit_topic', topic_id=0) }}`.replace('0', topicId) :
+        `{{ url_for('admin.add_topic') }}`;
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    if (!topicId) formData.append('subject_id', subjectId);
+    
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            topicModal.hide();
+            location.reload();
+        })
+        .catch(err => alert('Error saving topic'));
+}
+
+function deleteTopic(topicId) {
+    if (!confirm('Delete this topic and all its subtopics?')) return;
+    
+    fetch(`{{ url_for('admin.delete_topic', topic_id=0) }}`.replace('0', topicId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error deleting topic'));
+}
+
+// Subtopic functions
+function showAddSubtopicModal(topicId, topicName) {
+    document.getElementById('subtopicModalLabel').textContent = 'Add Subtopic';
+    document.getElementById('subtopicId').value = '';
+    document.getElementById('subtopicTopicId').value = topicId;
+    document.getElementById('subtopicTopicName').value = topicName;
+    document.getElementById('subtopicName').value = '';
+    subtopicModal.show();
+}
+
+function showEditSubtopicModal(subtopicId, subtopicName) {
+    document.getElementById('subtopicModalLabel').textContent = 'Edit Subtopic';
+    document.getElementById('subtopicId').value = subtopicId;
+    document.getElementById('subtopicName').value = subtopicName;
+    subtopicModal.show();
+}
+
+function saveSubtopic() {
+    const subtopicId = document.getElementById('subtopicId').value;
+    const name = document.getElementById('subtopicName').value;
+    const topicId = document.getElementById('subtopicTopicId').value;
+    
+    const url = subtopicId ? 
+        `{{ url_for('admin.edit_subtopic', subtopic_id=0) }}`.replace('0', subtopicId) :
+        `{{ url_for('admin.add_subtopic') }}`;
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    if (!subtopicId) formData.append('topic_id', topicId);
+    
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            subtopicModal.hide();
+            location.reload();
+        })
+        .catch(err => alert('Error saving subtopic'));
+}
+
+function deleteSubtopic(subtopicId) {
+    if (!confirm('Delete this subtopic?')) return;
+    
+    fetch(`{{ url_for('admin.delete_subtopic', subtopic_id=0) }}`.replace('0', subtopicId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error deleting subtopic'));
+}
+</script>
+{% endblock %}
