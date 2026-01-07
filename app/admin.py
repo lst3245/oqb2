@@ -199,3 +199,63 @@ def update_question(question_id):
             'error': str(e)
         }), 500
 
+# ==================== Question Deletion ====================
+
+@admin_bp.route('/questions/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_questions():
+    """Delete selected questions from database (batch delete)"""
+    try:
+        # Get question IDs from request
+        question_ids = request.form.getlist('question_ids')
+        
+        if not question_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No questions selected'
+            }), 400
+        
+        # Convert to integers
+        question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
+        
+        if not question_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid question IDs'
+            }), 400
+        
+        # Get questions to delete
+        questions = Question.query.filter(Question.id.in_(question_ids)).all()
+        
+        if not questions:
+            return jsonify({
+                'success': False,
+                'error': 'No questions found with the given IDs'
+            }), 404
+        
+        deleted_count = 0
+        deleted_qids = []
+        
+        for question in questions:
+            deleted_qids.append(question.qid)
+            # Assets will be cascade deleted due to model relationship
+            db.session.delete(question)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'deleted_qids': deleted_qids,
+            'message': f'Successfully deleted {deleted_count} question(s)'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+

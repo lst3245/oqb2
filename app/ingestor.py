@@ -5,6 +5,7 @@ import os
 import re
 import logging
 from flask import current_app
+from natsort import natsorted
 from app import db
 from app.models import Question, QuestionAsset, Subject
 
@@ -194,7 +195,8 @@ def scan_directory(source_path):
     logger.info(f"Starting scan of: {source_path}")
     
     for root, dirs, files in os.walk(source_path):
-        for filename in files:
+        # Sort files naturally for consistent ordering (Q1, Q2, Q10 not Q1, Q10, Q2)
+        for filename in natsorted(files):
             file_path = os.path.join(root, filename)
             
             # Parse filename
@@ -241,6 +243,111 @@ def scan_directory(source_path):
         logger.info(f"Wrote {len(error_log)} errors to ingest_errors.log")
     
     return file_count, skipped_count
+
+def sync_database(source_path, dry_run=False):
+    """
+    Sync database with filesystem - remove orphaned records where files no longer exist.
+    
+    Args:
+        source_path: Base path where question files are stored
+        dry_run: If True, only report what would be deleted without actually deleting
+    
+    Returns:
+        Tuple of (deleted_assets, deleted_questions, orphaned_assets_list, orphaned_questions_list)
+    """
+    if not os.path.exists(source_path):
+        logger.error(f"Source path does not exist: {source_path}")
+        return 0, 0, [], []
+    
+    logger.info(f"Starting sync check against: {source_path}")
+    if dry_run:
+        logger.info("DRY RUN - no changes will be made")
+    
+    orphaned_assets = []
+    orphaned_questions = []
+    
+    # Check all assets
+    all_assets = QuestionAsset.query.all()
+    logger.info(f"Checking {len(all_assets)} assets...")
+    
+    for asset in all_assets:
+        full_path = os.path.join(source_path, asset.file_path)
+        if not os.path.exists(full_path):
+            orphaned_assets.append({
+                'id': asset.id,
+                'question_id': asset.question_id,
+                'file_path': asset.file_path,
+                'asset_type': asset.asset_type
+            })
+            logger.warning(f"Orphaned asset: {asset.file_path} (ID: {asset.id})")
+    
+    # Delete orphaned assets
+    deleted_assets = 0
+    if not dry_run:
+        for orphan in orphaned_assets:
+            asset = QuestionAsset.query.get(orphan['id'])
+            if asset:
+                db.session.delete(asset)
+                deleted_assets += 1
+        db.session.commit()
+    else:
+        deleted_assets = len(orphaned_assets)
+    
+    # Check for questions with no assets remaining
+    all_questions = Question.query.all()
+    for question in all_questions:
+        if question.assets.count() == 0:
+            orphaned_questions.append({
+                'id': question.id,
+                'qid': question.qid
+            })
+            logger.warning(f"Question with no assets: {question.qid} (ID: {question.id})")
+    
+    # Delete orphaned questions
+    deleted_questions = 0
+    if not dry_run:
+        for orphan in orphaned_questions:
+            question = Question.query.get(orphan['id'])
+            if question:
+                db.session.delete(question)
+                deleted_questions += 1
+        db.session.commit()
+    else:
+        deleted_questions = len(orphaned_questions)
+    
+    if dry_run:
+        logger.info(f"Sync check complete. Would delete: {deleted_assets} assets, {deleted_questions} questions")
+    else:
+        logger.info(f"Sync complete. Deleted: {deleted_assets} assets, {deleted_questions} questions")
+    
+    return deleted_assets, deleted_questions, orphaned_assets, orphaned_questions
+
+def sync_command(source_path=None, dry_run=True):
+    """
+    CLI command to run database sync
+    """
+    from app import create_app
+    app = create_app()
+    
+    with app.app_context():
+        if not source_path:
+            source_path = app.config['SOURCE_PATH']
+        
+        logger.info(f"Syncing database against: {source_path}")
+        deleted_assets, deleted_questions, orphaned_assets, orphaned_questions = sync_database(source_path, dry_run)
+        
+        if dry_run:
+            logger.info(f"DRY RUN complete: Would delete {deleted_assets} assets, {deleted_questions} questions")
+            if orphaned_assets:
+                logger.info("Orphaned assets:")
+                for asset in orphaned_assets:
+                    logger.info(f"  - {asset['file_path']}")
+            if orphaned_questions:
+                logger.info("Orphaned questions (no assets):")
+                for q in orphaned_questions:
+                    logger.info(f"  - {q['qid']}")
+        else:
+            logger.info(f"Sync complete: Deleted {deleted_assets} assets, {deleted_questions} questions")
 
 def ingest_command(source_path=None):
     """
