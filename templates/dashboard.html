@@ -188,6 +188,79 @@
         </div>
     </div>
 </div>
+
+<!-- Edit Tags Modal (Admin Only) -->
+{% if current_user.is_admin %}
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalLabel">Edit Question Tags</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" id="editQuestionId">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Level</label>
+                        <select class="form-select" id="editLevel" name="level">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Question Type</label>
+                        <select class="form-select" id="editQType" name="q_type">
+                            <option value="MC">Multiple Choice</option>
+                            <option value="CQ">Conventional Question</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Section</label>
+                        <input type="text" class="form-control" id="editSection" name="section" 
+                               placeholder="A, B, or leave empty">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Description (optional)</label>
+                        <textarea class="form-control" id="editDescription" name="description" 
+                                  rows="3" placeholder="Enter question description"></textarea>
+                        <small class="text-muted">Optional description for the question</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Major Topic</label>
+                        <select class="form-select" id="editMajorTopic" name="major_topic_id">
+                            <option value="">None</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Minor Topics</label>
+                        <select class="form-select" id="editMinorTopics" name="minor_topic_ids" multiple size="5">
+                        </select>
+                        <small class="text-muted">Hold Ctrl to select multiple</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Subtopics</label>
+                        <select class="form-select" id="editSubtopics" name="subtopic_ids" multiple size="5">
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -460,5 +533,114 @@ function generateDocument() {
     
     window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
 }
+
+{% if current_user.is_admin %}
+// Admin-only functions for editing tags
+let editModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    editModal = new bootstrap.Modal(document.getElementById('editModal'));
+});
+
+function loadTopicsForSubject(subjectId) {
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
+        .then(r => r.json())
+        .then(topics => {
+            const majorSelect = document.getElementById('editMajorTopic');
+            const minorSelect = document.getElementById('editMinorTopics');
+            
+            const options = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            majorSelect.innerHTML = '<option value="">None</option>' + options;
+            minorSelect.innerHTML = options;
+        });
+}
+
+function editQuestion(questionId, questionData) {
+    document.getElementById('editQuestionId').value = questionId;
+    document.getElementById('editModalLabel').textContent = `Edit ${questionData.qid}`;
+    
+    // Load topics for this question's subject
+    loadTopicsForSubject(questionData.subject);
+    
+    // Set values
+    document.getElementById('editLevel').value = questionData.level;
+    document.getElementById('editQType').value = questionData.q_type;
+    document.getElementById('editSection').value = questionData.section || '';
+    document.getElementById('editDescription').value = questionData.description || '';
+    
+    // Set major topic (after topics load)
+    setTimeout(() => {
+        document.getElementById('editMajorTopic').value = questionData.major_topic_id || '';
+        
+        // Set minor topics
+        const minorSelect = document.getElementById('editMinorTopics');
+        Array.from(minorSelect.options).forEach(opt => {
+            opt.selected = questionData.minor_topic_ids.includes(parseInt(opt.value));
+        });
+        
+        // Load and set subtopics
+        if (questionData.major_topic_id || questionData.minor_topic_ids.length > 0) {
+            const allTopicIds = [questionData.major_topic_id, ...questionData.minor_topic_ids].filter(id => id);
+            loadSubtopics(allTopicIds, questionData.subtopic_ids);
+        }
+    }, 500);
+    
+    editModal.show();
+}
+
+function loadSubtopics(topicIds, selectedSubtopicIds = []) {
+    const topicIdsStr = topicIds.filter(id => id).join(',');
+    if (!topicIdsStr) return;
+    
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+        .then(r => r.json())
+        .then(subtopics => {
+            const subtopicSelect = document.getElementById('editSubtopics');
+            subtopicSelect.innerHTML = subtopics.map(s => 
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+            
+            // Select previously selected subtopics
+            Array.from(subtopicSelect.options).forEach(opt => {
+                opt.selected = selectedSubtopicIds.includes(parseInt(opt.value));
+            });
+        });
+}
+
+function saveQuestionTags() {
+    const questionId = document.getElementById('editQuestionId').value;
+    const formData = new FormData(document.getElementById('editForm'));
+    
+    fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('0', questionId), {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => {
+        if (!r.ok) {
+            return r.json().then(err => {
+                throw new Error(err.error || 'Error updating question');
+            });
+        }
+        return r.json();
+    })
+    .then(data => {
+        if (data.success) {
+            editModal.hide();
+            alert('Question updated successfully');
+            // Refresh the current page to show updated data
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                htmx.trigger(filterForm, 'submit');
+            }
+        } else {
+            throw new Error(data.error || 'Error updating question');
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        alert(err.message || 'Error updating question');
+    });
+}
+{% endif %}
 </script>
 {% endblock %}

@@ -2,7 +2,7 @@
 Dashboard routes for question browsing and filtering
 """
 from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file
-from flask_login import login_required
+from flask_login import login_required, current_user
 from sqlalchemy import or_, and_
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject
@@ -153,7 +153,11 @@ def filter_questions():
             'qno': q.qno,
             'level': q.level,
             'q_type': q.q_type,
+            'subject': q.subject,
             'major_topic': q.major_topic.name if q.major_topic else 'N/A',
+            'major_topic_id': q.major_topic_id,
+            'minor_topic_ids': [t.id for t in q.minor_topics],
+            'subtopic_ids': [s.id for s in q.subtopics],
             'description': q.description,
             'que_asset_id': que_asset.id if que_asset else None,
             'has_ans': has_ans,

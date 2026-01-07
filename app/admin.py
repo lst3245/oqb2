@@ -126,40 +126,6 @@ def delete_subtopic(subtopic_id):
 
 # ==================== Question Tagging ====================
 
-@admin_bp.route('/tags')
-@login_required
-@admin_required
-def tags():
-    """Question tagging interface"""
-    subjects = Subject.query.all()
-    
-    # Get questions with minimal filters for initial load
-    questions = Question.query.limit(20).all()
-    
-    question_data = []
-    for q in questions:
-        # Get QUE asset
-        que_asset = QuestionAsset.query.filter_by(
-            question_id=q.id,
-            asset_type='QUE'
-        ).order_by(QuestionAsset.language.desc()).first()
-        
-        question_data.append({
-            'id': q.id,
-            'qid': q.qid,
-            'subject': q.subject,
-            'level': q.level,
-            'q_type': q.q_type,
-            'section': q.section,
-            'description': q.description,
-            'major_topic_id': q.major_topic_id,
-            'minor_topic_ids': [t.id for t in q.minor_topics],
-            'subtopic_ids': [s.id for s in q.subtopics],
-            'que_asset_id': que_asset.id if que_asset else None
-        })
-    
-    return render_template('admin_tags.html', subjects=subjects, questions=question_data)
-
 @admin_bp.route('/questions/<int:question_id>/update', methods=['POST'])
 @login_required
 @admin_required
@@ -233,43 +199,3 @@ def update_question(question_id):
             'error': str(e)
         }), 500
 
-@admin_bp.route('/questions/filter', methods=['POST'])
-@login_required
-@admin_required
-def filter_questions_for_tagging():
-    """Filter questions for tagging interface"""
-    subject = request.form.get('subject')
-    source = request.form.get('source')
-    
-    query = Question.query
-    
-    if subject:
-        query = query.filter(Question.subject == subject)
-    
-    if source and source != 'all':
-        query = query.filter(Question.source == source)
-    
-    questions = query.limit(100).all()
-    
-    question_data = []
-    for q in questions:
-        que_asset = QuestionAsset.query.filter_by(
-            question_id=q.id,
-            asset_type='QUE'
-        ).order_by(QuestionAsset.language.desc()).first()
-        
-        question_data.append({
-            'id': q.id,
-            'qid': q.qid,
-            'subject': q.subject,
-            'level': q.level,
-            'q_type': q.q_type,
-            'section': q.section,
-            'description': q.description,
-            'major_topic_id': q.major_topic_id,
-            'minor_topic_ids': [t.id for t in q.minor_topics],
-            'subtopic_ids': [s.id for s in q.subtopics],
-            'que_asset_id': que_asset.id if que_asset else None
-        })
-    
-    return render_template('partials/question_tag_list.html', questions=question_data)
