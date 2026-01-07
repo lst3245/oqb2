@@ -490,7 +490,7 @@ function previewAsset(questionId, assetType) {
     
     modal.show();
     
-    fetch(`{{ url_for('dashboard.get_question_asset', question_id=0, asset_type='') }}${questionId}/assets/${assetType}`)
+    fetch(`/dashboard/api/question/${questionId}/assets/${assetType}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {
