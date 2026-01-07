@@ -82,20 +82,38 @@
 
                         <!-- Topics -->
                         <div class="mb-3">
-                            <label class="form-label">Topics</label>
-                            <select class="form-select" name="topics" id="topicSelect" multiple size="4">
-                                <option value="">Select subject first</option>
-                            </select>
-                            <div class="d-flex justify-content-between align-items-center mt-1">
-                                <small class="text-muted">Hold Ctrl to select multiple</small>
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span>Topics</span>
                                 <div class="btn-group btn-group-sm" role="group" aria-label="Topic match mode">
                                     <input type="radio" class="btn-check" name="topic_mode" id="topicModeOR" value="OR" autocomplete="off" checked>
                                     <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="Match ANY selected topic">OR</label>
-                                    
                                     <input type="radio" class="btn-check" name="topic_mode" id="topicModeAND" value="AND" autocomplete="off">
                                     <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="Match ALL selected topics">AND</label>
                                 </div>
+                            </label>
+                            <div class="dropdown multi-select-dropdown" id="topicDropdownContainer">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                        id="topicDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="topicDropdownLabel">Select subject first</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="topicDropdownMenu">
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" id="topicSearchInput" placeholder="Search topics...">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearTopicSearch()">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllTopics()">All</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllTopics()">None</button>
+                                    </div>
+                                    <div id="topicCheckboxes" class="multi-select-checkbox-list">
+                                        <small class="text-muted">Select subject first</small>
+                                    </div>
+                                </div>
                             </div>
+                            <!-- Hidden select to store values for form submission -->
+                            <select name="topics" id="topicSelect" multiple style="display:none;"></select>
                         </div>
 
                         <!-- Cross Topic -->
@@ -110,8 +128,28 @@
                         <!-- Subtopics -->
                         <div class="mb-3" id="subtopicContainer" style="display:none;">
                             <label class="form-label">Subtopics</label>
-                            <select class="form-select" name="subtopics" id="subtopicSelect" multiple size="4">
-                            </select>
+                            <div class="dropdown multi-select-dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                        id="subtopicDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="subtopicDropdownLabel">Select subtopics...</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="subtopicDropdownMenu">
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" id="subtopicSearchInput" placeholder="Search subtopics...">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearSubtopicSearch()">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubtopics()">All</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubtopics()">None</button>
+                                    </div>
+                                    <div id="subtopicCheckboxes" class="multi-select-checkbox-list">
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Hidden select to store values for form submission -->
+                            <select name="subtopics" id="subtopicSelect" multiple style="display:none;"></select>
                         </div>
 
                         <!-- Level -->
@@ -700,11 +738,11 @@ function saveStateToStorage() {
     const filterSettings = {
         subject: document.getElementById('subjectSelect').value,
         source_type: document.querySelector('input[name="source_type"]:checked')?.value || 'DSE',
-        years: Array.from(document.querySelectorAll('input[name="years"]:checked')).map(cb => cb.value),
+        years: Array.from(document.querySelectorAll('.year-checkbox:checked')).map(cb => cb.value),
         section: document.querySelector('select[name="section"]').value,
-        topics: Array.from(document.getElementById('topicSelect').selectedOptions).map(opt => opt.value),
+        topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
-        subtopics: Array.from(document.getElementById('subtopicSelect').selectedOptions).map(opt => opt.value),
+        subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value),
         is_crosstopic: document.getElementById('crosstopic').checked,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
@@ -837,17 +875,20 @@ async function restoreFilterSettings(settings) {
         // After topics are loaded, restore selected topics
         if (settings.topics && settings.topics.length > 0) {
             setTimeout(() => {
-                const topicSelect = document.getElementById('topicSelect');
                 settings.topics.forEach(topicId => {
-                    const option = topicSelect.querySelector(`option[value="${topicId}"]`);
-                    if (option) {
-                        option.selected = true;
+                    const topicCb = document.getElementById(`topic${topicId}`);
+                    if (topicCb) {
+                        topicCb.checked = true;
                     }
                 });
+                syncTopicSelectWithCheckboxes();
+                updateTopicDropdownLabel();
                 
                 // Load subtopics for selected topics
                 if (settings.subtopics && settings.subtopics.length > 0) {
                     loadSubtopicsForTopics(settings.topics, settings.subtopics);
+                } else {
+                    loadSubtopicsForSelectedTopics();
                 }
             }, 100);
         }
@@ -875,10 +916,8 @@ async function loadSubjectData(subjectId, sourceType) {
     const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
         .then(r => r.json())
         .then(topics => {
-            const topicSelect = document.getElementById('topicSelect');
-            topicSelect.innerHTML = topics.length ? 
-                topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('') :
-                '<option value="">No topics available</option>';
+            renderTopicCheckboxes(topics);
+            updateTopicDropdownLabel();
         });
     
     // Load years if applicable
@@ -988,6 +1027,267 @@ function clearAllYears() {
     updateYearDropdownLabel();
 }
 
+// ============== TOPIC DROPDOWN FUNCTIONS ==============
+
+// Render topic checkboxes in dropdown
+function renderTopicCheckboxes(topics, selectedTopics = []) {
+    const topicDiv = document.getElementById('topicCheckboxes');
+    const topicSelect = document.getElementById('topicSelect');
+    
+    if (!topics || topics.length === 0) {
+        topicDiv.innerHTML = '<small class="text-muted">No topics available</small>';
+        topicSelect.innerHTML = '';
+        document.getElementById('topicDropdownLabel').textContent = 'No topics';
+        return;
+    }
+    
+    // Render checkboxes
+    topicDiv.innerHTML = topics.map(t => `
+        <div class="form-check" data-topic-id="${t.id}" data-topic-name="${t.name.toLowerCase()}">
+            <input class="form-check-input topic-checkbox" type="checkbox" 
+                   value="${t.id}" id="topic${t.id}" onchange="onTopicChange()"
+                   ${selectedTopics.includes(t.id.toString()) ? 'checked' : ''}>
+            <label class="form-check-label" for="topic${t.id}">${t.name}</label>
+        </div>
+    `).join('');
+    
+    // Update hidden select with all options
+    topicSelect.innerHTML = topics.map(t => 
+        `<option value="${t.id}" ${selectedTopics.includes(t.id.toString()) ? 'selected' : ''}>${t.name}</option>`
+    ).join('');
+    
+    // Setup search filter
+    setupTopicSearch();
+}
+
+// Handle topic checkbox change
+function onTopicChange() {
+    updateTopicDropdownLabel();
+    syncTopicSelectWithCheckboxes();
+    loadSubtopicsForSelectedTopics();
+    saveStateToStorage();
+}
+
+// Sync hidden select with checkboxes
+function syncTopicSelectWithCheckboxes() {
+    const topicSelect = document.getElementById('topicSelect');
+    const checkedIds = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(topicSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+// Update the topic dropdown button label
+function updateTopicDropdownLabel() {
+    const checkedTopics = Array.from(document.querySelectorAll('.topic-checkbox:checked'));
+    const totalTopics = document.querySelectorAll('.topic-checkbox').length;
+    const label = document.getElementById('topicDropdownLabel');
+    
+    if (totalTopics === 0) {
+        label.textContent = 'No topics';
+    } else if (checkedTopics.length === 0) {
+        label.innerHTML = '<span class="text-muted">Select topics...</span>';
+    } else if (checkedTopics.length === totalTopics) {
+        label.innerHTML = `All topics <span class="badge bg-primary">${totalTopics}</span>`;
+    } else if (checkedTopics.length === 1) {
+        const topicName = checkedTopics[0].parentElement.querySelector('label').textContent;
+        label.textContent = topicName.length > 25 ? topicName.substring(0, 25) + '...' : topicName;
+    } else {
+        label.innerHTML = `${checkedTopics.length} topics <span class="badge bg-primary">${checkedTopics.length}</span>`;
+    }
+}
+
+// Setup topic search functionality
+function setupTopicSearch() {
+    const searchInput = document.getElementById('topicSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.removeEventListener('input', filterTopics);
+        searchInput.addEventListener('input', filterTopics);
+    }
+}
+
+// Filter topics based on search input
+function filterTopics() {
+    const searchTerm = document.getElementById('topicSearchInput').value.toLowerCase();
+    const topicItems = document.querySelectorAll('#topicCheckboxes .form-check');
+    
+    topicItems.forEach(item => {
+        const topicName = item.dataset.topicName || '';
+        if (topicName.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// Clear topic search
+function clearTopicSearch() {
+    const searchInput = document.getElementById('topicSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        filterTopics();
+    }
+}
+
+// Select all visible topics
+function selectAllTopics() {
+    const visibleCheckboxes = document.querySelectorAll('#topicCheckboxes .form-check:not([style*="display: none"]) .topic-checkbox');
+    visibleCheckboxes.forEach(cb => cb.checked = true);
+    onTopicChange();
+}
+
+// Clear all topic selections
+function clearAllTopics() {
+    document.querySelectorAll('.topic-checkbox').forEach(cb => cb.checked = false);
+    onTopicChange();
+}
+
+// Load subtopics for selected topics
+function loadSubtopicsForSelectedTopics() {
+    const checkedTopics = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value);
+    const subtopicContainer = document.getElementById('subtopicContainer');
+    
+    if (checkedTopics.length === 0) {
+        subtopicContainer.style.display = 'none';
+        document.getElementById('subtopicCheckboxes').innerHTML = '';
+        document.getElementById('subtopicSelect').innerHTML = '';
+        return;
+    }
+    
+    const topicIdsStr = checkedTopics.join(',');
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+        .then(r => r.json())
+        .then(subtopics => {
+            if (subtopics.length) {
+                renderSubtopicCheckboxes(subtopics);
+                updateSubtopicDropdownLabel();
+                subtopicContainer.style.display = 'block';
+            } else {
+                subtopicContainer.style.display = 'none';
+            }
+        });
+}
+
+// ============== SUBTOPIC DROPDOWN FUNCTIONS ==============
+
+// Render subtopic checkboxes in dropdown
+function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
+    const subtopicDiv = document.getElementById('subtopicCheckboxes');
+    const subtopicSelect = document.getElementById('subtopicSelect');
+    
+    if (!subtopics || subtopics.length === 0) {
+        subtopicDiv.innerHTML = '<small class="text-muted">No subtopics available</small>';
+        subtopicSelect.innerHTML = '';
+        document.getElementById('subtopicDropdownLabel').textContent = 'No subtopics';
+        return;
+    }
+    
+    // Render checkboxes
+    subtopicDiv.innerHTML = subtopics.map(s => `
+        <div class="form-check" data-subtopic-id="${s.id}" data-subtopic-name="${s.name.toLowerCase()}">
+            <input class="form-check-input subtopic-checkbox" type="checkbox" 
+                   value="${s.id}" id="subtopic${s.id}" onchange="onSubtopicChange()"
+                   ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
+            <label class="form-check-label" for="subtopic${s.id}">${s.name}</label>
+        </div>
+    `).join('');
+    
+    // Update hidden select
+    subtopicSelect.innerHTML = subtopics.map(s => 
+        `<option value="${s.id}" ${selectedSubtopics.includes(s.id.toString()) ? 'selected' : ''}>${s.name}</option>`
+    ).join('');
+    
+    // Setup search filter
+    setupSubtopicSearch();
+}
+
+// Handle subtopic checkbox change
+function onSubtopicChange() {
+    updateSubtopicDropdownLabel();
+    syncSubtopicSelectWithCheckboxes();
+    saveStateToStorage();
+}
+
+// Sync hidden select with checkboxes
+function syncSubtopicSelectWithCheckboxes() {
+    const subtopicSelect = document.getElementById('subtopicSelect');
+    const checkedIds = Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(subtopicSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+// Update the subtopic dropdown button label
+function updateSubtopicDropdownLabel() {
+    const checkedSubtopics = Array.from(document.querySelectorAll('.subtopic-checkbox:checked'));
+    const totalSubtopics = document.querySelectorAll('.subtopic-checkbox').length;
+    const label = document.getElementById('subtopicDropdownLabel');
+    
+    if (totalSubtopics === 0) {
+        label.textContent = 'No subtopics';
+    } else if (checkedSubtopics.length === 0) {
+        label.innerHTML = '<span class="text-muted">Select subtopics...</span>';
+    } else if (checkedSubtopics.length === totalSubtopics) {
+        label.innerHTML = `All subtopics <span class="badge bg-primary">${totalSubtopics}</span>`;
+    } else if (checkedSubtopics.length === 1) {
+        const subtopicName = checkedSubtopics[0].parentElement.querySelector('label').textContent;
+        label.textContent = subtopicName.length > 25 ? subtopicName.substring(0, 25) + '...' : subtopicName;
+    } else {
+        label.innerHTML = `${checkedSubtopics.length} subtopics <span class="badge bg-primary">${checkedSubtopics.length}</span>`;
+    }
+}
+
+// Setup subtopic search functionality
+function setupSubtopicSearch() {
+    const searchInput = document.getElementById('subtopicSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.removeEventListener('input', filterSubtopics);
+        searchInput.addEventListener('input', filterSubtopics);
+    }
+}
+
+// Filter subtopics based on search input
+function filterSubtopics() {
+    const searchTerm = document.getElementById('subtopicSearchInput').value.toLowerCase();
+    const subtopicItems = document.querySelectorAll('#subtopicCheckboxes .form-check');
+    
+    subtopicItems.forEach(item => {
+        const subtopicName = item.dataset.subtopicName || '';
+        if (subtopicName.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// Clear subtopic search
+function clearSubtopicSearch() {
+    const searchInput = document.getElementById('subtopicSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        filterSubtopics();
+    }
+}
+
+// Select all visible subtopics
+function selectAllSubtopics() {
+    const visibleCheckboxes = document.querySelectorAll('#subtopicCheckboxes .form-check:not([style*="display: none"]) .subtopic-checkbox');
+    visibleCheckboxes.forEach(cb => cb.checked = true);
+    onSubtopicChange();
+}
+
+// Clear all subtopic selections
+function clearAllSubtopics() {
+    document.querySelectorAll('.subtopic-checkbox').forEach(cb => cb.checked = false);
+    onSubtopicChange();
+}
+
 // Helper function to load subtopics for selected topics
 function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
     const topicIdsStr = topicIds.join(',');
@@ -996,13 +1296,11 @@ function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
     fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
         .then(r => r.json())
         .then(subtopics => {
-            const subtopicSelect = document.getElementById('subtopicSelect');
             const subtopicContainer = document.getElementById('subtopicContainer');
             
             if (subtopics.length) {
-                subtopicSelect.innerHTML = subtopics.map(s => 
-                    `<option value="${s.id}" ${selectedSubtopicIds.includes(s.id.toString()) ? 'selected' : ''}>${s.name}</option>`
-                ).join('');
+                renderSubtopicCheckboxes(subtopics, selectedSubtopicIds || []);
+                updateSubtopicDropdownLabel();
                 subtopicContainer.style.display = 'block';
             } else {
                 subtopicContainer.style.display = 'none';
@@ -1079,33 +1377,7 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
     });
 });
 
-// Topic change - load subtopics
-document.getElementById('topicSelect').addEventListener('change', function() {
-    const selectedOptions = Array.from(this.selectedOptions);
-    const topicIds = selectedOptions.map(opt => opt.value).join(',');
-    
-    if (topicIds) {
-        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIds}`)
-            .then(r => r.json())
-            .then(subtopics => {
-                const subtopicSelect = document.getElementById('subtopicSelect');
-                const subtopicContainer = document.getElementById('subtopicContainer');
-                
-                if (subtopics.length) {
-                    subtopicSelect.innerHTML = subtopics.map(s => 
-                        `<option value="${s.id}">${s.name}</option>`
-                    ).join('');
-                    subtopicContainer.style.display = 'block';
-                } else {
-                    subtopicContainer.style.display = 'none';
-                }
-            });
-    } else {
-        document.getElementById('subtopicContainer').style.display = 'none';
-    }
-    
-    saveStateToStorage();
-});
+// Topic change is now handled by onTopicChange() via checkbox onclick handlers
 
 // Preview asset
 function previewAsset(questionId, assetType) {
@@ -1199,6 +1471,16 @@ function resetFilters() {
     
     // Clear all year selections
     clearAllYears();
+    
+    // Clear all topic selections
+    clearAllTopics();
+    
+    // Clear all subtopic selections
+    clearAllSubtopics();
+    document.getElementById('subtopicContainer').style.display = 'none';
+    
+    // Reset topic mode to OR
+    document.getElementById('topicModeOR').checked = true;
     
     // Reset sort config to default
     sortConfig = [{ field: 'qid', direction: 'asc' }];

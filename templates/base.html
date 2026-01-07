@@ -129,36 +129,49 @@
             font-size: 0.7rem;
         }
         
-        /* Year dropdown multi-select */
-        .year-dropdown .dropdown-toggle::after {
+        /* Multi-select dropdown styling (Years, Topics, Subtopics) */
+        .year-dropdown .dropdown-toggle::after,
+        .multi-select-dropdown .dropdown-toggle::after {
             float: right;
             margin-top: 0.5rem;
         }
-        .year-dropdown .dropdown-menu.show {
+        .year-dropdown .dropdown-menu.show,
+        .multi-select-dropdown .dropdown-menu.show {
             display: flex;
             flex-direction: column;
-            max-height: 300px;
+            max-height: 350px;
             overflow: hidden;
         }
-        .year-checkbox-list {
+        .year-checkbox-list,
+        .multi-select-checkbox-list {
             overflow-y: auto;
-            max-height: 200px;
+            max-height: 220px;
             flex: 1;
         }
-        .year-checkbox-list .form-check {
+        .year-checkbox-list .form-check,
+        .multi-select-checkbox-list .form-check {
             padding: 0.25rem 0.5rem 0.25rem 1.75rem;
             margin: 0;
             border-radius: 0.25rem;
         }
-        .year-checkbox-list .form-check:hover {
+        .year-checkbox-list .form-check:hover,
+        .multi-select-checkbox-list .form-check:hover {
             background-color: #f8f9fa;
         }
-        .year-checkbox-list .form-check-label {
+        .year-checkbox-list .form-check-label,
+        .multi-select-checkbox-list .form-check-label {
             cursor: pointer;
             width: 100%;
+            font-size: 0.875rem;
         }
-        .year-dropdown .badge {
+        .year-dropdown .badge,
+        .multi-select-dropdown .badge {
             font-size: 0.7rem;
+        }
+        .multi-select-dropdown .dropdown-toggle {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
     </style>
     
