@@ -102,6 +102,11 @@
                             <div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="checkbox" name="levels" 
+                                           value="null" id="levelNull" checked>
+                                    <label class="form-check-label" for="levelNull">Untagged</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="levels" 
                                            value="1" id="level1" checked>
                                     <label class="form-check-label" for="level1">1</label>
                                 </div>
@@ -230,6 +235,7 @@
                     <div class="mb-3">
                         <label class="form-label">Level</label>
                         <select class="form-select" id="editLevel" name="level">
+                            <option value="">None</option>
                             <option value="1">1</option>
                             <option value="2">2</option>
                             <option value="3">3</option>
@@ -239,6 +245,7 @@
                     <div class="mb-3">
                         <label class="form-label">Question Type</label>
                         <select class="form-select" id="editQType" name="q_type">
+                            <option value="">None</option>
                             <option value="MC">Multiple Choice</option>
                             <option value="CQ">Conventional Question</option>
                         </select>
@@ -851,9 +858,9 @@ function editQuestion(questionId, questionData) {
     // Load topics for this question's subject
     loadTopicsForSubject(questionData.subject);
     
-    // Set values
-    document.getElementById('editLevel').value = questionData.level;
-    document.getElementById('editQType').value = questionData.q_type;
+    // Set values (handle null as empty string for "None" option)
+    document.getElementById('editLevel').value = questionData.level !== null ? questionData.level : '';
+    document.getElementById('editQType').value = questionData.q_type || '';
     document.getElementById('editSection').value = questionData.section || '';
     document.getElementById('editDescription').value = questionData.description || '';
     

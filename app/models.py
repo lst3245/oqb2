@@ -91,8 +91,8 @@ class Question(db.Model):
     paper = db.Column(db.String(10), nullable=True)  # P1, P2, etc.
     section = db.Column(db.String(5), nullable=True)  # A, B, etc.
     qno = db.Column(db.Integer, nullable=False)  # Question number (integer part of Q5)
-    q_type = db.Column(db.String(10), nullable=False, default='CQ')  # MC, CQ
-    level = db.Column(db.Integer, nullable=False, default=1)  # 1, 2, 3
+    q_type = db.Column(db.String(10), nullable=True)  # MC, CQ, or NULL
+    level = db.Column(db.Integer, nullable=True)  # 1, 2, 3, or NULL
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
     description = db.Column(db.Text, nullable=True)  # Optional description for the question
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

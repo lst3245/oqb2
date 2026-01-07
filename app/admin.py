@@ -136,10 +136,12 @@ def update_question(question_id):
         
         # Update basic fields
         if 'level' in request.form:
-            question.level = int(request.form.get('level'))
+            level = request.form.get('level')
+            question.level = int(level) if level and level != '' else None
         
         if 'q_type' in request.form:
-            question.q_type = request.form.get('q_type')
+            q_type = request.form.get('q_type')
+            question.q_type = q_type if q_type and q_type != '' else None
         
         if 'section' in request.form:
             section = request.form.get('section')

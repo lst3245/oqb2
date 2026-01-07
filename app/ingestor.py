@@ -103,6 +103,29 @@ def determine_file_format(ext):
         return 'DOC'
     return None
 
+def determine_question_type(subject, source, paper):
+    """
+    Determine question type based on subject, source, and paper.
+    
+    Rules:
+    - MATC DSE P1: CQ (Conventional Question)
+    - MATC DSE P2: MC (Multiple Choice)
+    - MAT1 DSE: CQ
+    - MAT2 DSE: CQ
+    - All others (other subjects, QB, CE, AL): NULL
+    """
+    if source == 'DSE':
+        if subject == 'MATC':
+            if paper == 'P1':
+                return 'CQ'
+            elif paper == 'P2':
+                return 'MC'
+        elif subject in ['MAT1', 'MAT2']:
+            return 'CQ'
+    
+    # For all other cases (other subjects, QB, CE, AL), return NULL
+    return None
+
 def upsert_question(qid, parsed, folder_meta):
     """
     Insert or update question in database
@@ -131,9 +154,11 @@ def upsert_question(qid, parsed, folder_meta):
         # Set question number
         question.qno = parse_qno(parsed['qno'])
         
-        # Set defaults
-        question.q_type = 'CQ'
-        question.level = 1
+        # Set question type based on subject/source/paper rules
+        question.q_type = determine_question_type(parsed['subj'], parsed['source'], parsed.get('paper'))
+        
+        # Level is always NULL on ingestion (to be tagged manually)
+        question.level = None
         question.section = None
         
         db.session.add(question)

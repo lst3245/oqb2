@@ -132,8 +132,16 @@
                             <div class="flex-grow-1">
                                 <div class="fw-medium" style="font-size: 0.875rem;">{{ question.qid }}</div>
                                 <small class="text-muted">
+                                    {% if question.level %}
                                     <span class="badge bg-secondary">L{{ question.level }}</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary text-muted">L-</span>
+                                    {% endif %}
+                                    {% if question.q_type %}
                                     <span class="badge bg-info">{{ question.q_type }}</span>
+                                    {% else %}
+                                    <span class="badge bg-info text-muted">-</span>
+                                    {% endif %}
                                     {% if question.year %}<span class="badge bg-light text-dark">{{ question.year }}</span>{% endif %}
                                 </small>
                             </div>

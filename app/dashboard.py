@@ -112,8 +112,17 @@ def filter_questions():
     # Filter by levels
     if levels:
         level_ints = [int(l) for l in levels if l.isdigit()]
-        if level_ints:
+        include_null = 'null' in levels
+        
+        if level_ints and include_null:
+            # Include both specific levels and NULL
+            query = query.filter(or_(Question.level.in_(level_ints), Question.level.is_(None)))
+        elif level_ints:
+            # Only specific levels
             query = query.filter(Question.level.in_(level_ints))
+        elif include_null:
+            # Only NULL levels
+            query = query.filter(Question.level.is_(None))
     
     # Filter by question type
     if q_type and q_type != 'all':

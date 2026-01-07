@@ -48,8 +48,16 @@
                         {% if question.paper %} {{ question.paper }}{% endif %}
                         {% if question.section %} Sec {{ question.section }}{% endif %}
                     </small><br>
+                    {% if question.level %}
                     <span class="badge bg-secondary">Level {{ question.level }}</span>
+                    {% else %}
+                    <span class="badge bg-secondary text-muted">Level -</span>
+                    {% endif %}
+                    {% if question.q_type %}
                     <span class="badge bg-info">{{ question.q_type }}</span>
+                    {% else %}
+                    <span class="badge bg-info text-muted">Type -</span>
+                    {% endif %}
                     <span class="badge bg-primary">{{ question.major_topic }}</span>
                     {% if question.description %}
                     <div class="mt-2">
@@ -89,8 +97,8 @@
                                 onclick='editQuestion({{ question.id }}, {
                                     "qid": "{{ question.qid }}",
                                     "subject": "{{ question.subject }}",
-                                    "level": {{ question.level }},
-                                    "q_type": "{{ question.q_type }}",
+                                    "level": {{ question.level if question.level is not none else "null" }},
+                                    "q_type": {{ ("\"" + question.q_type + "\"") if question.q_type else "null" }},
                                     "section": {{ ("\"" + question.section + "\"") if question.section else "null" }},
                                     "description": {{ ("\"" + (question.description | replace('"', '\\"') | replace('\n', '\\n')) + "\"") if question.description else "null" }},
                                     "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
