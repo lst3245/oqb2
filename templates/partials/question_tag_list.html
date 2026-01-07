@@ -43,7 +43,17 @@
                 
                 <div class="col-md-4">
                     <button class="btn btn-primary w-100" 
-                            onclick='editQuestion({{ question.id }}, {{ question | tojson }})'>
+                            onclick='editQuestion({{ question.id }}, {
+                                "qid": "{{ question.qid }}",
+                                "subject": "{{ question.subject }}",
+                                "level": {{ question.level }},
+                                "q_type": "{{ question.q_type }}",
+                                "section": {{ ("\"" + question.section + "\"") if question.section else "null" }},
+                                "description": {{ ("\"" + (question.description | replace('"', '\\"') | replace('\n', '\\n')) + "\"") if question.description else "null" }},
+                                "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
+                                "minor_topic_ids": {{ question.minor_topic_ids | tojson }},
+                                "subtopic_ids": {{ question.subtopic_ids | tojson }}
+                            })'>
                         <i class="bi bi-pencil"></i> Edit Tags
                     </button>
                 </div>

@@ -154,6 +154,7 @@ def filter_questions():
             'level': q.level,
             'q_type': q.q_type,
             'major_topic': q.major_topic.name if q.major_topic else 'N/A',
+            'description': q.description,
             'que_asset_id': que_asset.id if que_asset else None,
             'has_ans': has_ans,
             'has_sol': has_sol

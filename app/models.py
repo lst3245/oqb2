@@ -94,13 +94,14 @@ class Question(db.Model):
     q_type = db.Column(db.String(10), nullable=False, default='CQ')  # MC, CQ
     level = db.Column(db.Integer, nullable=False, default=1)  # 1, 2, 3
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
+    description = db.Column(db.Text, nullable=True)  # Optional description for the question
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
     assets = db.relationship('QuestionAsset', backref='question', lazy='dynamic', cascade='all, delete-orphan')
-    minor_topics = db.relationship('Topic', secondary=question_minor_topics, lazy='dynamic',
+    minor_topics = db.relationship('Topic', secondary=question_minor_topics, lazy='select',
                                    backref=db.backref('minor_questions', lazy='dynamic'))
-    subtopics = db.relationship('Subtopic', secondary=question_subtopics, lazy='dynamic',
+    subtopics = db.relationship('Subtopic', secondary=question_subtopics, lazy='select',
                                backref=db.backref('questions', lazy='dynamic'))
     
     def __repr__(self):

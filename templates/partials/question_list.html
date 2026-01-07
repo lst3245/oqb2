@@ -51,6 +51,11 @@
                     <span class="badge bg-secondary">Level {{ question.level }}</span>
                     <span class="badge bg-info">{{ question.q_type }}</span>
                     <span class="badge bg-primary">{{ question.major_topic }}</span>
+                    {% if question.description %}
+                    <div class="mt-2">
+                        <small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small>
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <!-- Preview Image -->

@@ -85,6 +85,13 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label">Description (optional)</label>
+                        <textarea class="form-control" id="editDescription" name="description" 
+                                  rows="3" placeholder="Enter question description"></textarea>
+                        <small class="text-muted">Optional description for the question</small>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label class="form-label">Major Topic</label>
                         <select class="form-select" id="editMajorTopic" name="major_topic_id">
                             <option value="">None</option>
@@ -170,6 +177,7 @@ function editQuestion(questionId, questionData) {
     document.getElementById('editLevel').value = questionData.level;
     document.getElementById('editQType').value = questionData.q_type;
     document.getElementById('editSection').value = questionData.section || '';
+    document.getElementById('editDescription').value = questionData.description || '';
     
     // Set major topic (after topics load)
     setTimeout(() => {
@@ -218,13 +226,27 @@ function saveQuestionTags() {
         method: 'POST',
         body: formData
     })
-    .then(r => r.json())
-    .then(data => {
-        editModal.hide();
-        alert('Question updated successfully');
-        location.reload();
+    .then(r => {
+        if (!r.ok) {
+            return r.json().then(err => {
+                throw new Error(err.error || 'Error updating question');
+            });
+        }
+        return r.json();
     })
-    .catch(err => alert('Error updating question'));
+    .then(data => {
+        if (data.success) {
+            editModal.hide();
+            alert('Question updated successfully');
+            location.reload();
+        } else {
+            throw new Error(data.error || 'Error updating question');
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        alert(err.message || 'Error updating question');
+    });
 }
 
 function previewAsset(questionId, assetType) {

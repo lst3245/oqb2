@@ -151,6 +151,7 @@ def tags():
             'level': q.level,
             'q_type': q.q_type,
             'section': q.section,
+            'description': q.description,
             'major_topic_id': q.major_topic_id,
             'minor_topic_ids': [t.id for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],
@@ -164,61 +165,73 @@ def tags():
 @admin_required
 def update_question(question_id):
     """Update question metadata and tags"""
-    question = Question.query.get_or_404(question_id)
-    
-    # Update basic fields
-    if 'level' in request.form:
-        question.level = int(request.form.get('level'))
-    
-    if 'q_type' in request.form:
-        question.q_type = request.form.get('q_type')
-    
-    if 'section' in request.form:
-        section = request.form.get('section')
-        question.section = section if section and section != '' else None
-    
-    # Update major topic
-    if 'major_topic_id' in request.form:
-        major_topic_id = request.form.get('major_topic_id')
-        question.major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
-    
-    # Update minor topics
-    minor_topic_ids = request.form.getlist('minor_topic_ids')
-    if minor_topic_ids:
-        question.minor_topics.clear()
-        for tid in minor_topic_ids:
-            if tid:
-                topic = Topic.query.get(int(tid))
-                if topic:
-                    question.minor_topics.append(topic)
-    else:
-        question.minor_topics.clear()
-    
-    # Update subtopics
-    subtopic_ids = request.form.getlist('subtopic_ids')
-    if subtopic_ids:
-        question.subtopics.clear()
-        for sid in subtopic_ids:
-            if sid:
-                subtopic = Subtopic.query.get(int(sid))
-                if subtopic:
-                    question.subtopics.append(subtopic)
-    else:
-        question.subtopics.clear()
-    
-    db.session.commit()
-    
-    return jsonify({
-        'success': True,
-        'question': {
-            'id': question.id,
-            'qid': question.qid,
-            'level': question.level,
-            'q_type': question.q_type,
-            'section': question.section,
-            'major_topic_id': question.major_topic_id
-        }
-    })
+    try:
+        question = Question.query.get_or_404(question_id)
+        
+        # Update basic fields
+        if 'level' in request.form:
+            question.level = int(request.form.get('level'))
+        
+        if 'q_type' in request.form:
+            question.q_type = request.form.get('q_type')
+        
+        if 'section' in request.form:
+            section = request.form.get('section')
+            question.section = section if section and section != '' else None
+        
+        if 'description' in request.form:
+            description = request.form.get('description')
+            question.description = description if description and description.strip() != '' else None
+        
+        # Update major topic
+        if 'major_topic_id' in request.form:
+            major_topic_id = request.form.get('major_topic_id')
+            question.major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+        
+        # Update minor topics
+        minor_topic_ids = request.form.getlist('minor_topic_ids')
+        if minor_topic_ids:
+            question.minor_topics.clear()
+            for tid in minor_topic_ids:
+                if tid:
+                    topic = Topic.query.get(int(tid))
+                    if topic:
+                        question.minor_topics.append(topic)
+        else:
+            question.minor_topics.clear()
+        
+        # Update subtopics
+        subtopic_ids = request.form.getlist('subtopic_ids')
+        if subtopic_ids:
+            question.subtopics.clear()
+            for sid in subtopic_ids:
+                if sid:
+                    subtopic = Subtopic.query.get(int(sid))
+                    if subtopic:
+                        question.subtopics.append(subtopic)
+        else:
+            question.subtopics.clear()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'question': {
+                'id': question.id,
+                'qid': question.qid,
+                'level': question.level,
+                'q_type': question.q_type,
+                'section': question.section,
+                'major_topic_id': question.major_topic_id,
+                'description': question.description
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @admin_bp.route('/questions/filter', methods=['POST'])
 @login_required
@@ -252,6 +265,7 @@ def filter_questions_for_tagging():
             'level': q.level,
             'q_type': q.q_type,
             'section': q.section,
+            'description': q.description,
             'major_topic_id': q.major_topic_id,
             'minor_topic_ids': [t.id for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],
