@@ -141,7 +141,12 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5><i class="bi bi-list-ul"></i> Questions</h5>
-                    <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span id="mainSelectionCounter" class="badge bg-secondary">0 selected</span>
+                        <button type="button" class="btn btn-sm btn-outline-danger" 
+                                onclick="clearSelection()" title="Clear all selections">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </button>
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" 
                                 onclick="generateDocument()">
                             <i class="bi bi-file-earmark-word"></i> Generate Document
@@ -187,6 +192,161 @@
 
 {% block extra_js %}
 <script>
+// Global set to track selected question IDs across pages
+let selectedQuestions = new Set();
+
+// Initialize selection state after page content changes
+function initializeSelectionState() {
+    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+    checkboxes.forEach(cb => {
+        if (selectedQuestions.has(cb.value)) {
+            cb.checked = true;
+        }
+    });
+    updateSelectAllCheckbox();
+    updateSelectionCounter();
+}
+
+// Update individual question selection
+function updateSelection(checkbox) {
+    if (checkbox.checked) {
+        selectedQuestions.add(checkbox.value);
+    } else {
+        selectedQuestions.delete(checkbox.value);
+    }
+    updateSelectAllCheckbox();
+    updateSelectionCounter();
+}
+
+// Update the "Select All" checkbox state
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAll');
+    const selectPageCheckbox = document.getElementById('selectPage');
+    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+    
+    if (checkboxes.length === 0) {
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
+        if (selectPageCheckbox) {
+            selectPageCheckbox.checked = false;
+            selectPageCheckbox.indeterminate = false;
+        }
+        return;
+    }
+    
+    // Get all question IDs from the filter results
+    const allIdsElement = document.getElementById('allQuestionIds');
+    const allQuestionIds = allIdsElement ? allIdsElement.dataset.ids.split(',').filter(id => id) : [];
+    
+    // Check if all questions from filter are selected
+    const allSelected = allQuestionIds.length > 0 && allQuestionIds.every(id => selectedQuestions.has(id));
+    
+    // Check current page selection
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    const pageFullySelected = checkedCount === checkboxes.length;
+    const pagePartiallySelected = checkedCount > 0 && checkedCount < checkboxes.length;
+    
+    // Update "Select All" checkbox
+    if (selectAllCheckbox) {
+        if (allSelected) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else if (selectedQuestions.size > 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
+    }
+    
+    // Update "Select Page" checkbox
+    if (selectPageCheckbox) {
+        if (pageFullySelected) {
+            selectPageCheckbox.checked = true;
+            selectPageCheckbox.indeterminate = false;
+        } else if (pagePartiallySelected) {
+            selectPageCheckbox.checked = false;
+            selectPageCheckbox.indeterminate = true;
+        } else {
+            selectPageCheckbox.checked = false;
+            selectPageCheckbox.indeterminate = false;
+        }
+    }
+}
+
+// Update selection counter
+function updateSelectionCounter() {
+    const count = selectedQuestions.size;
+    
+    // Update counter in question list
+    const counter = document.getElementById('selectionCounter');
+    if (counter) {
+        counter.textContent = `${count} selected`;
+        counter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
+    }
+    
+    // Update main counter in header
+    const mainCounter = document.getElementById('mainSelectionCounter');
+    if (mainCounter) {
+        mainCounter.textContent = `${count} selected`;
+        mainCounter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
+    }
+}
+
+// Select/deselect all (across all pages or just current page)
+function toggleSelectAll(checkbox, allPages) {
+    if (allPages) {
+        // Select/deselect ALL questions from filter results
+        const allIdsElement = document.getElementById('allQuestionIds');
+        if (allIdsElement) {
+            const allQuestionIds = allIdsElement.dataset.ids.split(',').filter(id => id);
+            
+            if (checkbox.checked) {
+                // Add all question IDs to selection
+                allQuestionIds.forEach(id => selectedQuestions.add(id));
+            } else {
+                // Remove all question IDs from selection
+                allQuestionIds.forEach(id => selectedQuestions.delete(id));
+            }
+            
+            // Update visible checkboxes
+            const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = selectedQuestions.has(cb.value);
+            });
+        }
+    } else {
+        // Select/deselect only current page
+        const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+        checkboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+            if (checkbox.checked) {
+                selectedQuestions.add(cb.value);
+            } else {
+                selectedQuestions.delete(cb.value);
+            }
+        });
+    }
+    
+    updateSelectAllCheckbox();
+    updateSelectionCounter();
+}
+
+// Listen for HTMX content updates
+document.body.addEventListener('htmx:afterSwap', function(event) {
+    if (event.detail.target.id === 'questionList') {
+        initializeSelectionState();
+    }
+});
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    initializeSelectionState();
+});
+
 // Subject change - load topics and years
 document.getElementById('subjectSelect').addEventListener('change', function() {
     const subjectId = this.value;
@@ -271,10 +431,23 @@ function previewAsset(questionId, assetType) {
         });
 }
 
+// Clear all selections
+function clearSelection() {
+    selectedQuestions.clear();
+    
+    // Uncheck all visible checkboxes
+    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
+    
+    // Update UI
+    updateSelectAllCheckbox();
+    updateSelectionCounter();
+}
+
 // Generate document
 function generateDocument() {
-    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]:checked');
-    const questionIds = Array.from(checkboxes).map(cb => cb.value);
+    // Use the global selectedQuestions Set instead of current page checkboxes
+    const questionIds = Array.from(selectedQuestions);
     
     if (questionIds.length === 0) {
         alert('Please select at least one question');
@@ -286,12 +459,6 @@ function generateDocument() {
     questionIds.forEach(id => params.append('question_ids', id));
     
     window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
-}
-
-// Select/deselect all
-function toggleSelectAll(checkbox) {
-    const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
-    checkboxes.forEach(cb => cb.checked = checkbox.checked);
 }
 </script>
 {% endblock %}

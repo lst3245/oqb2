@@ -159,13 +159,17 @@ def filter_questions():
             'has_sol': has_sol
         })
     
+    # Get all question IDs for selection purposes
+    all_question_ids = [q.id for q in sorted_questions]
+    
     # If AJAX request, return JSON
     if request.headers.get('HX-Request'):
         return render_template('partials/question_list.html', 
                              questions=question_data,
                              page=page,
                              total_pages=total_pages,
-                             total=total)
+                             total=total,
+                             all_question_ids=all_question_ids)
     
     # Otherwise return full page
     subjects = Subject.query.all()
@@ -174,7 +178,8 @@ def filter_questions():
                          questions=question_data,
                          page=page,
                          total_pages=total_pages,
-                         total=total)
+                         total=total,
+                         all_question_ids=all_question_ids)
 
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required

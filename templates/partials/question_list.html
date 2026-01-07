@@ -1,13 +1,29 @@
 <!-- Question list partial for HTMX updates -->
 {% if questions %}
+    <!-- Store all question IDs for "Select All" functionality -->
+    <div id="allQuestionIds" data-ids="{{ all_question_ids|join(',') }}" style="display:none;"></div>
+    
     <!-- Select All -->
-    <div class="mb-3">
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="selectAll" 
-                   onchange="toggleSelectAll(this)" checked>
-            <label class="form-check-label" for="selectAll">
-                <strong>Select All ({{ total }} questions)</strong>
-            </label>
+    <div class="mb-3 d-flex justify-content-between align-items-center">
+        <div class="d-flex gap-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="selectAll" 
+                       onchange="toggleSelectAll(this, true)">
+                <label class="form-check-label" for="selectAll">
+                    <strong>Select All ({{ total }} questions)</strong>
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="selectPage" 
+                       onchange="toggleSelectAll(this, false)">
+                <label class="form-check-label" for="selectPage">
+                    <strong>Select This Page Only</strong>
+                </label>
+            </div>
+        </div>
+        <div>
+            <span class="badge bg-primary" id="selectionCounter">0 selected</span>
+            <span class="text-muted">/ {{ total }} total</span>
         </div>
     </div>
 
@@ -18,8 +34,9 @@
             <div class="row">
                 <!-- Checkbox -->
                 <div class="col-auto">
-                    <input class="form-check-input" type="checkbox" 
-                           name="question_checkbox" value="{{ question.id }}" checked>
+                    <input class="form-check-input question-checkbox" type="checkbox" 
+                           name="question_checkbox" value="{{ question.id }}" 
+                           onchange="updateSelection(this)">
                 </div>
                 
                 <!-- Question Info -->
