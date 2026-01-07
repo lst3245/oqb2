@@ -1,17 +1,18 @@
 """
 Word document generation module
 """
-from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for
+from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session
 from flask_login import login_required
 from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image
 import os
+import json
 from datetime import datetime
 from app import db
 from app.models import Question, QuestionAsset
-from app.utils import natural_sort
+from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
@@ -19,17 +20,28 @@ generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 @login_required
 def index():
     """Generation options page"""
-    # Get selected question IDs from query params
+    # Get selected question IDs from query params (order preserved)
     question_ids = request.args.getlist('question_ids')
     
     if not question_ids:
         flash('No questions selected', 'warning')
         return redirect(url_for('dashboard.index'))
     
-    # Get questions
-    questions = Question.query.filter(Question.id.in_(question_ids)).all()
+    # Get questions - preserve the selection order by using a dict
+    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+    questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
     
-    return render_template('generate.html', questions=questions, question_ids=question_ids)
+    # Get sort config from session (from dashboard)
+    sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+    
+    # Get available sort fields for the UI
+    sort_fields = [{"value": key, "label": info["label"]} for key, info in SORT_FIELDS.items()]
+    
+    return render_template('generate.html', 
+                          questions=questions, 
+                          question_ids=question_ids,
+                          sort_config=sort_config,
+                          sort_fields=sort_fields)
 
 @generator_bp.route('/create', methods=['POST'])
 @login_required
@@ -38,7 +50,8 @@ def create_document():
     
     # Get parameters
     question_ids = request.form.getlist('question_ids')
-    sort_by = request.form.get('sort_by', 'qid')
+    sort_mode = request.form.get('sort_mode', 'custom')  # 'selection' or 'custom'
+    sort_config_str = request.form.get('sort_config', '')
     answer_mode = request.form.get('answer_mode', 'QUE_ONLY')
     skip_lines = int(request.form.get('skip_lines', 1))
     new_page_per_question = request.form.get('new_page_per_question') == 'on'
@@ -48,22 +61,26 @@ def create_document():
         flash('No questions selected', 'warning')
         return redirect(url_for('dashboard.index'))
     
-    # Get questions
-    questions = Question.query.filter(Question.id.in_(question_ids)).all()
+    # Get questions - preserve the selection order using dict
+    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
     
-    if not questions:
+    if not questions_dict:
         flash('No valid questions found', 'danger')
         return redirect(url_for('dashboard.index'))
     
-    # Sort questions
-    if sort_by == 'level':
-        questions.sort(key=lambda q: (q.level, q.qid))
-    elif sort_by == 'year':
-        questions.sort(key=lambda q: (q.year if q.year else 0, q.qid))
-    elif sort_by == 'topic':
-        questions.sort(key=lambda q: (q.major_topic.name if q.major_topic else 'ZZZ', q.qid))
-    else:  # qid - natural sort
-        questions = natural_sort(questions, key_func=lambda q: q.qid)
+    # Sort questions based on mode
+    if sort_mode == 'selection':
+        # Preserve selection order from the form
+        questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+    else:
+        # Apply custom sort config
+        try:
+            sort_config = json.loads(sort_config_str) if sort_config_str else [{"field": "qid", "direction": "asc"}]
+        except json.JSONDecodeError:
+            sort_config = [{"field": "qid", "direction": "asc"}]
+        
+        questions = list(questions_dict.values())
+        questions = apply_multi_sort(questions, sort_config)
     
     # Create document
     try:

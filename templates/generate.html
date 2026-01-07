@@ -14,22 +14,57 @@
                     <h5>Generation Options</h5>
                 </div>
                 <div class="card-body">
-                    <form method="POST" action="{{ url_for('generator.create_document') }}">
-                        <!-- Hidden question IDs -->
+                    <form method="POST" action="{{ url_for('generator.create_document') }}" id="generateForm">
+                        <!-- Hidden question IDs (order preserved from selection) -->
+                        <div id="questionIdsContainer">
                         {% for qid in question_ids %}
                         <input type="hidden" name="question_ids" value="{{ qid }}">
                         {% endfor %}
-                        
-                        <!-- Sort By -->
-                        <div class="mb-3">
-                            <label class="form-label">Sort By</label>
-                            <select class="form-select" name="sort_by">
-                                <option value="qid" selected>Question ID (Natural Order)</option>
-                                <option value="level">Level</option>
-                                <option value="year">Year</option>
-                                <option value="topic">Topic</option>
-                            </select>
                         </div>
+                        <input type="hidden" name="sort_config" id="sortConfigInput" value='{{ sort_config | tojson }}'>
+                        <input type="hidden" name="sort_mode" id="sortModeInput" value="custom">
+                        
+                        <!-- Sort Options -->
+                        <div class="mb-4">
+                            <label class="form-label"><strong>Sort Order</strong></label>
+                            
+                            <!-- Sort mode toggle -->
+                            <div class="btn-group w-100 mb-3" role="group">
+                                <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeCustom" value="custom" checked>
+                                <label class="btn btn-outline-primary" for="sortModeCustom">
+                                    <i class="bi bi-sort-alpha-down"></i> Custom Sort
+                                </label>
+                                
+                                <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeSelection" value="selection">
+                                <label class="btn btn-outline-primary" for="sortModeSelection">
+                                    <i class="bi bi-list-ol"></i> Selection Order
+                                </label>
+                            </div>
+                            
+                            <!-- Custom sort panel -->
+                            <div id="customSortPanel">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="text-muted">Drag to reorder. First criterion has highest priority.</small>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSortCriterion()">
+                                        <i class="bi bi-plus"></i> Add
+                                    </button>
+                                </div>
+                                <div id="sortCriteria" class="sort-criteria-container">
+                                    <!-- Sort criteria items will be added here dynamically -->
+                                </div>
+                            </div>
+                            
+                            <!-- Selection order info -->
+                            <div id="selectionOrderInfo" style="display: none;">
+                                <div class="alert alert-info mb-0">
+                                    <i class="bi bi-info-circle"></i> 
+                                    Questions will be output in the same order as you selected them.
+                                    You can reorder by dragging items in the "Selected Questions" panel.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
                         
                         <!-- Answer Mode -->
                         <div class="mb-3">
@@ -82,24 +117,313 @@
         
         <div class="col-md-4">
             <div class="card">
-                <div class="card-header">
-                    <h5>Selected Questions ({{ questions | length }})</h5>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Selected Questions ({{ questions | length }})</h5>
+                    <small class="text-muted" id="reorderHint">Drag to reorder</small>
                 </div>
-                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
-                    <ul class="list-group">
+                <div class="card-body p-2" style="max-height: 500px; overflow-y: auto;">
+                    <div id="selectedQuestionsList" class="list-group list-group-flush">
                         {% for question in questions %}
-                        <li class="list-group-item">
-                            <small>
-                                {{ question.qid }}<br>
-                                <span class="badge bg-secondary">Level {{ question.level }}</span>
-                                <span class="badge bg-info">{{ question.q_type }}</span>
-                            </small>
-                        </li>
+                        <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 selected-question-item" 
+                             data-id="{{ question.id }}" draggable="true">
+                            <span class="drag-handle text-muted"><i class="bi bi-grip-vertical"></i></span>
+                            <span class="priority-num badge bg-primary">{{ loop.index }}</span>
+                            <div class="flex-grow-1">
+                                <div class="fw-medium" style="font-size: 0.875rem;">{{ question.qid }}</div>
+                                <small class="text-muted">
+                                    <span class="badge bg-secondary">L{{ question.level }}</span>
+                                    <span class="badge bg-info">{{ question.q_type }}</span>
+                                    {% if question.year %}<span class="badge bg-light text-dark">{{ question.year }}</span>{% endif %}
+                                </small>
+                            </div>
+                        </div>
                         {% endfor %}
-                    </ul>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Sort configuration - from session or default
+const SORT_FIELDS = {
+    'qid': 'Question ID',
+    'year': 'Year',
+    'level': 'Level',
+    'topic': 'Topic',
+    'created_time': 'Created Time',
+    'source': 'Source',
+    'section': 'Section',
+    'q_type': 'Question Type'
+};
+
+let sortConfig = {{ sort_config | tojson | safe }};
+let sortMode = 'custom';
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    renderSortCriteria();
+    initQuestionDragDrop();
+    
+    // Sort mode toggle handlers
+    document.querySelectorAll('input[name="sort_mode_radio"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            sortMode = this.value;
+            document.getElementById('sortModeInput').value = sortMode;
+            
+            if (sortMode === 'custom') {
+                document.getElementById('customSortPanel').style.display = 'block';
+                document.getElementById('selectionOrderInfo').style.display = 'none';
+                document.getElementById('reorderHint').style.display = 'none';
+            } else {
+                document.getElementById('customSortPanel').style.display = 'none';
+                document.getElementById('selectionOrderInfo').style.display = 'block';
+                document.getElementById('reorderHint').style.display = 'inline';
+            }
+        });
+    });
+});
+
+function renderSortCriteria() {
+    const container = document.getElementById('sortCriteria');
+    container.innerHTML = '';
+    
+    sortConfig.forEach((criterion, index) => {
+        const item = document.createElement('div');
+        item.className = 'gen-sort-criterion';
+        item.draggable = true;
+        item.dataset.index = index;
+        
+        // Build field options
+        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) => 
+            `<option value="${value}" ${criterion.field === value ? 'selected' : ''}>${label}</option>`
+        ).join('');
+        
+        item.innerHTML = `
+            <span class="drag-handle"><i class="bi bi-grip-vertical"></i></span>
+            <span class="priority-badge">${index + 1}</span>
+            <select class="form-select form-select-sm" style="flex:1;" onchange="updateSortField(${index}, this.value)">
+                ${fieldOptions}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-secondary" 
+                    onclick="toggleSortDirection(${index})" title="Toggle direction">
+                <i class="bi bi-sort-${criterion.direction === 'asc' ? 'up' : 'down'}"></i>
+                ${criterion.direction === 'asc' ? 'Asc' : 'Desc'}
+            </button>
+            <button type="button" class="btn btn-sm btn-link text-danger" 
+                    onclick="removeSortCriterion(${index})" title="Remove" ${sortConfig.length <= 1 ? 'disabled' : ''}>
+                <i class="bi bi-x-lg"></i>
+            </button>
+        `;
+        
+        // Drag and drop handlers
+        item.addEventListener('dragstart', handleCriteriaDragStart);
+        item.addEventListener('dragend', handleCriteriaDragEnd);
+        item.addEventListener('dragover', handleCriteriaDragOver);
+        item.addEventListener('dragenter', handleCriteriaDragEnter);
+        item.addEventListener('dragleave', handleCriteriaDragLeave);
+        item.addEventListener('drop', handleCriteriaDrop);
+        
+        container.appendChild(item);
+    });
+    
+    updateSortConfigInput();
+}
+
+function addSortCriterion() {
+    const usedFields = sortConfig.map(c => c.field);
+    const availableField = Object.keys(SORT_FIELDS).find(f => !usedFields.includes(f)) || 'qid';
+    
+    sortConfig.push({ field: availableField, direction: 'asc' });
+    renderSortCriteria();
+}
+
+function removeSortCriterion(index) {
+    if (sortConfig.length <= 1) return;
+    sortConfig.splice(index, 1);
+    renderSortCriteria();
+}
+
+function updateSortField(index, field) {
+    sortConfig[index].field = field;
+    updateSortConfigInput();
+}
+
+function toggleSortDirection(index) {
+    sortConfig[index].direction = sortConfig[index].direction === 'asc' ? 'desc' : 'asc';
+    renderSortCriteria();
+}
+
+function updateSortConfigInput() {
+    document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
+}
+
+// Criteria drag and drop
+let draggedCriterion = null;
+
+function handleCriteriaDragStart(e) {
+    draggedCriterion = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.index);
+}
+
+function handleCriteriaDragEnd(e) {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.gen-sort-criterion').forEach(item => {
+        item.classList.remove('drag-over');
+    });
+    draggedCriterion = null;
+}
+
+function handleCriteriaDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleCriteriaDragEnter(e) {
+    e.preventDefault();
+    if (this !== draggedCriterion) {
+        this.classList.add('drag-over');
+    }
+}
+
+function handleCriteriaDragLeave(e) {
+    this.classList.remove('drag-over');
+}
+
+function handleCriteriaDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+    const toIndex = parseInt(this.dataset.index);
+    
+    if (fromIndex !== toIndex) {
+        const [removed] = sortConfig.splice(fromIndex, 1);
+        sortConfig.splice(toIndex, 0, removed);
+        renderSortCriteria();
+    }
+}
+
+// Question list drag and drop (for selection order mode)
+let draggedQuestion = null;
+
+function initQuestionDragDrop() {
+    const items = document.querySelectorAll('.selected-question-item');
+    
+    items.forEach(item => {
+        item.addEventListener('dragstart', handleQuestionDragStart);
+        item.addEventListener('dragend', handleQuestionDragEnd);
+        item.addEventListener('dragover', handleQuestionDragOver);
+        item.addEventListener('dragenter', handleQuestionDragEnter);
+        item.addEventListener('dragleave', handleQuestionDragLeave);
+        item.addEventListener('drop', handleQuestionDrop);
+    });
+}
+
+function handleQuestionDragStart(e) {
+    draggedQuestion = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.id);
+}
+
+function handleQuestionDragEnd(e) {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.selected-question-item').forEach(item => {
+        item.classList.remove('drag-over');
+    });
+    draggedQuestion = null;
+}
+
+function handleQuestionDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleQuestionDragEnter(e) {
+    e.preventDefault();
+    if (this !== draggedQuestion) {
+        this.classList.add('drag-over');
+    }
+}
+
+function handleQuestionDragLeave(e) {
+    this.classList.remove('drag-over');
+}
+
+function handleQuestionDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    
+    if (draggedQuestion && draggedQuestion !== this) {
+        const list = document.getElementById('selectedQuestionsList');
+        const items = Array.from(list.children);
+        const fromIndex = items.indexOf(draggedQuestion);
+        const toIndex = items.indexOf(this);
+        
+        if (fromIndex < toIndex) {
+            this.parentNode.insertBefore(draggedQuestion, this.nextSibling);
+        } else {
+            this.parentNode.insertBefore(draggedQuestion, this);
+        }
+        
+        // Update priority numbers and hidden inputs
+        updateQuestionOrder();
+    }
+}
+
+function updateQuestionOrder() {
+    const list = document.getElementById('selectedQuestionsList');
+    const items = list.querySelectorAll('.selected-question-item');
+    const container = document.getElementById('questionIdsContainer');
+    
+    // Clear and rebuild hidden inputs
+    container.innerHTML = '';
+    
+    items.forEach((item, index) => {
+        // Update priority badge
+        item.querySelector('.priority-num').textContent = index + 1;
+        
+        // Add hidden input
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'question_ids';
+        input.value = item.dataset.id;
+        container.appendChild(input);
+    });
+}
+</script>
+
+<style>
+.selected-question-item {
+    cursor: grab;
+    transition: all 0.15s ease;
+}
+.selected-question-item:hover {
+    background-color: #f8f9fa;
+}
+.selected-question-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+.selected-question-item.drag-over {
+    border-top: 2px solid #0d6efd;
+}
+.priority-num {
+    min-width: 24px;
+    text-align: center;
+}
+.sort-criteria-container {
+    min-height: 50px;
+}
+.gen-sort-criterion.drag-over {
+    border-color: #0d6efd;
+    border-style: dashed;
+}
+</style>
 {% endblock %}

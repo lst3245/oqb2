@@ -131,7 +131,26 @@
                         <button type="submit" class="btn btn-primary w-100">
                             <i class="bi bi-search"></i> Search
                         </button>
+                        
+                        <!-- Hidden input for sort config -->
+                        <input type="hidden" name="sort_config" id="sortConfigInput" value='[{"field":"qid","direction":"asc"}]'>
                     </form>
+                    
+                    <hr class="my-3">
+                    
+                    <!-- Sort Configuration -->
+                    <div class="sort-config-panel">
+                        <label class="form-label d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-sort-alpha-down"></i> Sort By</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSortCriterion()">
+                                <i class="bi bi-plus"></i> Add
+                            </button>
+                        </label>
+                        <small class="text-muted d-block mb-2">Drag to reorder. First criterion has highest priority.</small>
+                        <div id="sortCriteria" class="sort-criteria-list">
+                            <!-- Sort criteria items will be added here dynamically -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -267,6 +286,155 @@
 <script>
 // Global set to track selected question IDs across pages
 let selectedQuestions = new Set();
+
+// Sort configuration
+const SORT_FIELDS = {
+    'qid': 'Question ID',
+    'year': 'Year',
+    'level': 'Level',
+    'topic': 'Topic',
+    'created_time': 'Created Time',
+    'source': 'Source',
+    'section': 'Section',
+    'q_type': 'Question Type'
+};
+
+let sortConfig = [{ field: 'qid', direction: 'asc' }];
+
+// Initialize sort config from server or default
+{% if sort_config %}
+try {
+    sortConfig = {{ sort_config | tojson | safe }};
+} catch(e) {
+    sortConfig = [{ field: 'qid', direction: 'asc' }];
+}
+{% endif %}
+
+function renderSortCriteria() {
+    const container = document.getElementById('sortCriteria');
+    container.innerHTML = '';
+    
+    sortConfig.forEach((criterion, index) => {
+        const item = document.createElement('div');
+        item.className = 'sort-criterion';
+        item.draggable = true;
+        item.dataset.index = index;
+        
+        // Build field options
+        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) => 
+            `<option value="${value}" ${criterion.field === value ? 'selected' : ''}>${label}</option>`
+        ).join('');
+        
+        item.innerHTML = `
+            <span class="drag-handle"><i class="bi bi-grip-vertical"></i></span>
+            <select class="form-select form-select-sm field-select" onchange="updateSortField(${index}, this.value)">
+                ${fieldOptions}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-secondary direction-btn" 
+                    onclick="toggleSortDirection(${index})" title="Toggle direction">
+                <i class="bi bi-sort-${criterion.direction === 'asc' ? 'up' : 'down'}"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-link remove-btn" 
+                    onclick="removeSortCriterion(${index})" title="Remove">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        `;
+        
+        // Drag and drop handlers
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragend', handleDragEnd);
+        item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('dragenter', handleDragEnter);
+        item.addEventListener('dragleave', handleDragLeave);
+        item.addEventListener('drop', handleDrop);
+        
+        container.appendChild(item);
+    });
+    
+    // Update hidden input
+    updateSortConfigInput();
+}
+
+function addSortCriterion() {
+    // Find a field not already in use
+    const usedFields = sortConfig.map(c => c.field);
+    const availableField = Object.keys(SORT_FIELDS).find(f => !usedFields.includes(f)) || 'qid';
+    
+    sortConfig.push({ field: availableField, direction: 'asc' });
+    renderSortCriteria();
+}
+
+function removeSortCriterion(index) {
+    if (sortConfig.length <= 1) {
+        alert('At least one sort criterion is required.');
+        return;
+    }
+    sortConfig.splice(index, 1);
+    renderSortCriteria();
+}
+
+function updateSortField(index, field) {
+    sortConfig[index].field = field;
+    updateSortConfigInput();
+}
+
+function toggleSortDirection(index) {
+    sortConfig[index].direction = sortConfig[index].direction === 'asc' ? 'desc' : 'asc';
+    renderSortCriteria();
+}
+
+function updateSortConfigInput() {
+    document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
+}
+
+// Drag and drop handlers
+let draggedItem = null;
+
+function handleDragStart(e) {
+    draggedItem = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.index);
+}
+
+function handleDragEnd(e) {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.sort-criterion').forEach(item => {
+        item.classList.remove('drag-over');
+    });
+    draggedItem = null;
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleDragEnter(e) {
+    e.preventDefault();
+    if (this !== draggedItem) {
+        this.classList.add('drag-over');
+    }
+}
+
+function handleDragLeave(e) {
+    this.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+    const toIndex = parseInt(this.dataset.index);
+    
+    if (fromIndex !== toIndex) {
+        // Reorder sortConfig array
+        const [removed] = sortConfig.splice(fromIndex, 1);
+        sortConfig.splice(toIndex, 0, removed);
+        renderSortCriteria();
+    }
+}
 
 // Initialize selection state after page content changes
 function initializeSelectionState() {
@@ -418,6 +586,7 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeSelectionState();
+    renderSortCriteria();
 });
 
 // Subject change - load topics and years
@@ -527,9 +696,12 @@ function generateDocument() {
         return;
     }
     
-    // Redirect to generation page
+    // Redirect to generation page with question IDs (order preserved)
     const params = new URLSearchParams();
     questionIds.forEach(id => params.append('question_ids', id));
+    
+    // Also pass current sort config
+    params.append('sort_config', JSON.stringify(sortConfig));
     
     window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
 }

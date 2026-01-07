@@ -6,8 +6,9 @@ from flask_login import login_required, current_user
 from sqlalchemy import or_, and_
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject
-from app.utils import natural_sort
+from app.utils import natural_sort, apply_multi_sort
 import os
+import json
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 
@@ -16,7 +17,9 @@ dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 def index():
     """Main dashboard page"""
     subjects = Subject.query.all()
-    return render_template('dashboard.html', subjects=subjects)
+    # Get sort config from session or use default
+    sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+    return render_template('dashboard.html', subjects=subjects, sort_config=sort_config)
 
 @dashboard_bp.route('/filter', methods=['POST', 'GET'])
 @login_required
@@ -35,6 +38,17 @@ def filter_questions():
     q_type = request.args.get('q_type') or request.form.get('q_type')
     page = int(request.args.get('page', 1))
     
+    # Get sort configuration - supports multi-level sorting
+    # Format: [{"field": "qid", "direction": "asc"}, {"field": "year", "direction": "desc"}]
+    sort_config_str = request.args.get('sort_config') or request.form.get('sort_config')
+    if sort_config_str:
+        try:
+            sort_config = json.loads(sort_config_str)
+        except json.JSONDecodeError:
+            sort_config = [{"field": "qid", "direction": "asc"}]
+    else:
+        sort_config = [{"field": "qid", "direction": "asc"}]
+    
     # Store in session for pagination
     session['filter_params'] = {
         'subject': subject,
@@ -47,6 +61,7 @@ def filter_questions():
         'levels': levels,
         'q_type': q_type
     }
+    session['sort_config'] = sort_config
     
     # Build query
     query = Question.query
@@ -104,11 +119,11 @@ def filter_questions():
     if q_type and q_type != 'all':
         query = query.filter(Question.q_type == q_type)
     
-    # Get all matching questions for natural sorting
+    # Get all matching questions for sorting
     all_questions = query.all()
     
-    # Natural sort by qid
-    sorted_questions = natural_sort(all_questions, key_func=lambda q: q.qid)
+    # Apply multi-level sorting
+    sorted_questions = apply_multi_sort(all_questions, sort_config)
     
     # Paginate
     per_page = current_app.config['QUESTIONS_PER_PAGE']
@@ -174,7 +189,8 @@ def filter_questions():
                              page=page,
                              total_pages=total_pages,
                              total=total,
-                             all_question_ids=all_question_ids)
+                             all_question_ids=all_question_ids,
+                             sort_config=sort_config)
     
     # Otherwise return full page
     subjects = Subject.query.all()
@@ -184,7 +200,8 @@ def filter_questions():
                          page=page,
                          total_pages=total_pages,
                          total=total,
-                         all_question_ids=all_question_ids)
+                         all_question_ids=all_question_ids,
+                         sort_config=sort_config)
 
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required
