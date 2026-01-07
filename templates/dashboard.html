@@ -47,8 +47,26 @@
                         <!-- Years (for PP only) -->
                         <div class="mb-3" id="yearFilter">
                             <label class="form-label">Years</label>
-                            <div id="yearCheckboxes">
-                                <small class="text-muted">Select subject first</small>
+                            <div class="dropdown year-dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                        id="yearDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="yearDropdownLabel">Select subject first</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="yearDropdownMenu">
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" id="yearSearchInput" placeholder="Search years...">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearYearSearch()">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllYears()">All</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllYears()">None</button>
+                                    </div>
+                                    <div id="yearCheckboxes" class="year-checkbox-list">
+                                        <small class="text-muted">Select subject first</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -843,6 +861,7 @@ async function restoreFilterSettings(settings) {
                         yearCb.checked = true;
                     }
                 });
+                updateYearDropdownLabel();
             }, 150);
         }
     }
@@ -868,17 +887,105 @@ async function loadSubjectData(subjectId, sourceType) {
         yearsPromise = fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
             .then(r => r.json())
             .then(years => {
-                const yearDiv = document.getElementById('yearCheckboxes');
-                yearDiv.innerHTML = years.map(y => `
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="years" value="${y}" id="year${y}">
-                        <label class="form-check-label" for="year${y}">${y}</label>
-                    </div>
-                `).join('');
+                renderYearCheckboxes(years);
+                updateYearDropdownLabel();
             });
+    } else {
+        // QB source - no years
+        document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">N/A for Question Bank</small>';
+        document.getElementById('yearDropdownLabel').textContent = 'N/A';
     }
     
     await Promise.all([topicsPromise, yearsPromise]);
+}
+
+// Render year checkboxes in dropdown
+function renderYearCheckboxes(years, selectedYears = []) {
+    const yearDiv = document.getElementById('yearCheckboxes');
+    if (!years || years.length === 0) {
+        yearDiv.innerHTML = '<small class="text-muted">No years available</small>';
+        document.getElementById('yearDropdownLabel').textContent = 'No years';
+        return;
+    }
+    
+    yearDiv.innerHTML = years.map(y => `
+        <div class="form-check" data-year="${y}">
+            <input class="form-check-input year-checkbox" type="checkbox" name="years" 
+                   value="${y}" id="year${y}" onchange="updateYearDropdownLabel()"
+                   ${selectedYears.includes(y.toString()) ? 'checked' : ''}>
+            <label class="form-check-label" for="year${y}">${y}</label>
+        </div>
+    `).join('');
+    
+    // Setup search filter
+    setupYearSearch();
+}
+
+// Update the year dropdown button label
+function updateYearDropdownLabel() {
+    const checkedYears = Array.from(document.querySelectorAll('.year-checkbox:checked')).map(cb => cb.value);
+    const totalYears = document.querySelectorAll('.year-checkbox').length;
+    const label = document.getElementById('yearDropdownLabel');
+    
+    if (totalYears === 0) {
+        label.textContent = 'No years';
+    } else if (checkedYears.length === 0) {
+        label.innerHTML = '<span class="text-muted">Select years...</span>';
+    } else if (checkedYears.length === totalYears) {
+        label.innerHTML = `All years <span class="badge bg-primary">${totalYears}</span>`;
+    } else if (checkedYears.length <= 3) {
+        label.textContent = checkedYears.join(', ');
+    } else {
+        label.innerHTML = `${checkedYears.length} years <span class="badge bg-primary">${checkedYears.length}</span>`;
+    }
+    
+    saveStateToStorage();
+}
+
+// Setup year search functionality
+function setupYearSearch() {
+    const searchInput = document.getElementById('yearSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.addEventListener('input', filterYears);
+    }
+}
+
+// Filter years based on search input
+function filterYears() {
+    const searchTerm = document.getElementById('yearSearchInput').value.toLowerCase();
+    const yearItems = document.querySelectorAll('#yearCheckboxes .form-check');
+    
+    yearItems.forEach(item => {
+        const year = item.dataset.year;
+        if (year && year.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// Clear year search
+function clearYearSearch() {
+    const searchInput = document.getElementById('yearSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        filterYears();
+    }
+}
+
+// Select all visible years
+function selectAllYears() {
+    const visibleCheckboxes = document.querySelectorAll('#yearCheckboxes .form-check:not([style*="display: none"]) .year-checkbox');
+    visibleCheckboxes.forEach(cb => cb.checked = true);
+    updateYearDropdownLabel();
+}
+
+// Clear all year selections
+function clearAllYears() {
+    document.querySelectorAll('.year-checkbox').forEach(cb => cb.checked = false);
+    updateYearDropdownLabel();
 }
 
 // Helper function to load subtopics for selected topics
@@ -960,16 +1067,12 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
             fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
                 .then(r => r.json())
                 .then(years => {
-                    const yearDiv = document.getElementById('yearCheckboxes');
-                    yearDiv.innerHTML = years.map(y => `
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="years" value="${y}" id="year${y}">
-                            <label class="form-check-label" for="year${y}">${y}</label>
-                        </div>
-                    `).join('');
+                    renderYearCheckboxes(years);
+                    updateYearDropdownLabel();
                 });
         } else {
             document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">N/A for Question Bank</small>';
+            document.getElementById('yearDropdownLabel').textContent = 'N/A';
         }
         
         saveStateToStorage();
@@ -1093,6 +1196,9 @@ function resetFilters() {
     
     // Clear QID search
     clearQidSearch();
+    
+    // Clear all year selections
+    clearAllYears();
     
     // Reset sort config to default
     sortConfig = [{ field: 'qid', direction: 'asc' }];
