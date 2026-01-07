@@ -29,27 +29,18 @@
                         <!-- Source Type -->
                         <div class="mb-3">
                             <label class="form-label">Source Type</label>
-                            <div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="source_type" 
-                                           id="sourceDSE" value="DSE" checked>
-                                    <label class="form-check-label" for="sourceDSE">DSE</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="source_type" 
-                                           id="sourceCE" value="CE">
-                                    <label class="form-check-label" for="sourceCE">CE</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="source_type" 
-                                           id="sourceAL" value="AL">
-                                    <label class="form-check-label" for="sourceAL">AL</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="source_type" 
-                                           id="sourceQB" value="QB">
-                                    <label class="form-check-label" for="sourceQB">Question Bank</label>
-                                </div>
+                            <div class="btn-group w-100" role="group" aria-label="Source type selection">
+                                <input type="radio" class="btn-check" name="source_type" id="sourceDSE" value="DSE" autocomplete="off" checked>
+                                <label class="btn btn-outline-primary" for="sourceDSE">DSE</label>
+                                
+                                <input type="radio" class="btn-check" name="source_type" id="sourceCE" value="CE" autocomplete="off">
+                                <label class="btn btn-outline-primary" for="sourceCE">CE</label>
+                                
+                                <input type="radio" class="btn-check" name="source_type" id="sourceAL" value="AL" autocomplete="off">
+                                <label class="btn btn-outline-primary" for="sourceAL">AL</label>
+                                
+                                <input type="radio" class="btn-check" name="source_type" id="sourceQB" value="QB" autocomplete="off">
+                                <label class="btn btn-outline-primary" for="sourceQB">QB</label>
                             </div>
                         </div>
 
@@ -126,11 +117,16 @@
                         <!-- Question Type -->
                         <div class="mb-3">
                             <label class="form-label">Question Type</label>
-                            <select class="form-select" name="q_type">
-                                <option value="all">All</option>
-                                <option value="MC">Multiple Choice</option>
-                                <option value="CQ">Conventional</option>
-                            </select>
+                            <div class="btn-group w-100" role="group" aria-label="Question type selection">
+                                <input type="radio" class="btn-check" name="q_type" id="qTypeAll" value="all" autocomplete="off" checked>
+                                <label class="btn btn-outline-primary" for="qTypeAll">All</label>
+                                
+                                <input type="radio" class="btn-check" name="q_type" id="qTypeMC" value="MC" autocomplete="off">
+                                <label class="btn btn-outline-primary" for="qTypeMC">MC</label>
+                                
+                                <input type="radio" class="btn-check" name="q_type" id="qTypeCQ" value="CQ" autocomplete="off">
+                                <label class="btn btn-outline-primary" for="qTypeCQ">CQ</label>
+                            </div>
                         </div>
 
                         <button type="submit" class="btn btn-primary w-100">
@@ -665,7 +661,7 @@ function saveStateToStorage() {
         subtopics: Array.from(document.getElementById('subtopicSelect').selectedOptions).map(opt => opt.value),
         is_crosstopic: document.getElementById('crosstopic').checked,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
-        q_type: document.querySelector('select[name="q_type"]').value
+        q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all'
     };
     localStorage.setItem(STORAGE_KEYS.FILTER_SETTINGS, JSON.stringify(filterSettings));
     
@@ -765,7 +761,10 @@ async function restoreFilterSettings(settings) {
     
     // Restore question type
     if (settings.q_type) {
-        document.querySelector('select[name="q_type"]').value = settings.q_type;
+        const qTypeRadio = document.querySelector(`input[name="q_type"][value="${settings.q_type}"]`);
+        if (qTypeRadio) {
+            qTypeRadio.checked = true;
+        }
     }
     
     // Load topics and years for the selected subject
