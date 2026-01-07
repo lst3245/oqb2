@@ -4,7 +4,6 @@ Flask application factory
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
-import os
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -12,7 +11,14 @@ login_manager = LoginManager()
 
 def create_app():
     """Create and configure the Flask application"""
-    app = Flask(__name__)
+    # Get the parent directory (project root) since this file is in app/
+    import os
+    basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    
+    # Create Flask app with correct template and static folders
+    app = Flask(__name__,
+                template_folder=os.path.join(basedir, 'templates'),
+                static_folder=os.path.join(basedir, 'static'))
     
     # Load configuration
     from app.config import Config
