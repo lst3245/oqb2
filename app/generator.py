@@ -136,6 +136,7 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
     # QUE_ANS - question followed by answer
     # QUE_SOL - question followed by solution
     # QUE_THEN_ANS - all questions first, then all answers
+    # QUE_THEN_SOL - all questions first, then all solutions
     
     if answer_mode == 'QUE_THEN_ANS':
         # Add all questions first
@@ -159,6 +160,29 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
                 doc.add_page_break()
             
             add_question_to_doc(doc, question, 'ANS', show_qid, skip_lines, source_path)
+    
+    elif answer_mode == 'QUE_THEN_SOL':
+        # Add all questions first
+        for i, question in enumerate(questions):
+            if i > 0 and new_page_per_question:
+                doc.add_page_break()
+            
+            add_question_to_doc(doc, question, 'QUE', show_qid, skip_lines, source_path)
+        
+        # Then add all solutions
+        doc.add_page_break()
+        heading = doc.add_paragraph()
+        heading_run = heading.add_run('SOLUTIONS')
+        heading_run.bold = True
+        heading_run.font.size = Pt(16)
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_paragraph()
+        
+        for i, question in enumerate(questions):
+            if i > 0 and new_page_per_question:
+                doc.add_page_break()
+            
+            add_question_to_doc(doc, question, 'SOL', show_qid, skip_lines, source_path)
     
     else:
         # Add questions with optional answers/solutions
