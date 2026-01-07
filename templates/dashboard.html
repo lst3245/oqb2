@@ -1144,6 +1144,9 @@ function editQuestion(questionId, questionData) {
         if (questionData.major_topic_id || questionData.minor_topic_ids.length > 0) {
             const allTopicIds = [questionData.major_topic_id, ...questionData.minor_topic_ids].filter(id => id);
             loadSubtopics(allTopicIds, questionData.subtopic_ids);
+        } else {
+            // Clear subtopics if no major/minor topics are selected
+            document.getElementById('editSubtopics').innerHTML = '';
         }
     }, 500);
     
