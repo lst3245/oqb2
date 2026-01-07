@@ -913,7 +913,7 @@ async function loadSubjectData(subjectId, sourceType) {
     if (!subjectId) return;
     
     // Load topics
-    const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
+    const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
         .then(r => r.json())
         .then(topics => {
             renderTopicCheckboxes(topics);
@@ -923,7 +923,7 @@ async function loadSubjectData(subjectId, sourceType) {
     // Load years if applicable
     let yearsPromise = Promise.resolve();
     if (['DSE', 'CE', 'AL'].includes(sourceType)) {
-        yearsPromise = fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
+        yearsPromise = fetch(`{{ url_for('dashboard.get_years', subject_id='__SUBJECT_ID__', source='__SOURCE__') }}`.replace('__SUBJECT_ID__', subjectId).replace('__SOURCE__', sourceType))
             .then(r => r.json())
             .then(years => {
                 renderYearCheckboxes(years);
@@ -1362,7 +1362,7 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
         const sourceType = this.value;
         
         if (subjectId && ['DSE', 'CE', 'AL'].includes(sourceType)) {
-            fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
+            fetch(`{{ url_for('dashboard.get_years', subject_id='__SUBJECT_ID__', source='__SOURCE__') }}`.replace('__SUBJECT_ID__', subjectId).replace('__SOURCE__', sourceType))
                 .then(r => r.json())
                 .then(years => {
                     renderYearCheckboxes(years);
@@ -1604,7 +1604,7 @@ function confirmDelete() {
 }
 
 function loadTopicsForSubject(subjectId) {
-    fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
         .then(r => r.json())
         .then(topics => {
             const majorSelect = document.getElementById('editMajorTopic');
