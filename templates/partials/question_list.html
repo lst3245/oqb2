@@ -59,6 +59,13 @@
                     <span class="badge bg-info text-muted">Type -</span>
                     {% endif %}
                     <span class="badge bg-primary">{{ question.major_topic }}</span>
+                    {% if question.minor_topics %}
+                    <div class="mt-1">
+                        {% for minor in question.minor_topics %}
+                        <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ minor }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     {% if question.description %}
                     <div class="mt-2">
                         <small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small>

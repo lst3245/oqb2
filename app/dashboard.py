@@ -210,6 +210,7 @@ def filter_questions():
             'major_topic': q.major_topic.name if q.major_topic else 'N/A',
             'major_topic_id': q.major_topic_id,
             'minor_topic_ids': [t.id for t in q.minor_topics],
+            'minor_topics': [t.name for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],
             'description': q.description,
             'que_asset_id': que_asset.id if que_asset else None,
