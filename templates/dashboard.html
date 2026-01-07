@@ -333,6 +333,16 @@
 // Global set to track selected question IDs across pages
 let selectedQuestions = new Set();
 
+// LocalStorage keys for persistence
+const STORAGE_KEYS = {
+    SELECTED_QUESTIONS: 'oqb_selectedQuestions',
+    FILTER_SETTINGS: 'oqb_filterSettings',
+    SORT_CONFIG: 'oqb_sortConfig'
+};
+
+// Default subject
+const DEFAULT_SUBJECT = 'MATC';
+
 // Sort configuration
 const SORT_FIELDS = {
     'qid': 'Question ID',
@@ -431,6 +441,8 @@ function toggleSortDirection(index) {
 
 function updateSortConfigInput() {
     document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
+    // Save sort config to localStorage
+    localStorage.setItem(STORAGE_KEYS.SORT_CONFIG, JSON.stringify(sortConfig));
 }
 
 // Drag and drop handlers
@@ -503,6 +515,7 @@ function updateSelection(checkbox) {
     }
     updateSelectAllCheckbox();
     updateSelectionCounter();
+    saveStateToStorage();
 }
 
 // Update the "Select All" checkbox state
@@ -620,6 +633,7 @@ function toggleSelectAll(checkbox, allPages) {
     
     updateSelectAllCheckbox();
     updateSelectionCounter();
+    saveStateToStorage();
 }
 
 // Listen for HTMX content updates
@@ -629,10 +643,250 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
     }
 });
 
+// Save filter settings before form submission
+document.body.addEventListener('htmx:beforeRequest', function(event) {
+    if (event.detail.elt && event.detail.elt.id === 'filterForm') {
+        saveStateToStorage();
+    }
+});
+
+// Save state to localStorage
+function saveStateToStorage() {
+    // Save selected questions
+    localStorage.setItem(STORAGE_KEYS.SELECTED_QUESTIONS, JSON.stringify(Array.from(selectedQuestions)));
+    
+    // Save filter settings
+    const filterSettings = {
+        subject: document.getElementById('subjectSelect').value,
+        source_type: document.querySelector('input[name="source_type"]:checked')?.value || 'DSE',
+        years: Array.from(document.querySelectorAll('input[name="years"]:checked')).map(cb => cb.value),
+        section: document.querySelector('select[name="section"]').value,
+        topics: Array.from(document.getElementById('topicSelect').selectedOptions).map(opt => opt.value),
+        subtopics: Array.from(document.getElementById('subtopicSelect').selectedOptions).map(opt => opt.value),
+        is_crosstopic: document.getElementById('crosstopic').checked,
+        levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
+        q_type: document.querySelector('select[name="q_type"]').value
+    };
+    localStorage.setItem(STORAGE_KEYS.FILTER_SETTINGS, JSON.stringify(filterSettings));
+    
+    // Save sort config
+    localStorage.setItem(STORAGE_KEYS.SORT_CONFIG, JSON.stringify(sortConfig));
+}
+
+// Load state from localStorage
+function loadStateFromStorage() {
+    // Load selected questions
+    const savedSelections = localStorage.getItem(STORAGE_KEYS.SELECTED_QUESTIONS);
+    if (savedSelections) {
+        try {
+            const selections = JSON.parse(savedSelections);
+            selections.forEach(id => selectedQuestions.add(id));
+        } catch (e) {
+            console.warn('Failed to load saved selections:', e);
+        }
+    }
+    
+    // Load sort config
+    const savedSortConfig = localStorage.getItem(STORAGE_KEYS.SORT_CONFIG);
+    if (savedSortConfig) {
+        try {
+            sortConfig = JSON.parse(savedSortConfig);
+        } catch (e) {
+            console.warn('Failed to load saved sort config:', e);
+        }
+    }
+    
+    // Load filter settings
+    const savedFilters = localStorage.getItem(STORAGE_KEYS.FILTER_SETTINGS);
+    if (savedFilters) {
+        try {
+            return JSON.parse(savedFilters);
+        } catch (e) {
+            console.warn('Failed to load saved filters:', e);
+        }
+    }
+    return null;
+}
+
+// Restore filter form settings
+async function restoreFilterSettings(settings) {
+    if (!settings) {
+        // No saved settings - apply default subject
+        const subjectSelect = document.getElementById('subjectSelect');
+        if (subjectSelect) {
+            // Check if DEFAULT_SUBJECT exists in options
+            const defaultOption = Array.from(subjectSelect.options).find(opt => opt.value === DEFAULT_SUBJECT);
+            if (defaultOption) {
+                subjectSelect.value = DEFAULT_SUBJECT;
+                // Trigger change event to load topics and years
+                await loadSubjectData(DEFAULT_SUBJECT, 'DSE');
+            }
+        }
+        return;
+    }
+    
+    // Restore subject
+    const subjectSelect = document.getElementById('subjectSelect');
+    if (settings.subject && subjectSelect) {
+        subjectSelect.value = settings.subject;
+    } else if (subjectSelect) {
+        // Use default subject if no saved subject
+        const defaultOption = Array.from(subjectSelect.options).find(opt => opt.value === DEFAULT_SUBJECT);
+        if (defaultOption) {
+            subjectSelect.value = DEFAULT_SUBJECT;
+            settings.subject = DEFAULT_SUBJECT;
+        }
+    }
+    
+    // Restore source type
+    if (settings.source_type) {
+        const sourceRadio = document.querySelector(`input[name="source_type"][value="${settings.source_type}"]`);
+        if (sourceRadio) {
+            sourceRadio.checked = true;
+        }
+    }
+    
+    // Restore section
+    if (settings.section) {
+        document.querySelector('select[name="section"]').value = settings.section;
+    }
+    
+    // Restore cross-topic checkbox
+    if (settings.is_crosstopic !== undefined) {
+        document.getElementById('crosstopic').checked = settings.is_crosstopic;
+    }
+    
+    // Restore levels
+    if (settings.levels && Array.isArray(settings.levels)) {
+        document.querySelectorAll('input[name="levels"]').forEach(cb => {
+            cb.checked = settings.levels.includes(cb.value);
+        });
+    }
+    
+    // Restore question type
+    if (settings.q_type) {
+        document.querySelector('select[name="q_type"]').value = settings.q_type;
+    }
+    
+    // Load topics and years for the selected subject
+    if (settings.subject) {
+        await loadSubjectData(settings.subject, settings.source_type || 'DSE');
+        
+        // After topics are loaded, restore selected topics
+        if (settings.topics && settings.topics.length > 0) {
+            setTimeout(() => {
+                const topicSelect = document.getElementById('topicSelect');
+                settings.topics.forEach(topicId => {
+                    const option = topicSelect.querySelector(`option[value="${topicId}"]`);
+                    if (option) {
+                        option.selected = true;
+                    }
+                });
+                
+                // Load subtopics for selected topics
+                if (settings.subtopics && settings.subtopics.length > 0) {
+                    loadSubtopicsForTopics(settings.topics, settings.subtopics);
+                }
+            }, 100);
+        }
+        
+        // Restore years after they're loaded
+        if (settings.years && settings.years.length > 0) {
+            setTimeout(() => {
+                settings.years.forEach(year => {
+                    const yearCb = document.getElementById(`year${year}`);
+                    if (yearCb) {
+                        yearCb.checked = true;
+                    }
+                });
+            }, 150);
+        }
+    }
+}
+
+// Helper function to load subject data (topics and years)
+async function loadSubjectData(subjectId, sourceType) {
+    if (!subjectId) return;
+    
+    // Load topics
+    const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
+        .then(r => r.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = topics.length ? 
+                topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('') :
+                '<option value="">No topics available</option>';
+        });
+    
+    // Load years if applicable
+    let yearsPromise = Promise.resolve();
+    if (['DSE', 'CE', 'AL'].includes(sourceType)) {
+        yearsPromise = fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
+            .then(r => r.json())
+            .then(years => {
+                const yearDiv = document.getElementById('yearCheckboxes');
+                yearDiv.innerHTML = years.map(y => `
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="years" value="${y}" id="year${y}">
+                        <label class="form-check-label" for="year${y}">${y}</label>
+                    </div>
+                `).join('');
+            });
+    }
+    
+    await Promise.all([topicsPromise, yearsPromise]);
+}
+
+// Helper function to load subtopics for selected topics
+function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
+    const topicIdsStr = topicIds.join(',');
+    if (!topicIdsStr) return;
+    
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+        .then(r => r.json())
+        .then(subtopics => {
+            const subtopicSelect = document.getElementById('subtopicSelect');
+            const subtopicContainer = document.getElementById('subtopicContainer');
+            
+            if (subtopics.length) {
+                subtopicSelect.innerHTML = subtopics.map(s => 
+                    `<option value="${s.id}" ${selectedSubtopicIds.includes(s.id.toString()) ? 'selected' : ''}>${s.name}</option>`
+                ).join('');
+                subtopicContainer.style.display = 'block';
+            } else {
+                subtopicContainer.style.display = 'none';
+            }
+        });
+}
+
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    initializeSelectionState();
+document.addEventListener('DOMContentLoaded', async function() {
+    // Load persisted state from localStorage
+    const savedFilters = loadStateFromStorage();
+    
+    // Render sort criteria first
     renderSortCriteria();
+    
+    // Restore filter settings (including default subject)
+    await restoreFilterSettings(savedFilters);
+    
+    // Initialize selection state (checkboxes)
+    initializeSelectionState();
+    
+    // Update sort config input
+    updateSortConfigInput();
+    
+    // Auto-trigger search if we have saved filters with a subject selected
+    // This ensures results are shown when returning from another page
+    if (savedFilters && savedFilters.subject) {
+        // Small delay to ensure all async topic/year loading is complete
+        setTimeout(() => {
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                htmx.trigger(filterForm, 'submit');
+            }
+        }, 300);
+    }
 });
 
 // Subject change - load topics and years
@@ -641,18 +895,24 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
     const sourceType = document.querySelector('input[name="source_type"]:checked').value;
     
     if (subjectId) {
-        // Load topics
-        fetch(`{{ url_for('dashboard.get_topics', subject_id='') }}${subjectId}`)
-            .then(r => r.json())
-            .then(topics => {
-                const topicSelect = document.getElementById('topicSelect');
-                topicSelect.innerHTML = topics.length ? 
-                    topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('') :
-                    '<option value="">No topics available</option>';
-            });
+        loadSubjectData(subjectId, sourceType);
+    }
+    
+    // Clear subtopics when subject changes
+    document.getElementById('subtopicContainer').style.display = 'none';
+    document.getElementById('subtopicSelect').innerHTML = '';
+    
+    // Save to storage
+    saveStateToStorage();
+});
+
+// Source type change - reload years
+document.querySelectorAll('input[name="source_type"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const subjectId = document.getElementById('subjectSelect').value;
+        const sourceType = this.value;
         
-        // Load years for PP
-        if (['DSE', 'CE', 'AL'].includes(sourceType)) {
+        if (subjectId && ['DSE', 'CE', 'AL'].includes(sourceType)) {
             fetch(`{{ url_for('dashboard.get_years', subject_id='', source='') }}${subjectId}/${sourceType}`)
                 .then(r => r.json())
                 .then(years => {
@@ -664,8 +924,12 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
                         </div>
                     `).join('');
                 });
+        } else {
+            document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">N/A for Question Bank</small>';
         }
-    }
+        
+        saveStateToStorage();
+    });
 });
 
 // Topic change - load subtopics
@@ -692,6 +956,8 @@ document.getElementById('topicSelect').addEventListener('change', function() {
     } else {
         document.getElementById('subtopicContainer').style.display = 'none';
     }
+    
+    saveStateToStorage();
 });
 
 // Preview asset
@@ -730,6 +996,7 @@ function clearSelection() {
     // Update UI
     updateSelectAllCheckbox();
     updateSelectionCounter();
+    saveStateToStorage();
 }
 
 // Generate document
