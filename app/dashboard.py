@@ -32,10 +32,12 @@ def filter_questions():
     years = request.args.getlist('years') or request.form.getlist('years')
     section = request.args.get('section') or request.form.get('section')
     topics = request.args.getlist('topics') or request.form.getlist('topics')
+    topic_mode = request.args.get('topic_mode') or request.form.get('topic_mode') or 'OR'  # AND or OR
     subtopics = request.args.getlist('subtopics') or request.form.getlist('subtopics')
     is_crosstopic = request.args.get('is_crosstopic') or request.form.get('is_crosstopic')
     levels = request.args.getlist('levels') or request.form.getlist('levels')
     q_type = request.args.get('q_type') or request.form.get('q_type')
+    qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
     page = int(request.args.get('page', 1))
     
     # Get sort configuration - supports multi-level sorting
@@ -56,15 +58,28 @@ def filter_questions():
         'years': years,
         'section': section,
         'topics': topics,
+        'topic_mode': topic_mode,
         'subtopics': subtopics,
         'is_crosstopic': is_crosstopic,
         'levels': levels,
-        'q_type': q_type
+        'q_type': q_type,
+        'qid_search': qid_search
     }
     session['sort_config'] = sort_config
     
     # Build query
     query = Question.query
+    
+    # Direct QID search - if provided, search by QID directly and ignore other filters
+    if qid_search and qid_search.strip():
+        qid_pattern = qid_search.strip()
+        # Support partial matching with wildcards
+        if '*' in qid_pattern or '%' in qid_pattern:
+            qid_pattern = qid_pattern.replace('*', '%')
+            query = query.filter(Question.qid.ilike(qid_pattern))
+        else:
+            # Exact or partial match
+            query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
     
     # Filter by subject
     if subject:
@@ -91,17 +106,31 @@ def filter_questions():
     if topics:
         topic_ids = [int(t) for t in topics if t.isdigit()]
         if topic_ids:
-            if is_crosstopic:
-                # Include questions with selected topics as major OR minor
-                query = query.filter(
-                    or_(
-                        Question.major_topic_id.in_(topic_ids),
-                        Question.minor_topics.any(Topic.id.in_(topic_ids))
+            if topic_mode == 'AND' and len(topic_ids) > 1:
+                # AND mode: question must have ALL selected topics
+                # This only makes sense when checking both major and minor topics
+                # (since a question can only have one major topic)
+                # For each topic, the question must have it as major OR as one of its minor topics
+                for tid in topic_ids:
+                    query = query.filter(
+                        or_(
+                            Question.major_topic_id == tid,
+                            Question.minor_topics.any(Topic.id == tid)
+                        )
                     )
-                )
             else:
-                # Only major topic
-                query = query.filter(Question.major_topic_id.in_(topic_ids))
+                # OR mode (default): question matches ANY of the selected topics
+                if is_crosstopic:
+                    # Include questions with selected topics as major OR minor
+                    query = query.filter(
+                        or_(
+                            Question.major_topic_id.in_(topic_ids),
+                            Question.minor_topics.any(Topic.id.in_(topic_ids))
+                        )
+                    )
+                else:
+                    # Only major topic
+                    query = query.filter(Question.major_topic_id.in_(topic_ids))
     
     # Filter by subtopics
     if subtopics:

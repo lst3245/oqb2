@@ -68,7 +68,16 @@
                             <select class="form-select" name="topics" id="topicSelect" multiple size="4">
                                 <option value="">Select subject first</option>
                             </select>
-                            <small class="text-muted">Hold Ctrl to select multiple</small>
+                            <div class="d-flex justify-content-between align-items-center mt-1">
+                                <small class="text-muted">Hold Ctrl to select multiple</small>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Topic match mode">
+                                    <input type="radio" class="btn-check" name="topic_mode" id="topicModeOR" value="OR" autocomplete="off" checked>
+                                    <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="Match ANY selected topic">OR</label>
+                                    
+                                    <input type="radio" class="btn-check" name="topic_mode" id="topicModeAND" value="AND" autocomplete="off">
+                                    <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="Match ALL selected topics">AND</label>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Cross Topic -->
@@ -129,9 +138,27 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary w-100">
-                            <i class="bi bi-search"></i> Search
-                        </button>
+                        <!-- Direct QID Search -->
+                        <div class="mb-3">
+                            <label class="form-label">Quick Search by QID</label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" name="qid_search" id="qidSearch" 
+                                       placeholder="e.g. MATC_DSE_2025_P2_Q1">
+                                <button type="button" class="btn btn-outline-secondary" onclick="clearQidSearch()" title="Clear">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                            <small class="text-muted">Use * as wildcard (e.g. *2025*Q1)</small>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary flex-grow-1">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="Reset to defaults">
+                                <i class="bi bi-arrow-counterclockwise"></i>
+                            </button>
+                        </div>
                         
                         <!-- Hidden input for sort config -->
                         <input type="hidden" name="sort_config" id="sortConfigInput" value='[{"field":"qid","direction":"asc"}]'>
@@ -658,10 +685,12 @@ function saveStateToStorage() {
         years: Array.from(document.querySelectorAll('input[name="years"]:checked')).map(cb => cb.value),
         section: document.querySelector('select[name="section"]').value,
         topics: Array.from(document.getElementById('topicSelect').selectedOptions).map(opt => opt.value),
+        topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
         subtopics: Array.from(document.getElementById('subtopicSelect').selectedOptions).map(opt => opt.value),
         is_crosstopic: document.getElementById('crosstopic').checked,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
-        q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all'
+        q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
+        qid_search: document.getElementById('qidSearch')?.value || ''
     };
     localStorage.setItem(STORAGE_KEYS.FILTER_SETTINGS, JSON.stringify(filterSettings));
     
@@ -764,6 +793,22 @@ async function restoreFilterSettings(settings) {
         const qTypeRadio = document.querySelector(`input[name="q_type"][value="${settings.q_type}"]`);
         if (qTypeRadio) {
             qTypeRadio.checked = true;
+        }
+    }
+    
+    // Restore topic mode (AND/OR)
+    if (settings.topic_mode) {
+        const topicModeRadio = document.querySelector(`input[name="topic_mode"][value="${settings.topic_mode}"]`);
+        if (topicModeRadio) {
+            topicModeRadio.checked = true;
+        }
+    }
+    
+    // Restore QID search
+    if (settings.qid_search) {
+        const qidInput = document.getElementById('qidSearch');
+        if (qidInput) {
+            qidInput.value = settings.qid_search;
         }
     }
     
@@ -996,6 +1041,72 @@ function clearSelection() {
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
+}
+
+// Clear QID search field
+function clearQidSearch() {
+    const qidInput = document.getElementById('qidSearch');
+    if (qidInput) {
+        qidInput.value = '';
+    }
+}
+
+// Reset filters to defaults
+function resetFilters() {
+    // Clear localStorage filter settings
+    localStorage.removeItem(STORAGE_KEYS.FILTER_SETTINGS);
+    
+    // Reset form fields to defaults
+    const subjectSelect = document.getElementById('subjectSelect');
+    const defaultOption = Array.from(subjectSelect.options).find(opt => opt.value === DEFAULT_SUBJECT);
+    if (defaultOption) {
+        subjectSelect.value = DEFAULT_SUBJECT;
+    } else {
+        subjectSelect.selectedIndex = 0;
+    }
+    
+    // Reset source type to DSE
+    document.getElementById('sourceDSE').checked = true;
+    
+    // Reset section
+    document.querySelector('select[name="section"]').value = 'all';
+    
+    // Clear topic selection
+    const topicSelect = document.getElementById('topicSelect');
+    Array.from(topicSelect.options).forEach(opt => opt.selected = false);
+    
+    // Reset topic mode to OR
+    document.getElementById('topicModeOR').checked = true;
+    
+    // Clear subtopics
+    document.getElementById('subtopicContainer').style.display = 'none';
+    document.getElementById('subtopicSelect').innerHTML = '';
+    
+    // Reset cross-topic checkbox
+    document.getElementById('crosstopic').checked = false;
+    
+    // Reset all levels to checked
+    document.querySelectorAll('input[name="levels"]').forEach(cb => cb.checked = true);
+    
+    // Reset question type to All
+    document.getElementById('qTypeAll').checked = true;
+    
+    // Clear QID search
+    clearQidSearch();
+    
+    // Reset sort config to default
+    sortConfig = [{ field: 'qid', direction: 'asc' }];
+    renderSortCriteria();
+    localStorage.removeItem(STORAGE_KEYS.SORT_CONFIG);
+    
+    // Reload topics and years for the selected subject
+    const subjectId = subjectSelect.value;
+    if (subjectId) {
+        loadSubjectData(subjectId, 'DSE');
+    }
+    
+    // Clear the question list
+    document.getElementById('questionList').innerHTML = '<p class="text-muted text-center">Use filters to search for questions</p>';
 }
 
 // Generate document
