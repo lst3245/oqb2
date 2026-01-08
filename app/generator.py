@@ -53,9 +53,38 @@ def create_document():
     sort_mode = request.form.get('sort_mode', 'custom')  # 'selection' or 'custom'
     sort_config_str = request.form.get('sort_config', '')
     answer_mode = request.form.get('answer_mode', 'QUE_ONLY')
-    skip_lines = int(request.form.get('skip_lines', 1))
-    new_page_per_question = request.form.get('new_page_per_question') == 'on'
+    
+    # MC spacing settings
+    mc_before_mode = request.form.get('mc_before_mode', 'lines')  # 'lines' or 'page'
+    mc_before_lines = int(request.form.get('mc_before_lines', 0))
+    mc_after_mode = request.form.get('mc_after_mode', 'lines')  # 'lines' or 'page'
+    mc_after_lines = int(request.form.get('mc_after_lines', 1))
+    
+    # CQ spacing settings
+    cq_before_mode = request.form.get('cq_before_mode', 'page')  # 'lines' or 'page'
+    cq_before_lines = int(request.form.get('cq_before_lines', 0))
+    cq_after_mode = request.form.get('cq_after_mode', 'page')  # 'lines' or 'page'
+    cq_after_lines = int(request.form.get('cq_after_lines', 0))
+    
+    # Show QID options
     show_qid = request.form.get('show_qid') == 'on'
+    show_qid_answer = request.form.get('show_qid_answer') == 'on'
+    
+    # Build spacing config for document generation
+    spacing_config = {
+        'mc': {
+            'before_mode': mc_before_mode,
+            'before_lines': mc_before_lines,
+            'after_mode': mc_after_mode,
+            'after_lines': mc_after_lines
+        },
+        'cq': {
+            'before_mode': cq_before_mode,
+            'before_lines': cq_before_lines,
+            'after_mode': cq_after_mode,
+            'after_lines': cq_after_lines
+        }
+    }
     
     if not question_ids:
         flash('No questions selected', 'warning')
@@ -87,9 +116,9 @@ def create_document():
         doc = create_word_document(
             questions, 
             answer_mode, 
-            skip_lines, 
-            new_page_per_question, 
-            show_qid
+            spacing_config,
+            show_qid,
+            show_qid_answer
         )
         
         # Save document
@@ -112,9 +141,71 @@ def create_document():
         flash(f'Error generating document: {str(e)}', 'danger')
         return redirect(url_for('dashboard.index'))
 
-def create_word_document(questions, answer_mode, skip_lines, new_page_per_question, show_qid):
+def get_question_spacing_config(question, spacing_config):
+    """
+    Get spacing settings for a question based on its type (MC or CQ)
+    Returns dict with before_mode, before_lines, after_mode, after_lines
+    """
+    q_type = question.q_type.upper() if question.q_type else 'CQ'  # Default to CQ if not set
+    
+    if q_type == 'MC':
+        return spacing_config['mc']
+    else:
+        # CQ or any other type uses CQ settings
+        return spacing_config['cq']
+
+
+def add_before_spacing(doc, spacing, last_had_page_break, is_first):
+    """
+    Add spacing before a question based on settings.
+    Returns whether we effectively have a page break before this question.
+    
+    Smart logic: If previous question added page break, don't add another one
+    even if "start from new page" is selected.
+    """
+    if is_first:
+        # First question - no spacing before
+        return False
+    
+    if spacing['before_mode'] == 'page':
+        # Want to start from new page
+        if not last_had_page_break:
+            # Previous question didn't add page break, so we need one
+            doc.add_page_break()
+        # Either way, we're now at a new page
+        return True
+    else:
+        # Skip lines before
+        for _ in range(spacing['before_lines']):
+            doc.add_paragraph()
+        return False
+
+
+def add_after_spacing(doc, spacing):
+    """
+    Add spacing after a question based on settings.
+    Returns whether we added a page break.
+    """
+    if spacing['after_mode'] == 'page':
+        doc.add_page_break()
+        return True
+    else:
+        # Skip lines after
+        for _ in range(spacing['after_lines']):
+            doc.add_paragraph()
+        return False
+
+
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer):
     """
     Create Word document with questions
+    
+    Args:
+        questions: List of Question objects
+        answer_mode: One of QUE_ONLY, QUE_ANS, QUE_SOL, QUE_THEN_ANS, QUE_THEN_SOL
+        spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines
+        show_qid: Show question ID for questions
+        show_qid_answer: Show question ID for answers/solutions
     """
     doc = Document()
     
@@ -131,6 +222,9 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
     
     source_path = current_app.config['SOURCE_PATH']
     
+    # Track if last question ended with a page break
+    last_had_page_break = False
+    
     # Answer modes:
     # QUE_ONLY - questions only
     # QUE_ANS - question followed by answer
@@ -141,12 +235,18 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
     if answer_mode == 'QUE_THEN_ANS':
         # Add all questions first
         for i, question in enumerate(questions):
-            if i > 0 and new_page_per_question:
-                doc.add_page_break()
+            spacing = get_question_spacing_config(question, spacing_config)
             
-            add_question_to_doc(doc, question, 'QUE', show_qid, skip_lines, source_path)
+            # Add before spacing
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+            
+            # Add question content
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            
+            # Add after spacing
+            last_had_page_break = add_after_spacing(doc, spacing)
         
-        # Then add all answers
+        # Then add all answers - always start on new page
         doc.add_page_break()
         heading = doc.add_paragraph()
         heading_run = heading.add_run('ANSWERS')
@@ -154,22 +254,23 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
         heading_run.font.size = Pt(16)
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.add_paragraph()
+        last_had_page_break = False
         
         for i, question in enumerate(questions):
-            if i > 0 and new_page_per_question:
-                doc.add_page_break()
-            
-            add_question_to_doc(doc, question, 'ANS', show_qid, skip_lines, source_path)
+            spacing = get_question_spacing_config(question, spacing_config)
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path)
+            last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
         # Add all questions first
         for i, question in enumerate(questions):
-            if i > 0 and new_page_per_question:
-                doc.add_page_break()
-            
-            add_question_to_doc(doc, question, 'QUE', show_qid, skip_lines, source_path)
+            spacing = get_question_spacing_config(question, spacing_config)
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            last_had_page_break = add_after_spacing(doc, spacing)
         
-        # Then add all solutions
+        # Then add all solutions - always start on new page
         doc.add_page_break()
         heading = doc.add_paragraph()
         heading_run = heading.add_run('SOLUTIONS')
@@ -177,33 +278,40 @@ def create_word_document(questions, answer_mode, skip_lines, new_page_per_questi
         heading_run.font.size = Pt(16)
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.add_paragraph()
+        last_had_page_break = False
         
         for i, question in enumerate(questions):
-            if i > 0 and new_page_per_question:
-                doc.add_page_break()
-            
-            add_question_to_doc(doc, question, 'SOL', show_qid, skip_lines, source_path)
+            spacing = get_question_spacing_config(question, spacing_config)
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path)
+            last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
         # Add questions with optional answers/solutions
         for i, question in enumerate(questions):
-            if i > 0 and new_page_per_question:
-                doc.add_page_break()
+            spacing = get_question_spacing_config(question, spacing_config)
             
-            # Add question
-            add_question_to_doc(doc, question, 'QUE', show_qid, skip_lines, source_path)
+            # Add before spacing
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
-            # Add answer/solution if requested
+            # Add question content
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            
+            # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_to_doc(doc, question, 'ANS', False, skip_lines, source_path)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path)
             elif answer_mode == 'QUE_SOL':
-                add_question_to_doc(doc, question, 'SOL', False, skip_lines, source_path)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path)
+            
+            # Add after spacing
+            last_had_page_break = add_after_spacing(doc, spacing)
     
     return doc
 
-def add_question_to_doc(doc, question, asset_type, show_qid, skip_lines, source_path):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path):
     """
-    Add a question (or answer/solution) to the document
+    Add a question (or answer/solution) content to the document.
+    Spacing is handled separately by add_before_spacing and add_after_spacing.
     """
     # Add QID as heading if requested
     if show_qid:
@@ -271,7 +379,3 @@ def add_question_to_doc(doc, question, asset_type, show_qid, skip_lines, source_
         para = doc.add_paragraph()
         run = para.add_run(f'[Word document: {asset.file_path}]')
         run.italic = True
-    
-    # Add spacing
-    for _ in range(skip_lines):
-        doc.add_paragraph()

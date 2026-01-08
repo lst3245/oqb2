@@ -69,7 +69,7 @@
                         <!-- Answer Mode -->
                         <div class="mb-3">
                             <label class="form-label">Answer Mode</label>
-                            <select class="form-select" name="answer_mode">
+                            <select class="form-select" name="answer_mode" id="answerMode" onchange="updateAnswerQidVisibility()">
                                 <option value="QUE_ONLY" selected>Questions Only</option>
                                 <option value="QUE_ANS">Question + Answer</option>
                                 <option value="QUE_SOL">Question + Solution</option>
@@ -78,29 +78,110 @@
                             </select>
                         </div>
                         
-                        <!-- Skip Lines -->
-                        <div class="mb-3">
-                            <label class="form-label">Skip Lines Between Questions</label>
-                            <input type="number" class="form-control" name="skip_lines" 
-                                   value="1" min="0" max="5">
-                        </div>
-                        
                         <!-- Show Question ID -->
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="showQid" 
                                    name="show_qid" checked>
                             <label class="form-check-label" for="showQid">
-                                Show Question ID as Heading
+                                Show Question ID as Heading (for Questions)
                             </label>
                         </div>
                         
-                        <!-- New Page Per Question -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="newPage" 
-                                   name="new_page_per_question">
-                            <label class="form-check-label" for="newPage">
-                                Start Each Question on New Page
+                        <!-- Show Question ID for Answers/Solutions -->
+                        <div class="mb-3 form-check" id="showQidAnswerDiv" style="display: none;">
+                            <input type="checkbox" class="form-check-input" id="showQidAnswer" 
+                                   name="show_qid_answer" checked>
+                            <label class="form-check-label" for="showQidAnswer">
+                                Show Question ID as Heading (for Answers/Solutions)
                             </label>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- MC Question Spacing -->
+                        <div class="card mb-3 border-info">
+                            <div class="card-header bg-info bg-opacity-10 py-2">
+                                <strong><i class="bi bi-check-square"></i> MC Questions Spacing</strong>
+                            </div>
+                            <div class="card-body py-2">
+                                <div class="row mb-2">
+                                    <div class="col-12">
+                                        <label class="form-label small fw-bold mb-1">Before Question:</label>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforeLines" value="lines" checked>
+                                                <label class="form-check-label small" for="mcBeforeLines">
+                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="mc_before_lines" value="0" min="0" max="10"> lines
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforePage" value="page">
+                                                <label class="form-check-label small" for="mcBeforePage">Start from new page</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-12">
+                                        <label class="form-label small fw-bold mb-1">After Question:</label>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterLines" value="lines" checked>
+                                                <label class="form-check-label small" for="mcAfterLines">
+                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="mc_after_lines" value="1" min="0" max="10"> lines
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterPage" value="page">
+                                                <label class="form-check-label small" for="mcAfterPage">Add page break</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- CQ Question Spacing -->
+                        <div class="card mb-3 border-success">
+                            <div class="card-header bg-success bg-opacity-10 py-2">
+                                <strong><i class="bi bi-pencil-square"></i> CQ Questions Spacing</strong>
+                            </div>
+                            <div class="card-body py-2">
+                                <div class="row mb-2">
+                                    <div class="col-12">
+                                        <label class="form-label small fw-bold mb-1">Before Question:</label>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeLines" value="lines">
+                                                <label class="form-check-label small" for="cqBeforeLines">
+                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="cq_before_lines" value="0" min="0" max="10"> lines
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page" checked>
+                                                <label class="form-check-label small" for="cqBeforePage">Start from new page</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-12">
+                                        <label class="form-label small fw-bold mb-1">After Question:</label>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterLines" value="lines">
+                                                <label class="form-check-label small" for="cqAfterLines">
+                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="cq_after_lines" value="0" min="0" max="10"> lines
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page" checked>
+                                                <label class="form-check-label small" for="cqAfterPage">Add page break</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="d-flex gap-2">
@@ -177,6 +258,7 @@ let sortMode = 'custom';
 document.addEventListener('DOMContentLoaded', function() {
     renderSortCriteria();
     initQuestionDragDrop();
+    updateAnswerQidVisibility();
     
     // Sort mode toggle handlers
     document.querySelectorAll('input[name="sort_mode_radio"]').forEach(radio => {
@@ -196,6 +278,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+// Show/hide the "Show QID for answers" option based on answer mode
+function updateAnswerQidVisibility() {
+    const answerMode = document.getElementById('answerMode').value;
+    const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');
+    
+    // Show if answer mode includes ANS or SOL
+    if (answerMode !== 'QUE_ONLY') {
+        showQidAnswerDiv.style.display = 'block';
+    } else {
+        showQidAnswerDiv.style.display = 'none';
+    }
+}
 
 function renderSortCriteria() {
     const container = document.getElementById('sortCriteria');
