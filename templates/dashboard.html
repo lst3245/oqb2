@@ -250,35 +250,35 @@
         <!-- Question List -->
         <div class="col-md-9">
             <div class="card">
-                <div class="card-header sticky-question-header d-flex justify-content-between align-items-center">
-                    <div class="d-flex align-items-center gap-2">
-                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> Questions</h5>
+                <div class="card-header sticky-question-header d-flex justify-content-between align-items-center flex-wrap">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> <span class="d-none d-sm-inline">Questions</span></h5>
                         <span id="mainSelectionCounter" class="badge bg-secondary">0 selected</span>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
                         <button type="button" class="btn btn-sm btn-outline-danger" 
                                 onclick="clearSelection()" title="Clear all selections">
-                            <i class="bi bi-x-circle"></i> Clear
+                            <i class="bi bi-x-circle"></i> <span class="btn-text">Clear</span>
                         </button>
                         {% if current_user.is_admin %}
                         <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" 
                                 onclick="showBatchEditModal()" title="Batch edit selected questions">
-                            <i class="bi bi-pencil-square"></i> Batch Edit
+                            <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-danger" id="deleteBtn" 
                                 onclick="showDeleteConfirmation()" title="Delete selected questions">
-                            <i class="bi bi-trash"></i> Delete
+                            <i class="bi bi-trash"></i> <span class="btn-text">Delete</span>
                         </button>
                         {% endif %}
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" 
                                 onclick="generateDocument()">
-                            <i class="bi bi-file-earmark-word"></i> Generate
+                            <i class="bi bi-file-earmark-word"></i> <span class="btn-text">Generate</span>
                         </button>
                         <!-- View Settings Dropdown -->
                         <div class="dropdown">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
                                     id="viewSettingsBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                <i class="bi bi-eye"></i> View
+                                <i class="bi bi-eye"></i> <span class="btn-text">View</span>
                             </button>
                             <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px;">
                                 <!-- Show Selected Only -->

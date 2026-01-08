@@ -38,6 +38,25 @@
             background: #f8f9fa;
             border-bottom: 1px solid #dee2e6;
         }
+        
+        /* Mobile responsive header */
+        @media (max-width: 767px) {
+            .sticky-question-header {
+                flex-wrap: wrap !important;
+                gap: 0.5rem !important;
+                padding: 0.75rem !important;
+            }
+            .sticky-question-header > div {
+                flex-wrap: wrap;
+            }
+            .sticky-question-header .btn-text {
+                display: none;
+            }
+            .sticky-question-header .btn {
+                min-width: auto;
+                padding: 0.375rem 0.5rem;
+            }
+        }
         .preview-modal-img {
             max-width: 100%;
             height: auto;
