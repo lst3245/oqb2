@@ -30,6 +30,15 @@
             overflow-y: auto;
         }
         
+        /* Mobile: Remove sticky filter sidebar for natural scrolling */
+        @media (max-width: 767px) {
+            .filter-sidebar {
+                position: static;
+                max-height: none;
+                overflow-y: visible;
+            }
+        }
+        
         /* Sticky question header */
         .sticky-question-header {
             position: sticky;
