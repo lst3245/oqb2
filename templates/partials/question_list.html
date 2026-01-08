@@ -28,7 +28,7 @@
 
     <!-- Questions -->
     {% for question in questions %}
-    <div class="card question-card">
+    <div class="card question-card" data-question-id="{{ question.id }}" onclick="toggleQuestionSelection(event, this)">
         <div class="card-body">
             <div class="row">
                 <!-- Checkbox -->

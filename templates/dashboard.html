@@ -211,9 +211,12 @@
                         </div>
 
                         <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-primary flex-grow-1">
-                                <i class="bi bi-search"></i> Search
-                            </button>
+                            <div class="search-btn-wrapper" id="searchBtnWrapper">
+                                <button type="submit" class="btn btn-primary w-100" id="searchBtn">
+                                    <i class="bi bi-search"></i> Search
+                                </button>
+                                <span class="filter-modified-badge" id="filterModifiedBadge" style="display: none;" title="Filters changed - click Search to apply">!</span>
+                            </div>
                             <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="Reset to defaults">
                                 <i class="bi bi-arrow-counterclockwise"></i>
                             </button>
@@ -604,6 +607,10 @@ const STORAGE_KEYS = {
     PREVIEW_LANGUAGE: 'oqb_previewLanguage'
 };
 
+// Track filter modification state
+let lastSearchedFilters = null;
+let filtersModified = false;
+
 // Default view settings (what tags to show)
 const DEFAULT_VIEW_SETTINGS = {
     'level': true,
@@ -724,6 +731,83 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
     }
 });
 
+// ============== FILTER MODIFICATION TRACKING ==============
+
+// Get current filter values as a serialized string for comparison
+function getCurrentFilterValues() {
+    return {
+        subject: document.getElementById('subjectSelect')?.value || '',
+        source_type: document.querySelector('input[name="source_type"]:checked')?.value || 'DSE',
+        years: Array.from(document.querySelectorAll('.year-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        section: document.querySelector('select[name="section"]')?.value || 'all',
+        topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
+        subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        is_crosstopic: document.getElementById('crosstopic')?.checked || false,
+        levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value).sort().join(','),
+        q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
+        qid_search: document.getElementById('qidSearch')?.value || '',
+        sort_config: document.getElementById('sortConfigInput')?.value || ''
+    };
+}
+
+// Check if filters have been modified since last search
+function checkFilterModification() {
+    if (!lastSearchedFilters) {
+        // No search has been performed yet, don't show indicator
+        setFilterModifiedIndicator(false);
+        return;
+    }
+    
+    const currentFilters = getCurrentFilterValues();
+    const isModified = JSON.stringify(currentFilters) !== JSON.stringify(lastSearchedFilters);
+    setFilterModifiedIndicator(isModified);
+}
+
+// Show or hide the filter modified indicator
+function setFilterModifiedIndicator(modified) {
+    filtersModified = modified;
+    const badge = document.getElementById('filterModifiedBadge');
+    const wrapper = document.getElementById('searchBtnWrapper');
+    
+    if (badge) {
+        badge.style.display = modified ? 'flex' : 'none';
+    }
+    
+    if (wrapper) {
+        if (modified) {
+            wrapper.classList.add('filter-modified');
+        } else {
+            wrapper.classList.remove('filter-modified');
+        }
+    }
+}
+
+// Save current filters as last searched
+function saveLastSearchedFilters() {
+    lastSearchedFilters = getCurrentFilterValues();
+    setFilterModifiedIndicator(false);
+}
+
+// Initialize filter change listeners
+function initFilterChangeListeners() {
+    const filterForm = document.getElementById('filterForm');
+    if (!filterForm) return;
+    
+    // Listen for changes on all form elements
+    filterForm.addEventListener('change', function(event) {
+        // Skip hidden inputs and non-filter elements
+        if (event.target.type === 'hidden' && event.target.id !== 'sortConfigInput') return;
+        checkFilterModification();
+    });
+    
+    // Listen for input events (for text fields like QID search)
+    const qidSearch = document.getElementById('qidSearch');
+    if (qidSearch) {
+        qidSearch.addEventListener('input', checkFilterModification);
+    }
+}
+
 // Sort configuration
 const SORT_FIELDS = {
     'qid': 'Question ID',
@@ -825,6 +909,8 @@ function updateSortConfigInput() {
     document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
     // Save sort config to localStorage
     localStorage.setItem(STORAGE_KEYS.SORT_CONFIG, JSON.stringify(sortConfig));
+    // Check if filters are modified
+    checkFilterModification();
 }
 
 // Drag and drop handlers
@@ -880,20 +966,53 @@ function handleDrop(e) {
 function initializeSelectionState() {
     const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
     checkboxes.forEach(cb => {
+        const card = cb.closest('.question-card');
         if (selectedQuestions.has(cb.value)) {
             cb.checked = true;
+            if (card) card.classList.add('selected');
+        } else {
+            if (card) card.classList.remove('selected');
         }
     });
     updateSelectAllCheckbox();
     updateSelectionCounter();
 }
 
+// Toggle question selection when clicking on the card
+function toggleQuestionSelection(event, card) {
+    // Don't toggle if clicking on buttons or links (they have their own behavior)
+    const target = event.target;
+    const isInteractiveElement = target.closest('button') || 
+                                  target.closest('a') || 
+                                  target.closest('.btn');
+    
+    if (isInteractiveElement) {
+        return; // Let the button/link handle the click
+    }
+    
+    const checkbox = card.querySelector('input[name="question_checkbox"]');
+    if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        updateSelection(checkbox);
+        
+        // Update card selected class
+        if (checkbox.checked) {
+            card.classList.add('selected');
+        } else {
+            card.classList.remove('selected');
+        }
+    }
+}
+
 // Update individual question selection
 function updateSelection(checkbox) {
+    const card = checkbox.closest('.question-card');
     if (checkbox.checked) {
         selectedQuestions.add(checkbox.value);
+        if (card) card.classList.add('selected');
     } else {
         selectedQuestions.delete(checkbox.value);
+        if (card) card.classList.remove('selected');
     }
     updateSelectAllCheckbox();
     updateSelectionCounter();
@@ -994,10 +1113,19 @@ function toggleSelectAll(checkbox, allPages) {
                 allQuestionIds.forEach(id => selectedQuestions.delete(id));
             }
             
-            // Update visible checkboxes
+            // Update visible checkboxes and cards
             const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
             checkboxes.forEach(cb => {
-                cb.checked = selectedQuestions.has(cb.value);
+                const isSelected = selectedQuestions.has(cb.value);
+                cb.checked = isSelected;
+                const card = cb.closest('.question-card');
+                if (card) {
+                    if (isSelected) {
+                        card.classList.add('selected');
+                    } else {
+                        card.classList.remove('selected');
+                    }
+                }
             });
         }
     } else {
@@ -1005,10 +1133,13 @@ function toggleSelectAll(checkbox, allPages) {
         const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
         checkboxes.forEach(cb => {
             cb.checked = checkbox.checked;
+            const card = cb.closest('.question-card');
             if (checkbox.checked) {
                 selectedQuestions.add(cb.value);
+                if (card) card.classList.add('selected');
             } else {
                 selectedQuestions.delete(cb.value);
+                if (card) card.classList.remove('selected');
             }
         });
     }
@@ -1029,6 +1160,8 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
 document.body.addEventListener('htmx:beforeRequest', function(event) {
     if (event.detail.elt && event.detail.elt.id === 'filterForm') {
         saveStateToStorage();
+        // Save current filter values as last searched
+        saveLastSearchedFilters();
     }
 });
 
@@ -1282,6 +1415,7 @@ function updateYearDropdownLabel() {
     }
     
     saveStateToStorage();
+    checkFilterModification();
 }
 
 // Setup year search functionality
@@ -1369,6 +1503,7 @@ function onTopicChange() {
     syncTopicSelectWithCheckboxes();
     loadSubtopicsForSelectedTopics();
     saveStateToStorage();
+    checkFilterModification();
 }
 
 // Sync hidden select with checkboxes
@@ -1512,6 +1647,7 @@ function onSubtopicChange() {
     updateSubtopicDropdownLabel();
     syncSubtopicSelectWithCheckboxes();
     saveStateToStorage();
+    checkFilterModification();
 }
 
 // Sync hidden select with checkboxes
@@ -1631,6 +1767,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Update sort config input
     updateSortConfigInput();
     
+    // Initialize filter change listeners for modification tracking
+    initFilterChangeListeners();
+    
     // Auto-trigger search if we have saved filters with a subject selected
     // This ensures results are shown when returning from another page
     if (savedFilters && savedFilters.subject) {
@@ -1659,6 +1798,7 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
     
     // Save to storage
     saveStateToStorage();
+    checkFilterModification();
 });
 
 // Source type change - reload years
@@ -1680,6 +1820,7 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
         }
         
         saveStateToStorage();
+        checkFilterModification();
     });
 });
 
@@ -1714,9 +1855,13 @@ function previewAsset(questionId, assetType) {
 function clearSelection() {
     selectedQuestions.clear();
     
-    // Uncheck all visible checkboxes
+    // Uncheck all visible checkboxes and remove selected class
     const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
-    checkboxes.forEach(cb => cb.checked = false);
+    checkboxes.forEach(cb => {
+        cb.checked = false;
+        const card = cb.closest('.question-card');
+        if (card) card.classList.remove('selected');
+    });
     
     // Update UI
     updateSelectAllCheckbox();
@@ -1801,6 +1946,10 @@ function resetFilters() {
     
     // Clear the question list
     document.getElementById('questionList').innerHTML = '<p class="text-muted text-center">Use filters to search for questions</p>';
+    
+    // Clear filter modification indicator and last searched state
+    lastSearchedFilters = null;
+    setFilterModifiedIndicator(false);
 }
 
 // Generate document
