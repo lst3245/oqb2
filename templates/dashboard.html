@@ -253,6 +253,10 @@
                             <i class="bi bi-x-circle"></i> Clear
                         </button>
                         {% if current_user.is_admin %}
+                        <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" 
+                                onclick="showBatchEditModal()" title="Batch edit selected questions">
+                            <i class="bi bi-pencil-square"></i> Batch Edit
+                        </button>
                         <button type="button" class="btn btn-sm btn-danger" id="deleteBtn" 
                                 onclick="showDeleteConfirmation()" title="Delete selected questions">
                             <i class="bi bi-trash"></i> Delete
@@ -411,6 +415,129 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Batch Edit Modal (Admin Only) -->
+<div class="modal fade" id="batchEditModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Batch Edit Questions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> 
+                    Select which tags to overwrite for <strong><span id="batchEditCount">0</span> selected question(s)</strong>.
+                    Only checked fields will be updated.
+                </div>
+                
+                <form id="batchEditForm">
+                    <!-- Level -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchLevelToggle" 
+                                   onchange="toggleBatchField('level')">
+                            <label class="form-check-label fw-bold" for="batchLevelToggle">
+                                <i class="bi bi-bar-chart"></i> Level
+                            </label>
+                        </div>
+                        <div id="batchLevelField" class="ms-4" style="display: none;">
+                            <select class="form-select form-select-sm" id="batchLevel" name="level" style="max-width: 200px;">
+                                <option value="">None</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Question Type -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchQTypeToggle" 
+                                   onchange="toggleBatchField('qtype')">
+                            <label class="form-check-label fw-bold" for="batchQTypeToggle">
+                                <i class="bi bi-question-circle"></i> Question Type
+                            </label>
+                        </div>
+                        <div id="batchQtypeField" class="ms-4" style="display: none;">
+                            <select class="form-select form-select-sm" id="batchQType" name="q_type" style="max-width: 200px;">
+                                <option value="">None</option>
+                                <option value="MC">Multiple Choice</option>
+                                <option value="CQ">Conventional Question</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Section -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchSectionToggle" 
+                                   onchange="toggleBatchField('section')">
+                            <label class="form-check-label fw-bold" for="batchSectionToggle">
+                                <i class="bi bi-list-nested"></i> Section
+                            </label>
+                        </div>
+                        <div id="batchSectionField" class="ms-4" style="display: none;">
+                            <input type="text" class="form-control form-control-sm" id="batchSection" name="section" 
+                                   placeholder="A, B, or leave empty" style="max-width: 200px;">
+                        </div>
+                    </div>
+                    
+                    <!-- Topics & Subtopics (bundled) -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchTopicsToggle" 
+                                   onchange="toggleBatchField('topics')">
+                            <label class="form-check-label fw-bold" for="batchTopicsToggle">
+                                <i class="bi bi-tags"></i> Topics & Subtopics
+                            </label>
+                            <small class="text-muted d-block">Major Topic, Major Subtopic, Minor Topics, and M2M Subtopics</small>
+                        </div>
+                        <div id="batchTopicsField" class="ms-4" style="display: none;">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Major Topic</label>
+                                    <select class="form-select form-select-sm" id="batchMajorTopic" name="major_topic_id"
+                                            onchange="onBatchMajorTopicChange()">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Major Subtopic</label>
+                                    <select class="form-select form-select-sm" id="batchMajorSubtopic" name="major_subtopic_id">
+                                        <option value="">None</option>
+                                    </select>
+                                    <small class="text-muted">Select major topic first</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Minor Topics</label>
+                                    <select class="form-select form-select-sm" id="batchMinorTopics" name="minor_topic_ids" 
+                                            multiple size="4" onchange="onBatchMinorTopicsChange()">
+                                    </select>
+                                    <small class="text-muted">Ctrl+click for multiple</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Subtopics (M2M)</label>
+                                    <select class="form-select form-select-sm" id="batchSubtopics" name="subtopic_ids" 
+                                            multiple size="4">
+                                    </select>
+                                    <small class="text-muted">From Major + Minor Topics</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" onclick="executeBatchEdit()">
+                    <i class="bi bi-pencil-square"></i> Apply Changes
+                </button>
             </div>
         </div>
     </div>
@@ -1645,10 +1772,12 @@ function generateDocument() {
 // Admin-only functions for editing tags and deletion
 let editModal;
 let deleteModal;
+let batchEditModal;
 
 document.addEventListener('DOMContentLoaded', function() {
     editModal = new bootstrap.Modal(document.getElementById('editModal'));
     deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    batchEditModal = new bootstrap.Modal(document.getElementById('batchEditModal'));
     
     // Enable/disable delete button based on checkbox
     document.getElementById('confirmDeleteCheck').addEventListener('change', function() {
@@ -1724,6 +1853,219 @@ function confirmDelete() {
         // Reset button
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-trash"></i> Delete Questions';
+    });
+}
+
+// ============== BATCH EDIT FUNCTIONS ==============
+
+function showBatchEditModal() {
+    const questionIds = Array.from(selectedQuestions);
+    
+    if (questionIds.length === 0) {
+        alert('Please select questions first');
+        return;
+    }
+    
+    // Update count display
+    document.getElementById('batchEditCount').textContent = questionIds.length;
+    
+    // Reset all toggles and fields
+    document.querySelectorAll('.batch-field-toggle').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('batchLevelField').style.display = 'none';
+    document.getElementById('batchQtypeField').style.display = 'none';
+    document.getElementById('batchSectionField').style.display = 'none';
+    document.getElementById('batchTopicsField').style.display = 'none';
+    
+    // Reset form values
+    document.getElementById('batchLevel').value = '';
+    document.getElementById('batchQType').value = '';
+    document.getElementById('batchSection').value = '';
+    document.getElementById('batchMajorTopic').value = '';
+    document.getElementById('batchMajorSubtopic').innerHTML = '<option value="">None</option>';
+    
+    // Load topics for the batch edit form
+    // Use the currently selected subject from the filter
+    const subjectSelect = document.getElementById('subjectSelect');
+    const subjectId = subjectSelect ? subjectSelect.value : 'MATC';
+    loadBatchTopics(subjectId);
+    
+    batchEditModal.show();
+}
+
+function toggleBatchField(field) {
+    const fieldMap = {
+        'level': 'batchLevelField',
+        'qtype': 'batchQtypeField',
+        'section': 'batchSectionField',
+        'topics': 'batchTopicsField'
+    };
+    
+    const toggleMap = {
+        'level': 'batchLevelToggle',
+        'qtype': 'batchQTypeToggle',
+        'section': 'batchSectionToggle',
+        'topics': 'batchTopicsToggle'
+    };
+    
+    const fieldEl = document.getElementById(fieldMap[field]);
+    const toggleEl = document.getElementById(toggleMap[field]);
+    
+    if (fieldEl && toggleEl) {
+        fieldEl.style.display = toggleEl.checked ? 'block' : 'none';
+    }
+}
+
+function loadBatchTopics(subjectId) {
+    if (!subjectId) return;
+    
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+        .then(r => r.json())
+        .then(topics => {
+            const majorSelect = document.getElementById('batchMajorTopic');
+            const minorSelect = document.getElementById('batchMinorTopics');
+            
+            const options = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            majorSelect.innerHTML = '<option value="">None</option>' + options;
+            minorSelect.innerHTML = options;
+        });
+}
+
+function onBatchMajorTopicChange() {
+    const majorTopicId = document.getElementById('batchMajorTopic').value;
+    const majorSubtopicSelect = document.getElementById('batchMajorSubtopic');
+    
+    // Clear major subtopic
+    majorSubtopicSelect.innerHTML = '<option value="">None</option>';
+    
+    if (majorTopicId) {
+        // Load subtopics for this major topic
+        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${majorTopicId}`)
+            .then(r => r.json())
+            .then(subtopics => {
+                majorSubtopicSelect.innerHTML = '<option value="">None</option>' + 
+                    subtopics.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+            });
+    }
+    
+    // Also reload M2M subtopics
+    reloadBatchSubtopics();
+}
+
+function onBatchMinorTopicsChange() {
+    reloadBatchSubtopics();
+}
+
+function reloadBatchSubtopics() {
+    const majorTopicId = document.getElementById('batchMajorTopic').value;
+    const minorSelect = document.getElementById('batchMinorTopics');
+    const selectedMinorIds = Array.from(minorSelect.selectedOptions).map(opt => opt.value);
+    
+    // Combine major topic and minor topics
+    const allTopicIds = [majorTopicId, ...selectedMinorIds].filter(id => id);
+    
+    const subtopicSelect = document.getElementById('batchSubtopics');
+    
+    if (allTopicIds.length > 0) {
+        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${allTopicIds.join(',')}`)
+            .then(r => r.json())
+            .then(subtopics => {
+                subtopicSelect.innerHTML = subtopics.map(s => 
+                    `<option value="${s.id}">${s.name}</option>`
+                ).join('');
+            });
+    } else {
+        subtopicSelect.innerHTML = '';
+    }
+}
+
+function executeBatchEdit() {
+    const questionIds = Array.from(selectedQuestions);
+    
+    if (questionIds.length === 0) {
+        batchEditModal.hide();
+        return;
+    }
+    
+    // Check which fields to update
+    const updateLevel = document.getElementById('batchLevelToggle').checked;
+    const updateQType = document.getElementById('batchQTypeToggle').checked;
+    const updateSection = document.getElementById('batchSectionToggle').checked;
+    const updateTopics = document.getElementById('batchTopicsToggle').checked;
+    
+    if (!updateLevel && !updateQType && !updateSection && !updateTopics) {
+        alert('Please select at least one field to update');
+        return;
+    }
+    
+    // Build form data
+    const formData = new FormData();
+    questionIds.forEach(id => formData.append('question_ids', id));
+    
+    // Add fields to update
+    if (updateLevel) {
+        formData.append('update_level', '1');
+        formData.append('level', document.getElementById('batchLevel').value);
+    }
+    if (updateQType) {
+        formData.append('update_q_type', '1');
+        formData.append('q_type', document.getElementById('batchQType').value);
+    }
+    if (updateSection) {
+        formData.append('update_section', '1');
+        formData.append('section', document.getElementById('batchSection').value);
+    }
+    if (updateTopics) {
+        formData.append('update_topics', '1');
+        formData.append('major_topic_id', document.getElementById('batchMajorTopic').value);
+        formData.append('major_subtopic_id', document.getElementById('batchMajorSubtopic').value);
+        
+        // Minor topics (multiple)
+        const minorSelect = document.getElementById('batchMinorTopics');
+        Array.from(minorSelect.selectedOptions).forEach(opt => {
+            formData.append('minor_topic_ids', opt.value);
+        });
+        
+        // M2M subtopics (multiple)
+        const subtopicSelect = document.getElementById('batchSubtopics');
+        Array.from(subtopicSelect.selectedOptions).forEach(opt => {
+            formData.append('subtopic_ids', opt.value);
+        });
+    }
+    
+    // Disable button during request
+    const btn = document.querySelector('#batchEditModal .btn-warning');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+    
+    fetch('{{ url_for("admin.batch_update_questions") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            batchEditModal.hide();
+            alert(`Successfully updated ${data.updated_count} question(s)`);
+            
+            // Refresh the question list
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                htmx.trigger(filterForm, 'submit');
+            }
+        } else {
+            throw new Error(data.error || 'Error updating questions');
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        alert('Error updating questions: ' + err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     });
 }
 

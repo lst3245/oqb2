@@ -281,3 +281,115 @@ def delete_questions():
             'error': str(e)
         }), 500
 
+# ==================== Batch Question Update ====================
+
+@admin_bp.route('/questions/batch-update', methods=['POST'])
+@login_required
+@admin_required
+def batch_update_questions():
+    """Batch update question metadata and tags"""
+    try:
+        # Get question IDs from request
+        question_ids = request.form.getlist('question_ids')
+        
+        if not question_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No questions selected'
+            }), 400
+        
+        # Convert to integers
+        question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
+        
+        if not question_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid question IDs'
+            }), 400
+        
+        # Get questions to update
+        questions = Question.query.filter(Question.id.in_(question_ids)).all()
+        
+        if not questions:
+            return jsonify({
+                'success': False,
+                'error': 'No questions found with the given IDs'
+            }), 404
+        
+        # Determine which fields to update
+        update_level = request.form.get('update_level') == '1'
+        update_q_type = request.form.get('update_q_type') == '1'
+        update_section = request.form.get('update_section') == '1'
+        update_topics = request.form.get('update_topics') == '1'
+        
+        updated_count = 0
+        
+        for question in questions:
+            # Update level if requested
+            if update_level:
+                level = request.form.get('level')
+                question.level = int(level) if level and level != '' else None
+            
+            # Update question type if requested
+            if update_q_type:
+                q_type = request.form.get('q_type')
+                question.q_type = q_type if q_type and q_type != '' else None
+            
+            # Update section if requested
+            if update_section:
+                section = request.form.get('section')
+                question.section = section if section and section != '' else None
+            
+            # Update topics & subtopics if requested (bundled)
+            if update_topics:
+                # Major topic
+                major_topic_id = request.form.get('major_topic_id')
+                new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+                question.major_topic_id = new_major_topic_id
+                
+                # Major subtopic
+                major_subtopic_id = request.form.get('major_subtopic_id')
+                if major_subtopic_id and major_subtopic_id != '':
+                    subtopic = Subtopic.query.get(int(major_subtopic_id))
+                    # Validate that subtopic belongs to the major topic
+                    if subtopic and new_major_topic_id and subtopic.topic_id == new_major_topic_id:
+                        question.major_subtopic_id = subtopic.id
+                    else:
+                        question.major_subtopic_id = None
+                else:
+                    question.major_subtopic_id = None
+                
+                # Minor topics
+                minor_topic_ids = request.form.getlist('minor_topic_ids')
+                question.minor_topics.clear()
+                for tid in minor_topic_ids:
+                    if tid:
+                        topic = Topic.query.get(int(tid))
+                        if topic:
+                            question.minor_topics.append(topic)
+                
+                # M2M subtopics
+                subtopic_ids = request.form.getlist('subtopic_ids')
+                question.subtopics.clear()
+                for sid in subtopic_ids:
+                    if sid:
+                        subtopic = Subtopic.query.get(int(sid))
+                        if subtopic:
+                            question.subtopics.append(subtopic)
+            
+            updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'updated_count': updated_count,
+            'message': f'Successfully updated {updated_count} question(s)'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
