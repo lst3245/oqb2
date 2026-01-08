@@ -748,11 +748,42 @@ function saveViewSettings() {
 // Re-apply view settings after HTMX content swap
 document.body.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'questionList') {
+        // Remove selections that are no longer in the filtered results
+        pruneSelectionsToFilteredResults();
+        
         applyViewSettings();
         initializeSelectionState();
         applyShowSelectedOnly();
     }
 });
+
+// Remove selected questions that are no longer in the current filtered results
+function pruneSelectionsToFilteredResults() {
+    const allIdsElement = document.getElementById('allQuestionIds');
+    if (!allIdsElement) return;
+    
+    const filteredIds = new Set(allIdsElement.dataset.ids.split(',').filter(id => id));
+    
+    // Find selections that are no longer in filtered results
+    const toRemove = [];
+    selectedQuestions.forEach(id => {
+        if (!filteredIds.has(id)) {
+            toRemove.push(id);
+        }
+    });
+    
+    // Remove them from selection
+    if (toRemove.length > 0) {
+        toRemove.forEach(id => selectedQuestions.delete(id));
+        saveStateToStorage();
+        updateSelectionCounter();
+        
+        // Show a brief notification if any were removed
+        if (toRemove.length > 0) {
+            console.log(`Cleared ${toRemove.length} selection(s) not in current filter results`);
+        }
+    }
+}
 
 // ============== FILTER MODIFICATION TRACKING ==============
 
