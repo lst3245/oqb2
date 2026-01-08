@@ -132,11 +132,16 @@ def filter_questions():
                     # Only major topic
                     query = query.filter(Question.major_topic_id.in_(topic_ids))
     
-    # Filter by subtopics
+    # Filter by subtopics (check both major_subtopic_id AND M2M subtopics)
     if subtopics:
         subtopic_ids = [int(s) for s in subtopics if s.isdigit()]
         if subtopic_ids:
-            query = query.filter(Question.subtopics.any(Subtopic.id.in_(subtopic_ids)))
+            query = query.filter(
+                or_(
+                    Question.major_subtopic_id.in_(subtopic_ids),
+                    Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
+                )
+            )
     
     # Filter by levels
     if levels:
@@ -209,6 +214,8 @@ def filter_questions():
             'subject': q.subject,
             'major_topic': q.major_topic.name if q.major_topic else 'N/A',
             'major_topic_id': q.major_topic_id,
+            'major_subtopic': q.major_subtopic.name if q.major_subtopic else None,
+            'major_subtopic_id': q.major_subtopic_id,
             'minor_topic_ids': [t.id for t in q.minor_topics],
             'minor_topics': [t.name for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],

@@ -56,6 +56,11 @@ SORT_FIELDS = {
         'key': lambda q: q.major_topic.name if q.major_topic else 'ZZZ',
         'natural': True
     },
+    'subtopic': {
+        'label': 'Subtopic',
+        'key': lambda q: q.major_subtopic.name if q.major_subtopic else 'ZZZ',
+        'natural': True
+    },
     'created_time': {
         'label': 'Created Time',
         'key': lambda q: q.created_at,

@@ -59,6 +59,9 @@
                     <span class="badge bg-info text-muted">Type -</span>
                     {% endif %}
                     <span class="badge bg-primary">{{ question.major_topic }}</span>
+                    {% if question.major_subtopic %}
+                    <span class="badge" style="background-color: #17a2b8; color: white;">{{ question.major_subtopic }}</span>
+                    {% endif %}
                     {% if question.minor_topics %}
                     <div class="mt-1">
                         {% for minor in question.minor_topics %}
@@ -109,6 +112,7 @@
                                     "section": {{ ("\"" + question.section + "\"") if question.section else "null" }},
                                     "description": {{ ("\"" + (question.description | replace('"', '\\"') | replace('\n', '\\n')) + "\"") if question.description else "null" }},
                                     "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
+                                    "major_subtopic_id": {{ question.major_subtopic_id if question.major_subtopic_id else "null" }},
                                     "minor_topic_ids": {{ question.minor_topic_ids | default([]) | tojson }},
                                     "subtopic_ids": {{ question.subtopic_ids | default([]) | tojson }}
                                 })'>

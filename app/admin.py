@@ -154,7 +154,26 @@ def update_question(question_id):
         # Update major topic
         if 'major_topic_id' in request.form:
             major_topic_id = request.form.get('major_topic_id')
-            question.major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+            new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+            
+            # If major topic changed, clear major subtopic (it may no longer be valid)
+            if new_major_topic_id != question.major_topic_id:
+                question.major_subtopic_id = None
+            
+            question.major_topic_id = new_major_topic_id
+        
+        # Update major subtopic
+        if 'major_subtopic_id' in request.form:
+            major_subtopic_id = request.form.get('major_subtopic_id')
+            if major_subtopic_id and major_subtopic_id != '':
+                subtopic = Subtopic.query.get(int(major_subtopic_id))
+                # Validate that subtopic belongs to the major topic
+                if subtopic and question.major_topic_id and subtopic.topic_id == question.major_topic_id:
+                    question.major_subtopic_id = subtopic.id
+                else:
+                    question.major_subtopic_id = None
+            else:
+                question.major_subtopic_id = None
         
         # Update minor topics
         minor_topic_ids = request.form.getlist('minor_topic_ids')
@@ -191,6 +210,7 @@ def update_question(question_id):
                 'q_type': question.q_type,
                 'section': question.section,
                 'major_topic_id': question.major_topic_id,
+                'major_subtopic_id': question.major_subtopic_id,
                 'description': question.description
             }
         })

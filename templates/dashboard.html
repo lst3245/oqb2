@@ -345,20 +345,28 @@
                     
                     <div class="mb-3">
                         <label class="form-label">Major Topic</label>
-                        <select class="form-select" id="editMajorTopic" name="major_topic_id">
+                        <select class="form-select" id="editMajorTopic" name="major_topic_id" onchange="onMajorTopicChange()">
                             <option value="">None</option>
                         </select>
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label">Major Subtopic</label>
+                        <select class="form-select" id="editMajorSubtopic" name="major_subtopic_id">
+                            <option value="">None</option>
+                        </select>
+                        <small class="text-muted">Select major topic first to see subtopics</small>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label class="form-label">Minor Topics</label>
-                        <select class="form-select" id="editMinorTopics" name="minor_topic_ids" multiple size="5">
+                        <select class="form-select" id="editMinorTopics" name="minor_topic_ids" multiple size="5" onchange="reloadEditSubtopics()">
                         </select>
                         <small class="text-muted">Hold Ctrl to select multiple</small>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Subtopics</label>
+                        <label class="form-label">Subtopics (from Major + Minor Topics)</label>
                         <select class="form-select" id="editSubtopics" name="subtopic_ids" multiple size="5">
                         </select>
                     </div>
@@ -428,6 +436,7 @@ const SORT_FIELDS = {
     'year': 'Year',
     'level': 'Level',
     'topic': 'Topic',
+    'subtopic': 'Subtopic',
     'created_time': 'Created Time',
     'source': 'Source',
     'section': 'Section',
@@ -1620,6 +1629,9 @@ function editQuestion(questionId, questionData) {
     document.getElementById('editQuestionId').value = questionId;
     document.getElementById('editModalLabel').textContent = `Edit ${questionData.qid}`;
     
+    // Store question data for later use
+    window.currentQuestionData = questionData;
+    
     // Load topics for this question's subject
     loadTopicsForSubject(questionData.subject);
     
@@ -1633,13 +1645,20 @@ function editQuestion(questionId, questionData) {
     setTimeout(() => {
         document.getElementById('editMajorTopic').value = questionData.major_topic_id || '';
         
+        // Load and set major subtopic
+        if (questionData.major_topic_id) {
+            loadMajorSubtopics(questionData.major_topic_id, questionData.major_subtopic_id);
+        } else {
+            document.getElementById('editMajorSubtopic').innerHTML = '<option value="">None</option>';
+        }
+        
         // Set minor topics
         const minorSelect = document.getElementById('editMinorTopics');
         Array.from(minorSelect.options).forEach(opt => {
             opt.selected = questionData.minor_topic_ids.includes(parseInt(opt.value));
         });
         
-        // Load and set subtopics
+        // Load and set subtopics (other subtopics from major + minor topics)
         if (questionData.major_topic_id || questionData.minor_topic_ids.length > 0) {
             const allTopicIds = [questionData.major_topic_id, ...questionData.minor_topic_ids].filter(id => id);
             loadSubtopics(allTopicIds, questionData.subtopic_ids);
@@ -1650,6 +1669,57 @@ function editQuestion(questionId, questionData) {
     }, 500);
     
     editModal.show();
+}
+
+// Handle major topic change - reload major subtopics and M2M subtopics
+function onMajorTopicChange() {
+    const majorTopicId = document.getElementById('editMajorTopic').value;
+    const majorSubtopicSelect = document.getElementById('editMajorSubtopic');
+    
+    // Clear major subtopic when major topic changes
+    majorSubtopicSelect.innerHTML = '<option value="">None</option>';
+    
+    if (majorTopicId) {
+        loadMajorSubtopics(majorTopicId, null);
+    }
+    
+    // Also reload M2M subtopics based on new major topic + selected minor topics
+    reloadEditSubtopics();
+}
+
+// Reload M2M subtopics based on current major topic and selected minor topics
+function reloadEditSubtopics() {
+    const majorTopicId = document.getElementById('editMajorTopic').value;
+    const minorSelect = document.getElementById('editMinorTopics');
+    const selectedMinorIds = Array.from(minorSelect.selectedOptions).map(opt => parseInt(opt.value));
+    
+    // Combine major topic and minor topics
+    const allTopicIds = [majorTopicId, ...selectedMinorIds].filter(id => id);
+    
+    if (allTopicIds.length > 0) {
+        // Get currently selected subtopics to preserve them if still valid
+        const subtopicSelect = document.getElementById('editSubtopics');
+        const currentlySelected = Array.from(subtopicSelect.selectedOptions).map(opt => parseInt(opt.value));
+        loadSubtopics(allTopicIds, currentlySelected);
+    } else {
+        // Clear subtopics if no topics selected
+        document.getElementById('editSubtopics').innerHTML = '';
+    }
+}
+
+// Load subtopics for the major topic dropdown
+function loadMajorSubtopics(topicId, selectedSubtopicId = null) {
+    if (!topicId) return;
+    
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicId}`)
+        .then(r => r.json())
+        .then(subtopics => {
+            const majorSubtopicSelect = document.getElementById('editMajorSubtopic');
+            majorSubtopicSelect.innerHTML = '<option value="">None</option>' + 
+                subtopics.map(s => 
+                    `<option value="${s.id}" ${selectedSubtopicId == s.id ? 'selected' : ''}>${s.name}</option>`
+                ).join('');
+        });
 }
 
 function loadSubtopics(topicIds, selectedSubtopicIds = []) {
