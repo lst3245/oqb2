@@ -39,7 +39,18 @@ def filter_questions():
     q_type = request.args.get('q_type') or request.form.get('q_type')
     qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
     page = int(request.args.get('page', 1))
+    page_size = request.args.get('page_size') or request.form.get('page_size')
     preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
+    
+    # Handle page size - default to config value or 20
+    try:
+        page_size = int(page_size) if page_size else None
+    except (ValueError, TypeError):
+        page_size = None
+    
+    # Limit page_size to reasonable values
+    if page_size and page_size not in [10, 20, 50, 100]:
+        page_size = 20
     
     # Get sort configuration - supports multi-level sorting
     # Format: [{"field": "qid", "direction": "asc"}, {"field": "year", "direction": "desc"}]
@@ -170,7 +181,7 @@ def filter_questions():
     sorted_questions = apply_multi_sort(all_questions, sort_config)
     
     # Paginate
-    per_page = current_app.config['QUESTIONS_PER_PAGE']
+    per_page = page_size if page_size else current_app.config.get('QUESTIONS_PER_PAGE', 20)
     total = len(sorted_questions)
     start = (page - 1) * per_page
     end = start + per_page

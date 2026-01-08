@@ -224,6 +224,8 @@
                         
                         <!-- Hidden input for sort config -->
                         <input type="hidden" name="sort_config" id="sortConfigInput" value='[{"field":"qid","direction":"asc"}]'>
+                        <!-- Hidden input for page size -->
+                        <input type="hidden" name="page_size" id="pageSizeInput" value="20">
                     </form>
                     
                     <hr class="my-3">
@@ -278,7 +280,25 @@
                                     id="viewSettingsBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                                 <i class="bi bi-eye"></i> View
                             </button>
-                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 200px;">
+                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px;">
+                                <!-- Show Selected Only -->
+                                <div class="dropdown-header">Display Filter</div>
+                                <div class="form-check form-switch mb-2" style="padding-left: 2.5em;">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="showSelectedOnly" onchange="toggleShowSelectedOnly()">
+                                    <label class="form-check-label" for="showSelectedOnly">Show Selected Only</label>
+                                </div>
+                                <div class="dropdown-divider"></div>
+                                <!-- Page Size -->
+                                <div class="dropdown-header">Questions Per Page</div>
+                                <div class="px-1 mb-2">
+                                    <select class="form-select form-select-sm" id="pageSize" onchange="onPageSizeChange()">
+                                        <option value="10">10</option>
+                                        <option value="20" selected>20</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </div>
+                                <div class="dropdown-divider"></div>
                                 <div class="dropdown-header">Show Tags</div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewLevel" value="level" checked>
@@ -604,7 +624,9 @@ const STORAGE_KEYS = {
     FILTER_SETTINGS: 'oqb_filterSettings',
     SORT_CONFIG: 'oqb_sortConfig',
     VIEW_SETTINGS: 'oqb_viewSettings',
-    PREVIEW_LANGUAGE: 'oqb_previewLanguage'
+    PREVIEW_LANGUAGE: 'oqb_previewLanguage',
+    PAGE_SIZE: 'oqb_pageSize',
+    SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly'
 };
 
 // Track filter modification state
@@ -728,6 +750,7 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'questionList') {
         applyViewSettings();
         initializeSelectionState();
+        applyShowSelectedOnly();
     }
 });
 
@@ -805,6 +828,170 @@ function initFilterChangeListeners() {
     const qidSearch = document.getElementById('qidSearch');
     if (qidSearch) {
         qidSearch.addEventListener('input', checkFilterModification);
+    }
+}
+
+// ============== PAGE SIZE FUNCTIONS ==============
+
+// Initialize page size from localStorage
+function initPageSize() {
+    const savedPageSize = localStorage.getItem(STORAGE_KEYS.PAGE_SIZE) || '20';
+    const pageSizeSelect = document.getElementById('pageSize');
+    const pageSizeInput = document.getElementById('pageSizeInput');
+    
+    if (pageSizeSelect) {
+        pageSizeSelect.value = savedPageSize;
+    }
+    if (pageSizeInput) {
+        pageSizeInput.value = savedPageSize;
+    }
+}
+
+// Handle page size change
+function onPageSizeChange() {
+    const pageSizeSelect = document.getElementById('pageSize');
+    const pageSizeInput = document.getElementById('pageSizeInput');
+    const newSize = pageSizeSelect.value;
+    
+    // Save to localStorage
+    localStorage.setItem(STORAGE_KEYS.PAGE_SIZE, newSize);
+    
+    // Update hidden input
+    if (pageSizeInput) {
+        pageSizeInput.value = newSize;
+    }
+    
+    // Re-trigger search to apply new page size
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm && lastSearchedFilters) {
+        htmx.trigger(filterForm, 'submit');
+    }
+}
+
+// ============== SHOW SELECTED ONLY FUNCTIONS ==============
+
+// Initialize show selected only from localStorage
+function initShowSelectedOnly() {
+    const savedShowSelected = localStorage.getItem(STORAGE_KEYS.SHOW_SELECTED_ONLY) === 'true';
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    
+    if (showSelectedToggle) {
+        showSelectedToggle.checked = savedShowSelected;
+    }
+    
+    // Apply initial state
+    applyShowSelectedOnly();
+}
+
+// Toggle show selected only
+function toggleShowSelectedOnly() {
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    const isEnabled = showSelectedToggle.checked;
+    
+    // Save to localStorage
+    localStorage.setItem(STORAGE_KEYS.SHOW_SELECTED_ONLY, isEnabled);
+    
+    // Apply filter
+    applyShowSelectedOnly();
+}
+
+// Apply the show selected only filter
+function applyShowSelectedOnly() {
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    const isEnabled = showSelectedToggle ? showSelectedToggle.checked : false;
+    
+    const questionCards = document.querySelectorAll('.question-card');
+    const pagination = document.querySelector('#questionList nav');
+    const selectAllControls = document.querySelector('#questionList > .mb-3');
+    
+    questionCards.forEach(card => {
+        const checkbox = card.querySelector('input[name="question_checkbox"]');
+        if (!checkbox) return;
+        
+        const isSelected = selectedQuestions.has(checkbox.value);
+        
+        if (isEnabled && !isSelected) {
+            // Hide non-selected questions
+            card.style.display = 'none';
+        } else {
+            // Show all or show this selected one
+            card.style.display = '';
+        }
+    });
+    
+    // Hide pagination when filtering client-side (it doesn't work with client-side filtering)
+    if (pagination) {
+        pagination.style.display = isEnabled ? 'none' : '';
+    }
+    
+    // Hide the select all controls when showing selected only (doesn't make sense in this mode)
+    if (selectAllControls && isEnabled) {
+        selectAllControls.style.display = 'none';
+    } else if (selectAllControls) {
+        selectAllControls.style.display = '';
+    }
+    
+    // Update the visible count display
+    updateVisibleCountDisplay();
+    
+    // Show a notice when filtering is active
+    showFilterActiveNotice(isEnabled);
+}
+
+// Update the visible count display when filtering
+function updateVisibleCountDisplay() {
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    const isEnabled = showSelectedToggle ? showSelectedToggle.checked : false;
+    
+    if (isEnabled) {
+        // Show how many are visible vs total on page
+        const totalOnPage = document.querySelectorAll('.question-card').length;
+        const visibleOnPage = document.querySelectorAll('.question-card:not([style*="display: none"])').length;
+        
+        // Update the selection counter to show filter status
+        const counter = document.getElementById('selectionCounter');
+        if (counter) {
+            counter.textContent = `${selectedQuestions.size} selected (showing ${visibleOnPage})`;
+        }
+        const mainCounter = document.getElementById('mainSelectionCounter');
+        if (mainCounter) {
+            mainCounter.textContent = `${selectedQuestions.size} selected (showing ${visibleOnPage})`;
+        }
+    }
+}
+
+// Show/hide notice when show selected only filter is active
+function showFilterActiveNotice(isEnabled) {
+    const questionList = document.getElementById('questionList');
+    if (!questionList) return;
+    
+    // Remove existing notice if any
+    const existingNotice = document.getElementById('showSelectedOnlyNotice');
+    if (existingNotice) {
+        existingNotice.remove();
+    }
+    
+    if (isEnabled) {
+        // Check if there are any selected questions visible
+        const visibleCount = document.querySelectorAll('.question-card:not([style*="display: none"])').length;
+        
+        // Create notice
+        const notice = document.createElement('div');
+        notice.id = 'showSelectedOnlyNotice';
+        notice.className = 'alert alert-info mb-3 d-flex align-items-center justify-content-between';
+        notice.innerHTML = `
+            <div>
+                <i class="bi bi-funnel-fill"></i> 
+                <strong>Showing selected questions only</strong> 
+                (${selectedQuestions.size} total selected, ${visibleCount} visible on this page)
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('showSelectedOnly').checked = false; toggleShowSelectedOnly();">
+                <i class="bi bi-x"></i> Show All
+            </button>
+        `;
+        
+        // Insert at the top of question list
+        questionList.insertBefore(notice, questionList.firstChild);
     }
 }
 
@@ -980,14 +1167,15 @@ function initializeSelectionState() {
 
 // Toggle question selection when clicking on the card
 function toggleQuestionSelection(event, card) {
-    // Don't toggle if clicking on buttons or links (they have their own behavior)
+    // Don't toggle if clicking on buttons, links, or the checkbox itself
     const target = event.target;
     const isInteractiveElement = target.closest('button') || 
                                   target.closest('a') || 
-                                  target.closest('.btn');
+                                  target.closest('.btn') ||
+                                  target.tagName === 'INPUT';  // Let checkbox handle its own click
     
     if (isInteractiveElement) {
-        return; // Let the button/link handle the click
+        return; // Let the element handle the click
     }
     
     const checkbox = card.querySelector('input[name="question_checkbox"]');
@@ -1017,6 +1205,12 @@ function updateSelection(checkbox) {
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
+    
+    // Re-apply show selected only filter if enabled
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    if (showSelectedToggle && showSelectedToggle.checked) {
+        applyShowSelectedOnly();
+    }
 }
 
 // Update the "Select All" checkbox state
@@ -1147,6 +1341,9 @@ function toggleSelectAll(checkbox, allPages) {
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
+    
+    // Re-apply show selected only filter if enabled
+    applyShowSelectedOnly();
 }
 
 // Listen for HTMX content updates
@@ -1755,6 +1952,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initialize view settings
     initViewSettings();
     
+    // Initialize page size and show selected only settings
+    initPageSize();
+    initShowSelectedOnly();
+    
     // Render sort criteria first
     renderSortCriteria();
     
@@ -1867,6 +2068,9 @@ function clearSelection() {
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
+    
+    // Re-apply show selected only filter (will hide all if enabled)
+    applyShowSelectedOnly();
 }
 
 // Clear QID search field
