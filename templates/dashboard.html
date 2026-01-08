@@ -15,6 +15,9 @@
                     <form id="filterForm" hx-post="{{ url_for('dashboard.filter_questions') }}" 
                           hx-target="#questionList" hx-indicator="#loading">
                         
+                        <!-- Hidden field for preview language preference -->
+                        <input type="hidden" name="preview_language" id="previewLanguageInput" value="EN">
+                        
                         <!-- Subject -->
                         <div class="mb-3">
                             <label class="form-label">Subject</label>
@@ -297,6 +300,15 @@
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewSubtopics" value="subtopics">
                                     <label class="form-check-label" for="viewSubtopics">Subtopics (M2M)</label>
+                                </div>
+                                <div class="dropdown-divider"></div>
+                                <div class="dropdown-header">Preview Language</div>
+                                <div class="px-1">
+                                    <select class="form-select form-select-sm" id="previewLanguage" onchange="onPreviewLanguageChange()">
+                                        <option value="EN" selected>English First</option>
+                                        <option value="CH">Chinese First</option>
+                                    </select>
+                                    <small class="text-muted d-block mt-1">Order: Preferred → Bilingual → Other</small>
                                 </div>
                             </div>
                         </div>
@@ -588,7 +600,8 @@ const STORAGE_KEYS = {
     SELECTED_QUESTIONS: 'oqb_selectedQuestions',
     FILTER_SETTINGS: 'oqb_filterSettings',
     SORT_CONFIG: 'oqb_sortConfig',
-    VIEW_SETTINGS: 'oqb_viewSettings'
+    VIEW_SETTINGS: 'oqb_viewSettings',
+    PREVIEW_LANGUAGE: 'oqb_previewLanguage'
 };
 
 // Default view settings (what tags to show)
@@ -618,8 +631,50 @@ function initViewSettings() {
         checkbox.addEventListener('change', onViewSettingChange);
     });
     
+    // Load saved preview language or use default (EN)
+    const savedLanguage = localStorage.getItem(STORAGE_KEYS.PREVIEW_LANGUAGE) || 'EN';
+    const langSelect = document.getElementById('previewLanguage');
+    if (langSelect) {
+        langSelect.value = savedLanguage;
+    }
+    // Also update hidden input
+    updatePreviewLanguageInput();
+    
     // Apply initial visibility
     applyViewSettings();
+}
+
+// Handle preview language change
+function onPreviewLanguageChange() {
+    const langSelect = document.getElementById('previewLanguage');
+    const newLanguage = langSelect.value;
+    
+    // Save to localStorage
+    localStorage.setItem(STORAGE_KEYS.PREVIEW_LANGUAGE, newLanguage);
+    
+    // Update hidden input for form submission
+    updatePreviewLanguageInput();
+    
+    // Re-apply filters to refresh questions with new language preference
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) {
+        htmx.trigger(filterForm, 'submit');
+    }
+}
+
+// Update hidden preview language input
+function updatePreviewLanguageInput() {
+    const langSelect = document.getElementById('previewLanguage');
+    const hiddenInput = document.getElementById('previewLanguageInput');
+    if (langSelect && hiddenInput) {
+        hiddenInput.value = langSelect.value;
+    }
+}
+
+// Get current preview language preference
+function getPreviewLanguage() {
+    const langSelect = document.getElementById('previewLanguage');
+    return langSelect ? langSelect.value : 'EN';
 }
 
 function onViewSettingChange() {

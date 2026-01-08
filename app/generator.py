@@ -70,6 +70,10 @@ def create_document():
     show_qid = request.form.get('show_qid') == 'on'
     show_qid_answer = request.form.get('show_qid_answer') == 'on'
     
+    # Language preference: EN or CH
+    # Order: preferred > BI > other
+    preferred_language = request.form.get('preferred_language', 'EN')
+    
     # Build spacing config for document generation
     spacing_config = {
         'mc': {
@@ -118,7 +122,8 @@ def create_document():
             answer_mode, 
             spacing_config,
             show_qid,
-            show_qid_answer
+            show_qid_answer,
+            preferred_language
         )
         
         # Save document
@@ -196,7 +201,7 @@ def add_after_spacing(doc, spacing):
         return False
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN'):
     """
     Create Word document with questions
     
@@ -206,6 +211,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines
         show_qid: Show question ID for questions
         show_qid_answer: Show question ID for answers/solutions
+        preferred_language: 'EN' or 'CH' - order: preferred > BI > other
     """
     doc = Document()
     
@@ -241,7 +247,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
@@ -259,7 +265,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -267,7 +273,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -283,7 +289,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -295,23 +301,26 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language)
             elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN'):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
+    
+    Args:
+        preferred_language: 'EN' or 'CH' - order: preferred > BI > other
     """
     # Add QID as heading if requested
     if show_qid:
@@ -320,14 +329,36 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         heading_run.bold = True
         heading_run.font.size = Pt(12)
     
-    # Get asset (prefer EN, then CH, then BI; prefer IMG over DOC)
-    asset = QuestionAsset.query.filter_by(
+    # Get all available assets for this question and type
+    assets = QuestionAsset.query.filter_by(
         question_id=question.id,
         asset_type=asset_type
-    ).order_by(
-        QuestionAsset.file_format.asc(),  # IMG before DOC
-        QuestionAsset.language.desc()      # EN > CH > BI
-    ).first()
+    ).all()
+    
+    if not assets:
+        # No asset found, add placeholder
+        para = doc.add_paragraph()
+        run = para.add_run(f'[{asset_type} not available for {question.qid}]')
+        run.italic = True
+        return
+    
+    # Sort assets by language preference and format
+    # Language order: preferred > BI > other
+    def lang_order(asset):
+        if asset.language == preferred_language:
+            return 0
+        elif asset.language == 'BI':
+            return 1
+        else:
+            return 2
+    
+    # Format order: IMG before DOC
+    def format_order(asset):
+        return 0 if asset.file_format == 'IMG' else 1
+    
+    # Sort by format first (IMG preferred), then by language
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a)))
+    asset = sorted_assets[0] if sorted_assets else None
     
     if not asset:
         # No asset found, add placeholder

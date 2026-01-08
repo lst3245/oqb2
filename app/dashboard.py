@@ -3,7 +3,7 @@ Dashboard routes for question browsing and filtering
 """
 from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file
 from flask_login import login_required, current_user
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject
 from app.utils import natural_sort, apply_multi_sort
@@ -39,6 +39,7 @@ def filter_questions():
     q_type = request.args.get('q_type') or request.form.get('q_type')
     qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
     page = int(request.args.get('page', 1))
+    preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
     
     # Get sort configuration - supports multi-level sorting
     # Format: [{"field": "qid", "direction": "asc"}, {"field": "year", "direction": "desc"}]
@@ -178,16 +179,32 @@ def filter_questions():
     total_pages = (total + per_page - 1) // per_page
     
     # Prepare question data with assets
+    # Build language ordering: preferred > BI > other
+    if preview_language == 'CH':
+        lang_order = case(
+            (QuestionAsset.language == 'CH', 1),
+            (QuestionAsset.language == 'BI', 2),
+            (QuestionAsset.language == 'EN', 3),
+            else_=4
+        )
+    else:  # EN (default)
+        lang_order = case(
+            (QuestionAsset.language == 'EN', 1),
+            (QuestionAsset.language == 'BI', 2),
+            (QuestionAsset.language == 'CH', 3),
+            else_=4
+        )
+    
     question_data = []
     for q in questions:
-        # Get QUE asset (prefer EN image)
+        # Get QUE asset with language preference ordering
         que_asset = QuestionAsset.query.filter_by(
             question_id=q.id,
             asset_type='QUE'
         ).filter(
             QuestionAsset.language.in_(['EN', 'CH', 'BI'])
         ).order_by(
-            QuestionAsset.language.desc()  # EN > CH > BI
+            lang_order  # Preferred > BI > Other
         ).first()
         
         # Check for ANS and SOL
