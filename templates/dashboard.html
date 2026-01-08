@@ -242,10 +242,12 @@
         <!-- Question List -->
         <div class="col-md-9">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5><i class="bi bi-list-ul"></i> Questions</h5>
+                <div class="card-header sticky-question-header d-flex justify-content-between align-items-center">
                     <div class="d-flex align-items-center gap-2">
+                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> Questions</h5>
                         <span id="mainSelectionCounter" class="badge bg-secondary">0 selected</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-outline-danger" 
                                 onclick="clearSelection()" title="Clear all selections">
                             <i class="bi bi-x-circle"></i> Clear
@@ -258,8 +260,42 @@
                         {% endif %}
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" 
                                 onclick="generateDocument()">
-                            <i class="bi bi-file-earmark-word"></i> Generate Document
+                            <i class="bi bi-file-earmark-word"></i> Generate
                         </button>
+                        <!-- View Settings Dropdown -->
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
+                                    id="viewSettingsBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 200px;">
+                                <div class="dropdown-header">Show Tags</div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewLevel" value="level" checked>
+                                    <label class="form-check-label" for="viewLevel">Level</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewQType" value="qtype" checked>
+                                    <label class="form-check-label" for="viewQType">Question Type</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewMajorTopic" value="major-topic" checked>
+                                    <label class="form-check-label" for="viewMajorTopic">Major Topic</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewMajorSubtopic" value="major-subtopic" checked>
+                                    <label class="form-check-label" for="viewMajorSubtopic">Major Subtopic</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewMinorTopics" value="minor-topics" checked>
+                                    <label class="form-check-label" for="viewMinorTopics">Minor Topics</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewSubtopics" value="subtopics">
+                                    <label class="form-check-label" for="viewSubtopics">Subtopics (M2M)</label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="card-body">
@@ -424,11 +460,87 @@ let selectedQuestions = new Set();
 const STORAGE_KEYS = {
     SELECTED_QUESTIONS: 'oqb_selectedQuestions',
     FILTER_SETTINGS: 'oqb_filterSettings',
-    SORT_CONFIG: 'oqb_sortConfig'
+    SORT_CONFIG: 'oqb_sortConfig',
+    VIEW_SETTINGS: 'oqb_viewSettings'
+};
+
+// Default view settings (what tags to show)
+const DEFAULT_VIEW_SETTINGS = {
+    'level': true,
+    'qtype': true,
+    'major-topic': true,
+    'major-subtopic': true,
+    'minor-topics': true,
+    'subtopics': false  // M2M subtopics hidden by default
 };
 
 // Default subject
 const DEFAULT_SUBJECT = 'MATC';
+
+// ============== VIEW SETTINGS FUNCTIONS ==============
+
+function initViewSettings() {
+    // Load saved view settings or use defaults
+    const savedSettings = localStorage.getItem(STORAGE_KEYS.VIEW_SETTINGS);
+    const viewSettings = savedSettings ? JSON.parse(savedSettings) : DEFAULT_VIEW_SETTINGS;
+    
+    // Set checkbox states
+    document.querySelectorAll('.view-setting').forEach(checkbox => {
+        const setting = checkbox.value;
+        checkbox.checked = viewSettings[setting] !== undefined ? viewSettings[setting] : DEFAULT_VIEW_SETTINGS[setting];
+        checkbox.addEventListener('change', onViewSettingChange);
+    });
+    
+    // Apply initial visibility
+    applyViewSettings();
+}
+
+function onViewSettingChange() {
+    applyViewSettings();
+    saveViewSettings();
+}
+
+function applyViewSettings() {
+    const settings = getViewSettings();
+    
+    // Map setting names to CSS class names
+    const tagClassMap = {
+        'level': 'tag-level',
+        'qtype': 'tag-qtype',
+        'major-topic': 'tag-major-topic',
+        'major-subtopic': 'tag-major-subtopic',
+        'minor-topics': 'tag-minor-topics',
+        'subtopics': 'tag-subtopics'
+    };
+    
+    // Apply visibility to all tag elements
+    Object.entries(tagClassMap).forEach(([setting, className]) => {
+        const elements = document.querySelectorAll(`.${className}`);
+        const display = settings[setting] ? '' : 'none';
+        elements.forEach(el => el.style.display = display);
+    });
+}
+
+function getViewSettings() {
+    const settings = {};
+    document.querySelectorAll('.view-setting').forEach(checkbox => {
+        settings[checkbox.value] = checkbox.checked;
+    });
+    return settings;
+}
+
+function saveViewSettings() {
+    const settings = getViewSettings();
+    localStorage.setItem(STORAGE_KEYS.VIEW_SETTINGS, JSON.stringify(settings));
+}
+
+// Re-apply view settings after HTMX content swap
+document.body.addEventListener('htmx:afterSwap', function(event) {
+    if (event.detail.target.id === 'questionList') {
+        applyViewSettings();
+        initializeSelectionState();
+    }
+});
 
 // Sort configuration
 const SORT_FIELDS = {
@@ -1321,6 +1433,9 @@ function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
 document.addEventListener('DOMContentLoaded', async function() {
     // Load persisted state from localStorage
     const savedFilters = loadStateFromStorage();
+    
+    // Initialize view settings
+    initViewSettings();
     
     // Render sort criteria first
     renderSortCriteria();

@@ -219,6 +219,7 @@ def filter_questions():
             'minor_topic_ids': [t.id for t in q.minor_topics],
             'minor_topics': [t.name for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],
+            'subtopics': [s.name for s in q.subtopics],
             'description': q.description,
             'que_asset_id': que_asset.id if que_asset else None,
             'has_ans': has_ans,

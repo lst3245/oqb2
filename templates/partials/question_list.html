@@ -22,8 +22,7 @@
             </div>
         </div>
         <div>
-            <span class="badge bg-primary" id="selectionCounter">0 selected</span>
-            <span class="text-muted">/ {{ total }} total</span>
+            <span class="text-muted">{{ total }} total</span>
         </div>
     </div>
 
@@ -48,26 +47,37 @@
                         {% if question.paper %} {{ question.paper }}{% endif %}
                         {% if question.section %} Sec {{ question.section }}{% endif %}
                     </small><br>
+                    <span class="tag-level">
                     {% if question.level %}
                     <span class="badge bg-secondary">Level {{ question.level }}</span>
                     {% else %}
                     <span class="badge bg-secondary text-muted">Level -</span>
                     {% endif %}
+                    </span>
+                    <span class="tag-qtype">
                     {% if question.q_type %}
                     <span class="badge bg-info">{{ question.q_type }}</span>
                     {% else %}
                     <span class="badge bg-info text-muted">Type -</span>
                     {% endif %}
-                    <span class="badge bg-primary">{{ question.major_topic }}</span>
+                    </span>
+                    <span class="tag-major-topic"><span class="badge bg-primary">{{ question.major_topic }}</span></span>
                     {% if question.major_subtopic %}
-                    <span class="badge" style="background-color: #17a2b8; color: white;">{{ question.major_subtopic }}</span>
+                    <span class="tag-major-subtopic"><span class="badge" style="background-color: #17a2b8; color: white;">{{ question.major_subtopic }}</span></span>
                     {% endif %}
                     {% if question.minor_topics %}
-                    <div class="mt-1">
+                    <span class="tag-minor-topics">
                         {% for minor in question.minor_topics %}
                         <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ minor }}</span>
                         {% endfor %}
-                    </div>
+                    </span>
+                    {% endif %}
+                    {% if question.subtopics %}
+                    <span class="tag-subtopics">
+                        {% for subtopic in question.subtopics %}
+                        <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ subtopic }}</span>
+                        {% endfor %}
+                    </span>
                     {% endif %}
                     {% if question.description %}
                     <div class="mt-2">
