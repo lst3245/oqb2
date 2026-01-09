@@ -325,16 +325,18 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     Args:
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
         show_correct_pct: Show correct percentage (format: "QID [X%]" or just "[X%]" if no QID)
+                          Only shown for QUE type, not for ANS or SOL
     """
     # Add QID and/or percentage as heading if requested
-    if show_qid or show_correct_pct:
+    if show_qid or (show_correct_pct and asset_type == 'QUE'):
         heading = doc.add_paragraph()
         heading_text = ""
         
         if show_qid:
             heading_text = question.qid
         
-        if show_correct_pct and question.correct_percentage is not None:
+        # Only show percentage for QUE (question), not for ANS or SOL
+        if show_correct_pct and asset_type == 'QUE' and question.correct_percentage is not None:
             if heading_text:
                 heading_text += f" [{question.correct_percentage}%]"
             else:
