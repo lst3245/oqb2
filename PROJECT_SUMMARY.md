@@ -58,8 +58,14 @@ Lines of Code: ~3,500+
 ✅ **Topic Model** - Main topic categories
 ✅ **Subtopic Model** - Specific skills within topics
 ✅ **Question Model** - Logical question records with metadata
+  - Core: qid, subject, source, year, paper, section, qno
+  - Metadata: q_type, level, description, major_subtopic_id
+  - Relations: major_topic_id, minor_topics (M2M), subtopics (M2M)
 ✅ **QuestionAsset Model** - Physical files (QUE/ANS/SOL)
+  - Fields: asset_type, file_format (IMG/DOC), language (EN/CH/BI)
 ✅ **Association Tables** - Many-to-many relationships
+  - question_minor_topics (cross-topic support)
+  - question_subtopics (multiple subtopics per question)
 
 ### 2. Authentication System (Flask-Login)
 ✅ User login/logout
@@ -70,53 +76,74 @@ Lines of Code: ~3,500+
 ✅ User registration (admin-only)
 
 ### 3. File Ingestor Module
-✅ Recursive directory scanning
+✅ Recursive directory scanning with natural sorting
 ✅ Regex-based filename parsing
    - PP format: `SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE.EXT`
    - QB format: `SUBJ_QB_DETAIL_QNO_LANG_TYPE.EXT`
 ✅ Question ID construction
-✅ Upsert logic (insert or update)
+✅ Upsert logic (insert or update existing records)
 ✅ Asset management (IMG/DOC, EN/CH/BI)
+✅ Automatic question type detection (MC/CQ based on subject/paper)
 ✅ Error logging to `ingest_errors.log`
 ✅ CLI command: `python cli.py ingest`
+✅ **Database Sync**: Remove orphaned records
+   - Dry-run mode to preview deletions
+   - Delete assets when source files missing
+   - Delete questions when no assets remain
+   - CLI command: `python cli.py sync --no-dry-run`
 
 ### 4. Dashboard - Question Browser
 ✅ Advanced filtering system:
    - Subject selection
    - Source type (DSE/CE/AL/QB)
-   - Multiple year selection
-   - Section filtering (A, B)
-   - Multi-topic selection
-   - Cross-topic search
-   - Subtopic filtering (dynamic)
-   - Level selection (1, 2, 3)
-   - Question type (MC/CQ)
-✅ Natural sorting (Q1, Q2, Q10 - not Q1, Q10, Q2)
-✅ Pagination (20 questions per page)
-✅ Image previews
+   - Multiple year selection (dynamic based on subject/source)
+   - Section filtering (A, B, or All)
+   - Multi-topic selection with AND/OR mode
+   - Cross-topic search (includes minor topics)
+   - Subtopic filtering (dynamic based on selected topics)
+   - Level selection (1, 2, 3, or "Not Assigned")
+   - Question type (MC/CQ/All)
+   - **Direct QID search** with wildcard support (e.g., `MATC_DSE_2024*`)
+✅ **Multi-level sorting** (sort by multiple fields with priority)
+   - Sort by: QID, Year, Level, Topic, Subtopic, Source, Section, Type, Created Time
+   - Natural sorting for text fields (Q1, Q2, Q10)
+✅ **Configurable pagination** (10, 20, 50, 100 per page)
+✅ **Preview language preference** (prioritize EN or CH, with BI fallback)
+✅ Image previews with language-aware asset selection
 ✅ Answer/Solution preview modals
 ✅ Question selection with checkboxes
-✅ HTMX for dynamic updates
+✅ "Select All on Page" functionality
+✅ HTMX for dynamic updates without page reloads
+✅ Session persistence for filter and sort settings
 
 ### 5. Document Generator
 ✅ Word document creation (python-docx)
-✅ A4 page size with narrow margins
-✅ Image insertion with auto-resizing
-✅ Multiple sort options:
-   - By question ID (natural order)
-   - By difficulty level
-   - By year
-   - By topic
+✅ A4 page size (29.7 x 21.0 cm) with narrow margins (1.27 cm)
+✅ Image insertion with auto-resizing (max 6 inches width)
+✅ **Flexible sorting**:
+   - Preserve selection order
+   - Multi-level custom sort (e.g., Topic → Subtopic → Level)
+   - Natural sorting for text fields
 ✅ Answer modes:
    - Questions only
-   - Question + Answer
-   - Question + Solution
-   - All questions, then all answers
-✅ Formatting options:
-   - Configurable line spacing (0-5 lines)
-   - Optional page breaks
-   - Optional question ID headings
-✅ File download with timestamp
+   - Question + Answer (inline)
+   - Question + Solution (inline)
+   - All questions, then all answers (separate sections)
+   - All questions, then all solutions (separate sections)
+✅ **Smart spacing control**:
+   - Separate settings for MC and CQ questions
+   - Before question: Skip N lines OR start new page
+   - After question: Skip N lines OR start new page
+   - Intelligent page break handling (avoids duplicates)
+✅ **Language preference**:
+   - Prioritize English or Chinese assets
+   - Automatic fallback to Bilingual
+   - Format preference: IMG before DOC
+✅ Display options:
+   - Show/hide question IDs on questions
+   - Show/hide question IDs on answers/solutions
+✅ File download with timestamp (questions_YYYYMMDD_HHMMSS.docx)
+✅ Graceful handling of missing assets
 
 ### 6. Admin Panel - Topic Management
 ✅ View all topics by subject
@@ -132,30 +159,49 @@ Lines of Code: ~3,500+
 ✅ Browse questions with filters
 ✅ Preview question/answer/solution
 ✅ Edit question metadata:
-   - Major topic
-   - Minor topics (multiple)
-   - Subtopics (multiple)
-   - Difficulty level (1/2/3)
-   - Question type (MC/CQ)
-   - Section
+   - Major topic (one)
+   - Major subtopic (one, from major topic)
+   - Minor topics (multiple, cross-topic support)
+   - Subtopics (multiple, many-to-many)
+   - Difficulty level (1/2/3 or NULL)
+   - Question type (MC/CQ or NULL)
+   - Section (A, B, etc.)
+   - Description (optional text field)
 ✅ Save changes to database
 ✅ Dynamic topic/subtopic loading
+✅ Validation (major subtopic must belong to major topic)
 
-### 8. User Interface (Bootstrap 5 + HTMX)
+### 8. Batch Operations (Admin)
+✅ **Batch Update Questions**:
+   - Select multiple questions
+   - Choose which fields to update
+   - Apply changes to all selected
+   - Supported fields: level, type, section, all topic/subtopic fields
+✅ **Batch Delete Questions**:
+   - Select multiple questions
+   - Permanently delete with confirmation
+   - Cascade delete assets
+   - Returns count and list of deleted QIDs
+
+### 9. User Interface (Bootstrap 5 + HTMX)
 ✅ Responsive design (mobile-friendly)
-✅ Bootstrap 5 components
+✅ Bootstrap 5 components (cards, modals, badges, alerts)
 ✅ HTMX for dynamic interactions
-✅ No page reloads for filtering
-✅ Modal popups for previews
+✅ No page reloads for filtering and pagination
+✅ Modal popups for previews and editing
 ✅ Icon library (Bootstrap Icons)
-✅ Flash messages for feedback
+✅ Flash messages for user feedback
 ✅ Sticky filter sidebar
+✅ Loading indicators
+✅ Confirmation dialogs for destructive actions
 
-### 9. File Serving & Security
+### 10. File Serving & Security
 ✅ Protected file routes (login required)
 ✅ Static file serving from Source directory
-✅ Image preview endpoints
+✅ Image preview endpoints with language preference
 ✅ Asset metadata API endpoints
+✅ Secure session management
+✅ Admin-only routes protection
 
 ## 🔧 Technical Specifications
 
@@ -411,12 +457,13 @@ See **TESTING.md** for comprehensive testing procedures.
 - **Error Logs**: Check `ingest_errors.log` and terminal output
 - **Database Issues**: Check phpMyAdmin for data verification
 
-## 🎉 Implementation Complete!
+## 🎉 Implementation Complete - Version 2.0!
 
-The Online Question Bank System is fully implemented and ready for deployment. All features from the original specification have been included:
+The Online Question Bank System is fully implemented and enhanced with advanced features. All features from the original specification have been included, plus significant improvements:
 
+### Core Features (v1.0)
 ✅ Complete Flask application structure
-✅ MariaDB database with 7 tables
+✅ MariaDB database with 8 tables (7 models + 2 association tables)
 ✅ User authentication with admin roles
 ✅ File ingestor with regex parsing
 ✅ Advanced filtering dashboard
@@ -430,11 +477,29 @@ The Online Question Bank System is fully implemented and ready for deployment. A
 ✅ Multi-language support
 ✅ Comprehensive documentation
 
-**Total Development Components**: 11/11 ✓
+### Enhanced Features (v2.0)
+✅ Multi-level sorting with custom priority
+✅ Batch update and batch delete operations
+✅ Database sync command for orphaned records
+✅ Smart spacing control (separate MC/CQ settings)
+✅ Direct QID search with wildcards
+✅ Topic AND/OR filtering modes
+✅ Language preference system (EN/CH/BI)
+✅ Major subtopic support
+✅ Question descriptions field
+✅ Configurable page size
+✅ Enhanced document generation modes
+✅ Session persistence for filters and sorts
+✅ Dynamic year loading by subject/source
+✅ Intelligent page break handling
+
+**Total Development Components**: 15/15 ✓
 **Total Files Created**: 30+
-**Lines of Code**: ~3,500+
-**Documentation Pages**: 4
+**Lines of Code**: ~4,500+
+**Documentation Pages**: 4 (all updated for v2.0)
+**Database Tables**: 8
+**API Endpoints**: 25+
 
 ---
 
-**Ready to use! Follow SETUP.md to get started.**
+**Production Ready! Follow SETUP.md to get started.**
