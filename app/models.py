@@ -89,7 +89,7 @@ class Question(db.Model):
     source = db.Column(db.String(20), nullable=False, index=True)  # DSE, CE, AL, QB
     year = db.Column(db.Integer, nullable=True, index=True)  # NULL for QB
     paper = db.Column(db.String(10), nullable=True)  # P1, P2, etc.
-    section = db.Column(db.String(5), nullable=True)  # A, B, etc.
+    section = db.Column(db.String(50), nullable=True)  # A, B, Section I, Section II, etc.
     qno = db.Column(db.Integer, nullable=False)  # Question number (integer part of Q5)
     q_type = db.Column(db.String(10), nullable=True)  # MC, CQ, or NULL
     level = db.Column(db.Integer, nullable=True)  # 1, 2, 3, or NULL

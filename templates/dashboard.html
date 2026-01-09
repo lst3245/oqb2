@@ -76,10 +76,8 @@
                         <!-- Section -->
                         <div class="mb-3">
                             <label class="form-label">Section</label>
-                            <select class="form-select" name="section">
+                            <select class="form-select" name="section" id="sectionSelect">
                                 <option value="all">All</option>
-                                <option value="A">A</option>
-                                <option value="B">B</option>
                             </select>
                         </div>
 
@@ -1599,7 +1597,14 @@ async function loadSubjectData(subjectId, sourceType) {
         document.getElementById('yearDropdownLabel').textContent = 'N/A';
     }
     
-    await Promise.all([topicsPromise, yearsPromise]);
+    // Load sections for the subject and source
+    let sectionsPromise = fetch(`{{ url_for('dashboard.get_sections', subject_id='__SUBJECT_ID__', source='__SOURCE__') }}`.replace('__SUBJECT_ID__', subjectId).replace('__SOURCE__', sourceType))
+        .then(r => r.json())
+        .then(sections => {
+            populateSectionDropdown(sections);
+        });
+    
+    await Promise.all([topicsPromise, yearsPromise, sectionsPromise]);
 }
 
 // Render year checkboxes in dropdown
@@ -1690,6 +1695,32 @@ function selectAllYears() {
 function clearAllYears() {
     document.querySelectorAll('.year-checkbox').forEach(cb => cb.checked = false);
     updateYearDropdownLabel();
+}
+
+// ============== SECTION DROPDOWN FUNCTIONS ==============
+
+// Populate section dropdown with dynamic sections from database
+function populateSectionDropdown(sections, selectedSection = 'all') {
+    const sectionSelect = document.getElementById('sectionSelect');
+    
+    if (!sections || sections.length === 0) {
+        sectionSelect.innerHTML = '<option value="all">All (No sections available)</option>';
+        return;
+    }
+    
+    // Build options: start with "All"
+    let optionsHtml = '<option value="all">All</option>';
+    
+    // Add each section from database
+    sections.forEach(section => {
+        optionsHtml += `<option value="${section}">${section}</option>`;
+    });
+    
+    sectionSelect.innerHTML = optionsHtml;
+    sectionSelect.value = selectedSection;
+    
+    saveStateToStorage();
+    checkFilterModification();
 }
 
 // ============== TOPIC DROPDOWN FUNCTIONS ==============
@@ -2033,7 +2064,7 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
     checkFilterModification();
 });
 
-// Source type change - reload years
+// Source type change - reload years and sections
 document.querySelectorAll('input[name="source_type"]').forEach(radio => {
     radio.addEventListener('change', function() {
         const subjectId = document.getElementById('subjectSelect').value;
@@ -2051,9 +2082,24 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
             document.getElementById('yearDropdownLabel').textContent = 'N/A';
         }
         
+        // Load sections for the new source type
+        if (subjectId) {
+            fetch(`{{ url_for('dashboard.get_sections', subject_id='__SUBJECT_ID__', source='__SOURCE__') }}`.replace('__SUBJECT_ID__', subjectId).replace('__SOURCE__', sourceType))
+                .then(r => r.json())
+                .then(sections => {
+                    populateSectionDropdown(sections);
+                });
+        }
+        
         saveStateToStorage();
         checkFilterModification();
     });
+});
+
+// Section change - save state
+document.getElementById('sectionSelect').addEventListener('change', function() {
+    saveStateToStorage();
+    checkFilterModification();
 });
 
 // Topic change is now handled by onTopicChange() via checkbox onclick handlers

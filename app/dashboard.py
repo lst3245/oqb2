@@ -312,6 +312,20 @@ def get_years(subject_id, source):
     
     return jsonify([y[0] for y in years])
 
+@dashboard_bp.route('/api/sections/<subject_id>/<source>')
+@login_required
+def get_sections(subject_id, source):
+    """Get available sections for a subject and source"""
+    sections = db.session.query(Question.section)\
+        .filter(Question.subject == subject_id)\
+        .filter(Question.source == source)\
+        .filter(Question.section.isnot(None))\
+        .distinct()\
+        .order_by(Question.section)\
+        .all()
+    
+    return jsonify([s[0] for s in sections])
+
 @dashboard_bp.route('/files/<path:filepath>')
 @login_required
 def serve_file(filepath):
