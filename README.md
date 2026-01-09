@@ -6,16 +6,24 @@ A comprehensive Flask-based web application for managing, filtering, and generat
 
 ### 📚 Question Management
 - **Automated Ingestion**: Scan and import questions from organized file structures
+- **Database Sync**: Remove orphaned records when source files are deleted
 - **Flexible Tagging**: Tag questions with topics, subtopics, difficulty levels
-- **Multi-Language Support**: Handle English, Chinese, and Bilingual content
+- **Multi-Language Support**: Handle English, Chinese, and Bilingual content with language preference
 - **Multiple Formats**: Support for images (PNG, JPG) and Word documents
+- **Batch Operations**: Update or delete multiple questions at once
+- **Direct QID Search**: Quick search by question ID with wildcard support
 
 ### 🔍 Advanced Filtering
 - Filter by subject, source (DSE/CE/AL/QB), year, paper
 - Topic and subtopic filtering with cross-topic search
-- Difficulty level selection (1, 2, 3)
+- **Topic Mode**: AND/OR logic for multi-topic filtering
+- Difficulty level selection (1, 2, 3) with "Not Assigned" option
 - Question type filtering (Multiple Choice, Conventional)
+- Section filtering (A, B, etc.)
+- **Multi-level Sorting**: Sort by multiple fields simultaneously (e.g., topic → level → year)
 - Natural ordering (Q1, Q2, Q10 - not Q1, Q10, Q2)
+- Configurable page size (10, 20, 50, 100 items)
+- Preview language preference (English or Chinese priority)
 
 ### 📄 Document Generation
 - Generate custom Word documents from selected questions
@@ -24,15 +32,31 @@ A comprehensive Flask-based web application for managing, filtering, and generat
   - Questions with answers
   - Questions with solutions
   - All questions, then all answers
-- Sorting options: by ID, level, year, or topic
-- A4 page size with configurable margins
+  - All questions, then all solutions
+- **Flexible Sorting**: 
+  - Preserve selection order
+  - Multi-level custom sorting (e.g., topic → subtopic → level)
+- **Smart Spacing Control**:
+  - Separate settings for MC and CQ questions
+  - Line spacing or page breaks (before/after each question)
+  - Intelligent page break handling (avoids duplicate breaks)
+- **Language Preference**: Prioritize English or Chinese assets (with Bilingual fallback)
+- Optional question ID display (for questions and/or answers)
+- A4 page size with narrow margins
 - Automatic image resizing for proper fit
 
 ### 🔧 Admin Features
-- Topic and subtopic management
-- Question metadata editing
-- User management with role-based access
-- Preview questions, answers, and solutions
+- **Topic Management**: Full CRUD operations for topics and subtopics
+- **Question Tagging**: 
+  - Edit major topic and subtopic
+  - Add multiple minor topics
+  - Assign multiple subtopics
+  - Set level, type, section, and description
+- **Batch Operations**:
+  - Batch update metadata for selected questions
+  - Batch delete questions with confirmation
+- **User Management**: Create users with admin/regular roles
+- **Asset Preview**: Preview questions, answers, and solutions inline
 
 ### 🔒 Security
 - User authentication with Flask-Login
@@ -142,39 +166,104 @@ Run the ingestor:
 python cli.py ingest
 ```
 
-### 2. Browse and Filter Questions
+### 2. Sync Database (Optional)
+
+If you've deleted or moved source files, sync the database to remove orphaned records:
+
+```bash
+# Preview what would be deleted (dry-run)
+python cli.py sync
+
+# Actually delete orphaned records
+python cli.py sync --no-dry-run
+```
+
+### 3. Browse and Filter Questions
 
 1. Login to the dashboard
-2. Select filters (subject, source, topics, etc.)
-3. View question previews
-4. Select questions for document generation
+2. Select filters:
+   - **Subject**: Choose MATC, MAT1, MAT2, or ICT
+   - **Source Type**: DSE, CE, AL, or QB
+   - **Years**: Select multiple years (PP only)
+   - **Topics**: Select one or more topics
+   - **Topic Mode**: AND (must have all) or OR (any of them)
+   - **Cross-topic**: Include questions with selected topics as minor topics
+   - **Subtopics**: Auto-loads based on selected topics
+   - **Levels**: 1, 2, 3, or "Not Assigned"
+   - **Question Type**: MC, CQ, or All
+   - **Section**: A, B, or All
+   - **QID Search**: Direct search by question ID (supports wildcards)
+3. Configure display:
+   - **Page Size**: 10, 20, 50, or 100 questions per page
+   - **Preview Language**: Prioritize English or Chinese
+   - **Multi-level Sort**: Click column headers to add sort levels
+4. View question previews with Answer/Solution buttons
+5. Select questions with checkboxes
 
-### 3. Generate Documents
+### 4. Generate Documents
 
-1. Select desired questions
-2. Click "Generate Document"
+1. Select desired questions (or use "Select All on Page")
+2. Click "Generate Document" button
 3. Choose generation options:
-   - Sort order
-   - Answer mode
-   - Formatting preferences
-4. Download the generated Word document
+   - **Sort Mode**: 
+     - Selection order (as you selected them)
+     - Custom multi-level sort (e.g., Topic → Level → Year)
+   - **Answer Mode**:
+     - Questions Only
+     - Question + Answer
+     - Question + Solution
+     - All Questions, Then All Answers
+     - All Questions, Then All Solutions
+   - **Spacing** (separate for MC and CQ):
+     - Before: Skip lines or Start new page
+     - After: Skip lines or Start new page
+   - **Display Options**:
+     - Show Question ID on questions
+     - Show Question ID on answers/solutions
+   - **Language**: Prefer English or Chinese assets
+4. Click "Generate & Download"
+5. Open the Word document
 
-### 4. Manage Topics (Admin)
+### 5. Manage Topics (Admin)
 
-1. Go to Admin → Manage Topics
-2. Add, edit, or delete topics and subtopics
-3. Organize your question taxonomy
+1. Go to **Admin → Manage Topics**
+2. View topics organized by subject
+3. Operations:
+   - **Add Topic**: Create new topic under a subject
+   - **Edit Topic**: Rename existing topic
+   - **Delete Topic**: Remove topic (and its subtopics)
+   - **Add Subtopic**: Add skill under a topic
+   - **Edit Subtopic**: Rename subtopic
+   - **Delete Subtopic**: Remove subtopic
 
-### 5. Tag Questions (Admin)
+### 6. Tag Questions (Admin)
 
-1. Go to Admin → Tag Questions
-2. Filter questions to find ones to tag
-3. Edit metadata:
-   - Major and minor topics
-   - Subtopics
-   - Difficulty level
-   - Question type
-   - Section
+1. Go to **Admin → Tag Questions**
+2. Filter questions to find the ones to tag
+3. Click "Edit Tags" on a question
+4. Edit metadata:
+   - **Major Topic**: Primary topic (one only)
+   - **Major Subtopic**: Primary subtopic (from major topic)
+   - **Minor Topics**: Additional topics (multiple allowed)
+   - **Subtopics**: Additional skills (multiple allowed)
+   - **Level**: 1, 2, or 3
+   - **Question Type**: MC or CQ
+   - **Section**: A, B, etc.
+   - **Description**: Optional text description
+5. Save changes
+
+### 7. Batch Operations (Admin)
+
+**Batch Update:**
+1. Filter and select multiple questions
+2. Click "Batch Update"
+3. Choose which fields to update
+4. Set values and apply to all selected
+
+**Batch Delete:**
+1. Filter and select multiple questions
+2. Click "Batch Delete"
+3. Confirm deletion (WARNING: This is permanent!)
 
 ## Testing
 
@@ -182,14 +271,18 @@ See [TESTING.md](TESTING.md) for comprehensive testing guide.
 
 ## Database Schema
 
-- **users**: User accounts and authentication
-- **subjects**: Subject definitions (MATC, MAT1, etc.)
-- **topics**: Main topic categories
-- **subtopics**: Specific skills under topics
+- **users**: User accounts and authentication (username, password_hash, is_admin, created_at)
+- **subjects**: Subject definitions (id: MATC/MAT1/MAT2/ICT, name)
+- **topics**: Main topic categories (id, subject_id, name)
+- **subtopics**: Specific skills under topics (id, topic_id, name)
 - **questions**: Logical question records
+  - Core fields: qid (unique), subject, source, year, paper, section, qno
+  - Metadata: q_type (MC/CQ), level (1/2/3), description
+  - Topic relations: major_topic_id, major_subtopic_id
 - **question_assets**: Physical files (QUE/ANS/SOL)
-- **question_minor_topics**: Cross-topic associations
-- **question_subtopics**: Question-subtopic associations
+  - Fields: question_id, asset_type, file_format (IMG/DOC), language (EN/CH/BI), file_path
+- **question_minor_topics**: Many-to-many for cross-topic associations
+- **question_subtopics**: Many-to-many for multiple subtopics per question
 
 ## Configuration
 
@@ -213,26 +306,52 @@ python cli.py ingest
 
 # Ingest from custom path
 python cli.py ingest --source-path "D:/Custom/Path"
+
+# Sync database with filesystem (dry-run preview)
+python cli.py sync
+
+# Sync database with filesystem (actually delete orphaned records)
+python cli.py sync --no-dry-run
+
+# Sync from custom path without confirmation
+python cli.py sync --source-path "D:/Custom/Path" --no-dry-run --force
 ```
 
 ## API Endpoints
 
 ### Dashboard
 - `GET /dashboard/` - Main dashboard
-- `POST /dashboard/filter` - Filter questions
+- `GET/POST /dashboard/filter` - Filter questions (supports HTMX)
 - `GET /dashboard/api/topics/<subject_id>` - Get topics for subject
-- `GET /dashboard/api/subtopics?topic_ids=1,2` - Get subtopics
-- `GET /dashboard/files/<path>` - Serve question files
+- `GET /dashboard/api/subtopics?topic_ids=1,2` - Get subtopics for topics
+- `GET /dashboard/api/years/<subject_id>/<source>` - Get available years
+- `GET /dashboard/files/<path>` - Serve question files (login required)
+- `GET /dashboard/api/asset/<asset_id>` - Get asset metadata
+- `GET /dashboard/api/asset_preview/<asset_id>` - Get asset file for preview
+- `GET /dashboard/api/question/<question_id>/assets/<asset_type>` - Get specific asset
 
 ### Admin
-- `GET /admin/topics` - Topic management
+- `GET /admin/` - Admin dashboard
+- `GET /admin/topics` - Topic management interface
 - `POST /admin/topics/add` - Add new topic
+- `POST /admin/topics/<id>/edit` - Edit topic
+- `POST /admin/topics/<id>/delete` - Delete topic
 - `POST /admin/subtopics/add` - Add new subtopic
+- `POST /admin/subtopics/<id>/edit` - Edit subtopic
+- `POST /admin/subtopics/<id>/delete` - Delete subtopic
 - `POST /admin/questions/<id>/update` - Update question metadata
+- `POST /admin/questions/delete` - Batch delete questions
+- `POST /admin/questions/batch-update` - Batch update questions
 
 ### Generator
-- `GET /generate/` - Generation options page
-- `POST /generate/create` - Create and download document
+- `GET /generate/` - Generation options page with multi-level sort configuration
+- `POST /generate/create` - Create and download Word document
+
+### Authentication
+- `GET /` - Redirect to dashboard or login
+- `GET/POST /login` - User login
+- `GET /logout` - User logout
+- `GET/POST /register` - Register new user (admin only)
 
 ## Development
 
@@ -313,32 +432,75 @@ Copyright © 2024. All rights reserved.
 
 This system is for internal use only.
 
+## Documentation
+
+This project includes comprehensive documentation:
+
+### Getting Started
+- **[SETUP.md](SETUP.md)** - Complete installation and configuration guide
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - One-page reference for common tasks
+
+### User Documentation  
+- **[USER_GUIDE.md](USER_GUIDE.md)** - Comprehensive guide with examples and tips
+- **[TESTING.md](TESTING.md)** - Testing procedures and checklist
+
+### Technical Documentation
+- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Technical architecture and implementation details
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and upgrade guide
+
 ## Support
 
 For issues or questions:
 
-1. Check documentation:
-   - [SETUP.md](SETUP.md) - Installation guide
-   - [TESTING.md](TESTING.md) - Testing procedures
-2. Review error logs:
-   - Terminal output
-   - `ingest_errors.log`
-   - Browser console (F12)
-3. Check database in phpMyAdmin
+1. **Check Documentation**:
+   - Quick answers: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
+   - Detailed help: [USER_GUIDE.md](USER_GUIDE.md)
+   - Setup issues: [SETUP.md](SETUP.md)
+   - Recent changes: [CHANGELOG.md](CHANGELOG.md)
+
+2. **Review Error Logs**:
+   - Terminal output (when running application)
+   - `ingest_errors.log` (file ingestion errors)
+   - Browser console - Press F12 (JavaScript errors)
+
+3. **Check Database**:
+   - Open phpMyAdmin or MySQL client
+   - Verify tables exist and contain data
+   - Check `questions` and `question_assets` tables
+
+4. **Common Solutions**:
+   - Restart Flask server: `Ctrl+C` then `python run.py`
+   - Clear browser cache: `Ctrl+F5`
+   - Re-run database init: `python init_db.py`
+   - Verify `.env` configuration
 
 ## Version
 
-**Version 1.0.0** - Initial Release
+**Version 2.0.0** - Enhanced Release
 
-### Features in v1.0.0
+### What's New in v2.0.0
+- **Multi-level Sorting**: Sort by multiple fields simultaneously with custom priority
+- **Batch Operations**: Update or delete multiple questions at once
+- **Database Sync**: Remove orphaned records when files are deleted
+- **Smart Spacing**: Separate MC/CQ spacing with intelligent page break handling
+- **Direct QID Search**: Quick search by question ID with wildcard support
+- **Topic Modes**: AND/OR logic for multi-topic filtering
+- **Language Preference**: Prioritize English or Chinese in preview and generation
+- **Major Subtopics**: Assign primary subtopic to questions
+- **Enhanced Generation**: More answer modes including "Questions then Solutions"
+- **Configurable Page Size**: Choose 10, 20, 50, or 100 items per page
+- **Question Descriptions**: Add optional text descriptions to questions
+
+### Features from v1.0.0
 - Complete question management system
 - Advanced filtering and search
-- Word document generation
+- Word document generation with A4 page format
 - Admin panel for topics and tagging
-- User authentication
+- User authentication with role-based access
 - File ingestion from organized folders
 - Multi-language support (EN, CH, BI)
-- Natural sorting of questions
+- Natural sorting of questions (Q1, Q2, Q10)
+- Cross-topic search capabilities
 
 ---
 

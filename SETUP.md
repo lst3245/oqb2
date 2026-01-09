@@ -149,31 +149,62 @@ Use the default admin credentials:
 ## Usage
 
 ### Dashboard
-- Browse and filter questions by subject, source, year, topic, level, etc.
-- Preview questions and answers
-- Select questions and generate Word documents
+- **Browse and Filter**: Filter by subject, source, year, topics (AND/OR mode), subtopics, level, type, section
+- **Direct Search**: Search by question ID with wildcard support (e.g., `MATC_DSE_2024*`)
+- **Multi-level Sort**: Sort by multiple criteria (e.g., topic → level → year)
+- **Preview**: View questions, answers, and solutions inline with language preference
+- **Select**: Choose questions individually or use "Select All on Page"
+- **Page Size**: Configure 10, 20, 50, or 100 questions per page
 
 ### Admin Panel
 
 **Manage Topics:**
 - Add, edit, or delete topics and subtopics for each subject
-- Organize topics hierarchically
+- Organize topics hierarchically by subject
+- Cascade delete (removing topic removes subtopics)
 
 **Tag Questions:**
 - Browse questions and assign metadata
-- Set major topic, minor topics, and subtopics
-- Assign difficulty levels (1, 2, 3)
+- Set major topic and major subtopic
+- Add multiple minor topics
+- Assign multiple subtopics
+- Set difficulty levels (1, 2, 3)
 - Set question type (MC, CQ)
+- Set section (A, B, etc.)
+- Add optional text description
+
+**Batch Operations:**
+- **Batch Update**: Update level, type, section, or topics for multiple questions
+- **Batch Delete**: Permanently remove multiple questions at once
 
 ### Generate Documents
 
 1. Filter and select questions on the dashboard
 2. Click "Generate Document"
 3. Choose options:
-   - Sort order (by ID, level, year, topic)
-   - Answer mode (questions only, with answers, with solutions, etc.)
-   - Formatting options (spacing, page breaks, show IDs)
+   - **Sort Mode**: Selection order or custom multi-level sort
+   - **Answer Mode**: 
+     - Questions Only
+     - Question + Answer
+     - Question + Solution
+     - All Questions, Then All Answers
+     - All Questions, Then All Solutions
+   - **Spacing**: Separate settings for MC and CQ (lines or page breaks)
+   - **Display**: Show/hide question IDs on questions and answers
+   - **Language**: Prefer English or Chinese assets (with Bilingual fallback)
 4. Download the generated Word document
+
+### Sync Database
+
+If you've moved or deleted source files, sync the database:
+
+```bash
+# Preview what would be removed (dry-run)
+python cli.py sync
+
+# Actually remove orphaned records
+python cli.py sync --no-dry-run
+```
 
 ## Troubleshooting
 
