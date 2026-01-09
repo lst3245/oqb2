@@ -279,6 +279,7 @@ See [TESTING.md](TESTING.md) for comprehensive testing guide.
   - Core fields: qid (unique), subject, source, year, paper, section, qno
   - Metadata: q_type (MC/CQ), level (1/2/3), description
   - Topic relations: major_topic_id, major_subtopic_id
+  - Statistics: correct_percentage (0-100, NULL if unknown)
 - **question_assets**: Physical files (QUE/ANS/SOL)
   - Fields: question_id, asset_type, file_format (IMG/DOC), language (EN/CH/BI), file_path
 - **question_minor_topics**: Many-to-many for cross-topic associations
@@ -490,6 +491,7 @@ For issues or questions:
 - **Enhanced Generation**: More answer modes including "Questions then Solutions"
 - **Configurable Page Size**: Choose 10, 20, 50, or 100 items per page
 - **Question Descriptions**: Add optional text descriptions to questions
+- **Correct Percentage**: Track public exam performance statistics (0-100%, sortable, shown in documents)
 
 ### Features from v1.0.0
 - Complete question management system

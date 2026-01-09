@@ -59,7 +59,7 @@ Lines of Code: ~3,500+
 ✅ **Subtopic Model** - Specific skills within topics
 ✅ **Question Model** - Logical question records with metadata
   - Core: qid, subject, source, year, paper, section, qno
-  - Metadata: q_type, level, description, major_subtopic_id
+  - Metadata: q_type, level, description, major_subtopic_id, correct_percentage
   - Relations: major_topic_id, minor_topics (M2M), subtopics (M2M)
 ✅ **QuestionAsset Model** - Physical files (QUE/ANS/SOL)
   - Fields: asset_type, file_format (IMG/DOC), language (EN/CH/BI)
@@ -105,7 +105,7 @@ Lines of Code: ~3,500+
    - Question type (MC/CQ/All)
    - **Direct QID search** with wildcard support (e.g., `MATC_DSE_2024*`)
 ✅ **Multi-level sorting** (sort by multiple fields with priority)
-   - Sort by: QID, Year, Level, Topic, Subtopic, Source, Section, Type, Created Time
+   - Sort by: QID, Year, Level, Topic, Subtopic, Source, Section, Type, Created Time, Correct %
    - Natural sorting for text fields (Q1, Q2, Q10)
 ✅ **Configurable pagination** (10, 20, 50, 100 per page)
 ✅ **Preview language preference** (prioritize EN or CH, with BI fallback)
@@ -166,6 +166,7 @@ Lines of Code: ~3,500+
    - Difficulty level (1/2/3 or NULL)
    - Question type (MC/CQ or NULL)
    - Section (A, B, etc.)
+   - Correct percentage (0-100 or NULL)
    - Description (optional text field)
 ✅ Save changes to database
 ✅ Dynamic topic/subtopic loading

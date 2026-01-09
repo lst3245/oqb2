@@ -249,6 +249,7 @@ def filter_questions():
             'subtopic_ids': [s.id for s in q.subtopics],
             'subtopics': [s.name for s in q.subtopics],
             'description': q.description,
+            'correct_percentage': q.correct_percentage,
             'que_asset_id': que_asset.id if que_asset else None,
             'has_ans': has_ans,
             'has_sol': has_sol

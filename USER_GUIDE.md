@@ -243,6 +243,11 @@ Configure spacing separately for MC and CQ questions:
 - **Prefer English**: Uses English assets when available (fallback: Bilingual → Chinese)
 - **Prefer Chinese**: Uses Chinese assets when available (fallback: Bilingual → English)
 
+**Show Correct Percentage**
+- When checked, displays correct percentage alongside Question ID
+- Format: `MATC_DSE_2024_P1_Q5 [75%]`
+- Only shown when Question ID is enabled and percentage is available
+
 ### Step 3: Generate
 
 1. Review your selections (shown on right panel)
@@ -360,6 +365,11 @@ Configure spacing separately for MC and CQ questions:
 - **Description** (text area)
   - Optional notes about the question
   - E.g., "Uses implicit differentiation" or "Requires graph sketching"
+
+- **Correct Percentage** (number input)
+  - Public exam correct rate (0-100)
+  - Leave empty if unknown
+  - Displayed in dashboard and optionally in generated documents
 
 3. Click "Save" to update
 4. Success message appears

@@ -69,6 +69,7 @@ def create_document():
     # Show QID options
     show_qid = request.form.get('show_qid') == 'on'
     show_qid_answer = request.form.get('show_qid_answer') == 'on'
+    show_correct_pct = request.form.get('show_correct_pct') == 'on'
     
     # Language preference: EN or CH
     # Order: preferred > BI > other
@@ -123,7 +124,8 @@ def create_document():
             spacing_config,
             show_qid,
             show_qid_answer,
-            preferred_language
+            preferred_language,
+            show_correct_pct
         )
         
         # Save document
@@ -201,7 +203,7 @@ def add_after_spacing(doc, spacing):
         return False
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN'):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False):
     """
     Create Word document with questions
     
@@ -212,6 +214,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         show_qid: Show question ID for questions
         show_qid_answer: Show question ID for answers/solutions
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
+        show_correct_pct: Show correct percentage with question ID (format: "QID [X%]")
     """
     doc = Document()
     
@@ -247,7 +250,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
@@ -265,7 +268,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -273,7 +276,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -289,7 +292,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -301,33 +304,46 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct)
             elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN'):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
     
     Args:
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
+        show_correct_pct: Show correct percentage (format: "QID [X%]" or just "[X%]" if no QID)
     """
-    # Add QID as heading if requested
-    if show_qid:
+    # Add QID and/or percentage as heading if requested
+    if show_qid or show_correct_pct:
         heading = doc.add_paragraph()
-        heading_run = heading.add_run(question.qid)
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
+        heading_text = ""
+        
+        if show_qid:
+            heading_text = question.qid
+        
+        if show_correct_pct and question.correct_percentage is not None:
+            if heading_text:
+                heading_text += f" [{question.correct_percentage}%]"
+            else:
+                heading_text = f"[{question.correct_percentage}%]"
+        
+        if heading_text:
+            heading_run = heading.add_run(heading_text)
+            heading_run.bold = True
+            heading_run.font.size = Pt(12)
     
     # Get all available assets for this question and type
     assets = QuestionAsset.query.filter_by(

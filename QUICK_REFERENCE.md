@@ -263,6 +263,12 @@ Result: Q1, Q2, Q3, ..., Q10, Q11
 ]
 ```
 
+### By Correct Percentage (Easiest First)
+```json
+[{"field": "correct_percentage", "direction": "desc"}]
+```
+Note: Questions with unknown percentage appear last
+
 ---
 
 ## 🔐 Security Checklist

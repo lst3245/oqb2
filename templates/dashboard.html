@@ -417,6 +417,13 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label">Correct Percentage (%)</label>
+                        <input type="number" class="form-control" id="editCorrectPercentage" name="correct_percentage" 
+                               min="0" max="100" placeholder="0-100 or leave empty">
+                        <small class="text-muted">Public exam correct rate (0-100), leave empty if unknown</small>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label class="form-label">Major Topic</label>
                         <select class="form-select" id="editMajorTopic" name="major_topic_id" onchange="onMajorTopicChange()">
                             <option value="">None</option>
@@ -518,6 +525,22 @@
                         <div id="batchSectionField" class="ms-4" style="display: none;">
                             <input type="text" class="form-control form-control-sm" id="batchSection" name="section" 
                                    placeholder="A, B, or leave empty" style="max-width: 200px;">
+                        </div>
+                    </div>
+                    
+                    <!-- Correct Percentage -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchCorrectPctToggle" 
+                                   onchange="toggleBatchField('correctpct')">
+                            <label class="form-check-label fw-bold" for="batchCorrectPctToggle">
+                                <i class="bi bi-check-circle"></i> Correct Percentage
+                            </label>
+                        </div>
+                        <div id="batchCorrectpctField" class="ms-4" style="display: none;">
+                            <input type="number" class="form-control form-control-sm" id="batchCorrectPct" name="correct_percentage" 
+                                   min="0" max="100" placeholder="0-100 or leave empty" style="max-width: 200px;">
+                            <small class="text-muted">Leave empty to clear</small>
                         </div>
                     </div>
                     
@@ -1034,7 +1057,8 @@ const SORT_FIELDS = {
     'created_time': 'Created Time',
     'source': 'Source',
     'section': 'Section',
-    'q_type': 'Question Type'
+    'q_type': 'Question Type',
+    'correct_percentage': 'Correct %'
 };
 
 let sortConfig = [{ field: 'qid', direction: 'asc' }];
@@ -2361,12 +2385,14 @@ function showBatchEditModal() {
     document.getElementById('batchLevelField').style.display = 'none';
     document.getElementById('batchQtypeField').style.display = 'none';
     document.getElementById('batchSectionField').style.display = 'none';
+    document.getElementById('batchCorrectpctField').style.display = 'none';
     document.getElementById('batchTopicsField').style.display = 'none';
     
     // Reset form values
     document.getElementById('batchLevel').value = '';
     document.getElementById('batchQType').value = '';
     document.getElementById('batchSection').value = '';
+    document.getElementById('batchCorrectPct').value = '';
     document.getElementById('batchMajorTopic').value = '';
     document.getElementById('batchMajorSubtopic').innerHTML = '<option value="">None</option>';
     
@@ -2384,6 +2410,7 @@ function toggleBatchField(field) {
         'level': 'batchLevelField',
         'qtype': 'batchQtypeField',
         'section': 'batchSectionField',
+        'correctpct': 'batchCorrectpctField',
         'topics': 'batchTopicsField'
     };
     
@@ -2391,6 +2418,7 @@ function toggleBatchField(field) {
         'level': 'batchLevelToggle',
         'qtype': 'batchQTypeToggle',
         'section': 'batchSectionToggle',
+        'correctpct': 'batchCorrectPctToggle',
         'topics': 'batchTopicsToggle'
     };
     
@@ -2477,9 +2505,10 @@ function executeBatchEdit() {
     const updateLevel = document.getElementById('batchLevelToggle').checked;
     const updateQType = document.getElementById('batchQTypeToggle').checked;
     const updateSection = document.getElementById('batchSectionToggle').checked;
+    const updateCorrectPct = document.getElementById('batchCorrectPctToggle').checked;
     const updateTopics = document.getElementById('batchTopicsToggle').checked;
     
-    if (!updateLevel && !updateQType && !updateSection && !updateTopics) {
+    if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateTopics) {
         alert('Please select at least one field to update');
         return;
     }
@@ -2500,6 +2529,10 @@ function executeBatchEdit() {
     if (updateSection) {
         formData.append('update_section', '1');
         formData.append('section', document.getElementById('batchSection').value);
+    }
+    if (updateCorrectPct) {
+        formData.append('update_correct_pct', '1');
+        formData.append('correct_percentage', document.getElementById('batchCorrectPct').value);
     }
     if (updateTopics) {
         formData.append('update_topics', '1');
@@ -2582,6 +2615,7 @@ function editQuestion(questionId, questionData) {
     document.getElementById('editQType').value = questionData.q_type || '';
     document.getElementById('editSection').value = questionData.section || '';
     document.getElementById('editDescription').value = questionData.description || '';
+    document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null ? questionData.correct_percentage : '';
     
     // Set major topic (after topics load)
     setTimeout(() => {

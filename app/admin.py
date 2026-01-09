@@ -151,6 +151,17 @@ def update_question(question_id):
             description = request.form.get('description')
             question.description = description if description and description.strip() != '' else None
         
+        if 'correct_percentage' in request.form:
+            correct_pct = request.form.get('correct_percentage')
+            if correct_pct and correct_pct.strip() != '':
+                pct_val = int(correct_pct)
+                if 0 <= pct_val <= 100:
+                    question.correct_percentage = pct_val
+                else:
+                    question.correct_percentage = None
+            else:
+                question.correct_percentage = None
+        
         # Update major topic
         if 'major_topic_id' in request.form:
             major_topic_id = request.form.get('major_topic_id')
@@ -320,6 +331,7 @@ def batch_update_questions():
         update_level = request.form.get('update_level') == '1'
         update_q_type = request.form.get('update_q_type') == '1'
         update_section = request.form.get('update_section') == '1'
+        update_correct_pct = request.form.get('update_correct_pct') == '1'
         update_topics = request.form.get('update_topics') == '1'
         
         updated_count = 0
@@ -339,6 +351,18 @@ def batch_update_questions():
             if update_section:
                 section = request.form.get('section')
                 question.section = section if section and section != '' else None
+            
+            # Update correct percentage if requested
+            if update_correct_pct:
+                correct_pct = request.form.get('correct_percentage')
+                if correct_pct and correct_pct.strip() != '':
+                    pct_val = int(correct_pct)
+                    if 0 <= pct_val <= 100:
+                        question.correct_percentage = pct_val
+                    else:
+                        question.correct_percentage = None
+                else:
+                    question.correct_percentage = None
             
             # Update topics & subtopics if requested (bundled)
             if update_topics:

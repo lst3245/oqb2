@@ -80,6 +80,11 @@ SORT_FIELDS = {
         'label': 'Question Type',
         'key': lambda q: q.q_type,
         'natural': False
+    },
+    'correct_percentage': {
+        'label': 'Correct %',
+        'key': lambda q: (0, q.correct_percentage) if q.correct_percentage is not None else (1, 0),
+        'natural': False
     }
 }
 

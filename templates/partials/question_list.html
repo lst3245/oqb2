@@ -84,6 +84,11 @@
                         <small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small>
                     </div>
                     {% endif %}
+                    {% if question.correct_percentage is not none %}
+                    <div class="mt-1">
+                        <small class="text-success"><i class="bi bi-check-circle"></i> {{ question.correct_percentage }}% correct</small>
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <!-- Preview Image -->
@@ -121,6 +126,7 @@
                                     "q_type": {{ ("\"" + question.q_type + "\"") if question.q_type else "null" }},
                                     "section": {{ ("\"" + question.section + "\"") if question.section else "null" }},
                                     "description": {{ ("\"" + (question.description | replace('"', '\\"') | replace('\n', '\\n')) + "\"") if question.description else "null" }},
+                                    "correct_percentage": {{ question.correct_percentage if question.correct_percentage is not none else "null" }},
                                     "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
                                     "major_subtopic_id": {{ question.major_subtopic_id if question.major_subtopic_id else "null" }},
                                     "minor_topic_ids": {{ question.minor_topic_ids | default([]) | tojson }},

@@ -2,6 +2,38 @@
 
 All notable changes to the Online Question Bank System are documented in this file.
 
+## [2.1.0] - 2026-01-09
+
+### ✨ New Feature: Correct Percentage Tracking
+
+Added a new `correct_percentage` field to track public exam performance statistics for questions.
+
+#### Features
+- **Database Field**: New `correct_percentage` column (integer 0-100, nullable) in questions table
+- **Dashboard Display**: Shows correct percentage in question cards when available (e.g., "75% correct")
+- **Sorting Support**: Sort by correct percentage in both dashboard and document generation
+  - NULL values always sort last regardless of sort direction
+- **Edit Question**: New input field in edit question modal (0-100 validation)
+- **Batch Edit**: New toggle to batch update correct percentage for multiple questions
+- **Document Generation**: 
+  - New checkbox option to show correct percentage in generated documents
+  - Format: `MATC_DSE_2024_P1_Q5 [75%]` (shown on same line as question ID)
+
+#### Database Migration Required
+
+Run the following SQL command to add the new column:
+
+```sql
+ALTER TABLE questions ADD COLUMN correct_percentage INT NULL;
+```
+
+#### API Changes
+- `POST /admin/questions/<id>/update`: Now accepts `correct_percentage` parameter
+- `POST /admin/questions/batch-update`: Now accepts `update_correct_pct` and `correct_percentage` parameters
+- `POST /generate/create`: Now accepts `show_correct_pct` parameter
+
+---
+
 ## [2.0.0] - 2026-01-09
 
 ### 🎉 Major Features Added

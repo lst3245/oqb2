@@ -96,6 +96,7 @@ class Question(db.Model):
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
     major_subtopic_id = db.Column(db.Integer, db.ForeignKey('subtopics.id'), nullable=True, index=True)
     description = db.Column(db.Text, nullable=True)  # Optional description for the question
+    correct_percentage = db.Column(db.Integer, nullable=True)  # 0-100, NULL if unknown (public exam correct rate)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships

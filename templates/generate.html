@@ -106,6 +106,16 @@
                             </label>
                         </div>
                         
+                        <!-- Show Correct Percentage -->
+                        <div class="mb-3 form-check" id="showCorrectPctDiv">
+                            <input type="checkbox" class="form-check-input" id="showCorrectPct" 
+                                   name="show_correct_pct">
+                            <label class="form-check-label" for="showCorrectPct">
+                                Show Correct Percentage (if available)
+                            </label>
+                            <small class="text-muted d-block">Format: "MATC_DSE_2024_P1_Q5 [75%]" or just "[75%]" if QID is hidden</small>
+                        </div>
+                        
                         <hr>
                         
                         <!-- MC Question Spacing -->
@@ -258,7 +268,8 @@ const SORT_FIELDS = {
     'created_time': 'Created Time',
     'source': 'Source',
     'section': 'Section',
-    'q_type': 'Question Type'
+    'q_type': 'Question Type',
+    'correct_percentage': 'Correct %'
 };
 
 let sortConfig = {{ sort_config | tojson | safe }};
