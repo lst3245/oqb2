@@ -145,21 +145,113 @@
     <!-- Pagination -->
     {% if total_pages > 1 %}
     <nav>
-        <ul class="pagination justify-content-center">
-            {% for p in range(1, total_pages + 1) %}
-                {% if p == page %}
-                    <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+        <ul class="pagination justify-content-center flex-wrap">
+            <!-- Previous Button -->
+            {% if page > 1 %}
+            <li class="page-item">
+                <a class="page-link pagination-link" href="#" 
+                   data-page="{{ page - 1 }}"
+                   hx-get="{{ url_for('dashboard.filter_questions', page=page - 1) }}"
+                   hx-target="#questionList"
+                   hx-include="#filterForm"
+                   onclick="updatePaginationSortConfig(this, event)">&laquo; Prev</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">&laquo; Prev</span></li>
+            {% endif %}
+            
+            {% set max_pages_shown = 7 %}
+            {% set half_window = (max_pages_shown - 3) // 2 %}
+            
+            {% if total_pages <= max_pages_shown %}
+                <!-- Show all pages if total is small -->
+                {% for p in range(1, total_pages + 1) %}
+                    {% if p == page %}
+                        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                    {% else %}
+                        <li class="page-item">
+                            <a class="page-link pagination-link" href="#" 
+                               data-page="{{ p }}"
+                               hx-get="{{ url_for('dashboard.filter_questions', page=p) }}"
+                               hx-target="#questionList"
+                               hx-include="#filterForm"
+                               onclick="updatePaginationSortConfig(this, event)">{{ p }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+                <!-- Smart truncation for many pages -->
+                <!-- Always show first page -->
+                {% if page == 1 %}
+                    <li class="page-item active"><span class="page-link">1</span></li>
                 {% else %}
                     <li class="page-item">
                         <a class="page-link pagination-link" href="#" 
-                           data-page="{{ p }}"
-                           hx-get="{{ url_for('dashboard.filter_questions', page=p) }}"
+                           data-page="1"
+                           hx-get="{{ url_for('dashboard.filter_questions', page=1) }}"
                            hx-target="#questionList"
                            hx-include="#filterForm"
-                           onclick="updatePaginationSortConfig(this, event)">{{ p }}</a>
+                           onclick="updatePaginationSortConfig(this, event)">1</a>
                     </li>
                 {% endif %}
-            {% endfor %}
+                
+                <!-- Left ellipsis -->
+                {% if page > half_window + 2 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+                
+                <!-- Pages around current page -->
+                {% set start = [2, page - half_window]|max %}
+                {% set end = [total_pages - 1, page + half_window]|min %}
+                
+                {% for p in range(start, end + 1) %}
+                    {% if p == page %}
+                        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                    {% else %}
+                        <li class="page-item">
+                            <a class="page-link pagination-link" href="#" 
+                               data-page="{{ p }}"
+                               hx-get="{{ url_for('dashboard.filter_questions', page=p) }}"
+                               hx-target="#questionList"
+                               hx-include="#filterForm"
+                               onclick="updatePaginationSortConfig(this, event)">{{ p }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                
+                <!-- Right ellipsis -->
+                {% if page < total_pages - half_window - 1 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+                
+                <!-- Always show last page -->
+                {% if page == total_pages %}
+                    <li class="page-item active"><span class="page-link">{{ total_pages }}</span></li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link pagination-link" href="#" 
+                           data-page="{{ total_pages }}"
+                           hx-get="{{ url_for('dashboard.filter_questions', page=total_pages) }}"
+                           hx-target="#questionList"
+                           hx-include="#filterForm"
+                           onclick="updatePaginationSortConfig(this, event)">{{ total_pages }}</a>
+                    </li>
+                {% endif %}
+            {% endif %}
+            
+            <!-- Next Button -->
+            {% if page < total_pages %}
+            <li class="page-item">
+                <a class="page-link pagination-link" href="#" 
+                   data-page="{{ page + 1 }}"
+                   hx-get="{{ url_for('dashboard.filter_questions', page=page + 1) }}"
+                   hx-target="#questionList"
+                   hx-include="#filterForm"
+                   onclick="updatePaginationSortConfig(this, event)">Next &raquo;</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>
+            {% endif %}
         </ul>
     </nav>
     <script>
