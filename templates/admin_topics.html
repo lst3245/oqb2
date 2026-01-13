@@ -48,11 +48,21 @@
                     {% if subtopics %}
                     <div class="ms-4 mt-2">
                         {% for subtopic in subtopics %}
-                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1">
-                            <span><i class="bi bi-diagram-3"></i> {{ subtopic.name }}</span>
+                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1 {% if subtopic.hidden %}opacity-50{% endif %}">
+                            <span>
+                                <i class="bi bi-diagram-3"></i> {{ subtopic.name }}
+                                {% if subtopic.hidden %}
+                                <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                {% endif %}
+                            </span>
                             <div>
+                                <button class="btn btn-sm {% if subtopic.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
+                                        onclick="toggleSubtopicHidden({{ subtopic.id }})" 
+                                        title="{% if subtopic.hidden %}Show subtopic{% else %}Hide subtopic{% endif %}">
+                                    <i class="bi bi-{% if subtopic.hidden %}eye{% else %}eye-slash{% endif %}"></i>
+                                </button>
                                 <button class="btn btn-sm btn-outline-primary" 
-                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name }}')">
+                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name }}', {{ 'true' if subtopic.hidden else 'false' }})">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger" 
@@ -123,6 +133,15 @@
                     <div class="mb-3">
                         <label class="form-label">Subtopic Name</label>
                         <input type="text" class="form-control" id="subtopicName" required>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="subtopicHidden">
+                            <label class="form-check-label" for="subtopicHidden">
+                                <i class="bi bi-eye-slash"></i> Hidden
+                            </label>
+                        </div>
+                        <small class="text-muted">Hidden subtopics are not shown by default in the dashboard filter. Use this for lengthy textbook chapters.</small>
                     </div>
                 </form>
             </div>
@@ -201,13 +220,15 @@ function showAddSubtopicModal(topicId, topicName) {
     document.getElementById('subtopicTopicId').value = topicId;
     document.getElementById('subtopicTopicName').value = topicName;
     document.getElementById('subtopicName').value = '';
+    document.getElementById('subtopicHidden').checked = false;
     subtopicModal.show();
 }
 
-function showEditSubtopicModal(subtopicId, subtopicName) {
+function showEditSubtopicModal(subtopicId, subtopicName, isHidden = false) {
     document.getElementById('subtopicModalLabel').textContent = 'Edit Subtopic';
     document.getElementById('subtopicId').value = subtopicId;
     document.getElementById('subtopicName').value = subtopicName;
+    document.getElementById('subtopicHidden').checked = isHidden;
     subtopicModal.show();
 }
 
@@ -215,6 +236,7 @@ function saveSubtopic() {
     const subtopicId = document.getElementById('subtopicId').value;
     const name = document.getElementById('subtopicName').value;
     const topicId = document.getElementById('subtopicTopicId').value;
+    const hidden = document.getElementById('subtopicHidden').checked ? '1' : '0';
     
     const url = subtopicId ? 
         `{{ url_for('admin.edit_subtopic', subtopic_id=0) }}`.replace('0', subtopicId) :
@@ -222,6 +244,7 @@ function saveSubtopic() {
     
     const formData = new FormData();
     formData.append('name', name);
+    formData.append('hidden', hidden);
     if (!subtopicId) formData.append('topic_id', topicId);
     
     fetch(url, { method: 'POST', body: formData })
@@ -231,6 +254,15 @@ function saveSubtopic() {
             location.reload();
         })
         .catch(err => alert('Error saving subtopic'));
+}
+
+function toggleSubtopicHidden(subtopicId) {
+    fetch(`{{ url_for('admin.toggle_subtopic_hidden', subtopic_id=0) }}`.replace('0', subtopicId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error toggling subtopic visibility'));
 }
 
 function deleteSubtopic(subtopicId) {

@@ -87,15 +87,16 @@ def add_subtopic():
     """Add a new subtopic"""
     topic_id = request.form.get('topic_id')
     name = request.form.get('name')
+    hidden = request.form.get('hidden', '0') == '1'
     
     if not topic_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     
-    subtopic = Subtopic(topic_id=int(topic_id), name=name)
+    subtopic = Subtopic(topic_id=int(topic_id), name=name, hidden=hidden)
     db.session.add(subtopic)
     db.session.commit()
     
-    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'topic_id': subtopic.topic_id})
+    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'topic_id': subtopic.topic_id, 'hidden': subtopic.hidden})
 
 @admin_bp.route('/subtopics/<int:subtopic_id>/edit', methods=['POST'])
 @login_required
@@ -109,9 +110,25 @@ def edit_subtopic(subtopic_id):
         return jsonify({'error': 'Name is required'}), 400
     
     subtopic.name = name
+    
+    # Handle hidden flag
+    if 'hidden' in request.form:
+        subtopic.hidden = request.form.get('hidden') == '1'
+    
     db.session.commit()
     
-    return jsonify({'id': subtopic.id, 'name': subtopic.name})
+    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'hidden': subtopic.hidden})
+
+@admin_bp.route('/subtopics/<int:subtopic_id>/toggle-hidden', methods=['POST'])
+@login_required
+@admin_required
+def toggle_subtopic_hidden(subtopic_id):
+    """Toggle the hidden status of a subtopic"""
+    subtopic = Subtopic.query.get_or_404(subtopic_id)
+    subtopic.hidden = not subtopic.hidden
+    db.session.commit()
+    
+    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'hidden': subtopic.hidden})
 
 @admin_bp.route('/subtopics/<int:subtopic_id>/delete', methods=['POST', 'DELETE'])
 @login_required

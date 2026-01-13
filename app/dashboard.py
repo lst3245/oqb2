@@ -289,15 +289,27 @@ def get_topics(subject_id):
 @dashboard_bp.route('/api/subtopics')
 @login_required
 def get_subtopics():
-    """Get subtopics for selected topics"""
+    """Get subtopics for selected topics
+    
+    Query params:
+        topic_ids: comma-separated topic IDs
+        include_hidden: if '1', include hidden subtopics (for admin edit modes)
+    """
     topic_ids = request.args.get('topic_ids', '').split(',')
     topic_ids = [int(tid) for tid in topic_ids if tid.isdigit()]
+    include_hidden = request.args.get('include_hidden', '0') == '1'
     
     if not topic_ids:
         return jsonify([])
     
-    subtopics = Subtopic.query.filter(Subtopic.topic_id.in_(topic_ids)).all()
-    return jsonify([{'id': s.id, 'name': s.name, 'topic_id': s.topic_id} for s in subtopics])
+    query = Subtopic.query.filter(Subtopic.topic_id.in_(topic_ids))
+    
+    # Filter hidden subtopics unless explicitly included
+    if not include_hidden:
+        query = query.filter(Subtopic.hidden == False)
+    
+    subtopics = query.all()
+    return jsonify([{'id': s.id, 'name': s.name, 'topic_id': s.topic_id, 'hidden': s.hidden} for s in subtopics])
 
 @dashboard_bp.route('/api/years/<subject_id>/<source>')
 @login_required

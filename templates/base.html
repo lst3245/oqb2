@@ -306,6 +306,26 @@
             display: inline-block;
             flex-grow: 1;
         }
+        
+        /* Searchable single/multi select dropdown styling */
+        .searchable-single-select .dropdown-toggle::after {
+            float: right;
+            margin-top: 0.5rem;
+        }
+        .searchable-options-list .searchable-option {
+            padding: 0.375rem 0.75rem;
+            cursor: pointer;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            text-align: left;
+        }
+        .searchable-options-list .searchable-option:hover {
+            background-color: #e9ecef;
+        }
+        .searchable-options-list .searchable-option.selected {
+            background-color: #0d6efd;
+            color: #fff;
+        }
     </style>
     
     {% block extra_css %}{% endblock %}

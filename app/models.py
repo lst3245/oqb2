@@ -75,6 +75,7 @@ class Subtopic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subtopics (e.g. textbook chapters)
     
     def __repr__(self):
         return f'<Subtopic {self.name}>'

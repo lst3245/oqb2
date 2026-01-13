@@ -128,7 +128,16 @@
 
                         <!-- Subtopics -->
                         <div class="mb-3" id="subtopicContainer" style="display:none;">
-                            <label class="form-label">Subtopics</label>
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span>Subtopics</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="showHiddenSubtopics" 
+                                           onchange="onShowHiddenSubtopicsChange()">
+                                    <label class="form-check-label small" for="showHiddenSubtopics" title="Show hidden subtopics (e.g. textbook chapters)">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </label>
+                                </div>
+                            </label>
                             <div class="dropdown multi-select-dropdown">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="subtopicDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -424,31 +433,100 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Major Topic</label>
-                        <select class="form-select" id="editMajorTopic" name="major_topic_id" onchange="onMajorTopicChange()">
-                            <option value="">None</option>
-                        </select>
+                        <label class="form-label">Major Topic (select 1)</label>
+                        <div class="dropdown searchable-single-select" id="editMajorTopicDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editMajorTopicLabel">None</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editMajorTopicSearch" placeholder="Search topics...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorTopicSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div id="editMajorTopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="editMajorTopic" name="major_topic_id" value="">
                     </div>
                     
                     <div class="mb-3">
                         <label class="form-label">Major Subtopic</label>
-                        <select class="form-select" id="editMajorSubtopic" name="major_subtopic_id">
-                            <option value="">None</option>
-                        </select>
+                        <div class="dropdown searchable-single-select" id="editMajorSubtopicDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editMajorSubtopicLabel">None</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editMajorSubtopicSearch" placeholder="Search subtopics...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorSubtopicSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div id="editMajorSubtopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                    <div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic('', 'None')">None</div>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="editMajorSubtopic" name="major_subtopic_id" value="">
                         <small class="text-muted">Select major topic first to see subtopics</small>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Minor Topics</label>
-                        <select class="form-select" id="editMinorTopics" name="minor_topic_ids" multiple size="5" onchange="reloadEditSubtopics()">
-                        </select>
-                        <small class="text-muted">Hold Ctrl to select multiple</small>
+                        <label class="form-label">Minor Topics (multiple)</label>
+                        <div class="dropdown multi-select-dropdown" id="editMinorTopicsDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editMinorTopicsLabel">None selected</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editMinorTopicsSearch" placeholder="Search topics...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMinorTopicsSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div class="d-flex gap-1 mb-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditMinorTopics()">All</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditMinorTopics()">None</button>
+                                </div>
+                                <div id="editMinorTopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Hidden select to store values -->
+                        <select id="editMinorTopics" name="minor_topic_ids" multiple style="display:none;"></select>
                     </div>
                     
                     <div class="mb-3">
                         <label class="form-label">Subtopics (from Major + Minor Topics)</label>
-                        <select class="form-select" id="editSubtopics" name="subtopic_ids" multiple size="5">
-                        </select>
+                        <div class="dropdown multi-select-dropdown" id="editSubtopicsDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editSubtopicsLabel">None selected</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editSubtopicsSearch" placeholder="Search subtopics...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubtopicsSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div class="d-flex gap-1 mb-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditSubtopics()">All</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditSubtopics()">None</button>
+                                </div>
+                                <div id="editSubtopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Hidden select to store values -->
+                        <select id="editSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
+                        <small class="text-muted">All subtopics shown (including hidden ones)</small>
                     </div>
                 </form>
             </div>
@@ -557,32 +635,95 @@
                         <div id="batchTopicsField" class="ms-4" style="display: none;">
                             <div class="row g-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">Major Topic</label>
-                                    <select class="form-select form-select-sm" id="batchMajorTopic" name="major_topic_id"
-                                            onchange="onBatchMajorTopicChange()">
-                                        <option value="">None</option>
-                                    </select>
+                                    <label class="form-label">Major Topic (select 1)</label>
+                                    <div class="dropdown searchable-single-select" id="batchMajorTopicDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchMajorTopicLabel">None</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchMajorTopicSearch" placeholder="Search topics...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMajorTopicSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div id="batchMajorTopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="batchMajorTopic" name="major_topic_id" value="">
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Major Subtopic</label>
-                                    <select class="form-select form-select-sm" id="batchMajorSubtopic" name="major_subtopic_id">
-                                        <option value="">None</option>
-                                    </select>
+                                    <div class="dropdown searchable-single-select" id="batchMajorSubtopicDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchMajorSubtopicLabel">None</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchMajorSubtopicSearch" placeholder="Search subtopics...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMajorSubtopicSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div id="batchMajorSubtopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                                <div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic('', 'None')">None</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="batchMajorSubtopic" name="major_subtopic_id" value="">
                                     <small class="text-muted">Select major topic first</small>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Minor Topics</label>
-                                    <select class="form-select form-select-sm" id="batchMinorTopics" name="minor_topic_ids" 
-                                            multiple size="4" onchange="onBatchMinorTopicsChange()">
-                                    </select>
-                                    <small class="text-muted">Ctrl+click for multiple</small>
+                                    <label class="form-label">Minor Topics (multiple)</label>
+                                    <div class="dropdown multi-select-dropdown" id="batchMinorTopicsDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchMinorTopicsLabel">None selected</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchMinorTopicsSearch" placeholder="Search topics...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMinorTopicsSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div class="d-flex gap-1 mb-2">
+                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchMinorTopics()">All</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchMinorTopics()">None</button>
+                                            </div>
+                                            <div id="batchMinorTopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 150px; overflow-y: auto;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <select id="batchMinorTopics" name="minor_topic_ids" multiple style="display:none;"></select>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Subtopics (M2M)</label>
-                                    <select class="form-select form-select-sm" id="batchSubtopics" name="subtopic_ids" 
-                                            multiple size="4">
-                                    </select>
-                                    <small class="text-muted">From Major + Minor Topics</small>
+                                    <div class="dropdown multi-select-dropdown" id="batchSubtopicsDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchSubtopicsLabel">None selected</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchSubtopicsSearch" placeholder="Search subtopics...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchSubtopicsSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div class="d-flex gap-1 mb-2">
+                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchSubtopics()">All</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchSubtopics()">None</button>
+                                            </div>
+                                            <div id="batchSubtopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 150px; overflow-y: auto;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <select id="batchSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
+                                    <small class="text-muted">All shown (incl. hidden)</small>
                                 </div>
                             </div>
                         </div>
@@ -647,7 +788,8 @@ const STORAGE_KEYS = {
     VIEW_SETTINGS: 'oqb_viewSettings',
     PREVIEW_LANGUAGE: 'oqb_previewLanguage',
     PAGE_SIZE: 'oqb_pageSize',
-    SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly'
+    SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly',
+    SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics'
 };
 
 // Track filter modification state
@@ -818,6 +960,7 @@ function getCurrentFilterValues() {
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value).sort().join(','),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: document.getElementById('crosstopic')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value).sort().join(','),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
@@ -1429,6 +1572,7 @@ function saveStateToStorage() {
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value),
+        show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: document.getElementById('crosstopic').checked,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
@@ -1521,6 +1665,14 @@ async function restoreFilterSettings(settings) {
     // Restore cross-topic checkbox
     if (settings.is_crosstopic !== undefined) {
         document.getElementById('crosstopic').checked = settings.is_crosstopic;
+    }
+    
+    // Restore show hidden subtopics checkbox
+    if (settings.show_hidden_subtopics !== undefined) {
+        const showHiddenEl = document.getElementById('showHiddenSubtopics');
+        if (showHiddenEl) {
+            showHiddenEl.checked = settings.show_hidden_subtopics;
+        }
     }
     
     // Restore levels
@@ -1866,10 +2018,18 @@ function clearAllTopics() {
     onTopicChange();
 }
 
+// Handle show hidden subtopics toggle change
+function onShowHiddenSubtopicsChange() {
+    loadSubtopicsForSelectedTopics();
+    saveStateToStorage();
+    checkFilterModification();
+}
+
 // Load subtopics for selected topics
 function loadSubtopicsForSelectedTopics() {
     const checkedTopics = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value);
     const subtopicContainer = document.getElementById('subtopicContainer');
+    const showHidden = document.getElementById('showHiddenSubtopics')?.checked || false;
     
     if (checkedTopics.length === 0) {
         subtopicContainer.style.display = 'none';
@@ -1879,7 +2039,8 @@ function loadSubtopicsForSelectedTopics() {
     }
     
     const topicIdsStr = checkedTopics.join(',');
-    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}${includeHidden}`)
         .then(r => r.json())
         .then(subtopics => {
             if (subtopics.length) {
@@ -1906,13 +2067,16 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
         return;
     }
     
-    // Render checkboxes
+    // Render checkboxes with hidden indicator
     subtopicDiv.innerHTML = subtopics.map(s => `
-        <div class="form-check" data-subtopic-id="${s.id}" data-subtopic-name="${s.name.toLowerCase()}">
+        <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${s.name.toLowerCase()}">
             <input class="form-check-input subtopic-checkbox" type="checkbox" 
                    value="${s.id}" id="subtopic${s.id}" onchange="onSubtopicChange()"
                    ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="subtopic${s.id}">${s.name}</label>
+            <label class="form-check-label" for="subtopic${s.id}">
+                ${s.name}
+                ${s.hidden ? '<i class="bi bi-eye-slash text-muted ms-1" title="Hidden subtopic"></i>' : ''}
+            </label>
         </div>
     `).join('');
     
@@ -2015,7 +2179,10 @@ function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
     const topicIdsStr = topicIds.join(',');
     if (!topicIdsStr) return;
     
-    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+    const showHidden = document.getElementById('showHiddenSubtopics')?.checked || false;
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}${includeHidden}`)
         .then(r => r.json())
         .then(subtopics => {
             const subtopicContainer = document.getElementById('subtopicContainer');
@@ -2393,8 +2560,22 @@ function showBatchEditModal() {
     document.getElementById('batchQType').value = '';
     document.getElementById('batchSection').value = '';
     document.getElementById('batchCorrectPct').value = '';
+    
+    // Reset topic/subtopic dropdowns
     document.getElementById('batchMajorTopic').value = '';
-    document.getElementById('batchMajorSubtopic').innerHTML = '<option value="">None</option>';
+    document.getElementById('batchMajorTopicLabel').textContent = 'None';
+    document.getElementById('batchMajorSubtopic').value = '';
+    document.getElementById('batchMajorSubtopicLabel').textContent = 'None';
+    document.getElementById('batchMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>';
+    document.getElementById('batchMinorTopicsLabel').textContent = 'None selected';
+    document.getElementById('batchSubtopicsLabel').textContent = 'None selected';
+    document.getElementById('batchSubtopicsCheckboxes').innerHTML = '';
+    
+    // Clear search inputs
+    if (document.getElementById('batchMajorTopicSearch')) document.getElementById('batchMajorTopicSearch').value = '';
+    if (document.getElementById('batchMinorTopicsSearch')) document.getElementById('batchMinorTopicsSearch').value = '';
+    if (document.getElementById('batchMajorSubtopicSearch')) document.getElementById('batchMajorSubtopicSearch').value = '';
+    if (document.getElementById('batchSubtopicsSearch')) document.getElementById('batchSubtopicsSearch').value = '';
     
     // Load topics for the batch edit form
     // Use the currently selected subject from the filter
@@ -2436,29 +2617,160 @@ function loadBatchTopics(subjectId) {
     fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
         .then(r => r.json())
         .then(topics => {
-            const majorSelect = document.getElementById('batchMajorTopic');
-            const minorSelect = document.getElementById('batchMinorTopics');
+            window.batchTopicsList = topics;
             
-            const options = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-            majorSelect.innerHTML = '<option value="">None</option>' + options;
-            minorSelect.innerHTML = options;
+            // Render Major Topic searchable dropdown
+            const majorOptionsDiv = document.getElementById('batchMajorTopicOptions');
+            majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorTopic(\'\', \'None\')">None</div>' +
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${t.name.toLowerCase()}" onclick="selectBatchMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+            
+            // Render Minor Topics multi-select checkboxes
+            const minorCheckboxesDiv = document.getElementById('batchMinorTopicsCheckboxes');
+            minorCheckboxesDiv.innerHTML = topics.map(t => `
+                <div class="form-check" data-topic-name="${t.name.toLowerCase()}">
+                    <input class="form-check-input batch-minor-topic-checkbox" type="checkbox" 
+                           value="${t.id}" id="batchMinorTopic${t.id}" onchange="onBatchMinorTopicsChange()">
+                    <label class="form-check-label" for="batchMinorTopic${t.id}">${t.name}</label>
+                </div>
+            `).join('');
+            
+            // Update hidden select
+            const minorSelect = document.getElementById('batchMinorTopics');
+            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            
+            // Setup search listeners
+            setupBatchTopicSearchListeners();
         });
+}
+
+// Setup search listeners for Batch Edit modal
+function setupBatchTopicSearchListeners() {
+    const majorSearch = document.getElementById('batchMajorTopicSearch');
+    if (majorSearch) {
+        majorSearch.removeEventListener('input', filterBatchMajorTopics);
+        majorSearch.addEventListener('input', filterBatchMajorTopics);
+    }
+    
+    const minorSearch = document.getElementById('batchMinorTopicsSearch');
+    if (minorSearch) {
+        minorSearch.removeEventListener('input', filterBatchMinorTopics);
+        minorSearch.addEventListener('input', filterBatchMinorTopics);
+    }
+}
+
+// Filter Batch Major Topic options
+function filterBatchMajorTopics() {
+    const searchTerm = document.getElementById('batchMajorTopicSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#batchMajorTopicOptions .searchable-option');
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        const value = opt.dataset.value;
+        if (value === '' || name.includes(searchTerm)) {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+function clearBatchMajorTopicSearch() {
+    document.getElementById('batchMajorTopicSearch').value = '';
+    filterBatchMajorTopics();
+}
+
+// Filter Batch Minor Topics checkboxes
+function filterBatchMinorTopics() {
+    const searchTerm = document.getElementById('batchMinorTopicsSearch').value.toLowerCase();
+    const items = document.querySelectorAll('#batchMinorTopicsCheckboxes .form-check');
+    items.forEach(item => {
+        const name = item.dataset.topicName || '';
+        if (name.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function clearBatchMinorTopicsSearch() {
+    document.getElementById('batchMinorTopicsSearch').value = '';
+    filterBatchMinorTopics();
+}
+
+// Select Batch Major Topic
+function selectBatchMajorTopic(value, name) {
+    document.getElementById('batchMajorTopic').value = value;
+    document.getElementById('batchMajorTopicLabel').textContent = name;
+    
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#batchMajorTopicDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+    
+    onBatchMajorTopicChange();
+}
+
+// Batch Minor Topics functions
+function onBatchMinorTopicsChange() {
+    updateBatchMinorTopicsLabel();
+    syncBatchMinorTopicsSelect();
+    reloadBatchSubtopics();
+}
+
+function updateBatchMinorTopicsLabel() {
+    const checked = document.querySelectorAll('.batch-minor-topic-checkbox:checked');
+    const label = document.getElementById('batchMinorTopicsLabel');
+    
+    if (checked.length === 0) {
+        label.textContent = 'None selected';
+    } else if (checked.length === 1) {
+        const topicName = checked[0].parentElement.querySelector('label').textContent;
+        label.textContent = topicName.length > 20 ? topicName.substring(0, 20) + '...' : topicName;
+    } else {
+        label.innerHTML = `${checked.length} topics <span class="badge bg-primary">${checked.length}</span>`;
+    }
+}
+
+function syncBatchMinorTopicsSelect() {
+    const minorSelect = document.getElementById('batchMinorTopics');
+    const checkedIds = Array.from(document.querySelectorAll('.batch-minor-topic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(minorSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+function selectAllBatchMinorTopics() {
+    document.querySelectorAll('#batchMinorTopicsCheckboxes .form-check:not([style*="display: none"]) .batch-minor-topic-checkbox').forEach(cb => cb.checked = true);
+    onBatchMinorTopicsChange();
+}
+
+function clearAllBatchMinorTopics() {
+    document.querySelectorAll('.batch-minor-topic-checkbox').forEach(cb => cb.checked = false);
+    onBatchMinorTopicsChange();
 }
 
 function onBatchMajorTopicChange() {
     const majorTopicId = document.getElementById('batchMajorTopic').value;
-    const majorSubtopicSelect = document.getElementById('batchMajorSubtopic');
     
     // Clear major subtopic
-    majorSubtopicSelect.innerHTML = '<option value="">None</option>';
+    document.getElementById('batchMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>';
+    document.getElementById('batchMajorSubtopicLabel').textContent = 'None';
+    document.getElementById('batchMajorSubtopic').value = '';
     
     if (majorTopicId) {
-        // Load subtopics for this major topic
-        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${majorTopicId}`)
+        // Load subtopics for this major topic (include hidden)
+        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${majorTopicId}&include_hidden=1`)
             .then(r => r.json())
             .then(subtopics => {
-                majorSubtopicSelect.innerHTML = '<option value="">None</option>' + 
-                    subtopics.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+                const optionsDiv = document.getElementById('batchMajorSubtopicOptions');
+                optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>' +
+                    subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${s.name.toLowerCase()}" onclick="selectBatchMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+                
+                // Setup search listener
+                const searchInput = document.getElementById('batchMajorSubtopicSearch');
+                if (searchInput) {
+                    searchInput.removeEventListener('input', filterBatchMajorSubtopics);
+                    searchInput.addEventListener('input', filterBatchMajorSubtopics);
+                }
             });
     }
     
@@ -2466,31 +2778,133 @@ function onBatchMajorTopicChange() {
     reloadBatchSubtopics();
 }
 
-function onBatchMinorTopicsChange() {
-    reloadBatchSubtopics();
+// Select Batch Major Subtopic
+function selectBatchMajorSubtopic(value, name) {
+    document.getElementById('batchMajorSubtopic').value = value;
+    document.getElementById('batchMajorSubtopicLabel').textContent = name;
+    
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#batchMajorSubtopicDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+}
+
+// Filter Batch Major Subtopic options
+function filterBatchMajorSubtopics() {
+    const searchTerm = document.getElementById('batchMajorSubtopicSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#batchMajorSubtopicOptions .searchable-option');
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        const value = opt.dataset.value;
+        if (value === '' || name.includes(searchTerm)) {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+function clearBatchMajorSubtopicSearch() {
+    document.getElementById('batchMajorSubtopicSearch').value = '';
+    filterBatchMajorSubtopics();
 }
 
 function reloadBatchSubtopics() {
     const majorTopicId = document.getElementById('batchMajorTopic').value;
-    const minorSelect = document.getElementById('batchMinorTopics');
-    const selectedMinorIds = Array.from(minorSelect.selectedOptions).map(opt => opt.value);
+    const selectedMinorIds = Array.from(document.querySelectorAll('.batch-minor-topic-checkbox:checked')).map(cb => cb.value);
     
     // Combine major topic and minor topics
     const allTopicIds = [majorTopicId, ...selectedMinorIds].filter(id => id);
     
+    const checkboxesDiv = document.getElementById('batchSubtopicsCheckboxes');
     const subtopicSelect = document.getElementById('batchSubtopics');
     
     if (allTopicIds.length > 0) {
-        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${allTopicIds.join(',')}`)
+        // Include hidden for batch edit mode
+        fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${allTopicIds.join(',')}&include_hidden=1`)
             .then(r => r.json())
             .then(subtopics => {
-                subtopicSelect.innerHTML = subtopics.map(s => 
-                    `<option value="${s.id}">${s.name}</option>`
-                ).join('');
+                checkboxesDiv.innerHTML = subtopics.map(s => `
+                    <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${s.name.toLowerCase()}">
+                        <input class="form-check-input batch-subtopic-checkbox" type="checkbox" 
+                               value="${s.id}" id="batchSubtopic${s.id}" onchange="onBatchSubtopicsChange()">
+                        <label class="form-check-label" for="batchSubtopic${s.id}">
+                            ${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
+                        </label>
+                    </div>
+                `).join('');
+                
+                subtopicSelect.innerHTML = subtopics.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+                
+                updateBatchSubtopicsLabel();
+                
+                // Setup search listener
+                const searchInput = document.getElementById('batchSubtopicsSearch');
+                if (searchInput) {
+                    searchInput.removeEventListener('input', filterBatchSubtopics);
+                    searchInput.addEventListener('input', filterBatchSubtopics);
+                }
             });
     } else {
+        checkboxesDiv.innerHTML = '';
         subtopicSelect.innerHTML = '';
+        document.getElementById('batchSubtopicsLabel').textContent = 'None selected';
     }
+}
+
+// Batch Subtopics functions
+function onBatchSubtopicsChange() {
+    updateBatchSubtopicsLabel();
+    syncBatchSubtopicsSelect();
+}
+
+function updateBatchSubtopicsLabel() {
+    const checked = document.querySelectorAll('.batch-subtopic-checkbox:checked');
+    const label = document.getElementById('batchSubtopicsLabel');
+    
+    if (checked.length === 0) {
+        label.textContent = 'None selected';
+    } else if (checked.length === 1) {
+        const name = checked[0].parentElement.querySelector('label').textContent.trim();
+        label.textContent = name.length > 20 ? name.substring(0, 20) + '...' : name;
+    } else {
+        label.innerHTML = `${checked.length} subtopics <span class="badge bg-primary">${checked.length}</span>`;
+    }
+}
+
+function syncBatchSubtopicsSelect() {
+    const subtopicSelect = document.getElementById('batchSubtopics');
+    const checkedIds = Array.from(document.querySelectorAll('.batch-subtopic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(subtopicSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+function filterBatchSubtopics() {
+    const searchTerm = document.getElementById('batchSubtopicsSearch').value.toLowerCase();
+    const items = document.querySelectorAll('#batchSubtopicsCheckboxes .form-check');
+    items.forEach(item => {
+        const name = item.dataset.subtopicName || '';
+        if (name.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function clearBatchSubtopicsSearch() {
+    document.getElementById('batchSubtopicsSearch').value = '';
+    filterBatchSubtopics();
+}
+
+function selectAllBatchSubtopics() {
+    document.querySelectorAll('#batchSubtopicsCheckboxes .form-check:not([style*="display: none"]) .batch-subtopic-checkbox').forEach(cb => cb.checked = true);
+    onBatchSubtopicsChange();
+}
+
+function clearAllBatchSubtopics() {
+    document.querySelectorAll('.batch-subtopic-checkbox').forEach(cb => cb.checked = false);
+    onBatchSubtopicsChange();
 }
 
 function executeBatchEdit() {
@@ -2539,16 +2953,14 @@ function executeBatchEdit() {
         formData.append('major_topic_id', document.getElementById('batchMajorTopic').value);
         formData.append('major_subtopic_id', document.getElementById('batchMajorSubtopic').value);
         
-        // Minor topics (multiple)
-        const minorSelect = document.getElementById('batchMinorTopics');
-        Array.from(minorSelect.selectedOptions).forEach(opt => {
-            formData.append('minor_topic_ids', opt.value);
+        // Minor topics (multiple) - from checkboxes
+        document.querySelectorAll('.batch-minor-topic-checkbox:checked').forEach(cb => {
+            formData.append('minor_topic_ids', cb.value);
         });
         
-        // M2M subtopics (multiple)
-        const subtopicSelect = document.getElementById('batchSubtopics');
-        Array.from(subtopicSelect.selectedOptions).forEach(opt => {
-            formData.append('subtopic_ids', opt.value);
+        // M2M subtopics (multiple) - from checkboxes
+        document.querySelectorAll('.batch-subtopic-checkbox:checked').forEach(cb => {
+            formData.append('subtopic_ids', cb.value);
         });
     }
     
@@ -2591,13 +3003,139 @@ function loadTopicsForSubject(subjectId) {
     fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
         .then(r => r.json())
         .then(topics => {
-            const majorSelect = document.getElementById('editMajorTopic');
-            const minorSelect = document.getElementById('editMinorTopics');
+            window.editTopicsList = topics; // Store for later use
             
-            const options = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-            majorSelect.innerHTML = '<option value="">None</option>' + options;
-            minorSelect.innerHTML = options;
+            // Render Major Topic searchable dropdown
+            const majorOptionsDiv = document.getElementById('editMajorTopicOptions');
+            majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorTopic(\'\', \'None\')">None</div>' +
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${t.name.toLowerCase()}" onclick="selectEditMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+            
+            // Render Minor Topics multi-select checkboxes
+            const minorCheckboxesDiv = document.getElementById('editMinorTopicsCheckboxes');
+            minorCheckboxesDiv.innerHTML = topics.map(t => `
+                <div class="form-check" data-topic-name="${t.name.toLowerCase()}">
+                    <input class="form-check-input edit-minor-topic-checkbox" type="checkbox" 
+                           value="${t.id}" id="editMinorTopic${t.id}" onchange="onEditMinorTopicsChange()">
+                    <label class="form-check-label" for="editMinorTopic${t.id}">${t.name}</label>
+                </div>
+            `).join('');
+            
+            // Update hidden select with all options
+            const minorSelect = document.getElementById('editMinorTopics');
+            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            
+            // Setup search listeners
+            setupEditTopicSearchListeners();
         });
+}
+
+// Setup search listeners for Edit modal
+function setupEditTopicSearchListeners() {
+    // Major Topic search
+    const majorSearch = document.getElementById('editMajorTopicSearch');
+    if (majorSearch) {
+        majorSearch.removeEventListener('input', filterEditMajorTopics);
+        majorSearch.addEventListener('input', filterEditMajorTopics);
+    }
+    
+    // Minor Topics search
+    const minorSearch = document.getElementById('editMinorTopicsSearch');
+    if (minorSearch) {
+        minorSearch.removeEventListener('input', filterEditMinorTopics);
+        minorSearch.addEventListener('input', filterEditMinorTopics);
+    }
+}
+
+// Filter Major Topic options
+function filterEditMajorTopics() {
+    const searchTerm = document.getElementById('editMajorTopicSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#editMajorTopicOptions .searchable-option');
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        const value = opt.dataset.value;
+        if (value === '' || name.includes(searchTerm)) {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+function clearEditMajorTopicSearch() {
+    document.getElementById('editMajorTopicSearch').value = '';
+    filterEditMajorTopics();
+}
+
+// Filter Minor Topics checkboxes
+function filterEditMinorTopics() {
+    const searchTerm = document.getElementById('editMinorTopicsSearch').value.toLowerCase();
+    const items = document.querySelectorAll('#editMinorTopicsCheckboxes .form-check');
+    items.forEach(item => {
+        const name = item.dataset.topicName || '';
+        if (name.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function clearEditMinorTopicsSearch() {
+    document.getElementById('editMinorTopicsSearch').value = '';
+    filterEditMinorTopics();
+}
+
+// Select Major Topic
+function selectEditMajorTopic(value, name) {
+    document.getElementById('editMajorTopic').value = value;
+    document.getElementById('editMajorTopicLabel').textContent = name;
+    
+    // Close the dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editMajorTopicDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+    
+    // Trigger major topic change
+    onMajorTopicChange();
+}
+
+// Minor Topics multi-select functions
+function onEditMinorTopicsChange() {
+    updateEditMinorTopicsLabel();
+    syncEditMinorTopicsSelect();
+    reloadEditSubtopics();
+}
+
+function updateEditMinorTopicsLabel() {
+    const checked = document.querySelectorAll('.edit-minor-topic-checkbox:checked');
+    const label = document.getElementById('editMinorTopicsLabel');
+    
+    if (checked.length === 0) {
+        label.textContent = 'None selected';
+    } else if (checked.length === 1) {
+        const topicName = checked[0].parentElement.querySelector('label').textContent;
+        label.textContent = topicName.length > 30 ? topicName.substring(0, 30) + '...' : topicName;
+    } else {
+        label.innerHTML = `${checked.length} topics <span class="badge bg-primary">${checked.length}</span>`;
+    }
+}
+
+function syncEditMinorTopicsSelect() {
+    const minorSelect = document.getElementById('editMinorTopics');
+    const checkedIds = Array.from(document.querySelectorAll('.edit-minor-topic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(minorSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+function selectAllEditMinorTopics() {
+    document.querySelectorAll('#editMinorTopicsCheckboxes .form-check:not([style*="display: none"]) .edit-minor-topic-checkbox').forEach(cb => cb.checked = true);
+    onEditMinorTopicsChange();
+}
+
+function clearAllEditMinorTopics() {
+    document.querySelectorAll('.edit-minor-topic-checkbox').forEach(cb => cb.checked = false);
+    onEditMinorTopicsChange();
 }
 
 function editQuestion(questionId, questionData) {
@@ -2617,30 +3155,50 @@ function editQuestion(questionId, questionData) {
     document.getElementById('editDescription').value = questionData.description || '';
     document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null ? questionData.correct_percentage : '';
     
+    // Reset search fields
+    if (document.getElementById('editMajorTopicSearch')) document.getElementById('editMajorTopicSearch').value = '';
+    if (document.getElementById('editMinorTopicsSearch')) document.getElementById('editMinorTopicsSearch').value = '';
+    if (document.getElementById('editMajorSubtopicSearch')) document.getElementById('editMajorSubtopicSearch').value = '';
+    if (document.getElementById('editSubtopicsSearch')) document.getElementById('editSubtopicsSearch').value = '';
+    
     // Set major topic (after topics load)
     setTimeout(() => {
-        document.getElementById('editMajorTopic').value = questionData.major_topic_id || '';
+        // Set major topic value and label
+        const majorTopicId = questionData.major_topic_id || '';
+        document.getElementById('editMajorTopic').value = majorTopicId;
+        
+        // Find and set the label
+        if (majorTopicId && window.editTopicsList) {
+            const topic = window.editTopicsList.find(t => t.id == majorTopicId);
+            document.getElementById('editMajorTopicLabel').textContent = topic ? topic.name : 'None';
+        } else {
+            document.getElementById('editMajorTopicLabel').textContent = 'None';
+        }
         
         // Load and set major subtopic
         if (questionData.major_topic_id) {
-            loadMajorSubtopics(questionData.major_topic_id, questionData.major_subtopic_id);
+            loadMajorSubtopicsSearchable(questionData.major_topic_id, questionData.major_subtopic_id);
         } else {
-            document.getElementById('editMajorSubtopic').innerHTML = '<option value="">None</option>';
+            document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>';
+            document.getElementById('editMajorSubtopicLabel').textContent = 'None';
+            document.getElementById('editMajorSubtopic').value = '';
         }
         
-        // Set minor topics
-        const minorSelect = document.getElementById('editMinorTopics');
-        Array.from(minorSelect.options).forEach(opt => {
-            opt.selected = questionData.minor_topic_ids.includes(parseInt(opt.value));
+        // Set minor topics checkboxes
+        document.querySelectorAll('.edit-minor-topic-checkbox').forEach(cb => {
+            cb.checked = questionData.minor_topic_ids.includes(parseInt(cb.value));
         });
+        updateEditMinorTopicsLabel();
+        syncEditMinorTopicsSelect();
         
         // Load and set subtopics (other subtopics from major + minor topics)
         if (questionData.major_topic_id || questionData.minor_topic_ids.length > 0) {
             const allTopicIds = [questionData.major_topic_id, ...questionData.minor_topic_ids].filter(id => id);
-            loadSubtopics(allTopicIds, questionData.subtopic_ids);
+            loadSubtopicsSearchable(allTopicIds, questionData.subtopic_ids);
         } else {
             // Clear subtopics if no major/minor topics are selected
-            document.getElementById('editSubtopics').innerHTML = '';
+            document.getElementById('editSubtopicsCheckboxes').innerHTML = '';
+            document.getElementById('editSubtopicsLabel').textContent = 'None selected';
         }
     }, 500);
     
@@ -2650,13 +3208,14 @@ function editQuestion(questionId, questionData) {
 // Handle major topic change - reload major subtopics and M2M subtopics
 function onMajorTopicChange() {
     const majorTopicId = document.getElementById('editMajorTopic').value;
-    const majorSubtopicSelect = document.getElementById('editMajorSubtopic');
     
     // Clear major subtopic when major topic changes
-    majorSubtopicSelect.innerHTML = '<option value="">None</option>';
+    document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>';
+    document.getElementById('editMajorSubtopicLabel').textContent = 'None';
+    document.getElementById('editMajorSubtopic').value = '';
     
     if (majorTopicId) {
-        loadMajorSubtopics(majorTopicId, null);
+        loadMajorSubtopicsSearchable(majorTopicId, null);
     }
     
     // Also reload M2M subtopics based on new major topic + selected minor topics
@@ -2666,55 +3225,177 @@ function onMajorTopicChange() {
 // Reload M2M subtopics based on current major topic and selected minor topics
 function reloadEditSubtopics() {
     const majorTopicId = document.getElementById('editMajorTopic').value;
-    const minorSelect = document.getElementById('editMinorTopics');
-    const selectedMinorIds = Array.from(minorSelect.selectedOptions).map(opt => parseInt(opt.value));
+    const selectedMinorIds = Array.from(document.querySelectorAll('.edit-minor-topic-checkbox:checked')).map(cb => parseInt(cb.value));
     
     // Combine major topic and minor topics
     const allTopicIds = [majorTopicId, ...selectedMinorIds].filter(id => id);
     
     if (allTopicIds.length > 0) {
         // Get currently selected subtopics to preserve them if still valid
-        const subtopicSelect = document.getElementById('editSubtopics');
-        const currentlySelected = Array.from(subtopicSelect.selectedOptions).map(opt => parseInt(opt.value));
-        loadSubtopics(allTopicIds, currentlySelected);
+        const currentlySelected = Array.from(document.querySelectorAll('.edit-subtopic-checkbox:checked')).map(cb => parseInt(cb.value));
+        loadSubtopicsSearchable(allTopicIds, currentlySelected);
     } else {
         // Clear subtopics if no topics selected
-        document.getElementById('editSubtopics').innerHTML = '';
+        document.getElementById('editSubtopicsCheckboxes').innerHTML = '';
+        document.getElementById('editSubtopicsLabel').textContent = 'None selected';
     }
 }
 
-// Load subtopics for the major topic dropdown
-function loadMajorSubtopics(topicId, selectedSubtopicId = null) {
+// Load subtopics for the major subtopic searchable dropdown
+function loadMajorSubtopicsSearchable(topicId, selectedSubtopicId = null) {
     if (!topicId) return;
     
-    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicId}`)
+    // Always include hidden for edit mode
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicId}&include_hidden=1`)
         .then(r => r.json())
         .then(subtopics => {
-            const majorSubtopicSelect = document.getElementById('editMajorSubtopic');
-            majorSubtopicSelect.innerHTML = '<option value="">None</option>' + 
-                subtopics.map(s => 
-                    `<option value="${s.id}" ${selectedSubtopicId == s.id ? 'selected' : ''}>${s.name}</option>`
-                ).join('');
+            window.editMajorSubtopicsList = subtopics;
+            
+            const optionsDiv = document.getElementById('editMajorSubtopicOptions');
+            optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>' +
+                subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${s.name.toLowerCase()}" onclick="selectEditMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+            
+            // Set selected value
+            if (selectedSubtopicId) {
+                const subtopic = subtopics.find(s => s.id == selectedSubtopicId);
+                if (subtopic) {
+                    document.getElementById('editMajorSubtopic').value = selectedSubtopicId;
+                    document.getElementById('editMajorSubtopicLabel').textContent = subtopic.name;
+                }
+            }
+            
+            // Setup search listener
+            const searchInput = document.getElementById('editMajorSubtopicSearch');
+            if (searchInput) {
+                searchInput.removeEventListener('input', filterEditMajorSubtopics);
+                searchInput.addEventListener('input', filterEditMajorSubtopics);
+            }
         });
 }
 
-function loadSubtopics(topicIds, selectedSubtopicIds = []) {
+// Select Major Subtopic
+function selectEditMajorSubtopic(value, name) {
+    document.getElementById('editMajorSubtopic').value = value;
+    document.getElementById('editMajorSubtopicLabel').textContent = name;
+    
+    // Close the dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editMajorSubtopicDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+}
+
+// Filter Major Subtopic options
+function filterEditMajorSubtopics() {
+    const searchTerm = document.getElementById('editMajorSubtopicSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#editMajorSubtopicOptions .searchable-option');
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        const value = opt.dataset.value;
+        if (value === '' || name.includes(searchTerm)) {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+function clearEditMajorSubtopicSearch() {
+    document.getElementById('editMajorSubtopicSearch').value = '';
+    filterEditMajorSubtopics();
+}
+
+// Load M2M subtopics as searchable multi-select checkboxes
+function loadSubtopicsSearchable(topicIds, selectedSubtopicIds = []) {
     const topicIdsStr = topicIds.filter(id => id).join(',');
     if (!topicIdsStr) return;
     
-    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}`)
+    // Always include hidden for edit mode
+    fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}&include_hidden=1`)
         .then(r => r.json())
         .then(subtopics => {
+            const checkboxesDiv = document.getElementById('editSubtopicsCheckboxes');
+            checkboxesDiv.innerHTML = subtopics.map(s => `
+                <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${s.name.toLowerCase()}">
+                    <input class="form-check-input edit-subtopic-checkbox" type="checkbox" 
+                           value="${s.id}" id="editSubtopic${s.id}" onchange="onEditSubtopicsChange()"
+                           ${selectedSubtopicIds.includes(s.id) ? 'checked' : ''}>
+                    <label class="form-check-label" for="editSubtopic${s.id}">
+                        ${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
+                    </label>
+                </div>
+            `).join('');
+            
+            // Update hidden select
             const subtopicSelect = document.getElementById('editSubtopics');
             subtopicSelect.innerHTML = subtopics.map(s => 
-                `<option value="${s.id}">${s.name}</option>`
+                `<option value="${s.id}" ${selectedSubtopicIds.includes(s.id) ? 'selected' : ''}>${s.name}</option>`
             ).join('');
             
-            // Select previously selected subtopics
-            Array.from(subtopicSelect.options).forEach(opt => {
-                opt.selected = selectedSubtopicIds.includes(parseInt(opt.value));
-            });
+            updateEditSubtopicsLabel();
+            
+            // Setup search listener
+            const searchInput = document.getElementById('editSubtopicsSearch');
+            if (searchInput) {
+                searchInput.removeEventListener('input', filterEditSubtopics);
+                searchInput.addEventListener('input', filterEditSubtopics);
+            }
         });
+}
+
+// Edit Subtopics multi-select functions
+function onEditSubtopicsChange() {
+    updateEditSubtopicsLabel();
+    syncEditSubtopicsSelect();
+}
+
+function updateEditSubtopicsLabel() {
+    const checked = document.querySelectorAll('.edit-subtopic-checkbox:checked');
+    const label = document.getElementById('editSubtopicsLabel');
+    
+    if (checked.length === 0) {
+        label.textContent = 'None selected';
+    } else if (checked.length === 1) {
+        const name = checked[0].parentElement.querySelector('label').textContent.trim();
+        label.textContent = name.length > 30 ? name.substring(0, 30) + '...' : name;
+    } else {
+        label.innerHTML = `${checked.length} subtopics <span class="badge bg-primary">${checked.length}</span>`;
+    }
+}
+
+function syncEditSubtopicsSelect() {
+    const subtopicSelect = document.getElementById('editSubtopics');
+    const checkedIds = Array.from(document.querySelectorAll('.edit-subtopic-checkbox:checked')).map(cb => cb.value);
+    
+    Array.from(subtopicSelect.options).forEach(opt => {
+        opt.selected = checkedIds.includes(opt.value);
+    });
+}
+
+function filterEditSubtopics() {
+    const searchTerm = document.getElementById('editSubtopicsSearch').value.toLowerCase();
+    const items = document.querySelectorAll('#editSubtopicsCheckboxes .form-check');
+    items.forEach(item => {
+        const name = item.dataset.subtopicName || '';
+        if (name.includes(searchTerm)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function clearEditSubtopicsSearch() {
+    document.getElementById('editSubtopicsSearch').value = '';
+    filterEditSubtopics();
+}
+
+function selectAllEditSubtopics() {
+    document.querySelectorAll('#editSubtopicsCheckboxes .form-check:not([style*="display: none"]) .edit-subtopic-checkbox').forEach(cb => cb.checked = true);
+    onEditSubtopicsChange();
+}
+
+function clearAllEditSubtopics() {
+    document.querySelectorAll('.edit-subtopic-checkbox').forEach(cb => cb.checked = false);
+    onEditSubtopicsChange();
 }
 
 function saveQuestionTags() {
