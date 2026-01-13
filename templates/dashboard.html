@@ -789,7 +789,8 @@ const STORAGE_KEYS = {
     PREVIEW_LANGUAGE: 'oqb_previewLanguage',
     PAGE_SIZE: 'oqb_pageSize',
     SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly',
-    SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics'
+    SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics',
+    CURRENT_PAGE: 'oqb_currentPage'
 };
 
 // Track filter modification state
@@ -1215,6 +1216,21 @@ try {
 }
 {% endif %}
 
+// Update pagination links with current sort config and save page
+// (Defined here so it's always available, not in the dynamically loaded partial)
+function updatePaginationSortConfig(link, event) {
+    // Get current sort config from hidden input
+    const sortConfigInput = document.getElementById('sortConfigInput');
+    if (sortConfigInput && typeof sortConfig !== 'undefined') {
+        sortConfigInput.value = JSON.stringify(sortConfig);
+    }
+    // Save the page number being navigated to
+    const page = link.dataset.page;
+    if (page) {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_PAGE, page);
+    }
+}
+
 function renderSortCriteria() {
     const container = document.getElementById('sortCriteria');
     container.innerHTML = '';
@@ -1555,6 +1571,8 @@ document.body.addEventListener('htmx:beforeRequest', function(event) {
         saveStateToStorage();
         // Save current filter values as last searched
         saveLastSearchedFilters();
+        // Reset page to 1 for new searches (form submit goes to page 1)
+        localStorage.setItem(STORAGE_KEYS.CURRENT_PAGE, '1');
     }
 });
 
@@ -2229,13 +2247,64 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (savedFilters && savedFilters.subject) {
         // Small delay to ensure all async topic/year loading is complete
         setTimeout(() => {
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                htmx.trigger(filterForm, 'submit');
+            // Check for saved page number
+            const savedPage = localStorage.getItem(STORAGE_KEYS.CURRENT_PAGE);
+            const pageNum = savedPage ? parseInt(savedPage) : 1;
+            
+            if (pageNum > 1) {
+                // Use refreshCurrentPage logic to load with saved page
+                triggerSearchWithPage(pageNum);
+            } else {
+                const filterForm = document.getElementById('filterForm');
+                if (filterForm) {
+                    htmx.trigger(filterForm, 'submit');
+                }
             }
         }, 300);
     }
 });
+
+// Trigger search with a specific page number
+function triggerSearchWithPage(pageNum) {
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) {
+        const formData = new FormData(filterForm);
+        
+        fetch('{{ url_for("dashboard.filter_questions") }}?page=' + pageNum, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'HX-Request': 'true'
+            }
+        })
+        .then(response => response.text())
+        .then(html => {
+            const questionList = document.getElementById('questionList');
+            questionList.innerHTML = html;
+            // Tell htmx to process the new content so pagination links work
+            htmx.process(questionList);
+            
+            if (typeof initializeSelectionState === 'function') {
+                initializeSelectionState();
+            }
+            if (typeof applyViewSettings === 'function') {
+                applyViewSettings();
+            }
+            if (typeof applyShowSelectedOnly === 'function') {
+                applyShowSelectedOnly();
+            }
+            // Save last searched filters
+            if (typeof saveLastSearchedFilters === 'function') {
+                saveLastSearchedFilters();
+            }
+        })
+        .catch(err => {
+            console.error('Error loading page:', err);
+            // Fallback to normal search
+            htmx.trigger(filterForm, 'submit');
+        });
+    }
+}
 
 // Subject change - load topics and years
 document.getElementById('subjectSelect').addEventListener('change', function() {
@@ -3433,6 +3502,9 @@ function refreshCurrentPage() {
         currentPage = parseInt(activePage.textContent) || 1;
     }
     
+    // Save the page to localStorage so it persists on F5
+    localStorage.setItem(STORAGE_KEYS.CURRENT_PAGE, currentPage.toString());
+    
     // Get the filter form
     const filterForm = document.getElementById('filterForm');
     if (filterForm) {
@@ -3449,7 +3521,11 @@ function refreshCurrentPage() {
         })
         .then(response => response.text())
         .then(html => {
-            document.getElementById('questionList').innerHTML = html;
+            const questionList = document.getElementById('questionList');
+            questionList.innerHTML = html;
+            // Tell htmx to process the new content so pagination links work
+            htmx.process(questionList);
+            
             // Re-initialize selection state after content update
             if (typeof initializeSelectionState === 'function') {
                 initializeSelectionState();

@@ -257,14 +257,16 @@
     </nav>
     </div>
     <script>
-    // Update pagination links with current sort config
-    function updatePaginationSortConfig(link, event) {
-        // Get current sort config from hidden input
-        const sortConfigInput = document.getElementById('sortConfigInput');
-        if (sortConfigInput && typeof sortConfig !== 'undefined') {
-            sortConfigInput.value = JSON.stringify(sortConfig);
+    // Save current page number on load (for when content is swapped in)
+    (function() {
+        const activePage = document.querySelector('.pagination .page-item.active .page-link');
+        if (activePage) {
+            const pageNum = parseInt(activePage.textContent);
+            if (!isNaN(pageNum)) {
+                localStorage.setItem('oqb_currentPage', pageNum);
+            }
         }
-    }
+    })();
     </script>
     {% endif %}
 
