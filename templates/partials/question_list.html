@@ -144,8 +144,9 @@
 
     <!-- Pagination -->
     {% if total_pages > 1 %}
+    <div class="sticky-pagination">
     <nav>
-        <ul class="pagination justify-content-center flex-wrap">
+        <ul class="pagination justify-content-center flex-wrap mb-0">
             <!-- Previous Button -->
             {% if page > 1 %}
             <li class="page-item">
@@ -254,6 +255,7 @@
             {% endif %}
         </ul>
     </nav>
+    </div>
     <script>
     // Update pagination links with current sort config
     function updatePaginationSortConfig(link, event) {

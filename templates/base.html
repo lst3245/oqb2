@@ -326,6 +326,19 @@
             background-color: #0d6efd;
             color: #fff;
         }
+        
+        /* Sticky pagination at bottom */
+        .sticky-pagination {
+            position: sticky;
+            bottom: 0;
+            background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 15%, rgba(255,255,255,1) 100%);
+            padding: 1rem 0 0.5rem 0;
+            margin-top: 1rem;
+            z-index: 50;
+        }
+        .sticky-pagination .pagination {
+            margin-bottom: 0;
+        }
     </style>
     
     {% block extra_css %}{% endblock %}

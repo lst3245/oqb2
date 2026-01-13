@@ -2978,13 +2978,8 @@ function executeBatchEdit() {
     .then(data => {
         if (data.success) {
             batchEditModal.hide();
-            alert(`Successfully updated ${data.updated_count} question(s)`);
-            
-            // Refresh the question list
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                htmx.trigger(filterForm, 'submit');
-            }
+            // Refresh the question list (preserve current page)
+            refreshCurrentPage();
         } else {
             throw new Error(data.error || 'Error updating questions');
         }
@@ -3401,7 +3396,7 @@ function clearAllEditSubtopics() {
 function saveQuestionTags() {
     const questionId = document.getElementById('editQuestionId').value;
     const formData = new FormData(document.getElementById('editForm'));
-    
+
     fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('0', questionId), {
         method: 'POST',
         body: formData
@@ -3417,12 +3412,8 @@ function saveQuestionTags() {
     .then(data => {
         if (data.success) {
             editModal.hide();
-            alert('Question updated successfully');
-            // Refresh the current page to show updated data
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                htmx.trigger(filterForm, 'submit');
-            }
+            // Refresh the current page to show updated data (preserve current page)
+            refreshCurrentPage();
         } else {
             throw new Error(data.error || 'Error updating question');
         }
@@ -3431,6 +3422,49 @@ function saveQuestionTags() {
         console.error('Error:', err);
         alert(err.message || 'Error updating question');
     });
+}
+
+// Helper function to refresh current page (preserving page number)
+function refreshCurrentPage() {
+    // Find the current active page from pagination
+    const activePage = document.querySelector('#questionList .pagination .page-item.active .page-link');
+    let currentPage = 1;
+    if (activePage) {
+        currentPage = parseInt(activePage.textContent) || 1;
+    }
+    
+    // Get the filter form
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) {
+        // Collect all form data manually
+        const formData = new FormData(filterForm);
+        
+        // Make direct fetch request to preserve the page
+        fetch('{{ url_for("dashboard.filter_questions") }}?page=' + currentPage, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'HX-Request': 'true'  // Tell server this is an HTMX request
+            }
+        })
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('questionList').innerHTML = html;
+            // Re-initialize selection state after content update
+            if (typeof initializeSelectionState === 'function') {
+                initializeSelectionState();
+            }
+            if (typeof applyViewSettings === 'function') {
+                applyViewSettings();
+            }
+            if (typeof applyShowSelectedOnly === 'function') {
+                applyShowSelectedOnly();
+            }
+        })
+        .catch(err => {
+            console.error('Error refreshing page:', err);
+        });
+    }
 }
 {% endif %}
 </script>
