@@ -1034,6 +1034,9 @@
         let answerPreference = 'SOL';  // 'SOL' or 'ANS'
         let preferredLanguage = 'EN';
         
+        // Base width for 100% zoom - calculated once on page load (half of window minus padding)
+        let baseZoomWidth = 0;
+        
         // Divider dragging state
         let isDragging = false;
         let startX = 0;
@@ -1041,6 +1044,9 @@
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            // Calculate base width for zoom: half of content area minus padding/divider/scrollbar
+            const contentWidth = document.getElementById('viewerContent').clientWidth;
+            baseZoomWidth = (contentWidth / 2) - 80; // Half width minus divider, padding, container padding, scrollbar buffer
             initDividerDrag();
             loadQuestion(0);
             updateNavButtons();
@@ -1324,23 +1330,15 @@
         
         function applyZoom(type) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
-            const panelBody = type === 'QUE' ? document.getElementById('quePanelBody') : document.getElementById('ansPanelBody');
             const zoom = type === 'QUE' ? queZoom : ansZoom;
             const img = container.querySelector('img');
             
             if (img) {
-                // Store the base width (what 100% zoom means)
-                // At 100%, image fits the panel width (minus padding)
-                if (!img.dataset.baseWidth) {
-                    const panelWidth = panelBody.clientWidth - 64; // Account for padding
-                    const naturalWidth = img.naturalWidth || img.offsetWidth;
-                    // Base width is the smaller of natural width or panel width
-                    img.dataset.baseWidth = Math.min(naturalWidth, panelWidth);
-                    img.dataset.naturalWidth = naturalWidth;
-                }
-                
-                const baseWidth = parseInt(img.dataset.baseWidth);
-                const newWidth = (baseWidth * zoom) / 100;
+                // At 100% zoom, image fits in half of initial window width
+                // Use the smaller of: baseZoomWidth or natural image width (don't upscale small images)
+                const naturalWidth = img.naturalWidth || img.offsetWidth;
+                const targetWidth = Math.min(baseZoomWidth, naturalWidth);
+                const newWidth = (targetWidth * zoom) / 100;
                 img.style.width = newWidth + 'px';
                 img.style.maxWidth = 'none';
             }
