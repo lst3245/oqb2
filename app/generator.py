@@ -1,7 +1,7 @@
 """
 Word document generation module
 """
-from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session
+from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session, jsonify
 from flask_login import login_required
 from docx import Document
 from docx.shared import Inches, Pt, Cm
@@ -42,6 +42,111 @@ def index():
                           question_ids=question_ids,
                           sort_config=sort_config,
                           sort_fields=sort_fields)
+
+@generator_bp.route('/viewer', methods=['GET'])
+@login_required
+def viewer():
+    """Full-screen viewer/presentation mode page"""
+    # Get selected question IDs from query params (order preserved)
+    question_ids = request.args.getlist('question_ids')
+    
+    if not question_ids:
+        flash('No questions selected', 'warning')
+        return redirect(url_for('dashboard.index'))
+    
+    # Get sort config from query params
+    sort_config_str = request.args.get('sort_config')
+    if sort_config_str:
+        try:
+            sort_config = json.loads(sort_config_str)
+        except json.JSONDecodeError:
+            sort_config = [{"field": "qid", "direction": "asc"}]
+    else:
+        sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+    
+    # Get questions - preserve the selection order by using a dict
+    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+    questions_list = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+    
+    # Apply sort if custom sort mode
+    questions_list = apply_multi_sort(questions_list, sort_config)
+    
+    # Prepare question data with assets
+    questions_data = []
+    for q in questions_list:
+        # Get all assets for this question
+        assets = QuestionAsset.query.filter_by(question_id=q.id).all()
+        
+        # Group assets by type
+        que_assets = [a for a in assets if a.asset_type == 'QUE']
+        ans_assets = [a for a in assets if a.asset_type == 'ANS']
+        sol_assets = [a for a in assets if a.asset_type == 'SOL']
+        
+        questions_data.append({
+            'id': q.id,
+            'qid': q.qid,
+            'year': q.year,
+            'level': q.level,
+            'q_type': q.q_type,
+            'has_que': len(que_assets) > 0,
+            'has_ans': len(ans_assets) > 0,
+            'has_sol': len(sol_assets) > 0
+        })
+    
+    return render_template('viewer.html', 
+                          questions=questions_data,
+                          question_ids=question_ids)
+
+@generator_bp.route('/api/viewer_asset/<int:question_id>/<asset_type>')
+@login_required
+def get_viewer_asset(question_id, asset_type):
+    """Get asset URL for viewer mode with language preference"""
+    preferred_language = request.args.get('lang', 'EN')
+    
+    # Get all assets for this question and type
+    assets = QuestionAsset.query.filter_by(
+        question_id=question_id,
+        asset_type=asset_type
+    ).all()
+    
+    if not assets:
+        # If SOL not found, try ANS and vice versa
+        fallback_type = 'ANS' if asset_type == 'SOL' else 'SOL' if asset_type == 'ANS' else None
+        if fallback_type:
+            assets = QuestionAsset.query.filter_by(
+                question_id=question_id,
+                asset_type=fallback_type
+            ).all()
+            if assets:
+                asset_type = fallback_type  # Update to indicate the fallback
+    
+    if not assets:
+        return jsonify({'error': 'Asset not found', 'asset_type': asset_type}), 404
+    
+    # Sort by language preference and format
+    def lang_order(asset):
+        if asset.language == preferred_language:
+            return 0
+        elif asset.language == 'BI':
+            return 1
+        else:
+            return 2
+    
+    def format_order(asset):
+        return 0 if asset.file_format == 'IMG' else 1
+    
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a)))
+    asset = sorted_assets[0]
+    
+    file_url = f"/dashboard/files/{asset.file_path}"
+    
+    return jsonify({
+        'id': asset.id,
+        'type': asset.asset_type,
+        'format': asset.file_format,
+        'language': asset.language,
+        'url': file_url
+    })
 
 @generator_bp.route('/create', methods=['POST'])
 @login_required

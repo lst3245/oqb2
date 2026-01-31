@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Question Viewer - Presentation Mode</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            background: #f8f9fa;
+        }
+        
+        /* Top Toolbar - matches app navbar */
+        .viewer-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: #0d6efd;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1rem;
+            z-index: 1000;
+            gap: 1rem;
+        }
+        
+        .toolbar-left, .toolbar-center, .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .toolbar-center {
+            flex: 1;
+            justify-content: center;
+        }
+        
+        .btn-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        
+        .btn-toolbar:hover {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border-color: rgba(255,255,255,0.5);
+        }
+        
+        .btn-toolbar.active {
+            background: white;
+            color: #0d6efd;
+            border-color: white;
+        }
+        
+        .btn-toolbar i {
+            font-size: 1rem;
+        }
+        
+        .btn-icon-only {
+            padding: 0.4rem 0.5rem;
+            min-width: 38px;
+        }
+        
+        /* Question Navigation */
+        .question-nav {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: white;
+        }
+        
+        .question-nav .current-q {
+            min-width: 100px;
+            text-align: center;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .question-nav .nav-btn {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.1);
+            color: white;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .question-nav .nav-btn:hover:not(:disabled) {
+            background: rgba(255,255,255,0.25);
+        }
+        
+        .question-nav .nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        /* Question ID Display */
+        .qid-display {
+            font-size: 0.85rem;
+            padding: 0.3rem 0.6rem;
+            background: rgba(255,255,255,0.15);
+            border-radius: 4px;
+            color: white;
+            font-weight: 500;
+        }
+        
+        /* Main Content Area */
+        .viewer-content {
+            position: fixed;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            overflow: hidden;
+            background: #e9ecef;
+        }
+        
+        /* Content Panels */
+        .content-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            min-width: 0;
+            background: white;
+        }
+        
+        .content-panel + .content-panel {
+            border-left: 1px solid #dee2e6;
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            min-height: 44px;
+        }
+        
+        .panel-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .panel-title i {
+            color: #0d6efd;
+        }
+        
+        .panel-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .zoom-control {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: white;
+            border-radius: 6px;
+            padding: 0.2rem;
+            border: 1px solid #dee2e6;
+        }
+        
+        .zoom-control button {
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: #6c757d;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+        
+        .zoom-control button:hover {
+            background: #e9ecef;
+            color: #212529;
+        }
+        
+        .zoom-control .zoom-value {
+            font-size: 0.75rem;
+            min-width: 40px;
+            text-align: center;
+            color: #6c757d;
+        }
+        
+        .panel-body {
+            flex: 1;
+            overflow: auto;
+            padding: 1rem;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            background: #f8f9fa;
+        }
+        
+        .panel-body.hidden-panel {
+            display: none;
+        }
+        
+        .asset-container {
+            max-width: 100%;
+            transition: transform 0.2s ease;
+            transform-origin: top center;
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .asset-container img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        /* Draggable Divider */
+        .panel-divider {
+            width: 8px;
+            background: #dee2e6;
+            cursor: col-resize;
+            position: relative;
+            flex-shrink: 0;
+            transition: background 0.15s ease;
+        }
+        
+        .panel-divider:hover,
+        .panel-divider.dragging {
+            background: #0d6efd;
+        }
+        
+        .panel-divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 40px;
+            background: #adb5bd;
+            border-radius: 2px;
+        }
+        
+        .panel-divider:hover::before,
+        .panel-divider.dragging::before {
+            background: white;
+        }
+        
+        /* Sequential Mode */
+        .sequential-mode .viewer-content {
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 1rem;
+            gap: 1rem;
+        }
+        
+        .sequential-mode .content-panel {
+            flex: none;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: visible;
+        }
+        
+        .sequential-mode .content-panel + .content-panel {
+            border-left: none;
+        }
+        
+        .sequential-mode .panel-divider {
+            display: none;
+        }
+        
+        .sequential-mode .panel-body {
+            border-radius: 0 0 8px 8px;
+        }
+        
+        /* Loading State */
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 3rem;
+            color: #6c757d;
+        }
+        
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: #6c757d;
+            text-align: center;
+            gap: 0.75rem;
+        }
+        
+        .empty-state i {
+            font-size: 2.5rem;
+            opacity: 0.5;
+        }
+        
+        /* Settings Panel (Sidebar) */
+        .settings-panel {
+            position: fixed;
+            top: 56px;
+            right: -320px;
+            width: 320px;
+            bottom: 0;
+            background: white;
+            border-left: 1px solid #dee2e6;
+            z-index: 900;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+        }
+        
+        .settings-panel.open {
+            right: 0;
+        }
+        
+        .settings-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+        
+        .settings-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0;
+            color: #212529;
+        }
+        
+        .settings-section {
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .settings-section h4 {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6c757d;
+            margin-bottom: 0.75rem;
+        }
+        
+        .setting-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+        }
+        
+        .setting-label {
+            font-size: 0.875rem;
+            color: #495057;
+        }
+        
+        /* Toggle Switch */
+        .form-check.form-switch .form-check-input {
+            width: 3rem;
+            height: 1.5rem;
+            cursor: pointer;
+        }
+        
+        /* Button Group in Settings */
+        .btn-group-setting {
+            display: flex;
+            width: 100%;
+        }
+        
+        .btn-group-setting .btn {
+            flex: 1;
+        }
+        
+        /* Question List Drawer */
+        .question-drawer {
+            position: fixed;
+            top: 56px;
+            left: -300px;
+            width: 300px;
+            bottom: 0;
+            background: white;
+            border-right: 1px solid #dee2e6;
+            z-index: 900;
+            transition: left 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+        }
+        
+        .question-drawer.open {
+            left: 0;
+        }
+        
+        .drawer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+        
+        .drawer-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0;
+            color: #212529;
+        }
+        
+        .question-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+        
+        .question-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            margin-bottom: 0.25rem;
+            border: 1px solid transparent;
+        }
+        
+        .question-item:hover {
+            background: #f8f9fa;
+            border-color: #dee2e6;
+        }
+        
+        .question-item.active {
+            background: #e7f1ff;
+            border-color: #0d6efd;
+        }
+        
+        .question-item .q-number {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #e9ecef;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #6c757d;
+        }
+        
+        .question-item.active .q-number {
+            background: #0d6efd;
+            color: white;
+        }
+        
+        .question-item .q-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .question-item .q-id {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #212529;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .question-item .q-meta {
+            display: flex;
+            gap: 0.35rem;
+            margin-top: 0.25rem;
+            flex-wrap: wrap;
+        }
+        
+        .question-item .q-badge {
+            font-size: 0.65rem;
+            padding: 0.15rem 0.35rem;
+            border-radius: 4px;
+            background: #e9ecef;
+            color: #6c757d;
+        }
+        
+        /* Keyboard Shortcuts Modal */
+        .shortcuts-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .shortcuts-overlay.show {
+            display: flex;
+        }
+        
+        .shortcuts-content {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        
+        .shortcuts-content h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            text-align: center;
+            color: #212529;
+        }
+        
+        .shortcut-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.875rem;
+        }
+        
+        .shortcut-row:last-child {
+            border-bottom: none;
+        }
+        
+        .shortcut-key {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            font-family: monospace;
+        }
+        
+        /* Overlay backdrop when drawers are open */
+        .drawer-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 800;
+            display: none;
+        }
+        
+        .drawer-backdrop.show {
+            display: block;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .viewer-toolbar {
+                padding: 0 0.5rem;
+                gap: 0.25rem;
+            }
+            
+            .btn-toolbar .btn-text {
+                display: none;
+            }
+            
+            .toolbar-center {
+                display: none;
+            }
+            
+            .qid-display {
+                display: none;
+            }
+            
+            .viewer-content {
+                flex-direction: column;
+            }
+            
+            .panel-divider {
+                display: none;
+            }
+            
+            .content-panel {
+                flex: none;
+            }
+            
+            .panel-body {
+                padding: 0.5rem;
+            }
+            
+            .asset-container {
+                padding: 0.5rem;
+            }
+        }
+        
+        /* Fullscreen mode - hide toolbar */
+        body.fullscreen-mode .viewer-toolbar {
+            display: none;
+        }
+        
+        body.fullscreen-mode .viewer-content {
+            top: 0;
+        }
+        
+        /* Print styles */
+        @media print {
+            .viewer-toolbar,
+            .settings-panel,
+            .question-drawer,
+            .panel-header {
+                display: none !important;
+            }
+            
+            .viewer-content {
+                top: 0;
+                position: relative;
+            }
+            
+            .content-panel {
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div class="viewer-toolbar">
+        <div class="toolbar-left">
+            <button class="btn-toolbar btn-icon-only" onclick="toggleQuestionDrawer()" title="Question List (L)">
+                <i class="bi bi-list"></i>
+            </button>
+            <span class="qid-display" id="currentQid">-</span>
+        </div>
+        
+        <div class="toolbar-center">
+            <div class="question-nav">
+                <button class="nav-btn" onclick="prevQuestion()" id="prevBtn" title="Previous (←)">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <span class="current-q">
+                    <span id="currentIndex">1</span> / <span id="totalQuestions">{{ questions|length }}</span>
+                </span>
+                <button class="nav-btn" onclick="nextQuestion()" id="nextBtn" title="Next (→)">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="toolbar-right">
+            <button class="btn-toolbar active" onclick="toggleShowQue()" id="btnShowQue" title="Toggle Question (Q)">
+                <i class="bi bi-file-text"></i>
+                <span class="btn-text">QUE</span>
+            </button>
+            <button class="btn-toolbar active" onclick="toggleShowAns()" id="btnShowAns" title="Toggle Solution (S)">
+                <i class="bi bi-check-circle"></i>
+                <span class="btn-text">SOL</span>
+            </button>
+            <button class="btn-toolbar btn-icon-only" onclick="toggleSettings()" title="Settings (G)">
+                <i class="bi bi-gear"></i>
+            </button>
+            <button class="btn-toolbar btn-icon-only" onclick="toggleFullscreen()" title="Fullscreen (F)">
+                <i class="bi bi-fullscreen"></i>
+            </button>
+            <button class="btn-toolbar btn-icon-only" onclick="showShortcuts()" title="Keyboard Shortcuts (?)">
+                <i class="bi bi-keyboard"></i>
+            </button>
+            <a href="{{ url_for('dashboard.index') }}" class="btn-toolbar btn-icon-only" title="Exit Viewer">
+                <i class="bi bi-x-lg"></i>
+            </a>
+        </div>
+    </div>
+    
+    <!-- Question List Drawer -->
+    <div class="question-drawer" id="questionDrawer">
+        <div class="drawer-header">
+            <h3><i class="bi bi-list-ol me-2"></i>Questions</h3>
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleQuestionDrawer()">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+        <div class="question-list" id="questionList">
+            {% for q in questions %}
+            <div class="question-item{% if loop.first %} active{% endif %}" 
+                 data-index="{{ loop.index0 }}" 
+                 data-id="{{ q.id }}"
+                 onclick="goToQuestion({{ loop.index0 }})">
+                <span class="q-number">{{ loop.index }}</span>
+                <div class="q-info">
+                    <div class="q-id">{{ q.qid }}</div>
+                    <div class="q-meta">
+                        {% if q.year %}<span class="q-badge">{{ q.year }}</span>{% endif %}
+                        {% if q.level %}<span class="q-badge">L{{ q.level }}</span>{% endif %}
+                        {% if q.q_type %}<span class="q-badge">{{ q.q_type }}</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settingsPanel">
+        <div class="settings-header">
+            <h3><i class="bi bi-gear me-2"></i>Settings</h3>
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleSettings()">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+        
+        <div class="settings-section">
+            <h4>Display</h4>
+            <div class="setting-item">
+                <span class="setting-label">Show Question</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="settingShowQue" checked onchange="updateShowQue(this.checked)">
+                </div>
+            </div>
+            <div class="setting-item">
+                <span class="setting-label">Show Solution/Answer</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="settingShowAns" checked onchange="updateShowAns(this.checked)">
+                </div>
+            </div>
+        </div>
+        
+        <div class="settings-section">
+            <h4>Layout</h4>
+            <div class="btn-group btn-group-setting w-100" role="group">
+                <input type="radio" class="btn-check" name="layoutMode" id="layoutSideBySide" checked onchange="setLayout('side-by-side')">
+                <label class="btn btn-outline-primary" for="layoutSideBySide">
+                    <i class="bi bi-layout-split"></i> Side by Side
+                </label>
+                <input type="radio" class="btn-check" name="layoutMode" id="layoutSequential" onchange="setLayout('sequential')">
+                <label class="btn btn-outline-primary" for="layoutSequential">
+                    <i class="bi bi-list"></i> Sequential
+                </label>
+            </div>
+        </div>
+        
+        <div class="settings-section">
+            <h4>Solution Preference</h4>
+            <div class="btn-group btn-group-setting w-100" role="group">
+                <input type="radio" class="btn-check" name="ansPref" id="prefSol" checked onchange="setAnswerPreference('SOL')">
+                <label class="btn btn-outline-primary" for="prefSol">SOL First</label>
+                <input type="radio" class="btn-check" name="ansPref" id="prefAns" onchange="setAnswerPreference('ANS')">
+                <label class="btn btn-outline-primary" for="prefAns">ANS First</label>
+            </div>
+            <small class="text-muted d-block mt-2">
+                Falls back to the other type if preferred is not available.
+            </small>
+        </div>
+        
+        <div class="settings-section">
+            <h4>Language</h4>
+            <div class="btn-group btn-group-setting w-100" role="group">
+                <input type="radio" class="btn-check" name="langPref" id="langEN" checked onchange="setLanguage('EN')">
+                <label class="btn btn-outline-primary" for="langEN">English First</label>
+                <input type="radio" class="btn-check" name="langPref" id="langCH" onchange="setLanguage('CH')">
+                <label class="btn btn-outline-primary" for="langCH">Chinese First</label>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main Content Area -->
+    <div class="viewer-content" id="viewerContent">
+        <!-- Question Panel -->
+        <div class="content-panel" id="quePanel">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i class="bi bi-file-text"></i>
+                    Question
+                </span>
+                <div class="panel-controls">
+                    <div class="zoom-control">
+                        <button onclick="zoomQue(-10)" title="Zoom Out"><i class="bi bi-dash"></i></button>
+                        <span class="zoom-value" id="queZoomValue">100%</span>
+                        <button onclick="zoomQue(10)" title="Zoom In"><i class="bi bi-plus"></i></button>
+                        <button onclick="resetZoomQue()" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-body" id="quePanelBody">
+                <div class="asset-container" id="queContainer">
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span>Loading question...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Divider -->
+        <div class="panel-divider" id="panelDivider"></div>
+        
+        <!-- Solution/Answer Panel -->
+        <div class="content-panel" id="ansPanel">
+            <div class="panel-header">
+                <span class="panel-title" id="ansPanelTitle">
+                    <i class="bi bi-check-circle"></i>
+                    Solution
+                </span>
+                <div class="panel-controls">
+                    <div class="zoom-control">
+                        <button onclick="zoomAns(-10)" title="Zoom Out"><i class="bi bi-dash"></i></button>
+                        <span class="zoom-value" id="ansZoomValue">100%</span>
+                        <button onclick="zoomAns(10)" title="Zoom In"><i class="bi bi-plus"></i></button>
+                        <button onclick="resetZoomAns()" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-body" id="ansPanelBody">
+                <div class="asset-container" id="ansContainer">
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span>Loading solution...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Drawer Backdrop -->
+    <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeAllDrawers()"></div>
+    
+    <!-- Keyboard Shortcuts Overlay -->
+    <div class="shortcuts-overlay" id="shortcutsOverlay" onclick="hideShortcuts()">
+        <div class="shortcuts-content" onclick="event.stopPropagation()">
+            <h3><i class="bi bi-keyboard me-2"></i>Keyboard Shortcuts</h3>
+            <div class="shortcut-row">
+                <span>Previous question</span>
+                <span class="shortcut-key">← or P</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Next question</span>
+                <span class="shortcut-key">→ or N</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle question</span>
+                <span class="shortcut-key">Q</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle solution</span>
+                <span class="shortcut-key">S or A</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle fullscreen</span>
+                <span class="shortcut-key">F</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle question list</span>
+                <span class="shortcut-key">L</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle settings</span>
+                <span class="shortcut-key">G</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Show shortcuts</span>
+                <span class="shortcut-key">?</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Close / Exit</span>
+                <span class="shortcut-key">Esc</span>
+            </div>
+            <div class="text-center mt-3">
+                <button class="btn btn-primary btn-sm" onclick="hideShortcuts()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Question data from server
+        const questionsData = {{ questions | tojson | safe }};
+        let currentIndex = 0;
+        
+        // View settings
+        let showQue = true;
+        let showAns = true;
+        let queZoom = 100;
+        let ansZoom = 100;
+        let layout = 'side-by-side';
+        let answerPreference = 'SOL';  // 'SOL' or 'ANS'
+        let preferredLanguage = 'EN';
+        
+        // Divider dragging state
+        let isDragging = false;
+        let startX = 0;
+        let startLeftWidth = 0;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initDividerDrag();
+            loadQuestion(0);
+            updateNavButtons();
+            detectMobileLayout();
+        });
+        
+        // Detect mobile and set appropriate layout
+        function detectMobileLayout() {
+            if (window.innerWidth <= 768) {
+                setLayout('sequential');
+                document.getElementById('layoutSequential').checked = true;
+            }
+        }
+        
+        // Navigation
+        function prevQuestion() {
+            if (currentIndex > 0) {
+                loadQuestion(currentIndex - 1);
+            }
+        }
+        
+        function nextQuestion() {
+            if (currentIndex < questionsData.length - 1) {
+                loadQuestion(currentIndex + 1);
+            }
+        }
+        
+        function goToQuestion(index) {
+            if (index >= 0 && index < questionsData.length) {
+                loadQuestion(index);
+                closeAllDrawers();
+            }
+        }
+        
+        function loadQuestion(index) {
+            currentIndex = index;
+            const question = questionsData[index];
+            
+            // Update UI
+            document.getElementById('currentIndex').textContent = index + 1;
+            document.getElementById('currentQid').textContent = question.qid;
+            
+            // Update question list active state
+            document.querySelectorAll('.question-item').forEach((item, i) => {
+                item.classList.toggle('active', i === index);
+            });
+            
+            // Load assets
+            loadAsset('QUE', question.id);
+            loadAnswerAsset(question.id);
+            
+            updateNavButtons();
+        }
+        
+        function updateNavButtons() {
+            document.getElementById('prevBtn').disabled = currentIndex === 0;
+            document.getElementById('nextBtn').disabled = currentIndex === questionsData.length - 1;
+        }
+        
+        // Load assets
+        async function loadAsset(type, questionId) {
+            const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
+            
+            container.innerHTML = `
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span>Loading ${type.toLowerCase()}...</span>
+                </div>
+            `;
+            
+            try {
+                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${type}?lang=${preferredLanguage}`);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Asset not found');
+                }
+                
+                const data = await response.json();
+                
+                if (data.format === 'IMG') {
+                    container.innerHTML = `<img src="${data.url}" alt="${type}" onload="applyZoom('${type}')">`;
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i class="bi bi-file-earmark-word"></i>
+                            <span>Word document format</span>
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </div>
+                    `;
+                }
+                
+                // Update panel title if answer/solution
+                if (type === 'ANS' || type === 'SOL') {
+                    document.getElementById('ansPanelTitle').innerHTML = `
+                        <i class="bi bi-check-circle"></i>
+                        ${data.type === 'SOL' ? 'Solution' : 'Answer'}
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="bi bi-exclamation-triangle text-warning"></i>
+                        <span>${type} not available</span>
+                    </div>
+                `;
+            }
+        }
+        
+        async function loadAnswerAsset(questionId) {
+            // Try preferred type first, then fallback
+            const primaryType = answerPreference;
+            
+            const container = document.getElementById('ansContainer');
+            container.innerHTML = `
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span>Loading solution...</span>
+                </div>
+            `;
+            
+            try {
+                // The API already handles fallback
+                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${primaryType}?lang=${preferredLanguage}`);
+                
+                if (!response.ok) {
+                    throw new Error('Not found');
+                }
+                
+                const data = await response.json();
+                
+                if (data.format === 'IMG') {
+                    container.innerHTML = `<img src="${data.url}" alt="${data.type}" onload="applyZoom('ANS')">`;
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i class="bi bi-file-earmark-word"></i>
+                            <span>Word document format</span>
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </div>
+                    `;
+                }
+                
+                // Update panel title
+                document.getElementById('ansPanelTitle').innerHTML = `
+                    <i class="bi bi-check-circle"></i>
+                    ${data.type === 'SOL' ? 'Solution' : 'Answer'}
+                `;
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="bi bi-exclamation-triangle text-warning"></i>
+                        <span>Solution/Answer not available</span>
+                    </div>
+                `;
+            }
+        }
+        
+        // Toggle visibility
+        function toggleShowQue() {
+            showQue = !showQue;
+            updatePanelVisibility();
+            document.getElementById('settingShowQue').checked = showQue;
+        }
+        
+        function toggleShowAns() {
+            showAns = !showAns;
+            updatePanelVisibility();
+            document.getElementById('settingShowAns').checked = showAns;
+        }
+        
+        function updateShowQue(checked) {
+            showQue = checked;
+            updatePanelVisibility();
+        }
+        
+        function updateShowAns(checked) {
+            showAns = checked;
+            updatePanelVisibility();
+        }
+        
+        function updatePanelVisibility() {
+            const quePanel = document.getElementById('quePanel');
+            const ansPanel = document.getElementById('ansPanel');
+            const divider = document.getElementById('panelDivider');
+            const btnQue = document.getElementById('btnShowQue');
+            const btnAns = document.getElementById('btnShowAns');
+            
+            quePanel.style.display = showQue ? 'flex' : 'none';
+            ansPanel.style.display = showAns ? 'flex' : 'none';
+            divider.style.display = (showQue && showAns && layout === 'side-by-side') ? 'block' : 'none';
+            
+            btnQue.classList.toggle('active', showQue);
+            btnAns.classList.toggle('active', showAns);
+        }
+        
+        // Zoom controls
+        function zoomQue(delta) {
+            queZoom = Math.max(25, Math.min(300, queZoom + delta));
+            document.getElementById('queZoomValue').textContent = queZoom + '%';
+            applyZoom('QUE');
+        }
+        
+        function zoomAns(delta) {
+            ansZoom = Math.max(25, Math.min(300, ansZoom + delta));
+            document.getElementById('ansZoomValue').textContent = ansZoom + '%';
+            applyZoom('ANS');
+        }
+        
+        function resetZoomQue() {
+            queZoom = 100;
+            document.getElementById('queZoomValue').textContent = '100%';
+            applyZoom('QUE');
+        }
+        
+        function resetZoomAns() {
+            ansZoom = 100;
+            document.getElementById('ansZoomValue').textContent = '100%';
+            applyZoom('ANS');
+        }
+        
+        function applyZoom(type) {
+            const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
+            const zoom = type === 'QUE' ? queZoom : ansZoom;
+            container.style.transform = `scale(${zoom / 100})`;
+        }
+        
+        // Layout
+        function setLayout(newLayout) {
+            layout = newLayout;
+            const content = document.getElementById('viewerContent');
+            
+            if (layout === 'sequential') {
+                content.classList.add('sequential-mode');
+            } else {
+                content.classList.remove('sequential-mode');
+            }
+            
+            updatePanelVisibility();
+        }
+        
+        // Answer preference
+        function setAnswerPreference(pref) {
+            answerPreference = pref;
+            
+            // Reload current answer
+            if (questionsData.length > 0) {
+                loadAnswerAsset(questionsData[currentIndex].id);
+            }
+        }
+        
+        // Language preference
+        function setLanguage(lang) {
+            preferredLanguage = lang;
+            
+            // Reload current question
+            if (questionsData.length > 0) {
+                loadQuestion(currentIndex);
+            }
+        }
+        
+        // Divider drag
+        function initDividerDrag() {
+            const divider = document.getElementById('panelDivider');
+            const quePanel = document.getElementById('quePanel');
+            const ansPanel = document.getElementById('ansPanel');
+            const content = document.getElementById('viewerContent');
+            
+            divider.addEventListener('mousedown', function(e) {
+                isDragging = true;
+                startX = e.clientX;
+                startLeftWidth = quePanel.offsetWidth;
+                divider.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+            
+            document.addEventListener('mousemove', function(e) {
+                if (!isDragging) return;
+                
+                const dx = e.clientX - startX;
+                const contentWidth = content.offsetWidth;
+                const newLeftWidth = Math.max(200, Math.min(contentWidth - 200, startLeftWidth + dx));
+                const leftPercent = (newLeftWidth / contentWidth) * 100;
+                
+                quePanel.style.flex = `0 0 ${leftPercent}%`;
+                ansPanel.style.flex = `1 1 auto`;
+            });
+            
+            document.addEventListener('mouseup', function() {
+                if (isDragging) {
+                    isDragging = false;
+                    divider.classList.remove('dragging');
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                }
+            });
+            
+            // Touch support
+            divider.addEventListener('touchstart', function(e) {
+                isDragging = true;
+                startX = e.touches[0].clientX;
+                startLeftWidth = quePanel.offsetWidth;
+                divider.classList.add('dragging');
+            }, { passive: true });
+            
+            document.addEventListener('touchmove', function(e) {
+                if (!isDragging) return;
+                
+                const dx = e.touches[0].clientX - startX;
+                const contentWidth = content.offsetWidth;
+                const newLeftWidth = Math.max(200, Math.min(contentWidth - 200, startLeftWidth + dx));
+                const leftPercent = (newLeftWidth / contentWidth) * 100;
+                
+                quePanel.style.flex = `0 0 ${leftPercent}%`;
+                ansPanel.style.flex = `1 1 auto`;
+            }, { passive: true });
+            
+            document.addEventListener('touchend', function() {
+                if (isDragging) {
+                    isDragging = false;
+                    divider.classList.remove('dragging');
+                }
+            });
+        }
+        
+        // Drawers and overlays
+        function toggleQuestionDrawer() {
+            const drawer = document.getElementById('questionDrawer');
+            const backdrop = document.getElementById('drawerBackdrop');
+            const isOpen = drawer.classList.contains('open');
+            
+            if (isOpen) {
+                drawer.classList.remove('open');
+                backdrop.classList.remove('show');
+            } else {
+                closeAllDrawers();
+                drawer.classList.add('open');
+                backdrop.classList.add('show');
+                
+                // Scroll active item into view
+                const activeItem = drawer.querySelector('.question-item.active');
+                if (activeItem) {
+                    activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        }
+        
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            const backdrop = document.getElementById('drawerBackdrop');
+            const isOpen = panel.classList.contains('open');
+            
+            if (isOpen) {
+                panel.classList.remove('open');
+                backdrop.classList.remove('show');
+            } else {
+                closeAllDrawers();
+                panel.classList.add('open');
+                backdrop.classList.add('show');
+            }
+        }
+        
+        function closeAllDrawers() {
+            document.getElementById('questionDrawer').classList.remove('open');
+            document.getElementById('settingsPanel').classList.remove('open');
+            document.getElementById('drawerBackdrop').classList.remove('show');
+        }
+        
+        function showShortcuts() {
+            document.getElementById('shortcutsOverlay').classList.add('show');
+        }
+        
+        function hideShortcuts() {
+            document.getElementById('shortcutsOverlay').classList.remove('show');
+        }
+        
+        // Fullscreen
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log('Fullscreen not available');
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ignore if typing in an input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            switch(e.key) {
+                case 'ArrowLeft':
+                case 'p':
+                case 'P':
+                    prevQuestion();
+                    e.preventDefault();
+                    break;
+                case 'ArrowRight':
+                case 'n':
+                case 'N':
+                    nextQuestion();
+                    e.preventDefault();
+                    break;
+                case 'q':
+                case 'Q':
+                    toggleShowQue();
+                    e.preventDefault();
+                    break;
+                case 's':
+                case 'S':
+                case 'a':
+                case 'A':
+                    toggleShowAns();
+                    e.preventDefault();
+                    break;
+                case 'f':
+                case 'F':
+                    toggleFullscreen();
+                    e.preventDefault();
+                    break;
+                case 'l':
+                case 'L':
+                    toggleQuestionDrawer();
+                    e.preventDefault();
+                    break;
+                case 'g':
+                case 'G':
+                    toggleSettings();
+                    e.preventDefault();
+                    break;
+                case '?':
+                    showShortcuts();
+                    e.preventDefault();
+                    break;
+                case 'Escape':
+                    if (document.getElementById('shortcutsOverlay').classList.contains('show')) {
+                        hideShortcuts();
+                    } else {
+                        closeAllDrawers();
+                    }
+                    e.preventDefault();
+                    break;
+            }
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (window.innerWidth <= 768 && layout === 'side-by-side') {
+                setLayout('sequential');
+                document.getElementById('layoutSequential').checked = true;
+            }
+        });
+    </script>
+</body>
+</html>

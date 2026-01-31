@@ -353,6 +353,10 @@
                                 onclick="generateDocument()">
                             <i class="bi bi-file-earmark-word"></i> <span class="btn-text">Generate</span>
                         </button>
+                        <button type="button" class="btn btn-sm btn-info" id="viewModeBtn" 
+                                onclick="openViewerMode()">
+                            <i class="bi bi-easel"></i> <span class="btn-text">Present</span>
+                        </button>
                         <!-- View Settings Dropdown -->
                         <div class="dropdown">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
@@ -3042,6 +3046,27 @@ function generateDocument() {
     params.append('sort_config', JSON.stringify(sortConfig));
     
     window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
+}
+
+// Open viewer/presentation mode
+function openViewerMode() {
+    // Use the global selectedQuestions Set
+    const questionIds = Array.from(selectedQuestions);
+    
+    if (questionIds.length === 0) {
+        alert('Please select at least one question');
+        return;
+    }
+    
+    // Redirect to viewer page with question IDs
+    const params = new URLSearchParams();
+    questionIds.forEach(id => params.append('question_ids', id));
+    
+    // Also pass current sort config
+    params.append('sort_config', JSON.stringify(sortConfig));
+    
+    // Open in new tab for full-screen experience
+    window.open(`{{ url_for('generator.viewer') }}?${params.toString()}`, '_blank');
 }
 
 {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
