@@ -79,6 +79,12 @@
                         {% endfor %}
                     </span>
                     {% endif %}
+                    {% if question.chapter %}
+                    <span class="tag-chapter"><span class="badge" style="background-color: #20c997; color: white;"><i class="bi bi-book"></i> {{ question.chapter }}</span></span>
+                    {% endif %}
+                    {% if question.subchapter %}
+                    <span class="tag-subchapter"><span class="badge" style="background-color: #6f42c1; color: white;">{{ question.subchapter }}</span></span>
+                    {% endif %}
                     {% if question.description %}
                     <div class="mt-2">
                         <small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small>
@@ -130,7 +136,9 @@
                                     "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
                                     "major_subtopic_id": {{ question.major_subtopic_id if question.major_subtopic_id else "null" }},
                                     "minor_topic_ids": {{ question.minor_topic_ids | default([]) | tojson }},
-                                    "subtopic_ids": {{ question.subtopic_ids | default([]) | tojson }}
+                                    "subtopic_ids": {{ question.subtopic_ids | default([]) | tojson }},
+                                    "chapter_id": {{ question.chapter_id if question.chapter_id else "null" }},
+                                    "subchapter_id": {{ question.subchapter_id if question.subchapter_id else "null" }}
                                 })'>
                             <i class="bi bi-pencil"></i> Edit Tags
                         </button>

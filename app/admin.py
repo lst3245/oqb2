@@ -4,7 +4,7 @@ Admin panel routes for managing topics and tagging questions
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import login_required
 from app import db
-from app.models import Subject, Topic, Subtopic, Question, QuestionAsset
+from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter
 from app.utils import admin_required
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -141,6 +141,139 @@ def delete_subtopic(subtopic_id):
     
     return jsonify({'success': True})
 
+# ==================== Chapter Management ====================
+
+@admin_bp.route('/chapters')
+@login_required
+@admin_required
+def chapters():
+    """Chapter and subchapter management page"""
+    subjects = Subject.query.all()
+    
+    # Get all chapters with their subchapters, grouped by subject
+    chapters_data = []
+    for subject in subjects:
+        subject_chapters = Chapter.query.filter_by(subject_id=subject.id).all()
+        chapters_data.append({
+            'subject': subject,
+            'chapters': subject_chapters
+        })
+    
+    return render_template('admin_chapters.html', chapters_data=chapters_data)
+
+@admin_bp.route('/chapters/add', methods=['POST'])
+@login_required
+@admin_required
+def add_chapter():
+    """Add a new chapter"""
+    subject_id = request.form.get('subject_id')
+    name = request.form.get('name')
+
+    if not subject_id or not name:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    chapter = Chapter(subject_id=subject_id, name=name)
+    db.session.add(chapter)
+    db.session.commit()
+
+    return jsonify({'id': chapter.id, 'name': chapter.name, 'subject_id': chapter.subject_id})
+
+@admin_bp.route('/chapters/<int:chapter_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def edit_chapter(chapter_id):
+    """Edit a chapter"""
+    chapter = Chapter.query.get_or_404(chapter_id)
+    name = request.form.get('name')
+    
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    chapter.name = name
+    db.session.commit()
+    
+    return jsonify({'id': chapter.id, 'name': chapter.name})
+
+@admin_bp.route('/chapters/<int:chapter_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+@admin_required
+def delete_chapter(chapter_id):
+    """Delete a chapter"""
+    chapter = Chapter.query.get_or_404(chapter_id)
+    
+    # Clear chapter_id from questions (ON DELETE SET NULL may not work in SQLite)
+    Question.query.filter_by(chapter_id=chapter_id).update({'chapter_id': None, 'subchapter_id': None})
+    
+    db.session.delete(chapter)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+@admin_bp.route('/subchapters/add', methods=['POST'])
+@login_required
+@admin_required
+def add_subchapter():
+    """Add a new subchapter"""
+    chapter_id = request.form.get('chapter_id')
+    name = request.form.get('name')
+    hidden = request.form.get('hidden', '0') == '1'
+    
+    if not chapter_id or not name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, hidden=hidden)
+    db.session.add(subchapter)
+    db.session.commit()
+    
+    return jsonify({'id': subchapter.id, 'name': subchapter.name, 'chapter_id': subchapter.chapter_id, 'hidden': subchapter.hidden})
+
+@admin_bp.route('/subchapters/<int:subchapter_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def edit_subchapter(subchapter_id):
+    """Edit a subchapter"""
+    subchapter = Subchapter.query.get_or_404(subchapter_id)
+    name = request.form.get('name')
+    
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    subchapter.name = name
+    
+    # Handle hidden flag
+    if 'hidden' in request.form:
+        subchapter.hidden = request.form.get('hidden') == '1'
+    
+    db.session.commit()
+    
+    return jsonify({'id': subchapter.id, 'name': subchapter.name, 'hidden': subchapter.hidden})
+
+@admin_bp.route('/subchapters/<int:subchapter_id>/toggle-hidden', methods=['POST'])
+@login_required
+@admin_required
+def toggle_subchapter_hidden(subchapter_id):
+    """Toggle the hidden status of a subchapter"""
+    subchapter = Subchapter.query.get_or_404(subchapter_id)
+    subchapter.hidden = not subchapter.hidden
+    db.session.commit()
+    
+    return jsonify({'id': subchapter.id, 'name': subchapter.name, 'hidden': subchapter.hidden})
+
+@admin_bp.route('/subchapters/<int:subchapter_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+@admin_required
+def delete_subchapter(subchapter_id):
+    """Delete a subchapter"""
+    subchapter = Subchapter.query.get_or_404(subchapter_id)
+    
+    # Clear subchapter_id from questions
+    Question.query.filter_by(subchapter_id=subchapter_id).update({'subchapter_id': None})
+    
+    db.session.delete(subchapter)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
 # ==================== Question Tagging ====================
 
 @admin_bp.route('/questions/<int:question_id>/update', methods=['POST'])
@@ -227,6 +360,30 @@ def update_question(question_id):
         else:
             question.subtopics.clear()
         
+        # Update chapter
+        if 'chapter_id' in request.form:
+            chapter_id = request.form.get('chapter_id')
+            new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
+            
+            # If chapter changed, clear subchapter (it may no longer be valid)
+            if new_chapter_id != question.chapter_id:
+                question.subchapter_id = None
+            
+            question.chapter_id = new_chapter_id
+        
+        # Update subchapter
+        if 'subchapter_id' in request.form:
+            subchapter_id = request.form.get('subchapter_id')
+            if subchapter_id and subchapter_id != '':
+                subchapter = Subchapter.query.get(int(subchapter_id))
+                # Validate that subchapter belongs to the chapter
+                if subchapter and question.chapter_id and subchapter.chapter_id == question.chapter_id:
+                    question.subchapter_id = subchapter.id
+                else:
+                    question.subchapter_id = None
+            else:
+                question.subchapter_id = None
+        
         db.session.commit()
         
         return jsonify({
@@ -239,6 +396,8 @@ def update_question(question_id):
                 'section': question.section,
                 'major_topic_id': question.major_topic_id,
                 'major_subtopic_id': question.major_subtopic_id,
+                'chapter_id': question.chapter_id,
+                'subchapter_id': question.subchapter_id,
                 'description': question.description
             }
         })
@@ -350,6 +509,7 @@ def batch_update_questions():
         update_section = request.form.get('update_section') == '1'
         update_correct_pct = request.form.get('update_correct_pct') == '1'
         update_topics = request.form.get('update_topics') == '1'
+        update_chapters = request.form.get('update_chapters') == '1'
         
         updated_count = 0
         
@@ -417,6 +577,25 @@ def batch_update_questions():
                         subtopic = Subtopic.query.get(int(sid))
                         if subtopic:
                             question.subtopics.append(subtopic)
+            
+            # Update chapters if requested
+            if update_chapters:
+                # Chapter
+                chapter_id = request.form.get('chapter_id')
+                new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
+                question.chapter_id = new_chapter_id
+                
+                # Subchapter
+                subchapter_id = request.form.get('subchapter_id')
+                if subchapter_id and subchapter_id != '':
+                    subchapter = Subchapter.query.get(int(subchapter_id))
+                    # Validate that subchapter belongs to the chapter
+                    if subchapter and new_chapter_id and subchapter.chapter_id == new_chapter_id:
+                        question.subchapter_id = subchapter.id
+                    else:
+                        question.subchapter_id = None
+                else:
+                    question.subchapter_id = None
             
             updated_count += 1
         

@@ -80,6 +80,32 @@ class Subtopic(db.Model):
     def __repr__(self):
         return f'<Subtopic {self.name}>'
 
+class Chapter(db.Model):
+    """Chapter model - for organizing questions by textbook chapters"""
+    __tablename__ = 'chapters'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    
+    # Relationships
+    subchapters = db.relationship('Subchapter', backref='chapter', lazy='dynamic', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<Chapter {self.name}>'
+
+class Subchapter(db.Model):
+    """Subchapter model - subdivisions within a chapter"""
+    __tablename__ = 'subchapters'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    chapter_id = db.Column(db.Integer, db.ForeignKey('chapters.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subchapters
+    
+    def __repr__(self):
+        return f'<Subchapter {self.name}>'
+
 class Question(db.Model):
     """Question model - represents a logical question"""
     __tablename__ = 'questions'
@@ -96,6 +122,8 @@ class Question(db.Model):
     level = db.Column(db.Integer, nullable=True)  # 1, 2, 3, or NULL
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
     major_subtopic_id = db.Column(db.Integer, db.ForeignKey('subtopics.id'), nullable=True, index=True)
+    chapter_id = db.Column(db.Integer, db.ForeignKey('chapters.id', ondelete='SET NULL'), nullable=True, index=True)
+    subchapter_id = db.Column(db.Integer, db.ForeignKey('subchapters.id', ondelete='SET NULL'), nullable=True, index=True)
     description = db.Column(db.Text, nullable=True)  # Optional description for the question
     correct_percentage = db.Column(db.Integer, nullable=True)  # 0-100, NULL if unknown (public exam correct rate)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -107,6 +135,8 @@ class Question(db.Model):
                                    backref=db.backref('minor_questions', lazy='dynamic'))
     subtopics = db.relationship('Subtopic', secondary=question_subtopics, lazy='select',
                                backref=db.backref('questions', lazy='dynamic'))
+    chapter = db.relationship('Chapter', foreign_keys=[chapter_id])
+    subchapter = db.relationship('Subchapter', foreign_keys=[subchapter_id])
     
     def __repr__(self):
         return f'<Question {self.qid}>'

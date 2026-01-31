@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Chapters - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-book"></i> Manage Chapters & Subchapters</h2>
+    <hr>
+    
+    <!-- Chapters List by Subject -->
+    {% for data in chapters_data %}
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-folder"></i> {{ data.subject.name }} ({{ data.subject.id }})</h5>
+            <button class="btn btn-sm btn-success" onclick="showAddChapterModal('{{ data.subject.id }}', '{{ data.subject.name }}')">
+                <i class="bi bi-plus-circle"></i> Add Chapter
+            </button>
+        </div>
+        <div class="card-body">
+            {% if data.chapters %}
+                {% for chapter in data.chapters %}
+                <div class="card mb-3" id="chapter-{{ chapter.id }}">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-book"></i> {{ chapter.name }}</h6>
+                        <div>
+                            <button class="btn btn-sm btn-light" 
+                                    onclick="showEditChapterModal({{ chapter.id }}, '{{ chapter.name | e }}')">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" 
+                                    onclick="deleteChapter({{ chapter.id }})">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                            <button class="btn btn-sm btn-success" 
+                                    onclick="showAddSubchapterModal({{ chapter.id }}, '{{ chapter.name | e }}')">
+                                <i class="bi bi-plus"></i> Add Subchapter
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body py-2">
+                        <!-- Subchapters -->
+                        {% set subchapters = chapter.subchapters.all() %}
+                        {% if subchapters %}
+                        <div class="list-group list-group-flush">
+                            {% for subchapter in subchapters %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 {% if subchapter.hidden %}opacity-50{% endif %}"
+                                 id="subchapter-{{ subchapter.id }}">
+                                <span>
+                                    <i class="bi bi-bookmark"></i> {{ subchapter.name }}
+                                    {% if subchapter.hidden %}
+                                    <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                    {% endif %}
+                                </span>
+                                <div>
+                                    <button class="btn btn-sm {% if subchapter.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
+                                            onclick="toggleSubchapterHidden({{ subchapter.id }})" 
+                                            title="{% if subchapter.hidden %}Show subchapter{% else %}Hide subchapter{% endif %}">
+                                        <i class="bi bi-{% if subchapter.hidden %}eye{% else %}eye-slash{% endif %}"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" 
+                                            onclick="showEditSubchapterModal({{ subchapter.id }}, '{{ subchapter.name | e }}', {{ 'true' if subchapter.hidden else 'false' }})">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" 
+                                            onclick="deleteSubchapter({{ subchapter.id }})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-0 small">No subchapters yet. Add one above!</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted mb-0">No chapters for this subject yet. Click "Add Chapter" to create one.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Add/Edit Chapter Modal -->
+<div class="modal fade" id="chapterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="chapterModalLabel">Add Chapter</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="chapterForm">
+                    <input type="hidden" id="chapterId">
+                    <input type="hidden" id="chapterSubjectId">
+                    <div class="mb-3">
+                        <label class="form-label">Subject</label>
+                        <input type="text" class="form-control" id="chapterSubjectName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Chapter Name</label>
+                        <input type="text" class="form-control" id="chapterName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveChapter()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Subchapter Modal -->
+<div class="modal fade" id="subchapterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="subchapterModalLabel">Add Subchapter</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="subchapterForm">
+                    <input type="hidden" id="subchapterId">
+                    <input type="hidden" id="subchapterChapterId">
+                    <div class="mb-3">
+                        <label class="form-label">Chapter</label>
+                        <input type="text" class="form-control" id="subchapterChapterName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Subchapter Name</label>
+                        <input type="text" class="form-control" id="subchapterName" required>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="subchapterHidden">
+                            <label class="form-check-label" for="subchapterHidden">
+                                <i class="bi bi-eye-slash"></i> Hidden
+                            </label>
+                        </div>
+                        <small class="text-muted">Hidden subchapters are not shown by default in the dashboard filter.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveSubchapter()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let chapterModal, subchapterModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    chapterModal = new bootstrap.Modal(document.getElementById('chapterModal'));
+    subchapterModal = new bootstrap.Modal(document.getElementById('subchapterModal'));
+});
+
+// Chapter functions
+function showAddChapterModal(subjectId, subjectName) {
+    document.getElementById('chapterModalLabel').textContent = 'Add Chapter';
+    document.getElementById('chapterId').value = '';
+    document.getElementById('chapterSubjectId').value = subjectId;
+    document.getElementById('chapterSubjectName').value = subjectName;
+    document.getElementById('chapterName').value = '';
+    chapterModal.show();
+}
+
+function showEditChapterModal(chapterId, chapterName) {
+    document.getElementById('chapterModalLabel').textContent = 'Edit Chapter';
+    document.getElementById('chapterId').value = chapterId;
+    document.getElementById('chapterName').value = chapterName;
+    // Hide subject field for edit (can't change subject)
+    document.getElementById('chapterSubjectId').value = '';
+    document.getElementById('chapterSubjectName').value = '(Cannot change subject)';
+    chapterModal.show();
+}
+
+function saveChapter() {
+    const chapterId = document.getElementById('chapterId').value;
+    const name = document.getElementById('chapterName').value;
+    const subjectId = document.getElementById('chapterSubjectId').value;
+    
+    const url = chapterId ? 
+        `{{ url_for('admin.edit_chapter', chapter_id=0) }}`.replace('0', chapterId) :
+        `{{ url_for('admin.add_chapter') }}`;
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    if (!chapterId && subjectId) {
+        formData.append('subject_id', subjectId);
+    }
+    
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            chapterModal.hide();
+            location.reload();
+        })
+        .catch(err => alert('Error saving chapter'));
+}
+
+function deleteChapter(chapterId) {
+    if (!confirm('Delete this chapter and all its subchapters? Questions tagged with this chapter will have their chapter cleared.')) return;
+    
+    fetch(`{{ url_for('admin.delete_chapter', chapter_id=0) }}`.replace('0', chapterId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error deleting chapter'));
+}
+
+// Subchapter functions
+function showAddSubchapterModal(chapterId, chapterName) {
+    document.getElementById('subchapterModalLabel').textContent = 'Add Subchapter';
+    document.getElementById('subchapterId').value = '';
+    document.getElementById('subchapterChapterId').value = chapterId;
+    document.getElementById('subchapterChapterName').value = chapterName;
+    document.getElementById('subchapterName').value = '';
+    document.getElementById('subchapterHidden').checked = false;
+    subchapterModal.show();
+}
+
+function showEditSubchapterModal(subchapterId, subchapterName, isHidden = false) {
+    document.getElementById('subchapterModalLabel').textContent = 'Edit Subchapter';
+    document.getElementById('subchapterId').value = subchapterId;
+    document.getElementById('subchapterName').value = subchapterName;
+    document.getElementById('subchapterHidden').checked = isHidden;
+    subchapterModal.show();
+}
+
+function saveSubchapter() {
+    const subchapterId = document.getElementById('subchapterId').value;
+    const name = document.getElementById('subchapterName').value;
+    const chapterId = document.getElementById('subchapterChapterId').value;
+    const hidden = document.getElementById('subchapterHidden').checked ? '1' : '0';
+    
+    const url = subchapterId ? 
+        `{{ url_for('admin.edit_subchapter', subchapter_id=0) }}`.replace('0', subchapterId) :
+        `{{ url_for('admin.add_subchapter') }}`;
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('hidden', hidden);
+    if (!subchapterId) formData.append('chapter_id', chapterId);
+    
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            subchapterModal.hide();
+            location.reload();
+        })
+        .catch(err => alert('Error saving subchapter'));
+}
+
+function toggleSubchapterHidden(subchapterId) {
+    fetch(`{{ url_for('admin.toggle_subchapter_hidden', subchapter_id=0) }}`.replace('0', subchapterId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error toggling subchapter visibility'));
+}
+
+function deleteSubchapter(subchapterId) {
+    if (!confirm('Delete this subchapter? Questions tagged with this subchapter will have their subchapter cleared.')) return;
+    
+    fetch(`{{ url_for('admin.delete_subchapter', subchapter_id=0) }}`.replace('0', subchapterId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => location.reload())
+    .catch(err => alert('Error deleting subchapter'));
+}
+</script>
+{% endblock %}

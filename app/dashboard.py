@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, jsonify, session, current
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from app import db
-from app.models import Question, QuestionAsset, Topic, Subtopic, Subject
+from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import natural_sort, apply_multi_sort
 import os
 import json
@@ -35,6 +35,8 @@ def filter_questions():
     topic_mode = request.args.get('topic_mode') or request.form.get('topic_mode') or 'OR'  # AND or OR
     subtopics = request.args.getlist('subtopics') or request.form.getlist('subtopics')
     is_crosstopic = request.args.get('is_crosstopic') or request.form.get('is_crosstopic')
+    chapters = request.args.getlist('chapters') or request.form.getlist('chapters')
+    subchapters = request.args.getlist('subchapters') or request.form.getlist('subchapters')
     levels = request.args.getlist('levels') or request.form.getlist('levels')
     q_type = request.args.get('q_type') or request.form.get('q_type')
     qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
@@ -73,6 +75,8 @@ def filter_questions():
         'topic_mode': topic_mode,
         'subtopics': subtopics,
         'is_crosstopic': is_crosstopic,
+        'chapters': chapters,
+        'subchapters': subchapters,
         'levels': levels,
         'q_type': q_type,
         'qid_search': qid_search
@@ -154,6 +158,18 @@ def filter_questions():
                     Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
                 )
             )
+    
+    # Filter by chapters
+    if chapters:
+        chapter_ids = [int(c) for c in chapters if c.isdigit()]
+        if chapter_ids:
+            query = query.filter(Question.chapter_id.in_(chapter_ids))
+    
+    # Filter by subchapters
+    if subchapters:
+        subchapter_ids = [int(sc) for sc in subchapters if sc.isdigit()]
+        if subchapter_ids:
+            query = query.filter(Question.subchapter_id.in_(subchapter_ids))
     
     # Filter by levels
     if levels:
@@ -248,6 +264,10 @@ def filter_questions():
             'minor_topics': [t.name for t in q.minor_topics],
             'subtopic_ids': [s.id for s in q.subtopics],
             'subtopics': [s.name for s in q.subtopics],
+            'chapter': q.chapter.name if q.chapter else None,
+            'chapter_id': q.chapter_id,
+            'subchapter': q.subchapter.name if q.subchapter else None,
+            'subchapter_id': q.subchapter_id,
             'description': q.description,
             'correct_percentage': q.correct_percentage,
             'que_asset_id': que_asset.id if que_asset else None,
@@ -310,6 +330,38 @@ def get_subtopics():
     
     subtopics = query.all()
     return jsonify([{'id': s.id, 'name': s.name, 'topic_id': s.topic_id, 'hidden': s.hidden} for s in subtopics])
+
+@dashboard_bp.route('/api/chapters/<subject_id>')
+@login_required
+def get_chapters(subject_id):
+    """Get chapters for a subject"""
+    chapters_list = Chapter.query.filter_by(subject_id=subject_id).all()
+    return jsonify([{'id': c.id, 'name': c.name} for c in chapters_list])
+
+@dashboard_bp.route('/api/subchapters')
+@login_required
+def get_subchapters():
+    """Get subchapters for selected chapters
+    
+    Query params:
+        chapter_ids: comma-separated chapter IDs
+        include_hidden: if '1', include hidden subchapters (for admin edit modes)
+    """
+    chapter_ids = request.args.get('chapter_ids', '').split(',')
+    chapter_ids = [int(cid) for cid in chapter_ids if cid.isdigit()]
+    include_hidden = request.args.get('include_hidden', '0') == '1'
+    
+    if not chapter_ids:
+        return jsonify([])
+    
+    query = Subchapter.query.filter(Subchapter.chapter_id.in_(chapter_ids))
+    
+    # Filter hidden subchapters unless explicitly included
+    if not include_hidden:
+        query = query.filter(Subchapter.hidden == False)
+    
+    subchapters_list = query.all()
+    return jsonify([{'id': sc.id, 'name': sc.name, 'chapter_id': sc.chapter_id, 'hidden': sc.hidden} for sc in subchapters_list])
 
 @dashboard_bp.route('/api/years/<subject_id>/<source>')
 @login_required

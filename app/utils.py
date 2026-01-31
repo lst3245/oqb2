@@ -85,6 +85,16 @@ SORT_FIELDS = {
         'label': 'Correct %',
         'key': lambda q: (0, q.correct_percentage) if q.correct_percentage is not None else (1, 0),
         'natural': False
+    },
+    'chapter': {
+        'label': 'Chapter',
+        'key': lambda q: q.chapter.name if q.chapter else 'ZZZ',
+        'natural': True
+    },
+    'subchapter': {
+        'label': 'Subchapter',
+        'key': lambda q: q.subchapter.name if q.subchapter else 'ZZZ',
+        'natural': True
     }
 }
 

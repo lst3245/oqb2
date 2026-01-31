@@ -162,6 +162,70 @@
                             <select name="subtopics" id="subtopicSelect" multiple style="display:none;"></select>
                         </div>
 
+                        <!-- Chapters -->
+                        <div class="mb-3">
+                            <label class="form-label">Chapters</label>
+                            <div class="dropdown multi-select-dropdown" id="chapterDropdownContainer">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                        id="chapterDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="chapterDropdownLabel">Select chapters...</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="chapterDropdownMenu">
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" id="chapterSearchInput" placeholder="Search chapters...">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearChapterSearch()">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllChapters()">All</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllChapters()">None</button>
+                                    </div>
+                                    <div id="chapterCheckboxes" class="multi-select-checkbox-list">
+                                        <small class="text-muted">Loading chapters...</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Hidden select to store values for form submission -->
+                            <select name="chapters" id="chapterSelect" multiple style="display:none;"></select>
+                        </div>
+
+                        <!-- Subchapters -->
+                        <div class="mb-3" id="subchapterContainer" style="display:none;">
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span>Subchapters</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="showHiddenSubchapters" 
+                                           onchange="onShowHiddenSubchaptersChange()">
+                                    <label class="form-check-label small" for="showHiddenSubchapters" title="Show hidden subchapters">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </label>
+                                </div>
+                            </label>
+                            <div class="dropdown multi-select-dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                        id="subchapterDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="subchapterDropdownLabel">Select subchapters...</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="subchapterDropdownMenu">
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" id="subchapterSearchInput" placeholder="Search subchapters...">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearSubchapterSearch()">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubchapters()">All</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubchapters()">None</button>
+                                    </div>
+                                    <div id="subchapterCheckboxes" class="multi-select-checkbox-list">
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Hidden select to store values for form submission -->
+                            <select name="subchapters" id="subchapterSelect" multiple style="display:none;"></select>
+                        </div>
+
                         <!-- Level -->
                         <div class="mb-3">
                             <label class="form-label">Level</label>
@@ -330,6 +394,14 @@
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewSubtopics" value="subtopics">
                                     <label class="form-check-label" for="viewSubtopics">Subtopics (M2M)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewChapter" value="chapter" checked>
+                                    <label class="form-check-label" for="viewChapter">Chapter</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewSubchapter" value="subchapter">
+                                    <label class="form-check-label" for="viewSubchapter">Subchapter</label>
                                 </div>
                                 <div class="dropdown-divider"></div>
                                 <div class="dropdown-header">Preview Language</div>
@@ -527,6 +599,53 @@
                         <!-- Hidden select to store values -->
                         <select id="editSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
                         <small class="text-muted">All subtopics shown (including hidden ones)</small>
+                    </div>
+                    
+                    <hr>
+                    <h6 class="mb-3"><i class="bi bi-book"></i> Chapter Tagging</h6>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Chapter</label>
+                        <div class="dropdown searchable-single-select" id="editChapterDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editChapterLabel">None</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editChapterSearch" placeholder="Search chapters...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditChapterSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div id="editChapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="editChapter" name="chapter_id" value="">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Subchapter</label>
+                        <div class="dropdown searchable-single-select" id="editSubchapterDropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="editSubchapterLabel">None</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="editSubchapterSearch" placeholder="Search subchapters...">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubchapterSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div id="editSubchapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                    <div class="searchable-option" data-value="" onclick="selectEditSubchapter('', 'None')">None</div>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="editSubchapter" name="subchapter_id" value="">
+                        <small class="text-muted">Select chapter first to see subchapters (all subchapters shown including hidden)</small>
                     </div>
                 </form>
             </div>
@@ -728,6 +847,64 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Chapter & Subchapter -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchChaptersToggle" 
+                                   onchange="toggleBatchField('chapters')">
+                            <label class="form-check-label fw-bold" for="batchChaptersToggle">
+                                <i class="bi bi-book"></i> Chapter & Subchapter
+                            </label>
+                            <small class="text-muted d-block">Textbook chapter tagging</small>
+                        </div>
+                        <div id="batchChaptersField" class="ms-4" style="display: none;">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Chapter</label>
+                                    <div class="dropdown searchable-single-select" id="batchChapterDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchChapterLabel">None</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchChapterSearch" placeholder="Search chapters...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchChapterSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div id="batchChapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="batchChapter" name="chapter_id" value="">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Subchapter</label>
+                                    <div class="dropdown searchable-single-select" id="batchSubchapterDropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
+                                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                            <span id="batchSubchapterLabel">None</span>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <input type="text" class="form-control" id="batchSubchapterSearch" placeholder="Search subchapters...">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearBatchSubchapterSearch()">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                            <div id="batchSubchapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                                                <div class="searchable-option" data-value="" onclick="selectBatchSubchapter('', 'None')">None</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="batchSubchapter" name="subchapter_id" value="">
+                                    <small class="text-muted">Select chapter first (all shown)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -790,6 +967,7 @@ const STORAGE_KEYS = {
     PAGE_SIZE: 'oqb_pageSize',
     SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly',
     SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics',
+    SHOW_HIDDEN_SUBCHAPTERS: 'oqb_showHiddenSubchapters',
     CURRENT_PAGE: 'oqb_currentPage'
 };
 
@@ -804,7 +982,9 @@ const DEFAULT_VIEW_SETTINGS = {
     'major-topic': true,
     'major-subtopic': true,
     'minor-topics': true,
-    'subtopics': false  // M2M subtopics hidden by default
+    'subtopics': false,  // M2M subtopics hidden by default
+    'chapter': true,
+    'subchapter': false  // Subchapter hidden by default
 };
 
 // Default subject
@@ -885,7 +1065,9 @@ function applyViewSettings() {
         'major-topic': 'tag-major-topic',
         'major-subtopic': 'tag-major-subtopic',
         'minor-topics': 'tag-minor-topics',
-        'subtopics': 'tag-subtopics'
+        'subtopics': 'tag-subtopics',
+        'chapter': 'tag-chapter',
+        'subchapter': 'tag-subchapter'
     };
     
     // Apply visibility to all tag elements
@@ -963,6 +1145,9 @@ function getCurrentFilterValues() {
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value).sort().join(','),
         show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: document.getElementById('crosstopic')?.checked || false,
+        chapters: Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        subchapters: Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value).sort().join(','),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
         qid_search: document.getElementById('qidSearch')?.value || '',
@@ -1198,6 +1383,8 @@ const SORT_FIELDS = {
     'level': 'Level',
     'topic': 'Topic',
     'subtopic': 'Subtopic',
+    'chapter': 'Chapter',
+    'subchapter': 'Subchapter',
     'created_time': 'Created Time',
     'source': 'Source',
     'section': 'Section',
@@ -1580,7 +1767,7 @@ document.body.addEventListener('htmx:beforeRequest', function(event) {
 function saveStateToStorage() {
     // Save selected questions
     localStorage.setItem(STORAGE_KEYS.SELECTED_QUESTIONS, JSON.stringify(Array.from(selectedQuestions)));
-    
+
     // Save filter settings
     const filterSettings = {
         subject: document.getElementById('subjectSelect').value,
@@ -1592,6 +1779,9 @@ function saveStateToStorage() {
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value),
         show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: document.getElementById('crosstopic').checked,
+        chapters: Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value),
+        subchapters: Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value),
+        show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
         qid_search: document.getElementById('qidSearch')?.value || ''
@@ -1692,7 +1882,15 @@ async function restoreFilterSettings(settings) {
             showHiddenEl.checked = settings.show_hidden_subtopics;
         }
     }
-    
+
+    // Restore show hidden subchapters checkbox
+    if (settings.show_hidden_subchapters !== undefined) {
+        const showHiddenSubchEl = document.getElementById('showHiddenSubchapters');
+        if (showHiddenSubchEl) {
+            showHiddenSubchEl.checked = settings.show_hidden_subchapters;
+        }
+    }
+
     // Restore levels
     if (settings.levels && Array.isArray(settings.levels)) {
         document.querySelectorAll('input[name="levels"]').forEach(cb => {
@@ -1761,6 +1959,30 @@ async function restoreFilterSettings(settings) {
                 updateYearDropdownLabel();
             }, 150);
         }
+    }
+    
+    // Load chapters for the selected subject
+    const selectedSubject = settings.subject || DEFAULT_SUBJECT;
+    loadChapters(selectedSubject, settings.chapters || []);
+
+    // Restore chapters and subchapters after chapters are loaded
+    if (settings.chapters && settings.chapters.length > 0) {
+        setTimeout(() => {
+            settings.chapters.forEach(chapterId => {
+                const chapterCb = document.getElementById(`chapter${chapterId}`);
+                if (chapterCb) {
+                    chapterCb.checked = true;
+                }
+            });
+            updateChapterDropdownLabel();
+            
+            // Load subchapters for selected chapters
+            if (settings.subchapters && settings.subchapters.length > 0) {
+                loadSubchaptersForChapters(settings.chapters, settings.subchapters);
+            } else {
+                loadSubchaptersForSelectedChapters();
+            }
+        }, 100);
     }
 }
 
@@ -2215,6 +2437,291 @@ function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
         });
 }
 
+// ============== CHAPTER FILTER FUNCTIONS ==============
+
+// Load chapters for a subject
+function loadChapters(subjectId, selectedChapterIds = []) {
+    if (!subjectId) {
+        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">Select subject first</small>';
+        document.getElementById('chapterDropdownLabel').textContent = 'Select subject first';
+        document.getElementById('chapterSelect').innerHTML = '';
+        document.getElementById('subchapterContainer').style.display = 'none';
+        return;
+    }
+    
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+        .then(r => r.json())
+        .then(chapters => {
+            renderChapterCheckboxes(chapters, selectedChapterIds);
+            updateChapterDropdownLabel();
+        });
+}
+
+// Render chapter checkboxes in dropdown
+function renderChapterCheckboxes(chapters, selectedChapters = []) {
+    const chapterDiv = document.getElementById('chapterCheckboxes');
+    const chapterSelect = document.getElementById('chapterSelect');
+
+    if (!chapters || chapters.length === 0) {
+        chapterDiv.innerHTML = '<small class="text-muted">No chapters available</small>';
+        chapterSelect.innerHTML = '';
+        document.getElementById('chapterDropdownLabel').textContent = 'No chapters';
+        return;
+    }
+
+    chapterDiv.innerHTML = chapters.map(c => `
+        <div class="form-check" data-chapter-id="${c.id}" data-chapter-name="${c.name.toLowerCase()}">
+            <input class="form-check-input chapter-checkbox" type="checkbox" 
+                   value="${c.id}" id="chapter${c.id}" onchange="onChapterChange()"
+                   ${selectedChapters.includes(c.id.toString()) ? 'checked' : ''}>
+            <label class="form-check-label" for="chapter${c.id}">${c.name}</label>
+        </div>
+    `).join('');
+
+    // Update hidden select
+    chapterSelect.innerHTML = chapters.map(c => 
+        `<option value="${c.id}" ${selectedChapters.includes(c.id.toString()) ? 'selected' : ''}>${c.name}</option>`
+    ).join('');
+
+    // Add search filter listener
+    const searchInput = document.getElementById('chapterSearchInput');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterChapters);
+        searchInput.addEventListener('input', filterChapters);
+    }
+}
+
+// Filter chapters by search input
+function filterChapters() {
+    const searchTerm = document.getElementById('chapterSearchInput').value.toLowerCase();
+    const checkboxDivs = document.querySelectorAll('#chapterCheckboxes .form-check');
+
+    checkboxDivs.forEach(div => {
+        const chapterName = div.dataset.chapterName;
+        if (chapterName.includes(searchTerm)) {
+            div.style.display = '';
+        } else {
+            div.style.display = 'none';
+        }
+    });
+}
+
+// Update chapter dropdown label
+function updateChapterDropdownLabel() {
+    const checkedBoxes = document.querySelectorAll('.chapter-checkbox:checked');
+    const label = document.getElementById('chapterDropdownLabel');
+    
+    if (checkedBoxes.length === 0) {
+        label.textContent = 'Select chapters...';
+    } else if (checkedBoxes.length === 1) {
+        const chapterLabel = checkedBoxes[0].nextElementSibling?.textContent || '1 selected';
+        label.textContent = chapterLabel;
+    } else {
+        label.textContent = `${checkedBoxes.length} chapters selected`;
+    }
+}
+
+// Handle chapter checkbox change
+function onChapterChange() {
+    const checkedChapters = Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value);
+    
+    // Update hidden select
+    const select = document.getElementById('chapterSelect');
+    Array.from(select.options).forEach(opt => {
+        opt.selected = checkedChapters.includes(opt.value);
+    });
+    
+    updateChapterDropdownLabel();
+    loadSubchaptersForSelectedChapters();
+    saveStateToStorage();
+    checkFilterModification();
+}
+
+// Clear chapter search
+function clearChapterSearch() {
+    const searchInput = document.getElementById('chapterSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        filterChapters();
+    }
+}
+
+// Select all visible chapters
+function selectAllChapters() {
+    const visibleCheckboxes = document.querySelectorAll('#chapterCheckboxes .form-check:not([style*="display: none"]) .chapter-checkbox');
+    visibleCheckboxes.forEach(cb => cb.checked = true);
+    onChapterChange();
+}
+
+// Clear all chapter selections
+function clearAllChapters() {
+    document.querySelectorAll('.chapter-checkbox').forEach(cb => cb.checked = false);
+    onChapterChange();
+}
+
+// ============== SUBCHAPTER FILTER FUNCTIONS ==============
+
+// Handle show hidden subchapters toggle change
+function onShowHiddenSubchaptersChange() {
+    loadSubchaptersForSelectedChapters();
+    saveStateToStorage();
+    checkFilterModification();
+}
+
+// Load subchapters for selected chapters
+function loadSubchaptersForSelectedChapters() {
+    const checkedChapters = Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value);
+    const subchapterContainer = document.getElementById('subchapterContainer');
+    const showHidden = document.getElementById('showHiddenSubchapters')?.checked || false;
+
+    if (checkedChapters.length === 0) {
+        subchapterContainer.style.display = 'none';
+        document.getElementById('subchapterCheckboxes').innerHTML = '';
+        document.getElementById('subchapterSelect').innerHTML = '';
+        return;
+    }
+
+    const chapterIdsStr = checkedChapters.join(',');
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterIdsStr}${includeHidden}`)
+        .then(r => r.json())
+        .then(subchapters => {
+            if (subchapters.length) {
+                renderSubchapterCheckboxes(subchapters);
+                updateSubchapterDropdownLabel();
+                subchapterContainer.style.display = 'block';
+            } else {
+                subchapterContainer.style.display = 'none';
+            }
+        });
+}
+
+// Render subchapter checkboxes in dropdown
+function renderSubchapterCheckboxes(subchapters, selectedSubchapters = []) {
+    const subchapterDiv = document.getElementById('subchapterCheckboxes');
+    const subchapterSelect = document.getElementById('subchapterSelect');
+
+    if (!subchapters || subchapters.length === 0) {
+        subchapterDiv.innerHTML = '<small class="text-muted">No subchapters available</small>';
+        subchapterSelect.innerHTML = '';
+        document.getElementById('subchapterDropdownLabel').textContent = 'No subchapters';
+        return;
+    }
+
+    subchapterDiv.innerHTML = subchapters.map(sc => `
+        <div class="form-check ${sc.hidden ? 'opacity-75' : ''}" data-subchapter-id="${sc.id}" data-subchapter-name="${sc.name.toLowerCase()}">
+            <input class="form-check-input subchapter-checkbox" type="checkbox" 
+                   value="${sc.id}" id="subchapter${sc.id}" onchange="onSubchapterChange()"
+                   ${selectedSubchapters.includes(sc.id.toString()) ? 'checked' : ''}>
+            <label class="form-check-label" for="subchapter${sc.id}">
+                ${sc.name}${sc.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden subchapter"></i>' : ''}
+            </label>
+        </div>
+    `).join('');
+
+    // Update hidden select
+    subchapterSelect.innerHTML = subchapters.map(sc => 
+        `<option value="${sc.id}" ${selectedSubchapters.includes(sc.id.toString()) ? 'selected' : ''}>${sc.name}</option>`
+    ).join('');
+
+    // Add search filter listener
+    const searchInput = document.getElementById('subchapterSearchInput');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterSubchaptersFilter);
+        searchInput.addEventListener('input', filterSubchaptersFilter);
+    }
+}
+
+// Filter subchapters by search input (for filter dropdown)
+function filterSubchaptersFilter() {
+    const searchTerm = document.getElementById('subchapterSearchInput').value.toLowerCase();
+    const checkboxDivs = document.querySelectorAll('#subchapterCheckboxes .form-check');
+
+    checkboxDivs.forEach(div => {
+        const subchapterName = div.dataset.subchapterName;
+        if (subchapterName.includes(searchTerm)) {
+            div.style.display = '';
+        } else {
+            div.style.display = 'none';
+        }
+    });
+}
+
+// Update subchapter dropdown label
+function updateSubchapterDropdownLabel() {
+    const checkedBoxes = document.querySelectorAll('.subchapter-checkbox:checked');
+    const label = document.getElementById('subchapterDropdownLabel');
+    
+    if (checkedBoxes.length === 0) {
+        label.textContent = 'Select subchapters...';
+    } else if (checkedBoxes.length === 1) {
+        const subchapterLabel = checkedBoxes[0].nextElementSibling?.textContent?.trim() || '1 selected';
+        label.textContent = subchapterLabel;
+    } else {
+        label.textContent = `${checkedBoxes.length} subchapters selected`;
+    }
+}
+
+// Handle subchapter checkbox change
+function onSubchapterChange() {
+    const checkedSubchapters = Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value);
+    
+    // Update hidden select
+    const select = document.getElementById('subchapterSelect');
+    Array.from(select.options).forEach(opt => {
+        opt.selected = checkedSubchapters.includes(opt.value);
+    });
+    
+    updateSubchapterDropdownLabel();
+    saveStateToStorage();
+    checkFilterModification();
+}
+
+// Clear subchapter search
+function clearSubchapterSearch() {
+    const searchInput = document.getElementById('subchapterSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        filterSubchaptersFilter();
+    }
+}
+
+// Select all visible subchapters
+function selectAllSubchapters() {
+    const visibleCheckboxes = document.querySelectorAll('#subchapterCheckboxes .form-check:not([style*="display: none"]) .subchapter-checkbox');
+    visibleCheckboxes.forEach(cb => cb.checked = true);
+    onSubchapterChange();
+}
+
+// Clear all subchapter selections
+function clearAllSubchapters() {
+    document.querySelectorAll('.subchapter-checkbox').forEach(cb => cb.checked = false);
+    onSubchapterChange();
+}
+
+// Helper function to load subchapters for selected chapters (for restoring state)
+function loadSubchaptersForChapters(chapterIds, selectedSubchapterIds) {
+    const chapterIdsStr = chapterIds.join(',');
+    if (!chapterIdsStr) return;
+    
+    const showHidden = document.getElementById('showHiddenSubchapters')?.checked || false;
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    
+    fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterIdsStr}${includeHidden}`)
+        .then(r => r.json())
+        .then(subchapters => {
+            const subchapterContainer = document.getElementById('subchapterContainer');
+            
+            if (subchapters.length) {
+                renderSubchapterCheckboxes(subchapters, selectedSubchapterIds || []);
+                updateSubchapterDropdownLabel();
+                subchapterContainer.style.display = 'block';
+            } else {
+                subchapterContainer.style.display = 'none';
+            }
+        });
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
     // Load persisted state from localStorage
@@ -2306,19 +2813,25 @@ function triggerSearchWithPage(pageNum) {
     }
 }
 
-// Subject change - load topics and years
+// Subject change - load topics, years, and chapters
 document.getElementById('subjectSelect').addEventListener('change', function() {
     const subjectId = this.value;
     const sourceType = document.querySelector('input[name="source_type"]:checked').value;
-    
+
     if (subjectId) {
         loadSubjectData(subjectId, sourceType);
+        // Load chapters for the new subject
+        loadChapters(subjectId, []);
     }
-    
+
     // Clear subtopics when subject changes
     document.getElementById('subtopicContainer').style.display = 'none';
     document.getElementById('subtopicSelect').innerHTML = '';
     
+    // Clear subchapters when subject changes
+    document.getElementById('subchapterContainer').style.display = 'none';
+    document.getElementById('subchapterSelect').innerHTML = '';
+
     // Save to storage
     saveStateToStorage();
     checkFilterModification();
@@ -2471,6 +2984,13 @@ function resetFilters() {
     clearAllSubtopics();
     document.getElementById('subtopicContainer').style.display = 'none';
     
+    // Clear all chapter selections
+    clearAllChapters();
+    
+    // Clear all subchapter selections
+    clearAllSubchapters();
+    document.getElementById('subchapterContainer').style.display = 'none';
+    
     // Reset topic mode to OR
     document.getElementById('topicModeOR').checked = true;
     
@@ -2483,6 +3003,8 @@ function resetFilters() {
     const subjectId = subjectSelect.value;
     if (subjectId) {
         loadSubjectData(subjectId, 'DSE');
+        // Reload chapters for the selected subject
+        loadChapters(subjectId, []);
     }
     
     // Clear the question list
@@ -2623,13 +3145,14 @@ function showBatchEditModal() {
     document.getElementById('batchSectionField').style.display = 'none';
     document.getElementById('batchCorrectpctField').style.display = 'none';
     document.getElementById('batchTopicsField').style.display = 'none';
-    
+    document.getElementById('batchChaptersField').style.display = 'none';
+
     // Reset form values
     document.getElementById('batchLevel').value = '';
     document.getElementById('batchQType').value = '';
     document.getElementById('batchSection').value = '';
     document.getElementById('batchCorrectPct').value = '';
-    
+
     // Reset topic/subtopic dropdowns
     document.getElementById('batchMajorTopic').value = '';
     document.getElementById('batchMajorTopicLabel').textContent = 'None';
@@ -2639,11 +3162,23 @@ function showBatchEditModal() {
     document.getElementById('batchMinorTopicsLabel').textContent = 'None selected';
     document.getElementById('batchSubtopicsLabel').textContent = 'None selected';
     document.getElementById('batchSubtopicsCheckboxes').innerHTML = '';
+
+    // Reset chapter/subchapter dropdowns
+    document.getElementById('batchChapter').value = '';
+    document.getElementById('batchChapterLabel').textContent = 'None';
+    document.getElementById('batchSubchapter').value = '';
+    document.getElementById('batchSubchapterLabel').textContent = 'None';
+    document.getElementById('batchSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
     
+    // Load chapters for batch edit
+    loadBatchChapters();
+
     // Clear search inputs
     if (document.getElementById('batchMajorTopicSearch')) document.getElementById('batchMajorTopicSearch').value = '';
     if (document.getElementById('batchMinorTopicsSearch')) document.getElementById('batchMinorTopicsSearch').value = '';
     if (document.getElementById('batchMajorSubtopicSearch')) document.getElementById('batchMajorSubtopicSearch').value = '';
+    if (document.getElementById('batchChapterSearch')) document.getElementById('batchChapterSearch').value = '';
+    if (document.getElementById('batchSubchapterSearch')) document.getElementById('batchSubchapterSearch').value = '';
     if (document.getElementById('batchSubtopicsSearch')) document.getElementById('batchSubtopicsSearch').value = '';
     
     // Load topics for the batch edit form
@@ -2661,15 +3196,17 @@ function toggleBatchField(field) {
         'qtype': 'batchQtypeField',
         'section': 'batchSectionField',
         'correctpct': 'batchCorrectpctField',
-        'topics': 'batchTopicsField'
+        'topics': 'batchTopicsField',
+        'chapters': 'batchChaptersField'
     };
-    
+
     const toggleMap = {
         'level': 'batchLevelToggle',
         'qtype': 'batchQTypeToggle',
         'section': 'batchSectionToggle',
         'correctpct': 'batchCorrectPctToggle',
-        'topics': 'batchTopicsToggle'
+        'topics': 'batchTopicsToggle',
+        'chapters': 'batchChaptersToggle'
     };
     
     const fieldEl = document.getElementById(fieldMap[field]);
@@ -2976,30 +3513,184 @@ function clearAllBatchSubtopics() {
     onBatchSubtopicsChange();
 }
 
+// ============== BATCH EDIT CHAPTER/SUBCHAPTER FUNCTIONS ==============
+
+// Load chapters for batch edit
+function loadBatchChapters() {
+    const subjectId = document.getElementById('subjectSelect').value;
+    if (!subjectId) {
+        document.getElementById('batchChapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'None\')">None</div>';
+        return;
+    }
+    
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+        .then(r => r.json())
+        .then(chapters => {
+            window.batchChaptersList = chapters;
+            renderBatchChapterOptions(chapters);
+        });
+}
+
+// Render chapter options for batch edit
+function renderBatchChapterOptions(chapters) {
+    const optionsDiv = document.getElementById('batchChapterOptions');
+    
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'None\')">None</div>';
+    chapters.forEach(c => {
+        html += `<div class="searchable-option" data-value="${c.id}" data-name="${c.name.toLowerCase()}" onclick="selectBatchChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
+            ${c.name}
+        </div>`;
+    });
+    optionsDiv.innerHTML = html;
+    
+    // Setup search
+    const searchInput = document.getElementById('batchChapterSearch');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterBatchChapters);
+        searchInput.addEventListener('input', filterBatchChapters);
+    }
+}
+
+// Select a chapter in batch edit
+function selectBatchChapter(chapterId, chapterName) {
+    document.getElementById('batchChapter').value = chapterId;
+    document.getElementById('batchChapterLabel').textContent = chapterName;
+    
+    // Mark as active
+    document.querySelectorAll('#batchChapterOptions .searchable-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.value === chapterId);
+    });
+    
+    // Close dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#batchChapterDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+    
+    // Clear subchapter when chapter changes
+    document.getElementById('batchSubchapter').value = '';
+    document.getElementById('batchSubchapterLabel').textContent = 'None';
+    
+    // Load subchapters for new chapter
+    if (chapterId) {
+        loadBatchSubchapters(chapterId);
+    } else {
+        document.getElementById('batchSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
+    }
+}
+
+// Filter chapters in batch edit search
+function filterBatchChapters() {
+    const searchTerm = document.getElementById('batchChapterSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#batchChapterOptions .searchable-option');
+    
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        if (name.includes(searchTerm) || opt.dataset.value === '') {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+// Clear chapter search in batch edit
+function clearBatchChapterSearch() {
+    document.getElementById('batchChapterSearch').value = '';
+    filterBatchChapters();
+}
+
+// Load subchapters for batch edit
+function loadBatchSubchapters(chapterId) {
+    // Include hidden subchapters in edit mode
+    fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterId}&include_hidden=1`)
+        .then(r => r.json())
+        .then(subchapters => {
+            window.batchSubchaptersList = subchapters;
+            renderBatchSubchapterOptions(subchapters);
+        });
+}
+
+// Render subchapter options for batch edit
+function renderBatchSubchapterOptions(subchapters) {
+    const optionsDiv = document.getElementById('batchSubchapterOptions');
+    
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
+    subchapters.forEach(sc => {
+        const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
+        html += `<div class="searchable-option" data-value="${sc.id}" data-name="${sc.name.toLowerCase()}" onclick="selectBatchSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
+            ${sc.name}${hiddenIndicator}
+        </div>`;
+    });
+    optionsDiv.innerHTML = html;
+    
+    // Setup search
+    const searchInput = document.getElementById('batchSubchapterSearch');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterBatchSubchapters);
+        searchInput.addEventListener('input', filterBatchSubchapters);
+    }
+}
+
+// Select a subchapter in batch edit
+function selectBatchSubchapter(subchapterId, subchapterName) {
+    document.getElementById('batchSubchapter').value = subchapterId;
+    document.getElementById('batchSubchapterLabel').textContent = subchapterName;
+    
+    // Mark as active
+    document.querySelectorAll('#batchSubchapterOptions .searchable-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.value === subchapterId);
+    });
+    
+    // Close dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#batchSubchapterDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+}
+
+// Filter subchapters in batch edit search
+function filterBatchSubchapters() {
+    const searchTerm = document.getElementById('batchSubchapterSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#batchSubchapterOptions .searchable-option');
+    
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        if (name.includes(searchTerm) || opt.dataset.value === '') {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+// Clear subchapter search in batch edit
+function clearBatchSubchapterSearch() {
+    document.getElementById('batchSubchapterSearch').value = '';
+    filterBatchSubchapters();
+}
+
 function executeBatchEdit() {
     const questionIds = Array.from(selectedQuestions);
-    
+
     if (questionIds.length === 0) {
         batchEditModal.hide();
         return;
     }
-    
+
     // Check which fields to update
     const updateLevel = document.getElementById('batchLevelToggle').checked;
     const updateQType = document.getElementById('batchQTypeToggle').checked;
     const updateSection = document.getElementById('batchSectionToggle').checked;
     const updateCorrectPct = document.getElementById('batchCorrectPctToggle').checked;
     const updateTopics = document.getElementById('batchTopicsToggle').checked;
-    
-    if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateTopics) {
+    const updateChapters = document.getElementById('batchChaptersToggle').checked;
+
+    if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateTopics && !updateChapters) {
         alert('Please select at least one field to update');
         return;
     }
-    
+
     // Build form data
     const formData = new FormData();
     questionIds.forEach(id => formData.append('question_ids', id));
-    
+
     // Add fields to update
     if (updateLevel) {
         formData.append('update_level', '1');
@@ -3016,6 +3707,11 @@ function executeBatchEdit() {
     if (updateCorrectPct) {
         formData.append('update_correct_pct', '1');
         formData.append('correct_percentage', document.getElementById('batchCorrectPct').value);
+    }
+    if (updateChapters) {
+        formData.append('update_chapters', '1');
+        formData.append('chapter_id', document.getElementById('batchChapter').value);
+        formData.append('subchapter_id', document.getElementById('batchSubchapter').value);
     }
     if (updateTopics) {
         formData.append('update_topics', '1');
@@ -3205,32 +3901,37 @@ function clearAllEditMinorTopics() {
 function editQuestion(questionId, questionData) {
     document.getElementById('editQuestionId').value = questionId;
     document.getElementById('editModalLabel').textContent = `Edit ${questionData.qid}`;
-    
+
     // Store question data for later use
     window.currentQuestionData = questionData;
-    
+
     // Load topics for this question's subject
     loadTopicsForSubject(questionData.subject);
-    
+
     // Set values (handle null as empty string for "None" option)
     document.getElementById('editLevel').value = questionData.level !== null ? questionData.level : '';
     document.getElementById('editQType').value = questionData.q_type || '';
     document.getElementById('editSection').value = questionData.section || '';
     document.getElementById('editDescription').value = questionData.description || '';
     document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null ? questionData.correct_percentage : '';
-    
+
     // Reset search fields
     if (document.getElementById('editMajorTopicSearch')) document.getElementById('editMajorTopicSearch').value = '';
     if (document.getElementById('editMinorTopicsSearch')) document.getElementById('editMinorTopicsSearch').value = '';
     if (document.getElementById('editMajorSubtopicSearch')) document.getElementById('editMajorSubtopicSearch').value = '';
     if (document.getElementById('editSubtopicsSearch')) document.getElementById('editSubtopicsSearch').value = '';
-    
+    if (document.getElementById('editChapterSearch')) document.getElementById('editChapterSearch').value = '';
+    if (document.getElementById('editSubchapterSearch')) document.getElementById('editSubchapterSearch').value = '';
+
+    // Load chapters for edit modal (using the question's subject)
+    loadEditChapters(questionData.subject, questionData.chapter_id, questionData.subchapter_id);
+
     // Set major topic (after topics load)
     setTimeout(() => {
         // Set major topic value and label
         const majorTopicId = questionData.major_topic_id || '';
         document.getElementById('editMajorTopic').value = majorTopicId;
-        
+
         // Find and set the label
         if (majorTopicId && window.editTopicsList) {
             const topic = window.editTopicsList.find(t => t.id == majorTopicId);
@@ -3238,7 +3939,7 @@ function editQuestion(questionId, questionData) {
         } else {
             document.getElementById('editMajorTopicLabel').textContent = 'None';
         }
-        
+
         // Load and set major subtopic
         if (questionData.major_topic_id) {
             loadMajorSubtopicsSearchable(questionData.major_topic_id, questionData.major_subtopic_id);
@@ -3247,14 +3948,14 @@ function editQuestion(questionId, questionData) {
             document.getElementById('editMajorSubtopicLabel').textContent = 'None';
             document.getElementById('editMajorSubtopic').value = '';
         }
-        
+
         // Set minor topics checkboxes
         document.querySelectorAll('.edit-minor-topic-checkbox').forEach(cb => {
             cb.checked = questionData.minor_topic_ids.includes(parseInt(cb.value));
         });
         updateEditMinorTopicsLabel();
         syncEditMinorTopicsSelect();
-        
+
         // Load and set subtopics (other subtopics from major + minor topics)
         if (questionData.major_topic_id || questionData.minor_topic_ids.length > 0) {
             const allTopicIds = [questionData.major_topic_id, ...questionData.minor_topic_ids].filter(id => id);
@@ -3265,7 +3966,7 @@ function editQuestion(questionId, questionData) {
             document.getElementById('editSubtopicsLabel').textContent = 'None selected';
         }
     }, 500);
-    
+
     editModal.show();
 }
 
@@ -3460,6 +4161,193 @@ function selectAllEditSubtopics() {
 function clearAllEditSubtopics() {
     document.querySelectorAll('.edit-subtopic-checkbox').forEach(cb => cb.checked = false);
     onEditSubtopicsChange();
+}
+
+// ============== EDIT MODAL CHAPTER/SUBCHAPTER FUNCTIONS ==============
+
+// Load chapters for edit modal
+function loadEditChapters(subjectId, selectedChapterId, selectedSubchapterId) {
+    if (!subjectId) {
+        document.getElementById('editChapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'None\')">None</div>';
+        document.getElementById('editChapterLabel').textContent = 'None';
+        document.getElementById('editChapter').value = '';
+        return;
+    }
+    
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+        .then(r => r.json())
+        .then(chapters => {
+            window.editChaptersList = chapters;
+            renderEditChapterOptions(chapters, selectedChapterId);
+
+            // Load subchapters if chapter is selected
+            if (selectedChapterId) {
+                loadEditSubchapters(selectedChapterId, selectedSubchapterId);
+            } else {
+                document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
+                document.getElementById('editSubchapterLabel').textContent = 'None';
+                document.getElementById('editSubchapter').value = '';
+            }
+        });
+}
+
+// Render chapter options for edit modal
+function renderEditChapterOptions(chapters, selectedChapterId) {
+    const optionsDiv = document.getElementById('editChapterOptions');
+    
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'None\')">None</div>';
+    chapters.forEach(c => {
+        const isSelected = c.id == selectedChapterId;
+        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${c.id}" data-name="${c.name.toLowerCase()}" onclick="selectEditChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
+            ${c.name}
+        </div>`;
+    });
+    optionsDiv.innerHTML = html;
+    
+    // Set selected value
+    document.getElementById('editChapter').value = selectedChapterId || '';
+    
+    // Set label
+    if (selectedChapterId) {
+        const chapter = chapters.find(c => c.id == selectedChapterId);
+        document.getElementById('editChapterLabel').textContent = chapter ? chapter.name : 'None';
+    } else {
+        document.getElementById('editChapterLabel').textContent = 'None';
+    }
+    
+    // Setup search
+    const searchInput = document.getElementById('editChapterSearch');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterEditChapters);
+        searchInput.addEventListener('input', filterEditChapters);
+    }
+}
+
+// Select a chapter in edit modal
+function selectEditChapter(chapterId, chapterName) {
+    document.getElementById('editChapter').value = chapterId;
+    document.getElementById('editChapterLabel').textContent = chapterName;
+    
+    // Mark as active
+    document.querySelectorAll('#editChapterOptions .searchable-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.value === chapterId);
+    });
+    
+    // Close dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editChapterDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+    
+    // Clear subchapter when chapter changes
+    document.getElementById('editSubchapter').value = '';
+    document.getElementById('editSubchapterLabel').textContent = 'None';
+    
+    // Load subchapters for new chapter
+    if (chapterId) {
+        loadEditSubchapters(chapterId, null);
+    } else {
+        document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
+    }
+}
+
+// Filter chapters in edit modal search
+function filterEditChapters() {
+    const searchTerm = document.getElementById('editChapterSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#editChapterOptions .searchable-option');
+    
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        if (name.includes(searchTerm) || opt.dataset.value === '') {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+// Clear chapter search in edit modal
+function clearEditChapterSearch() {
+    document.getElementById('editChapterSearch').value = '';
+    filterEditChapters();
+}
+
+// Load subchapters for edit modal
+function loadEditSubchapters(chapterId, selectedSubchapterId) {
+    // Include hidden subchapters in edit mode
+    fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterId}&include_hidden=1`)
+        .then(r => r.json())
+        .then(subchapters => {
+            window.editSubchaptersList = subchapters;
+            renderEditSubchapterOptions(subchapters, selectedSubchapterId);
+        });
+}
+
+// Render subchapter options for edit modal
+function renderEditSubchapterOptions(subchapters, selectedSubchapterId) {
+    const optionsDiv = document.getElementById('editSubchapterOptions');
+    
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
+    subchapters.forEach(sc => {
+        const isSelected = sc.id == selectedSubchapterId;
+        const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
+        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${sc.id}" data-name="${sc.name.toLowerCase()}" onclick="selectEditSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
+            ${sc.name}${hiddenIndicator}
+        </div>`;
+    });
+    optionsDiv.innerHTML = html;
+    
+    // Set selected value
+    document.getElementById('editSubchapter').value = selectedSubchapterId || '';
+    
+    // Set label
+    if (selectedSubchapterId) {
+        const subchapter = subchapters.find(sc => sc.id == selectedSubchapterId);
+        document.getElementById('editSubchapterLabel').textContent = subchapter ? subchapter.name : 'None';
+    } else {
+        document.getElementById('editSubchapterLabel').textContent = 'None';
+    }
+    
+    // Setup search
+    const searchInput = document.getElementById('editSubchapterSearch');
+    if (searchInput) {
+        searchInput.removeEventListener('input', filterEditSubchaptersModal);
+        searchInput.addEventListener('input', filterEditSubchaptersModal);
+    }
+}
+
+// Select a subchapter in edit modal
+function selectEditSubchapter(subchapterId, subchapterName) {
+    document.getElementById('editSubchapter').value = subchapterId;
+    document.getElementById('editSubchapterLabel').textContent = subchapterName;
+    
+    // Mark as active
+    document.querySelectorAll('#editSubchapterOptions .searchable-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.value === subchapterId);
+    });
+    
+    // Close dropdown
+    const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editSubchapterDropdown .dropdown-toggle'));
+    if (dropdown) dropdown.hide();
+}
+
+// Filter subchapters in edit modal search
+function filterEditSubchaptersModal() {
+    const searchTerm = document.getElementById('editSubchapterSearch').value.toLowerCase();
+    const options = document.querySelectorAll('#editSubchapterOptions .searchable-option');
+    
+    options.forEach(opt => {
+        const name = opt.dataset.name || '';
+        if (name.includes(searchTerm) || opt.dataset.value === '') {
+            opt.style.display = '';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+}
+
+// Clear subchapter search in edit modal
+function clearEditSubchapterSearch() {
+    document.getElementById('editSubchapterSearch').value = '';
+    filterEditSubchaptersModal();
 }
 
 function saveQuestionTags() {
