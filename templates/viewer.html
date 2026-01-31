@@ -201,22 +201,23 @@
             gap: 0.25rem;
             background: white;
             border-radius: 6px;
-            padding: 0.2rem;
+            padding: 0.25rem;
             border: 1px solid #dee2e6;
         }
         
         .zoom-control button {
-            width: 26px;
-            height: 26px;
+            width: 32px;
+            height: 32px;
             display: flex;
             align-items: center;
             justify-content: center;
             border: none;
             background: transparent;
-            color: #6c757d;
+            color: #495057;
             cursor: pointer;
             border-radius: 4px;
             transition: all 0.15s ease;
+            font-size: 1.1rem;
         }
         
         .zoom-control button:hover {
@@ -224,21 +225,93 @@
             color: #212529;
         }
         
-        .zoom-control .zoom-value {
-            font-size: 0.75rem;
-            min-width: 40px;
+        .zoom-dropdown {
+            position: relative;
+        }
+        
+        .zoom-value-btn {
+            font-size: 0.9rem;
+            font-weight: 500;
+            min-width: 60px;
+            padding: 0.25rem 0.5rem;
             text-align: center;
-            color: #6c757d;
+            color: #495057;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .zoom-value-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        
+        .zoom-menu {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-top: 4px;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100;
+            width: 80px;
+            display: none;
+            flex-direction: column;
+        }
+        
+        .zoom-menu.show {
+            display: flex;
+        }
+        
+        .zoom-menu-item {
+            flex: none;
+            width: 100% !important;
+            height: auto !important;
+            padding: 0.5rem 0.5rem;
+            text-align: center;
+            font-size: 0.875rem;
+            line-height: 1.2;
+            color: #495057;
+            background: white;
+            border: none;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            margin: 0;
+            box-sizing: border-box;
+            display: block;
+        }
+        
+        .zoom-menu-item:first-child {
+            border-radius: 5px 5px 0 0;
+        }
+        
+        .zoom-menu-item:last-child {
+            border-bottom: none;
+            border-radius: 0 0 5px 5px;
+        }
+        
+        .zoom-menu-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .zoom-menu-item.active {
+            background: #e7f1ff;
+            color: #0d6efd;
+            font-weight: 500;
         }
         
         .panel-body {
             flex: 1;
             overflow: auto;
             padding: 1rem;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
             background: #f8f9fa;
+            text-align: center; /* Center the inline-block container when smaller than viewport */
         }
         
         .panel-body.hidden-panel {
@@ -246,19 +319,17 @@
         }
         
         .asset-container {
-            max-width: 100%;
-            transition: transform 0.2s ease;
-            transform-origin: top center;
             background: white;
             padding: 1rem;
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: inline-block;
         }
         
         .asset-container img {
-            max-width: 100%;
-            height: auto;
             display: block;
+            height: auto;
+            /* Width controlled by JavaScript for zoom */
         }
         
         /* Draggable Divider */
@@ -716,9 +787,9 @@
             <button class="btn-toolbar btn-icon-only" onclick="showShortcuts()" title="Keyboard Shortcuts (?)">
                 <i class="bi bi-keyboard"></i>
             </button>
-            <a href="{{ url_for('dashboard.index') }}" class="btn-toolbar btn-icon-only" title="Exit Viewer">
+            <button class="btn-toolbar btn-icon-only" onclick="closeViewer()" title="Exit Viewer (Esc)">
                 <i class="bi bi-x-lg"></i>
-            </a>
+            </button>
         </div>
     </div>
     
@@ -824,10 +895,21 @@
                 </span>
                 <div class="panel-controls">
                     <div class="zoom-control">
-                        <button onclick="zoomQue(-10)" title="Zoom Out"><i class="bi bi-dash"></i></button>
-                        <span class="zoom-value" id="queZoomValue">100%</span>
-                        <button onclick="zoomQue(10)" title="Zoom In"><i class="bi bi-plus"></i></button>
-                        <button onclick="resetZoomQue()" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        <button onclick="zoomQue(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
+                        <div class="zoom-dropdown">
+                            <button class="zoom-value-btn" id="queZoomValue" onclick="toggleZoomMenu('que')">100%</button>
+                            <div class="zoom-menu" id="queZoomMenu">
+                                <button class="zoom-menu-item" onclick="setZoomQue(50)">50%</button>
+                                <button class="zoom-menu-item" onclick="setZoomQue(75)">75%</button>
+                                <button class="zoom-menu-item active" onclick="setZoomQue(100)">100%</button>
+                                <button class="zoom-menu-item" onclick="setZoomQue(125)">125%</button>
+                                <button class="zoom-menu-item" onclick="setZoomQue(150)">150%</button>
+                                <button class="zoom-menu-item" onclick="setZoomQue(200)">200%</button>
+                                <button class="zoom-menu-item" onclick="setZoomQue(250)">250%</button>
+                            </div>
+                        </div>
+                        <button onclick="zoomQue(20)" title="Zoom In (+20%)"><i class="bi bi-plus-lg"></i></button>
+                        <button onclick="resetZoomQue()" title="Reset to 100%"><i class="bi bi-arrow-counterclockwise"></i></button>
                     </div>
                 </div>
             </div>
@@ -855,10 +937,21 @@
                 </span>
                 <div class="panel-controls">
                     <div class="zoom-control">
-                        <button onclick="zoomAns(-10)" title="Zoom Out"><i class="bi bi-dash"></i></button>
-                        <span class="zoom-value" id="ansZoomValue">100%</span>
-                        <button onclick="zoomAns(10)" title="Zoom In"><i class="bi bi-plus"></i></button>
-                        <button onclick="resetZoomAns()" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        <button onclick="zoomAns(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
+                        <div class="zoom-dropdown">
+                            <button class="zoom-value-btn" id="ansZoomValue" onclick="toggleZoomMenu('ans')">100%</button>
+                            <div class="zoom-menu" id="ansZoomMenu">
+                                <button class="zoom-menu-item" onclick="setZoomAns(50)">50%</button>
+                                <button class="zoom-menu-item" onclick="setZoomAns(75)">75%</button>
+                                <button class="zoom-menu-item active" onclick="setZoomAns(100)">100%</button>
+                                <button class="zoom-menu-item" onclick="setZoomAns(125)">125%</button>
+                                <button class="zoom-menu-item" onclick="setZoomAns(150)">150%</button>
+                                <button class="zoom-menu-item" onclick="setZoomAns(200)">200%</button>
+                                <button class="zoom-menu-item" onclick="setZoomAns(250)">250%</button>
+                            </div>
+                        </div>
+                        <button onclick="zoomAns(20)" title="Zoom In (+20%)"><i class="bi bi-plus-lg"></i></button>
+                        <button onclick="resetZoomAns()" title="Reset to 100%"><i class="bi bi-arrow-counterclockwise"></i></button>
                     </div>
                 </div>
             </div>
@@ -1154,33 +1247,103 @@
         
         // Zoom controls
         function zoomQue(delta) {
-            queZoom = Math.max(25, Math.min(300, queZoom + delta));
-            document.getElementById('queZoomValue').textContent = queZoom + '%';
+            queZoom = Math.max(20, Math.min(300, queZoom + delta));
+            updateZoomDisplay('que');
             applyZoom('QUE');
         }
         
         function zoomAns(delta) {
-            ansZoom = Math.max(25, Math.min(300, ansZoom + delta));
-            document.getElementById('ansZoomValue').textContent = ansZoom + '%';
+            ansZoom = Math.max(20, Math.min(300, ansZoom + delta));
+            updateZoomDisplay('ans');
             applyZoom('ANS');
+        }
+        
+        function setZoomQue(value) {
+            queZoom = value;
+            updateZoomDisplay('que');
+            applyZoom('QUE');
+            closeAllZoomMenus();
+        }
+        
+        function setZoomAns(value) {
+            ansZoom = value;
+            updateZoomDisplay('ans');
+            applyZoom('ANS');
+            closeAllZoomMenus();
         }
         
         function resetZoomQue() {
             queZoom = 100;
-            document.getElementById('queZoomValue').textContent = '100%';
+            updateZoomDisplay('que');
             applyZoom('QUE');
         }
         
         function resetZoomAns() {
             ansZoom = 100;
-            document.getElementById('ansZoomValue').textContent = '100%';
+            updateZoomDisplay('ans');
             applyZoom('ANS');
         }
         
+        function updateZoomDisplay(panel) {
+            const zoom = panel === 'que' ? queZoom : ansZoom;
+            const valueBtn = document.getElementById(panel + 'ZoomValue');
+            const menu = document.getElementById(panel + 'ZoomMenu');
+            
+            valueBtn.textContent = zoom + '%';
+            
+            // Update active state in menu
+            menu.querySelectorAll('.zoom-menu-item').forEach(item => {
+                const itemValue = parseInt(item.textContent);
+                item.classList.toggle('active', itemValue === zoom);
+            });
+        }
+        
+        function toggleZoomMenu(panel) {
+            const menu = document.getElementById(panel + 'ZoomMenu');
+            const wasOpen = menu.classList.contains('show');
+            
+            closeAllZoomMenus();
+            
+            if (!wasOpen) {
+                menu.classList.add('show');
+            }
+        }
+        
+        function closeAllZoomMenus() {
+            document.querySelectorAll('.zoom-menu').forEach(menu => {
+                menu.classList.remove('show');
+            });
+        }
+        
+        // Close zoom menus when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.zoom-dropdown')) {
+                closeAllZoomMenus();
+            }
+        });
+        
         function applyZoom(type) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
+            const panelBody = type === 'QUE' ? document.getElementById('quePanelBody') : document.getElementById('ansPanelBody');
             const zoom = type === 'QUE' ? queZoom : ansZoom;
-            container.style.transform = `scale(${zoom / 100})`;
+            const img = container.querySelector('img');
+            
+            if (img) {
+                // Store the base width (what 100% zoom means)
+                // At 100%, image fits the panel width (minus padding)
+                if (!img.dataset.baseWidth) {
+                    const panelWidth = panelBody.clientWidth - 64; // Account for padding
+                    const naturalWidth = img.naturalWidth || img.offsetWidth;
+                    // Base width is the smaller of natural width or panel width
+                    img.dataset.baseWidth = Math.min(naturalWidth, panelWidth);
+                    img.dataset.naturalWidth = naturalWidth;
+                }
+                
+                const baseWidth = parseInt(img.dataset.baseWidth);
+                const newWidth = (baseWidth * zoom) / 100;
+                img.style.width = newWidth + 'px';
+                img.style.maxWidth = 'none';
+            }
         }
         
         // Layout
@@ -1342,6 +1505,16 @@
             } else {
                 document.exitFullscreen();
             }
+        }
+        
+        // Close viewer (close the tab/window)
+        function closeViewer() {
+            window.close();
+            // Fallback if window.close() doesn't work (some browsers block it)
+            // Navigate to dashboard only if close failed
+            setTimeout(() => {
+                window.location.href = '{{ url_for("dashboard.index") }}';
+            }, 100);
         }
         
         // Keyboard shortcuts
