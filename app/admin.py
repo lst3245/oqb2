@@ -2,10 +2,10 @@
 Admin panel routes for managing topics and tagging questions
 """
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
-from flask_login import login_required
+from flask_login import login_required, current_user
 from app import db
-from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter
-from app.utils import admin_required
+from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
+from app.utils import admin_required, super_admin_required, get_user_admin_subjects
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -23,7 +23,8 @@ def index():
 @admin_required
 def topics():
     """Topic and subtopic management page"""
-    subjects = Subject.query.all()
+    # Filter subjects based on user's admin access
+    subjects = get_user_admin_subjects()
     
     # Get all topics with their subtopics, ordered by sort_order
     topics_data = []
@@ -194,7 +195,8 @@ def reorder_subtopics():
 @admin_required
 def chapters():
     """Chapter and subchapter management page"""
-    subjects = Subject.query.all()
+    # Filter subjects based on user's admin access
+    subjects = get_user_admin_subjects()
 
     # Get all chapters with their subchapters, grouped by subject, ordered by sort_order
     chapters_data = []
@@ -705,3 +707,180 @@ def batch_update_questions():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ==================== User Management (Super Admin Only) ====================
+
+@admin_bp.route('/users')
+@login_required
+@super_admin_required
+def users():
+    """User management page - super admin only"""
+    all_users = User.query.order_by(User.username).all()
+    all_subjects = Subject.query.all()
+    
+    # Build user data with permissions
+    users_data = []
+    for user in all_users:
+        permissions = {}
+        for perm in user.subject_permissions.all():
+            permissions[perm.subject_id] = perm.role
+        
+        users_data.append({
+            'user': user,
+            'permissions': permissions
+        })
+    
+    return render_template('admin_users.html', 
+                           users_data=users_data, 
+                           subjects=all_subjects)
+
+
+@admin_bp.route('/users/add', methods=['POST'])
+@login_required
+@super_admin_required
+def add_user():
+    """Add a new user"""
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    is_super_admin = request.form.get('is_super_admin') == '1'
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required'}), 400
+    
+    # Check if username already exists
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Username already exists'}), 400
+    
+    # Create user
+    user = User(username=username, is_super_admin=is_super_admin)
+    user.set_password(password)
+    
+    # Also set is_admin if super_admin (for backwards compatibility)
+    if is_super_admin:
+        user.is_admin = True
+    
+    db.session.add(user)
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'id': user.id,
+        'username': user.username
+    })
+
+
+@admin_bp.route('/users/<int:user_id>/edit', methods=['POST'])
+@login_required
+@super_admin_required
+def edit_user(user_id):
+    """Edit a user's basic info"""
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent editing your own super_admin status
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot modify your own account'}), 400
+    
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    is_super_admin = request.form.get('is_super_admin') == '1'
+    
+    if not username:
+        return jsonify({'error': 'Username is required'}), 400
+    
+    # Check if username is taken by another user
+    existing = User.query.filter_by(username=username).first()
+    if existing and existing.id != user_id:
+        return jsonify({'error': 'Username already exists'}), 400
+    
+    user.username = username
+    user.is_super_admin = is_super_admin
+    user.is_admin = is_super_admin  # Keep is_admin in sync for backwards compatibility
+    
+    if password:
+        user.set_password(password)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'id': user.id,
+        'username': user.username
+    })
+
+
+@admin_bp.route('/users/<int:user_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+@super_admin_required
+def delete_user(user_id):
+    """Delete a user"""
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent deleting yourself
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    
+    db.session.delete(user)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
+@admin_bp.route('/users/<int:user_id>/permissions', methods=['POST'])
+@login_required
+@super_admin_required
+def update_user_permissions(user_id):
+    """Update a user's subject permissions"""
+    user = User.query.get_or_404(user_id)
+    
+    try:
+        data = request.get_json()
+        permissions = data.get('permissions', {})  # {subject_id: role or null}
+        
+        for subject_id, role in permissions.items():
+            # Find existing permission
+            existing = UserSubjectPermission.query.filter_by(
+                user_id=user_id, subject_id=subject_id
+            ).first()
+            
+            if role is None or role == '':
+                # Remove permission
+                if existing:
+                    db.session.delete(existing)
+            else:
+                # Add or update permission
+                if existing:
+                    existing.role = role
+                else:
+                    perm = UserSubjectPermission(
+                        user_id=user_id,
+                        subject_id=subject_id,
+                        role=role
+                    )
+                    db.session.add(perm)
+        
+        db.session.commit()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/users/<int:user_id>/permissions/get')
+@login_required
+@super_admin_required
+def get_user_permissions(user_id):
+    """Get a user's subject permissions"""
+    user = User.query.get_or_404(user_id)
+    
+    permissions = {}
+    for perm in user.subject_permissions.all():
+        permissions[perm.subject_id] = perm.role
+    
+    return jsonify({
+        'user_id': user_id,
+        'username': user.username,
+        'is_super_admin': user.is_super_admin,
+        'permissions': permissions
+    })

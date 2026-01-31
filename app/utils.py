@@ -3,18 +3,127 @@ Utility functions for the application
 """
 import re
 from functools import wraps, cmp_to_key
-from flask import abort
+from flask import abort, request
 from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
+
+# ==================== Permission Decorators ====================
+
 def admin_required(f):
-    """Decorator to require admin access"""
+    """Decorator to require admin access to at least one subject (or super admin)"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_admin:
+        if not current_user.is_authenticated:
+            abort(403)
+        if not current_user.is_super_admin and not current_user.has_any_admin_access():
             abort(403)
         return f(*args, **kwargs)
     return decorated_function
+
+
+def super_admin_required(f):
+    """Decorator to require super admin access"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_super_admin:
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def subject_access_required(f):
+    """
+    Decorator to require access to a subject.
+    Expects subject_id in URL params, form data, or JSON body.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(403)
+        
+        # Super admin has access to everything
+        if current_user.is_super_admin:
+            return f(*args, **kwargs)
+        
+        # Get subject_id from various sources
+        subject_id = kwargs.get('subject_id') or \
+                     request.args.get('subject_id') or \
+                     request.form.get('subject_id')
+        
+        if not subject_id and request.is_json:
+            subject_id = request.get_json().get('subject_id')
+        
+        if subject_id and not current_user.has_subject_access(subject_id):
+            abort(403)
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def subject_admin_required(f):
+    """
+    Decorator to require admin access to a subject.
+    Expects subject_id in URL params, form data, or JSON body.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(403)
+        
+        # Super admin has access to everything
+        if current_user.is_super_admin:
+            return f(*args, **kwargs)
+        
+        # Get subject_id from various sources
+        subject_id = kwargs.get('subject_id') or \
+                     request.args.get('subject_id') or \
+                     request.form.get('subject_id')
+        
+        if not subject_id and request.is_json:
+            subject_id = request.get_json().get('subject_id')
+        
+        if subject_id and not current_user.is_subject_admin(subject_id):
+            abort(403)
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ==================== Permission Helper Functions ====================
+
+def get_user_accessible_subjects():
+    """Get subjects the current user can access"""
+    from app.models import Subject
+    
+    if not current_user.is_authenticated:
+        return []
+    
+    if current_user.is_super_admin:
+        return Subject.query.all()
+    
+    accessible_ids = current_user.get_accessible_subjects()
+    if not accessible_ids:
+        return []
+    
+    return Subject.query.filter(Subject.id.in_(accessible_ids)).all()
+
+
+def get_user_admin_subjects():
+    """Get subjects the current user has admin access to"""
+    from app.models import Subject
+    
+    if not current_user.is_authenticated:
+        return []
+    
+    if current_user.is_super_admin:
+        return Subject.query.all()
+    
+    admin_ids = current_user.get_admin_subjects()
+    if not admin_ids:
+        return []
+    
+    return Subject.query.filter(Subject.id.in_(admin_ids)).all()
 
 def natural_sort_key(qid):
     """

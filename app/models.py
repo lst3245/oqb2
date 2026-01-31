@@ -25,8 +25,12 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)  # Legacy field, kept for compatibility
+    is_super_admin = db.Column(db.Boolean, default=False, nullable=False)  # Top-level admin
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    subject_permissions = db.relationship('UserSubjectPermission', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     
     def set_password(self, password):
         """Hash and set password"""
@@ -36,8 +40,59 @@ class User(UserMixin, db.Model):
         """Check if password matches"""
         return check_password_hash(self.password_hash, password)
     
+    def has_subject_access(self, subject_id):
+        """Check if user has any access (user or admin) to a subject"""
+        if self.is_super_admin:
+            return True
+        return UserSubjectPermission.query.filter_by(
+            user_id=self.id, subject_id=subject_id
+        ).first() is not None
+    
+    def is_subject_admin(self, subject_id):
+        """Check if user is admin for a specific subject"""
+        if self.is_super_admin:
+            return True
+        perm = UserSubjectPermission.query.filter_by(
+            user_id=self.id, subject_id=subject_id
+        ).first()
+        return perm is not None and perm.role == 'admin'
+    
+    def get_accessible_subjects(self):
+        """Get list of subject IDs user can access"""
+        if self.is_super_admin:
+            return [s.id for s in Subject.query.all()]
+        return [p.subject_id for p in self.subject_permissions.all()]
+    
+    def get_admin_subjects(self):
+        """Get list of subject IDs user has admin access to"""
+        if self.is_super_admin:
+            return [s.id for s in Subject.query.all()]
+        return [p.subject_id for p in self.subject_permissions.filter_by(role='admin').all()]
+    
+    def has_any_admin_access(self):
+        """Check if user has admin access to any subject"""
+        if self.is_super_admin:
+            return True
+        return self.subject_permissions.filter_by(role='admin').first() is not None
+    
     def __repr__(self):
         return f'<User {self.username}>'
+
+
+class UserSubjectPermission(db.Model):
+    """User permissions for specific subjects"""
+    __tablename__ = 'user_subject_permissions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    role = db.Column(db.String(10), nullable=False, default='user')  # 'user' or 'admin'
+    
+    # Unique constraint: one permission per user-subject pair
+    __table_args__ = (db.UniqueConstraint('user_id', 'subject_id', name='uq_user_subject'),)
+    
+    def __repr__(self):
+        return f'<UserSubjectPermission {self.user_id} - {self.subject_id}: {self.role}>'
 
 class Subject(db.Model):
     """Subject model (MATC, MAT1, MAT2, ICT, etc.)"""

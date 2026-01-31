@@ -3,6 +3,14 @@
 {% block title %}Dashboard - Question Bank{% endblock %}
 
 {% block content %}
+{% if no_access %}
+<div class="container mt-5">
+    <div class="alert alert-warning">
+        <h4><i class="bi bi-exclamation-triangle"></i> No Access</h4>
+        <p>You don't have access to any subjects. Please contact an administrator to request access.</p>
+    </div>
+</div>
+{% else %}
 <div class="container-fluid mt-4">
     <div class="row">
         <!-- Filter Sidebar -->
@@ -331,7 +339,7 @@
                                 onclick="clearSelection()" title="Clear all selections">
                             <i class="bi bi-x-circle"></i> <span class="btn-text">Clear</span>
                         </button>
-                        {% if current_user.is_admin %}
+                        {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
                         <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" 
                                 onclick="showBatchEditModal()" title="Batch edit selected questions">
                             <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
@@ -451,9 +459,10 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- Edit Tags Modal (Admin Only) -->
-{% if current_user.is_admin %}
+{% if current_user.is_super_admin or current_user.has_any_admin_access() %}
 <div class="modal fade" id="editModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -3035,7 +3044,7 @@ function generateDocument() {
     window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
 }
 
-{% if current_user.is_admin %}
+{% if current_user.is_super_admin or current_user.has_any_admin_access() %}
 // Admin-only functions for editing tags and deletion
 let editModal;
 let deleteModal;

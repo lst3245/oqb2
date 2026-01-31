@@ -1,12 +1,12 @@
 """
 Dashboard routes for question browsing and filtering
 """
-from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file
+from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
-from app.utils import natural_sort, apply_multi_sort
+from app.utils import natural_sort, apply_multi_sort, get_user_accessible_subjects
 import os
 import json
 
@@ -16,7 +16,13 @@ dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 @login_required
 def index():
     """Main dashboard page"""
-    subjects = Subject.query.all()
+    # Filter subjects based on user's access permissions
+    subjects = get_user_accessible_subjects()
+    
+    if not subjects:
+        # User has no subject access
+        return render_template('dashboard.html', subjects=[], sort_config=[], no_access=True)
+    
     # Get sort config from session or use default
     sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
     return render_template('dashboard.html', subjects=subjects, sort_config=sort_config)
@@ -28,6 +34,10 @@ def filter_questions():
     
     # Get filter parameters
     subject = request.args.get('subject') or request.form.get('subject')
+    
+    # Check subject access permission
+    if subject and not current_user.has_subject_access(subject):
+        return jsonify({'error': 'Access denied to this subject'}), 403
     source_type = request.args.get('source_type') or request.form.get('source_type')
     years = request.args.getlist('years') or request.form.getlist('years')
     section = request.args.get('section') or request.form.get('section')
@@ -278,6 +288,9 @@ def filter_questions():
     # Get all question IDs for selection purposes
     all_question_ids = [q.id for q in sorted_questions]
     
+    # Get subjects user has admin access to for showing edit buttons
+    admin_subjects = current_user.get_admin_subjects()
+    
     # If AJAX request, return JSON
     if request.headers.get('HX-Request'):
         return render_template('partials/question_list.html', 
@@ -286,10 +299,11 @@ def filter_questions():
                              total_pages=total_pages,
                              total=total,
                              all_question_ids=all_question_ids,
-                             sort_config=sort_config)
+                             sort_config=sort_config,
+                             admin_subjects=admin_subjects)
     
     # Otherwise return full page
-    subjects = Subject.query.all()
+    subjects = get_user_accessible_subjects()
     return render_template('dashboard.html', 
                          subjects=subjects,
                          questions=question_data,
@@ -297,12 +311,17 @@ def filter_questions():
                          total_pages=total_pages,
                          total=total,
                          all_question_ids=all_question_ids,
-                         sort_config=sort_config)
+                         sort_config=sort_config,
+                         admin_subjects=admin_subjects)
 
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required
 def get_topics(subject_id):
     """Get topics for a subject"""
+    # Check subject access
+    if not current_user.has_subject_access(subject_id):
+        return jsonify([])
+    
     topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.sort_order).all()
     return jsonify([{'id': t.id, 'name': t.name} for t in topics])
 
@@ -335,6 +354,10 @@ def get_subtopics():
 @login_required
 def get_chapters(subject_id):
     """Get chapters for a subject"""
+    # Check subject access
+    if not current_user.has_subject_access(subject_id):
+        return jsonify([])
+    
     chapters_list = Chapter.query.filter_by(subject_id=subject_id).order_by(Chapter.sort_order).all()
     return jsonify([{'id': c.id, 'name': c.name} for c in chapters_list])
 
@@ -367,6 +390,10 @@ def get_subchapters():
 @login_required
 def get_years(subject_id, source):
     """Get available years for a subject and source"""
+    # Check subject access
+    if not current_user.has_subject_access(subject_id):
+        return jsonify([])
+    
     years = db.session.query(Question.year)\
         .filter(Question.subject == subject_id)\
         .filter(Question.source == source)\
@@ -374,13 +401,17 @@ def get_years(subject_id, source):
         .distinct()\
         .order_by(Question.year.desc())\
         .all()
-    
+
     return jsonify([y[0] for y in years])
 
 @dashboard_bp.route('/api/sections/<subject_id>/<source>')
 @login_required
 def get_sections(subject_id, source):
     """Get available sections for a subject and source"""
+    # Check subject access
+    if not current_user.has_subject_access(subject_id):
+        return jsonify([])
+    
     sections = db.session.query(Question.section)\
         .filter(Question.subject == subject_id)\
         .filter(Question.source == source)\
@@ -388,7 +419,7 @@ def get_sections(subject_id, source):
         .distinct()\
         .order_by(Question.section)\
         .all()
-    
+
     return jsonify([s[0] for s in sections])
 
 @dashboard_bp.route('/files/<path:filepath>')

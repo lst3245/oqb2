@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Users - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .permission-badge {
+        min-width: 70px;
+        text-align: center;
+    }
+    .permission-select {
+        min-width: 100px;
+    }
+    .user-card {
+        transition: box-shadow 0.2s;
+    }
+    .user-card:hover {
+        box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,0.1);
+    }
+    .super-admin-badge {
+        background-color: #dc3545;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-people"></i> Manage Users</h2>
+    <p class="text-muted">Create and manage user accounts and their subject permissions.</p>
+    <hr>
+    
+    <!-- Add User Button -->
+    <button class="btn btn-success mb-4" onclick="showAddUserModal()">
+        <i class="bi bi-person-plus"></i> Add User
+    </button>
+    
+    <!-- Users List -->
+    <div class="row">
+        {% for data in users_data %}
+        <div class="col-12 mb-3">
+            <div class="card user-card" id="user-{{ data.user.id }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi bi-person-circle"></i>
+                        <strong>{{ data.user.username }}</strong>
+                        {% if data.user.is_super_admin %}
+                        <span class="badge super-admin-badge ms-2"><i class="bi bi-shield-check"></i> Super Admin</span>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <small class="text-muted me-3">Created: {{ data.user.created_at.strftime('%Y-%m-%d') }}</small>
+                        {% if data.user.id != current_user.id %}
+                        <button class="btn btn-sm btn-outline-primary" 
+                                onclick="showEditUserModal({{ data.user.id }}, '{{ data.user.username }}', {{ 'true' if data.user.is_super_admin else 'false' }})">
+                            <i class="bi bi-pencil"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ data.user.id }}, '{{ data.user.username }}')">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                        {% else %}
+                        <span class="badge bg-info">You</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if data.user.is_super_admin %}
+                    <p class="text-muted mb-0"><i class="bi bi-info-circle"></i> Super admins have full access to all subjects and features.</p>
+                    {% else %}
+                    <h6 class="mb-3">Subject Permissions:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Subject</th>
+                                    <th style="width: 150px;">Permission</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for subject in subjects %}
+                                <tr>
+                                    <td>{{ subject.name }} ({{ subject.id }})</td>
+                                    <td>
+                                        <select class="form-select form-select-sm permission-select" 
+                                                onchange="updatePermission({{ data.user.id }}, '{{ subject.id }}', this.value)"
+                                                data-user="{{ data.user.id }}" data-subject="{{ subject.id }}">
+                                            <option value="" {% if subject.id not in data.permissions %}selected{% endif %}>No Access</option>
+                                            <option value="user" {% if data.permissions.get(subject.id) == 'user' %}selected{% endif %}>User</option>
+                                            <option value="admin" {% if data.permissions.get(subject.id) == 'admin' %}selected{% endif %}>Admin</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if not users_data %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No users found. Click "Add User" to create one.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add/Edit User Modal -->
+<div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="userModalLabel">Add User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="userId">
+                    <div class="mb-3">
+                        <label class="form-label">Username <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="userName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password <span id="passwordRequired" class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="userPassword">
+                        <small class="text-muted" id="passwordHint" style="display: none;">Leave blank to keep current password.</small>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="userSuperAdmin">
+                            <label class="form-check-label" for="userSuperAdmin">
+                                <i class="bi bi-shield-check"></i> Super Admin
+                            </label>
+                        </div>
+                        <small class="text-muted">Super admins have full access to all subjects and can manage users.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let userModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    userModal = new bootstrap.Modal(document.getElementById('userModal'));
+});
+
+// ============== User Functions ==============
+
+function showAddUserModal() {
+    document.getElementById('userModalLabel').textContent = 'Add User';
+    document.getElementById('userId').value = '';
+    document.getElementById('userName').value = '';
+    document.getElementById('userPassword').value = '';
+    document.getElementById('userPassword').required = true;
+    document.getElementById('passwordRequired').style.display = 'inline';
+    document.getElementById('passwordHint').style.display = 'none';
+    document.getElementById('userSuperAdmin').checked = false;
+    userModal.show();
+}
+
+function showEditUserModal(userId, username, isSuperAdmin) {
+    document.getElementById('userModalLabel').textContent = 'Edit User';
+    document.getElementById('userId').value = userId;
+    document.getElementById('userName').value = username;
+    document.getElementById('userPassword').value = '';
+    document.getElementById('userPassword').required = false;
+    document.getElementById('passwordRequired').style.display = 'none';
+    document.getElementById('passwordHint').style.display = 'block';
+    document.getElementById('userSuperAdmin').checked = isSuperAdmin;
+    userModal.show();
+}
+
+function saveUser() {
+    const userId = document.getElementById('userId').value;
+    const username = document.getElementById('userName').value.trim();
+    const password = document.getElementById('userPassword').value;
+    const isSuperAdmin = document.getElementById('userSuperAdmin').checked;
+    
+    if (!username) {
+        alert('Username is required');
+        return;
+    }
+    
+    if (!userId && !password) {
+        alert('Password is required for new users');
+        return;
+    }
+    
+    const url = userId ? 
+        `{{ url_for('admin.edit_user', user_id=0) }}`.replace('0', userId) :
+        `{{ url_for('admin.add_user') }}`;
+    
+    const formData = new FormData();
+    formData.append('username', username);
+    if (password) formData.append('password', password);
+    formData.append('is_super_admin', isSuperAdmin ? '1' : '0');
+    
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                userModal.hide();
+                location.reload();
+            }
+        })
+        .catch(err => alert('Error saving user'));
+}
+
+function deleteUser(userId, username) {
+    if (!confirm(`Delete user "${username}"? This action cannot be undone.`)) return;
+    
+    fetch(`{{ url_for('admin.delete_user', user_id=0) }}`.replace('0', userId), {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            location.reload();
+        }
+    })
+    .catch(err => alert('Error deleting user'));
+}
+
+// ============== Permission Functions ==============
+
+function updatePermission(userId, subjectId, role) {
+    const permissions = {};
+    permissions[subjectId] = role || null;
+    
+    fetch(`{{ url_for('admin.update_user_permissions', user_id=0) }}`.replace('0', userId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: permissions })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error updating permission: ' + data.error);
+            location.reload();
+        }
+        // No need to reload, just keep the selection
+    })
+    .catch(err => {
+        alert('Error updating permission');
+        location.reload();
+    });
+}
+</script>
+{% endblock %}

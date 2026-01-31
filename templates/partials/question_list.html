@@ -123,8 +123,8 @@
                             <i class="bi bi-eye"></i> Solution
                         </button>
                         {% endif %}
-                        {% if current_user.is_admin %}
-                        <button type="button" class="btn btn-sm btn-outline-warning" 
+                        {% if question.subject in admin_subjects %}
+                        <button type="button" class="btn btn-sm btn-outline-warning"
                                 onclick='editQuestion({{ question.id }}, {
                                     "qid": "{{ question.qid }}",
                                     "subject": "{{ question.subject }}",
