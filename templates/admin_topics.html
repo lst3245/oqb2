@@ -2,9 +2,28 @@
 
 {% block title %}Manage Topics - Question Bank{% endblock %}
 
+{% block extra_css %}
+<style>
+    .reorder-btn {
+        padding: 0.15rem 0.4rem;
+        font-size: 0.75rem;
+    }
+    .reorder-btn:disabled {
+        opacity: 0.3;
+    }
+    .order-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-right: 10px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <h2><i class="bi bi-tags"></i> Manage Topics & Subtopics</h2>
+    <p class="text-muted"><i class="bi bi-info-circle"></i> Use the arrow buttons to reorder items.</p>
     <hr>
     
     {% for data in topics_data %}
@@ -21,15 +40,30 @@
             
             <!-- Topics List -->
             {% if data.topics %}
+            <div id="topics-{{ data.subject.id }}" data-subject="{{ data.subject.id }}">
                 {% for topic in data.topics %}
-                <div class="border rounded p-3 mb-2">
+                <div class="border rounded p-3 mb-2 topic-item" data-id="{{ topic.id }}">
                     <div class="d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">
-                            <i class="bi bi-tag"></i> {{ topic.name }}
-                        </h6>
+                        <div class="d-flex align-items-center">
+                            <div class="order-controls">
+                                <button class="btn btn-outline-secondary reorder-btn move-up-topic" 
+                                        onclick="moveItem(this, 'up', 'topics')" title="Move up"
+                                        {% if loop.first %}disabled{% endif %}>
+                                    <i class="bi bi-chevron-up"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary reorder-btn move-down-topic" 
+                                        onclick="moveItem(this, 'down', 'topics')" title="Move down"
+                                        {% if loop.last %}disabled{% endif %}>
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                            </div>
+                            <h6 class="mb-0">
+                                <i class="bi bi-tag"></i> {{ topic.name }}
+                            </h6>
+                        </div>
                         <div>
                             <button class="btn btn-sm btn-outline-primary" 
-                                    onclick="showEditTopicModal({{ topic.id }}, '{{ topic.name }}')">
+                                    onclick="showEditTopicModal({{ topic.id }}, '{{ topic.name | e }}')">
                                 <i class="bi bi-pencil"></i> Edit
                             </button>
                             <button class="btn btn-sm btn-outline-danger" 
@@ -37,7 +71,7 @@
                                 <i class="bi bi-trash"></i> Delete
                             </button>
                             <button class="btn btn-sm btn-success" 
-                                    onclick="showAddSubtopicModal({{ topic.id }}, '{{ topic.name }}')">
+                                    onclick="showAddSubtopicModal({{ topic.id }}, '{{ topic.name | e }}')">
                                 <i class="bi bi-plus"></i> Add Subtopic
                             </button>
                         </div>
@@ -46,15 +80,30 @@
                     <!-- Subtopics -->
                     {% set subtopics = topic.subtopics.all() %}
                     {% if subtopics %}
-                    <div class="ms-4 mt-2">
+                    <div class="ms-4 mt-2" id="subtopics-{{ topic.id }}" data-topic="{{ topic.id }}">
                         {% for subtopic in subtopics %}
-                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1 {% if subtopic.hidden %}opacity-50{% endif %}">
-                            <span>
-                                <i class="bi bi-diagram-3"></i> {{ subtopic.name }}
-                                {% if subtopic.hidden %}
-                                <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
-                                {% endif %}
-                            </span>
+                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1 subtopic-item {% if subtopic.hidden %}opacity-50{% endif %}" 
+                             data-id="{{ subtopic.id }}">
+                            <div class="d-flex align-items-center">
+                                <div class="order-controls">
+                                    <button class="btn btn-outline-secondary reorder-btn move-up-subtopic" 
+                                            onclick="moveItem(this, 'up', 'subtopics')" title="Move up"
+                                            {% if loop.first %}disabled{% endif %}>
+                                        <i class="bi bi-chevron-up"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary reorder-btn move-down-subtopic" 
+                                            onclick="moveItem(this, 'down', 'subtopics')" title="Move down"
+                                            {% if loop.last %}disabled{% endif %}>
+                                        <i class="bi bi-chevron-down"></i>
+                                    </button>
+                                </div>
+                                <span>
+                                    <i class="bi bi-diagram-3"></i> {{ subtopic.name }}
+                                    {% if subtopic.hidden %}
+                                    <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                    {% endif %}
+                                </span>
+                            </div>
                             <div>
                                 <button class="btn btn-sm {% if subtopic.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
                                         onclick="toggleSubtopicHidden({{ subtopic.id }})" 
@@ -62,7 +111,7 @@
                                     <i class="bi bi-{% if subtopic.hidden %}eye{% else %}eye-slash{% endif %}"></i>
                                 </button>
                                 <button class="btn btn-sm btn-outline-primary" 
-                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name }}', {{ 'true' if subtopic.hidden else 'false' }})">
+                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name | e }}', {{ 'true' if subtopic.hidden else 'false' }})">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger" 
@@ -76,6 +125,7 @@
                     {% endif %}
                 </div>
                 {% endfor %}
+            </div>
             {% else %}
                 <p class="text-muted">No topics yet. Add one above!</p>
             {% endif %}
@@ -163,7 +213,75 @@ document.addEventListener('DOMContentLoaded', function() {
     subtopicModal = new bootstrap.Modal(document.getElementById('subtopicModal'));
 });
 
-// Topic functions
+// ============== Reorder Functions ==============
+
+function moveItem(btn, direction, type) {
+    const itemClass = type === 'topics' ? '.topic-item' : '.subtopic-item';
+    const item = btn.closest(itemClass);
+    const container = item.parentElement;
+    
+    if (direction === 'up') {
+        const prev = item.previousElementSibling;
+        if (prev && prev.classList.contains(itemClass.substring(1))) {
+            container.insertBefore(item, prev);
+        }
+    } else {
+        const next = item.nextElementSibling;
+        if (next && next.classList.contains(itemClass.substring(1))) {
+            container.insertBefore(next, item);
+        }
+    }
+    
+    // Update button states
+    updateMoveButtons(container, itemClass);
+    
+    // Save order
+    saveOrder(container, type);
+}
+
+function updateMoveButtons(container, itemClass) {
+    const items = container.querySelectorAll(itemClass);
+    items.forEach((item, index) => {
+        const upBtn = item.querySelector('.order-controls button:first-child');
+        const downBtn = item.querySelector('.order-controls button:last-child');
+        if (upBtn) upBtn.disabled = (index === 0);
+        if (downBtn) downBtn.disabled = (index === items.length - 1);
+    });
+}
+
+function saveOrder(container, type) {
+    const itemClass = type === 'topics' ? '.topic-item' : '.subtopic-item';
+    const items = container.querySelectorAll(itemClass);
+    const ids = Array.from(items).map(item => parseInt(item.dataset.id));
+    
+    const url = type === 'topics' ? 
+        '{{ url_for("admin.reorder_topics") }}' : 
+        '{{ url_for("admin.reorder_subtopics") }}';
+    
+    const body = type === 'topics' ? 
+        { topic_ids: ids } : 
+        { subtopic_ids: ids };
+    
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Error saving order');
+            location.reload();
+        }
+    })
+    .catch(err => {
+        alert('Error saving order');
+        location.reload();
+    });
+}
+
+// ============== Topic Functions ==============
+
 function showAddTopicModal(subjectId, subjectName) {
     document.getElementById('topicModalLabel').textContent = 'Add Topic';
     document.getElementById('topicId').value = '';
@@ -213,7 +331,8 @@ function deleteTopic(topicId) {
     .catch(err => alert('Error deleting topic'));
 }
 
-// Subtopic functions
+// ============== Subtopic Functions ==============
+
 function showAddSubtopicModal(topicId, topicName) {
     document.getElementById('subtopicModalLabel').textContent = 'Add Subtopic';
     document.getElementById('subtopicId').value = '';

@@ -303,7 +303,7 @@ def filter_questions():
 @login_required
 def get_topics(subject_id):
     """Get topics for a subject"""
-    topics = Topic.query.filter_by(subject_id=subject_id).all()
+    topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.sort_order).all()
     return jsonify([{'id': t.id, 'name': t.name} for t in topics])
 
 @dashboard_bp.route('/api/subtopics')
@@ -328,14 +328,14 @@ def get_subtopics():
     if not include_hidden:
         query = query.filter(Subtopic.hidden == False)
     
-    subtopics = query.all()
+    subtopics = query.order_by(Subtopic.sort_order).all()
     return jsonify([{'id': s.id, 'name': s.name, 'topic_id': s.topic_id, 'hidden': s.hidden} for s in subtopics])
 
 @dashboard_bp.route('/api/chapters/<subject_id>')
 @login_required
 def get_chapters(subject_id):
     """Get chapters for a subject"""
-    chapters_list = Chapter.query.filter_by(subject_id=subject_id).all()
+    chapters_list = Chapter.query.filter_by(subject_id=subject_id).order_by(Chapter.sort_order).all()
     return jsonify([{'id': c.id, 'name': c.name} for c in chapters_list])
 
 @dashboard_bp.route('/api/subchapters')
@@ -360,7 +360,7 @@ def get_subchapters():
     if not include_hidden:
         query = query.filter(Subchapter.hidden == False)
     
-    subchapters_list = query.all()
+    subchapters_list = query.order_by(Subchapter.sort_order).all()
     return jsonify([{'id': sc.id, 'name': sc.name, 'chapter_id': sc.chapter_id, 'hidden': sc.hidden} for sc in subchapters_list])
 
 @dashboard_bp.route('/api/years/<subject_id>/<source>')

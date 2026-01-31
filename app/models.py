@@ -60,9 +60,11 @@ class Topic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     
     # Relationships
-    subtopics = db.relationship('Subtopic', backref='topic', lazy='dynamic', cascade='all, delete-orphan')
+    subtopics = db.relationship('Subtopic', backref='topic', lazy='dynamic', cascade='all, delete-orphan',
+                                order_by='Subtopic.sort_order')
     major_questions = db.relationship('Question', backref='major_topic', foreign_keys='Question.major_topic_id', lazy='dynamic')
     
     def __repr__(self):
@@ -76,6 +78,7 @@ class Subtopic(db.Model):
     topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subtopics (e.g. textbook chapters)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     
     def __repr__(self):
         return f'<Subtopic {self.name}>'
@@ -87,9 +90,11 @@ class Chapter(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     
     # Relationships
-    subchapters = db.relationship('Subchapter', backref='chapter', lazy='dynamic', cascade='all, delete-orphan')
+    subchapters = db.relationship('Subchapter', backref='chapter', lazy='dynamic', cascade='all, delete-orphan',
+                                  order_by='Subchapter.sort_order')
     
     def __repr__(self):
         return f'<Chapter {self.name}>'
@@ -102,6 +107,7 @@ class Subchapter(db.Model):
     chapter_id = db.Column(db.Integer, db.ForeignKey('chapters.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subchapters
+    sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     
     def __repr__(self):
         return f'<Subchapter {self.name}>'

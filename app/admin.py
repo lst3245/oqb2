@@ -25,10 +25,10 @@ def topics():
     """Topic and subtopic management page"""
     subjects = Subject.query.all()
     
-    # Get all topics with their subtopics
+    # Get all topics with their subtopics, ordered by sort_order
     topics_data = []
     for subject in subjects:
-        subject_topics = Topic.query.filter_by(subject_id=subject.id).all()
+        subject_topics = Topic.query.filter_by(subject_id=subject.id).order_by(Topic.sort_order).all()
         topics_data.append({
             'subject': subject,
             'topics': subject_topics
@@ -47,7 +47,10 @@ def add_topic():
     if not subject_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     
-    topic = Topic(subject_id=subject_id, name=name)
+    # Get max sort_order for this subject
+    max_order = db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
+    
+    topic = Topic(subject_id=subject_id, name=name, sort_order=max_order + 1)
     db.session.add(topic)
     db.session.commit()
     
@@ -92,7 +95,10 @@ def add_subtopic():
     if not topic_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     
-    subtopic = Subtopic(topic_id=int(topic_id), name=name, hidden=hidden)
+    # Get max sort_order for this topic
+    max_order = db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=int(topic_id)).scalar() or 0
+    
+    subtopic = Subtopic(topic_id=int(topic_id), name=name, hidden=hidden, sort_order=max_order + 1)
     db.session.add(subtopic)
     db.session.commit()
     
@@ -141,6 +147,46 @@ def delete_subtopic(subtopic_id):
     
     return jsonify({'success': True})
 
+@admin_bp.route('/topics/reorder', methods=['POST'])
+@login_required
+@admin_required
+def reorder_topics():
+    """Reorder topics within a subject"""
+    try:
+        data = request.get_json()
+        topic_ids = data.get('topic_ids', [])
+        
+        for index, topic_id in enumerate(topic_ids):
+            topic = Topic.query.get(topic_id)
+            if topic:
+                topic.sort_order = index
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/subtopics/reorder', methods=['POST'])
+@login_required
+@admin_required
+def reorder_subtopics():
+    """Reorder subtopics within a topic"""
+    try:
+        data = request.get_json()
+        subtopic_ids = data.get('subtopic_ids', [])
+        
+        for index, subtopic_id in enumerate(subtopic_ids):
+            subtopic = Subtopic.query.get(subtopic_id)
+            if subtopic:
+                subtopic.sort_order = index
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 # ==================== Chapter Management ====================
 
 @admin_bp.route('/chapters')
@@ -149,16 +195,16 @@ def delete_subtopic(subtopic_id):
 def chapters():
     """Chapter and subchapter management page"""
     subjects = Subject.query.all()
-    
-    # Get all chapters with their subchapters, grouped by subject
+
+    # Get all chapters with their subchapters, grouped by subject, ordered by sort_order
     chapters_data = []
     for subject in subjects:
-        subject_chapters = Chapter.query.filter_by(subject_id=subject.id).all()
+        subject_chapters = Chapter.query.filter_by(subject_id=subject.id).order_by(Chapter.sort_order).all()
         chapters_data.append({
             'subject': subject,
             'chapters': subject_chapters
         })
-    
+
     return render_template('admin_chapters.html', chapters_data=chapters_data)
 
 @admin_bp.route('/chapters/add', methods=['POST'])
@@ -172,7 +218,10 @@ def add_chapter():
     if not subject_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
 
-    chapter = Chapter(subject_id=subject_id, name=name)
+    # Get max sort_order for this subject
+    max_order = db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
+
+    chapter = Chapter(subject_id=subject_id, name=name, sort_order=max_order + 1)
     db.session.add(chapter)
     db.session.commit()
 
@@ -217,14 +266,17 @@ def add_subchapter():
     chapter_id = request.form.get('chapter_id')
     name = request.form.get('name')
     hidden = request.form.get('hidden', '0') == '1'
-    
+
     if not chapter_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
-    
-    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, hidden=hidden)
+
+    # Get max sort_order for this chapter
+    max_order = db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=int(chapter_id)).scalar() or 0
+
+    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, hidden=hidden, sort_order=max_order + 1)
     db.session.add(subchapter)
     db.session.commit()
-    
+
     return jsonify({'id': subchapter.id, 'name': subchapter.name, 'chapter_id': subchapter.chapter_id, 'hidden': subchapter.hidden})
 
 @admin_bp.route('/subchapters/<int:subchapter_id>/edit', methods=['POST'])
@@ -265,14 +317,54 @@ def toggle_subchapter_hidden(subchapter_id):
 def delete_subchapter(subchapter_id):
     """Delete a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
-    
+
     # Clear subchapter_id from questions
     Question.query.filter_by(subchapter_id=subchapter_id).update({'subchapter_id': None})
-    
+
     db.session.delete(subchapter)
     db.session.commit()
-    
+
     return jsonify({'success': True})
+
+@admin_bp.route('/chapters/reorder', methods=['POST'])
+@login_required
+@admin_required
+def reorder_chapters():
+    """Reorder chapters within a subject"""
+    try:
+        data = request.get_json()
+        chapter_ids = data.get('chapter_ids', [])
+        
+        for index, chapter_id in enumerate(chapter_ids):
+            chapter = Chapter.query.get(chapter_id)
+            if chapter:
+                chapter.sort_order = index
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/subchapters/reorder', methods=['POST'])
+@login_required
+@admin_required
+def reorder_subchapters():
+    """Reorder subchapters within a chapter"""
+    try:
+        data = request.get_json()
+        subchapter_ids = data.get('subchapter_ids', [])
+        
+        for index, subchapter_id in enumerate(subchapter_ids):
+            subchapter = Subchapter.query.get(subchapter_id)
+            if subchapter:
+                subchapter.sort_order = index
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 # ==================== Question Tagging ====================
 

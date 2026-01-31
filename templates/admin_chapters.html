@@ -2,9 +2,28 @@
 
 {% block title %}Manage Chapters - Question Bank{% endblock %}
 
+{% block extra_css %}
+<style>
+    .reorder-btn {
+        padding: 0.15rem 0.4rem;
+        font-size: 0.75rem;
+    }
+    .reorder-btn:disabled {
+        opacity: 0.3;
+    }
+    .order-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-right: 10px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <h2><i class="bi bi-book"></i> Manage Chapters & Subchapters</h2>
+    <p class="text-muted"><i class="bi bi-info-circle"></i> Use the arrow buttons to reorder items.</p>
     <hr>
     
     <!-- Chapters List by Subject -->
@@ -18,10 +37,27 @@
         </div>
         <div class="card-body">
             {% if data.chapters %}
+            <div id="chapters-{{ data.subject.id }}" data-subject="{{ data.subject.id }}">
                 {% for chapter in data.chapters %}
-                <div class="card mb-3" id="chapter-{{ chapter.id }}">
+                <div class="card mb-3 chapter-item" id="chapter-{{ chapter.id }}" data-id="{{ chapter.id }}">
                     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0"><i class="bi bi-book"></i> {{ chapter.name }}</h6>
+                        <div class="d-flex align-items-center">
+                            <div class="order-controls">
+                                <button class="btn btn-light reorder-btn" 
+                                        onclick="moveItem(this, 'up', 'chapters')" title="Move up"
+                                        {% if loop.first %}disabled{% endif %}>
+                                    <i class="bi bi-chevron-up"></i>
+                                </button>
+                                <button class="btn btn-light reorder-btn" 
+                                        onclick="moveItem(this, 'down', 'chapters')" title="Move down"
+                                        {% if loop.last %}disabled{% endif %}>
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                            </div>
+                            <h6 class="mb-0">
+                                <i class="bi bi-book"></i> {{ chapter.name }}
+                            </h6>
+                        </div>
                         <div>
                             <button class="btn btn-sm btn-light" 
                                     onclick="showEditChapterModal({{ chapter.id }}, '{{ chapter.name | e }}')">
@@ -41,16 +77,30 @@
                         <!-- Subchapters -->
                         {% set subchapters = chapter.subchapters.all() %}
                         {% if subchapters %}
-                        <div class="list-group list-group-flush">
+                        <div class="list-group list-group-flush" id="subchapters-{{ chapter.id }}" data-chapter="{{ chapter.id }}">
                             {% for subchapter in subchapters %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 {% if subchapter.hidden %}opacity-50{% endif %}"
-                                 id="subchapter-{{ subchapter.id }}">
-                                <span>
-                                    <i class="bi bi-bookmark"></i> {{ subchapter.name }}
-                                    {% if subchapter.hidden %}
-                                    <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
-                                    {% endif %}
-                                </span>
+                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 subchapter-item {% if subchapter.hidden %}opacity-50{% endif %}"
+                                 id="subchapter-{{ subchapter.id }}" data-id="{{ subchapter.id }}">
+                                <div class="d-flex align-items-center">
+                                    <div class="order-controls">
+                                        <button class="btn btn-outline-secondary reorder-btn" 
+                                                onclick="moveItem(this, 'up', 'subchapters')" title="Move up"
+                                                {% if loop.first %}disabled{% endif %}>
+                                            <i class="bi bi-chevron-up"></i>
+                                        </button>
+                                        <button class="btn btn-outline-secondary reorder-btn" 
+                                                onclick="moveItem(this, 'down', 'subchapters')" title="Move down"
+                                                {% if loop.last %}disabled{% endif %}>
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                    </div>
+                                    <span>
+                                        <i class="bi bi-bookmark"></i> {{ subchapter.name }}
+                                        {% if subchapter.hidden %}
+                                        <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
                                 <div>
                                     <button class="btn btn-sm {% if subchapter.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
                                             onclick="toggleSubchapterHidden({{ subchapter.id }})" 
@@ -75,6 +125,7 @@
                     </div>
                 </div>
                 {% endfor %}
+            </div>
             {% else %}
                 <p class="text-muted mb-0">No chapters for this subject yet. Click "Add Chapter" to create one.</p>
             {% endif %}
@@ -162,7 +213,75 @@ document.addEventListener('DOMContentLoaded', function() {
     subchapterModal = new bootstrap.Modal(document.getElementById('subchapterModal'));
 });
 
-// Chapter functions
+// ============== Reorder Functions ==============
+
+function moveItem(btn, direction, type) {
+    const itemClass = type === 'chapters' ? '.chapter-item' : '.subchapter-item';
+    const item = btn.closest(itemClass);
+    const container = item.parentElement;
+    
+    if (direction === 'up') {
+        const prev = item.previousElementSibling;
+        if (prev && prev.classList.contains(itemClass.substring(1))) {
+            container.insertBefore(item, prev);
+        }
+    } else {
+        const next = item.nextElementSibling;
+        if (next && next.classList.contains(itemClass.substring(1))) {
+            container.insertBefore(next, item);
+        }
+    }
+    
+    // Update button states
+    updateMoveButtons(container, itemClass);
+    
+    // Save order
+    saveOrder(container, type);
+}
+
+function updateMoveButtons(container, itemClass) {
+    const items = container.querySelectorAll(itemClass);
+    items.forEach((item, index) => {
+        const upBtn = item.querySelector('.order-controls button:first-child');
+        const downBtn = item.querySelector('.order-controls button:last-child');
+        if (upBtn) upBtn.disabled = (index === 0);
+        if (downBtn) downBtn.disabled = (index === items.length - 1);
+    });
+}
+
+function saveOrder(container, type) {
+    const itemClass = type === 'chapters' ? '.chapter-item' : '.subchapter-item';
+    const items = container.querySelectorAll(itemClass);
+    const ids = Array.from(items).map(item => parseInt(item.dataset.id));
+    
+    const url = type === 'chapters' ? 
+        '{{ url_for("admin.reorder_chapters") }}' : 
+        '{{ url_for("admin.reorder_subchapters") }}';
+    
+    const body = type === 'chapters' ? 
+        { chapter_ids: ids } : 
+        { subchapter_ids: ids };
+    
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Error saving order');
+            location.reload();
+        }
+    })
+    .catch(err => {
+        alert('Error saving order');
+        location.reload();
+    });
+}
+
+// ============== Chapter Functions ==============
+
 function showAddChapterModal(subjectId, subjectName) {
     document.getElementById('chapterModalLabel').textContent = 'Add Chapter';
     document.getElementById('chapterId').value = '';
@@ -217,7 +336,8 @@ function deleteChapter(chapterId) {
     .catch(err => alert('Error deleting chapter'));
 }
 
-// Subchapter functions
+// ============== Subchapter Functions ==============
+
 function showAddSubchapterModal(chapterId, chapterName) {
     document.getElementById('subchapterModalLabel').textContent = 'Add Subchapter';
     document.getElementById('subchapterId').value = '';
