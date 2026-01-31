@@ -294,32 +294,31 @@
         }
         
         /* Sequential Mode */
-        .sequential-mode .viewer-content {
+        .viewer-content.sequential-mode {
             flex-direction: column;
             overflow-y: auto;
             padding: 1rem;
             gap: 1rem;
         }
         
-        .sequential-mode .content-panel {
+        .viewer-content.sequential-mode .content-panel {
             flex: none;
-            max-width: 900px;
-            margin: 0 auto;
+            max-width: 100%;
             width: 100%;
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: visible;
         }
         
-        .sequential-mode .content-panel + .content-panel {
+        .viewer-content.sequential-mode .content-panel + .content-panel {
             border-left: none;
         }
         
-        .sequential-mode .panel-divider {
+        .viewer-content.sequential-mode .panel-divider {
             display: none;
         }
         
-        .sequential-mode .panel-body {
+        .viewer-content.sequential-mode .panel-body {
             border-radius: 0 0 8px 8px;
         }
         
