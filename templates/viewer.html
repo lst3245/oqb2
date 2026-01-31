@@ -1167,8 +1167,8 @@
         function calculateBaseZoomWidth() {
             const contentWidth = document.getElementById('viewerContent').clientWidth;
             if (layout === 'sequential') {
-                // Sequential mode: full width minus padding
-                baseZoomWidth = contentWidth - 60;
+                // Sequential mode: full width minus padding, container padding, scrollbar buffer
+                baseZoomWidth = contentWidth - 100;
             } else {
                 // Side-by-side mode: half width minus divider, padding, scrollbar buffer
                 baseZoomWidth = (contentWidth / 2) - 80;
