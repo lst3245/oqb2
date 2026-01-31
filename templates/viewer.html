@@ -677,6 +677,62 @@
         }
         
         /* Mobile Responsive */
+        /* Mobile Navigation Bar */
+        .mobile-nav {
+            display: none;
+            position: fixed;
+            top: 56px;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            z-index: 999;
+            padding: 0.5rem;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .mobile-nav-btn {
+            flex: 1;
+            max-width: 120px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            background: white;
+            color: #495057;
+            font-size: 1.1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .mobile-nav-btn:hover:not(:disabled) {
+            background: #e9ecef;
+        }
+        
+        .mobile-nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .mobile-nav-btn i {
+            font-size: 1.3rem;
+        }
+        
+        .mobile-nav-counter {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #212529;
+            min-width: 80px;
+            text-align: center;
+        }
+        
         @media (max-width: 768px) {
             .viewer-toolbar {
                 padding: 0 0.5rem;
@@ -695,7 +751,12 @@
                 display: none;
             }
             
+            .mobile-nav {
+                display: flex;
+            }
+            
             .viewer-content {
+                top: 112px; /* 56px toolbar + 56px mobile nav */
                 flex-direction: column;
             }
             
@@ -721,6 +782,10 @@
             display: none;
         }
         
+        body.fullscreen-mode .mobile-nav {
+            display: none;
+        }
+        
         body.fullscreen-mode .viewer-content {
             top: 0;
         }
@@ -728,6 +793,7 @@
         /* Print styles */
         @media print {
             .viewer-toolbar,
+            .mobile-nav,
             .settings-panel,
             .question-drawer,
             .panel-header {
@@ -791,6 +857,19 @@
                 <i class="bi bi-x-lg"></i>
             </button>
         </div>
+    </div>
+    
+    <!-- Mobile Navigation Bar (visible only on mobile) -->
+    <div class="mobile-nav" id="mobileNav">
+        <button class="mobile-nav-btn" onclick="prevQuestion()" id="prevBtnMobile">
+            <i class="bi bi-chevron-left"></i> Prev
+        </button>
+        <span class="mobile-nav-counter">
+            <span id="currentIndexMobile">1</span> / <span id="totalQuestionsMobile">{{ questions|length }}</span>
+        </span>
+        <button class="mobile-nav-btn" onclick="nextQuestion()" id="nextBtnMobile">
+            Next <i class="bi bi-chevron-right"></i>
+        </button>
     </div>
     
     <!-- Question List Drawer -->
@@ -1034,8 +1113,19 @@
         let answerPreference = 'SOL';  // 'SOL' or 'ANS'
         let preferredLanguage = 'EN';
         
-        // Base width for 100% zoom - calculated once on page load (half of window minus padding)
+        // Base width for 100% zoom - depends on layout mode
         let baseZoomWidth = 0;
+        
+        function calculateBaseZoomWidth() {
+            const contentWidth = document.getElementById('viewerContent').clientWidth;
+            if (layout === 'sequential') {
+                // Sequential mode: full width minus padding
+                baseZoomWidth = contentWidth - 60;
+            } else {
+                // Side-by-side mode: half width minus divider, padding, scrollbar buffer
+                baseZoomWidth = (contentWidth / 2) - 80;
+            }
+        }
         
         // Divider dragging state
         let isDragging = false;
@@ -1044,20 +1134,25 @@
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            // Calculate base width for zoom: half of content area minus padding/divider/scrollbar
-            const contentWidth = document.getElementById('viewerContent').clientWidth;
-            baseZoomWidth = (contentWidth / 2) - 80; // Half width minus divider, padding, container padding, scrollbar buffer
             initDividerDrag();
+            // Detect mobile first (this will set layout and calculate base width)
+            detectMobileLayout();
+            // If not mobile, calculate base width for default side-by-side layout
+            if (layout === 'side-by-side') {
+                calculateBaseZoomWidth();
+            }
             loadQuestion(0);
             updateNavButtons();
-            detectMobileLayout();
         });
         
         // Detect mobile and set appropriate layout
         function detectMobileLayout() {
             if (window.innerWidth <= 768) {
-                setLayout('sequential');
+                layout = 'sequential';
+                document.getElementById('viewerContent').classList.add('sequential-mode');
                 document.getElementById('layoutSequential').checked = true;
+                updatePanelVisibility();
+                calculateBaseZoomWidth();
             }
         }
         
@@ -1085,9 +1180,12 @@
             currentIndex = index;
             const question = questionsData[index];
             
-            // Update UI
+            // Update UI (desktop)
             document.getElementById('currentIndex').textContent = index + 1;
             document.getElementById('currentQid').textContent = question.qid;
+            
+            // Update UI (mobile)
+            document.getElementById('currentIndexMobile').textContent = index + 1;
             
             // Update question list active state
             document.querySelectorAll('.question-item').forEach((item, i) => {
@@ -1102,8 +1200,16 @@
         }
         
         function updateNavButtons() {
-            document.getElementById('prevBtn').disabled = currentIndex === 0;
-            document.getElementById('nextBtn').disabled = currentIndex === questionsData.length - 1;
+            const isFirst = currentIndex === 0;
+            const isLast = currentIndex === questionsData.length - 1;
+            
+            // Desktop buttons
+            document.getElementById('prevBtn').disabled = isFirst;
+            document.getElementById('nextBtn').disabled = isLast;
+            
+            // Mobile buttons
+            document.getElementById('prevBtnMobile').disabled = isFirst;
+            document.getElementById('nextBtnMobile').disabled = isLast;
         }
         
         // Load assets
@@ -1356,6 +1462,13 @@
             }
             
             updatePanelVisibility();
+            
+            // Recalculate base zoom width for new layout and reapply zoom
+            setTimeout(() => {
+                calculateBaseZoomWidth();
+                applyZoom('QUE');
+                applyZoom('ANS');
+            }, 50); // Small delay to let layout settle
         }
         
         // Answer preference
