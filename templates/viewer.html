@@ -790,6 +790,49 @@
             top: 0;
         }
         
+        /* Theater mode (for iOS and fullscreen alternative) */
+        body.theater-mode .viewer-toolbar {
+            display: none;
+        }
+        
+        body.theater-mode .mobile-nav {
+            display: none;
+        }
+        
+        body.theater-mode .viewer-content {
+            top: 0;
+        }
+        
+        body.theater-mode .question-drawer,
+        body.theater-mode .settings-panel {
+            display: none;
+        }
+        
+        .theater-exit-btn {
+            display: none;
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            cursor: pointer;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(4px);
+        }
+        
+        .theater-exit-btn:hover {
+            background: rgba(0, 0, 0, 0.8);
+            transform: scale(1.1);
+        }
+        
         /* Print styles */
         @media print {
             .viewer-toolbar,
@@ -1047,6 +1090,11 @@
         </div>
     </div>
     
+    <!-- Theater Mode Exit Button -->
+    <button class="theater-exit-btn" id="theaterExitBtn" onclick="exitTheaterMode()" title="Exit Theater Mode">
+        <i class="bi bi-x-lg"></i>
+    </button>
+    
     <!-- Drawer Backdrop -->
     <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeAllDrawers()"></div>
     
@@ -1071,7 +1119,7 @@
                 <span class="shortcut-key">S or A</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle fullscreen</span>
+                <span>Fullscreen / Theater mode</span>
                 <span class="shortcut-key">F</span>
             </div>
             <div class="shortcut-row">
@@ -1609,13 +1657,39 @@
         
         // Fullscreen
         function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => {
-                    console.log('Fullscreen not available');
-                });
+            // Check if native fullscreen is supported (not on iOS)
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const fullscreenSupported = document.documentElement.requestFullscreen && !isIOS;
+            
+            if (fullscreenSupported) {
+                // Use native fullscreen
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        // Fallback to theater mode
+                        toggleTheaterMode();
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
             } else {
-                document.exitFullscreen();
+                // Use theater mode (hides toolbars)
+                toggleTheaterMode();
             }
+        }
+        
+        function toggleTheaterMode() {
+            document.body.classList.toggle('theater-mode');
+            const exitBtn = document.getElementById('theaterExitBtn');
+            if (document.body.classList.contains('theater-mode')) {
+                exitBtn.style.display = 'flex';
+            } else {
+                exitBtn.style.display = 'none';
+            }
+        }
+        
+        function exitTheaterMode() {
+            document.body.classList.remove('theater-mode');
+            document.getElementById('theaterExitBtn').style.display = 'none';
         }
         
         // Close viewer (close the tab/window)
@@ -1680,6 +1754,8 @@
                 case 'Escape':
                     if (document.getElementById('shortcutsOverlay').classList.contains('show')) {
                         hideShortcuts();
+                    } else if (document.body.classList.contains('theater-mode')) {
+                        exitTheaterMode();
                     } else {
                         closeAllDrawers();
                     }
