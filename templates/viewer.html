@@ -1123,6 +1123,10 @@
                 <span class="shortcut-key">F</span>
             </div>
             <div class="shortcut-row">
+                <span>Zoom in/out</span>
+                <span class="shortcut-key">Ctrl + Scroll</span>
+            </div>
+            <div class="shortcut-row">
                 <span>Toggle question list</span>
                 <span class="shortcut-key">L</span>
             </div>
@@ -1771,6 +1775,23 @@
                 document.getElementById('layoutSequential').checked = true;
             }
         });
+        
+        // Mouse wheel zoom (Ctrl+scroll or pinch on trackpad)
+        document.getElementById('quePanelBody').addEventListener('wheel', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -20 : 20;
+                zoomQue(delta);
+            }
+        }, { passive: false });
+        
+        document.getElementById('ansPanelBody').addEventListener('wheel', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -20 : 20;
+                zoomAns(delta);
+            }
+        }, { passive: false });
     </script>
 </body>
 </html>
