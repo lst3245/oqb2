@@ -1,103 +1,171 @@
 # Online Question Bank System
 
+**Version 2.1.0** | Last Updated: February 5, 2026
+
 A comprehensive Flask-based web application for managing, filtering, and generating question papers from an organized repository of educational content.
 
-## Features
-
-### 📚 Question Management
-- **Automated Ingestion**: Scan and import questions from organized file structures
-- **Database Sync**: Remove orphaned records when source files are deleted
-- **Flexible Tagging**: Tag questions with topics, subtopics, difficulty levels
-- **Multi-Language Support**: Handle English, Chinese, and Bilingual content with language preference
-- **Multiple Formats**: Support for images (PNG, JPG) and Word documents
-- **Batch Operations**: Update or delete multiple questions at once
-- **Direct QID Search**: Quick search by question ID with wildcard support
-
-### 🔍 Advanced Filtering
-- Filter by subject, source (DSE/CE/AL/QB), year, paper
-- Topic and subtopic filtering with cross-topic search
-- **Topic Mode**: AND/OR logic for multi-topic filtering
-- Difficulty level selection (1, 2, 3) with "Not Assigned" option
-- Question type filtering (Multiple Choice, Conventional)
-- Section filtering (A, B, etc.)
-- **Multi-level Sorting**: Sort by multiple fields simultaneously (e.g., topic → level → year)
-- Natural ordering (Q1, Q2, Q10 - not Q1, Q10, Q2)
-- Configurable page size (10, 20, 50, 100 items)
-- Preview language preference (English or Chinese priority)
-
-### 📄 Document Generation
-- Generate custom Word documents from selected questions
-- Multiple answer modes:
-  - Questions only
-  - Questions with answers
-  - Questions with solutions
-  - All questions, then all answers
-  - All questions, then all solutions
-- **Flexible Sorting**: 
-  - Preserve selection order
-  - Multi-level custom sorting (e.g., topic → subtopic → level)
-- **Smart Spacing Control**:
-  - Separate settings for MC and CQ questions
-  - Line spacing or page breaks (before/after each question)
-  - Intelligent page break handling (avoids duplicate breaks)
-- **Language Preference**: Prioritize English or Chinese assets (with Bilingual fallback)
-- Optional question ID display (for questions and/or answers)
-- A4 page size with narrow margins
-- Automatic image resizing for proper fit
-
-### 🔧 Admin Features
-- **Topic Management**: Full CRUD operations for topics and subtopics
-- **Question Tagging**: 
-  - Edit major topic and subtopic
-  - Add multiple minor topics
-  - Assign multiple subtopics
-  - Set level, type, section, and description
-- **Batch Operations**:
-  - Batch update metadata for selected questions
-  - Batch delete questions with confirmation
-- **User Management**: Create users with admin/regular roles
-- **Asset Preview**: Preview questions, answers, and solutions inline
-
-### 🔒 Security
-- User authentication with Flask-Login
-- Role-based access control (Admin/Regular users)
-- Protected file serving
-
-## Tech Stack
-
-- **Backend**: Flask (Python)
-- **Database**: MariaDB with SQLAlchemy ORM
-- **Frontend**: Bootstrap 5 + HTMX
-- **Document Generation**: python-docx
-- **Image Processing**: Pillow
+---
 
 ## Quick Start
 
 ### Windows (Recommended)
 
-1. **Run the Quick Start Script:**
-   ```cmd
-   quickstart.bat
-   ```
+```cmd
+# 1. Run quick start script
+quickstart.bat
 
-2. **Configure Database:**
-   - Copy `env_template.txt` to `.env`
-   - Edit `.env` with your MariaDB credentials
+# 2. Configure database
+copy env_template.txt .env
+# Edit .env with your MariaDB credentials
 
-3. **Start the Application:**
-   ```cmd
-   python run.py
-   ```
+# 3. Initialize database
+python init_db.py
 
-4. **Access the System:**
-   - Open browser to: http://localhost:5000
-   - Login: `admin` / `admin123`
+# 4. Start application
+python run.py
+
+# 5. Access system
+# Open browser to: http://localhost:5000
+# Login: admin / admin123
+```
 
 ### Manual Setup
 
-See [SETUP.md](SETUP.md) for detailed installation instructions.
+```bash
+# 1. Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or venv\Scripts\activate  # Windows
 
-## File Structure
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure environment
+cp env_template.txt .env
+# Edit .env with your settings
+
+# 4. Initialize database
+python init_db.py
+
+# 5. Run application
+python run.py
+```
+
+---
+
+## Key Features
+
+### Question Management
+- 📥 **Automated Ingestion**: Scan and import from organized file structures
+- 🔄 **Database Sync**: Remove orphaned records when files deleted
+- 🏷️ **Flexible Tagging**: Topics, subtopics, difficulty levels
+- 🌐 **Multi-Language**: English, Chinese, and Bilingual support
+- 📊 **Statistics**: Track correct percentages from public exams
+- 🔍 **QID Search**: Direct search with wildcard support
+
+### Advanced Filtering
+- Filter by subject, source, year, paper, section
+- Topic filtering with AND/OR logic and cross-topic search
+- Multi-level sorting (e.g., Topic → Level → Year)
+- Natural ordering (Q1, Q2, Q10 - not Q1, Q10, Q2)
+- Configurable page size (10/20/50/100 items)
+- Language preference (English or Chinese priority)
+
+### Document Generation
+- 📄 Generate custom Word documents from selected questions
+- 5 answer modes (questions only, with answers, with solutions, etc.)
+- Smart spacing control (separate MC/CQ settings)
+- Multi-level custom sorting
+- Language preference with automatic fallback
+- Optional QID and correct percentage display
+- A4 page size with proper formatting
+
+### Admin Features
+- 🛠️ **Topic Management**: Full CRUD operations for topics and subtopics
+- ✏️ **Question Tagging**: Edit metadata, assign topics, set difficulty
+- 👥 **User Management**: Create users with role-based permissions
+- 📦 **Batch Operations**: Update or delete multiple questions at once
+- 🔗 **Chapter Management**: Organize by textbook chapters
+- 🎯 **Subject Permissions**: Fine-grained access control
+
+### Security
+- 🔐 User authentication with Flask-Login
+- 👤 Role-based access control (Super Admin, Admin, User)
+- 🔒 Subject-level permissions
+- 🛡️ Protected file serving
+
+---
+
+## Documentation
+
+### 📘 For End Users
+**[USER_MANUAL.md](USER_MANUAL.md)** - Complete user guide
+- Getting started and login
+- Dashboard and filtering
+- Document generation
+- Tips and best practices
+- Troubleshooting
+- Quick reference
+
+### 🔧 For Administrators
+**[ADMIN_GUIDE.md](ADMIN_GUIDE.md)** - System administration guide
+- Installation and setup
+- Configuration
+- File management
+- Admin features
+- User management
+- Database maintenance
+- Backup and recovery
+- Testing procedures
+
+### 💻 For Developers
+**[DEVELOPER_SPEC.md](DEVELOPER_SPEC.md)** - Technical specification
+- Architecture overview
+- Database schema
+- Data models
+- API endpoints
+- Extension guide
+- Development workflow
+- Deployment
+
+### 📝 Version History
+**[CHANGELOG.md](CHANGELOG.md)** - Version history and upgrade guide
+
+---
+
+## Tech Stack
+
+**Backend**:
+- Python 3.8+
+- Flask 3.0.0
+- SQLAlchemy 3.1.1
+- MariaDB / MySQL
+- python-docx 1.1.0
+
+**Frontend**:
+- Bootstrap 5
+- HTMX 1.9.10
+- Bootstrap Icons
+
+---
+
+## System Requirements
+
+**Minimum**:
+- Python 3.8+
+- MariaDB 10.x or MySQL 8.x
+- 4 GB RAM
+- 10 GB storage
+
+**Recommended**:
+- Python 3.10+
+- MariaDB 10.x
+- 8 GB RAM
+- 50 GB SSD
+
+---
+
+## Project Structure
 
 ```
 oqb2/
@@ -109,401 +177,257 @@ oqb2/
 │   ├── admin.py           # Admin panel
 │   ├── generator.py       # Document generation
 │   ├── ingestor.py        # File scanner
-│   ├── config.py          # Configuration
 │   └── utils.py           # Helper functions
 ├── templates/             # HTML templates
 ├── static/                # CSS, JS files
 ├── Source/                # Question files (your content)
 ├── output/                # Generated documents
-├── init_db.py            # Database initialization
 ├── cli.py                # CLI commands
+├── init_db.py            # Database initialization
 ├── run.py                # Application entry point
-└── requirements.txt      # Python dependencies
+├── requirements.txt      # Python dependencies
+├── USER_MANUAL.md        # User documentation
+├── ADMIN_GUIDE.md        # Admin documentation
+├── DEVELOPER_SPEC.md     # Developer documentation
+└── CHANGELOG.md          # Version history
 ```
+
+---
 
 ## File Naming Convention
 
-### Past Paper (PP) Files
-Format: `SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE.EXT`
+### Past Paper Format
+```
+SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE.EXT
+Example: MATC_DSE_2024_P1_Q5_EN_QUE.png
+```
 
-Example: `MATC_DSE_2025_P2_Q5_EN_QUE.png`
+### Question Bank Format
+```
+SUBJ_QB_DETAIL_QNO_LANG_TYPE.EXT
+Example: MATC_QB_MATHSMART2024_Q1_EN_QUE.png
+```
 
+**Components**:
 - **SUBJ**: Subject code (MATC, MAT1, MAT2, ICT)
-- **SOURCE**: DSE, CE, or AL
-- **YEAR**: 4-digit year (2024, 2025, etc.)
-- **PAPER**: Paper number (P1, P2, etc.)
-- **QNO**: Question number (Q1, Q2, Q10, etc.)
-- **LANG**: Language (EN=English, CH=Chinese, BI=Bilingual)
-- **TYPE**: Asset type (QUE=Question, ANS=Answer, SOL=Solution)
-- **EXT**: File extension (png, jpg, docx, etc.)
+- **SOURCE**: DSE, CE, or AL (for past papers)
+- **YEAR**: 4-digit year (2024, 2025)
+- **PAPER**: P1, P2, etc.
+- **QNO**: Q1, Q2, Q10, etc.
+- **LANG**: EN (English), CH (Chinese), BI (Bilingual)
+- **TYPE**: QUE (Question), ANS (Answer), SOL (Solution)
+- **EXT**: png, jpg, docx, etc.
 
-### Question Bank (QB) Files
-Format: `SUBJ_QB_DETAIL_QNO_LANG_TYPE.EXT`
+---
 
-Example: `MATC_QB_MATHSMART2024_Q1_EN_QUE.png`
+## Common Tasks
 
-## Usage
-
-### 1. Ingest Questions
-
-Place your question files in the `Source/` directory following the folder structure:
-
-```
-Source/
-└── [SUBJECT]/
-    ├── PP/
-    │   └── [DSE|CE|AL]/
-    │       └── [YEAR]/
-    │           └── [PAPER]/
-    │               └── files...
-    └── QB/
-        └── [DETAIL]/
-            └── files...
-```
-
-Run the ingestor:
+### Import Questions
 ```bash
+# Place files in Source/ directory
+# Then run:
 python cli.py ingest
+
+# Check for errors:
+cat ingest_errors.log
 ```
 
-### 2. Sync Database (Optional)
-
-If you've deleted or moved source files, sync the database to remove orphaned records:
-
+### Clean Database
 ```bash
-# Preview what would be deleted (dry-run)
+# Preview what would be deleted
 python cli.py sync
 
 # Actually delete orphaned records
 python cli.py sync --no-dry-run
 ```
 
-### 3. Browse and Filter Questions
+### Start Application
+```bash
+# Development mode
+python run.py
 
-1. Login to the dashboard
-2. Select filters:
-   - **Subject**: Choose MATC, MAT1, MAT2, or ICT
-   - **Source Type**: DSE, CE, AL, or QB
-   - **Years**: Select multiple years (PP only)
-   - **Topics**: Select one or more topics
-   - **Topic Mode**: AND (must have all) or OR (any of them)
-   - **Cross-topic**: Include questions with selected topics as minor topics
-   - **Subtopics**: Auto-loads based on selected topics
-   - **Levels**: 1, 2, 3, or "Not Assigned"
-   - **Question Type**: MC, CQ, or All
-   - **Section**: A, B, or All
-   - **QID Search**: Direct search by question ID (supports wildcards)
-3. Configure display:
-   - **Page Size**: 10, 20, 50, or 100 questions per page
-   - **Preview Language**: Prioritize English or Chinese
-   - **Multi-level Sort**: Click column headers to add sort levels
-4. View question previews with Answer/Solution buttons
-5. Select questions with checkboxes
-
-### 4. Generate Documents
-
-1. Select desired questions (or use "Select All on Page")
-2. Click "Generate Document" button
-3. Choose generation options:
-   - **Sort Mode**: 
-     - Selection order (as you selected them)
-     - Custom multi-level sort (e.g., Topic → Level → Year)
-   - **Answer Mode**:
-     - Questions Only
-     - Question + Answer
-     - Question + Solution
-     - All Questions, Then All Answers
-     - All Questions, Then All Solutions
-   - **Spacing** (separate for MC and CQ):
-     - Before: Skip lines or Start new page
-     - After: Skip lines or Start new page
-   - **Display Options**:
-     - Show Question ID on questions
-     - Show Question ID on answers/solutions
-   - **Language**: Prefer English or Chinese assets
-4. Click "Generate & Download"
-5. Open the Word document
-
-### 5. Manage Topics (Admin)
-
-1. Go to **Admin → Manage Topics**
-2. View topics organized by subject
-3. Operations:
-   - **Add Topic**: Create new topic under a subject
-   - **Edit Topic**: Rename existing topic
-   - **Delete Topic**: Remove topic (and its subtopics)
-   - **Add Subtopic**: Add skill under a topic
-   - **Edit Subtopic**: Rename subtopic
-   - **Delete Subtopic**: Remove subtopic
-
-### 6. Tag Questions (Admin)
-
-1. Go to **Admin → Tag Questions**
-2. Filter questions to find the ones to tag
-3. Click "Edit Tags" on a question
-4. Edit metadata:
-   - **Major Topic**: Primary topic (one only)
-   - **Major Subtopic**: Primary subtopic (from major topic)
-   - **Minor Topics**: Additional topics (multiple allowed)
-   - **Subtopics**: Additional skills (multiple allowed)
-   - **Level**: 1, 2, or 3
-   - **Question Type**: MC or CQ
-   - **Section**: A, B, etc.
-   - **Description**: Optional text description
-5. Save changes
-
-### 7. Batch Operations (Admin)
-
-**Batch Update:**
-1. Filter and select multiple questions
-2. Click "Batch Update"
-3. Choose which fields to update
-4. Set values and apply to all selected
-
-**Batch Delete:**
-1. Filter and select multiple questions
-2. Click "Batch Delete"
-3. Confirm deletion (WARNING: This is permanent!)
-
-## Testing
-
-See [TESTING.md](TESTING.md) for comprehensive testing guide.
-
-## Database Schema
-
-- **users**: User accounts and authentication (username, password_hash, is_admin, created_at)
-- **subjects**: Subject definitions (id: MATC/MAT1/MAT2/ICT, name)
-- **topics**: Main topic categories (id, subject_id, name)
-- **subtopics**: Specific skills under topics (id, topic_id, name)
-- **questions**: Logical question records
-  - Core fields: qid (unique), subject, source, year, paper, section, qno
-  - Metadata: q_type (MC/CQ), level (1/2/3), description
-  - Topic relations: major_topic_id, major_subtopic_id
-  - Statistics: correct_percentage (0-100, NULL if unknown)
-- **question_assets**: Physical files (QUE/ANS/SOL)
-  - Fields: question_id, asset_type, file_format (IMG/DOC), language (EN/CH/BI), file_path
-- **question_minor_topics**: Many-to-many for cross-topic associations
-- **question_subtopics**: Many-to-many for multiple subtopics per question
-
-## Configuration
-
-Key settings in `.env`:
-
-```env
-DB_HOST=localhost          # MariaDB host
-DB_USER=root              # Database user
-DB_PASSWORD=password      # Database password
-DB_NAME=oqb2             # Database name
-SECRET_KEY=random-key    # Flask secret key
-SOURCE_PATH=./Source     # Question files location
-OUTPUT_PATH=./output     # Generated documents location
+# Production (with gunicorn)
+gunicorn -w 4 -b 0.0.0.0:5000 'app:create_app()'
 ```
+
+---
+
+## Troubleshooting
+
+### Quick Fixes
+
+| Problem | Solution |
+|---------|----------|
+| Can't login | Check password, restart server |
+| Images not showing | Verify SOURCE_PATH in .env |
+| Import skips files | Check file naming convention |
+| Database error | Ensure MariaDB running, check credentials |
+| Port in use | Kill process or change port in run.py |
+
+### Getting Help
+
+1. Check documentation (USER_MANUAL.md, ADMIN_GUIDE.md)
+2. Review error logs (terminal output, ingest_errors.log)
+3. Check database (phpMyAdmin or MySQL client)
+4. Review CHANGELOG.md for recent changes
+
+---
+
+## Security Checklist
+
+- [ ] Change default admin password
+- [ ] Set strong SECRET_KEY in .env
+- [ ] Use strong database password
+- [ ] Set FLASK_DEBUG=0 in production
+- [ ] Enable HTTPS in production
+- [ ] Configure firewall
+- [ ] Set up regular backups
+- [ ] Review user permissions
+
+---
+
+## Production Deployment
+
+**Key Steps**:
+1. Set environment to production in .env
+2. Use strong SECRET_KEY
+3. Deploy with production WSGI server (gunicorn)
+4. Set up reverse proxy (nginx/Apache)
+5. Enable HTTPS/SSL
+6. Configure regular backups
+7. Set up monitoring
+
+**See ADMIN_GUIDE.md for detailed deployment instructions.**
+
+---
+
+## Features by Version
+
+### Version 2.1.0 (Current)
+✅ Correct percentage tracking and display  
+✅ Sortable by correct percentage  
+✅ Batch update correct percentage  
+✅ Show percentage in documents  
+
+### Version 2.0.0
+✅ Multi-level sorting  
+✅ Batch operations  
+✅ Database sync  
+✅ Smart MC/CQ spacing  
+✅ QID wildcard search  
+✅ Topic AND/OR modes  
+✅ Language preferences  
+✅ Subject-based permissions  
+✅ Chapter management  
+
+### Version 1.0.0
+✅ Core question management  
+✅ File ingestion  
+✅ Advanced filtering  
+✅ Document generation  
+✅ Topic management  
+✅ User authentication  
+
+---
+
+## API Overview
+
+### Authentication
+- `POST /login` - User login
+- `GET /logout` - User logout
+
+### Dashboard
+- `GET /dashboard/` - Main dashboard
+- `GET /dashboard/filter` - Filter questions (HTMX)
+- `GET /dashboard/api/topics/<subject_id>` - Get topics
+- `GET /dashboard/api/subtopics` - Get subtopics
+- `GET /dashboard/files/<path>` - Serve files (protected)
+
+### Admin
+- `GET /admin/topics` - Topic management
+- `POST /admin/topics/add` - Add topic
+- `POST /admin/questions/<id>/update` - Update question
+- `POST /admin/questions/batch-update` - Batch update
+- `POST /admin/questions/delete` - Batch delete
+
+### Generator
+- `GET /generate/` - Generation options
+- `POST /generate/create` - Create document
+
+**See DEVELOPER_SPEC.md for complete API documentation.**
+
+---
 
 ## CLI Commands
 
 ```bash
-# Ingest questions from default SOURCE_PATH
+# Ingest questions from Source directory
 python cli.py ingest
 
 # Ingest from custom path
-python cli.py ingest --source-path "D:/Custom/Path"
+python cli.py ingest --source-path "/path/to/source"
 
-# Sync database with filesystem (dry-run preview)
+# Preview database sync (dry-run)
 python cli.py sync
 
-# Sync database with filesystem (actually delete orphaned records)
+# Execute database sync (delete orphans)
 python cli.py sync --no-dry-run
 
-# Sync from custom path without confirmation
-python cli.py sync --source-path "D:/Custom/Path" --no-dry-run --force
-```
+# Initialize database
+python init_db.py
 
-## API Endpoints
-
-### Dashboard
-- `GET /dashboard/` - Main dashboard
-- `GET/POST /dashboard/filter` - Filter questions (supports HTMX)
-- `GET /dashboard/api/topics/<subject_id>` - Get topics for subject
-- `GET /dashboard/api/subtopics?topic_ids=1,2` - Get subtopics for topics
-- `GET /dashboard/api/years/<subject_id>/<source>` - Get available years
-- `GET /dashboard/files/<path>` - Serve question files (login required)
-- `GET /dashboard/api/asset/<asset_id>` - Get asset metadata
-- `GET /dashboard/api/asset_preview/<asset_id>` - Get asset file for preview
-- `GET /dashboard/api/question/<question_id>/assets/<asset_type>` - Get specific asset
-
-### Admin
-- `GET /admin/` - Admin dashboard
-- `GET /admin/topics` - Topic management interface
-- `POST /admin/topics/add` - Add new topic
-- `POST /admin/topics/<id>/edit` - Edit topic
-- `POST /admin/topics/<id>/delete` - Delete topic
-- `POST /admin/subtopics/add` - Add new subtopic
-- `POST /admin/subtopics/<id>/edit` - Edit subtopic
-- `POST /admin/subtopics/<id>/delete` - Delete subtopic
-- `POST /admin/questions/<id>/update` - Update question metadata
-- `POST /admin/questions/delete` - Batch delete questions
-- `POST /admin/questions/batch-update` - Batch update questions
-
-### Generator
-- `GET /generate/` - Generation options page with multi-level sort configuration
-- `POST /generate/create` - Create and download Word document
-
-### Authentication
-- `GET /` - Redirect to dashboard or login
-- `GET/POST /login` - User login
-- `GET /logout` - User logout
-- `GET/POST /register` - Register new user (admin only)
-
-## Development
-
-### Running in Development Mode
-
-```bash
-# Activate virtual environment
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # Linux/Mac
-
-# Set environment
-set FLASK_ENV=development  # Windows
-export FLASK_ENV=development  # Linux/Mac
-
-# Run server
+# Start application
 python run.py
 ```
 
-### Adding New Subjects
-
-1. In phpMyAdmin or MySQL client:
-   ```sql
-   INSERT INTO subjects (id, name) VALUES ('PHYS', 'Physics');
-   ```
-
-2. Create folder structure:
-   ```
-   Source/PHYS/PP/...
-   Source/PHYS/QB/...
-   ```
-
-3. Run ingestor to import files
-
-## Troubleshooting
-
-### Database Connection Failed
-- Verify MariaDB is running
-- Check credentials in `.env`
-- Ensure database `oqb2` exists
-
-### Images Not Displaying
-- Check `SOURCE_PATH` in `.env`
-- Verify file paths in database
-- Check file permissions
-
-### Ingestor Skipping Files
-- Verify file naming matches pattern exactly
-- Check `ingest_errors.log` for details
-- Ensure folder structure is correct
-
-### Generation Fails
-- Verify `output/` directory exists
-- Check source files exist at specified paths
-- Ensure python-docx is installed
-
-## Production Deployment
-
-1. Set `FLASK_ENV=production` in `.env`
-2. Set `FLASK_DEBUG=0`
-3. Use strong `SECRET_KEY`
-4. Change default admin password
-5. Use production WSGI server (gunicorn/uWSGI)
-6. Set up SSL/HTTPS
-7. Configure regular backups
+---
 
 ## Contributing
 
-This is a custom internal system. For modifications:
-
-1. Understand the existing architecture
-2. Test changes thoroughly
-3. Update documentation
-4. Maintain database schema compatibility
-
-## License
-
-Copyright © 2024. All rights reserved.
-
-This system is for internal use only.
-
-## Documentation
-
-This project includes comprehensive documentation:
-
-### Getting Started
-- **[SETUP.md](SETUP.md)** - Complete installation and configuration guide
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - One-page reference for common tasks
-
-### User Documentation  
-- **[USER_GUIDE.md](USER_GUIDE.md)** - Comprehensive guide with examples and tips
-- **[TESTING.md](TESTING.md)** - Testing procedures and checklist
-
-### Technical Documentation
-- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Technical architecture and implementation details
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and upgrade guide
-
-## Support
-
-For issues or questions:
-
-1. **Check Documentation**:
-   - Quick answers: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-   - Detailed help: [USER_GUIDE.md](USER_GUIDE.md)
-   - Setup issues: [SETUP.md](SETUP.md)
-   - Recent changes: [CHANGELOG.md](CHANGELOG.md)
-
-2. **Review Error Logs**:
-   - Terminal output (when running application)
-   - `ingest_errors.log` (file ingestion errors)
-   - Browser console - Press F12 (JavaScript errors)
-
-3. **Check Database**:
-   - Open phpMyAdmin or MySQL client
-   - Verify tables exist and contain data
-   - Check `questions` and `question_assets` tables
-
-4. **Common Solutions**:
-   - Restart Flask server: `Ctrl+C` then `python run.py`
-   - Clear browser cache: `Ctrl+F5`
-   - Re-run database init: `python init_db.py`
-   - Verify `.env` configuration
-
-## Version
-
-**Version 2.0.0** - Enhanced Release
-
-### What's New in v2.0.0
-- **Multi-level Sorting**: Sort by multiple fields simultaneously with custom priority
-- **Batch Operations**: Update or delete multiple questions at once
-- **Database Sync**: Remove orphaned records when files are deleted
-- **Smart Spacing**: Separate MC/CQ spacing with intelligent page break handling
-- **Direct QID Search**: Quick search by question ID with wildcard support
-- **Topic Modes**: AND/OR logic for multi-topic filtering
-- **Language Preference**: Prioritize English or Chinese in preview and generation
-- **Major Subtopics**: Assign primary subtopic to questions
-- **Enhanced Generation**: More answer modes including "Questions then Solutions"
-- **Configurable Page Size**: Choose 10, 20, 50, or 100 items per page
-- **Question Descriptions**: Add optional text descriptions to questions
-- **Correct Percentage**: Track public exam performance statistics (0-100%, sortable, shown in documents)
-
-### Features from v1.0.0
-- Complete question management system
-- Advanced filtering and search
-- Word document generation with A4 page format
-- Admin panel for topics and tagging
-- User authentication with role-based access
-- File ingestion from organized folders
-- Multi-language support (EN, CH, BI)
-- Natural sorting of questions (Q1, Q2, Q10)
-- Cross-topic search capabilities
+1. Read DEVELOPER_SPEC.md for technical details
+2. Follow code style guidelines
+3. Write tests for new features
+4. Update documentation
+5. Submit pull request
 
 ---
 
-**Developed with Flask, Bootstrap, and HTMX**
+## Support
+
+**Documentation**:
+- [USER_MANUAL.md](USER_MANUAL.md) - User guide
+- [ADMIN_GUIDE.md](ADMIN_GUIDE.md) - Admin guide
+- [DEVELOPER_SPEC.md](DEVELOPER_SPEC.md) - Technical spec
+- [CHANGELOG.md](CHANGELOG.md) - Version history
+
+**Resources**:
+- Check error logs
+- Review database
+- Restart application
+- Clear browser cache
+
+---
+
+## License
+
+Copyright © 2024-2026. All rights reserved.
+
+This system is for internal use only.
+
+---
+
+## Acknowledgments
+
+Built with:
+- [Flask](https://flask.palletsprojects.com/)
+- [SQLAlchemy](https://www.sqlalchemy.org/)
+- [Bootstrap](https://getbootstrap.com/)
+- [HTMX](https://htmx.org/)
+- [python-docx](https://python-docx.readthedocs.io/)
+
+---
+
+**For detailed information, see the comprehensive documentation:**
+- 📘 **[USER_MANUAL.md](USER_MANUAL.md)** - For end users
+- 🔧 **[ADMIN_GUIDE.md](ADMIN_GUIDE.md)** - For administrators
+- 💻 **[DEVELOPER_SPEC.md](DEVELOPER_SPEC.md)** - For developers
