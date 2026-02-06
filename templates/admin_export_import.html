@@ -70,11 +70,43 @@
                     <p class="csv-format-info text-muted">
                         Upload a CSV in the same format. Questions are looked up by <code>qid</code>; topics/subtopics/chapters are matched by name. Questions or names not found in the database are skipped with warnings.
                     </p>
-                    <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form">
-                        <div class="input-group">
-                            <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
+                    <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form" id="importQuestionTagsForm">
+                        <div class="mb-2">
+                            <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required
+                                   id="importQuestionTagsFile" onchange="onQuestionTagsFileSelected(this)">
+                        </div>
+                        <!-- Field selection (shown after file is chosen) -->
+                        <div id="importFieldSelection" style="display:none;">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="fw-bold small me-2">Fields to import:</span>
+                                <button type="button" class="btn btn-link btn-sm p-0 me-2" onclick="toggleAllImportFields(true)">All</button>
+                                <button type="button" class="btn btn-link btn-sm p-0" onclick="toggleAllImportFields(false)">None</button>
+                            </div>
+                            <div class="row g-1 mb-2 small" id="importFieldCheckboxes">
+                                <div class="col-12 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">TOPIC TAGGING</span></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="major_topic" checked><span class="form-check-label">major_topic</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="major_subtopic" checked><span class="form-check-label">major_subtopic</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="minor_topics" checked><span class="form-check-label">minor_topics</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="subtopics" checked><span class="form-check-label">subtopics</span></label></div>
+
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">CHAPTER TAGGING</span></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="chapter" checked><span class="form-check-label">chapter</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="subchapter" checked><span class="form-check-label">subchapter</span></label></div>
+
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">METADATA</span></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="section" checked><span class="form-check-label">section</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="level" checked><span class="form-check-label">level</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="q_type" checked><span class="form-check-label">q_type</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="correct_percentage" checked><span class="form-check-label">correct_pct</span></label></div>
+
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">CONTENT</span></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="description" checked><span class="form-check-label">description</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="answer" checked><span class="form-check-label">answer</span></label></div>
+                                <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="comment" checked><span class="form-check-label">comment</span></label></div>
+                            </div>
+                            <div id="importFieldCsvNote" class="text-muted small mb-2" style="display:none;"></div>
                             <button class="btn btn-outline-primary btn-sm" type="submit">
-                                <i class="bi bi-upload"></i> Import
+                                <i class="bi bi-upload"></i> Import Selected Fields
                             </button>
                         </div>
                     </form>
@@ -179,6 +211,54 @@ function exportCSV(type) {
         'chapters': '{{ url_for("admin.export_chapters") }}'
     };
     window.location.href = urls[type] + '?subject_id=' + encodeURIComponent(subjectId);
+}
+
+// --- Import field selection ---
+
+function onQuestionTagsFileSelected(input) {
+    const panel = document.getElementById('importFieldSelection');
+    if (!input.files || !input.files.length) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    // Read CSV header to detect available columns
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const firstLine = e.target.result.split('\n')[0];
+        // Parse header (handle potential quoting)
+        const csvHeaders = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+
+        // Disable checkboxes for fields not present in the CSV
+        const note = document.getElementById('importFieldCsvNote');
+        const missing = [];
+        document.querySelectorAll('.import-field-cb').forEach(cb => {
+            const inCsv = csvHeaders.includes(cb.value);
+            cb.disabled = !inCsv;
+            if (!inCsv) {
+                cb.checked = false;
+                missing.push(cb.value);
+            }
+        });
+
+        if (missing.length > 0) {
+            note.textContent = 'Fields not in CSV (disabled): ' + missing.join(', ');
+            note.style.display = 'block';
+        } else {
+            note.style.display = 'none';
+        }
+
+        panel.style.display = 'block';
+    };
+    // Only read first 4KB to get header
+    reader.readAsText(file.slice(0, 4096));
+}
+
+function toggleAllImportFields(checked) {
+    document.querySelectorAll('.import-field-cb').forEach(cb => {
+        if (!cb.disabled) cb.checked = checked;
+    });
 }
 </script>
 {% endblock %}

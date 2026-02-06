@@ -990,15 +990,30 @@ def import_question_tags():
         flash('Please upload a valid CSV file.', 'danger')
         return redirect(url_for('admin.export_import'))
 
+    # Which fields did the user choose to import?
+    selected_fields = set(request.form.getlist('import_fields'))
+    # If none were submitted (e.g. old form without checkboxes), import everything
+    all_importable = {
+        'major_topic', 'major_subtopic', 'minor_topics', 'subtopics',
+        'chapter', 'subchapter', 'section', 'level', 'q_type',
+        'correct_percentage', 'description', 'answer', 'comment'
+    }
+    if not selected_fields:
+        selected_fields = all_importable
+
     try:
         stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
         reader = csv.DictReader(stream)
 
         # Verify required columns
         required_cols = {'qid'}
-        if not required_cols.issubset(set(reader.fieldnames or [])):
+        csv_columns = set(reader.fieldnames or [])
+        if not required_cols.issubset(csv_columns):
             flash('CSV must contain at least a "qid" column.', 'danger')
             return redirect(url_for('admin.export_import'))
+
+        # Only import fields that are both selected AND present in the CSV
+        fields_to_import = selected_fields & csv_columns
 
         updated = 0
         skipped = 0
@@ -1030,110 +1045,124 @@ def import_question_tags():
             subj_id = question.subject
 
             # Major topic
-            major_topic_name = row.get('major_topic', '').strip()
-            if major_topic_name:
-                topic = Topic.query.filter_by(subject_id=subj_id, name=major_topic_name).first()
-                if topic:
-                    question.major_topic_id = topic.id
+            if 'major_topic' in fields_to_import:
+                major_topic_name = row.get('major_topic', '').strip()
+                if major_topic_name:
+                    topic = Topic.query.filter_by(subject_id=subj_id, name=major_topic_name).first()
+                    if topic:
+                        question.major_topic_id = topic.id
+                    else:
+                        warnings.append(f'Row {row_num}: major_topic "{major_topic_name}" not found for subject {subj_id}.')
+                        question.major_topic_id = None
                 else:
-                    warnings.append(f'Row {row_num}: major_topic "{major_topic_name}" not found for subject {subj_id}.')
                     question.major_topic_id = None
-            else:
-                question.major_topic_id = None
 
             # Major subtopic
-            major_subtopic_name = row.get('major_subtopic', '').strip()
-            if major_subtopic_name and question.major_topic_id:
-                subtopic = Subtopic.query.filter_by(topic_id=question.major_topic_id, name=major_subtopic_name).first()
-                if subtopic:
-                    question.major_subtopic_id = subtopic.id
+            if 'major_subtopic' in fields_to_import:
+                major_subtopic_name = row.get('major_subtopic', '').strip()
+                if major_subtopic_name and question.major_topic_id:
+                    subtopic = Subtopic.query.filter_by(topic_id=question.major_topic_id, name=major_subtopic_name).first()
+                    if subtopic:
+                        question.major_subtopic_id = subtopic.id
+                    else:
+                        warnings.append(f'Row {row_num}: major_subtopic "{major_subtopic_name}" not found under topic.')
+                        question.major_subtopic_id = None
                 else:
-                    warnings.append(f'Row {row_num}: major_subtopic "{major_subtopic_name}" not found under topic.')
                     question.major_subtopic_id = None
-            else:
-                question.major_subtopic_id = None
 
             # Minor topics (semicolon separated)
-            minor_topics_str = row.get('minor_topics', '').strip()
-            question.minor_topics.clear()
-            if minor_topics_str:
-                for tname in [n.strip() for n in minor_topics_str.split(';') if n.strip()]:
-                    topic = Topic.query.filter_by(subject_id=subj_id, name=tname).first()
-                    if topic:
-                        question.minor_topics.append(topic)
-                    else:
-                        warnings.append(f'Row {row_num}: minor topic "{tname}" not found.')
+            if 'minor_topics' in fields_to_import:
+                minor_topics_str = row.get('minor_topics', '').strip()
+                question.minor_topics.clear()
+                if minor_topics_str:
+                    for tname in [n.strip() for n in minor_topics_str.split(';') if n.strip()]:
+                        topic = Topic.query.filter_by(subject_id=subj_id, name=tname).first()
+                        if topic:
+                            question.minor_topics.append(topic)
+                        else:
+                            warnings.append(f'Row {row_num}: minor topic "{tname}" not found.')
 
             # Subtopics (semicolon separated)
-            subtopics_str = row.get('subtopics', '').strip()
-            question.subtopics.clear()
-            if subtopics_str:
-                for sname in [n.strip() for n in subtopics_str.split(';') if n.strip()]:
-                    # Search across all topics in the subject
-                    subtopic = Subtopic.query.join(Topic).filter(
-                        Topic.subject_id == subj_id, Subtopic.name == sname
-                    ).first()
-                    if subtopic:
-                        question.subtopics.append(subtopic)
-                    else:
-                        warnings.append(f'Row {row_num}: subtopic "{sname}" not found.')
+            if 'subtopics' in fields_to_import:
+                subtopics_str = row.get('subtopics', '').strip()
+                question.subtopics.clear()
+                if subtopics_str:
+                    for sname in [n.strip() for n in subtopics_str.split(';') if n.strip()]:
+                        # Search across all topics in the subject
+                        subtopic = Subtopic.query.join(Topic).filter(
+                            Topic.subject_id == subj_id, Subtopic.name == sname
+                        ).first()
+                        if subtopic:
+                            question.subtopics.append(subtopic)
+                        else:
+                            warnings.append(f'Row {row_num}: subtopic "{sname}" not found.')
 
             # Chapter
-            chapter_name = row.get('chapter', '').strip()
-            if chapter_name:
-                chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
-                if chapter:
-                    question.chapter_id = chapter.id
+            if 'chapter' in fields_to_import:
+                chapter_name = row.get('chapter', '').strip()
+                if chapter_name:
+                    chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
+                    if chapter:
+                        question.chapter_id = chapter.id
+                    else:
+                        warnings.append(f'Row {row_num}: chapter "{chapter_name}" not found.')
+                        question.chapter_id = None
                 else:
-                    warnings.append(f'Row {row_num}: chapter "{chapter_name}" not found.')
                     question.chapter_id = None
-            else:
-                question.chapter_id = None
 
             # Subchapter
-            subchapter_name = row.get('subchapter', '').strip()
-            if subchapter_name and question.chapter_id:
-                subchapter = Subchapter.query.filter_by(chapter_id=question.chapter_id, name=subchapter_name).first()
-                if subchapter:
-                    question.subchapter_id = subchapter.id
+            if 'subchapter' in fields_to_import:
+                subchapter_name = row.get('subchapter', '').strip()
+                if subchapter_name and question.chapter_id:
+                    subchapter = Subchapter.query.filter_by(chapter_id=question.chapter_id, name=subchapter_name).first()
+                    if subchapter:
+                        question.subchapter_id = subchapter.id
+                    else:
+                        warnings.append(f'Row {row_num}: subchapter "{subchapter_name}" not found.')
+                        question.subchapter_id = None
                 else:
-                    warnings.append(f'Row {row_num}: subchapter "{subchapter_name}" not found.')
                     question.subchapter_id = None
-            else:
-                question.subchapter_id = None
 
             # Simple metadata fields
-            section = row.get('section', '').strip()
-            question.section = section if section else None
+            if 'section' in fields_to_import:
+                section = row.get('section', '').strip()
+                question.section = section if section else None
 
-            level = row.get('level', '').strip()
-            question.level = int(level) if level and level.isdigit() else None
+            if 'level' in fields_to_import:
+                level = row.get('level', '').strip()
+                question.level = int(level) if level and level.isdigit() else None
 
-            q_type = row.get('q_type', '').strip()
-            question.q_type = q_type if q_type else None
+            if 'q_type' in fields_to_import:
+                q_type = row.get('q_type', '').strip()
+                question.q_type = q_type if q_type else None
 
-            correct_pct = row.get('correct_percentage', '').strip()
-            if correct_pct and correct_pct.isdigit():
-                pct_val = int(correct_pct)
-                question.correct_percentage = pct_val if 0 <= pct_val <= 100 else None
-            else:
-                question.correct_percentage = None
+            if 'correct_percentage' in fields_to_import:
+                correct_pct = row.get('correct_percentage', '').strip()
+                if correct_pct and correct_pct.isdigit():
+                    pct_val = int(correct_pct)
+                    question.correct_percentage = pct_val if 0 <= pct_val <= 100 else None
+                else:
+                    question.correct_percentage = None
 
-            description = row.get('description', '').strip()
-            question.description = description if description else None
+            if 'description' in fields_to_import:
+                description = row.get('description', '').strip()
+                question.description = description if description else None
 
             # Answer text and comment
-            answer = row.get('answer', '').strip()
-            question.answer = answer if answer else None
+            if 'answer' in fields_to_import:
+                answer = row.get('answer', '').strip()
+                question.answer = answer if answer else None
 
-            comment_text = row.get('comment', '').strip()
-            question.comment = comment_text if comment_text else None
+            if 'comment' in fields_to_import:
+                comment_text = row.get('comment', '').strip()
+                question.comment = comment_text if comment_text else None
 
             updated += 1
 
         db.session.commit()
 
-        msg = f'Import complete: {updated} question(s) updated, {skipped} skipped.'
+        imported_fields_str = ', '.join(sorted(fields_to_import)) if fields_to_import else 'none'
+        msg = f'Import complete: {updated} question(s) updated, {skipped} skipped. Fields imported: {imported_fields_str}.'
         if warnings:
             msg += f' {len(warnings)} warning(s).'
         flash(msg, 'success' if updated > 0 else 'warning')
