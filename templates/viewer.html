@@ -833,6 +833,37 @@
             transform: scale(1.1);
         }
         
+        /* Text content cards (Answer Text / Comment) */
+        .text-content-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 1rem;
+            text-align: left;
+            display: inline-block;
+            width: 100%;
+            max-width: 800px;
+        }
+        
+        .text-content-header {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #495057;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .text-content-body {
+            padding: 1rem;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #212529;
+        }
+        
         /* Print styles */
         @media print {
             .viewer-toolbar,
@@ -1004,6 +1035,22 @@
                 <label class="btn btn-outline-primary" for="langCH">Chinese First</label>
             </div>
         </div>
+        
+        <div class="settings-section">
+            <h4>Text Content</h4>
+            <div class="setting-item">
+                <span class="setting-label">Show Answer Text</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="settingShowAnswerText" onchange="updateShowAnswerText(this.checked)">
+                </div>
+            </div>
+            <div class="setting-item">
+                <span class="setting-label">Show Comment</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="settingShowComment" onchange="updateShowComment(this.checked)">
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Main Content Area -->
@@ -1086,6 +1133,16 @@
                         <span>Loading solution...</span>
                     </div>
                 </div>
+                <!-- Answer Text container (shown via toggle) -->
+                <div id="answerTextContainer" class="text-content-card" style="display: none;">
+                    <div class="text-content-header"><i class="bi bi-card-text me-1"></i> Answer Text</div>
+                    <div class="text-content-body" id="answerTextContent"></div>
+                </div>
+                <!-- Comment container (shown via toggle) -->
+                <div id="commentContainer" class="text-content-card" style="display: none;">
+                    <div class="text-content-header"><i class="bi bi-chat-text me-1"></i> Comment</div>
+                    <div class="text-content-body" id="commentContent"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -1117,6 +1174,14 @@
             <div class="shortcut-row">
                 <span>Toggle solution</span>
                 <span class="shortcut-key">S or A</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle answer text</span>
+                <span class="shortcut-key">T</span>
+            </div>
+            <div class="shortcut-row">
+                <span>Toggle comment</span>
+                <span class="shortcut-key">C</span>
             </div>
             <div class="shortcut-row">
                 <span>Fullscreen / Theater mode</span>
@@ -1164,6 +1229,8 @@
         let layout = 'side-by-side';
         let answerPreference = 'SOL';  // 'SOL' or 'ANS'
         let preferredLanguage = 'EN';
+        let showAnswerText = false;
+        let showComment = false;
         
         // Base width for 100% zoom - depends on layout mode
         let baseZoomWidth = 0;
@@ -1247,6 +1314,9 @@
             // Load assets
             loadAsset('QUE', question.id);
             loadAnswerAsset(question.id);
+            
+            // Update text content
+            updateTextContent(question);
             
             updateNavButtons();
         }
@@ -1543,6 +1613,53 @@
             }
         }
         
+        // Text content toggle functions
+        function updateTextContent(question) {
+            // Answer Text
+            const ansTextContainer = document.getElementById('answerTextContainer');
+            const ansTextContent = document.getElementById('answerTextContent');
+            if (question.has_answer_text && showAnswerText) {
+                ansTextContent.textContent = question.answer;
+                ansTextContainer.style.display = 'block';
+            } else {
+                ansTextContainer.style.display = 'none';
+            }
+            
+            // Comment
+            const commentContainer = document.getElementById('commentContainer');
+            const commentContent = document.getElementById('commentContent');
+            if (question.has_comment && showComment) {
+                commentContent.textContent = question.comment;
+                commentContainer.style.display = 'block';
+            } else {
+                commentContainer.style.display = 'none';
+            }
+        }
+        
+        function updateShowAnswerText(checked) {
+            showAnswerText = checked;
+            document.getElementById('settingShowAnswerText').checked = showAnswerText;
+            if (questionsData.length > 0) {
+                updateTextContent(questionsData[currentIndex]);
+            }
+        }
+        
+        function updateShowComment(checked) {
+            showComment = checked;
+            document.getElementById('settingShowComment').checked = showComment;
+            if (questionsData.length > 0) {
+                updateTextContent(questionsData[currentIndex]);
+            }
+        }
+        
+        function toggleShowAnswerText() {
+            updateShowAnswerText(!showAnswerText);
+        }
+        
+        function toggleShowComment() {
+            updateShowComment(!showComment);
+        }
+        
         // Divider drag
         function initDividerDrag() {
             const divider = document.getElementById('panelDivider');
@@ -1734,6 +1851,16 @@
                 case 'a':
                 case 'A':
                     toggleShowAns();
+                    e.preventDefault();
+                    break;
+                case 't':
+                case 'T':
+                    toggleShowAnswerText();
+                    e.preventDefault();
+                    break;
+                case 'c':
+                case 'C':
+                    toggleShowComment();
                     e.preventDefault();
                     break;
                 case 'f':

@@ -518,6 +518,20 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label">Answer Text (optional)</label>
+                        <textarea class="form-control" id="editAnswer" name="answer" 
+                                  rows="3" placeholder="Enter answer text (alternative to ANS image)"></textarea>
+                        <small class="text-muted">Plain text answer, shown as an alternative to ANS image</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Comment (optional)</label>
+                        <textarea class="form-control" id="editComment" name="comment" 
+                                  rows="3" placeholder="Enter comment or notes"></textarea>
+                        <small class="text-muted">Notes or comments about this question</small>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label class="form-label">Major Topic (select 1)</label>
                         <div class="dropdown searchable-single-select" id="editMajorTopicDropdown">
                             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
@@ -2915,6 +2929,24 @@ function previewAsset(questionId, assetType) {
         });
 }
 
+// Preview text content (Answer Text / Comment) in the existing preview modal
+function previewText(title, textContent) {
+    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    const modalBody = document.getElementById('previewModalBody');
+    const modalLabel = document.getElementById('previewModalLabel');
+    
+    modalLabel.textContent = title;
+    // Escape HTML and preserve whitespace
+    const escaped = textContent
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+    modalBody.innerHTML = `<div class="text-start p-3" style="font-size: 1rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">${escaped}</div>`;
+    
+    modal.show();
+}
+
 // Clear all selections
 function clearSelection() {
     selectedQuestions.clear();
@@ -3948,6 +3980,8 @@ function editQuestion(questionId, questionData) {
     document.getElementById('editSection').value = questionData.section || '';
     document.getElementById('editDescription').value = questionData.description || '';
     document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null ? questionData.correct_percentage : '';
+    document.getElementById('editAnswer').value = questionData.answer || '';
+    document.getElementById('editComment').value = questionData.comment || '';
 
     // Reset search fields
     if (document.getElementById('editMajorTopicSearch')) document.getElementById('editMajorTopicSearch').value = '';

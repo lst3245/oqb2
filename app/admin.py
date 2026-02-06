@@ -397,6 +397,14 @@ def update_question(question_id):
             description = request.form.get('description')
             question.description = description if description and description.strip() != '' else None
         
+        if 'answer' in request.form:
+            answer = request.form.get('answer')
+            question.answer = answer if answer and answer.strip() != '' else None
+        
+        if 'comment' in request.form:
+            comment_text = request.form.get('comment')
+            question.comment = comment_text if comment_text and comment_text.strip() != '' else None
+        
         if 'correct_percentage' in request.form:
             correct_pct = request.form.get('correct_percentage')
             if correct_pct and correct_pct.strip() != '':
@@ -494,7 +502,9 @@ def update_question(question_id):
                 'major_subtopic_id': question.major_subtopic_id,
                 'chapter_id': question.chapter_id,
                 'subchapter_id': question.subchapter_id,
-                'description': question.description
+                'description': question.description,
+                'answer': question.answer,
+                'comment': question.comment
             }
         })
     except Exception as e:
@@ -930,7 +940,8 @@ def export_question_tags():
         'qid', 'subject', 'major_topic', 'major_subtopic',
         'minor_topics', 'subtopics',
         'chapter', 'subchapter',
-        'section', 'level', 'q_type', 'correct_percentage', 'description'
+        'section', 'level', 'q_type', 'correct_percentage', 'description',
+        'answer', 'comment'
     ])
 
     for q in questions:
@@ -954,7 +965,9 @@ def export_question_tags():
             q.level if q.level is not None else '',
             q.q_type or '',
             q.correct_percentage if q.correct_percentage is not None else '',
-            q.description or ''
+            q.description or '',
+            q.answer or '',
+            q.comment or ''
         ])
 
     response = make_response(output.getvalue())
@@ -1106,6 +1119,13 @@ def import_question_tags():
 
             description = row.get('description', '').strip()
             question.description = description if description else None
+
+            # Answer text and comment
+            answer = row.get('answer', '').strip()
+            question.answer = answer if answer else None
+
+            comment_text = row.get('comment', '').strip()
+            question.comment = comment_text if comment_text else None
 
             updated += 1
 

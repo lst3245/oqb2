@@ -78,6 +78,16 @@
                             </select>
                         </div>
                         
+                        <!-- Answer Preference (shown only for ANS modes) -->
+                        <div class="mb-3" id="answerPreferenceDiv" style="display: none;">
+                            <label class="form-label">Answer Preference</label>
+                            <select class="form-select" name="answer_preference" id="answerPreference">
+                                <option value="image_first" selected>Image First (fall back to text)</option>
+                                <option value="text_first">Text First (fall back to image)</option>
+                            </select>
+                            <small class="text-muted">Choose whether to prefer the ANS image or the Answer Text field</small>
+                        </div>
+                        
                         <!-- Preferred Language -->
                         <div class="mb-3">
                             <label class="form-label">Preferred Language</label>
@@ -306,12 +316,20 @@ document.addEventListener('DOMContentLoaded', function() {
 function updateAnswerQidVisibility() {
     const answerMode = document.getElementById('answerMode').value;
     const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');
+    const answerPreferenceDiv = document.getElementById('answerPreferenceDiv');
     
     // Show if answer mode includes ANS or SOL
     if (answerMode !== 'QUE_ONLY') {
         showQidAnswerDiv.style.display = 'block';
     } else {
         showQidAnswerDiv.style.display = 'none';
+    }
+    
+    // Show answer preference only for ANS modes (not SOL)
+    if (answerMode === 'QUE_ANS' || answerMode === 'QUE_THEN_ANS') {
+        answerPreferenceDiv.style.display = 'block';
+    } else {
+        answerPreferenceDiv.style.display = 'none';
     }
 }
 

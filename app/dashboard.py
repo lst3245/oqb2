@@ -282,7 +282,11 @@ def filter_questions():
             'correct_percentage': q.correct_percentage,
             'que_asset_id': que_asset.id if que_asset else None,
             'has_ans': has_ans,
-            'has_sol': has_sol
+            'has_sol': has_sol,
+            'answer': q.answer,
+            'comment': q.comment,
+            'has_answer_text': bool(q.answer),
+            'has_comment': bool(q.comment)
         })
     
     # Get all question IDs for selection purposes

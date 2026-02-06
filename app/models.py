@@ -187,6 +187,8 @@ class Question(db.Model):
     subchapter_id = db.Column(db.Integer, db.ForeignKey('subchapters.id', ondelete='SET NULL'), nullable=True, index=True)
     description = db.Column(db.Text, nullable=True)  # Optional description for the question
     correct_percentage = db.Column(db.Integer, nullable=True)  # 0-100, NULL if unknown (public exam correct rate)
+    answer = db.Column(db.Text, nullable=True)  # Answer text (alternative to ANS image)
+    comment = db.Column(db.Text, nullable=True)  # Comment / notes
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships

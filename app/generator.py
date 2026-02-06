@@ -90,7 +90,11 @@ def viewer():
             'q_type': q.q_type,
             'has_que': len(que_assets) > 0,
             'has_ans': len(ans_assets) > 0,
-            'has_sol': len(sol_assets) > 0
+            'has_sol': len(sol_assets) > 0,
+            'answer': q.answer,
+            'comment': q.comment,
+            'has_answer_text': bool(q.answer),
+            'has_comment': bool(q.comment)
         })
     
     return render_template('viewer.html', 
@@ -180,6 +184,9 @@ def create_document():
     # Order: preferred > BI > other
     preferred_language = request.form.get('preferred_language', 'EN')
     
+    # Answer preference: image_first or text_first (only for ANS modes)
+    answer_preference = request.form.get('answer_preference', 'image_first')
+    
     # Build spacing config for document generation
     spacing_config = {
         'mc': {
@@ -230,7 +237,8 @@ def create_document():
             show_qid,
             show_qid_answer,
             preferred_language,
-            show_correct_pct
+            show_correct_pct,
+            answer_preference
         )
         
         # Save document
@@ -308,7 +316,7 @@ def add_after_spacing(doc, spacing):
         return False
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first'):
     """
     Create Word document with questions
     
@@ -320,6 +328,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         show_qid_answer: Show question ID for answers/solutions
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
         show_correct_pct: Show correct percentage with question ID (format: "QID [X%]")
+        answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
     """
     doc = Document()
     
@@ -373,7 +382,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -413,7 +422,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference)
             elif answer_mode == 'QUE_SOL':
                 add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct)
             
@@ -422,7 +431,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first'):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -431,6 +440,7 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
         show_correct_pct: Show correct percentage (format: "QID [X%]" or just "[X%]" if no QID)
                           Only shown for QUE type, not for ANS or SOL
+        answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
     """
     # Add QID and/or percentage as heading if requested
     if show_qid or (show_correct_pct and asset_type == 'QUE'):
@@ -452,6 +462,16 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
             heading_run.bold = True
             heading_run.font.size = Pt(12)
     
+    # For ANS type, handle answer_preference (text_first vs image_first)
+    if asset_type == 'ANS' and answer_preference == 'text_first':
+        # Text first: use answer text if available, fall back to image
+        if question.answer:
+            para = doc.add_paragraph()
+            run = para.add_run(question.answer)
+            run.font.size = Pt(11)
+            return
+        # Fall through to image if no text
+    
     # Get all available assets for this question and type
     assets = QuestionAsset.query.filter_by(
         question_id=question.id,
@@ -459,6 +479,13 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     ).all()
     
     if not assets:
+        # No image asset found
+        if asset_type == 'ANS' and answer_preference == 'image_first' and question.answer:
+            # Image first but no image available — fall back to answer text
+            para = doc.add_paragraph()
+            run = para.add_run(question.answer)
+            run.font.size = Pt(11)
+            return
         # No asset found, add placeholder
         para = doc.add_paragraph()
         run = para.add_run(f'[{asset_type} not available for {question.qid}]')

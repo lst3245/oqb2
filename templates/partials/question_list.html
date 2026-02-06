@@ -123,6 +123,22 @@
                             <i class="bi bi-eye"></i> Solution
                         </button>
                         {% endif %}
+                        {% if question.has_answer_text %}
+                        <button type="button" class="btn btn-sm btn-outline-info" 
+                                data-text-title="Answer Text"
+                                data-text-content="{{ question.answer | e }}"
+                                onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
+                            <i class="bi bi-card-text"></i> Ans Text
+                        </button>
+                        {% endif %}
+                        {% if question.has_comment %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                data-text-title="Comment"
+                                data-text-content="{{ question.comment | e }}"
+                                onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
+                            <i class="bi bi-chat-text"></i> Comment
+                        </button>
+                        {% endif %}
                         {% if question.subject in admin_subjects %}
                         <button type="button" class="btn btn-sm btn-outline-warning"
                                 onclick='editQuestion({{ question.id }}, {
@@ -138,7 +154,9 @@
                                     "minor_topic_ids": {{ question.minor_topic_ids | default([]) | tojson }},
                                     "subtopic_ids": {{ question.subtopic_ids | default([]) | tojson }},
                                     "chapter_id": {{ question.chapter_id if question.chapter_id else "null" }},
-                                    "subchapter_id": {{ question.subchapter_id if question.subchapter_id else "null" }}
+                                    "subchapter_id": {{ question.subchapter_id if question.subchapter_id else "null" }},
+                                    "answer": {{ ("\"" + (question.answer | replace("\\", "\\\\") | replace('"', '\\"') | replace('\n', '\\n') | replace('\r', '\\r')) + "\"") if question.answer else "null" }},
+                                    "comment": {{ ("\"" + (question.comment | replace("\\", "\\\\") | replace('"', '\\"') | replace('\n', '\\n') | replace('\r', '\\r')) + "\"") if question.comment else "null" }}
                                 })'>
                             <i class="bi bi-pencil"></i> Edit Tags
                         </button>
