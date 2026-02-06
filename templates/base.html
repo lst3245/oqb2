@@ -367,6 +367,8 @@
                                 <i class="bi bi-gear"></i> Admin
                             </a>
                             <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{{ url_for('admin.index') }}"><i class="bi bi-speedometer2"></i> Admin Panel</a></li>
+                                <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.topics') }}">Manage Topics</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.chapters') }}">Manage Chapters</a></li>
                                 <li><hr class="dropdown-divider"></li>
@@ -376,6 +378,7 @@
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> Manage Users</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> Database Health</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> File Browser</a></li>
                                 {% endif %}
                             </ul>
                         </li>

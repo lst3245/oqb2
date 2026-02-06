@@ -5,8 +5,10 @@ import csv
 import io
 import os
 import json
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app
+import shutil
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file
 from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
 from app import db
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
 from app.utils import admin_required, super_admin_required, get_user_admin_subjects
@@ -1606,3 +1608,268 @@ def health_sync():
     
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== File Browser (Super Admin Only) ====================
+
+def _resolve_source_path():
+    """Get the resolved source path, using abspath instead of realpath to avoid UNC issues on Windows."""
+    return os.path.abspath(current_app.config['SOURCE_PATH'])
+
+
+def _safe_join(base, *paths):
+    """Safely join paths ensuring result stays within base directory."""
+    base = os.path.abspath(base)
+    target = os.path.abspath(os.path.join(base, *paths))
+    # Use os.path.normcase for case-insensitive comparison on Windows
+    if not os.path.normcase(target).startswith(os.path.normcase(base)):
+        return None
+    return target
+
+
+def _get_dir_info(full_path, source_path):
+    """Get directory listing info for a given path."""
+    # Use abspath consistently to avoid mount mismatch issues
+    full_path = os.path.abspath(full_path)
+    source_path = os.path.abspath(source_path)
+    rel_path = os.path.relpath(full_path, source_path).replace('\\', '/')
+    if rel_path == '.':
+        rel_path = ''
+
+    items = []
+    try:
+        entries = sorted(os.listdir(full_path), key=lambda x: (not os.path.isdir(os.path.join(full_path, x)), x.lower()))
+    except PermissionError:
+        entries = []
+
+    for entry in entries:
+        entry_path = os.path.join(full_path, entry)
+        is_dir = os.path.isdir(entry_path)
+        stat = os.stat(entry_path)
+        items.append({
+            'name': entry,
+            'is_dir': is_dir,
+            'size': stat.st_size if not is_dir else None,
+            'modified': stat.st_mtime,
+        })
+
+    return {
+        'current_path': rel_path,
+        'items': items,
+    }
+
+
+@admin_bp.route('/files')
+@login_required
+@super_admin_required
+def files():
+    """File browser page - super admin only"""
+    source_path = current_app.config['SOURCE_PATH']
+    return render_template('admin_files.html', source_path=source_path)
+
+
+@admin_bp.route('/files/list')
+@login_required
+@super_admin_required
+def files_list():
+    """List files and directories in a path (JSON API)"""
+    source_path = _resolve_source_path()
+    rel_path = request.args.get('path', '').strip('/')
+
+    if rel_path:
+        full_path = _safe_join(source_path, rel_path)
+    else:
+        full_path = source_path
+
+    if not full_path or not os.path.isdir(full_path):
+        return jsonify({'error': 'Directory not found or access denied'}), 404
+
+    info = _get_dir_info(full_path, source_path)
+    return jsonify(info)
+
+
+@admin_bp.route('/files/download')
+@login_required
+@super_admin_required
+def files_download():
+    """Download a single file"""
+    source_path = _resolve_source_path()
+    rel_path = request.args.get('path', '').strip('/')
+
+    if not rel_path:
+        return jsonify({'error': 'No file specified'}), 400
+
+    full_path = _safe_join(source_path, rel_path)
+    if not full_path or not os.path.isfile(full_path):
+        return jsonify({'error': 'File not found or access denied'}), 404
+
+    return send_file(full_path, as_attachment=True)
+
+
+@admin_bp.route('/files/upload', methods=['POST'])
+@login_required
+@super_admin_required
+def files_upload():
+    """Upload one or more files to a directory"""
+    source_path = _resolve_source_path()
+    rel_path = request.form.get('path', '').strip('/')
+
+    if rel_path:
+        target_dir = _safe_join(source_path, rel_path)
+    else:
+        target_dir = source_path
+
+    if not target_dir or not os.path.isdir(target_dir):
+        return jsonify({'error': 'Target directory not found or access denied'}), 404
+
+    uploaded_files = request.files.getlist('files')
+    if not uploaded_files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    uploaded = []
+    errors = []
+    for f in uploaded_files:
+        if not f.filename:
+            continue
+        filename = secure_filename(f.filename)
+        if not filename:
+            errors.append(f'Invalid filename: {f.filename}')
+            continue
+        dest = os.path.join(target_dir, filename)
+        try:
+            f.save(dest)
+            uploaded.append(filename)
+        except Exception as e:
+            errors.append(f'{filename}: {str(e)}')
+
+    return jsonify({
+        'success': True,
+        'uploaded': uploaded,
+        'errors': errors,
+        'message': f'Uploaded {len(uploaded)} file(s)' + (f', {len(errors)} error(s)' if errors else '')
+    })
+
+
+@admin_bp.route('/files/rename', methods=['POST'])
+@login_required
+@super_admin_required
+def files_rename():
+    """Rename a file or directory"""
+    source_path = _resolve_source_path()
+    data = request.get_json()
+    old_path = data.get('path', '').strip('/')
+    new_name = data.get('new_name', '').strip()
+
+    if not old_path or not new_name:
+        return jsonify({'error': 'Path and new name are required'}), 400
+
+    # Validate new_name doesn't contain path separators
+    if '/' in new_name or '\\' in new_name:
+        return jsonify({'error': 'New name cannot contain path separators'}), 400
+
+    full_path = _safe_join(source_path, old_path)
+    if not full_path or not os.path.exists(full_path):
+        return jsonify({'error': 'File or directory not found'}), 404
+
+    parent_dir = os.path.dirname(full_path)
+    new_full_path = os.path.join(parent_dir, new_name)
+
+    # Ensure new path is also within source
+    new_full_path_abs = os.path.abspath(new_full_path)
+    if not os.path.normcase(new_full_path_abs).startswith(os.path.normcase(source_path)):
+        return jsonify({'error': 'Access denied'}), 403
+
+    if os.path.exists(new_full_path):
+        return jsonify({'error': f'A file or directory named "{new_name}" already exists'}), 409
+
+    try:
+        os.rename(full_path, new_full_path)
+        return jsonify({'success': True, 'new_name': new_name})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/files/delete', methods=['POST'])
+@login_required
+@super_admin_required
+def files_delete():
+    """Delete one or more files or directories"""
+    source_path = _resolve_source_path()
+    data = request.get_json()
+    paths = data.get('paths', [])
+
+    if not paths:
+        return jsonify({'error': 'No paths specified'}), 400
+
+    deleted = []
+    errors = []
+    for rel_path in paths:
+        rel_path = rel_path.strip('/')
+        if not rel_path:
+            errors.append('Cannot delete root directory')
+            continue
+
+        full_path = _safe_join(source_path, rel_path)
+        if not full_path or not os.path.exists(full_path):
+            errors.append(f'{rel_path}: not found')
+            continue
+
+        # Extra safety: don't allow deleting the source root
+        if os.path.normcase(os.path.abspath(full_path)) == os.path.normcase(source_path):
+            errors.append(f'{rel_path}: cannot delete source root')
+            continue
+
+        try:
+            if os.path.isdir(full_path):
+                shutil.rmtree(full_path)
+            else:
+                os.remove(full_path)
+            deleted.append(rel_path)
+        except Exception as e:
+            errors.append(f'{rel_path}: {str(e)}')
+
+    return jsonify({
+        'success': True,
+        'deleted': deleted,
+        'errors': errors,
+        'message': f'Deleted {len(deleted)} item(s)' + (f', {len(errors)} error(s)' if errors else '')
+    })
+
+
+@admin_bp.route('/files/mkdir', methods=['POST'])
+@login_required
+@super_admin_required
+def files_mkdir():
+    """Create a new directory"""
+    source_path = _resolve_source_path()
+    data = request.get_json()
+    parent_path = data.get('path', '').strip('/')
+    dir_name = data.get('name', '').strip()
+
+    if not dir_name:
+        return jsonify({'error': 'Directory name is required'}), 400
+
+    if '/' in dir_name or '\\' in dir_name:
+        return jsonify({'error': 'Directory name cannot contain path separators'}), 400
+
+    if parent_path:
+        parent_dir = _safe_join(source_path, parent_path)
+    else:
+        parent_dir = source_path
+
+    if not parent_dir or not os.path.isdir(parent_dir):
+        return jsonify({'error': 'Parent directory not found'}), 404
+
+    new_dir = os.path.join(parent_dir, dir_name)
+    new_dir_abs = os.path.abspath(new_dir)
+    if not os.path.normcase(new_dir_abs).startswith(os.path.normcase(source_path)):
+        return jsonify({'error': 'Access denied'}), 403
+
+    if os.path.exists(new_dir):
+        return jsonify({'error': f'"{dir_name}" already exists'}), 409
+
+    try:
+        os.makedirs(new_dir)
+        return jsonify({'success': True, 'name': dir_name})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
