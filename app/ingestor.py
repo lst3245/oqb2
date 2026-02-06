@@ -720,17 +720,26 @@ def get_database_stats(source_path=None):
         })
     stats['subjects'] = subject_stats
     
+    # Cap for QID lists returned in anomaly details
+    LIST_CAP = 500
+    
     # Untagged questions (no major topic)
-    stats['untagged_questions'] = Question.query.filter(Question.major_topic_id == None).count()
+    untagged_q = Question.query.filter(Question.major_topic_id == None).all()
+    stats['untagged_questions'] = len(untagged_q)
+    stats['untagged_questions_list'] = [q.qid for q in untagged_q[:LIST_CAP]]
+    
+    # Questions with no major subtopic
+    no_subtopic_q = Question.query.filter(Question.major_subtopic_id == None).all()
+    stats['questions_no_subtopic'] = len(no_subtopic_q)
+    stats['questions_no_subtopic_list'] = [q.qid for q in no_subtopic_q[:LIST_CAP]]
     
     # Questions with no assets (use a subquery for efficiency)
-    from sqlalchemy import exists
     questions_with_assets = db.session.query(QuestionAsset.question_id).distinct().subquery()
     no_asset_questions = Question.query.filter(
         ~Question.id.in_(db.session.query(questions_with_assets))
     ).all()
     stats['questions_no_assets'] = len(no_asset_questions)
-    stats['questions_no_assets_list'] = [q.qid for q in no_asset_questions[:50]]
+    stats['questions_no_assets_list'] = [q.qid for q in no_asset_questions[:LIST_CAP]]
     
     # Note: File existence check is intentionally skipped here (too slow for network drives).
     # Use the "Orphaned Records Sync" to perform filesystem checks.
@@ -741,9 +750,13 @@ def get_database_stats(source_path=None):
     stats['duplicate_qids'] = [{'qid': qid, 'count': count} for qid, count in dup_qids]
     
     # Questions without q_type
-    stats['questions_no_type'] = Question.query.filter(Question.q_type == None).count()
+    no_type_q = Question.query.filter(Question.q_type == None).all()
+    stats['questions_no_type'] = len(no_type_q)
+    stats['questions_no_type_list'] = [q.qid for q in no_type_q[:LIST_CAP]]
     
     # Questions without level
-    stats['questions_no_level'] = Question.query.filter(Question.level == None).count()
+    no_level_q = Question.query.filter(Question.level == None).all()
+    stats['questions_no_level'] = len(no_level_q)
+    stats['questions_no_level_list'] = [q.qid for q in no_level_q[:LIST_CAP]]
     
     return stats

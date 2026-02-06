@@ -41,6 +41,35 @@
     .subject-table th, .subject-table td { font-size: 0.85rem; }
     .anomaly-list { max-height: 200px; overflow-y: auto; }
     .anomaly-list .list-group-item { font-size: 0.85rem; padding: 0.4rem 0.75rem; }
+
+    .anomaly-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid #eee;
+    }
+    .anomaly-row:last-child { border-bottom: none; }
+    .anomaly-row .anomaly-label { flex: 1; }
+    .anomaly-row .anomaly-count {
+        font-weight: bold;
+        font-size: 1.1rem;
+        min-width: 50px;
+        text-align: right;
+        margin-right: 0.75rem;
+    }
+
+    #anomalyModal .modal-body { max-height: 65vh; overflow-y: auto; }
+    #anomalyModal .qid-list { column-count: 2; column-gap: 1rem; }
+    #anomalyModal .qid-list .qid-item {
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.82rem;
+        padding: 2px 0;
+        break-inside: avoid;
+    }
+    @media (min-width: 768px) {
+        #anomalyModal .qid-list { column-count: 3; }
+    }
 </style>
 {% endblock %}
 
@@ -143,6 +172,24 @@ Click "Clean Up" to actually remove orphaned records.
         </div>
     </div>
 </div>
+
+<!-- Anomaly Detail Modal -->
+<div class="modal fade" id="anomalyModal" tabindex="-1" aria-labelledby="anomalyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="anomalyModalLabel">Question Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="anomalyModalBody">
+            </div>
+            <div class="modal-footer">
+                <span id="anomalyModalCount" class="text-muted me-auto"></span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -234,86 +281,110 @@ function renderStats(data) {
     }
 }
 
+// Global store for anomaly detail lists
+let anomalyData = {};
+
 function renderAnomalies(data) {
     const anomalyLoading = document.getElementById('anomalyLoading');
     const anomalyResults = document.getElementById('anomalyResults');
     anomalyLoading.classList.add('d-none');
     anomalyResults.classList.remove('d-none');
 
-    let html = '';
-    let issueCount = 0;
+    // Store lists for modal display
+    anomalyData = {};
+    let rows = '';
+    let totalIssues = 0;
 
-    // Duplicate QIDs
-    if (data.duplicate_qids && data.duplicate_qids.length > 0) {
-        issueCount += data.duplicate_qids.length;
-        html += `
-            <div class="mb-3">
-                <h6 class="text-danger"><i class="bi bi-exclamation-circle"></i> Duplicate Question IDs (${data.duplicate_qids.length})</h6>
-                <div class="anomaly-list">
-                    <ul class="list-group list-group-flush">
-                        ${data.duplicate_qids.map(d => `<li class="list-group-item list-group-item-danger"><code>${d.qid}</code> appears ${d.count} times</li>`).join('')}
-                    </ul>
-                </div>
-            </div>
-        `;
-    }
-
-    // Questions with no assets
-    if (data.questions_no_assets > 0) {
-        issueCount += data.questions_no_assets;
-        const listItems = data.questions_no_assets_list
-            ? data.questions_no_assets_list.map(qid => `<li class="list-group-item list-group-item-warning"><code>${qid}</code></li>`).join('')
+    // Helper to build a row
+    function addRow(icon, label, count, colorClass, listKey, qidList, description) {
+        if (count <= 0) return;
+        totalIssues += count;
+        if (qidList) anomalyData[listKey] = qidList;
+        const viewBtn = qidList && qidList.length > 0
+            ? `<button class="btn btn-sm btn-outline-secondary" onclick="showAnomalyDetail('${listKey}', '${label}', ${count})"><i class="bi bi-list-ul"></i> View</button>`
             : '';
-        html += `
-            <div class="mb-3">
-                <h6 class="text-warning"><i class="bi bi-file-earmark-x"></i> Questions With No Assets (${data.questions_no_assets})</h6>
-                ${data.questions_no_assets > 50 ? '<p class="text-muted small">Showing first 50:</p>' : ''}
-                <div class="anomaly-list">
-                    <ul class="list-group list-group-flush">
-                        ${listItems}
-                    </ul>
+        rows += `
+            <div class="anomaly-row">
+                <div class="anomaly-label">
+                    <i class="bi ${icon} ${colorClass}"></i>
+                    <strong class="${colorClass}">${label}</strong>
+                    ${description ? `<div class="text-muted small">${description}</div>` : ''}
                 </div>
+                <div class="anomaly-count ${colorClass}">${count}</div>
+                ${viewBtn}
             </div>
         `;
     }
 
-    // Untagged questions
-    if (data.untagged_questions > 0) {
-        html += `
-            <div class="mb-3">
-                <h6 class="text-info"><i class="bi bi-tag"></i> Untagged Questions - No Major Topic (${data.untagged_questions})</h6>
-                <p class="text-muted small">These questions have not been assigned a major topic yet.</p>
+    // Duplicate QIDs (special - show inline since typically very few)
+    if (data.duplicate_qids && data.duplicate_qids.length > 0) {
+        const dupList = data.duplicate_qids.map(d => `${d.qid} (×${d.count})`);
+        anomalyData['duplicate_qids'] = dupList;
+        totalIssues += data.duplicate_qids.length;
+        rows += `
+            <div class="anomaly-row">
+                <div class="anomaly-label">
+                    <i class="bi bi-exclamation-circle text-danger"></i>
+                    <strong class="text-danger">Duplicate Question IDs</strong>
+                    <div class="text-muted small">Same QID appears multiple times in the database.</div>
+                </div>
+                <div class="anomaly-count text-danger">${data.duplicate_qids.length}</div>
+                <button class="btn btn-sm btn-outline-danger" onclick="showAnomalyDetail('duplicate_qids', 'Duplicate Question IDs', ${data.duplicate_qids.length})"><i class="bi bi-list-ul"></i> View</button>
             </div>
         `;
     }
 
-    // Questions without type
-    if (data.questions_no_type > 0) {
-        html += `
-            <div class="mb-3">
-                <h6 class="text-secondary"><i class="bi bi-question-circle"></i> Questions Without Type (${data.questions_no_type})</h6>
-                <p class="text-muted small">Questions where q_type (MC/CQ) has not been set.</p>
-            </div>
-        `;
-    }
+    addRow('bi-file-earmark-x', 'Questions With No Assets', data.questions_no_assets, 'text-warning',
+        'no_assets', data.questions_no_assets_list, 'Questions that have no associated asset files.');
 
-    // Questions without level
-    if (data.questions_no_level > 0) {
-        html += `
-            <div class="mb-3">
-                <h6 class="text-secondary"><i class="bi bi-speedometer2"></i> Questions Without Level (${data.questions_no_level})</h6>
-                <p class="text-muted small">Questions where difficulty level has not been set.</p>
-            </div>
-        `;
-    }
+    addRow('bi-tag', 'Untagged Questions (No Major Topic)', data.untagged_questions, 'text-info',
+        'untagged', data.untagged_questions_list, 'Questions not yet assigned a major topic.');
 
-    if (issueCount === 0 && data.untagged_questions === 0 && data.questions_no_type === 0 && data.questions_no_level === 0) {
-        html = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> No anomalies detected. Database looks healthy!</div>';
+    addRow('bi-tag', 'Questions Without Major Subtopic', data.questions_no_subtopic, 'text-info',
+        'no_subtopic', data.questions_no_subtopic_list, 'Questions that have no major subtopic assigned.');
+
+    addRow('bi-question-circle', 'Questions Without Type', data.questions_no_type, 'text-secondary',
+        'no_type', data.questions_no_type_list, 'Questions where q_type (MC/CQ) has not been set.');
+
+    addRow('bi-speedometer2', 'Questions Without Level', data.questions_no_level, 'text-secondary',
+        'no_level', data.questions_no_level_list, 'Questions where difficulty level has not been set.');
+
+    if (totalIssues === 0) {
+        anomalyResults.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> No anomalies detected. Database looks healthy!</div>';
     } else {
-        html = `<div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> Found ${issueCount} potential issue(s) and some informational items.</div>` + html;
+        anomalyResults.innerHTML = `
+            <div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> Found ${totalIssues} potential issue(s). Click "View" for details.</div>
+            <div class="card"><div class="card-body p-0">${rows}</div></div>
+        `;
+    }
+}
+
+function showAnomalyDetail(key, title, totalCount) {
+    const list = anomalyData[key] || [];
+    const modalLabel = document.getElementById('anomalyModalLabel');
+    const modalBody = document.getElementById('anomalyModalBody');
+    const modalCount = document.getElementById('anomalyModalCount');
+
+    modalLabel.textContent = title;
+    modalCount.textContent = list.length < totalCount
+        ? `Showing ${list.length} of ${totalCount}`
+        : `${list.length} item(s)`;
+
+    if (list.length === 0) {
+        modalBody.innerHTML = '<p class="text-muted">No items to display.</p>';
+    } else {
+        const items = list.map(qid => `<div class="qid-item"><code>${escapeHtml(String(qid))}</code></div>`).join('');
+        modalBody.innerHTML = `<div class="qid-list">${items}</div>`;
     }
 
-    anomalyResults.innerHTML = html;
+    const modal = new bootstrap.Modal(document.getElementById('anomalyModal'));
+    modal.show();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
 }
 
 // ==================== Sync ====================
