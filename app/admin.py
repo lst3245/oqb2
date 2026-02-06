@@ -1203,19 +1203,18 @@ def export_topics():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'topic_name', 'topic_sort_order',
-                     'subtopic_name', 'subtopic_sort_order', 'subtopic_hidden'])
+    writer.writerow(['subject_id', 'topic_name', 'subtopic_name', 'subtopic_hidden'])
 
     for topic in topics:
         subtopics = topic.subtopics.order_by(Subtopic.sort_order).all()
         if subtopics:
             for st in subtopics:
                 writer.writerow([
-                    subject_id, topic.name, topic.sort_order,
-                    st.name, st.sort_order, 1 if st.hidden else 0
+                    subject_id, topic.name,
+                    st.name, 1 if st.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, topic.name, topic.sort_order, '', '', ''])
+            writer.writerow([subject_id, topic.name, '', ''])
 
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -1254,6 +1253,11 @@ def import_topics():
         skipped = 0
         warnings = []
 
+        # Track sort_order from row position
+        topic_order = {}        # (subj_id, topic_name) -> sort_order
+        topic_counter = {}      # subj_id -> next sort_order
+        subtopic_counter = {}   # topic_id -> next sort_order
+
         for row_num, row in enumerate(reader, start=2):
             subj_id = row.get('subject_id', '').strip()
             topic_name = row.get('topic_name', '').strip()
@@ -1273,45 +1277,49 @@ def import_topics():
                 warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
                 continue
 
+            # Determine topic sort_order from row position
+            topic_key = (subj_id, topic_name)
+            if topic_key not in topic_order:
+                if subj_id not in topic_counter:
+                    topic_counter[subj_id] = 1
+                topic_order[topic_key] = topic_counter[subj_id]
+                topic_counter[subj_id] += 1
+
             # Find or create topic
             topic = Topic.query.filter_by(subject_id=subj_id, name=topic_name).first()
             if not topic:
-                sort_order_str = row.get('topic_sort_order', '').strip()
-                sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
-                    (db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subj_id).scalar() or 0) + 1
-                )
-                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=sort_order)
+                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=topic_order[topic_key])
                 db.session.add(topic)
                 db.session.flush()  # Get ID
                 topics_created += 1
             else:
-                # Update sort order if provided
-                sort_order_str = row.get('topic_sort_order', '').strip()
-                if sort_order_str and sort_order_str.isdigit():
-                    topic.sort_order = int(sort_order_str)
+                topic.sort_order = topic_order[topic_key]
                 topics_updated += 1
 
             # Handle subtopic if present
             subtopic_name = row.get('subtopic_name', '').strip()
             if subtopic_name:
+                # Determine subtopic sort_order from row position
+                if topic.id not in subtopic_counter:
+                    subtopic_counter[topic.id] = 1
+
                 subtopic = Subtopic.query.filter_by(topic_id=topic.id, name=subtopic_name).first()
                 if not subtopic:
-                    sort_order_str = row.get('subtopic_sort_order', '').strip()
-                    sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
-                        (db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=topic.id).scalar() or 0) + 1
-                    )
                     hidden = row.get('subtopic_hidden', '0').strip() == '1'
-                    subtopic = Subtopic(topic_id=topic.id, name=subtopic_name, sort_order=sort_order, hidden=hidden)
+                    subtopic = Subtopic(
+                        topic_id=topic.id, name=subtopic_name,
+                        sort_order=subtopic_counter[topic.id], hidden=hidden
+                    )
                     db.session.add(subtopic)
                     subtopics_created += 1
                 else:
-                    sort_order_str = row.get('subtopic_sort_order', '').strip()
-                    if sort_order_str and sort_order_str.isdigit():
-                        subtopic.sort_order = int(sort_order_str)
+                    subtopic.sort_order = subtopic_counter[topic.id]
                     hidden_str = row.get('subtopic_hidden', '').strip()
                     if hidden_str in ('0', '1'):
                         subtopic.hidden = hidden_str == '1'
                     subtopics_updated += 1
+
+                subtopic_counter[topic.id] += 1
 
         db.session.commit()
 
@@ -1352,19 +1360,18 @@ def export_chapters():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'chapter_name', 'chapter_sort_order',
-                     'subchapter_name', 'subchapter_sort_order', 'subchapter_hidden'])
+    writer.writerow(['subject_id', 'chapter_name', 'subchapter_name', 'subchapter_hidden'])
 
     for chapter in chapters_list:
         subchapters = chapter.subchapters.order_by(Subchapter.sort_order).all()
         if subchapters:
             for sc in subchapters:
                 writer.writerow([
-                    subject_id, chapter.name, chapter.sort_order,
-                    sc.name, sc.sort_order, 1 if sc.hidden else 0
+                    subject_id, chapter.name,
+                    sc.name, 1 if sc.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, chapter.name, chapter.sort_order, '', '', ''])
+            writer.writerow([subject_id, chapter.name, '', ''])
 
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -1403,6 +1410,11 @@ def import_chapters():
         skipped = 0
         warnings = []
 
+        # Track sort_order from row position
+        chapter_order = {}        # (subj_id, chapter_name) -> sort_order
+        chapter_counter = {}      # subj_id -> next sort_order
+        subchapter_counter = {}   # chapter_id -> next sort_order
+
         for row_num, row in enumerate(reader, start=2):
             subj_id = row.get('subject_id', '').strip()
             chapter_name = row.get('chapter_name', '').strip()
@@ -1421,44 +1433,49 @@ def import_chapters():
                 warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
                 continue
 
+            # Determine chapter sort_order from row position
+            chapter_key = (subj_id, chapter_name)
+            if chapter_key not in chapter_order:
+                if subj_id not in chapter_counter:
+                    chapter_counter[subj_id] = 1
+                chapter_order[chapter_key] = chapter_counter[subj_id]
+                chapter_counter[subj_id] += 1
+
             # Find or create chapter
             chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
             if not chapter:
-                sort_order_str = row.get('chapter_sort_order', '').strip()
-                sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
-                    (db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subj_id).scalar() or 0) + 1
-                )
-                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=sort_order)
+                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=chapter_order[chapter_key])
                 db.session.add(chapter)
                 db.session.flush()
                 chapters_created += 1
             else:
-                sort_order_str = row.get('chapter_sort_order', '').strip()
-                if sort_order_str and sort_order_str.isdigit():
-                    chapter.sort_order = int(sort_order_str)
+                chapter.sort_order = chapter_order[chapter_key]
                 chapters_updated += 1
 
             # Handle subchapter if present
             subchapter_name = row.get('subchapter_name', '').strip()
             if subchapter_name:
+                # Determine subchapter sort_order from row position
+                if chapter.id not in subchapter_counter:
+                    subchapter_counter[chapter.id] = 1
+
                 subchapter = Subchapter.query.filter_by(chapter_id=chapter.id, name=subchapter_name).first()
                 if not subchapter:
-                    sort_order_str = row.get('subchapter_sort_order', '').strip()
-                    sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
-                        (db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=chapter.id).scalar() or 0) + 1
-                    )
                     hidden = row.get('subchapter_hidden', '0').strip() == '1'
-                    subchapter = Subchapter(chapter_id=chapter.id, name=subchapter_name, sort_order=sort_order, hidden=hidden)
+                    subchapter = Subchapter(
+                        chapter_id=chapter.id, name=subchapter_name,
+                        sort_order=subchapter_counter[chapter.id], hidden=hidden
+                    )
                     db.session.add(subchapter)
                     subchapters_created += 1
                 else:
-                    sort_order_str = row.get('subchapter_sort_order', '').strip()
-                    if sort_order_str and sort_order_str.isdigit():
-                        subchapter.sort_order = int(sort_order_str)
+                    subchapter.sort_order = subchapter_counter[chapter.id]
                     hidden_str = row.get('subchapter_hidden', '').strip()
                     if hidden_str in ('0', '1'):
                         subchapter.hidden = hidden_str == '1'
                     subchapters_updated += 1
+
+                subchapter_counter[chapter.id] += 1
 
         db.session.commit()
 

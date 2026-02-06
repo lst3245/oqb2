@@ -128,8 +128,9 @@
                 <div class="col-md-6 mb-3">
                     <h6><i class="bi bi-download"></i> Export</h6>
                     <p class="csv-format-info text-muted">
-                        CSV columns: <code>subject_id</code>, <code>topic_name</code>, <code>topic_sort_order</code>,
-                        <code>subtopic_name</code>, <code>subtopic_sort_order</code>, <code>subtopic_hidden</code>
+                        CSV columns: <code>subject_id</code>, <code>topic_name</code>,
+                        <code>subtopic_name</code>, <code>subtopic_hidden</code>.
+                        Row order determines sort order.
                     </p>
                     <button class="btn btn-success" onclick="exportCSV('topics')">
                         <i class="bi bi-download"></i> Export Topics
@@ -140,7 +141,7 @@
                 <div class="col-md-6 mb-3">
                     <h6><i class="bi bi-upload"></i> Import</h6>
                     <p class="csv-format-info text-muted">
-                        Upload a CSV with the same format. Existing topics/subtopics are matched by name; new ones are created automatically. Sort order and hidden flags are updated.
+                        Upload a CSV with the same format. Existing topics/subtopics are matched by name; new ones are created automatically. Sort order is derived from row position; hidden flags are updated.
                     </p>
                     <form action="{{ url_for('admin.import_topics') }}" method="post" enctype="multipart/form-data" class="import-form">
                         <div class="input-group">
@@ -168,8 +169,9 @@
                 <div class="col-md-6 mb-3">
                     <h6><i class="bi bi-download"></i> Export</h6>
                     <p class="csv-format-info text-muted">
-                        CSV columns: <code>subject_id</code>, <code>chapter_name</code>, <code>chapter_sort_order</code>,
-                        <code>subchapter_name</code>, <code>subchapter_sort_order</code>, <code>subchapter_hidden</code>
+                        CSV columns: <code>subject_id</code>, <code>chapter_name</code>,
+                        <code>subchapter_name</code>, <code>subchapter_hidden</code>.
+                        Row order determines sort order.
                     </p>
                     <button class="btn btn-info text-white" onclick="exportCSV('chapters')">
                         <i class="bi bi-download"></i> Export Chapters
@@ -180,7 +182,7 @@
                 <div class="col-md-6 mb-3">
                     <h6><i class="bi bi-upload"></i> Import</h6>
                     <p class="csv-format-info text-muted">
-                        Upload a CSV with the same format. Existing chapters/subchapters are matched by name; new ones are created. Sort order and hidden flags are updated.
+                        Upload a CSV with the same format. Existing chapters/subchapters are matched by name; new ones are created. Sort order is derived from row position; hidden flags are updated.
                     </p>
                     <form action="{{ url_for('admin.import_chapters') }}" method="post" enctype="multipart/form-data" class="import-form">
                         <div class="input-group">
