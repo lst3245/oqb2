@@ -3,7 +3,9 @@ Admin panel routes for managing topics and tagging questions
 """
 import csv
 import io
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response
+import os
+import json
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
@@ -1442,3 +1444,136 @@ def import_chapters():
         flash(f'Import failed: {str(e)}', 'danger')
 
     return redirect(url_for('admin.export_import'))
+
+
+# ==================== Ingestion (Admin) ====================
+
+@admin_bp.route('/ingestion')
+@login_required
+@admin_required
+def ingestion():
+    """Ingestion management page"""
+    subjects = get_user_admin_subjects()
+    source_path = current_app.config['SOURCE_PATH']
+    return render_template('admin_ingestion.html', subjects=subjects, source_path=source_path)
+
+
+@admin_bp.route('/ingestion/preview')
+@login_required
+@admin_required
+def ingestion_preview():
+    """Preview source directory contents for a subject"""
+    from app.ingestor import preview_source_directory
+    
+    subject_id = request.args.get('subject_id')
+    if not subject_id:
+        return jsonify({'error': 'No subject selected'}), 400
+    
+    # Verify admin access to this subject
+    admin_subjects = get_user_admin_subjects()
+    admin_subject_ids = [s.id for s in admin_subjects]
+    if subject_id not in admin_subject_ids:
+        return jsonify({'error': 'Access denied for this subject'}), 403
+    
+    source_path = current_app.config['SOURCE_PATH']
+    subject_path = os.path.join(source_path, subject_id)
+    
+    if not os.path.exists(subject_path):
+        return jsonify({
+            'error': f'Source folder not found: {subject_id}/',
+            'folders': [],
+            'total_files': 0,
+            'parseable_files': 0,
+            'skipped_files': 0,
+            'subject_path': subject_path
+        })
+    
+    preview = preview_source_directory(subject_path)
+    preview['subject_path'] = subject_path
+    return jsonify(preview)
+
+
+@admin_bp.route('/ingestion/start')
+@login_required
+@admin_required
+def ingestion_start():
+    """Start ingestion via SSE stream"""
+    from app.ingestor import scan_directory_stream
+    
+    subject_id = request.args.get('subject_id')
+    if not subject_id:
+        def error_gen_no_subject():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No subject selected'})}\n\n"
+        return Response(error_gen_no_subject(), mimetype='text/event-stream')
+    
+    # Verify admin access to this subject
+    admin_subjects = get_user_admin_subjects()
+    admin_subject_ids = [s.id for s in admin_subjects]
+    if subject_id not in admin_subject_ids:
+        def error_gen_denied():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Access denied for this subject'})}\n\n"
+        return Response(error_gen_denied(), mimetype='text/event-stream')
+    
+    source_path = current_app.config['SOURCE_PATH']
+    subject_path = os.path.join(source_path, subject_id)
+    app = current_app._get_current_object()
+    
+    def generate():
+        with app.app_context():
+            try:
+                for event in scan_directory_stream(subject_path, base_path=source_path):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Ingestion failed due to error.'})}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== Database Health (Super Admin) ====================
+
+@admin_bp.route('/health')
+@login_required
+@super_admin_required
+def health():
+    """Database health check page - super admin only"""
+    source_path = current_app.config['SOURCE_PATH']
+    return render_template('admin_health.html', source_path=source_path)
+
+
+@admin_bp.route('/health/stats')
+@login_required
+@super_admin_required
+def health_stats():
+    """Get database statistics as JSON"""
+    from app.ingestor import get_database_stats
+    
+    source_path = current_app.config['SOURCE_PATH']
+    stats = get_database_stats(source_path)
+    return jsonify(stats)
+
+
+@admin_bp.route('/health/sync')
+@login_required
+@super_admin_required
+def health_sync():
+    """Run database sync via SSE stream"""
+    from app.ingestor import sync_database_stream
+    
+    mode = request.args.get('mode', 'dry_run')
+    dry_run = (mode != 'delete')
+    source_path = current_app.config['SOURCE_PATH']
+    app = current_app._get_current_object()
+    
+    def generate():
+        with app.app_context():
+            try:
+                for event in sync_database_stream(source_path, dry_run=dry_run):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Sync failed due to error.'})}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})

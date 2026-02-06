@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block title %}Database Health - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        text-align: center;
+        padding: 1rem;
+    }
+    .stat-card .stat-value {
+        font-size: 2rem;
+        font-weight: bold;
+        line-height: 1.2;
+    }
+    .stat-card .stat-label {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .log-console {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.82rem;
+        padding: 1rem;
+        border-radius: 6px;
+        height: 350px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.5;
+    }
+    .log-console .log-info { color: #569cd6; }
+    .log-console .log-success { color: #6a9955; }
+    .log-console .log-warning { color: #d7ba7d; }
+    .log-console .log-error { color: #f44747; }
+    .log-console .log-done { color: #dcdcaa; font-weight: bold; }
+    .log-console .log-progress { color: #9cdcfe; }
+
+    .subject-table th, .subject-table td { font-size: 0.85rem; }
+    .anomaly-list { max-height: 200px; overflow-y: auto; }
+    .anomaly-list .list-group-item { font-size: 0.85rem; padding: 0.4rem 0.75rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-heart-pulse"></i> Database Health <span class="badge bg-danger">Super Admin</span></h2>
+    <p class="text-muted">Database statistics, orphaned record detection, and anomaly checks. Source path: <code>{{ source_path }}</code></p>
+    <hr>
+
+    <!-- Stats Section -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-bar-chart"></i> Database Statistics</span>
+            <button class="btn btn-sm btn-light" onclick="loadStats()" id="btnRefreshStats">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+        <div class="card-body">
+            <!-- Loading spinner -->
+            <div id="statsLoading" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-2">Loading statistics...</p>
+            </div>
+
+            <!-- Stats content (hidden until loaded) -->
+            <div id="statsContent" class="d-none">
+                <!-- Top-level stats -->
+                <div class="row mb-3" id="topStats">
+                </div>
+
+                <!-- Per-subject breakdown -->
+                <h6 class="mt-3"><i class="bi bi-list-ul"></i> Per-Subject Breakdown</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover subject-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Subject</th>
+                                <th class="text-center">Questions</th>
+                                <th class="text-center">Assets</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subjectStatsBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anomaly Detection -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <i class="bi bi-exclamation-triangle"></i> Anomaly Detection
+        </div>
+        <div class="card-body" id="anomalyContent">
+            <p class="text-muted mb-0" id="anomalyLoading">Statistics must be loaded first.</p>
+            <div id="anomalyResults" class="d-none">
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync / Orphan Check -->
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-arrow-repeat"></i> Orphaned Records Sync</span>
+            <div>
+                <button id="btnSyncDryRun" class="btn btn-sm btn-outline-light" onclick="runSync('dry_run')">
+                    <i class="bi bi-search"></i> Scan (Dry Run)
+                </button>
+                <button id="btnSyncDelete" class="btn btn-sm btn-danger ms-1" onclick="runSync('delete')">
+                    <i class="bi bi-trash"></i> Clean Up
+                </button>
+                <button id="btnSyncStop" class="btn btn-sm btn-warning ms-1 d-none" onclick="stopSync()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="syncLog" class="log-console">Sync console ready.
+Click "Scan (Dry Run)" to check for orphaned records without making changes.
+Click "Clean Up" to actually remove orphaned records.
+</div>
+        </div>
+        <!-- Sync Progress -->
+        <div id="syncProgressSection" class="card-footer d-none">
+            <div class="d-flex justify-content-between mb-1">
+                <small id="syncProgressLabel" class="text-muted">Checking...</small>
+                <small id="syncStatus" class="badge bg-secondary">Idle</small>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 0%;"></div>
+            </div>
+        </div>
+        <!-- Sync Summary -->
+        <div id="syncSummary" class="card-footer d-none">
+            <div class="row text-center" id="syncSummaryStats"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let syncEventSource = null;
+let isSyncRunning = false;
+
+// ==================== Statistics ====================
+
+function loadStats() {
+    const loading = document.getElementById('statsLoading');
+    const content = document.getElementById('statsContent');
+    const anomalyLoading = document.getElementById('anomalyLoading');
+    const anomalyResults = document.getElementById('anomalyResults');
+
+    loading.classList.remove('d-none');
+    content.classList.add('d-none');
+    anomalyResults.classList.add('d-none');
+    anomalyLoading.textContent = 'Loading...';
+    anomalyLoading.classList.remove('d-none');
+
+    fetch('{{ url_for("admin.health_stats") }}')
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(data => {
+            loading.classList.add('d-none');
+            content.classList.remove('d-none');
+            renderStats(data);
+            renderAnomalies(data);
+        })
+        .catch(err => {
+            loading.innerHTML = `<div class="alert alert-danger">Failed to load stats: ${err.message}</div>`;
+        });
+}
+
+function renderStats(data) {
+    const topStats = document.getElementById('topStats');
+    
+    topStats.innerHTML = `
+        <div class="col">
+            <div class="stat-card">
+                <div class="stat-value text-primary">${data.total_questions}</div>
+                <div class="stat-label">Total Questions</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="stat-card">
+                <div class="stat-value text-info">${data.total_assets}</div>
+                <div class="stat-label">Total Assets</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="stat-card">
+                <div class="stat-value text-secondary">${data.total_subjects}</div>
+                <div class="stat-label">Subjects</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="stat-card">
+                <div class="stat-value ${data.untagged_questions > 0 ? 'text-warning' : 'text-success'}">${data.untagged_questions}</div>
+                <div class="stat-label">Untagged (No Topic)</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="stat-card">
+                <div class="stat-value ${data.questions_no_assets > 0 ? 'text-danger' : 'text-success'}">${data.questions_no_assets}</div>
+                <div class="stat-label">Questions No Assets</div>
+            </div>
+        </div>
+    `;
+
+    // Per-subject table
+    const tbody = document.getElementById('subjectStatsBody');
+    tbody.innerHTML = '';
+    if (data.subjects && data.subjects.length > 0) {
+        data.subjects.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${s.id}</strong> - ${s.name}</td>
+                <td class="text-center">${s.questions}</td>
+                <td class="text-center">${s.assets}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No subjects found</td></tr>';
+    }
+}
+
+function renderAnomalies(data) {
+    const anomalyLoading = document.getElementById('anomalyLoading');
+    const anomalyResults = document.getElementById('anomalyResults');
+    anomalyLoading.classList.add('d-none');
+    anomalyResults.classList.remove('d-none');
+
+    let html = '';
+    let issueCount = 0;
+
+    // Duplicate QIDs
+    if (data.duplicate_qids && data.duplicate_qids.length > 0) {
+        issueCount += data.duplicate_qids.length;
+        html += `
+            <div class="mb-3">
+                <h6 class="text-danger"><i class="bi bi-exclamation-circle"></i> Duplicate Question IDs (${data.duplicate_qids.length})</h6>
+                <div class="anomaly-list">
+                    <ul class="list-group list-group-flush">
+                        ${data.duplicate_qids.map(d => `<li class="list-group-item list-group-item-danger"><code>${d.qid}</code> appears ${d.count} times</li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+
+    // Questions with no assets
+    if (data.questions_no_assets > 0) {
+        issueCount += data.questions_no_assets;
+        const listItems = data.questions_no_assets_list
+            ? data.questions_no_assets_list.map(qid => `<li class="list-group-item list-group-item-warning"><code>${qid}</code></li>`).join('')
+            : '';
+        html += `
+            <div class="mb-3">
+                <h6 class="text-warning"><i class="bi bi-file-earmark-x"></i> Questions With No Assets (${data.questions_no_assets})</h6>
+                ${data.questions_no_assets > 50 ? '<p class="text-muted small">Showing first 50:</p>' : ''}
+                <div class="anomaly-list">
+                    <ul class="list-group list-group-flush">
+                        ${listItems}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+
+    // Untagged questions
+    if (data.untagged_questions > 0) {
+        html += `
+            <div class="mb-3">
+                <h6 class="text-info"><i class="bi bi-tag"></i> Untagged Questions - No Major Topic (${data.untagged_questions})</h6>
+                <p class="text-muted small">These questions have not been assigned a major topic yet.</p>
+            </div>
+        `;
+    }
+
+    // Questions without type
+    if (data.questions_no_type > 0) {
+        html += `
+            <div class="mb-3">
+                <h6 class="text-secondary"><i class="bi bi-question-circle"></i> Questions Without Type (${data.questions_no_type})</h6>
+                <p class="text-muted small">Questions where q_type (MC/CQ) has not been set.</p>
+            </div>
+        `;
+    }
+
+    // Questions without level
+    if (data.questions_no_level > 0) {
+        html += `
+            <div class="mb-3">
+                <h6 class="text-secondary"><i class="bi bi-speedometer2"></i> Questions Without Level (${data.questions_no_level})</h6>
+                <p class="text-muted small">Questions where difficulty level has not been set.</p>
+            </div>
+        `;
+    }
+
+    if (issueCount === 0 && data.untagged_questions === 0 && data.questions_no_type === 0 && data.questions_no_level === 0) {
+        html = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> No anomalies detected. Database looks healthy!</div>';
+    } else {
+        html = `<div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> Found ${issueCount} potential issue(s) and some informational items.</div>` + html;
+    }
+
+    anomalyResults.innerHTML = html;
+}
+
+// ==================== Sync ====================
+
+function appendSyncLog(message, type) {
+    const logEl = document.getElementById('syncLog');
+    const span = document.createElement('span');
+    span.className = 'log-' + (type || 'info');
+    const timestamp = new Date().toLocaleTimeString();
+    span.textContent = `[${timestamp}] ${message}\n`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runSync(mode) {
+    if (isSyncRunning) return;
+
+    if (mode === 'delete') {
+        if (!confirm('WARNING: This will permanently delete orphaned records from the database.\n\nAre you sure you want to proceed?')) {
+            return;
+        }
+    }
+
+    isSyncRunning = true;
+    const btnDryRun = document.getElementById('btnSyncDryRun');
+    const btnDelete = document.getElementById('btnSyncDelete');
+    const btnStop = document.getElementById('btnSyncStop');
+    const statusEl = document.getElementById('syncStatus');
+    const progressSection = document.getElementById('syncProgressSection');
+    const progressBar = document.getElementById('syncProgressBar');
+    const summaryEl = document.getElementById('syncSummary');
+
+    btnDryRun.disabled = true;
+    btnDelete.disabled = true;
+    btnStop.classList.remove('d-none');
+    statusEl.textContent = mode === 'delete' ? 'Deleting...' : 'Scanning...';
+    statusEl.className = 'badge bg-success';
+    progressSection.classList.remove('d-none');
+    progressBar.style.width = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    summaryEl.classList.add('d-none');
+
+    const modeLabel = mode === 'delete' ? 'DELETE' : 'DRY RUN';
+    appendSyncLog(`Starting sync (${modeLabel})...`, 'info');
+
+    const url = `{{ url_for('admin.health_sync') }}?mode=${encodeURIComponent(mode)}`;
+    syncEventSource = new EventSource(url);
+
+    syncEventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            appendSyncLog(event.message, event.type);
+
+            // Update progress
+            if (event.current !== undefined && event.total && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                progressBar.style.width = pct + '%';
+                document.getElementById('syncProgressLabel').textContent =
+                    `${event.current} / ${event.total}`;
+            }
+
+            if (event.type === 'done') {
+                finishSync(event);
+            }
+        } catch (err) {
+            appendSyncLog('Error parsing event: ' + err.message, 'error');
+        }
+    };
+
+    syncEventSource.onerror = function() {
+        if (isSyncRunning) {
+            appendSyncLog('Connection closed.', 'info');
+            finishSync(null);
+        }
+    };
+}
+
+function finishSync(event) {
+    if (syncEventSource) {
+        syncEventSource.close();
+        syncEventSource = null;
+    }
+
+    isSyncRunning = false;
+    const btnDryRun = document.getElementById('btnSyncDryRun');
+    const btnDelete = document.getElementById('btnSyncDelete');
+    const btnStop = document.getElementById('btnSyncStop');
+    const statusEl = document.getElementById('syncStatus');
+    const progressBar = document.getElementById('syncProgressBar');
+    const summaryEl = document.getElementById('syncSummary');
+
+    btnDryRun.disabled = false;
+    btnDelete.disabled = false;
+    btnStop.classList.add('d-none');
+    statusEl.textContent = 'Complete';
+    statusEl.className = 'badge bg-primary';
+    progressBar.classList.remove('progress-bar-animated');
+
+    if (event && event.stats) {
+        const s = event.stats;
+        const isDryRun = s.dry_run;
+        document.getElementById('syncSummaryStats').innerHTML = `
+            <div class="col">
+                <div class="fs-4 fw-bold text-warning">${s.orphaned_assets}</div>
+                <small class="text-muted">Orphaned Assets</small>
+            </div>
+            <div class="col">
+                <div class="fs-4 fw-bold text-warning">${s.orphaned_questions}</div>
+                <small class="text-muted">Orphaned Questions</small>
+            </div>
+            ${!isDryRun ? `
+            <div class="col">
+                <div class="fs-4 fw-bold text-danger">${s.deleted_assets}</div>
+                <small class="text-muted">Deleted Assets</small>
+            </div>
+            <div class="col">
+                <div class="fs-4 fw-bold text-danger">${s.deleted_questions}</div>
+                <small class="text-muted">Deleted Questions</small>
+            </div>
+            ` : `
+            <div class="col">
+                <div class="fs-6 fw-bold text-info">DRY RUN</div>
+                <small class="text-muted">No changes made</small>
+            </div>
+            `}
+        `;
+        summaryEl.classList.remove('d-none');
+    }
+}
+
+function stopSync() {
+    if (syncEventSource) {
+        syncEventSource.close();
+        syncEventSource = null;
+    }
+    appendSyncLog('Sync stopped by user.', 'warning');
+    finishSync(null);
+    document.getElementById('syncStatus').textContent = 'Stopped';
+    document.getElementById('syncStatus').className = 'badge bg-warning text-dark';
+}
+
+// Auto-load stats on page load
+document.addEventListener('DOMContentLoaded', loadStats);
+</script>
+{% endblock %}

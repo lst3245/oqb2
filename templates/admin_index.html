@@ -59,6 +59,34 @@
         </div>
     </div>
     
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card border-success">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-cloud-upload"></i> Question Ingestion</h5>
+                    <p class="card-text">Scan the source folder and import question files into the database. View live progress and logs.</p>
+                    <a href="{{ url_for('admin.ingestion') }}" class="btn btn-success">
+                        <i class="bi bi-arrow-right"></i> Go to Ingestion
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        {% if current_user.is_super_admin %}
+        <div class="col-md-6">
+            <div class="card border-danger">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-heart-pulse"></i> Database Health <span class="badge bg-danger">Super Admin</span></h5>
+                    <p class="card-text">Check database statistics, detect anomalies, and clean up orphaned records.</p>
+                    <a href="{{ url_for('admin.health') }}" class="btn btn-danger">
+                        <i class="bi bi-arrow-right"></i> Database Health
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
     {% if current_user.is_super_admin %}
     <div class="row mt-4">
         <div class="col-md-6">
