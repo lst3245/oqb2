@@ -369,6 +369,8 @@
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('admin.topics') }}">Manage Topics</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.chapters') }}">Manage Chapters</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.export_import') }}"><i class="bi bi-arrow-left-right"></i> Export / Import</a></li>
                                 {% if current_user.is_super_admin %}
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> Manage Users</a></li>

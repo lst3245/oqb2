@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Export / Import - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .export-import-card {
+        margin-bottom: 1.5rem;
+    }
+    .export-import-card .card-header {
+        font-weight: 600;
+    }
+    .csv-format-info {
+        font-size: 0.85rem;
+    }
+    .csv-format-info code {
+        font-size: 0.8rem;
+    }
+    .import-form .form-control-sm {
+        max-width: 350px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2><i class="bi bi-arrow-left-right"></i> Export / Import</h2>
+    <p class="text-muted">Export and import question tags, topics/subtopics, and chapters/subchapters as CSV files. Useful for transferring data between different instances of the system.</p>
+    <hr>
+
+    <!-- Subject Selector -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <label for="subjectSelect" class="form-label fw-bold">Subject</label>
+            <select id="subjectSelect" class="form-select">
+                {% for subject in subjects %}
+                <option value="{{ subject.id }}">{{ subject.name }} ({{ subject.id }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <!-- ==================== Section 1: Question Tags ==================== -->
+    <div class="card export-import-card">
+        <div class="card-header bg-primary text-white">
+            <i class="bi bi-tag"></i> Question Tags
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Export/import the tagging data for each question (topics, subtopics, chapters, metadata). Uses nominal question IDs (e.g. <code>MATC_DSE_2012_P2_Q1</code>) and actual names instead of database IDs, so the file is portable across system instances.</p>
+
+            <div class="row">
+                <!-- Export -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <p class="csv-format-info text-muted">
+                        CSV columns: <code>qid</code>, <code>subject</code>, <code>major_topic</code>, <code>major_subtopic</code>,
+                        <code>minor_topics</code> (;-separated), <code>subtopics</code> (;-separated),
+                        <code>chapter</code>, <code>subchapter</code>, <code>section</code>, <code>level</code>,
+                        <code>q_type</code>, <code>correct_percentage</code>, <code>description</code>
+                    </p>
+                    <button class="btn btn-primary" onclick="exportCSV('question-tags')">
+                        <i class="bi bi-download"></i> Export Question Tags
+                    </button>
+                </div>
+
+                <!-- Import -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <p class="csv-format-info text-muted">
+                        Upload a CSV in the same format. Questions are looked up by <code>qid</code>; topics/subtopics/chapters are matched by name. Questions or names not found in the database are skipped with warnings.
+                    </p>
+                    <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form">
+                        <div class="input-group">
+                            <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
+                            <button class="btn btn-outline-primary btn-sm" type="submit">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Section 2: Topics / Subtopics ==================== -->
+    <div class="card export-import-card">
+        <div class="card-header bg-success text-white">
+            <i class="bi bi-tags"></i> Topics & Subtopics
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Export/import the topic and subtopic hierarchy for a subject. Each row is either a topic (with blank subtopic columns) or a subtopic under a topic.</p>
+
+            <div class="row">
+                <!-- Export -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <p class="csv-format-info text-muted">
+                        CSV columns: <code>subject_id</code>, <code>topic_name</code>, <code>topic_sort_order</code>,
+                        <code>subtopic_name</code>, <code>subtopic_sort_order</code>, <code>subtopic_hidden</code>
+                    </p>
+                    <button class="btn btn-success" onclick="exportCSV('topics')">
+                        <i class="bi bi-download"></i> Export Topics
+                    </button>
+                </div>
+
+                <!-- Import -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <p class="csv-format-info text-muted">
+                        Upload a CSV with the same format. Existing topics/subtopics are matched by name; new ones are created automatically. Sort order and hidden flags are updated.
+                    </p>
+                    <form action="{{ url_for('admin.import_topics') }}" method="post" enctype="multipart/form-data" class="import-form">
+                        <div class="input-group">
+                            <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
+                            <button class="btn btn-outline-success btn-sm" type="submit">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Section 3: Chapters / Subchapters ==================== -->
+    <div class="card export-import-card">
+        <div class="card-header bg-info text-white">
+            <i class="bi bi-book"></i> Chapters & Subchapters
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Export/import the chapter and subchapter hierarchy for a subject. Same structure as topics: each row is a chapter or a subchapter under a chapter.</p>
+
+            <div class="row">
+                <!-- Export -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <p class="csv-format-info text-muted">
+                        CSV columns: <code>subject_id</code>, <code>chapter_name</code>, <code>chapter_sort_order</code>,
+                        <code>subchapter_name</code>, <code>subchapter_sort_order</code>, <code>subchapter_hidden</code>
+                    </p>
+                    <button class="btn btn-info text-white" onclick="exportCSV('chapters')">
+                        <i class="bi bi-download"></i> Export Chapters
+                    </button>
+                </div>
+
+                <!-- Import -->
+                <div class="col-md-6 mb-3">
+                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <p class="csv-format-info text-muted">
+                        Upload a CSV with the same format. Existing chapters/subchapters are matched by name; new ones are created. Sort order and hidden flags are updated.
+                    </p>
+                    <form action="{{ url_for('admin.import_chapters') }}" method="post" enctype="multipart/form-data" class="import-form">
+                        <div class="input-group">
+                            <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
+                            <button class="btn btn-outline-info btn-sm" type="submit">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function exportCSV(type) {
+    const subjectId = document.getElementById('subjectSelect').value;
+    if (!subjectId) {
+        alert('Please select a subject first.');
+        return;
+    }
+    const urls = {
+        'question-tags': '{{ url_for("admin.export_question_tags") }}',
+        'topics': '{{ url_for("admin.export_topics") }}',
+        'chapters': '{{ url_for("admin.export_chapters") }}'
+    };
+    window.location.href = urls[type] + '?subject_id=' + encodeURIComponent(subjectId);
+}
+</script>
+{% endblock %}

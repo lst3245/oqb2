@@ -1,7 +1,9 @@
 """
 Admin panel routes for managing topics and tagging questions
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
+import csv
+import io
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response
 from flask_login import login_required, current_user
 from app import db
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
@@ -884,3 +886,539 @@ def get_user_permissions(user_id):
         'is_super_admin': user.is_super_admin,
         'permissions': permissions
     })
+
+
+# ==================== Export / Import ====================
+
+@admin_bp.route('/export-import')
+@login_required
+@admin_required
+def export_import():
+    """Export/Import management page"""
+    subjects = get_user_admin_subjects()
+    return render_template('admin_export_import.html', subjects=subjects)
+
+
+# ---------- Export Question Tags ----------
+
+@admin_bp.route('/export/question-tags')
+@login_required
+@admin_required
+def export_question_tags():
+    """Export question tags as CSV (using nominal QID and string names)"""
+    subject_id = request.args.get('subject_id')
+    if not subject_id:
+        flash('Please select a subject.', 'warning')
+        return redirect(url_for('admin.export_import'))
+
+    # Verify access
+    subjects = get_user_admin_subjects()
+    subject_ids = [s.id for s in subjects]
+    if subject_id not in subject_ids:
+        flash('Access denied for this subject.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    from natsort import natsorted
+    questions = natsorted(
+        Question.query.filter_by(subject=subject_id).all(),
+        key=lambda q: q.qid
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'qid', 'subject', 'major_topic', 'major_subtopic',
+        'minor_topics', 'subtopics',
+        'chapter', 'subchapter',
+        'section', 'level', 'q_type', 'correct_percentage', 'description'
+    ])
+
+    for q in questions:
+        major_topic_name = q.major_topic.name if q.major_topic else ''
+        major_subtopic_name = q.major_subtopic.name if q.major_subtopic else ''
+        minor_topics_str = '; '.join(t.name for t in q.minor_topics) if q.minor_topics else ''
+        subtopics_str = '; '.join(s.name for s in q.subtopics) if q.subtopics else ''
+        chapter_name = q.chapter.name if q.chapter else ''
+        subchapter_name = q.subchapter.name if q.subchapter else ''
+
+        writer.writerow([
+            q.qid,
+            q.subject,
+            major_topic_name,
+            major_subtopic_name,
+            minor_topics_str,
+            subtopics_str,
+            chapter_name,
+            subchapter_name,
+            q.section or '',
+            q.level if q.level is not None else '',
+            q.q_type or '',
+            q.correct_percentage if q.correct_percentage is not None else '',
+            q.description or ''
+        ])
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=question_tags_{subject_id}.csv'
+    return response
+
+
+# ---------- Import Question Tags ----------
+
+@admin_bp.route('/import/question-tags', methods=['POST'])
+@login_required
+@admin_required
+def import_question_tags():
+    """Import question tags from CSV"""
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.csv'):
+        flash('Please upload a valid CSV file.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    try:
+        stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
+        reader = csv.DictReader(stream)
+
+        # Verify required columns
+        required_cols = {'qid'}
+        if not required_cols.issubset(set(reader.fieldnames or [])):
+            flash('CSV must contain at least a "qid" column.', 'danger')
+            return redirect(url_for('admin.export_import'))
+
+        updated = 0
+        skipped = 0
+        warnings = []
+
+        # Get accessible subjects
+        subjects = get_user_admin_subjects()
+        subject_ids = {s.id for s in subjects}
+
+        for row_num, row in enumerate(reader, start=2):
+            qid = row.get('qid', '').strip()
+            if not qid:
+                skipped += 1
+                warnings.append(f'Row {row_num}: empty qid, skipped.')
+                continue
+
+            question = Question.query.filter_by(qid=qid).first()
+            if not question:
+                skipped += 1
+                warnings.append(f'Row {row_num}: question "{qid}" not found, skipped.')
+                continue
+
+            # Check subject access
+            if question.subject not in subject_ids:
+                skipped += 1
+                warnings.append(f'Row {row_num}: no admin access to subject "{question.subject}", skipped.')
+                continue
+
+            subj_id = question.subject
+
+            # Major topic
+            major_topic_name = row.get('major_topic', '').strip()
+            if major_topic_name:
+                topic = Topic.query.filter_by(subject_id=subj_id, name=major_topic_name).first()
+                if topic:
+                    question.major_topic_id = topic.id
+                else:
+                    warnings.append(f'Row {row_num}: major_topic "{major_topic_name}" not found for subject {subj_id}.')
+                    question.major_topic_id = None
+            else:
+                question.major_topic_id = None
+
+            # Major subtopic
+            major_subtopic_name = row.get('major_subtopic', '').strip()
+            if major_subtopic_name and question.major_topic_id:
+                subtopic = Subtopic.query.filter_by(topic_id=question.major_topic_id, name=major_subtopic_name).first()
+                if subtopic:
+                    question.major_subtopic_id = subtopic.id
+                else:
+                    warnings.append(f'Row {row_num}: major_subtopic "{major_subtopic_name}" not found under topic.')
+                    question.major_subtopic_id = None
+            else:
+                question.major_subtopic_id = None
+
+            # Minor topics (semicolon separated)
+            minor_topics_str = row.get('minor_topics', '').strip()
+            question.minor_topics.clear()
+            if minor_topics_str:
+                for tname in [n.strip() for n in minor_topics_str.split(';') if n.strip()]:
+                    topic = Topic.query.filter_by(subject_id=subj_id, name=tname).first()
+                    if topic:
+                        question.minor_topics.append(topic)
+                    else:
+                        warnings.append(f'Row {row_num}: minor topic "{tname}" not found.')
+
+            # Subtopics (semicolon separated)
+            subtopics_str = row.get('subtopics', '').strip()
+            question.subtopics.clear()
+            if subtopics_str:
+                for sname in [n.strip() for n in subtopics_str.split(';') if n.strip()]:
+                    # Search across all topics in the subject
+                    subtopic = Subtopic.query.join(Topic).filter(
+                        Topic.subject_id == subj_id, Subtopic.name == sname
+                    ).first()
+                    if subtopic:
+                        question.subtopics.append(subtopic)
+                    else:
+                        warnings.append(f'Row {row_num}: subtopic "{sname}" not found.')
+
+            # Chapter
+            chapter_name = row.get('chapter', '').strip()
+            if chapter_name:
+                chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
+                if chapter:
+                    question.chapter_id = chapter.id
+                else:
+                    warnings.append(f'Row {row_num}: chapter "{chapter_name}" not found.')
+                    question.chapter_id = None
+            else:
+                question.chapter_id = None
+
+            # Subchapter
+            subchapter_name = row.get('subchapter', '').strip()
+            if subchapter_name and question.chapter_id:
+                subchapter = Subchapter.query.filter_by(chapter_id=question.chapter_id, name=subchapter_name).first()
+                if subchapter:
+                    question.subchapter_id = subchapter.id
+                else:
+                    warnings.append(f'Row {row_num}: subchapter "{subchapter_name}" not found.')
+                    question.subchapter_id = None
+            else:
+                question.subchapter_id = None
+
+            # Simple metadata fields
+            section = row.get('section', '').strip()
+            question.section = section if section else None
+
+            level = row.get('level', '').strip()
+            question.level = int(level) if level and level.isdigit() else None
+
+            q_type = row.get('q_type', '').strip()
+            question.q_type = q_type if q_type else None
+
+            correct_pct = row.get('correct_percentage', '').strip()
+            if correct_pct and correct_pct.isdigit():
+                pct_val = int(correct_pct)
+                question.correct_percentage = pct_val if 0 <= pct_val <= 100 else None
+            else:
+                question.correct_percentage = None
+
+            description = row.get('description', '').strip()
+            question.description = description if description else None
+
+            updated += 1
+
+        db.session.commit()
+
+        msg = f'Import complete: {updated} question(s) updated, {skipped} skipped.'
+        if warnings:
+            msg += f' {len(warnings)} warning(s).'
+        flash(msg, 'success' if updated > 0 else 'warning')
+
+        # Store warnings in session for display
+        if warnings:
+            # Limit to first 50 warnings
+            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Import failed: {str(e)}', 'danger')
+
+    return redirect(url_for('admin.export_import'))
+
+
+# ---------- Export Topics/Subtopics ----------
+
+@admin_bp.route('/export/topics')
+@login_required
+@admin_required
+def export_topics():
+    """Export topics and subtopics as CSV"""
+    subject_id = request.args.get('subject_id')
+    if not subject_id:
+        flash('Please select a subject.', 'warning')
+        return redirect(url_for('admin.export_import'))
+
+    subjects = get_user_admin_subjects()
+    subject_ids = [s.id for s in subjects]
+    if subject_id not in subject_ids:
+        flash('Access denied for this subject.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.sort_order).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['subject_id', 'topic_name', 'topic_sort_order',
+                     'subtopic_name', 'subtopic_sort_order', 'subtopic_hidden'])
+
+    for topic in topics:
+        subtopics = topic.subtopics.order_by(Subtopic.sort_order).all()
+        if subtopics:
+            for st in subtopics:
+                writer.writerow([
+                    subject_id, topic.name, topic.sort_order,
+                    st.name, st.sort_order, 1 if st.hidden else 0
+                ])
+        else:
+            writer.writerow([subject_id, topic.name, topic.sort_order, '', '', ''])
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=topics_{subject_id}.csv'
+    return response
+
+
+# ---------- Import Topics/Subtopics ----------
+
+@admin_bp.route('/import/topics', methods=['POST'])
+@login_required
+@admin_required
+def import_topics():
+    """Import topics and subtopics from CSV"""
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.csv'):
+        flash('Please upload a valid CSV file.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    try:
+        stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
+        reader = csv.DictReader(stream)
+
+        required_cols = {'subject_id', 'topic_name'}
+        if not required_cols.issubset(set(reader.fieldnames or [])):
+            flash('CSV must contain "subject_id" and "topic_name" columns.', 'danger')
+            return redirect(url_for('admin.export_import'))
+
+        subjects = get_user_admin_subjects()
+        subject_ids = {s.id for s in subjects}
+
+        topics_created = 0
+        topics_updated = 0
+        subtopics_created = 0
+        subtopics_updated = 0
+        skipped = 0
+        warnings = []
+
+        for row_num, row in enumerate(reader, start=2):
+            subj_id = row.get('subject_id', '').strip()
+            topic_name = row.get('topic_name', '').strip()
+
+            if not subj_id or not topic_name:
+                skipped += 1
+                continue
+
+            # Verify subject exists and we have access
+            subject = Subject.query.get(subj_id)
+            if not subject:
+                skipped += 1
+                warnings.append(f'Row {row_num}: subject "{subj_id}" not found.')
+                continue
+            if subj_id not in subject_ids:
+                skipped += 1
+                warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
+                continue
+
+            # Find or create topic
+            topic = Topic.query.filter_by(subject_id=subj_id, name=topic_name).first()
+            if not topic:
+                sort_order_str = row.get('topic_sort_order', '').strip()
+                sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
+                    (db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subj_id).scalar() or 0) + 1
+                )
+                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=sort_order)
+                db.session.add(topic)
+                db.session.flush()  # Get ID
+                topics_created += 1
+            else:
+                # Update sort order if provided
+                sort_order_str = row.get('topic_sort_order', '').strip()
+                if sort_order_str and sort_order_str.isdigit():
+                    topic.sort_order = int(sort_order_str)
+                topics_updated += 1
+
+            # Handle subtopic if present
+            subtopic_name = row.get('subtopic_name', '').strip()
+            if subtopic_name:
+                subtopic = Subtopic.query.filter_by(topic_id=topic.id, name=subtopic_name).first()
+                if not subtopic:
+                    sort_order_str = row.get('subtopic_sort_order', '').strip()
+                    sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
+                        (db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=topic.id).scalar() or 0) + 1
+                    )
+                    hidden = row.get('subtopic_hidden', '0').strip() == '1'
+                    subtopic = Subtopic(topic_id=topic.id, name=subtopic_name, sort_order=sort_order, hidden=hidden)
+                    db.session.add(subtopic)
+                    subtopics_created += 1
+                else:
+                    sort_order_str = row.get('subtopic_sort_order', '').strip()
+                    if sort_order_str and sort_order_str.isdigit():
+                        subtopic.sort_order = int(sort_order_str)
+                    hidden_str = row.get('subtopic_hidden', '').strip()
+                    if hidden_str in ('0', '1'):
+                        subtopic.hidden = hidden_str == '1'
+                    subtopics_updated += 1
+
+        db.session.commit()
+
+        msg = (f'Topics import complete: '
+               f'{topics_created} topic(s) created, {topics_updated} updated, '
+               f'{subtopics_created} subtopic(s) created, {subtopics_updated} updated, '
+               f'{skipped} row(s) skipped.')
+        flash(msg, 'success')
+        if warnings:
+            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Import failed: {str(e)}', 'danger')
+
+    return redirect(url_for('admin.export_import'))
+
+
+# ---------- Export Chapters/Subchapters ----------
+
+@admin_bp.route('/export/chapters')
+@login_required
+@admin_required
+def export_chapters():
+    """Export chapters and subchapters as CSV"""
+    subject_id = request.args.get('subject_id')
+    if not subject_id:
+        flash('Please select a subject.', 'warning')
+        return redirect(url_for('admin.export_import'))
+
+    subjects = get_user_admin_subjects()
+    subject_ids = [s.id for s in subjects]
+    if subject_id not in subject_ids:
+        flash('Access denied for this subject.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    chapters_list = Chapter.query.filter_by(subject_id=subject_id).order_by(Chapter.sort_order).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['subject_id', 'chapter_name', 'chapter_sort_order',
+                     'subchapter_name', 'subchapter_sort_order', 'subchapter_hidden'])
+
+    for chapter in chapters_list:
+        subchapters = chapter.subchapters.order_by(Subchapter.sort_order).all()
+        if subchapters:
+            for sc in subchapters:
+                writer.writerow([
+                    subject_id, chapter.name, chapter.sort_order,
+                    sc.name, sc.sort_order, 1 if sc.hidden else 0
+                ])
+        else:
+            writer.writerow([subject_id, chapter.name, chapter.sort_order, '', '', ''])
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=chapters_{subject_id}.csv'
+    return response
+
+
+# ---------- Import Chapters/Subchapters ----------
+
+@admin_bp.route('/import/chapters', methods=['POST'])
+@login_required
+@admin_required
+def import_chapters():
+    """Import chapters and subchapters from CSV"""
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.csv'):
+        flash('Please upload a valid CSV file.', 'danger')
+        return redirect(url_for('admin.export_import'))
+
+    try:
+        stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
+        reader = csv.DictReader(stream)
+
+        required_cols = {'subject_id', 'chapter_name'}
+        if not required_cols.issubset(set(reader.fieldnames or [])):
+            flash('CSV must contain "subject_id" and "chapter_name" columns.', 'danger')
+            return redirect(url_for('admin.export_import'))
+
+        subjects = get_user_admin_subjects()
+        subject_ids = {s.id for s in subjects}
+
+        chapters_created = 0
+        chapters_updated = 0
+        subchapters_created = 0
+        subchapters_updated = 0
+        skipped = 0
+        warnings = []
+
+        for row_num, row in enumerate(reader, start=2):
+            subj_id = row.get('subject_id', '').strip()
+            chapter_name = row.get('chapter_name', '').strip()
+
+            if not subj_id or not chapter_name:
+                skipped += 1
+                continue
+
+            subject = Subject.query.get(subj_id)
+            if not subject:
+                skipped += 1
+                warnings.append(f'Row {row_num}: subject "{subj_id}" not found.')
+                continue
+            if subj_id not in subject_ids:
+                skipped += 1
+                warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
+                continue
+
+            # Find or create chapter
+            chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
+            if not chapter:
+                sort_order_str = row.get('chapter_sort_order', '').strip()
+                sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
+                    (db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subj_id).scalar() or 0) + 1
+                )
+                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=sort_order)
+                db.session.add(chapter)
+                db.session.flush()
+                chapters_created += 1
+            else:
+                sort_order_str = row.get('chapter_sort_order', '').strip()
+                if sort_order_str and sort_order_str.isdigit():
+                    chapter.sort_order = int(sort_order_str)
+                chapters_updated += 1
+
+            # Handle subchapter if present
+            subchapter_name = row.get('subchapter_name', '').strip()
+            if subchapter_name:
+                subchapter = Subchapter.query.filter_by(chapter_id=chapter.id, name=subchapter_name).first()
+                if not subchapter:
+                    sort_order_str = row.get('subchapter_sort_order', '').strip()
+                    sort_order = int(sort_order_str) if sort_order_str and sort_order_str.isdigit() else (
+                        (db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=chapter.id).scalar() or 0) + 1
+                    )
+                    hidden = row.get('subchapter_hidden', '0').strip() == '1'
+                    subchapter = Subchapter(chapter_id=chapter.id, name=subchapter_name, sort_order=sort_order, hidden=hidden)
+                    db.session.add(subchapter)
+                    subchapters_created += 1
+                else:
+                    sort_order_str = row.get('subchapter_sort_order', '').strip()
+                    if sort_order_str and sort_order_str.isdigit():
+                        subchapter.sort_order = int(sort_order_str)
+                    hidden_str = row.get('subchapter_hidden', '').strip()
+                    if hidden_str in ('0', '1'):
+                        subchapter.hidden = hidden_str == '1'
+                    subchapters_updated += 1
+
+        db.session.commit()
+
+        msg = (f'Chapters import complete: '
+               f'{chapters_created} chapter(s) created, {chapters_updated} updated, '
+               f'{subchapters_created} subchapter(s) created, {subchapters_updated} updated, '
+               f'{skipped} row(s) skipped.')
+        flash(msg, 'success')
+        if warnings:
+            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Import failed: {str(e)}', 'danger')
+
+    return redirect(url_for('admin.export_import'))
