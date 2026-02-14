@@ -44,7 +44,9 @@ def filter_questions():
     topics = request.args.getlist('topics') or request.form.getlist('topics')
     topic_mode = request.args.get('topic_mode') or request.form.get('topic_mode') or 'OR'  # AND or OR
     subtopics = request.args.getlist('subtopics') or request.form.getlist('subtopics')
+    subtopic_mode = request.args.get('subtopic_mode') or request.form.get('subtopic_mode') or 'OR'  # AND or OR
     is_crosstopic = request.args.get('is_crosstopic') or request.form.get('is_crosstopic')
+    is_crosssubtopic = request.args.get('is_crosssubtopic') or request.form.get('is_crosssubtopic')
     chapters = request.args.getlist('chapters') or request.form.getlist('chapters')
     subchapters = request.args.getlist('subchapters') or request.form.getlist('subchapters')
     levels = request.args.getlist('levels') or request.form.getlist('levels')
@@ -84,7 +86,9 @@ def filter_questions():
         'topics': topics,
         'topic_mode': topic_mode,
         'subtopics': subtopics,
+        'subtopic_mode': subtopic_mode,
         'is_crosstopic': is_crosstopic,
+        'is_crosssubtopic': is_crosssubtopic,
         'chapters': chapters,
         'subchapters': subchapters,
         'levels': levels,
@@ -158,16 +162,33 @@ def filter_questions():
                     # Only major topic
                     query = query.filter(Question.major_topic_id.in_(topic_ids))
     
-    # Filter by subtopics (check both major_subtopic_id AND M2M subtopics)
+    # Filter by subtopics
     if subtopics:
         subtopic_ids = [int(s) for s in subtopics if s.isdigit()]
         if subtopic_ids:
-            query = query.filter(
-                or_(
-                    Question.major_subtopic_id.in_(subtopic_ids),
-                    Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
-                )
-            )
+            if subtopic_mode == 'AND' and len(subtopic_ids) > 1:
+                # AND mode: question must have ALL selected subtopics
+                # For each subtopic, the question must have it as major OR as one of its M2M subtopics
+                for sid in subtopic_ids:
+                    query = query.filter(
+                        or_(
+                            Question.major_subtopic_id == sid,
+                            Question.subtopics.any(Subtopic.id == sid)
+                        )
+                    )
+            else:
+                # OR mode (default): question matches ANY of the selected subtopics
+                if is_crosssubtopic:
+                    # Include questions with selected subtopics as major OR M2M
+                    query = query.filter(
+                        or_(
+                            Question.major_subtopic_id.in_(subtopic_ids),
+                            Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
+                        )
+                    )
+                else:
+                    # Only major subtopic
+                    query = query.filter(Question.major_subtopic_id.in_(subtopic_ids))
     
     # Filter by chapters
     if chapters:
@@ -337,10 +358,12 @@ def get_subtopics():
     Query params:
         topic_ids: comma-separated topic IDs
         include_hidden: if '1', include hidden subtopics (for admin edit modes)
+        q_type: 'all', 'MC', or 'CQ' - filter question counts by type
     """
     topic_ids = request.args.get('topic_ids', '').split(',')
     topic_ids = [int(tid) for tid in topic_ids if tid.isdigit()]
     include_hidden = request.args.get('include_hidden', '0') == '1'
+    q_type = request.args.get('q_type', 'all')
     
     if not topic_ids:
         return jsonify([])
@@ -352,7 +375,32 @@ def get_subtopics():
         query = query.filter(Subtopic.hidden == False)
     
     subtopics = query.order_by(Subtopic.sort_order).all()
-    return jsonify([{'id': s.id, 'name': s.name, 'topic_id': s.topic_id, 'hidden': s.hidden} for s in subtopics])
+    
+    # Build question count for each subtopic
+    # Count questions where subtopic is major_subtopic OR in M2M relationship
+    result = []
+    for s in subtopics:
+        # Base query for questions linked to this subtopic
+        q_query = Question.query.filter(
+            or_(
+                Question.major_subtopic_id == s.id,
+                Question.subtopics.any(Subtopic.id == s.id)
+            )
+        )
+        # Filter by question type if not 'all'
+        if q_type and q_type != 'all':
+            q_query = q_query.filter(Question.q_type == q_type)
+        
+        count = q_query.count()
+        result.append({
+            'id': s.id, 
+            'name': s.name, 
+            'topic_id': s.topic_id, 
+            'hidden': s.hidden,
+            'count': count
+        })
+    
+    return jsonify(result)
 
 @dashboard_bp.route('/api/chapters/<subject_id>')
 @login_required
