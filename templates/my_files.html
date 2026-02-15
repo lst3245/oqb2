@@ -6,6 +6,8 @@
 <style>
     .status-badge { font-size: 0.85rem; }
     .file-row td { vertical-align: middle; }
+    .bulk-bar { display: none; }
+    .bulk-bar.show { display: flex; }
 </style>
 {% endblock %}
 
@@ -25,7 +27,16 @@
             </button>
         </div>
     </div>
-    
+
+    <!-- Bulk action bar -->
+    <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
+        <span id="selectedCount" class="text-muted small">0 selected</span>
+        <button class="btn btn-sm btn-danger" onclick="bulkDelete()">
+            <i class="bi bi-trash"></i> Delete Selected
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
+    </div>
+
     <div id="filesContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
@@ -41,7 +52,6 @@ let autoRefreshInterval = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     loadFiles();
-    // Auto-refresh every 5 seconds if any files are still generating
     autoRefreshInterval = setInterval(() => {
         const hasGenerating = document.querySelector('.status-generating');
         if (hasGenerating) loadFiles();
@@ -63,6 +73,7 @@ function loadFiles() {
                         Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>, 
                         select questions, and click Generate to create documents.
                     </div>`;
+                updateBulkBar();
                 return;
             }
             
@@ -73,6 +84,7 @@ function loadFiles() {
                 <table class="table table-hover">
                     <thead class="table-light">
                         <tr>
+                            <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
                             <th>Name</th>
                             <th>Status</th>
                             <th>Questions</th>
@@ -118,6 +130,7 @@ function loadFiles() {
                 
                 html += `
                         <tr class="file-row ${statusClass}">
+                            <td><input type="checkbox" class="form-check-input row-check" value="${f.id}" onchange="updateBulkBar()"></td>
                             <td><strong>${escapeHtml(f.display_name)}</strong></td>
                             <td>${statusBadge}</td>
                             <td><span class="badge bg-secondary">${f.question_count}</span></td>
@@ -142,12 +155,69 @@ function loadFiles() {
             </div>`;
             
             container.innerHTML = html;
+            updateBulkBar();
             
         })
         .catch(err => {
             document.getElementById('filesContainer').innerHTML = `
                 <div class="alert alert-danger">Error loading files: ${err.message}</div>`;
         });
+}
+
+function toggleAll(master) {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = master.checked);
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const bar = document.getElementById('bulkBar');
+    const countEl = document.getElementById('selectedCount');
+    if (checked.length > 0) {
+        bar.classList.add('show');
+        countEl.textContent = checked.length + ' selected';
+    } else {
+        bar.classList.remove('show');
+    }
+    // Sync "select all" checkbox
+    const all = document.querySelectorAll('.row-check');
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) selectAll.checked = false;
+    updateBulkBar();
+}
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => parseInt(cb.value));
+}
+
+function bulkDelete() {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected file(s)? This cannot be undone.`)) return;
+
+    fetch(`{{ url_for('user.files_bulk_delete') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadFiles();
+        } else {
+            alert(data.error || 'Error deleting files');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
 }
 
 function deleteFile(id) {

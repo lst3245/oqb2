@@ -115,6 +115,29 @@ def profiles_delete(profile_id):
     return jsonify({'success': True})
 
 
+@user_bp.route('/profiles/bulk-delete', methods=['POST'])
+@login_required
+def profiles_bulk_delete():
+    """API: delete multiple filter profiles"""
+    data = request.get_json()
+    ids = data.get('ids', []) if data else []
+    if not ids:
+        return jsonify({'error': 'No IDs provided'}), 400
+
+    deleted = 0
+    for pid in ids:
+        profile = SavedFilter.query.get(pid)
+        if not profile:
+            continue
+        if profile.user_id != current_user.id and not current_user.is_super_admin:
+            continue
+        db.session.delete(profile)
+        deleted += 1
+
+    db.session.commit()
+    return jsonify({'success': True, 'deleted': deleted})
+
+
 # ==================== Generated Files ====================
 
 @user_bp.route('/files')
@@ -217,3 +240,34 @@ def files_delete(file_id):
     db.session.commit()
     
     return jsonify({'success': True})
+
+
+@user_bp.route('/files/bulk-delete', methods=['POST'])
+@login_required
+def files_bulk_delete():
+    """API: delete multiple generated files (DB records + files on disk)"""
+    data = request.get_json()
+    ids = data.get('ids', []) if data else []
+    if not ids:
+        return jsonify({'error': 'No IDs provided'}), 400
+
+    output_path = current_app.config['OUTPUT_PATH']
+    deleted = 0
+    for fid in ids:
+        gen_file = GeneratedFile.query.get(fid)
+        if not gen_file:
+            continue
+        if gen_file.user_id != current_user.id and not current_user.is_super_admin:
+            continue
+        # Delete file from disk
+        file_path = os.path.join(output_path, gen_file.filename)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        db.session.delete(gen_file)
+        deleted += 1
+
+    db.session.commit()
+    return jsonify({'success': True, 'deleted': deleted})
