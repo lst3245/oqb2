@@ -44,7 +44,7 @@ def profiles_list():
             'subject': filter_data.get('subject', ''),
             'source_type': filter_data.get('source_type', ''),
             'username': f.user.username if show_all else None,
-            'created_at': f.created_at.strftime('%Y-%m-%d %H:%M'),
+            'created_at': f.created_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
         })
     
     return jsonify(result)
@@ -147,8 +147,8 @@ def files_list():
             'has_filter': bool(gf.filter_data),
             'has_generation_options': bool(gf.generation_options),
             'username': gf.user.username if show_all else None,
-            'created_at': gf.created_at.strftime('%Y-%m-%d %H:%M'),
-            'completed_at': gf.completed_at.strftime('%Y-%m-%d %H:%M') if gf.completed_at else None,
+            'created_at': gf.created_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'completed_at': gf.completed_at.strftime('%Y-%m-%dT%H:%M:%SZ') if gf.completed_at else None,
         })
     
     return jsonify(result)

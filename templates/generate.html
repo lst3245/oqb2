@@ -524,6 +524,66 @@ function restoreGenerationOptions(opts) {
             // ignore parse errors
         }
     }
+    
+    // Sequential question number checkbox
+    if (opts.show_seq_no !== undefined) {
+        const el = document.getElementById('showSeqNo');
+        if (el) el.checked = (opts.show_seq_no === 'on' || opts.show_seq_no === true);
+    }
+    
+    // Page numbers checkbox
+    if (opts.show_page_no !== undefined) {
+        const el = document.getElementById('showPageNo');
+        if (el) el.checked = (opts.show_page_no === 'on' || opts.show_page_no === true);
+    }
+    
+    // Keep together checkbox
+    if (opts.keep_together !== undefined) {
+        const el = document.getElementById('keepTogether');
+        if (el) el.checked = (opts.keep_together === 'on' || opts.keep_together === true);
+    }
+    
+    // Info line fields (topic/subtopic/chapter/subchapter under each Q)
+    if (opts.info_fields) {
+        const fields = opts.info_fields;
+        if (fields.topic !== undefined) {
+            const el = document.getElementById('infoTopic');
+            if (el) el.checked = (fields.topic === 'on' || fields.topic === true);
+        }
+        if (fields.subtopic !== undefined) {
+            const el = document.getElementById('infoSubtopic');
+            if (el) el.checked = (fields.subtopic === 'on' || fields.subtopic === true);
+        }
+        if (fields.chapter !== undefined) {
+            const el = document.getElementById('infoChapter');
+            if (el) el.checked = (fields.chapter === 'on' || fields.chapter === true);
+        }
+        if (fields.subchapter !== undefined) {
+            const el = document.getElementById('infoSubchapter');
+            if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
+        }
+    }
+    
+    // Section heading fields (heading on topic/chapter change)
+    if (opts.section_fields) {
+        const fields = opts.section_fields;
+        if (fields.topic !== undefined) {
+            const el = document.getElementById('sectionTopic');
+            if (el) el.checked = (fields.topic === 'on' || fields.topic === true);
+        }
+        if (fields.subtopic !== undefined) {
+            const el = document.getElementById('sectionSubtopic');
+            if (el) el.checked = (fields.subtopic === 'on' || fields.subtopic === true);
+        }
+        if (fields.chapter !== undefined) {
+            const el = document.getElementById('sectionChapter');
+            if (el) el.checked = (fields.chapter === 'on' || fields.chapter === true);
+        }
+        if (fields.subchapter !== undefined) {
+            const el = document.getElementById('sectionSubchapter');
+            if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
+        }
+    }
 }
 
 // Show/hide the "Show QID for answers" option based on answer mode

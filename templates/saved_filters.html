@@ -67,7 +67,7 @@ function loadProfiles() {
                             <td><strong>${escapeHtml(p.name)}</strong></td>
                             <td><span class="badge bg-secondary">${escapeHtml(p.subject || '-')}</span></td>
                             ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || '')}</span></td>` : ''}
-                            <td><small class="text-muted">${p.created_at}</small></td>
+                            <td><small class="text-muted">${formatLocalTime(p.created_at)}</small></td>
                             <td class="text-end">
                                 <a href="{{ url_for('dashboard.index') }}?profile_id=${p.id}" class="btn btn-sm btn-primary" title="Apply this filter">
                                     <i class="bi bi-play-fill"></i> Apply
@@ -107,6 +107,13 @@ function deleteProfile(id) {
         }
     })
     .catch(err => alert('Error: ' + err.message));
+}
+
+function formatLocalTime(utcStr) {
+    if (!utcStr) return '';
+    const d = new Date(utcStr);
+    if (isNaN(d)) return utcStr;
+    return d.toLocaleString(undefined, {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 
 function escapeHtml(text) {
