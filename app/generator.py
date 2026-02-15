@@ -4,7 +4,7 @@ Word document generation module
 from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session, jsonify
 from flask_login import login_required, current_user
 from docx import Document
-from docx.shared import Inches, Pt, Cm
+from docx.shared import Inches, Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -264,6 +264,20 @@ def create_document():
     show_seq_no = request.form.get('show_seq_no') == 'on'
     show_page_no = request.form.get('show_page_no') == 'on'
     
+    # Topic/Chapter display options
+    info_fields = {
+        'topic': request.form.get('info_topic') == 'on',
+        'subtopic': request.form.get('info_subtopic') == 'on',
+        'chapter': request.form.get('info_chapter') == 'on',
+        'subchapter': request.form.get('info_subchapter') == 'on',
+    }
+    section_fields = {
+        'topic': request.form.get('section_topic') == 'on',
+        'subtopic': request.form.get('section_subtopic') == 'on',
+        'chapter': request.form.get('section_chapter') == 'on',
+        'subchapter': request.form.get('section_subchapter') == 'on',
+    }
+    
     preferred_language = request.form.get('preferred_language', 'EN')
     answer_preference = request.form.get('answer_preference', 'image_first')
     
@@ -282,6 +296,7 @@ def create_document():
         'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
         'show_correct_pct': show_correct_pct,
         'show_seq_no': show_seq_no, 'show_page_no': show_page_no,
+        'info_fields': info_fields, 'section_fields': section_fields,
         'preferred_language': preferred_language,
         'answer_preference': answer_preference,
         'question_ids': question_ids,
@@ -332,7 +347,7 @@ def create_document():
         args=(app, gen_file_id, question_ids, sort_mode, sort_config_str,
               answer_mode, spacing_config, show_qid, show_qid_answer,
               preferred_language, show_correct_pct, answer_preference,
-              show_seq_no, show_page_no, filename)
+              show_seq_no, show_page_no, info_fields, section_fields, filename)
     )
     thread.daemon = True
     thread.start()
@@ -343,7 +358,8 @@ def create_document():
 def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_config_str,
                             answer_mode, spacing_config, show_qid, show_qid_answer,
                             preferred_language, show_correct_pct, answer_preference,
-                            show_seq_no, show_page_no, filename):
+                            show_seq_no, show_page_no, info_fields, section_fields,
+                            filename):
     """Background thread function to generate the Word document"""
     with app.app_context():
         gen_file = GeneratedFile.query.get(gen_file_id)
@@ -379,7 +395,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                 questions, answer_mode, spacing_config,
                 show_qid, show_qid_answer, preferred_language,
                 show_correct_pct, answer_preference,
-                show_seq_no, show_page_no
+                show_seq_no, show_page_no,
+                info_fields, section_fields
             )
             
             # Save document
@@ -526,7 +543,61 @@ def _add_page_numbers(doc):
         run.font.size = Pt(10)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, show_page_no=False):
+def _get_section_key(question, section_fields):
+    """Get the current section key tuple based on which section fields are enabled."""
+    key = []
+    if section_fields.get('topic'):
+        key.append(('topic', question.major_topic.name if question.major_topic else None))
+    if section_fields.get('subtopic'):
+        key.append(('subtopic', question.major_subtopic.name if question.major_subtopic else None))
+    if section_fields.get('chapter'):
+        key.append(('chapter', question.chapter.name if question.chapter else None))
+    if section_fields.get('subchapter'):
+        key.append(('subchapter', question.subchapter.name if question.subchapter else None))
+    return tuple(key)
+
+
+def _add_section_heading(doc, question, prev_key, section_fields):
+    """
+    If any tracked section field changed, insert a centered bold heading.
+    Returns the new key.
+    """
+    current_key = _get_section_key(question, section_fields)
+    if current_key == prev_key:
+        return prev_key  # no change
+    
+    # Build heading text from the parts that are enabled
+    parts = []
+    topic_part = []
+    chapter_part = []
+    
+    if section_fields.get('topic') and question.major_topic:
+        topic_part.append(question.major_topic.name)
+    if section_fields.get('subtopic') and question.major_subtopic:
+        topic_part.append(question.major_subtopic.name)
+    if section_fields.get('chapter') and question.chapter:
+        chapter_part.append(question.chapter.name)
+    if section_fields.get('subchapter') and question.subchapter:
+        chapter_part.append(question.subchapter.name)
+    
+    if topic_part:
+        parts.append(' - '.join(topic_part))
+    if chapter_part:
+        parts.append(' - '.join(chapter_part))
+    
+    heading_text = ' | '.join(parts) if parts else None
+    
+    if heading_text:
+        heading = doc.add_paragraph()
+        heading_run = heading.add_run(heading_text)
+        heading_run.bold = True
+        heading_run.font.size = Pt(14)
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    return current_key
+
+
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, show_page_no=False, info_fields=None, section_fields=None):
     """
     Create Word document with questions
     
@@ -541,7 +612,16 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
         show_seq_no: Show sequential question number (1. 2. 3. ...)
         show_page_no: Show page numbers at bottom centre
+        info_fields: Dict of bools for per-question info line (topic/subtopic/chapter/subchapter)
+        section_fields: Dict of bools for section heading on change (topic/subtopic/chapter/subchapter)
     """
+    if info_fields is None:
+        info_fields = {}
+    if section_fields is None:
+        section_fields = {}
+    
+    any_section_heading = any(section_fields.values())
+    
     doc = Document()
     
     # Set page size to A4
@@ -563,6 +643,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     # Track if last question ended with a page break
     last_had_page_break = False
+    # Track section heading key for change detection
+    prev_section_key = None
     
     # Answer modes:
     # QUE_ONLY - questions only
@@ -576,12 +658,16 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             
+            # Section heading on change (only for QUE section)
+            if any_section_heading:
+                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields)
+            
             # Add before spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
             seq_no = i + 1 if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
@@ -607,9 +693,14 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         # Add all questions first
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
+            
+            # Section heading on change (only for QUE section)
+            if any_section_heading:
+                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields)
+            
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = i + 1 if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -634,12 +725,16 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             
+            # Section heading on change
+            if any_section_heading:
+                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields)
+            
             # Add before spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
             seq_no = i + 1 if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
@@ -652,7 +747,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -663,7 +758,11 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
                           Only shown for QUE type, not for ANS or SOL
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
         seq_no: Sequential question number (int) or None to skip
+        info_fields: Dict of bools for per-question info line (topic/subtopic/chapter/subchapter)
     """
+    if info_fields is None:
+        info_fields = {}
+    
     # Build heading: "{seq_no}. {QID} [{pct}%]" — each part optional
     has_seq = seq_no is not None
     has_qid = show_qid
@@ -688,6 +787,34 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
             heading_run = heading.add_run(heading_text)
             heading_run.bold = True
             heading_run.font.size = Pt(12)
+    
+    # Add per-question info line (QUE only): "Topic - Subtopic | Chapter - Subchapter"
+    if asset_type == 'QUE' and any(info_fields.values()):
+        topic_part = []
+        chapter_part = []
+        
+        if info_fields.get('topic') and question.major_topic:
+            topic_part.append(question.major_topic.name)
+        if info_fields.get('subtopic') and question.major_subtopic:
+            topic_part.append(question.major_subtopic.name)
+        if info_fields.get('chapter') and question.chapter:
+            chapter_part.append(question.chapter.name)
+        if info_fields.get('subchapter') and question.subchapter:
+            chapter_part.append(question.subchapter.name)
+        
+        info_parts = []
+        if topic_part:
+            info_parts.append(' - '.join(topic_part))
+        if chapter_part:
+            info_parts.append(' - '.join(chapter_part))
+        
+        info_text = ' | '.join(info_parts)
+        if info_text:
+            info_para = doc.add_paragraph()
+            info_run = info_para.add_run(info_text)
+            info_run.italic = True
+            info_run.font.size = Pt(10)
+            info_run.font.color.rgb = RGBColor(100, 100, 100)
     
     # For ANS type, handle answer_preference (text_first vs image_first)
     if asset_type == 'ANS' and answer_preference == 'text_first':
