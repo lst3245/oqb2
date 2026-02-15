@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Search Profiles - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-bookmark"></i> Search Profiles</h2>
+        {% if current_user.is_super_admin %}
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadProfiles()">
+            <label class="form-check-label" for="showAllToggle">Show all users</label>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div id="profilesContainer">
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading profiles...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', loadProfiles);
+
+function loadProfiles() {
+    const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
+    
+    fetch(`{{ url_for('user.profiles_list') }}?show_all=${showAll}`)
+        .then(r => r.json())
+        .then(profiles => {
+            const container = document.getElementById('profilesContainer');
+            
+            if (profiles.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> No saved profiles yet. 
+                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>, 
+                        set up your filters, and click the <i class="bi bi-floppy"></i> save button in the Filters header.
+                    </div>`;
+                return;
+            }
+            
+            const showUsername = showAll === '1';
+            
+            let html = `
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Subject</th>
+                            ${showUsername ? '<th>User</th>' : ''}
+                            <th>Created</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            
+            profiles.forEach(p => {
+                html += `
+                        <tr>
+                            <td><strong>${escapeHtml(p.name)}</strong></td>
+                            <td><span class="badge bg-secondary">${escapeHtml(p.subject || '-')}</span></td>
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || '')}</span></td>` : ''}
+                            <td><small class="text-muted">${p.created_at}</small></td>
+                            <td class="text-end">
+                                <a href="{{ url_for('dashboard.index') }}?profile_id=${p.id}" class="btn btn-sm btn-primary" title="Apply this filter">
+                                    <i class="bi bi-play-fill"></i> Apply
+                                </a>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteProfile(${p.id})" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>`;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            </div>`;
+            
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            document.getElementById('profilesContainer').innerHTML = `
+                <div class="alert alert-danger">Error loading profiles: ${err.message}</div>`;
+        });
+}
+
+function deleteProfile(id) {
+    if (!confirm('Delete this search profile?')) return;
+    
+    fetch(`{{ url_for('user.profiles_delete', profile_id=0) }}`.replace('/0', `/${id}`), {
+        method: 'DELETE'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadProfiles();
+        } else {
+            alert(data.error || 'Error deleting profile');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

@@ -16,8 +16,11 @@
         <!-- Filter Sidebar -->
         <div class="col-md-3">
             <div class="card filter-sidebar">
-                <div class="card-header">
-                    <h5><i class="bi bi-funnel"></i> Filters</h5>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveFilterModal()" title="Save current filter as profile">
+                        <i class="bi bi-floppy"></i>
+                    </button>
                 </div>
                 <div class="card-body">
                     <form id="filterForm" hx-post="{{ url_for('dashboard.filter_questions') }}" 
@@ -993,6 +996,30 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Save Filter Profile Modal -->
+<div class="modal fade" id="saveFilterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-floppy"></i> Save Search Profile</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="filterProfileName" class="form-label">Profile Name</label>
+                    <input type="text" class="form-control" id="filterProfileName" placeholder="e.g. MATC DSE MC Level 1-2" maxlength="200" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveFilterProfile()">
+                    <i class="bi bi-floppy"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -2841,8 +2868,39 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Render sort criteria first
     renderSortCriteria();
     
+    // Check if we need to restore a saved profile or generated file filter from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const profileId = urlParams.get('profile_id');
+    const filterDataId = urlParams.get('filter_data_id');
+    let profileFilters = null;
+    
+    if (profileId) {
+        try {
+            const resp = await fetch(`{{ url_for('user.profiles_data', profile_id=0) }}`.replace('/0/', `/${profileId}/`));
+            const data = await resp.json();
+            if (data.filter_data) {
+                profileFilters = convertProfileToSettings(data.filter_data);
+            }
+        } catch(err) {
+            console.error('Error loading profile:', err);
+        }
+    } else if (filterDataId) {
+        try {
+            const resp = await fetch(`{{ url_for('user.files_filter_data', file_id=0) }}`.replace('/0/', `/${filterDataId}/`));
+            const data = await resp.json();
+            if (data.filter_data) {
+                profileFilters = convertProfileToSettings(data.filter_data);
+            }
+        } catch(err) {
+            console.error('Error loading filter data:', err);
+        }
+    }
+    
+    // Use profile filters if available, otherwise use localStorage saved filters
+    const filtersToRestore = profileFilters || savedFilters;
+    
     // Restore filter settings (including default subject)
-    await restoreFilterSettings(savedFilters);
+    await restoreFilterSettings(filtersToRestore);
     
     // Initialize selection state (checkboxes)
     initializeSelectionState();
@@ -2853,25 +2911,45 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initialize filter change listeners for modification tracking
     initFilterChangeListeners();
     
-    // Auto-trigger search if we have saved filters with a subject selected
-    // This ensures results are shown when returning from another page
-    if (savedFilters && savedFilters.subject) {
+    // Auto-trigger search if we have filters with a subject selected
+    if (filtersToRestore && filtersToRestore.subject) {
         // Small delay to ensure all async topic/year loading is complete
         setTimeout(() => {
-            // Check for saved page number
-            const savedPage = localStorage.getItem(STORAGE_KEYS.CURRENT_PAGE);
-            const pageNum = savedPage ? parseInt(savedPage) : 1;
-            
-            if (pageNum > 1) {
-                // Use refreshCurrentPage logic to load with saved page
-                triggerSearchWithPage(pageNum);
-            } else {
+            if (profileFilters) {
+                // Profile restore: always start at page 1
                 const filterForm = document.getElementById('filterForm');
                 if (filterForm) {
                     htmx.trigger(filterForm, 'submit');
                 }
+                // Save baseline so modified badge doesn't show
+                setTimeout(() => {
+                    if (typeof getCurrentFilterValues === 'function') {
+                        lastSearchedFilters = getCurrentFilterValues();
+                    }
+                }, 500);
+            } else {
+                // Normal localStorage restore: use saved page number
+                const savedPage = localStorage.getItem(STORAGE_KEYS.CURRENT_PAGE);
+                const pageNum = savedPage ? parseInt(savedPage) : 1;
+                
+                if (pageNum > 1) {
+                    triggerSearchWithPage(pageNum);
+                } else {
+                    const filterForm = document.getElementById('filterForm');
+                    if (filterForm) {
+                        htmx.trigger(filterForm, 'submit');
+                    }
+                }
             }
         }, 300);
+    }
+    
+    // Clear URL parameters after successful restore to prevent re-applying on refresh
+    if (profileId || filterDataId) {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('profile_id');
+        cleanUrl.searchParams.delete('filter_data_id');
+        window.history.replaceState({}, document.title, cleanUrl.toString());
     }
 });
 
@@ -3179,6 +3257,13 @@ function submitQuestionIds(actionUrl, target) {
     sortInput.name = 'sort_config';
     sortInput.value = JSON.stringify(sortConfig);
     form.appendChild(sortInput);
+    
+    // Add current filter state (for saving with generated files)
+    const filterInput = document.createElement('input');
+    filterInput.type = 'hidden';
+    filterInput.name = 'filter_data';
+    filterInput.value = JSON.stringify(getCurrentFilterValues());
+    form.appendChild(filterInput);
     
     document.body.appendChild(form);
     form.submit();
@@ -4594,5 +4679,84 @@ function refreshCurrentPage() {
     }
 }
 {% endif %}
+
+// ============== SAVE FILTER PROFILE ==============
+let saveFilterModal;
+document.addEventListener('DOMContentLoaded', function() {
+    saveFilterModal = new bootstrap.Modal(document.getElementById('saveFilterModal'));
+});
+
+function showSaveFilterModal() {
+    document.getElementById('filterProfileName').value = '';
+    saveFilterModal.show();
+    // Focus name input after modal is shown
+    document.getElementById('saveFilterModal').addEventListener('shown.bs.modal', function() {
+        document.getElementById('filterProfileName').focus();
+    }, {once: true});
+}
+
+function saveFilterProfile() {
+    const name = document.getElementById('filterProfileName').value.trim();
+    if (!name) {
+        alert('Please enter a profile name');
+        return;
+    }
+    
+    const filterData = getCurrentFilterValues();
+    
+    fetch('{{ url_for("user.profiles_save") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, filter_data: filterData})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            saveFilterModal.hide();
+            // Show brief success message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5';
+            alert.style.zIndex = '9999';
+            alert.innerHTML = `<i class="bi bi-check-circle"></i> Filter saved as "<strong>${name}</strong>" <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+            document.body.appendChild(alert);
+            setTimeout(() => alert.remove(), 3000);
+        } else {
+            alert(data.error || 'Error saving filter');
+        }
+    })
+    .catch(err => alert('Error saving filter: ' + err.message));
+}
+
+// ============== FILTER RESTORE LOGIC ==============
+
+// Convert profile data (comma-separated strings from getCurrentFilterValues) 
+// to the array format expected by restoreFilterSettings
+function convertProfileToSettings(data) {
+    function toArray(val) {
+        if (!val) return [];
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string' && val.length > 0) return val.split(',');
+        return [];
+    }
+    return {
+        subject: data.subject || '',
+        source_type: data.source_type || 'DSE',
+        years: toArray(data.years),
+        section: data.section || 'all',
+        topics: toArray(data.topics),
+        topic_mode: data.topic_mode || 'OR',
+        subtopics: toArray(data.subtopics),
+        subtopic_mode: data.subtopic_mode || 'OR',
+        show_hidden_subtopics: data.show_hidden_subtopics === true || data.show_hidden_subtopics === 'true',
+        is_crosstopic: data.is_crosstopic === true || data.is_crosstopic === 'true',
+        is_crosssubtopic: data.is_crosssubtopic === true || data.is_crosssubtopic === 'true',
+        chapters: toArray(data.chapters),
+        subchapters: toArray(data.subchapters),
+        show_hidden_subchapters: data.show_hidden_subchapters === true || data.show_hidden_subchapters === 'true',
+        levels: toArray(data.levels),
+        q_type: data.q_type || 'all',
+        qid_search: data.qid_search || ''
+    };
+}
 </script>
 {% endblock %}

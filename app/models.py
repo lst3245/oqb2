@@ -217,3 +217,41 @@ class QuestionAsset(db.Model):
     
     def __repr__(self):
         return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language})>'
+
+
+class SavedFilter(db.Model):
+    """Saved search profile for reusable filter configurations"""
+    __tablename__ = 'saved_filters'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    filter_data = db.Column(db.Text, nullable=False)  # JSON blob of filter state
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    user = db.relationship('User', backref=db.backref('saved_filters', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<SavedFilter {self.name}>'
+
+
+class GeneratedFile(db.Model):
+    """Tracks background-generated Word documents"""
+    __tablename__ = 'generated_files'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    display_name = db.Column(db.String(200), nullable=False)   # User-chosen display name
+    filename = db.Column(db.String(300), nullable=False)        # Actual filename on disk
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending/generating/completed/failed
+    error_message = db.Column(db.Text, nullable=True)
+    filter_data = db.Column(db.Text, nullable=True)             # JSON - saved filter state from dashboard
+    generation_options = db.Column(db.Text, nullable=True)      # JSON - answer_mode, spacing, etc.
+    question_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    
+    user = db.relationship('User', backref=db.backref('generated_files', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<GeneratedFile {self.display_name} ({self.status})>'

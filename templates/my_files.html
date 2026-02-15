@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}My Files - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .status-badge { font-size: 0.85rem; }
+    .file-row td { vertical-align: middle; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-file-earmark-word"></i> My Generated Files</h2>
+        <div class="d-flex align-items-center gap-3">
+            {% if current_user.is_super_admin %}
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadFiles()">
+                <label class="form-check-label" for="showAllToggle">Show all users</label>
+            </div>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadFiles()" title="Refresh">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div id="filesContainer">
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading files...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let autoRefreshInterval = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadFiles();
+    // Auto-refresh every 5 seconds if any files are still generating
+    autoRefreshInterval = setInterval(() => {
+        const hasGenerating = document.querySelector('.status-generating');
+        if (hasGenerating) loadFiles();
+    }, 5000);
+});
+
+function loadFiles() {
+    const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
+    
+    fetch(`{{ url_for('user.files_list') }}?show_all=${showAll}`)
+        .then(r => r.json())
+        .then(files => {
+            const container = document.getElementById('filesContainer');
+            
+            if (files.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> No generated files yet. 
+                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>, 
+                        select questions, and click Generate to create documents.
+                    </div>`;
+                return;
+            }
+            
+            const showUsername = showAll === '1';
+            
+            let html = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Questions</th>
+                            ${showUsername ? '<th>User</th>' : ''}
+                            <th>Created</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            
+            files.forEach(f => {
+                let statusBadge = '';
+                let statusClass = '';
+                switch (f.status) {
+                    case 'pending':
+                        statusBadge = '<span class="badge bg-warning text-dark status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Pending</span>';
+                        statusClass = 'status-generating';
+                        break;
+                    case 'generating':
+                        statusBadge = '<span class="badge bg-info status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Generating</span>';
+                        statusClass = 'status-generating';
+                        break;
+                    case 'completed':
+                        statusBadge = '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> Ready</span>';
+                        break;
+                    case 'failed':
+                        statusBadge = `<span class="badge bg-danger status-badge" title="${escapeHtml(f.error_message || '')}"><i class="bi bi-x-circle"></i> Failed</span>`;
+                        break;
+                }
+                
+                const downloadBaseUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${f.id}`);
+                const downloadBtn = f.status === 'completed' 
+                    ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="Download"><i class="bi bi-download"></i></a>`
+                    : `<button class="btn btn-sm btn-success" disabled title="Not ready"><i class="bi bi-download"></i></button>`;
+                
+                const filterBtn = f.has_filter
+                    ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="Reuse filter"><i class="bi bi-funnel"></i></a>`
+                    : '';
+                
+                html += `
+                        <tr class="file-row ${statusClass}">
+                            <td><strong>${escapeHtml(f.display_name)}</strong></td>
+                            <td>${statusBadge}</td>
+                            <td><span class="badge bg-secondary">${f.question_count}</span></td>
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(f.username || '')}</span></td>` : ''}
+                            <td><small class="text-muted">${f.created_at}</small></td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    ${downloadBtn}
+                                    ${filterBtn}
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            </div>`;
+            
+            container.innerHTML = html;
+            
+        })
+        .catch(err => {
+            document.getElementById('filesContainer').innerHTML = `
+                <div class="alert alert-danger">Error loading files: ${err.message}</div>`;
+        });
+}
+
+function deleteFile(id) {
+    if (!confirm('Delete this generated file? This cannot be undone.')) return;
+    
+    fetch(`{{ url_for('user.files_delete', file_id=0) }}`.replace('/0', `/${id}`), {
+        method: 'DELETE'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadFiles();
+        } else {
+            alert(data.error || 'Error deleting file');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

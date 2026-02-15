@@ -14,7 +14,10 @@
                     <h5>Generation Options</h5>
                 </div>
                 <div class="card-body">
-                    <form method="POST" action="{{ url_for('generator.create_document') }}" id="generateForm">
+                    <!-- Status Banner (shown after generation starts) -->
+                    <div id="generationStatusBanner" style="display: none;" class="mb-3"></div>
+                    
+                    <form id="generateForm" onsubmit="return submitGeneration(event)">
                         <!-- Hidden question IDs (order preserved from selection) -->
                         <div id="questionIdsContainer">
                         {% for qid in question_ids %}
@@ -23,6 +26,19 @@
                         </div>
                         <input type="hidden" name="sort_config" id="sortConfigInput" value='{{ sort_config | tojson }}'>
                         <input type="hidden" name="sort_mode" id="sortModeInput" value="custom">
+                        <input type="hidden" name="filter_data" value='{{ filter_data if filter_data else "" }}'>
+                        
+                        <!-- File Name -->
+                        <div class="mb-3">
+                            <label class="form-label"><strong>File Name</strong></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" name="display_name" id="displayName" 
+                                       value="{{ default_filename }}" placeholder="Enter file name">
+                                <span class="input-group-text">.docx</span>
+                            </div>
+                        </div>
+                        
+                        <hr>
                         
                         <!-- Sort Options -->
                         <div class="mb-4">
@@ -215,8 +231,8 @@
                         </div>
                         
                         <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-success">
-                                <i class="bi bi-download"></i> Generate & Download
+                            <button type="submit" class="btn btn-success" id="generateBtn">
+                                <i class="bi bi-gear"></i> Generate
                             </button>
                             <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">
                                 <i class="bi bi-arrow-left"></i> Back to Dashboard
@@ -542,6 +558,118 @@ function updateQuestionOrder() {
         input.value = item.dataset.id;
         container.appendChild(input);
     });
+}
+
+// ============== ASYNC GENERATION ==============
+let currentPollingId = null;
+let pollingInterval = null;
+
+function submitGeneration(e) {
+    e.preventDefault();
+    
+    const form = document.getElementById('generateForm');
+    const formData = new FormData(form);
+    const btn = document.getElementById('generateBtn');
+    
+    // Disable button briefly
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+    
+    fetch('{{ url_for("generator.create_document") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            showStatusBanner('danger', `<i class="bi bi-exclamation-triangle"></i> ${data.error}`);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-gear"></i> Generate';
+            return;
+        }
+        
+        // Show generating status
+        currentPollingId = data.id;
+        showStatusBanner('info', `
+            <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span>Generating document <strong>${escapeHtml(formData.get('display_name') || 'document')}</strong>...</span>
+            </div>
+        `);
+        
+        // Re-enable button for another generation
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-gear"></i> Generate';
+        
+        // Start polling
+        startPolling(data.id);
+    })
+    .catch(err => {
+        showStatusBanner('danger', `<i class="bi bi-exclamation-triangle"></i> Error: ${err.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-gear"></i> Generate';
+    });
+    
+    return false;
+}
+
+function startPolling(fileId) {
+    // Clear any existing polling
+    if (pollingInterval) clearInterval(pollingInterval);
+    
+    pollingInterval = setInterval(() => {
+        fetch(`{{ url_for("generator.generation_status", file_id=0) }}`.replace('/0', `/${fileId}`))
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'completed') {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    const downloadUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${fileId}`);
+                    const filesUrl = `{{ url_for('user.files') }}`;
+                    showStatusBanner('success', `
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <span><i class="bi bi-check-circle"></i> Document <strong>${escapeHtml(data.display_name)}</strong> is ready!</span>
+                            <div class="d-flex gap-2">
+                                <a href="${downloadUrl}" class="btn btn-sm btn-success">
+                                    <i class="bi bi-download"></i> Download
+                                </a>
+                                <a href="${filesUrl}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-folder2-open"></i> My Files
+                                </a>
+                            </div>
+                        </div>
+                    `);
+                } else if (data.status === 'failed') {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    showStatusBanner('danger', `
+                        <i class="bi bi-exclamation-triangle"></i> Generation failed: ${escapeHtml(data.error_message || 'Unknown error')}
+                    `);
+                }
+                // 'pending' and 'generating' keep polling
+            })
+            .catch(err => {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                showStatusBanner('danger', `<i class="bi bi-exclamation-triangle"></i> Error checking status: ${err.message}`);
+            });
+    }, 2000);
+}
+
+function showStatusBanner(type, html) {
+    const banner = document.getElementById('generationStatusBanner');
+    banner.style.display = 'block';
+    banner.className = `alert alert-${type} mb-3`;
+    banner.innerHTML = html;
+    // Scroll to top of card
+    banner.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 </script>
 

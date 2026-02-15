@@ -41,13 +41,28 @@ def create_app():
     from app.dashboard import dashboard_bp
     from app.admin import admin_bp
     from app.generator import generator_bp
+    from app.user import user_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(generator_bp)
+    app.register_blueprint(user_bp)
     
     # Create output directory if it doesn't exist
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
+    
+    # Startup cleanup: mark any stale 'generating' files as failed
+    with app.app_context():
+        try:
+            from app.models import GeneratedFile
+            stale = GeneratedFile.query.filter(GeneratedFile.status.in_(['pending', 'generating'])).all()
+            for gf in stale:
+                gf.status = 'failed'
+                gf.error_message = 'Server restarted during generation'
+            if stale:
+                db.session.commit()
+        except Exception:
+            db.session.rollback()  # Table may not exist yet (pre-migration)
     
     return app

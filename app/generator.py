@@ -2,16 +2,17 @@
 Word document generation module
 """
 from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image
 import os
 import json
+import threading
 from datetime import datetime
 from app import db
-from app.models import Question, QuestionAsset
+from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
@@ -21,11 +22,14 @@ generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 def index():
     """Generation options page"""
     # Accept question IDs from POST form data (preferred) or GET query params (fallback)
+    filter_data = ''
     if request.method == 'POST':
         question_ids = request.form.getlist('question_ids')
+        filter_data = request.form.get('filter_data', '')
         # Store in session so page refreshes still work
         if question_ids:
             session['generator_question_ids'] = question_ids
+            session['generator_filter_data'] = filter_data
             sort_config_str = request.form.get('sort_config')
             if sort_config_str:
                 try:
@@ -37,6 +41,7 @@ def index():
         if not question_ids:
             # Fallback to session (e.g. page refresh)
             question_ids = session.get('generator_question_ids', [])
+        filter_data = session.get('generator_filter_data', '')
     
     if not question_ids:
         flash('No questions selected', 'warning')
@@ -52,11 +57,16 @@ def index():
     # Get available sort fields for the UI
     sort_fields = [{"value": key, "label": info["label"]} for key, info in SORT_FIELDS.items()]
     
+    # Default filename
+    default_filename = f'questions_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    
     return render_template('generate.html', 
                           questions=questions, 
                           question_ids=question_ids,
                           sort_config=sort_config,
-                          sort_fields=sort_fields)
+                          sort_fields=sort_fields,
+                          filter_data=filter_data,
+                          default_filename=default_filename)
 
 @generator_bp.route('/viewer', methods=['GET', 'POST'])
 @login_required
@@ -187,24 +197,26 @@ def get_viewer_asset(question_id, asset_type):
 @generator_bp.route('/create', methods=['POST'])
 @login_required
 def create_document():
-    """Generate Word document from selected questions"""
+    """Start background generation of Word document from selected questions"""
     
     # Get parameters
     question_ids = request.form.getlist('question_ids')
-    sort_mode = request.form.get('sort_mode', 'custom')  # 'selection' or 'custom'
+    sort_mode = request.form.get('sort_mode', 'custom')
     sort_config_str = request.form.get('sort_config', '')
     answer_mode = request.form.get('answer_mode', 'QUE_ONLY')
+    display_name = request.form.get('display_name', '').strip()
+    filter_data = request.form.get('filter_data', '')
     
     # MC spacing settings
-    mc_before_mode = request.form.get('mc_before_mode', 'lines')  # 'lines' or 'page'
+    mc_before_mode = request.form.get('mc_before_mode', 'lines')
     mc_before_lines = int(request.form.get('mc_before_lines', 0))
-    mc_after_mode = request.form.get('mc_after_mode', 'lines')  # 'lines' or 'page'
+    mc_after_mode = request.form.get('mc_after_mode', 'lines')
     mc_after_lines = int(request.form.get('mc_after_lines', 1))
     
     # CQ spacing settings
-    cq_before_mode = request.form.get('cq_before_mode', 'page')  # 'lines' or 'page'
+    cq_before_mode = request.form.get('cq_before_mode', 'page')
     cq_before_lines = int(request.form.get('cq_before_lines', 0))
-    cq_after_mode = request.form.get('cq_after_mode', 'page')  # 'lines' or 'page'
+    cq_after_mode = request.form.get('cq_after_mode', 'page')
     cq_after_lines = int(request.form.get('cq_after_lines', 0))
     
     # Show QID options
@@ -212,86 +224,180 @@ def create_document():
     show_qid_answer = request.form.get('show_qid_answer') == 'on'
     show_correct_pct = request.form.get('show_correct_pct') == 'on'
     
-    # Language preference: EN or CH
-    # Order: preferred > BI > other
     preferred_language = request.form.get('preferred_language', 'EN')
-    
-    # Answer preference: image_first or text_first (only for ANS modes)
     answer_preference = request.form.get('answer_preference', 'image_first')
     
-    # Build spacing config for document generation
+    if not question_ids:
+        return jsonify({'error': 'No questions selected'}), 400
+    
+    # Build generation options for storage
+    generation_options = {
+        'sort_mode': sort_mode,
+        'sort_config': sort_config_str,
+        'answer_mode': answer_mode,
+        'mc_before_mode': mc_before_mode, 'mc_before_lines': mc_before_lines,
+        'mc_after_mode': mc_after_mode, 'mc_after_lines': mc_after_lines,
+        'cq_before_mode': cq_before_mode, 'cq_before_lines': cq_before_lines,
+        'cq_after_mode': cq_after_mode, 'cq_after_lines': cq_after_lines,
+        'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
+        'show_correct_pct': show_correct_pct,
+        'preferred_language': preferred_language,
+        'answer_preference': answer_preference,
+        'question_ids': question_ids,
+    }
+    
+    # Create filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    if not display_name:
+        display_name = f'questions_{timestamp}'
+    filename = f'{display_name}_{timestamp}.docx'
+    # Sanitize filename
+    filename = "".join(c for c in filename if c.isalnum() or c in '._- ').strip()
+    if not filename.endswith('.docx'):
+        filename += '.docx'
+    
+    # Create GeneratedFile record
+    gen_file = GeneratedFile(
+        user_id=current_user.id,
+        display_name=display_name,
+        filename=filename,
+        status='pending',
+        filter_data=filter_data if filter_data else None,
+        generation_options=json.dumps(generation_options),
+        question_count=len(question_ids),
+    )
+    db.session.add(gen_file)
+    db.session.commit()
+    gen_file_id = gen_file.id
+    
+    # Build spacing config
     spacing_config = {
         'mc': {
-            'before_mode': mc_before_mode,
-            'before_lines': mc_before_lines,
-            'after_mode': mc_after_mode,
-            'after_lines': mc_after_lines
+            'before_mode': mc_before_mode, 'before_lines': mc_before_lines,
+            'after_mode': mc_after_mode, 'after_lines': mc_after_lines
         },
         'cq': {
-            'before_mode': cq_before_mode,
-            'before_lines': cq_before_lines,
-            'after_mode': cq_after_mode,
-            'after_lines': cq_after_lines
+            'before_mode': cq_before_mode, 'before_lines': cq_before_lines,
+            'after_mode': cq_after_mode, 'after_lines': cq_after_lines
         }
     }
     
-    if not question_ids:
-        flash('No questions selected', 'warning')
-        return redirect(url_for('dashboard.index'))
+    # Spawn background thread
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_generate_in_background,
+        args=(app, gen_file_id, question_ids, sort_mode, sort_config_str,
+              answer_mode, spacing_config, show_qid, show_qid_answer,
+              preferred_language, show_correct_pct, answer_preference, filename)
+    )
+    thread.daemon = True
+    thread.start()
     
-    # Get questions - preserve the selection order using dict
-    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
-    
-    if not questions_dict:
-        flash('No valid questions found', 'danger')
-        return redirect(url_for('dashboard.index'))
-    
-    # Sort questions based on mode
-    if sort_mode == 'selection':
-        # Preserve selection order from the form
-        questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
-    else:
-        # Apply custom sort config
+    return jsonify({'id': gen_file_id, 'status': 'pending', 'filename': filename})
+
+
+def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_config_str,
+                            answer_mode, spacing_config, show_qid, show_qid_answer,
+                            preferred_language, show_correct_pct, answer_preference, filename):
+    """Background thread function to generate the Word document"""
+    with app.app_context():
+        gen_file = GeneratedFile.query.get(gen_file_id)
+        if not gen_file:
+            return
+        
+        gen_file.status = 'generating'
+        db.session.commit()
+        
         try:
-            sort_config = json.loads(sort_config_str) if sort_config_str else [{"field": "qid", "direction": "asc"}]
-        except json.JSONDecodeError:
-            sort_config = [{"field": "qid", "direction": "asc"}]
-        
-        questions = list(questions_dict.values())
-        questions = apply_multi_sort(questions, sort_config)
+            # Get questions
+            questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+            
+            if not questions_dict:
+                gen_file.status = 'failed'
+                gen_file.error_message = 'No valid questions found'
+                db.session.commit()
+                return
+            
+            # Sort questions
+            if sort_mode == 'selection':
+                questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+            else:
+                try:
+                    sort_config = json.loads(sort_config_str) if sort_config_str else [{"field": "qid", "direction": "asc"}]
+                except json.JSONDecodeError:
+                    sort_config = [{"field": "qid", "direction": "asc"}]
+                questions = list(questions_dict.values())
+                questions = apply_multi_sort(questions, sort_config)
+            
+            # Create document
+            doc = create_word_document(
+                questions, answer_mode, spacing_config,
+                show_qid, show_qid_answer, preferred_language,
+                show_correct_pct, answer_preference
+            )
+            
+            # Save document
+            output_path = app.config['OUTPUT_PATH']
+            filepath = os.path.join(output_path, filename)
+            doc.save(filepath)
+            
+            gen_file.status = 'completed'
+            gen_file.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+        except Exception as e:
+            gen_file.status = 'failed'
+            gen_file.error_message = str(e)
+            db.session.commit()
+
+
+@generator_bp.route('/status/<int:file_id>')
+@login_required
+def generation_status(file_id):
+    """Check generation status (for polling)"""
+    gen_file = GeneratedFile.query.get_or_404(file_id)
     
-    # Create document
-    try:
-        doc = create_word_document(
-            questions, 
-            answer_mode, 
-            spacing_config,
-            show_qid,
-            show_qid_answer,
-            preferred_language,
-            show_correct_pct,
-            answer_preference
-        )
-        
-        # Save document
-        output_path = current_app.config['OUTPUT_PATH']
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'questions_{timestamp}.docx'
-        filepath = os.path.join(output_path, filename)
-        
-        doc.save(filepath)
-        
-        # Send file
-        return send_file(
-            filepath,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        )
-        
-    except Exception as e:
-        flash(f'Error generating document: {str(e)}', 'danger')
-        return redirect(url_for('dashboard.index'))
+    # Only owner or super admin
+    if gen_file.user_id != current_user.id and not current_user.is_super_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    return jsonify({
+        'id': gen_file.id,
+        'status': gen_file.status,
+        'error_message': gen_file.error_message,
+        'display_name': gen_file.display_name,
+        'filename': gen_file.filename,
+    })
+
+
+@generator_bp.route('/download/<int:file_id>')
+@login_required
+def download_file(file_id):
+    """Download a completed generated file"""
+    gen_file = GeneratedFile.query.get_or_404(file_id)
+    
+    # Only owner or super admin
+    if gen_file.user_id != current_user.id and not current_user.is_super_admin:
+        flash('Access denied', 'danger')
+        return redirect(url_for('user.files'))
+    
+    if gen_file.status != 'completed':
+        flash('File is not ready for download', 'warning')
+        return redirect(url_for('user.files'))
+    
+    output_path = current_app.config['OUTPUT_PATH']
+    filepath = os.path.join(output_path, gen_file.filename)
+    
+    if not os.path.exists(filepath):
+        flash('File not found on disk', 'danger')
+        return redirect(url_for('user.files'))
+    
+    return send_file(
+        filepath,
+        as_attachment=True,
+        download_name=gen_file.filename,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
 
 def get_question_spacing_config(question, spacing_config):
     """
