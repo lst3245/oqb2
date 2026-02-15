@@ -74,7 +74,40 @@ class User(UserMixin, db.Model):
         if self.is_super_admin:
             return True
         return self.subject_permissions.filter_by(role='admin').first() is not None
-    
+
+    def is_view_only(self, subject_id):
+        """Check if user only has view-only access to a subject"""
+        if self.is_super_admin:
+            return False
+        perm = UserSubjectPermission.query.filter_by(
+            user_id=self.id, subject_id=subject_id
+        ).first()
+        return perm is not None and perm.role == 'viewer'
+
+    def can_generate(self):
+        """Check if user can generate documents (has at least 'user' role for any subject)"""
+        if self.is_super_admin:
+            return True
+        return self.subject_permissions.filter(
+            UserSubjectPermission.role.in_(['user', 'admin'])
+        ).first() is not None
+
+    def is_all_view_only(self):
+        """Check if ALL of user's subject permissions are view-only (no user or admin roles)"""
+        if self.is_super_admin:
+            return False
+        perms = self.subject_permissions.all()
+        if not perms:
+            return True
+        return all(p.role == 'viewer' for p in perms)
+
+    def get_subject_roles(self):
+        """Get a dict mapping subject_id -> role for all permissions.
+        Super admins get 'admin' for every subject."""
+        if self.is_super_admin:
+            return {s.id: 'admin' for s in Subject.query.all()}
+        return {p.subject_id: p.role for p in self.subject_permissions.all()}
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -86,7 +119,7 @@ class UserSubjectPermission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
-    role = db.Column(db.String(10), nullable=False, default='user')  # 'user' or 'admin'
+    role = db.Column(db.String(10), nullable=False, default='user')  # 'viewer', 'user', or 'admin'
     
     # Unique constraint: one permission per user-subject pair
     __table_args__ = (db.UniqueConstraint('user_id', 'subject_id', name='uq_user_subject'),)

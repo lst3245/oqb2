@@ -1,7 +1,7 @@
 """
 Word document generation module
 """
-from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session, jsonify
+from flask import Blueprint, render_template, request, send_file, current_app, flash, redirect, url_for, session, jsonify, abort
 from flask_login import login_required, current_user
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
@@ -20,10 +20,18 @@ from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
+
+def _require_generate_permission():
+    """Check that current user can generate documents (not view-only). Aborts with 403 if not."""
+    if not current_user.can_generate():
+        abort(403)
+
+
 @generator_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
     """Generation options page"""
+    _require_generate_permission()
     # Accept question IDs from POST form data (preferred) or GET query params (fallback)
     filter_data = ''
     generation_options = {}
@@ -256,6 +264,7 @@ def get_viewer_asset(question_id, asset_type):
 @login_required
 def create_document():
     """Start background generation of Word document from selected questions"""
+    _require_generate_permission()
     
     # Get parameters
     question_ids = request.form.getlist('question_ids')
@@ -304,7 +313,16 @@ def create_document():
     
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
-    
+
+    # Filter out questions from view-only subjects
+    if not current_user.is_super_admin:
+        subject_roles = current_user.get_subject_roles()
+        allowed_subjects = {sid for sid, role in subject_roles.items() if role in ('user', 'admin')}
+        qs = Question.query.filter(Question.id.in_(question_ids)).all()
+        question_ids = [str(q.id) for q in qs if q.subject in allowed_subjects]
+        if not question_ids:
+            return jsonify({'error': 'No questions available for generation with your permissions'}), 403
+
     # Build generation options for storage
     generation_options = {
         'sort_mode': sort_mode,
@@ -460,6 +478,7 @@ def generation_status(file_id):
 @login_required
 def download_file(file_id):
     """Download a completed generated file"""
+    _require_generate_permission()
     gen_file = GeneratedFile.query.get_or_404(file_id)
     
     # Only owner or super admin

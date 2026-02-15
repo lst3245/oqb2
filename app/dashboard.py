@@ -25,7 +25,9 @@ def index():
     
     # Get sort config from session or use default
     sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
-    return render_template('dashboard.html', subjects=subjects, sort_config=sort_config)
+    subject_roles = current_user.get_subject_roles()
+    return render_template('dashboard.html', subjects=subjects, sort_config=sort_config,
+                         subject_roles=subject_roles)
 
 @dashboard_bp.route('/filter', methods=['POST', 'GET'])
 @login_required

@@ -367,7 +367,9 @@
                             </a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('user.profiles') }}"><i class="bi bi-bookmark"></i> Search Profiles</a></li>
+                                {% if current_user.can_generate() %}
                                 <li><a class="dropdown-item" href="{{ url_for('user.files') }}"><i class="bi bi-file-earmark-word"></i> My Files</a></li>
+                                {% endif %}
                             </ul>
                         </li>
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}

@@ -359,19 +359,21 @@
                             <i class="bi bi-x-circle"></i> <span class="btn-text">Clear</span>
                         </button>
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
-                        <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" 
+                        <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" style="display:none"
                                 onclick="showBatchEditModal()" title="Batch edit selected questions">
                             <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
                         </button>
-                        <button type="button" class="btn btn-sm btn-danger" id="deleteBtn" 
+                        <button type="button" class="btn btn-sm btn-danger" id="deleteBtn" style="display:none"
                                 onclick="showDeleteConfirmation()" title="Delete selected questions">
                             <i class="bi bi-trash"></i> <span class="btn-text">Delete</span>
                         </button>
                         {% endif %}
-                        <button type="button" class="btn btn-sm btn-success" id="generateBtn" 
+                        {% if current_user.can_generate() %}
+                        <button type="button" class="btn btn-sm btn-success" id="generateBtn" style="display:none"
                                 onclick="generateDocument()">
                             <i class="bi bi-file-earmark-word"></i> <span class="btn-text">Generate</span>
                         </button>
+                        {% endif %}
                         <button type="button" class="btn btn-sm btn-info" id="viewModeBtn" 
                                 onclick="openViewerMode()">
                             <i class="bi bi-easel"></i> <span class="btn-text">Present</span>
@@ -1059,6 +1061,28 @@ const DEFAULT_VIEW_SETTINGS = {
 
 // Default subject
 const DEFAULT_SUBJECT = 'MATC';
+
+// Per-subject permission roles for the current user
+const SUBJECT_ROLES = {{ subject_roles | default({}) | tojson }};
+
+/**
+ * Show/hide action buttons based on the selected subject's permission level.
+ * Roles: 'viewer' = view-only, 'user' = can generate, 'admin' = can edit/delete/generate.
+ */
+function updatePermissionButtons() {
+    const subjectId = document.getElementById('subjectSelect')?.value || '';
+    const role = SUBJECT_ROLES[subjectId] || '';
+    const canEdit = (role === 'admin');
+    const canGen = (role === 'user' || role === 'admin');
+
+    const batchEditBtn = document.getElementById('batchEditBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const generateBtn = document.getElementById('generateBtn');
+
+    if (batchEditBtn) batchEditBtn.style.display = canEdit ? '' : 'none';
+    if (deleteBtn) deleteBtn.style.display = canEdit ? '' : 'none';
+    if (generateBtn) generateBtn.style.display = canGen ? '' : 'none';
+}
 
 // ============== VIEW SETTINGS FUNCTIONS ==============
 
@@ -3018,6 +3042,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Restore filter settings (including default subject)
     await restoreFilterSettings(filtersToRestore);
     
+    // Update action buttons based on selected subject's permission
+    updatePermissionButtons();
+    
     // Initialize selection state (checkboxes)
     initializeSelectionState();
     
@@ -3119,6 +3146,9 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
         // Load chapters for the new subject
         loadChapters(subjectId, []);
     }
+
+    // Update action buttons based on subject permission
+    updatePermissionButtons();
 
     // Clear subtopics when subject changes
     document.getElementById('subtopicContainer').style.display = 'none';

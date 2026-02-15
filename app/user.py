@@ -1,7 +1,7 @@
 """
 User-facing routes: Saved Search Profiles and My Generated Files
 """
-from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, flash
+from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from app import db
 from app.models import SavedFilter, GeneratedFile
@@ -144,6 +144,8 @@ def profiles_bulk_delete():
 @login_required
 def files():
     """My generated files page"""
+    if not current_user.can_generate():
+        abort(403)
     return render_template('my_files.html')
 
 

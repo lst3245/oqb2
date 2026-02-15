@@ -84,6 +84,7 @@
                                                 onchange="updatePermission({{ data.user.id }}, '{{ subject.id }}', this.value)"
                                                 data-user="{{ data.user.id }}" data-subject="{{ subject.id }}">
                                             <option value="" {% if subject.id not in data.permissions %}selected{% endif %}>No Access</option>
+                                            <option value="viewer" {% if data.permissions.get(subject.id) == 'viewer' %}selected{% endif %}>View Only</option>
                                             <option value="user" {% if data.permissions.get(subject.id) == 'user' %}selected{% endif %}>User</option>
                                             <option value="admin" {% if data.permissions.get(subject.id) == 'admin' %}selected{% endif %}>Admin</option>
                                         </select>
