@@ -135,7 +135,7 @@
                         <!-- Show Correct Percentage -->
                         <div class="mb-3 form-check" id="showCorrectPctDiv">
                             <input type="checkbox" class="form-check-input" id="showCorrectPct" 
-                                   name="show_correct_pct">
+                                   name="show_correct_pct" checked>
                             <label class="form-check-label" for="showCorrectPct">
                                 Show Correct Percentage (if available)
                             </label>
@@ -332,11 +332,20 @@ document.addEventListener('DOMContentLoaded', function() {
 function updateAnswerQidVisibility() {
     const answerMode = document.getElementById('answerMode').value;
     const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');
+    const showQidAnswerCheckbox = document.getElementById('showQidAnswer');
     const answerPreferenceDiv = document.getElementById('answerPreferenceDiv');
     
     // Show if answer mode includes ANS or SOL
     if (answerMode !== 'QUE_ONLY') {
         showQidAnswerDiv.style.display = 'block';
+        
+        // Default: checked for "All QUE first, Then All ANS/SOL" modes,
+        // unchecked for "QUE+ANS" / "QUE+SOL" modes (ANS/SOL right after each QUE)
+        if (answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL') {
+            showQidAnswerCheckbox.checked = true;
+        } else {
+            showQidAnswerCheckbox.checked = false;
+        }
     } else {
         showQidAnswerDiv.style.display = 'none';
     }
