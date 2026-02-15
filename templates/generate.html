@@ -7,6 +7,10 @@
     <h2><i class="bi bi-file-earmark-word"></i> Generate Word Document</h2>
     <hr>
     
+    <!-- Question source choice banner (shown when regenerating from My Files) -->
+    <div id="questionSourceBanner" style="display: none;" class="alert alert-info mb-3">
+    </div>
+    
     <div class="row">
         <div class="col-md-8">
             <div class="card">
@@ -365,6 +369,7 @@
 <script>
 // Saved generation options (for regeneration from My Files page)
 const savedGenerationOptions = {{ generation_options | tojson | safe if generation_options else '{}' }};
+const IS_REGEN = {{ 'true' if is_regen else 'false' }};
 
 // Sort configuration - from session or default
 const SORT_FIELDS = {
@@ -413,7 +418,123 @@ document.addEventListener('DOMContentLoaded', function() {
     if (savedGenerationOptions && Object.keys(savedGenerationOptions).length > 0) {
         restoreGenerationOptions(savedGenerationOptions);
     }
+    
+    // Show question source choice banner for regen
+    if (IS_REGEN) {
+        showQuestionSourceChoice();
+    }
 });
+
+// ============== QUESTION SOURCE CHOICE (for regen) ==============
+
+function showQuestionSourceChoice() {
+    // Read the dashboard's current selection from localStorage
+    const dashboardRaw = localStorage.getItem('oqb_selectedQuestions');
+    let dashboardIds = [];
+    if (dashboardRaw) {
+        try { dashboardIds = JSON.parse(dashboardRaw); } catch(e) {}
+    }
+    
+    // Current question IDs on the page
+    const currentIds = Array.from(document.querySelectorAll('#questionIdsContainer input[name="question_ids"]')).map(i => i.value);
+    const currentCount = currentIds.length;
+    
+    // Saved file's original question IDs
+    const savedFileIds = (savedGenerationOptions.question_ids || []).map(String);
+    const savedCount = savedFileIds.length;
+    const dashCount = dashboardIds.length;
+    
+    // If dashboard has no selection, no choice needed
+    if (dashCount === 0 && savedCount === currentCount) return;
+    
+    // Determine which source is currently active
+    const currentSet = new Set(currentIds);
+    const savedSet = new Set(savedFileIds);
+    const dashSet = new Set(dashboardIds.map(String));
+    const isUsingSaved = currentSet.size === savedSet.size && [...currentSet].every(id => savedSet.has(id));
+    const isUsingDash = currentSet.size === dashSet.size && [...currentSet].every(id => dashSet.has(id));
+    
+    // If both are the same, or dashboard is empty while using saved — no choice needed
+    if (isUsingSaved && (dashCount === 0 || isUsingDash)) return;
+    if (isUsingDash && savedCount === 0) return;
+    
+    const banner = document.getElementById('questionSourceBanner');
+    banner.style.display = 'block';
+    
+    if (isUsingSaved) {
+        // Currently using file's questions, offer to switch to dashboard
+        banner.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                    <i class="bi bi-info-circle"></i>
+                    Using <strong>${currentCount}</strong> questions from saved file.
+                    Dashboard has <strong>${dashCount}</strong> selected.
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="switchQuestionSource('dashboard')">
+                    <i class="bi bi-arrow-repeat"></i> Use dashboard selection (${dashCount})
+                </button>
+            </div>
+        `;
+    } else {
+        // Currently using dashboard questions, offer to switch back to file
+        banner.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                    <i class="bi bi-info-circle"></i>
+                    Using <strong>${currentCount}</strong> questions from dashboard selection.
+                    Saved file had <strong>${savedCount}</strong> questions.
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="switchQuestionSource('file')">
+                    <i class="bi bi-arrow-repeat"></i> Use saved file questions (${savedCount})
+                </button>
+            </div>
+        `;
+    }
+}
+
+function switchQuestionSource(source) {
+    let ids = [];
+    
+    if (source === 'dashboard') {
+        const dashboardRaw = localStorage.getItem('oqb_selectedQuestions');
+        if (dashboardRaw) {
+            try { ids = JSON.parse(dashboardRaw); } catch(e) {}
+        }
+        if (ids.length === 0) return;
+    } else {
+        // Use saved file's question IDs
+        ids = (savedGenerationOptions.question_ids || []).map(String);
+        if (ids.length === 0) return;
+    }
+    
+    // Reload the page with the chosen question IDs via POST to refresh sidebar
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.location.pathname;
+    form.style.display = 'none';
+    
+    ids.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'question_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    
+    // Carry over regen_file_id so generation options are restored
+    const urlParams = new URLSearchParams(window.location.search);
+    const regenId = urlParams.get('regen_file_id');
+    if (regenId) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'regen_file_id';
+        input.value = regenId;
+        form.appendChild(input);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+}
 
 function restoreGenerationOptions(opts) {
     // Answer mode

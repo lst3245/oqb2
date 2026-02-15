@@ -59,10 +59,14 @@ def index():
     # Check if regenerating from a saved file
     regen_file_id = request.args.get('regen_file_id') or request.form.get('regen_file_id')
     regen_display_name = ''
+    is_regen = False
+    # Track whether question IDs were explicitly provided via POST (user chose dashboard selection)
+    has_explicit_qids = request.method == 'POST' and bool(request.form.getlist('question_ids'))
     if regen_file_id:
         try:
             gen_file = GeneratedFile.query.get(int(regen_file_id))
             if gen_file and (gen_file.user_id == current_user.id or current_user.is_super_admin):
+                is_regen = True
                 # Load generation options
                 if gen_file.generation_options:
                     try:
@@ -70,8 +74,9 @@ def index():
                     except (json.JSONDecodeError, TypeError):
                         pass
                 # Load question IDs from saved options
+                # Only override if user didn't explicitly provide IDs (e.g. chose dashboard selection)
                 saved_qids = generation_options.get('question_ids', [])
-                if saved_qids and not question_ids:
+                if saved_qids and not has_explicit_qids:
                     question_ids = [str(qid) for qid in saved_qids]
                     session['generator_question_ids'] = question_ids
                 # Load filter data
@@ -112,7 +117,8 @@ def index():
                           sort_fields=sort_fields,
                           filter_data=filter_data,
                           generation_options=generation_options,
-                          regen_display_name=regen_display_name)
+                          regen_display_name=regen_display_name,
+                          is_regen=is_regen)
 
 @generator_bp.route('/viewer', methods=['GET', 'POST'])
 @login_required
