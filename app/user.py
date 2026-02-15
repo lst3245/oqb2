@@ -145,6 +145,7 @@ def files_list():
             'error_message': gf.error_message,
             'question_count': gf.question_count,
             'has_filter': bool(gf.filter_data),
+            'has_generation_options': bool(gf.generation_options),
             'username': gf.user.username if show_all else None,
             'created_at': gf.created_at.strftime('%Y-%m-%d %H:%M'),
             'completed_at': gf.completed_at.strftime('%Y-%m-%d %H:%M') if gf.completed_at else None,
@@ -171,6 +172,27 @@ def files_filter_data(file_id):
         return jsonify({'error': 'Invalid filter data'}), 500
     
     return jsonify({'filter_data': filter_data})
+
+
+@user_bp.route('/files/<int:file_id>/generation_options')
+@login_required
+def files_generation_options(file_id):
+    """API: get saved generation options from a generated file (for regeneration)"""
+    gen_file = GeneratedFile.query.get_or_404(file_id)
+    
+    if gen_file.user_id != current_user.id and not current_user.is_super_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        generation_options = json.loads(gen_file.generation_options) if gen_file.generation_options else {}
+    except (json.JSONDecodeError, TypeError):
+        generation_options = {}
+    
+    return jsonify({
+        'generation_options': generation_options,
+        'display_name': gen_file.display_name,
+        'filter_data': gen_file.filter_data or '',
+    })
 
 
 @user_bp.route('/files/<int:file_id>', methods=['DELETE'])

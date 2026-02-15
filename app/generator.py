@@ -8,6 +8,7 @@ from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image
 import os
+import re
 import json
 import threading
 from datetime import datetime
@@ -23,6 +24,8 @@ def index():
     """Generation options page"""
     # Accept question IDs from POST form data (preferred) or GET query params (fallback)
     filter_data = ''
+    generation_options = {}
+    
     if request.method == 'POST':
         question_ids = request.form.getlist('question_ids')
         filter_data = request.form.get('filter_data', '')
@@ -43,6 +46,41 @@ def index():
             question_ids = session.get('generator_question_ids', [])
         filter_data = session.get('generator_filter_data', '')
     
+    # Check if regenerating from a saved file
+    regen_file_id = request.args.get('regen_file_id') or request.form.get('regen_file_id')
+    regen_display_name = ''
+    if regen_file_id:
+        try:
+            gen_file = GeneratedFile.query.get(int(regen_file_id))
+            if gen_file and (gen_file.user_id == current_user.id or current_user.is_super_admin):
+                # Load generation options
+                if gen_file.generation_options:
+                    try:
+                        generation_options = json.loads(gen_file.generation_options)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # Load question IDs from saved options
+                saved_qids = generation_options.get('question_ids', [])
+                if saved_qids and not question_ids:
+                    question_ids = [str(qid) for qid in saved_qids]
+                    session['generator_question_ids'] = question_ids
+                # Load filter data
+                if gen_file.filter_data and not filter_data:
+                    filter_data = gen_file.filter_data
+                    session['generator_filter_data'] = filter_data
+                # Load sort config
+                saved_sort = generation_options.get('sort_config')
+                if saved_sort:
+                    try:
+                        session['sort_config'] = json.loads(saved_sort) if isinstance(saved_sort, str) else saved_sort
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # Get display name for pre-filling
+                if gen_file.display_name:
+                    regen_display_name = re.sub(r'_\d{8}_\d{6}$', '', gen_file.display_name)
+        except (ValueError, TypeError):
+            pass
+    
     if not question_ids:
         flash('No questions selected', 'warning')
         return redirect(url_for('dashboard.index'))
@@ -62,7 +100,9 @@ def index():
                           question_ids=question_ids,
                           sort_config=sort_config,
                           sort_fields=sort_fields,
-                          filter_data=filter_data)
+                          filter_data=filter_data,
+                          generation_options=generation_options,
+                          regen_display_name=regen_display_name)
 
 @generator_bp.route('/viewer', methods=['GET', 'POST'])
 @login_required

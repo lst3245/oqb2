@@ -33,7 +33,7 @@
                             <label class="form-label"><strong>File Name</strong></label>
                             <div class="input-group">
                                 <input type="text" class="form-control" name="display_name" id="displayName" 
-                                       value="" placeholder="questions (auto-timestamped)">
+                                       value="{{ regen_display_name or '' }}" placeholder="questions (auto-timestamped)">
                                 <span class="input-group-text">.docx</span>
                             </div>
                         </div>
@@ -284,6 +284,9 @@
 
 {% block extra_js %}
 <script>
+// Saved generation options (for regeneration from My Files page)
+const savedGenerationOptions = {{ generation_options | tojson | safe if generation_options else '{}' }};
+
 // Sort configuration - from session or default
 const SORT_FIELDS = {
     'qid': 'Question ID',
@@ -326,7 +329,123 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+    
+    // Restore saved generation options if regenerating from My Files
+    if (savedGenerationOptions && Object.keys(savedGenerationOptions).length > 0) {
+        restoreGenerationOptions(savedGenerationOptions);
+    }
 });
+
+function restoreGenerationOptions(opts) {
+    // Answer mode
+    if (opts.answer_mode) {
+        const answerModeSelect = document.getElementById('answerMode');
+        answerModeSelect.value = opts.answer_mode;
+        updateAnswerQidVisibility();
+    }
+    
+    // Answer preference
+    if (opts.answer_preference) {
+        const el = document.getElementById('answerPreference');
+        if (el) el.value = opts.answer_preference;
+    }
+    
+    // Preferred language
+    if (opts.preferred_language) {
+        const el = document.getElementById('preferredLanguage');
+        if (el) el.value = opts.preferred_language;
+    }
+    
+    // Show QID checkbox
+    if (opts.show_qid !== undefined) {
+        document.getElementById('showQid').checked = (opts.show_qid === 'on' || opts.show_qid === true);
+    }
+    
+    // Show QID for answers checkbox
+    if (opts.show_qid_answer !== undefined) {
+        document.getElementById('showQidAnswer').checked = (opts.show_qid_answer === 'on' || opts.show_qid_answer === true);
+    }
+    
+    // Show correct percentage checkbox
+    if (opts.show_correct_pct !== undefined) {
+        document.getElementById('showCorrectPct').checked = (opts.show_correct_pct === 'on' || opts.show_correct_pct === true);
+    }
+    
+    // MC spacing - before
+    if (opts.mc_before_mode) {
+        if (opts.mc_before_mode === 'page') {
+            document.getElementById('mcBeforePage').checked = true;
+        } else {
+            document.getElementById('mcBeforeLines').checked = true;
+        }
+    }
+    if (opts.mc_before_lines !== undefined) {
+        const el = document.querySelector('input[name="mc_before_lines"]');
+        if (el) el.value = opts.mc_before_lines;
+    }
+    
+    // MC spacing - after
+    if (opts.mc_after_mode) {
+        if (opts.mc_after_mode === 'page') {
+            document.getElementById('mcAfterPage').checked = true;
+        } else {
+            document.getElementById('mcAfterLines').checked = true;
+        }
+    }
+    if (opts.mc_after_lines !== undefined) {
+        const el = document.querySelector('input[name="mc_after_lines"]');
+        if (el) el.value = opts.mc_after_lines;
+    }
+    
+    // CQ spacing - before
+    if (opts.cq_before_mode) {
+        if (opts.cq_before_mode === 'page') {
+            document.getElementById('cqBeforePage').checked = true;
+        } else {
+            document.getElementById('cqBeforeLines').checked = true;
+        }
+    }
+    if (opts.cq_before_lines !== undefined) {
+        const el = document.querySelector('input[name="cq_before_lines"]');
+        if (el) el.value = opts.cq_before_lines;
+    }
+    
+    // CQ spacing - after
+    if (opts.cq_after_mode) {
+        if (opts.cq_after_mode === 'page') {
+            document.getElementById('cqAfterPage').checked = true;
+        } else {
+            document.getElementById('cqAfterLines').checked = true;
+        }
+    }
+    if (opts.cq_after_lines !== undefined) {
+        const el = document.querySelector('input[name="cq_after_lines"]');
+        if (el) el.value = opts.cq_after_lines;
+    }
+    
+    // Sort mode
+    if (opts.sort_mode) {
+        const sortModeRadio = document.getElementById(opts.sort_mode === 'selection' ? 'sortModeSelection' : 'sortModeCustom');
+        if (sortModeRadio) {
+            sortModeRadio.checked = true;
+            sortModeRadio.dispatchEvent(new Event('change'));
+        }
+    }
+    
+    // Sort config (re-render sort criteria with saved config)
+    if (opts.sort_config) {
+        try {
+            const savedSort = typeof opts.sort_config === 'string' ? JSON.parse(opts.sort_config) : opts.sort_config;
+            if (Array.isArray(savedSort) && savedSort.length > 0) {
+                sortConfig = savedSort;
+                document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
+                renderSortCriteria();
+            }
+        } catch (e) {
+            // ignore parse errors
+        }
+    }
+}
 
 // Show/hide the "Show QID for answers" option based on answer mode
 function updateAnswerQidVisibility() {

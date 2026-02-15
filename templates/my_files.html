@@ -112,6 +112,10 @@ function loadFiles() {
                     ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="Reuse filter"><i class="bi bi-funnel"></i></a>`
                     : '';
                 
+                const regenBtn = f.has_generation_options
+                    ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
+                    : '';
+                
                 html += `
                         <tr class="file-row ${statusClass}">
                             <td><strong>${escapeHtml(f.display_name)}</strong></td>
@@ -122,6 +126,7 @@ function loadFiles() {
                             <td class="text-end">
                                 <div class="btn-group btn-group-sm">
                                     ${downloadBtn}
+                                    ${regenBtn}
                                     ${filterBtn}
                                     <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="Delete">
                                         <i class="bi bi-trash"></i>
