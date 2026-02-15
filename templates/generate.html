@@ -928,8 +928,8 @@ function showStatusBanner(type, html) {
     banner.style.display = 'block';
     banner.className = `alert alert-${type} mb-3`;
     banner.innerHTML = html;
-    // Scroll to top of card
-    banner.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    // Scroll banner into view at top of viewport
+    banner.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 function escapeHtml(text) {
