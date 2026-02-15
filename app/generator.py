@@ -57,16 +57,12 @@ def index():
     # Get available sort fields for the UI
     sort_fields = [{"value": key, "label": info["label"]} for key, info in SORT_FIELDS.items()]
     
-    # Default filename
-    default_filename = f'questions_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-    
     return render_template('generate.html', 
-                          questions=questions, 
+                          questions=questions,
                           question_ids=question_ids,
                           sort_config=sort_config,
                           sort_fields=sort_fields,
-                          filter_data=filter_data,
-                          default_filename=default_filename)
+                          filter_data=filter_data)
 
 @generator_bp.route('/viewer', methods=['GET', 'POST'])
 @login_required
@@ -250,7 +246,9 @@ def create_document():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if not display_name:
         display_name = f'questions_{timestamp}'
-    filename = f'{display_name}_{timestamp}.docx'
+        filename = f'{display_name}.docx'
+    else:
+        filename = f'{display_name}_{timestamp}.docx'
     # Sanitize filename
     filename = "".join(c for c in filename if c.isalnum() or c in '._- ').strip()
     if not filename.endswith('.docx'):
