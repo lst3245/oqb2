@@ -1049,8 +1049,8 @@ function showStatusBanner(type, html) {
     banner.style.display = 'block';
     banner.className = `alert alert-${type} mb-3`;
     banner.innerHTML = html;
-    // Scroll banner into view at top of viewport
-    banner.scrollIntoView({behavior: 'smooth', block: 'start'});
+    // Scroll to very top of page so banner is visible below the sticky navbar
+    window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 function escapeHtml(text) {
