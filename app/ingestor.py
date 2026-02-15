@@ -14,30 +14,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Regex patterns for parsing filenames
-# PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png
+# PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png  or  MATC_DSE_2025_P2_Q5_EN_QUE_2.png (multi-part)
 PP_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P\d+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P\d+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
-# QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png
+# QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png  or  ..._QUE_2.png (multi-part)
 QB_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 def parse_filename(filename):
     """
     Parse filename using regex patterns
-    Returns dict with parsed components or None if no match
+    Returns dict with parsed components or None if no match.
+    The 'part' key will be an int (default 1 when not present in filename).
     """
     # Try PP pattern first
     match = PP_PATTERN.match(filename)
-    if match:
-        return match.groupdict()
+    if not match:
+        # Try QB pattern
+        match = QB_PATTERN.match(filename)
     
-    # Try QB pattern
-    match = QB_PATTERN.match(filename)
     if match:
-        return match.groupdict()
+        parsed = match.groupdict()
+        # Convert optional part number to int, default 1
+        parsed['part'] = int(parsed['part']) if parsed.get('part') else 1
+        return parsed
     
     return None
 
@@ -173,6 +176,7 @@ def upsert_asset(question, parsed, file_path, source_path):
     asset_type = parsed['type']  # QUE, ANS, SOL
     language = parsed['lang']  # EN, CH, BI
     file_format = determine_file_format(parsed['ext'])
+    part_number = parsed.get('part', 1)
     
     if not file_format:
         logger.warning(f"Unknown file format: {parsed['ext']} for {file_path}")
@@ -181,12 +185,13 @@ def upsert_asset(question, parsed, file_path, source_path):
     # Get relative path from source
     rel_path = os.path.relpath(file_path, source_path)
     
-    # Check if asset already exists
+    # Check if asset already exists (uniqueness includes part_number)
     asset = QuestionAsset.query.filter_by(
         question_id=question.id,
         asset_type=asset_type,
         language=language,
-        file_format=file_format
+        file_format=file_format,
+        part_number=part_number
     ).first()
     
     if asset:
@@ -200,7 +205,8 @@ def upsert_asset(question, parsed, file_path, source_path):
             asset_type=asset_type,
             file_format=file_format,
             language=language,
-            file_path=rel_path
+            file_path=rel_path,
+            part_number=part_number
         )
         db.session.add(asset)
         logger.info(f"Created new asset: {rel_path}")
@@ -521,13 +527,15 @@ def scan_directory_stream(source_path, base_path=None):
                 asset_type = parsed['type']
                 language = parsed['lang']
                 file_format = determine_file_format(parsed['ext'])
+                part_number = parsed.get('part', 1)
                 existing_asset = None
                 if file_format:
                     existing_asset = QuestionAsset.query.filter_by(
                         question_id=question.id,
                         asset_type=asset_type,
                         language=language,
-                        file_format=file_format
+                        file_format=file_format,
+                        part_number=part_number
                     ).first()
                 
                 # Upsert asset (use base_path so stored rel_path includes subject prefix)

@@ -255,15 +255,23 @@ def filter_questions():
     
     question_data = []
     for q in questions:
-        # Get QUE asset with language preference ordering
-        que_asset = QuestionAsset.query.filter_by(
+        # Get all QUE assets with language preference ordering, ordered by part_number
+        que_assets = QuestionAsset.query.filter_by(
             question_id=q.id,
             asset_type='QUE'
         ).filter(
             QuestionAsset.language.in_(['EN', 'CH', 'BI'])
         ).order_by(
-            lang_order  # Preferred > BI > Other
-        ).first()
+            lang_order,  # Preferred > BI > Other
+            QuestionAsset.part_number  # Then by part number
+        ).all()
+        
+        # Pick the best language group: take the language of the first result
+        # then filter to only that language so all parts share the same language
+        que_asset_ids = []
+        if que_assets:
+            best_lang = que_assets[0].language
+            que_asset_ids = [a.id for a in que_assets if a.language == best_lang]
         
         # Check for ANS and SOL
         has_ans = QuestionAsset.query.filter_by(
@@ -301,7 +309,8 @@ def filter_questions():
             'subchapter_id': q.subchapter_id,
             'description': q.description,
             'correct_percentage': q.correct_percentage,
-            'que_asset_id': que_asset.id if que_asset else None,
+            'que_asset_id': que_asset_ids[0] if que_asset_ids else None,
+            'que_asset_ids': que_asset_ids,
             'has_ans': has_ans,
             'has_sol': has_sol,
             'answer': q.answer,
@@ -518,23 +527,39 @@ def get_asset_preview(asset_id):
 @dashboard_bp.route('/api/question/<int:question_id>/assets/<asset_type>')
 @login_required
 def get_question_asset(question_id, asset_type):
-    """Get specific asset type for a question"""
-    asset = QuestionAsset.query.filter_by(
+    """Get all asset parts for a question and type, ordered by part_number"""
+    assets = QuestionAsset.query.filter_by(
         question_id=question_id,
         asset_type=asset_type
     ).order_by(
-        QuestionAsset.language.desc()  # Prefer EN
-    ).first()
+        QuestionAsset.language.desc(),  # Prefer EN
+        QuestionAsset.part_number
+    ).all()
     
-    if not asset:
+    if not assets:
         return jsonify({'error': 'Asset not found'}), 404
     
-    file_url = f"/dashboard/files/{asset.file_path}"
+    # Pick the best language group (language of first result after ordering)
+    best_lang = assets[0].language
+    selected = [a for a in assets if a.language == best_lang]
+    
+    parts = []
+    for asset in selected:
+        parts.append({
+            'id': asset.id,
+            'type': asset.asset_type,
+            'format': asset.file_format,
+            'language': asset.language,
+            'part_number': asset.part_number,
+            'url': f"/dashboard/files/{asset.file_path}"
+        })
     
     return jsonify({
-        'id': asset.id,
-        'type': asset.asset_type,
-        'format': asset.file_format,
-        'language': asset.language,
-        'url': file_url
+        'parts': parts,
+        # Keep backward-compat single-asset fields from the first part
+        'id': parts[0]['id'],
+        'type': parts[0]['type'],
+        'format': parts[0]['format'],
+        'language': parts[0]['language'],
+        'url': parts[0]['url']
     })

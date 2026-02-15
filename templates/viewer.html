@@ -1334,7 +1334,7 @@
             document.getElementById('nextBtnMobile').disabled = isLast;
         }
         
-        // Load assets
+        // Load assets (supports multi-part images)
         async function loadAsset(type, questionId) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
             
@@ -1358,7 +1358,11 @@
                 const data = await response.json();
                 
                 if (data.format === 'IMG') {
-                    container.innerHTML = `<img src="${data.url}" alt="${type}" onload="applyZoom('${type}')">`;
+                    // Render all parts stacked vertically
+                    const parts = data.parts || [data];
+                    container.innerHTML = parts.map(p =>
+                        `<img src="${p.url}" alt="${type}" onload="applyZoom('${type}')" style="display:block;">`
+                    ).join('');
                 } else {
                     container.innerHTML = `
                         <div class="empty-state">
@@ -1413,7 +1417,11 @@
                 const data = await response.json();
                 
                 if (data.format === 'IMG') {
-                    container.innerHTML = `<img src="${data.url}" alt="${data.type}" onload="applyZoom('ANS')">`;
+                    // Render all parts stacked vertically
+                    const parts = data.parts || [data];
+                    container.innerHTML = parts.map(p =>
+                        `<img src="${p.url}" alt="${data.type}" onload="applyZoom('ANS')" style="display:block;">`
+                    ).join('');
                 } else {
                     container.innerHTML = `
                         <div class="empty-state">
@@ -1559,9 +1567,10 @@
         function applyZoom(type) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
             const zoom = type === 'QUE' ? queZoom : ansZoom;
-            const img = container.querySelector('img');
+            // Apply zoom to ALL images in the container (multi-part support)
+            const imgs = container.querySelectorAll('img');
             
-            if (img) {
+            imgs.forEach(img => {
                 // At 100% zoom, image fits in half of initial window width
                 // Use the smaller of: baseZoomWidth or natural image width (don't upscale small images)
                 const naturalWidth = img.naturalWidth || img.offsetWidth;
@@ -1569,7 +1578,7 @@
                 const newWidth = (targetWidth * zoom) / 100;
                 img.style.width = newWidth + 'px';
                 img.style.maxWidth = 'none';
-            }
+            });
         }
         
         // Layout

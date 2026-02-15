@@ -3189,6 +3189,11 @@ function previewAsset(questionId, assetType) {
         .then(data => {
             if (data.error) {
                 modalBody.innerHTML = `<p class="text-danger">${data.error}</p>`;
+            } else if (data.parts && data.parts.length > 0) {
+                // Multi-part: stack all images vertically
+                modalBody.innerHTML = data.parts.map(p =>
+                    `<img src="${p.url}" class="preview-modal-img" alt="${assetType}" style="display:block; margin-bottom:4px; max-width:100%;">`
+                ).join('');
             } else {
                 modalBody.innerHTML = `<img src="${data.url}" class="preview-modal-img" alt="${assetType}">`;
             }

@@ -97,9 +97,16 @@
                     {% endif %}
                 </div>
                 
-                <!-- Preview Image -->
+                <!-- Preview Image(s) -->
                 <div class="col-md-6">
-                    {% if question.que_asset_id %}
+                    {% if question.que_asset_ids %}
+                        {% for asset_id in question.que_asset_ids %}
+                        <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}" 
+                             class="question-image" 
+                             style="display:block; margin-bottom:2px;"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">
+                        {% endfor %}
+                    {% elif question.que_asset_id %}
                         <img src="{{ url_for('dashboard.get_asset_preview', asset_id=question.que_asset_id) }}" 
                              class="question-image" 
                              onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">

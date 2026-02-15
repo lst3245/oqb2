@@ -214,9 +214,10 @@ class QuestionAsset(db.Model):
     file_format = db.Column(db.Enum('IMG', 'DOC', name='file_format_enum'), nullable=False)
     language = db.Column(db.Enum('EN', 'CH', 'BI', name='language_enum'), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)  # Relative path
+    part_number = db.Column(db.Integer, nullable=False, default=1)  # For multi-image questions (1, 2, 3...)
     
     def __repr__(self):
-        return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language})>'
+        return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language}) part {self.part_number}>'
 
 
 class SavedFilter(db.Model):

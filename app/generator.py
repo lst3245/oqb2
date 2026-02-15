@@ -184,7 +184,9 @@ def viewer():
 @generator_bp.route('/api/viewer_asset/<int:question_id>/<asset_type>')
 @login_required
 def get_viewer_asset(question_id, asset_type):
-    """Get asset URL for viewer mode with language preference"""
+    """Get asset URLs for viewer mode with language preference.
+    Returns an array of parts for multi-image questions.
+    """
     preferred_language = request.args.get('lang', 'EN')
     
     # Get all assets for this question and type
@@ -219,18 +221,36 @@ def get_viewer_asset(question_id, asset_type):
     def format_order(asset):
         return 0 if asset.file_format == 'IMG' else 1
     
-    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a)))
-    asset = sorted_assets[0]
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
     
-    file_url = f"/dashboard/files/{asset.file_path}"
+    # Pick the best language+format group, then return all parts for that group
+    best = sorted_assets[0]
+    selected = [a for a in sorted_assets
+                if a.file_format == best.file_format and a.language == best.language]
+    # Ensure ordered by part_number
+    selected.sort(key=lambda a: a.part_number)
     
-    return jsonify({
-        'id': asset.id,
-        'type': asset.asset_type,
-        'format': asset.file_format,
-        'language': asset.language,
-        'url': file_url
-    })
+    parts = []
+    for a in selected:
+        parts.append({
+            'id': a.id,
+            'type': a.asset_type,
+            'format': a.file_format,
+            'language': a.language,
+            'part_number': a.part_number,
+            'url': f"/dashboard/files/{a.file_path}"
+        })
+    
+    # Return parts array + backward-compat top-level fields from first part
+    result = {
+        'parts': parts,
+        'id': parts[0]['id'],
+        'type': parts[0]['type'],
+        'format': parts[0]['format'],
+        'language': parts[0]['language'],
+        'url': parts[0]['url']
+    }
+    return jsonify(result)
 
 @generator_bp.route('/create', methods=['POST'])
 @login_required
@@ -865,58 +885,58 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     def format_order(asset):
         return 0 if asset.file_format == 'IMG' else 1
     
-    # Sort by format first (IMG preferred), then by language
-    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a)))
-    asset = sorted_assets[0] if sorted_assets else None
+    # Sort by format first (IMG preferred), then by language, then by part_number
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
     
-    if not asset:
+    if not sorted_assets:
         # No asset found, add placeholder
         para = doc.add_paragraph()
         run = para.add_run(f'[{asset_type} not available for {question.qid}]')
         run.italic = True
         return
     
-    # Get file path
-    file_path = os.path.join(source_path, asset.file_path)
+    # Pick the best language+format group, then include all parts for that group
+    best = sorted_assets[0]
+    selected_assets = [a for a in sorted_assets
+                       if a.file_format == best.file_format and a.language == best.language]
+    selected_assets.sort(key=lambda a: a.part_number)
     
-    if not os.path.exists(file_path):
-        para = doc.add_paragraph()
-        run = para.add_run(f'[File not found: {asset.file_path}]')
-        run.italic = True
-        return
-    
-    # Add image to document
-    if asset.file_format == 'IMG':
-        try:
-            # Open image to get dimensions
-            img = Image.open(file_path)
-            img_width, img_height = img.size
-            
-            # Calculate size for document
-            # Max width: 6 inches (to fit in A4 with margins)
-            max_width_inches = 6.0
-            max_width_pixels = max_width_inches * _DPI
-            
-            if img_width > max_width_pixels:
-                # Resize to fit width
-                scale = max_width_pixels / img_width
-                doc_width_inches = max_width_inches
-            else:
-                # Use actual size
-                scale = 1.0
-                doc_width_inches = img_width / _DPI
-            
-            # Add picture
-            doc.add_picture(file_path, width=Inches(doc_width_inches))
-            
-        except Exception as e:
+    # Add all selected assets to the document
+    for asset in selected_assets:
+        file_path = os.path.join(source_path, asset.file_path)
+        
+        if not os.path.exists(file_path):
             para = doc.add_paragraph()
-            run = para.add_run(f'[Error loading image: {str(e)}]')
+            run = para.add_run(f'[File not found: {asset.file_path}]')
             run.italic = True
-    
-    elif asset.file_format == 'DOC':
-        # For Word files, just add a placeholder for now
-        # Full merging with docxcompose can be added later
-        para = doc.add_paragraph()
-        run = para.add_run(f'[Word document: {asset.file_path}]')
-        run.italic = True
+            continue
+        
+        if asset.file_format == 'IMG':
+            try:
+                # Open image to get dimensions
+                img = Image.open(file_path)
+                img_width, img_height = img.size
+                
+                # Calculate size for document
+                # Max width: 6 inches (to fit in A4 with margins)
+                max_width_inches = 6.0
+                max_width_pixels = max_width_inches * _DPI
+                
+                if img_width > max_width_pixels:
+                    doc_width_inches = max_width_inches
+                else:
+                    doc_width_inches = img_width / _DPI
+                
+                # Add picture
+                doc.add_picture(file_path, width=Inches(doc_width_inches))
+                
+            except Exception as e:
+                para = doc.add_paragraph()
+                run = para.add_run(f'[Error loading image: {str(e)}]')
+                run.italic = True
+        
+        elif asset.file_format == 'DOC':
+            # For Word files, just add a placeholder for now
+            para = doc.add_paragraph()
+            run = para.add_run(f'[Word document: {asset.file_path}]')
+            run.italic = True
