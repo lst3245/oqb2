@@ -1939,10 +1939,7 @@ async function restoreFilterSettings(settings) {
         }
     }
     
-    // Restore section
-    if (settings.section) {
-        document.querySelector('select[name="section"]').value = settings.section;
-    }
+    // Note: section restore is deferred until after loadSubjectData populates the dropdown
     
     // Restore cross-topic checkbox
     if (settings.is_crosstopic !== undefined) {
@@ -2013,63 +2010,65 @@ async function restoreFilterSettings(settings) {
     if (settings.subject) {
         await loadSubjectData(settings.subject, settings.source_type || 'DSE');
         
-        // After topics are loaded, restore selected topics
-        if (settings.topics && settings.topics.length > 0) {
-            setTimeout(() => {
-                settings.topics.forEach(topicId => {
-                    const topicCb = document.getElementById(`topic${topicId}`);
-                    if (topicCb) {
-                        topicCb.checked = true;
-                    }
-                });
-                syncTopicSelectWithCheckboxes();
-                updateTopicDropdownLabel();
-                
-                // Load subtopics for selected topics
-                if (settings.subtopics && settings.subtopics.length > 0) {
-                    loadSubtopicsForTopics(settings.topics, settings.subtopics);
-                } else {
-                    loadSubtopicsForSelectedTopics();
-                }
-            }, 100);
+        // Restore section AFTER loadSubjectData has populated the dropdown
+        if (settings.section) {
+            const sectionSelect = document.querySelector('select[name="section"]');
+            if (sectionSelect) {
+                sectionSelect.value = settings.section;
+            }
         }
         
-        // Restore years after they're loaded
+        // Topics are now in the DOM after loadSubjectData — restore selected topics immediately
+        if (settings.topics && settings.topics.length > 0) {
+            settings.topics.forEach(topicId => {
+                const topicCb = document.getElementById(`topic${topicId}`);
+                if (topicCb) {
+                    topicCb.checked = true;
+                }
+            });
+            syncTopicSelectWithCheckboxes();
+            updateTopicDropdownLabel();
+            
+            // Load subtopics for selected topics (await the fetch)
+            if (settings.subtopics && settings.subtopics.length > 0) {
+                await loadSubtopicsForTopicsAsync(settings.topics, settings.subtopics);
+            } else {
+                await loadSubtopicsForSelectedTopicsAsync();
+            }
+        }
+        
+        // Years are now in the DOM after loadSubjectData — restore immediately
         if (settings.years && settings.years.length > 0) {
-            setTimeout(() => {
-                settings.years.forEach(year => {
-                    const yearCb = document.getElementById(`year${year}`);
-                    if (yearCb) {
-                        yearCb.checked = true;
-                    }
-                });
-                updateYearDropdownLabel();
-            }, 150);
+            settings.years.forEach(year => {
+                const yearCb = document.getElementById(`year${year}`);
+                if (yearCb) {
+                    yearCb.checked = true;
+                }
+            });
+            updateYearDropdownLabel();
         }
     }
     
-    // Load chapters for the selected subject
+    // Load chapters for the selected subject (await the fetch)
     const selectedSubject = settings.subject || DEFAULT_SUBJECT;
-    loadChapters(selectedSubject, settings.chapters || []);
+    await loadChaptersAsync(selectedSubject, settings.chapters || []);
 
-    // Restore chapters and subchapters after chapters are loaded
+    // Chapters are now in the DOM — restore selected chapters immediately
     if (settings.chapters && settings.chapters.length > 0) {
-        setTimeout(() => {
-            settings.chapters.forEach(chapterId => {
-                const chapterCb = document.getElementById(`chapter${chapterId}`);
-                if (chapterCb) {
-                    chapterCb.checked = true;
-                }
-            });
-            updateChapterDropdownLabel();
-            
-            // Load subchapters for selected chapters
-            if (settings.subchapters && settings.subchapters.length > 0) {
-                loadSubchaptersForChapters(settings.chapters, settings.subchapters);
-            } else {
-                loadSubchaptersForSelectedChapters();
+        settings.chapters.forEach(chapterId => {
+            const chapterCb = document.getElementById(`chapter${chapterId}`);
+            if (chapterCb) {
+                chapterCb.checked = true;
             }
-        }, 100);
+        });
+        updateChapterDropdownLabel();
+        
+        // Load subchapters for selected chapters (await the fetch)
+        if (settings.subchapters && settings.subchapters.length > 0) {
+            await loadSubchaptersForChaptersAsync(settings.chapters, settings.subchapters);
+        } else {
+            await loadSubchaptersForSelectedChaptersAsync();
+        }
     }
 }
 
@@ -2568,6 +2567,60 @@ function loadSubtopicsForTopics(topicIds, selectedSubtopicIds) {
         });
 }
 
+// Async version of loadSubtopicsForTopics (returns a Promise)
+async function loadSubtopicsForTopicsAsync(topicIds, selectedSubtopicIds) {
+    const topicIdsStr = topicIds.join(',');
+    if (!topicIdsStr) return;
+    
+    const showHidden = document.getElementById('showHiddenSubtopics')?.checked || false;
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    const qType = getSelectedQType();
+    const qTypeParam = `&q_type=${encodeURIComponent(qType)}`;
+    
+    const response = await fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}${includeHidden}${qTypeParam}`);
+    const subtopics = await response.json();
+    const subtopicContainer = document.getElementById('subtopicContainer');
+    
+    if (subtopics.length) {
+        renderSubtopicCheckboxes(subtopics, selectedSubtopicIds || []);
+        updateSubtopicDropdownLabel();
+        subtopicContainer.style.display = 'block';
+    } else {
+        subtopicContainer.style.display = 'none';
+    }
+}
+
+// Async version of loadSubtopicsForSelectedTopics (returns a Promise)
+async function loadSubtopicsForSelectedTopicsAsync() {
+    const checkedTopics = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value);
+    const subtopicContainer = document.getElementById('subtopicContainer');
+    const showHidden = document.getElementById('showHiddenSubtopics')?.checked || false;
+    
+    if (checkedTopics.length === 0) {
+        subtopicContainer.style.display = 'none';
+        document.getElementById('subtopicCheckboxes').innerHTML = '';
+        document.getElementById('subtopicSelect').innerHTML = '';
+        return;
+    }
+    
+    const topicIdsStr = checkedTopics.join(',');
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    const qType = getSelectedQType();
+    const qTypeParam = `&q_type=${encodeURIComponent(qType)}`;
+    
+    const currentSelected = Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value);
+    
+    const response = await fetch(`{{ url_for('dashboard.get_subtopics') }}?topic_ids=${topicIdsStr}${includeHidden}${qTypeParam}`);
+    const subtopics = await response.json();
+    if (subtopics.length) {
+        renderSubtopicCheckboxes(subtopics, currentSelected);
+        updateSubtopicDropdownLabel();
+        subtopicContainer.style.display = 'block';
+    } else {
+        subtopicContainer.style.display = 'none';
+    }
+}
+
 // ============== CHAPTER FILTER FUNCTIONS ==============
 
 // Load chapters for a subject
@@ -2586,6 +2639,22 @@ function loadChapters(subjectId, selectedChapterIds = []) {
             renderChapterCheckboxes(chapters, selectedChapterIds);
             updateChapterDropdownLabel();
         });
+}
+
+// Async version of loadChapters (returns a Promise)
+async function loadChaptersAsync(subjectId, selectedChapterIds = []) {
+    if (!subjectId) {
+        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">Select subject first</small>';
+        document.getElementById('chapterDropdownLabel').textContent = 'Select subject first';
+        document.getElementById('chapterSelect').innerHTML = '';
+        document.getElementById('subchapterContainer').style.display = 'none';
+        return;
+    }
+    
+    const response = await fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId));
+    const chapters = await response.json();
+    renderChapterCheckboxes(chapters, selectedChapterIds);
+    updateChapterDropdownLabel();
 }
 
 // Render chapter checkboxes in dropdown
@@ -2853,6 +2922,53 @@ function loadSubchaptersForChapters(chapterIds, selectedSubchapterIds) {
         });
 }
 
+// Async version of loadSubchaptersForChapters (returns a Promise)
+async function loadSubchaptersForChaptersAsync(chapterIds, selectedSubchapterIds) {
+    const chapterIdsStr = chapterIds.join(',');
+    if (!chapterIdsStr) return;
+    
+    const showHidden = document.getElementById('showHiddenSubchapters')?.checked || false;
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    
+    const response = await fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterIdsStr}${includeHidden}`);
+    const subchapters = await response.json();
+    const subchapterContainer = document.getElementById('subchapterContainer');
+    
+    if (subchapters.length) {
+        renderSubchapterCheckboxes(subchapters, selectedSubchapterIds || []);
+        updateSubchapterDropdownLabel();
+        subchapterContainer.style.display = 'block';
+    } else {
+        subchapterContainer.style.display = 'none';
+    }
+}
+
+// Async version of loadSubchaptersForSelectedChapters (returns a Promise)
+async function loadSubchaptersForSelectedChaptersAsync() {
+    const checkedChapters = Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value);
+    const subchapterContainer = document.getElementById('subchapterContainer');
+    const showHidden = document.getElementById('showHiddenSubchapters')?.checked || false;
+
+    if (checkedChapters.length === 0) {
+        subchapterContainer.style.display = 'none';
+        document.getElementById('subchapterCheckboxes').innerHTML = '';
+        document.getElementById('subchapterSelect').innerHTML = '';
+        return;
+    }
+
+    const chapterIdsStr = checkedChapters.join(',');
+    const includeHidden = showHidden ? '&include_hidden=1' : '';
+    const response = await fetch(`{{ url_for('dashboard.get_subchapters') }}?chapter_ids=${chapterIdsStr}${includeHidden}`);
+    const subchapters = await response.json();
+    if (subchapters.length) {
+        renderSubchapterCheckboxes(subchapters);
+        updateSubchapterDropdownLabel();
+        subchapterContainer.style.display = 'block';
+    } else {
+        subchapterContainer.style.display = 'none';
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
     // Load persisted state from localStorage
@@ -2912,36 +3028,34 @@ document.addEventListener('DOMContentLoaded', async function() {
     initFilterChangeListeners();
     
     // Auto-trigger search if we have filters with a subject selected
+    // restoreFilterSettings now properly awaits all async loads, so filters are fully set
     if (filtersToRestore && filtersToRestore.subject) {
-        // Small delay to ensure all async topic/year loading is complete
-        setTimeout(() => {
-            if (profileFilters) {
-                // Profile restore: always start at page 1
+        if (profileFilters) {
+            // Profile restore: always start at page 1
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                htmx.trigger(filterForm, 'submit');
+            }
+            // Save baseline so modified badge doesn't show
+            setTimeout(() => {
+                if (typeof getCurrentFilterValues === 'function') {
+                    lastSearchedFilters = getCurrentFilterValues();
+                }
+            }, 500);
+        } else {
+            // Normal localStorage restore: use saved page number
+            const savedPage = localStorage.getItem(STORAGE_KEYS.CURRENT_PAGE);
+            const pageNum = savedPage ? parseInt(savedPage) : 1;
+            
+            if (pageNum > 1) {
+                triggerSearchWithPage(pageNum);
+            } else {
                 const filterForm = document.getElementById('filterForm');
                 if (filterForm) {
                     htmx.trigger(filterForm, 'submit');
                 }
-                // Save baseline so modified badge doesn't show
-                setTimeout(() => {
-                    if (typeof getCurrentFilterValues === 'function') {
-                        lastSearchedFilters = getCurrentFilterValues();
-                    }
-                }, 500);
-            } else {
-                // Normal localStorage restore: use saved page number
-                const savedPage = localStorage.getItem(STORAGE_KEYS.CURRENT_PAGE);
-                const pageNum = savedPage ? parseInt(savedPage) : 1;
-                
-                if (pageNum > 1) {
-                    triggerSearchWithPage(pageNum);
-                } else {
-                    const filterForm = document.getElementById('filterForm');
-                    if (filterForm) {
-                        htmx.trigger(filterForm, 'submit');
-                    }
-                }
             }
-        }, 300);
+        }
     }
     
     // Clear URL parameters after successful restore to prevent re-applying on refresh
