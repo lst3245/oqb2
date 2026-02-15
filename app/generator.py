@@ -16,12 +16,27 @@ from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
-@generator_bp.route('/', methods=['GET'])
+@generator_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
     """Generation options page"""
-    # Get selected question IDs from query params (order preserved)
-    question_ids = request.args.getlist('question_ids')
+    # Accept question IDs from POST form data (preferred) or GET query params (fallback)
+    if request.method == 'POST':
+        question_ids = request.form.getlist('question_ids')
+        # Store in session so page refreshes still work
+        if question_ids:
+            session['generator_question_ids'] = question_ids
+            sort_config_str = request.form.get('sort_config')
+            if sort_config_str:
+                try:
+                    session['sort_config'] = json.loads(sort_config_str)
+                except json.JSONDecodeError:
+                    pass
+    else:
+        question_ids = request.args.getlist('question_ids')
+        if not question_ids:
+            # Fallback to session (e.g. page refresh)
+            question_ids = session.get('generator_question_ids', [])
     
     if not question_ids:
         flash('No questions selected', 'warning')
@@ -43,26 +58,43 @@ def index():
                           sort_config=sort_config,
                           sort_fields=sort_fields)
 
-@generator_bp.route('/viewer', methods=['GET'])
+@generator_bp.route('/viewer', methods=['GET', 'POST'])
 @login_required
 def viewer():
     """Full-screen viewer/presentation mode page"""
-    # Get selected question IDs from query params (order preserved)
-    question_ids = request.args.getlist('question_ids')
+    # Accept question IDs from POST form data (preferred) or GET query params (fallback)
+    if request.method == 'POST':
+        question_ids = request.form.getlist('question_ids')
+        sort_config_str = request.form.get('sort_config')
+        # Store in session so page refreshes still work
+        if question_ids:
+            session['viewer_question_ids'] = question_ids
+        if sort_config_str:
+            try:
+                sort_config = json.loads(sort_config_str)
+                session['viewer_sort_config'] = sort_config
+            except json.JSONDecodeError:
+                sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+        else:
+            sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+    else:
+        question_ids = request.args.getlist('question_ids')
+        if not question_ids:
+            # Fallback to session (e.g. page refresh)
+            question_ids = session.get('viewer_question_ids', [])
+        sort_config_str = request.args.get('sort_config')
+        if sort_config_str:
+            try:
+                sort_config = json.loads(sort_config_str)
+            except json.JSONDecodeError:
+                sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+        else:
+            sort_config = session.get('viewer_sort_config', 
+                         session.get('sort_config', [{"field": "qid", "direction": "asc"}]))
     
     if not question_ids:
         flash('No questions selected', 'warning')
         return redirect(url_for('dashboard.index'))
-    
-    # Get sort config from query params
-    sort_config_str = request.args.get('sort_config')
-    if sort_config_str:
-        try:
-            sort_config = json.loads(sort_config_str)
-        except json.JSONDecodeError:
-            sort_config = [{"field": "qid", "direction": "asc"}]
-    else:
-        sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
     
     # Get questions - preserve the selection order by using a dict
     questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}

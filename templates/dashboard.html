@@ -3146,9 +3146,8 @@ function resetFilters() {
     setFilterModifiedIndicator(false);
 }
 
-// Generate document
-function generateDocument() {
-    // Use the global selectedQuestions Set instead of current page checkboxes
+// Helper: submit question IDs via a hidden POST form (avoids URL length limits)
+function submitQuestionIds(actionUrl, target) {
     const questionIds = Array.from(selectedQuestions);
     
     if (questionIds.length === 0) {
@@ -3156,35 +3155,45 @@ function generateDocument() {
         return;
     }
     
-    // Redirect to generation page with question IDs (order preserved)
-    const params = new URLSearchParams();
-    questionIds.forEach(id => params.append('question_ids', id));
+    // Create a hidden form
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = actionUrl;
+    form.style.display = 'none';
+    if (target) {
+        form.target = target;  // e.g. '_blank' for new tab
+    }
     
-    // Also pass current sort config
-    params.append('sort_config', JSON.stringify(sortConfig));
+    // Add question IDs as hidden inputs
+    questionIds.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'question_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
     
-    window.location.href = `{{ url_for('generator.index') }}?${params.toString()}`;
+    // Add sort config
+    const sortInput = document.createElement('input');
+    sortInput.type = 'hidden';
+    sortInput.name = 'sort_config';
+    sortInput.value = JSON.stringify(sortConfig);
+    form.appendChild(sortInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+}
+
+// Generate document
+function generateDocument() {
+    submitQuestionIds(`{{ url_for('generator.index') }}`);
 }
 
 // Open viewer/presentation mode
 function openViewerMode() {
-    // Use the global selectedQuestions Set
-    const questionIds = Array.from(selectedQuestions);
-    
-    if (questionIds.length === 0) {
-        alert('Please select at least one question');
-        return;
-    }
-    
-    // Redirect to viewer page with question IDs
-    const params = new URLSearchParams();
-    questionIds.forEach(id => params.append('question_ids', id));
-    
-    // Also pass current sort config
-    params.append('sort_config', JSON.stringify(sortConfig));
-    
     // Open in new tab for full-screen experience
-    window.open(`{{ url_for('generator.viewer') }}?${params.toString()}`, '_blank');
+    submitQuestionIds(`{{ url_for('generator.viewer') }}`, '_blank');
 }
 
 {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
