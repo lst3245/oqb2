@@ -6,6 +6,8 @@ from flask_login import login_required, current_user
 from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from PIL import Image
 import os
 import re
@@ -259,6 +261,8 @@ def create_document():
     show_qid = request.form.get('show_qid') == 'on'
     show_qid_answer = request.form.get('show_qid_answer') == 'on'
     show_correct_pct = request.form.get('show_correct_pct') == 'on'
+    show_seq_no = request.form.get('show_seq_no') == 'on'
+    show_page_no = request.form.get('show_page_no') == 'on'
     
     preferred_language = request.form.get('preferred_language', 'EN')
     answer_preference = request.form.get('answer_preference', 'image_first')
@@ -277,6 +281,7 @@ def create_document():
         'cq_after_mode': cq_after_mode, 'cq_after_lines': cq_after_lines,
         'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
         'show_correct_pct': show_correct_pct,
+        'show_seq_no': show_seq_no, 'show_page_no': show_page_no,
         'preferred_language': preferred_language,
         'answer_preference': answer_preference,
         'question_ids': question_ids,
@@ -326,7 +331,8 @@ def create_document():
         target=_generate_in_background,
         args=(app, gen_file_id, question_ids, sort_mode, sort_config_str,
               answer_mode, spacing_config, show_qid, show_qid_answer,
-              preferred_language, show_correct_pct, answer_preference, filename)
+              preferred_language, show_correct_pct, answer_preference,
+              show_seq_no, show_page_no, filename)
     )
     thread.daemon = True
     thread.start()
@@ -336,7 +342,8 @@ def create_document():
 
 def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_config_str,
                             answer_mode, spacing_config, show_qid, show_qid_answer,
-                            preferred_language, show_correct_pct, answer_preference, filename):
+                            preferred_language, show_correct_pct, answer_preference,
+                            show_seq_no, show_page_no, filename):
     """Background thread function to generate the Word document"""
     with app.app_context():
         gen_file = GeneratedFile.query.get(gen_file_id)
@@ -371,7 +378,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
             doc = create_word_document(
                 questions, answer_mode, spacing_config,
                 show_qid, show_qid_answer, preferred_language,
-                show_correct_pct, answer_preference
+                show_correct_pct, answer_preference,
+                show_seq_no, show_page_no
             )
             
             # Save document
@@ -492,7 +500,33 @@ def add_after_spacing(doc, spacing):
         return False
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first'):
+def _add_page_numbers(doc):
+    """Add auto-generated page numbers at the bottom centre of every page."""
+    for section in doc.sections:
+        footer = section.footer
+        footer.is_linked_to_previous = False
+        paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Build the PAGE field XML: renders as the current page number
+        run = paragraph.add_run()
+        fldChar_begin = OxmlElement('w:fldChar')
+        fldChar_begin.set(qn('w:fldCharType'), 'begin')
+        run._r.append(fldChar_begin)
+        
+        instrText = OxmlElement('w:instrText')
+        instrText.set(qn('xml:space'), 'preserve')
+        instrText.text = ' PAGE '
+        run._r.append(instrText)
+        
+        fldChar_end = OxmlElement('w:fldChar')
+        fldChar_end.set(qn('w:fldCharType'), 'end')
+        run._r.append(fldChar_end)
+        
+        run.font.size = Pt(10)
+
+
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, show_page_no=False):
     """
     Create Word document with questions
     
@@ -505,6 +539,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         preferred_language: 'EN' or 'CH' - order: preferred > BI > other
         show_correct_pct: Show correct percentage with question ID (format: "QID [X%]")
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
+        show_seq_no: Show sequential question number (1. 2. 3. ...)
+        show_page_no: Show page numbers at bottom centre
     """
     doc = Document()
     
@@ -518,6 +554,10 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     section.bottom_margin = Cm(1.27)
     section.left_margin = Cm(1.27)
     section.right_margin = Cm(1.27)
+    
+    # Add page numbers if requested
+    if show_page_no:
+        _add_page_numbers(doc)
     
     source_path = current_app.config['SOURCE_PATH']
     
@@ -540,7 +580,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
+            seq_no = i + 1 if show_seq_no else None
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
             
             # Add after spacing
             last_had_page_break = add_after_spacing(doc, spacing)
@@ -558,7 +599,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference)
+            seq_no = i + 1 if show_seq_no else None
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -566,7 +608,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
+            seq_no = i + 1 if show_seq_no else None
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -582,7 +625,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct)
+            seq_no = i + 1 if show_seq_no else None
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -594,7 +638,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             
             # Add question content
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct)
+            seq_no = i + 1 if show_seq_no else None
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
@@ -607,7 +652,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first'):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -617,21 +662,27 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         show_correct_pct: Show correct percentage (format: "QID [X%]" or just "[X%]" if no QID)
                           Only shown for QUE type, not for ANS or SOL
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
+        seq_no: Sequential question number (int) or None to skip
     """
-    # Add QID and/or percentage as heading if requested
-    if show_qid or (show_correct_pct and asset_type == 'QUE'):
+    # Build heading: "{seq_no}. {QID} [{pct}%]" — each part optional
+    has_seq = seq_no is not None
+    has_qid = show_qid
+    has_pct = show_correct_pct and asset_type == 'QUE' and question.correct_percentage is not None
+    
+    if has_seq or has_qid or has_pct:
         heading = doc.add_paragraph()
-        heading_text = ""
+        parts = []
         
-        if show_qid:
-            heading_text = question.qid
+        if has_seq:
+            parts.append(f"{seq_no}.")
         
-        # Only show percentage for QUE (question), not for ANS or SOL
-        if show_correct_pct and asset_type == 'QUE' and question.correct_percentage is not None:
-            if heading_text:
-                heading_text += f" [{question.correct_percentage}%]"
-            else:
-                heading_text = f"[{question.correct_percentage}%]"
+        if has_qid:
+            parts.append(question.qid)
+        
+        if has_pct:
+            parts.append(f"[{question.correct_percentage}%]")
+        
+        heading_text = " ".join(parts)
         
         if heading_text:
             heading_run = heading.add_run(heading_text)

@@ -132,6 +132,15 @@
                             </label>
                         </div>
                         
+                        <!-- Show Sequential Question Number -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="showSeqNo" 
+                                   name="show_seq_no">
+                            <label class="form-check-label" for="showSeqNo">
+                                Show Sequential Question Number (1. 2. 3. ...)
+                            </label>
+                        </div>
+                        
                         <!-- Show Correct Percentage -->
                         <div class="mb-3 form-check" id="showCorrectPctDiv">
                             <input type="checkbox" class="form-check-input" id="showCorrectPct" 
@@ -139,7 +148,16 @@
                             <label class="form-check-label" for="showCorrectPct">
                                 Show Correct Percentage (if available)
                             </label>
-                            <small class="text-muted d-block">Format: "MATC_DSE_2024_P1_Q5 [75%]" or just "[75%]" if QID is hidden</small>
+                            <small class="text-muted d-block">Format: "1. MATC_DSE_2024_P1_Q5 [75%]" — numbering, QID, and percentage are each optional</small>
+                        </div>
+                        
+                        <!-- Show Page Numbers -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="showPageNo" 
+                                   name="show_page_no" checked>
+                            <label class="form-check-label" for="showPageNo">
+                                Show Page Numbers (bottom centre)
+                            </label>
                         </div>
                         
                         <hr>
