@@ -185,29 +185,6 @@
                                 <input type="text" class="form-control-plaintext" id="editCreatedAt" readonly>
                             </div>
                         </div>
-                        <hr>
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Subject</label>
-                                <input type="text" class="form-control" id="editSubjectDisplay" readonly>
-                            </div>
-                            <div class="col-md-2">
-                                <label class="form-label">Source</label>
-                                <input type="text" class="form-control" id="editSourceDisplay" readonly>
-                            </div>
-                            <div class="col-md-2">
-                                <label class="form-label">Year</label>
-                                <input type="text" class="form-control" id="editYearDisplay" readonly>
-                            </div>
-                            <div class="col-md-2">
-                                <label class="form-label">Paper</label>
-                                <input type="text" class="form-control" id="editPaperDisplay" readonly>
-                            </div>
-                            <div class="col-md-2">
-                                <label class="form-label">Q#</label>
-                                <input type="text" class="form-control" id="editQnoDisplay" readonly>
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Assets Tab -->
@@ -742,11 +719,6 @@ function openEditModal(questionId) {
             document.getElementById('editQidTitle').textContent = data.qid;
             document.getElementById('editQidInput').value = data.qid;
             document.getElementById('editCreatedAt').value = data.created_at;
-            document.getElementById('editSubjectDisplay').value = data.subject;
-            document.getElementById('editSourceDisplay').value = data.source;
-            document.getElementById('editYearDisplay').value = data.year || '-';
-            document.getElementById('editPaperDisplay').value = data.paper || '-';
-            document.getElementById('editQnoDisplay').value = data.qno;
 
             // Use shared populateTagForm to fill in tag fields
             populateTagForm(data);

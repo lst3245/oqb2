@@ -945,15 +945,17 @@ def rename_question(question_id):
     if err:
         return jsonify({'error': err}), 400
 
-    # Check subject access
-    admin_subjects = [s.id for s in get_user_admin_subjects()]
     new_subject = parsed['subject']
-    if new_subject not in admin_subjects:
-        return jsonify({'error': f'You do not have admin access to subject {new_subject}'}), 403
 
     # Check subject exists
     if not Subject.query.get(new_subject):
         return jsonify({'error': f'Subject {new_subject} does not exist'}), 400
+
+    # Check subject access (superadmins can access all subjects)
+    if not current_user.is_super_admin:
+        admin_subjects = [s.id for s in get_user_admin_subjects()]
+        if new_subject not in admin_subjects:
+            return jsonify({'error': f'You do not have admin access to subject {new_subject}'}), 403
 
     # Check for duplicate
     existing = Question.query.filter_by(qid=new_qid).first()
@@ -1148,14 +1150,15 @@ def create_question():
     if not subject or not source or not qno:
         return jsonify({'error': 'Subject, source, and question number are required'}), 400
 
-    # Check subject access
-    admin_subjects = [s.id for s in get_user_admin_subjects()]
-    if subject not in admin_subjects:
-        return jsonify({'error': f'You do not have admin access to subject {subject}'}), 403
-
     # Check subject exists
     if not Subject.query.get(subject):
         return jsonify({'error': f'Subject {subject} does not exist'}), 400
+
+    # Check subject access (superadmins can access all subjects)
+    if not current_user.is_super_admin:
+        admin_subjects = [s.id for s in get_user_admin_subjects()]
+        if subject not in admin_subjects:
+            return jsonify({'error': f'You do not have admin access to subject {subject}'}), 403
 
     # Build QID
     qno_int = int(qno)
