@@ -315,65 +315,14 @@
                     </div>
                 </div>
 
-                <!-- Step 3: Tags -->
+                <!-- Step 3: Tags (dynamically borrows the shared tag editor form) -->
                 <div id="addStep3" style="display:none">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> Tag question <strong id="addStep3Qid"></strong>. 
                         You can skip this and tag later.
                     </div>
                     <div id="addTagFormArea">
-                        <!-- Will be populated with the same tag form fields -->
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Level</label>
-                                <select class="form-select" id="addTagLevel" name="level">
-                                    <option value="">None</option>
-                                    <option value="1">1</option>
-                                    <option value="2">2</option>
-                                    <option value="3">3</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Question Type</label>
-                                <select class="form-select" id="addTagQType" name="q_type">
-                                    <option value="">None</option>
-                                    <option value="MC">Multiple Choice</option>
-                                    <option value="CQ">Conventional Question</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Section</label>
-                                <input type="text" class="form-control" id="addTagSection" name="section" placeholder="A, B, or empty">
-                            </div>
-                        </div>
-                        <div class="row g-3 mt-1">
-                            <div class="col-md-6">
-                                <label class="form-label">Major Topic</label>
-                                <select class="form-select" id="addTagMajorTopic" name="major_topic_id" onchange="onAddTagMajorTopicChange()">
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Major Subtopic</label>
-                                <select class="form-select" id="addTagMajorSubtopic" name="major_subtopic_id">
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row g-3 mt-1">
-                            <div class="col-md-6">
-                                <label class="form-label">Chapter</label>
-                                <select class="form-select" id="addTagChapter" name="chapter_id" onchange="onAddTagChapterChange()">
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Subchapter</label>
-                                <select class="form-select" id="addTagSubchapter" name="subchapter_id">
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                        </div>
+                        <!-- The shared tag editor form is moved here dynamically when step 3 is active -->
                     </div>
                     <div class="mt-3 d-flex justify-content-between">
                         <button class="btn btn-outline-secondary" onclick="goToAddStep(2)">
@@ -442,9 +391,18 @@
                     <strong>Caution:</strong> This will permanently remove the image/document files from the server filesystem. This cannot be undone!
                 </div>
                 <hr>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="bulkDeleteConfirm" onchange="document.getElementById('bulkDeleteExecBtn').disabled = !this.checked">
-                    <label class="form-check-label" for="bulkDeleteConfirm">I understand this action is permanent</label>
+                <!-- For single question: checkbox confirm. For multiple: type DELETE -->
+                <div id="bulkDeleteSingleConfirm">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="bulkDeleteConfirmCheck" onchange="updateBulkDeleteBtn()">
+                        <label class="form-check-label" for="bulkDeleteConfirmCheck">I understand this action is permanent</label>
+                    </div>
+                </div>
+                <div id="bulkDeleteMultiConfirm" class="d-none">
+                    <label class="form-label fw-bold text-danger">Type <code>DELETE</code> to confirm:</label>
+                    <input type="text" class="form-control" id="bulkDeleteTypeConfirm" 
+                           placeholder="Type DELETE here" autocomplete="off"
+                           oninput="updateBulkDeleteBtn()">
                 </div>
             </div>
             <div class="modal-footer">
@@ -559,7 +517,7 @@ function renderTable(data) {
             <td>${q.paper || '-'}</td>
             <td>${q.qno}</td>
             <td>${q.q_type || '-'}</td>
-            <td><span class="badge bg-outline-secondary border">${q.asset_count}</span></td>
+            <td><span class="badge text-dark bg-light border">${q.asset_count}</span></td>
             <td><small>${q.created_at}</small></td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(${q.id})" title="Edit">
@@ -672,19 +630,42 @@ function updateSelectionUI() {
 function toggleDeleteFilesWarning() {
     const checked = document.getElementById('bulkDeleteFiles').checked;
     document.getElementById('deleteFilesWarning').classList.toggle('d-none', !checked);
-    // Uncheck confirm when toggling this, force re-confirmation
-    document.getElementById('bulkDeleteConfirm').checked = false;
+    // Reset confirm when toggling this, force re-confirmation
+    document.getElementById('bulkDeleteConfirmCheck').checked = false;
+    document.getElementById('bulkDeleteTypeConfirm').value = '';
     document.getElementById('bulkDeleteExecBtn').disabled = true;
 }
 
 function bulkDeleteSelected() {
     if (selectedQIds.size === 0) return;
-    document.getElementById('bulkDeleteCount').textContent = selectedQIds.size;
-    document.getElementById('bulkDeleteConfirm').checked = false;
+    const count = selectedQIds.size;
+    document.getElementById('bulkDeleteCount').textContent = count;
     document.getElementById('bulkDeleteFiles').checked = false;
     document.getElementById('deleteFilesWarning').classList.add('d-none');
     document.getElementById('bulkDeleteExecBtn').disabled = true;
+
+    // Show checkbox for single question, type DELETE for multiple
+    if (count > 1) {
+        document.getElementById('bulkDeleteSingleConfirm').classList.add('d-none');
+        document.getElementById('bulkDeleteMultiConfirm').classList.remove('d-none');
+        document.getElementById('bulkDeleteTypeConfirm').value = '';
+    } else {
+        document.getElementById('bulkDeleteSingleConfirm').classList.remove('d-none');
+        document.getElementById('bulkDeleteMultiConfirm').classList.add('d-none');
+        document.getElementById('bulkDeleteConfirmCheck').checked = false;
+    }
     new bootstrap.Modal(document.getElementById('bulkDeleteModal')).show();
+}
+
+function updateBulkDeleteBtn() {
+    const count = selectedQIds.size;
+    let confirmed = false;
+    if (count > 1) {
+        confirmed = document.getElementById('bulkDeleteTypeConfirm').value.trim() === 'DELETE';
+    } else {
+        confirmed = document.getElementById('bulkDeleteConfirmCheck').checked;
+    }
+    document.getElementById('bulkDeleteExecBtn').disabled = !confirmed;
 }
 
 function executeBulkDelete() {
@@ -850,8 +831,8 @@ function executeRename() {
 // ===================== ASSET MANAGEMENT =====================
 function switchAssetLang(lang) {
     currentAssetLang = lang;
-    // Reset paste target to QUE for the new language
-    setActivePasteTarget(lang, 'QUE');
+    // Reset paste target to QUE for the new language (edit modal)
+    setActivePasteTarget(lang, 'QUE', 'edit');
 }
 
 function loadAssetsForEdit(questionId) {
@@ -860,20 +841,22 @@ function loadAssetsForEdit(questionId) {
         .then(data => {
             ['EN', 'CH', 'BI'].forEach(lang => {
                 const container = document.getElementById('lang' + lang);
-                container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {});
+                container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {}, 'edit');
             });
         })
         .catch(err => showToast('Error loading assets: ' + err.message, 'danger'));
 }
 
-function renderAssetSections(questionId, lang, langAssets) {
+// ctx = 'edit' or 'add' to avoid duplicate IDs when both modals exist in the DOM
+function renderAssetSections(questionId, lang, langAssets, ctx) {
+    ctx = ctx || 'edit';
     let html = '';
     ['QUE', 'ANS', 'SOL'].forEach((atype, sectionIdx) => {
         const parts = langAssets[atype] || [];
         const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
         const isDefault = sectionIdx === 0; // QUE is default paste target
-        html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="assetSection_${lang}_${atype}"
-                      onclick="setActivePasteTarget('${lang}', '${atype}')">
+        html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="${ctx}_assetSection_${lang}_${atype}"
+                      onclick="setActivePasteTarget('${lang}', '${atype}', '${ctx}')">
             <div class="d-flex justify-content-between align-items-center mb-2 section-header">
                 <h6 class="mb-0">
                     <i class="bi bi-image"></i> ${label} (${lang})
@@ -883,7 +866,7 @@ function renderAssetSections(questionId, lang, langAssets) {
                 </h6>
                 <span class="badge bg-secondary">${parts.length} part(s)</span>
             </div>
-            <div id="assetParts_${lang}_${atype}">`;
+            <div id="${ctx}_assetParts_${lang}_${atype}">`;
         
         if (parts.length === 0) {
             html += '<div class="text-muted fst-italic p-2">No assets</div>';
@@ -910,26 +893,31 @@ function renderAssetSections(questionId, lang, langAssets) {
         }
 
         html += `</div>
-            <div class="drop-zone mt-2" id="dropZone_${lang}_${atype}"
+            <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_${atype}"
                  ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
                  ondragleave="this.classList.remove('drag-over')"
                  ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
-                 onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}')">
+                 onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}', '${ctx}')">
                 <i class="bi bi-cloud-upload"></i> Drop files here or click to browse
             </div>
-            <input type="file" class="d-none" id="fileInput_${lang}_${atype}" accept="image/*,.doc,.docx"
+            <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*,.doc,.docx"
                    multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
         </div>`;
     });
     return html;
 }
 
-// Track active paste target (lang + atype)
-let activePasteTarget = { lang: 'EN', atype: 'QUE' };
+// Track active paste target (lang + atype + ctx)
+let activePasteTarget = { lang: 'EN', atype: 'QUE', ctx: 'edit' };
+let addActivePasteTarget = { lang: 'EN', atype: 'QUE', ctx: 'add' };
 
-function setActivePasteTarget(lang, atype) {
-    activePasteTarget = { lang, atype };
-    addActivePasteTarget = { lang, atype }; // Also update for add modal
+function setActivePasteTarget(lang, atype, ctx) {
+    ctx = ctx || 'edit';
+    if (ctx === 'add') {
+        addActivePasteTarget = { lang, atype, ctx: 'add' };
+    } else {
+        activePasteTarget = { lang, atype, ctx: 'edit' };
+    }
     // Update visual indicators — only within the currently visible modal
     const visibleModal = document.querySelector('.modal.show .modal-body') || document;
     visibleModal.querySelectorAll('.asset-section').forEach(el => {
@@ -937,7 +925,7 @@ function setActivePasteTarget(lang, atype) {
         const hint = el.querySelector('.paste-hint');
         if (hint) hint.style.opacity = '0';
     });
-    const activeSection = document.getElementById(`assetSection_${lang}_${atype}`);
+    const activeSection = document.getElementById(`${ctx}_assetSection_${lang}_${atype}`);
     if (activeSection) {
         activeSection.classList.add('paste-active');
         const hint = activeSection.querySelector('.paste-hint');
@@ -945,8 +933,9 @@ function setActivePasteTarget(lang, atype) {
     }
 }
 
-function triggerAssetUpload(questionId, lang, atype) {
-    document.getElementById(`fileInput_${lang}_${atype}`).click();
+function triggerAssetUpload(questionId, lang, atype, ctx) {
+    ctx = ctx || 'edit';
+    document.getElementById(`${ctx}_fileInput_${lang}_${atype}`).click();
 }
 
 function handleAssetDrop(event, questionId, lang, atype) {
@@ -960,6 +949,29 @@ function handleAssetFileSelect(event, questionId, lang, atype) {
     const files = event.target.files;
     if (files.length > 0) uploadAssetFiles(questionId, lang, atype, files);
     event.target.value = ''; // reset
+}
+
+function refreshAssetsView(questionId) {
+    // Determine if we're in the add modal or edit modal and refresh accordingly
+    const addModal = document.getElementById('addQuestionModal');
+    if (addModal.classList.contains('show') && addCreatedQuestionId === questionId) {
+        // We're in the add modal – reload the currently visible language tab
+        const activeBtn = document.querySelector('#addAssetUploadArea .btn-group .btn.active');
+        const lang = activeBtn ? activeBtn.textContent.trim() : 'EN';
+        const area = document.getElementById('addAssetUploadArea');
+        fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+            .then(r => r.json())
+            .then(data => {
+                const langAssets = data.assets[lang] || {};
+                const newHtml = renderAssetSections(questionId, lang, langAssets, 'add');
+                // Remove everything except the language selector, then re-add
+                while (area.children.length > 1) area.removeChild(area.lastChild);
+                area.insertAdjacentHTML('beforeend', newHtml);
+            });
+    } else {
+        // We're in the edit modal
+        loadAssetsForEdit(questionId);
+    }
 }
 
 function uploadAssetFiles(questionId, lang, atype, files) {
@@ -976,7 +988,7 @@ function uploadAssetFiles(questionId, lang, atype, files) {
     .then(data => {
         if (data.success) {
             showToast(`Uploaded ${data.uploaded_count} asset(s)`);
-            loadAssetsForEdit(questionId);
+            refreshAssetsView(questionId);
         } else {
             showToast(data.error || 'Upload failed', 'danger');
         }
@@ -995,7 +1007,7 @@ function deleteAssetPart(questionId, assetId, filename) {
     .then(data => {
         if (data.success) {
             showToast(data.message);
-            loadAssetsForEdit(questionId);
+            refreshAssetsView(questionId);
         } else {
             showToast(data.error || 'Error', 'danger');
         }
@@ -1028,7 +1040,7 @@ function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
                 if (data.warnings && data.warnings.length > 0) {
                     showToast('Warnings: ' + data.warnings.join('; '), 'warning');
                 }
-                loadAssetsForEdit(questionId);
+                refreshAssetsView(questionId);
             } else {
                 showToast(data.error || 'Reorder failed', 'danger');
             }
@@ -1064,9 +1076,6 @@ function extractImageFiles(clipboardData) {
     }
     return files;
 }
-
-// Paste target for add modal
-let addActivePasteTarget = { lang: 'EN', atype: 'QUE' };
 
 // Ctrl+V paste support — uses tracked activePasteTarget for section
 document.addEventListener('paste', function(e) {
@@ -1152,9 +1161,11 @@ function goToAddStep(step) {
 
     if (step === 2 && addCreatedQuestionId) {
         document.getElementById('addStep2Qid').textContent = addCreatedQid;
+        // Return the shared tag form back to edit modal if it was borrowed
+        returnTagFormToEditModal();
         // Render upload area for the newly created question
         const area = document.getElementById('addAssetUploadArea');
-        area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {});
+        area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {}, 'add');
         // Also add language selector
         area.insertAdjacentHTML('afterbegin', `
             <div class="mb-3">
@@ -1170,9 +1181,42 @@ function goToAddStep(step) {
 
     if (step === 3 && addCreatedQuestionId) {
         document.getElementById('addStep3Qid').textContent = addCreatedQid;
-        // Load topic/chapter selects for the add form
+        // Borrow the shared tag editor form from the edit modal and place it in step 3
+        borrowTagFormForAdd();
+        // Populate it with empty data for the new question's subject
         const subjectId = document.getElementById('addSubject').value;
-        loadAddTagFormData(subjectId);
+        populateTagForm({
+            subject: subjectId,
+            level: null, q_type: '', section: '', description: '',
+            correct_percentage: null, answer: '', comment: '',
+            major_topic_id: null, major_subtopic_id: null,
+            minor_topic_ids: [], subtopic_ids: [],
+            chapter_id: null, subchapter_id: null
+        });
+    }
+}
+
+// Borrow the shared tag form from edit modal's Tags tab into the add step 3 area
+function borrowTagFormForAdd() {
+    const editForm = document.getElementById('editForm');
+    const addArea = document.getElementById('addTagFormArea');
+    if (editForm && addArea && !addArea.contains(editForm)) {
+        addArea.appendChild(editForm);
+        // Hide the "Save Tags" button (it's for edit modal only)
+        const saveBtn = editForm.querySelector('[onclick="saveQuestionTags()"]');
+        if (saveBtn) saveBtn.closest('.mt-3').style.display = 'none';
+    }
+}
+
+// Return the shared tag form back to the edit modal's Tags tab
+function returnTagFormToEditModal() {
+    const editForm = document.getElementById('editForm');
+    const tabTags = document.getElementById('tabTags');
+    if (editForm && tabTags && !tabTags.contains(editForm)) {
+        tabTags.appendChild(editForm);
+        // Re-show the "Save Tags" button
+        const saveBtn = editForm.querySelector('[onclick="saveQuestionTags()"]');
+        if (saveBtn) saveBtn.closest('.mt-3').style.display = '';
     }
 }
 
@@ -1181,20 +1225,20 @@ function reloadAddAssets(lang, btn) {
     btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     // Update paste target for add modal
-    addActivePasteTarget = { lang, atype: 'QUE' };
+    addActivePasteTarget = { lang, atype: 'QUE', ctx: 'add' };
     // Remove existing sections and re-render
     const area = document.getElementById('addAssetUploadArea');
     // Keep the language selector (first child)
     const langSelector = area.querySelector('.mb-3');
     area.innerHTML = '';
     if (langSelector) area.appendChild(langSelector);
-    area.insertAdjacentHTML('beforeend', renderAssetSections(addCreatedQuestionId, lang, {}));
+    area.insertAdjacentHTML('beforeend', renderAssetSections(addCreatedQuestionId, lang, {}, 'add'));
     // Reload from server
     fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${addCreatedQuestionId}/`))
         .then(r => r.json())
         .then(data => {
             const langAssets = data.assets[lang] || {};
-            const newHtml = renderAssetSections(addCreatedQuestionId, lang, langAssets);
+            const newHtml = renderAssetSections(addCreatedQuestionId, lang, langAssets, 'add');
             // Replace content after lang selector
             while (area.children.length > 1) area.removeChild(area.lastChild);
             area.insertAdjacentHTML('beforeend', newHtml);
@@ -1240,77 +1284,12 @@ function createQuestionStep1() {
     });
 }
 
-function loadAddTagFormData(subjectId) {
-    Promise.all([
-        fetchTopicsForSubject(subjectId),
-        fetchChaptersForSubject(subjectId)
-    ]).then(([topics, chapters]) => {
-        const mtSel = document.getElementById('addTagMajorTopic');
-        mtSel.innerHTML = '<option value="">None</option>' +
-            topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-
-        document.getElementById('addTagMajorSubtopic').innerHTML = '<option value="">None</option>';
-
-        const chSel = document.getElementById('addTagChapter');
-        chSel.innerHTML = '<option value="">None</option>' +
-            chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-
-        document.getElementById('addTagSubchapter').innerHTML = '<option value="">None</option>';
-    });
-}
-
-function onAddTagMajorTopicChange() {
-    const topicId = document.getElementById('addTagMajorTopic').value;
-    const mstSel = document.getElementById('addTagMajorSubtopic');
-    mstSel.innerHTML = '<option value="">None</option>';
-    if (topicId) {
-        const subjectId = document.getElementById('addSubject').value;
-        const topics = allTopicsCache[subjectId] || [];
-        const topic = topics.find(t => t.id == topicId);
-        if (topic && topic.subtopics) {
-            mstSel.innerHTML += topic.subtopics.map(s =>
-                `<option value="${s.id}">${s.name}</option>`
-            ).join('');
-        }
-    }
-}
-
-function onAddTagChapterChange() {
-    const chapterId = document.getElementById('addTagChapter').value;
-    const scSel = document.getElementById('addTagSubchapter');
-    scSel.innerHTML = '<option value="">None</option>';
-    if (chapterId) {
-        const subjectId = document.getElementById('addSubject').value;
-        const chapters = allChaptersCache[subjectId] || [];
-        const chapter = chapters.find(c => c.id == chapterId);
-        if (chapter && chapter.subchapters) {
-            scSel.innerHTML += chapter.subchapters.map(s =>
-                `<option value="${s.id}">${s.name}</option>`
-            ).join('');
-        }
-    }
-}
-
 function saveAddQuestionTags() {
     if (!addCreatedQuestionId) return Promise.resolve();
-    const formData = new FormData();
-    
-    // Collect values from add tag form
-    const level = document.getElementById('addTagLevel').value;
-    const qType = document.getElementById('addTagQType').value;
-    const section = document.getElementById('addTagSection').value;
-    const majorTopic = document.getElementById('addTagMajorTopic').value;
-    const majorSubtopic = document.getElementById('addTagMajorSubtopic').value;
-    const chapter = document.getElementById('addTagChapter').value;
-    const subchapter = document.getElementById('addTagSubchapter').value;
-
-    formData.append('level', level);
-    formData.append('q_type', qType);
-    formData.append('section', section);
-    formData.append('major_topic_id', majorTopic);
-    formData.append('major_subtopic_id', majorSubtopic);
-    formData.append('chapter_id', chapter);
-    formData.append('subchapter_id', subchapter);
+    // Reuse the shared edit form (which is currently borrowed into addTagFormArea)
+    const editForm = document.getElementById('editForm');
+    if (!editForm) return Promise.resolve();
+    const formData = new FormData(editForm);
 
     return fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('/0/', `/${addCreatedQuestionId}/`), {
         method: 'POST',
@@ -1321,6 +1300,8 @@ function saveAddQuestionTags() {
 function finishAndAddAnother() {
     // Save tags if any were set
     saveAddQuestionTags().then(() => {
+        // Return the shared tag form back to edit modal
+        returnTagFormToEditModal();
         // Increment question number
         const qnoInput = document.getElementById('addQno');
         qnoInput.value = parseInt(qnoInput.value) + 1;
@@ -1335,6 +1316,8 @@ function finishAndAddAnother() {
 function finishAndEdit() {
     saveAddQuestionTags().then(() => {
         const editId = addCreatedQuestionId;
+        // Return the shared tag form back to edit modal
+        returnTagFormToEditModal();
         // Close add modal
         bootstrap.Modal.getInstance(document.getElementById('addQuestionModal')).hide();
         loadQuestions();
@@ -1348,6 +1331,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Show count of dashboard selected questions
     const dashIds = getDashboardSelectedIds();
     document.getElementById('dashSelCount').textContent = dashIds.length;
+
+    // When the add modal is closed, always return the shared tag form to the edit modal
+    document.getElementById('addQuestionModal').addEventListener('hidden.bs.modal', function() {
+        returnTagFormToEditModal();
+    });
 
     // Initial load
     loadQuestions();
