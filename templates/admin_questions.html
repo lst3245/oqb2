@@ -1,0 +1,1488 @@
+{% extends "base.html" %}
+
+{% block title %}Question Management - Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Question list table */
+.q-table th { cursor: pointer; user-select: none; white-space: nowrap; }
+.q-table th:hover { background: #e9ecef; }
+.q-table th .sort-icon { opacity: 0.3; }
+.q-table th.sorted .sort-icon { opacity: 1; color: #0d6efd; }
+.q-table td { vertical-align: middle; }
+.q-row.selected-row { background-color: #e7f1ff !important; }
+
+/* Asset preview */
+.asset-preview-img { max-width: 400px; max-height: 300px; object-fit: contain; cursor: pointer; border: 1px solid #dee2e6; border-radius: 4px; }
+.asset-preview-img:hover { border-color: #0d6efd; box-shadow: 0 2px 8px rgba(13,110,253,.2); }
+
+/* Drop zone */
+.drop-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 2rem; text-align: center; color: #6c757d; transition: all .2s; cursor: pointer; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: #0d6efd; background: #f0f7ff; color: #0d6efd; }
+
+/* Asset part card */
+.asset-part-card { display: inline-block; position: relative; margin: 0.5rem; }
+.asset-part-card .part-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
+.asset-part-card .part-actions .btn { padding: 2px 6px; font-size: 0.7rem; }
+.asset-part-badge { position: absolute; bottom: 4px; left: 4px; }
+
+/* Full-size image overlay */
+.fullsize-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.fullsize-overlay img { max-width: 95%; max-height: 95%; object-fit: contain; }
+
+/* Step wizard */
+.step-indicator { display: flex; gap: 0; margin-bottom: 1.5rem; }
+.step-indicator .step { flex: 1; text-align: center; padding: 0.5rem; border-bottom: 3px solid #dee2e6; color: #6c757d; font-size: 0.85rem; }
+.step-indicator .step.active { border-bottom-color: #0d6efd; color: #0d6efd; font-weight: 600; }
+.step-indicator .step.done { border-bottom-color: #198754; color: #198754; }
+
+/* Toast */
+.toast-container { position: fixed; top: 80px; right: 20px; z-index: 10000; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 px-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-journal-text"></i> Question Management</h4>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <!-- Search -->
+                <div class="col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="qidSearchInput"
+                               placeholder="Search QID (use * as wildcard)">
+                        <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('qidSearchInput').value=''; loadQuestions();">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- Show selected toggle -->
+                <div class="col-md-3">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="showDashboardSelected" onchange="loadQuestions()">
+                        <label class="form-check-label" for="showDashboardSelected">
+                            <small>Show dashboard selections</small>
+                            <span id="dashSelCount" class="badge bg-secondary ms-1">0</span>
+                        </label>
+                    </div>
+                </div>
+                <!-- Actions -->
+                <div class="col-md-5 text-end d-flex gap-2 justify-content-end flex-wrap">
+                    <button class="btn btn-sm btn-success" onclick="showAddModal()">
+                        <i class="bi bi-plus-lg"></i> Add Question
+                    </button>
+                    <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" style="display:none" onclick="bulkDeleteSelected()">
+                        <i class="bi bi-trash"></i> Delete Selected (<span id="selCountBadge">0</span>)
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                            <i class="bi bi-gear"></i> Options
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <label class="dropdown-item">
+                                    Page size:
+                                    <select id="pageSizeSelect" class="form-select form-select-sm d-inline-block w-auto ms-1" onchange="loadQuestions()">
+                                        <option value="20">20</option>
+                                        <option value="50" selected>50</option>
+                                        <option value="100">100</option>
+                                        <option value="200">200</option>
+                                    </select>
+                                </label>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Question list -->
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0 q-table" id="questionTable">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:40px"><input type="checkbox" class="form-check-input" id="selectAllCb" onchange="toggleSelectAll(this)"></th>
+                        <th data-sort="qid" onclick="sortBy('qid')">QID <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="subject" onclick="sortBy('subject')">Subject <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="source" onclick="sortBy('source')">Source <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="year" onclick="sortBy('year')">Year <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="paper" onclick="sortBy('paper')">Paper <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="qno" onclick="sortBy('qno')">Q# <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th data-sort="q_type" onclick="sortBy('q_type')">Type <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th>Assets</th>
+                        <th data-sort="created_at" onclick="sortBy('created_at')">Created <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="width:80px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="questionTableBody">
+                    <tr><td colspan="11" class="text-center text-muted py-4">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <!-- Pagination -->
+        <div class="card-footer d-flex justify-content-between align-items-center py-2">
+            <small class="text-muted" id="pageInfo">0 questions</small>
+            <nav>
+                <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== EDIT QUESTION MODAL ======================== -->
+<div class="modal fade" id="editQuestionModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Edit Question: <span id="editQidTitle"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Tabs -->
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabDetails">Details</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAssets">Assets</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTags">Tags</a></li>
+                </ul>
+                <div class="tab-content pt-3">
+                    <!-- Details Tab -->
+                    <div class="tab-pane active" id="tabDetails">
+                        <input type="hidden" id="editQId">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold">Question ID</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="editQidInput" placeholder="e.g. MATC_DSE_2024_P1_Q5">
+                                    <button class="btn btn-warning" type="button" id="renameBtn" onclick="renameQuestion()">
+                                        <i class="bi bi-arrow-repeat"></i> Rename
+                                    </button>
+                                </div>
+                                <small class="text-muted">Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO</small>
+                                <div id="renameStatus" class="mt-2"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Created</label>
+                                <input type="text" class="form-control-plaintext" id="editCreatedAt" readonly>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Subject</label>
+                                <input type="text" class="form-control" id="editSubjectDisplay" readonly>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Source</label>
+                                <input type="text" class="form-control" id="editSourceDisplay" readonly>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Year</label>
+                                <input type="text" class="form-control" id="editYearDisplay" readonly>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Paper</label>
+                                <input type="text" class="form-control" id="editPaperDisplay" readonly>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Q#</label>
+                                <input type="text" class="form-control" id="editQnoDisplay" readonly>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Assets Tab -->
+                    <div class="tab-pane" id="tabAssets">
+                        <ul class="nav nav-pills mb-3" id="langTabs" role="tablist">
+                            <li class="nav-item"><a class="nav-link active" data-bs-toggle="pill" href="#langEN" onclick="switchAssetLang('EN')">EN</a></li>
+                            <li class="nav-item"><a class="nav-link" data-bs-toggle="pill" href="#langCH" onclick="switchAssetLang('CH')">CH</a></li>
+                            <li class="nav-item"><a class="nav-link" data-bs-toggle="pill" href="#langBI" onclick="switchAssetLang('BI')">BI</a></li>
+                        </ul>
+                        <div class="tab-content">
+                            <div class="tab-pane active" id="langEN"></div>
+                            <div class="tab-pane" id="langCH"></div>
+                            <div class="tab-pane" id="langBI"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tags Tab -->
+                    <div class="tab-pane" id="tabTags">
+                        <form id="editTagForm">
+                            <input type="hidden" id="tagEditQuestionId">
+                            
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Level</label>
+                                    <select class="form-select" id="tagLevel" name="level">
+                                        <option value="">None</option>
+                                        <option value="1">1</option>
+                                        <option value="2">2</option>
+                                        <option value="3">3</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Question Type</label>
+                                    <select class="form-select" id="tagQType" name="q_type">
+                                        <option value="">None</option>
+                                        <option value="MC">Multiple Choice</option>
+                                        <option value="CQ">Conventional Question</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Section</label>
+                                    <input type="text" class="form-control" id="tagSection" name="section" placeholder="A, B, or empty">
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <textarea class="form-control" id="tagDescription" name="description" rows="2" placeholder="Optional description"></textarea>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Correct %</label>
+                                    <input type="number" class="form-control" id="tagCorrectPct" name="correct_percentage" min="0" max="100" placeholder="0-100">
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">Answer Text</label>
+                                    <textarea class="form-control" id="tagAnswer" name="answer" rows="2" placeholder="Plain text answer"></textarea>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Comment</label>
+                                    <textarea class="form-control" id="tagComment" name="comment" rows="2" placeholder="Notes"></textarea>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <h6><i class="bi bi-tags"></i> Topic Tagging</h6>
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Major Topic</label>
+                                    <select class="form-select" id="tagMajorTopic" name="major_topic_id" onchange="onTagMajorTopicChange()">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Major Subtopic</label>
+                                    <select class="form-select" id="tagMajorSubtopic" name="major_subtopic_id">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">Minor Topics</label>
+                                    <select class="form-select" id="tagMinorTopics" name="minor_topic_ids" multiple size="4">
+                                    </select>
+                                    <small class="text-muted">Hold Ctrl/Cmd to select multiple</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Subtopics</label>
+                                    <select class="form-select" id="tagSubtopics" name="subtopic_ids" multiple size="4">
+                                    </select>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <h6><i class="bi bi-book"></i> Chapter Tagging</h6>
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Chapter</label>
+                                    <select class="form-select" id="tagChapter" name="chapter_id" onchange="onTagChapterChange()">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Subchapter</label>
+                                    <select class="form-select" id="tagSubchapter" name="subchapter_id">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 text-end">
+                                <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">
+                                    <i class="bi bi-check-lg"></i> Save Tags
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== ADD QUESTION MODAL ======================== -->
+<div class="modal fade" id="addQuestionModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add New Question</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Step indicator -->
+                <div class="step-indicator">
+                    <div class="step active" id="addStep1Ind">1. Details</div>
+                    <div class="step" id="addStep2Ind">2. Assets</div>
+                    <div class="step" id="addStep3Ind">3. Tags</div>
+                </div>
+
+                <!-- Step 1: Question Details -->
+                <div id="addStep1">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Subject</label>
+                            <select class="form-select" id="addSubject" onchange="updateAddQidPreview()">
+                                {% for s in subjects %}
+                                <option value="{{ s.id }}">{{ s.id }} - {{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Source</label>
+                            <select class="form-select" id="addSource" onchange="onAddSourceChange(); updateAddQidPreview();">
+                                <option value="DSE">DSE</option>
+                                <option value="CE">CE</option>
+                                <option value="AL">AL</option>
+                                <option value="QB">QB (Question Bank)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4" id="addYearGroup">
+                            <label class="form-label fw-bold">Year</label>
+                            <input type="number" class="form-control" id="addYear" value="2025" min="1990" max="2099" onchange="updateAddQidPreview()">
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4" id="addPaperGroup">
+                            <label class="form-label fw-bold">Paper</label>
+                            <select class="form-select" id="addPaper" onchange="updateAddQidPreview()">
+                                <option value="P1">P1</option>
+                                <option value="P2">P2</option>
+                                <option value="P3">P3</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4" id="addDetailGroup" style="display:none">
+                            <label class="form-label fw-bold">Detail / Book Name</label>
+                            <input type="text" class="form-control" id="addDetail" placeholder="e.g. MATHSMART2024 (no underscores)" oninput="updateAddQidPreview()">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Question Number</label>
+                            <input type="number" class="form-control" id="addQno" value="1" min="1" onchange="updateAddQidPreview()">
+                        </div>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <label class="form-label">Generated Question ID:</label>
+                        <div class="h5 mb-0 text-primary" id="addQidPreview">---</div>
+                    </div>
+                    <div id="addStep1Error" class="text-danger mt-2"></div>
+                    <div class="mt-3 text-end">
+                        <button class="btn btn-primary" onclick="createQuestionStep1()">
+                            Next: Upload Assets <i class="bi bi-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Upload Assets -->
+                <div id="addStep2" style="display:none">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Upload assets for <strong id="addStep2Qid"></strong>. 
+                        You can skip this step and upload later.
+                    </div>
+                    <div id="addAssetUploadArea"></div>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <button class="btn btn-outline-secondary" onclick="goToAddStep(1)">
+                            <i class="bi bi-arrow-left"></i> Back
+                        </button>
+                        <div>
+                            <button class="btn btn-outline-secondary me-2" onclick="goToAddStep(3)">
+                                Skip <i class="bi bi-arrow-right"></i>
+                            </button>
+                            <button class="btn btn-primary" onclick="goToAddStep(3)">
+                                Next: Tags <i class="bi bi-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Tags -->
+                <div id="addStep3" style="display:none">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Tag question <strong id="addStep3Qid"></strong>. 
+                        You can skip this and tag later.
+                    </div>
+                    <div id="addTagFormArea">
+                        <!-- Will be populated with the same tag form fields -->
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Level</label>
+                                <select class="form-select" id="addTagLevel" name="level">
+                                    <option value="">None</option>
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Question Type</label>
+                                <select class="form-select" id="addTagQType" name="q_type">
+                                    <option value="">None</option>
+                                    <option value="MC">Multiple Choice</option>
+                                    <option value="CQ">Conventional Question</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Section</label>
+                                <input type="text" class="form-control" id="addTagSection" name="section" placeholder="A, B, or empty">
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label">Major Topic</label>
+                                <select class="form-select" id="addTagMajorTopic" name="major_topic_id" onchange="onAddTagMajorTopicChange()">
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Major Subtopic</label>
+                                <select class="form-select" id="addTagMajorSubtopic" name="major_subtopic_id">
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label">Chapter</label>
+                                <select class="form-select" id="addTagChapter" name="chapter_id" onchange="onAddTagChapterChange()">
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Subchapter</label>
+                                <select class="form-select" id="addTagSubchapter" name="subchapter_id">
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <button class="btn btn-outline-secondary" onclick="goToAddStep(2)">
+                            <i class="bi bi-arrow-left"></i> Back
+                        </button>
+                        <div>
+                            <button class="btn btn-success me-2" onclick="finishAndAddAnother()">
+                                <i class="bi bi-plus"></i> Add Another
+                            </button>
+                            <button class="btn btn-primary" onclick="finishAndEdit()">
+                                <i class="bi bi-pencil-square"></i> Edit This Question
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rename confirmation modal -->
+<div class="modal fade" id="renameConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Confirm Rename</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Rename question from <strong id="renameOldQid"></strong> to <strong id="renameNewQid"></strong>?</p>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="renameFilesCheck" checked>
+                    <label class="form-check-label" for="renameFilesCheck">
+                        Also rename and move physical asset files on disk
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-warning" onclick="executeRename()">Confirm Rename</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Delete Questions</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <strong>Warning!</strong> You are about to delete <span id="bulkDeleteCount" class="fw-bold">0</span> question(s).
+                    <br><small class="text-muted">Database records will be removed. Files on disk will NOT be deleted.</small>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="bulkDeleteConfirm" onchange="document.getElementById('bulkDeleteExecBtn').disabled = !this.checked">
+                    <label class="form-check-label" for="bulkDeleteConfirm">I understand this is permanent</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-danger" id="bulkDeleteExecBtn" disabled onclick="executeBulkDelete()">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ===================== STATE =====================
+let currentSort = { field: 'created_at', dir: 'desc' };
+let currentPage = 1;
+let selectedQIds = new Set();    // internal IDs selected on this page
+let editQuestionData = null;     // current question being edited
+let addCreatedQuestionId = null; // ID of question just created in add flow
+let addCreatedQid = null;
+let currentAssetLang = 'EN';
+let allTopicsCache = {};         // subjectId -> [{id, name, subtopics:[...]}]
+let allChaptersCache = {};       // subjectId -> [{id, name, subchapters:[...]}]
+
+// Read dashboard selected questions from localStorage
+function getDashboardSelectedIds() {
+    try {
+        const raw = localStorage.getItem('oqb_selectedQuestions');
+        return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+}
+
+// ===================== TOAST =====================
+function showToast(message, type='success') {
+    const id = 'toast_' + Date.now();
+    const bgClass = type === 'success' ? 'bg-success' : type === 'danger' ? 'bg-danger' : 'bg-info';
+    const html = `<div id="${id}" class="toast align-items-center text-white ${bgClass} border-0" role="alert">
+        <div class="d-flex"><div class="toast-body">${message}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`;
+    document.getElementById('toastContainer').insertAdjacentHTML('beforeend', html);
+    const el = document.getElementById(id);
+    const t = new bootstrap.Toast(el, {delay: 4000});
+    t.show();
+    el.addEventListener('hidden.bs.toast', () => el.remove());
+}
+
+// ===================== LOAD QUESTIONS =====================
+let searchDebounce = null;
+document.getElementById('qidSearchInput').addEventListener('input', function() {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => { currentPage = 1; loadQuestions(); }, 300);
+});
+
+function loadQuestions() {
+    const search = document.getElementById('qidSearchInput').value.trim();
+    const showSelected = document.getElementById('showDashboardSelected').checked;
+    const pageSize = document.getElementById('pageSizeSelect').value;
+
+    let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${currentSort.field}&dir=${currentSort.dir}`;
+
+    if (showSelected) {
+        const dashIds = getDashboardSelectedIds();
+        if (dashIds.length > 0) {
+            url += '&selected_ids=' + dashIds.join(',');
+        } else {
+            renderEmptyTable('No questions selected on dashboard');
+            return;
+        }
+    } else if (search) {
+        url += '&qid_search=' + encodeURIComponent(search);
+    }
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            renderTable(data);
+            renderPagination(data);
+        })
+        .catch(err => {
+            renderEmptyTable('Error loading questions: ' + err.message);
+        });
+}
+
+function renderEmptyTable(msg) {
+    document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">${msg}</td></tr>`;
+    document.getElementById('pageInfo').textContent = '0 questions';
+    document.getElementById('pagination').innerHTML = '';
+}
+
+function renderTable(data) {
+    const tbody = document.getElementById('questionTableBody');
+    if (!data.items || data.items.length === 0) {
+        renderEmptyTable('No questions found');
+        return;
+    }
+
+    tbody.innerHTML = data.items.map(q => {
+        const sel = selectedQIds.has(q.id) ? 'selected-row' : '';
+        const chk = selectedQIds.has(q.id) ? 'checked' : '';
+        return `<tr class="q-row ${sel}" data-id="${q.id}">
+            <td><input type="checkbox" class="form-check-input q-checkbox" value="${q.id}" ${chk} onchange="toggleRowSelect(this)"></td>
+            <td><code class="text-dark">${q.qid}</code></td>
+            <td>${q.subject}</td>
+            <td><span class="badge ${q.source === 'QB' ? 'bg-info' : 'bg-secondary'}">${q.source}</span></td>
+            <td>${q.year || '-'}</td>
+            <td>${q.paper || '-'}</td>
+            <td>${q.qno}</td>
+            <td>${q.q_type || '-'}</td>
+            <td><span class="badge bg-outline-secondary border">${q.asset_count}</span></td>
+            <td><small>${q.created_at}</small></td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(${q.id})" title="Edit">
+                    <i class="bi bi-pencil"></i>
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    const start = (data.page - 1) * data.page_size + 1;
+    const end = Math.min(data.page * data.page_size, data.total);
+    document.getElementById('pageInfo').textContent = `${start}-${end} of ${data.total} questions`;
+}
+
+function renderPagination(data) {
+    const ul = document.getElementById('pagination');
+    if (data.total_pages <= 1) { ul.innerHTML = ''; return; }
+
+    let html = '';
+    const p = data.page;
+    const tp = data.total_pages;
+
+    html += `<li class="page-item ${p===1?'disabled':''}"><a class="page-link" href="#" onclick="goToPage(${p-1});return false;">&laquo;</a></li>`;
+
+    const range = [];
+    for (let i = Math.max(1, p-2); i <= Math.min(tp, p+2); i++) range.push(i);
+    if (range[0] > 1) html += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(1);return false;">1</a></li>`;
+    if (range[0] > 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    for (const i of range) {
+        html += `<li class="page-item ${i===p?'active':''}"><a class="page-link" href="#" onclick="goToPage(${i});return false;">${i}</a></li>`;
+    }
+    if (range[range.length-1] < tp-1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    if (range[range.length-1] < tp) html += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${tp});return false;">${tp}</a></li>`;
+
+    html += `<li class="page-item ${p===tp?'disabled':''}"><a class="page-link" href="#" onclick="goToPage(${p+1});return false;">&raquo;</a></li>`;
+    ul.innerHTML = html;
+}
+
+function goToPage(p) { currentPage = p; loadQuestions(); }
+
+// ===================== SORTING =====================
+function sortBy(field) {
+    if (currentSort.field === field) {
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.dir = 'asc';
+    }
+    // Update header indicators
+    document.querySelectorAll('.q-table th').forEach(th => {
+        th.classList.remove('sorted');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.className = 'bi bi-arrow-down-up sort-icon';
+    });
+    const th = document.querySelector(`.q-table th[data-sort="${field}"]`);
+    if (th) {
+        th.classList.add('sorted');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.className = `bi bi-arrow-${currentSort.dir === 'asc' ? 'up' : 'down'} sort-icon`;
+    }
+    currentPage = 1;
+    loadQuestions();
+}
+
+// ===================== SELECTION =====================
+function toggleRowSelect(cb) {
+    const id = parseInt(cb.value);
+    const row = cb.closest('tr');
+    if (cb.checked) {
+        selectedQIds.add(id);
+        row.classList.add('selected-row');
+    } else {
+        selectedQIds.delete(id);
+        row.classList.remove('selected-row');
+    }
+    updateSelectionUI();
+}
+
+function toggleSelectAll(cb) {
+    document.querySelectorAll('.q-checkbox').forEach(c => {
+        const id = parseInt(c.value);
+        c.checked = cb.checked;
+        const row = c.closest('tr');
+        if (cb.checked) {
+            selectedQIds.add(id);
+            row.classList.add('selected-row');
+        } else {
+            selectedQIds.delete(id);
+            row.classList.remove('selected-row');
+        }
+    });
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const count = selectedQIds.size;
+    document.getElementById('selCountBadge').textContent = count;
+    document.getElementById('bulkDeleteBtn').style.display = count > 0 ? '' : 'none';
+    // Update select-all checkbox
+    const all = document.querySelectorAll('.q-checkbox');
+    const checked = document.querySelectorAll('.q-checkbox:checked');
+    const selectAllCb = document.getElementById('selectAllCb');
+    if (all.length === 0) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+    else if (checked.length === all.length) { selectAllCb.checked = true; selectAllCb.indeterminate = false; }
+    else if (checked.length > 0) { selectAllCb.checked = false; selectAllCb.indeterminate = true; }
+    else { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+}
+
+// ===================== BULK DELETE =====================
+function bulkDeleteSelected() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('bulkDeleteCount').textContent = selectedQIds.size;
+    document.getElementById('bulkDeleteConfirm').checked = false;
+    document.getElementById('bulkDeleteExecBtn').disabled = true;
+    new bootstrap.Modal(document.getElementById('bulkDeleteModal')).show();
+}
+
+function executeBulkDelete() {
+    const ids = Array.from(selectedQIds);
+    const formData = new FormData();
+    ids.forEach(id => formData.append('question_ids', id));
+
+    const btn = document.getElementById('bulkDeleteExecBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+
+    fetch('{{ url_for("admin.delete_questions") }}', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('bulkDeleteModal')).hide();
+                showToast(`Deleted ${data.deleted_count} question(s)`);
+                selectedQIds.clear();
+                updateSelectionUI();
+                loadQuestions();
+            } else {
+                showToast(data.error || 'Error deleting', 'danger');
+            }
+        })
+        .catch(err => showToast('Error: ' + err.message, 'danger'))
+        .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i> Delete'; });
+}
+
+// ===================== EDIT MODAL =====================
+function openEditModal(questionId) {
+    editQuestionData = null;
+    currentAssetLang = 'EN';
+
+    // Reset tabs to first
+    document.querySelector('#editQuestionModal .nav-link.active')?.classList.remove('active');
+    document.querySelector('#editQuestionModal .tab-pane.active')?.classList.remove('show', 'active');
+    document.querySelector('#editQuestionModal [href="#tabDetails"]').classList.add('active');
+    document.getElementById('tabDetails').classList.add('show', 'active');
+    // Reset lang pills
+    document.querySelectorAll('#langTabs .nav-link').forEach(l => l.classList.remove('active'));
+    document.querySelector('#langTabs [href="#langEN"]').classList.add('active');
+    document.querySelectorAll('#tabAssets .tab-pane').forEach(p => { p.classList.remove('show','active'); p.innerHTML = ''; });
+    document.getElementById('langEN').classList.add('show','active');
+
+    document.getElementById('renameStatus').innerHTML = '';
+
+    // Load question details
+    fetch(`{{ url_for('admin.question_details', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            editQuestionData = data;
+            document.getElementById('editQId').value = data.id;
+            document.getElementById('editQidTitle').textContent = data.qid;
+            document.getElementById('editQidInput').value = data.qid;
+            document.getElementById('editCreatedAt').value = data.created_at;
+            document.getElementById('editSubjectDisplay').value = data.subject;
+            document.getElementById('editSourceDisplay').value = data.source;
+            document.getElementById('editYearDisplay').value = data.year || '-';
+            document.getElementById('editPaperDisplay').value = data.paper || '-';
+            document.getElementById('editQnoDisplay').value = data.qno;
+
+            // Load tags
+            loadTagFormData(data.subject, data);
+            document.getElementById('tagEditQuestionId').value = data.id;
+
+            // Load assets
+            loadAssetsForEdit(data.id);
+
+            new bootstrap.Modal(document.getElementById('editQuestionModal')).show();
+        })
+        .catch(err => showToast('Error loading question: ' + err.message, 'danger'));
+}
+
+// ===================== TAG FORM LOGIC =====================
+function loadTopicsForSubject(subjectId) {
+    if (allTopicsCache[subjectId]) {
+        return Promise.resolve(allTopicsCache[subjectId]);
+    }
+    return fetch(`{{ url_for('dashboard.get_topics', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+        .then(r => r.json())
+        .then(topics => {
+            allTopicsCache[subjectId] = topics;
+            return topics;
+        });
+}
+
+function loadChaptersForSubject(subjectId) {
+    if (allChaptersCache[subjectId]) {
+        return Promise.resolve(allChaptersCache[subjectId]);
+    }
+    return fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+        .then(r => r.json())
+        .then(chapters => {
+            allChaptersCache[subjectId] = chapters;
+            return chapters;
+        });
+}
+
+function loadTagFormData(subjectId, questionData) {
+    // Load topics and chapters in parallel
+    Promise.all([
+        loadTopicsForSubject(subjectId),
+        loadChaptersForSubject(subjectId)
+    ]).then(([topics, chapters]) => {
+        // Populate Major Topic
+        const mtSel = document.getElementById('tagMajorTopic');
+        mtSel.innerHTML = '<option value="">None</option>' +
+            topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+
+        // Populate Minor Topics
+        const minSel = document.getElementById('tagMinorTopics');
+        minSel.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+
+        // Populate all subtopics
+        const stSel = document.getElementById('tagSubtopics');
+        let stOpts = '';
+        topics.forEach(t => {
+            if (t.subtopics) {
+                t.subtopics.forEach(s => {
+                    stOpts += `<option value="${s.id}" data-topic="${t.id}">${t.name} > ${s.name}</option>`;
+                });
+            }
+        });
+        stSel.innerHTML = stOpts;
+
+        // Populate Chapters
+        const chSel = document.getElementById('tagChapter');
+        chSel.innerHTML = '<option value="">None</option>' +
+            chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+        // Set values
+        if (questionData) {
+            document.getElementById('tagLevel').value = questionData.level != null ? questionData.level : '';
+            document.getElementById('tagQType').value = questionData.q_type || '';
+            document.getElementById('tagSection').value = questionData.section || '';
+            document.getElementById('tagDescription').value = questionData.description || '';
+            document.getElementById('tagCorrectPct').value = questionData.correct_percentage != null ? questionData.correct_percentage : '';
+            document.getElementById('tagAnswer').value = questionData.answer || '';
+            document.getElementById('tagComment').value = questionData.comment || '';
+            mtSel.value = questionData.major_topic_id || '';
+            onTagMajorTopicChange(questionData.major_subtopic_id);
+
+            // Set minor topics
+            if (questionData.minor_topic_ids) {
+                Array.from(minSel.options).forEach(o => {
+                    o.selected = questionData.minor_topic_ids.includes(parseInt(o.value));
+                });
+            }
+            // Set subtopics
+            if (questionData.subtopic_ids) {
+                Array.from(stSel.options).forEach(o => {
+                    o.selected = questionData.subtopic_ids.includes(parseInt(o.value));
+                });
+            }
+            // Set chapter
+            chSel.value = questionData.chapter_id || '';
+            onTagChapterChange(questionData.subchapter_id);
+        }
+    });
+}
+
+function onTagMajorTopicChange(presetSubtopicId) {
+    const topicId = document.getElementById('tagMajorTopic').value;
+    const mstSel = document.getElementById('tagMajorSubtopic');
+    mstSel.innerHTML = '<option value="">None</option>';
+
+    if (topicId && editQuestionData) {
+        const topics = allTopicsCache[editQuestionData.subject] || [];
+        const topic = topics.find(t => t.id == topicId);
+        if (topic && topic.subtopics) {
+            mstSel.innerHTML += topic.subtopics.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+        }
+    }
+    if (presetSubtopicId) mstSel.value = presetSubtopicId;
+}
+
+function onTagChapterChange(presetSubchapterId) {
+    const chapterId = document.getElementById('tagChapter').value;
+    const scSel = document.getElementById('tagSubchapter');
+    scSel.innerHTML = '<option value="">None</option>';
+
+    if (chapterId && editQuestionData) {
+        const chapters = allChaptersCache[editQuestionData.subject] || [];
+        const chapter = chapters.find(c => c.id == chapterId);
+        if (chapter && chapter.subchapters) {
+            scSel.innerHTML += chapter.subchapters.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+        }
+    }
+    if (presetSubchapterId) scSel.value = presetSubchapterId;
+}
+
+function saveQuestionTags() {
+    const qId = document.getElementById('tagEditQuestionId').value || document.getElementById('editQId').value;
+    const formData = new FormData(document.getElementById('editTagForm'));
+
+    fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Tags saved successfully');
+            loadQuestions();
+        } else {
+            showToast(data.error || 'Error saving tags', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
+}
+
+// ===================== RENAME =====================
+let pendingRenameNewQid = '';
+
+function renameQuestion() {
+    const newQid = document.getElementById('editQidInput').value.trim();
+    const oldQid = editQuestionData.qid;
+    if (!newQid) return;
+    if (newQid === oldQid) { showToast('QID unchanged', 'info'); return; }
+
+    pendingRenameNewQid = newQid;
+    document.getElementById('renameOldQid').textContent = oldQid;
+    document.getElementById('renameNewQid').textContent = newQid;
+    document.getElementById('renameFilesCheck').checked = true;
+    new bootstrap.Modal(document.getElementById('renameConfirmModal')).show();
+}
+
+function executeRename() {
+    const qId = editQuestionData.id;
+    const renameFiles = document.getElementById('renameFilesCheck').checked;
+
+    fetch(`{{ url_for('admin.rename_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ new_qid: pendingRenameNewQid, confirm_rename_files: renameFiles })
+    })
+    .then(r => r.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal')).hide();
+        if (data.success) {
+            showToast(data.message);
+            editQuestionData.qid = data.new_qid;
+            document.getElementById('editQidTitle').textContent = data.new_qid;
+            document.getElementById('renameStatus').innerHTML = `<div class="alert alert-success py-1">${data.message}</div>`;
+            loadAssetsForEdit(qId);
+            loadQuestions();
+        } else {
+            document.getElementById('renameStatus').innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
+        }
+    })
+    .catch(err => {
+        bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal')).hide();
+        document.getElementById('renameStatus').innerHTML = `<div class="alert alert-danger py-1">Error: ${err.message}</div>`;
+    });
+}
+
+// ===================== ASSET MANAGEMENT =====================
+function switchAssetLang(lang) {
+    currentAssetLang = lang;
+}
+
+function loadAssetsForEdit(questionId) {
+    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            ['EN', 'CH', 'BI'].forEach(lang => {
+                const container = document.getElementById('lang' + lang);
+                container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {});
+            });
+        })
+        .catch(err => showToast('Error loading assets: ' + err.message, 'danger'));
+}
+
+function renderAssetSections(questionId, lang, langAssets) {
+    let html = '';
+    ['QUE', 'ANS', 'SOL'].forEach(atype => {
+        const parts = langAssets[atype] || [];
+        const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
+        html += `<div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0"><i class="bi bi-image"></i> ${label} (${lang})</h6>
+                <span class="badge bg-secondary">${parts.length} part(s)</span>
+            </div>
+            <div class="d-flex flex-wrap align-items-start" id="assetParts_${lang}_${atype}">`;
+        
+        if (parts.length === 0) {
+            html += '<div class="text-muted fst-italic">No assets</div>';
+        } else {
+            parts.forEach((p, idx) => {
+                const isImg = p.file_format === 'IMG';
+                html += `<div class="asset-part-card">
+                    <div class="part-actions">
+                        ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
+                        ${idx < parts.length-1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                        <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteAssetPart(${questionId},${p.id})"><i class="bi bi-x"></i></button>
+                    </div>
+                    ${isImg
+                        ? `<img src="${p.preview_url}" class="asset-preview-img" onclick="showFullSize('${p.preview_url}')" loading="lazy">`
+                        : `<div class="border rounded p-3 text-center" style="width:200px;height:150px;display:flex;align-items:center;justify-content:center;">
+                            <div><i class="bi bi-file-word fs-1 text-primary"></i><br><small>${p.file_path.split('/').pop()}</small></div></div>`
+                    }
+                    <span class="asset-part-badge badge bg-dark">Part ${p.part_number}</span>
+                </div>`;
+            });
+        }
+
+        html += `</div>
+            <div class="drop-zone mt-2" id="dropZone_${lang}_${atype}"
+                 ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                 ondragleave="this.classList.remove('drag-over')"
+                 ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
+                 onclick="triggerAssetUpload(${questionId}, '${lang}', '${atype}')">
+                <i class="bi bi-cloud-upload"></i> Drop file here, click to browse, or Ctrl+V to paste
+            </div>
+            <input type="file" class="d-none" id="fileInput_${lang}_${atype}" accept="image/*,.doc,.docx"
+                   multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
+        </div>`;
+    });
+    return html;
+}
+
+function triggerAssetUpload(questionId, lang, atype) {
+    document.getElementById(`fileInput_${lang}_${atype}`).click();
+}
+
+function handleAssetDrop(event, questionId, lang, atype) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    const files = event.dataTransfer.files;
+    if (files.length > 0) uploadAssetFiles(questionId, lang, atype, files);
+}
+
+function handleAssetFileSelect(event, questionId, lang, atype) {
+    const files = event.target.files;
+    if (files.length > 0) uploadAssetFiles(questionId, lang, atype, files);
+    event.target.value = ''; // reset
+}
+
+function uploadAssetFiles(questionId, lang, atype, files) {
+    const formData = new FormData();
+    formData.append('language', lang);
+    formData.append('asset_type', atype);
+    for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
+
+    fetch(`{{ url_for('admin.upload_question_asset', question_id=0) }}`.replace('/0/', `/${questionId}/`), {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast(`Uploaded ${data.uploaded_count} asset(s)`);
+            loadAssetsForEdit(questionId);
+        } else {
+            showToast(data.error || 'Upload failed', 'danger');
+        }
+    })
+    .catch(err => showToast('Upload error: ' + err.message, 'danger'));
+}
+
+function deleteAssetPart(questionId, assetId) {
+    if (!confirm('Delete this asset from the database? (File on disk will NOT be deleted)')) return;
+    fetch(`{{ url_for('admin.delete_question_asset', question_id=0, asset_id=0) }}`.replace('/0/assets/0', `/${questionId}/assets/${assetId}`), {
+        method: 'DELETE'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Asset deleted');
+            loadAssetsForEdit(questionId);
+        } else {
+            showToast(data.error || 'Error', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
+}
+
+function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
+    // Get current asset IDs in order from the DOM
+    const container = document.getElementById(`assetParts_${lang}_${atype}`);
+    const cards = container.querySelectorAll('.asset-part-card');
+    // We need to re-fetch and reorder. For simplicity, reload assets first.
+    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            const parts = (data.assets[lang] || {})[atype] || [];
+            const ids = parts.map(p => p.id);
+            const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+            if (swapIdx < 0 || swapIdx >= ids.length) return;
+            [ids[currentIdx], ids[swapIdx]] = [ids[swapIdx], ids[currentIdx]];
+
+            return fetch(`{{ url_for('admin.reorder_question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ language: lang, asset_type: atype, asset_ids: ids })
+            });
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) loadAssetsForEdit(questionId);
+        })
+        .catch(err => showToast('Error reordering: ' + err.message, 'danger'));
+}
+
+function showFullSize(url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'fullsize-overlay';
+    overlay.innerHTML = `<img src="${url}">`;
+    overlay.onclick = () => overlay.remove();
+    document.body.appendChild(overlay);
+}
+
+// Ctrl+V paste support
+document.addEventListener('paste', function(e) {
+    // Only handle if edit modal is open and we're on assets tab
+    const editModal = document.getElementById('editQuestionModal');
+    if (!editModal.classList.contains('show')) return;
+    const activeTab = document.querySelector('#editQuestionModal .tab-pane.active');
+    if (!activeTab || activeTab.id !== 'tabAssets') return;
+
+    const items = e.clipboardData.items;
+    const files = [];
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+            const blob = items[i].getAsFile();
+            // Create a proper File object with a name
+            const ext = items[i].type.split('/')[1] || 'png';
+            const file = new File([blob], `pasted_image.${ext}`, { type: items[i].type });
+            files.push(file);
+        }
+    }
+    if (files.length > 0 && editQuestionData) {
+        // Determine active language tab
+        const activeLangTab = document.querySelector('#langTabs .nav-link.active');
+        const lang = activeLangTab ? activeLangTab.getAttribute('href').replace('#lang', '') : 'EN';
+        // Default to QUE type for paste
+        uploadAssetFiles(editQuestionData.id, lang, 'QUE', files);
+        e.preventDefault();
+    }
+
+    // Also handle paste in add modal
+    const addModal = document.getElementById('addQuestionModal');
+    if (addModal.classList.contains('show') && addCreatedQuestionId) {
+        const addItems = e.clipboardData.items;
+        const addFiles = [];
+        for (let i = 0; i < addItems.length; i++) {
+            if (addItems[i].type.startsWith('image/')) {
+                const blob = addItems[i].getAsFile();
+                const ext = addItems[i].type.split('/')[1] || 'png';
+                const file = new File([blob], `pasted_image.${ext}`, { type: addItems[i].type });
+                addFiles.push(file);
+            }
+        }
+        if (addFiles.length > 0) {
+            uploadAssetFiles(addCreatedQuestionId, 'EN', 'QUE', addFiles);
+            e.preventDefault();
+        }
+    }
+});
+
+// ===================== ADD QUESTION =====================
+function showAddModal() {
+    addCreatedQuestionId = null;
+    addCreatedQid = null;
+    // Reset to step 1
+    goToAddStep(1);
+    document.getElementById('addStep1Error').textContent = '';
+    updateAddQidPreview();
+    new bootstrap.Modal(document.getElementById('addQuestionModal')).show();
+}
+
+function onAddSourceChange() {
+    const source = document.getElementById('addSource').value;
+    const isQB = source === 'QB';
+    document.getElementById('addYearGroup').style.display = isQB ? 'none' : '';
+    document.getElementById('addPaperGroup').style.display = isQB ? 'none' : '';
+    document.getElementById('addDetailGroup').style.display = isQB ? '' : 'none';
+}
+
+function updateAddQidPreview() {
+    const subject = document.getElementById('addSubject').value;
+    const source = document.getElementById('addSource').value;
+    const year = document.getElementById('addYear').value;
+    const paper = document.getElementById('addPaper').value;
+    const qno = document.getElementById('addQno').value;
+    const detail = document.getElementById('addDetail').value.trim();
+
+    let qid = '';
+    if (source === 'QB') {
+        qid = detail ? `${subject}_QB_${detail}_Q${qno}` : `${subject}_QB_???_Q${qno}`;
+    } else {
+        qid = `${subject}_${source}_${year}_${paper}_Q${qno}`;
+    }
+    document.getElementById('addQidPreview').textContent = qid;
+}
+
+function goToAddStep(step) {
+    ['addStep1', 'addStep2', 'addStep3'].forEach((id, i) => {
+        document.getElementById(id).style.display = (i + 1 === step) ? '' : 'none';
+    });
+    ['addStep1Ind', 'addStep2Ind', 'addStep3Ind'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.classList.remove('active', 'done');
+        if (i + 1 === step) el.classList.add('active');
+        else if (i + 1 < step) el.classList.add('done');
+    });
+
+    if (step === 2 && addCreatedQuestionId) {
+        document.getElementById('addStep2Qid').textContent = addCreatedQid;
+        // Render upload area for the newly created question
+        const area = document.getElementById('addAssetUploadArea');
+        area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {});
+        // Also add language selector
+        area.insertAdjacentHTML('afterbegin', `
+            <div class="mb-3">
+                <label class="form-label">Upload language:</label>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary active" onclick="reloadAddAssets('EN', this)">EN</button>
+                    <button class="btn btn-outline-primary" onclick="reloadAddAssets('CH', this)">CH</button>
+                    <button class="btn btn-outline-primary" onclick="reloadAddAssets('BI', this)">BI</button>
+                </div>
+            </div>
+        `);
+    }
+
+    if (step === 3 && addCreatedQuestionId) {
+        document.getElementById('addStep3Qid').textContent = addCreatedQid;
+        // Load topic/chapter selects for the add form
+        const subjectId = document.getElementById('addSubject').value;
+        loadAddTagFormData(subjectId);
+    }
+}
+
+function reloadAddAssets(lang, btn) {
+    // Toggle active button
+    btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Remove existing sections and re-render
+    const area = document.getElementById('addAssetUploadArea');
+    // Keep the language selector (first child)
+    const langSelector = area.querySelector('.mb-3');
+    area.innerHTML = '';
+    if (langSelector) area.appendChild(langSelector);
+    area.insertAdjacentHTML('beforeend', renderAssetSections(addCreatedQuestionId, lang, {}));
+    // Reload from server
+    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${addCreatedQuestionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            const langAssets = data.assets[lang] || {};
+            const newHtml = renderAssetSections(addCreatedQuestionId, lang, langAssets);
+            // Replace content after lang selector
+            while (area.children.length > 1) area.removeChild(area.lastChild);
+            area.insertAdjacentHTML('beforeend', newHtml);
+        });
+}
+
+function createQuestionStep1() {
+    const subject = document.getElementById('addSubject').value;
+    const source = document.getElementById('addSource').value;
+    const year = document.getElementById('addYear').value;
+    const paper = document.getElementById('addPaper').value;
+    const qno = document.getElementById('addQno').value;
+    const detail = document.getElementById('addDetail').value.trim();
+
+    document.getElementById('addStep1Error').textContent = '';
+
+    const body = { subject, source, qno: parseInt(qno) };
+    if (source !== 'QB') {
+        body.year = parseInt(year);
+        body.paper = paper;
+    } else {
+        body.detail = detail;
+    }
+
+    fetch('{{ url_for("admin.create_question") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            addCreatedQuestionId = data.question.id;
+            addCreatedQid = data.question.qid;
+            showToast(`Question ${data.question.qid} created!`);
+            goToAddStep(2);
+        } else {
+            document.getElementById('addStep1Error').textContent = data.error || 'Error creating question';
+        }
+    })
+    .catch(err => {
+        document.getElementById('addStep1Error').textContent = 'Error: ' + err.message;
+    });
+}
+
+function loadAddTagFormData(subjectId) {
+    Promise.all([
+        loadTopicsForSubject(subjectId),
+        loadChaptersForSubject(subjectId)
+    ]).then(([topics, chapters]) => {
+        const mtSel = document.getElementById('addTagMajorTopic');
+        mtSel.innerHTML = '<option value="">None</option>' +
+            topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+
+        document.getElementById('addTagMajorSubtopic').innerHTML = '<option value="">None</option>';
+
+        const chSel = document.getElementById('addTagChapter');
+        chSel.innerHTML = '<option value="">None</option>' +
+            chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+        document.getElementById('addTagSubchapter').innerHTML = '<option value="">None</option>';
+    });
+}
+
+function onAddTagMajorTopicChange() {
+    const topicId = document.getElementById('addTagMajorTopic').value;
+    const mstSel = document.getElementById('addTagMajorSubtopic');
+    mstSel.innerHTML = '<option value="">None</option>';
+    if (topicId) {
+        const subjectId = document.getElementById('addSubject').value;
+        const topics = allTopicsCache[subjectId] || [];
+        const topic = topics.find(t => t.id == topicId);
+        if (topic && topic.subtopics) {
+            mstSel.innerHTML += topic.subtopics.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+        }
+    }
+}
+
+function onAddTagChapterChange() {
+    const chapterId = document.getElementById('addTagChapter').value;
+    const scSel = document.getElementById('addTagSubchapter');
+    scSel.innerHTML = '<option value="">None</option>';
+    if (chapterId) {
+        const subjectId = document.getElementById('addSubject').value;
+        const chapters = allChaptersCache[subjectId] || [];
+        const chapter = chapters.find(c => c.id == chapterId);
+        if (chapter && chapter.subchapters) {
+            scSel.innerHTML += chapter.subchapters.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+        }
+    }
+}
+
+function saveAddQuestionTags() {
+    if (!addCreatedQuestionId) return Promise.resolve();
+    const formData = new FormData();
+    
+    // Collect values from add tag form
+    const level = document.getElementById('addTagLevel').value;
+    const qType = document.getElementById('addTagQType').value;
+    const section = document.getElementById('addTagSection').value;
+    const majorTopic = document.getElementById('addTagMajorTopic').value;
+    const majorSubtopic = document.getElementById('addTagMajorSubtopic').value;
+    const chapter = document.getElementById('addTagChapter').value;
+    const subchapter = document.getElementById('addTagSubchapter').value;
+
+    formData.append('level', level);
+    formData.append('q_type', qType);
+    formData.append('section', section);
+    formData.append('major_topic_id', majorTopic);
+    formData.append('major_subtopic_id', majorSubtopic);
+    formData.append('chapter_id', chapter);
+    formData.append('subchapter_id', subchapter);
+
+    return fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('/0/', `/${addCreatedQuestionId}/`), {
+        method: 'POST',
+        body: formData
+    }).then(r => r.json());
+}
+
+function finishAndAddAnother() {
+    // Save tags if any were set
+    saveAddQuestionTags().then(() => {
+        // Increment question number
+        const qnoInput = document.getElementById('addQno');
+        qnoInput.value = parseInt(qnoInput.value) + 1;
+        addCreatedQuestionId = null;
+        addCreatedQid = null;
+        goToAddStep(1);
+        updateAddQidPreview();
+        loadQuestions();
+    });
+}
+
+function finishAndEdit() {
+    saveAddQuestionTags().then(() => {
+        const editId = addCreatedQuestionId;
+        // Close add modal
+        bootstrap.Modal.getInstance(document.getElementById('addQuestionModal')).hide();
+        loadQuestions();
+        // Open edit modal for the created question
+        setTimeout(() => openEditModal(editId), 500);
+    });
+}
+
+// ===================== INIT =====================
+document.addEventListener('DOMContentLoaded', function() {
+    // Show count of dashboard selected questions
+    const dashIds = getDashboardSelectedIds();
+    document.getElementById('dashSelCount').textContent = dashIds.length;
+
+    // Initial load
+    loadQuestions();
+});
+</script>
+{% endblock %}

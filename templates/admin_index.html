@@ -9,6 +9,18 @@
     
     <div class="row mt-4">
         <div class="col-md-6">
+            <div class="card border-primary">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-journal-text"></i> Question Management</h5>
+                    <p class="card-text">Add, edit, delete questions. Manage question assets, rename QIDs, and batch operations.</p>
+                    <a href="{{ url_for('admin.questions_page') }}" class="btn btn-primary">
+                        <i class="bi bi-arrow-right"></i> Manage Questions
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-tags"></i> Manage Topics</h5>
@@ -19,7 +31,9 @@
                 </div>
             </div>
         </div>
-        
+    </div>
+    
+    <div class="row mt-4">
         <div class="col-md-6">
             <div class="card">
                 <div class="card-body">
@@ -31,9 +45,7 @@
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="row mt-4">
+        
         <div class="col-md-6">
             <div class="card">
                 <div class="card-body">

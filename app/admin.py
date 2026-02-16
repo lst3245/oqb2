@@ -4,6 +4,7 @@ Admin panel routes for managing topics and tagging questions
 import csv
 import io
 import os
+import re
 import json
 import shutil
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file
@@ -723,6 +724,485 @@ def batch_update_questions():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ==================== Question Management ====================
+
+# QID validation patterns (same as ingestor)
+PP_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_(?P<source>DSE|CE|AL)_(?P<year>\d{4})_(?P<paper>P\d+)_Q(?P<qno>\d+)$')
+QB_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_QB_(?P<detail>[^_]+)_Q(?P<qno>\d+)$')
+
+
+def validate_qid_format(qid):
+    """Validate a QID matches the expected format. Returns (parsed_dict, error_msg)."""
+    m = PP_QID_PATTERN.match(qid)
+    if m:
+        d = m.groupdict()
+        return {
+            'subject': d['subj'], 'source': d['source'],
+            'year': int(d['year']), 'paper': d['paper'], 'qno': int(d['qno'])
+        }, None
+    m = QB_QID_PATTERN.match(qid)
+    if m:
+        d = m.groupdict()
+        return {
+            'subject': d['subj'], 'source': 'QB',
+            'detail': d['detail'], 'qno': int(d['qno'])
+        }, None
+    return None, 'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO (e.g. MATC_DSE_2024_P1_Q5) or SUBJ_QB_DETAIL_QNO (e.g. MATC_QB_BOOK1_Q1)'
+
+
+def _build_asset_file_path(question, asset):
+    """Build the expected relative file path for an asset based on the question's QID components."""
+    ext = asset.file_path.rsplit('.', 1)[-1] if '.' in asset.file_path else 'png'
+    part_suffix = f'_{asset.part_number}' if asset.part_number > 1 else ''
+    
+    if question.source in ('DSE', 'CE', 'AL'):
+        filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
+        folder = os.path.join(question.subject, 'PP', question.source,
+                              str(question.year), question.paper)
+    else:
+        # QB
+        detail = question.qid.split('_')[2]  # SUBJ_QB_DETAIL_QNO
+        filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
+        folder = os.path.join(question.subject, 'QB', detail)
+    
+    return os.path.join(folder, filename)
+
+
+@admin_bp.route('/questions')
+@login_required
+@admin_required
+def questions_page():
+    """Admin question management page"""
+    subjects = get_user_admin_subjects()
+    return render_template('admin_questions.html', subjects=subjects)
+
+
+@admin_bp.route('/questions/api/list')
+@login_required
+@admin_required
+def questions_api_list():
+    """API: fetch paginated & filtered question list"""
+    qid_search = request.args.get('qid_search', '').strip()
+    selected_ids_str = request.args.get('selected_ids', '').strip()
+    sort_field = request.args.get('sort', 'created_at')
+    sort_dir = request.args.get('dir', 'desc')
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 50))
+    if page_size not in (10, 20, 50, 100, 200):
+        page_size = 50
+
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    query = Question.query.filter(Question.subject.in_(admin_subjects))
+
+    if selected_ids_str:
+        # Filter by specific question internal IDs (from dashboard localStorage)
+        try:
+            selected_ids = [int(x) for x in selected_ids_str.split(',') if x.strip()]
+            if selected_ids:
+                query = query.filter(Question.id.in_(selected_ids))
+        except ValueError:
+            pass
+    elif qid_search:
+        qid_pattern = qid_search
+        if '*' in qid_pattern or '%' in qid_pattern:
+            qid_pattern = qid_pattern.replace('*', '%')
+            query = query.filter(Question.qid.ilike(qid_pattern))
+        else:
+            query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
+
+    # Sorting
+    sort_col_map = {
+        'qid': Question.qid,
+        'subject': Question.subject,
+        'source': Question.source,
+        'year': Question.year,
+        'paper': Question.paper,
+        'qno': Question.qno,
+        'q_type': Question.q_type,
+        'created_at': Question.created_at,
+    }
+    sort_col = sort_col_map.get(sort_field, Question.created_at)
+    if sort_dir == 'asc':
+        query = query.order_by(sort_col.asc())
+    else:
+        query = query.order_by(sort_col.desc())
+
+    total = query.count()
+    questions = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    items = []
+    for q in questions:
+        items.append({
+            'id': q.id,
+            'qid': q.qid,
+            'subject': q.subject,
+            'source': q.source,
+            'year': q.year,
+            'paper': q.paper,
+            'section': q.section,
+            'qno': q.qno,
+            'q_type': q.q_type,
+            'level': q.level,
+            'created_at': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
+            'asset_count': q.assets.count(),
+        })
+
+    return jsonify({
+        'items': items,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'total_pages': (total + page_size - 1) // page_size,
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/details')
+@login_required
+@admin_required
+def question_details(question_id):
+    """API: get full question details (for edit modal)"""
+    question = Question.query.get_or_404(question_id)
+
+    # Check subject access
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    if question.subject not in admin_subjects:
+        return jsonify({'error': 'Access denied'}), 403
+
+    return jsonify({
+        'id': question.id,
+        'qid': question.qid,
+        'subject': question.subject,
+        'source': question.source,
+        'year': question.year,
+        'paper': question.paper,
+        'section': question.section,
+        'qno': question.qno,
+        'q_type': question.q_type,
+        'level': question.level,
+        'major_topic_id': question.major_topic_id,
+        'major_subtopic_id': question.major_subtopic_id,
+        'minor_topic_ids': [t.id for t in question.minor_topics],
+        'subtopic_ids': [s.id for s in question.subtopics],
+        'chapter_id': question.chapter_id,
+        'subchapter_id': question.subchapter_id,
+        'description': question.description,
+        'correct_percentage': question.correct_percentage,
+        'answer': question.answer,
+        'comment': question.comment,
+        'created_at': question.created_at.strftime('%Y-%m-%d %H:%M') if question.created_at else '',
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets')
+@login_required
+@admin_required
+def question_assets(question_id):
+    """API: get all assets for a question, grouped by language and type"""
+    question = Question.query.get_or_404(question_id)
+    assets = QuestionAsset.query.filter_by(question_id=question_id).order_by(
+        QuestionAsset.language, QuestionAsset.asset_type, QuestionAsset.part_number
+    ).all()
+
+    result = {}
+    for a in assets:
+        lang = a.language
+        atype = a.asset_type
+        if lang not in result:
+            result[lang] = {}
+        if atype not in result[lang]:
+            result[lang][atype] = []
+        result[lang][atype].append({
+            'id': a.id,
+            'part_number': a.part_number,
+            'file_format': a.file_format,
+            'file_path': a.file_path,
+            'preview_url': f"/dashboard/files/{a.file_path}",
+        })
+
+    return jsonify({'assets': result, 'qid': question.qid})
+
+
+@admin_bp.route('/questions/<int:question_id>/rename', methods=['POST'])
+@login_required
+@admin_required
+def rename_question(question_id):
+    """Rename a question ID and optionally move asset files"""
+    question = Question.query.get_or_404(question_id)
+    data = request.get_json()
+    new_qid = data.get('new_qid', '').strip()
+    confirm_rename_files = data.get('confirm_rename_files', False)
+
+    if not new_qid:
+        return jsonify({'error': 'New QID is required'}), 400
+
+    if new_qid == question.qid:
+        return jsonify({'success': True, 'message': 'QID unchanged'})
+
+    # Validate format
+    parsed, err = validate_qid_format(new_qid)
+    if err:
+        return jsonify({'error': err}), 400
+
+    # Check subject access
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    new_subject = parsed['subject']
+    if new_subject not in admin_subjects:
+        return jsonify({'error': f'You do not have admin access to subject {new_subject}'}), 403
+
+    # Check subject exists
+    if not Subject.query.get(new_subject):
+        return jsonify({'error': f'Subject {new_subject} does not exist'}), 400
+
+    # Check for duplicate
+    existing = Question.query.filter_by(qid=new_qid).first()
+    if existing and existing.id != question_id:
+        return jsonify({'error': f'A question with QID {new_qid} already exists'}), 409
+
+    old_qid = question.qid
+    source_path = current_app.config['SOURCE_PATH']
+
+    # Update the question record
+    question.qid = new_qid
+    question.subject = parsed['subject']
+    question.source = parsed['source']
+    question.year = parsed.get('year')
+    question.paper = parsed.get('paper')
+    question.qno = parsed['qno']
+
+    renamed_files = []
+    errors = []
+
+    if confirm_rename_files:
+        # Rename/move physical files
+        for asset in question.assets.all():
+            old_full = os.path.join(source_path, asset.file_path)
+            new_rel = _build_asset_file_path(question, asset)
+            new_full = os.path.join(source_path, new_rel)
+
+            if os.path.exists(old_full):
+                try:
+                    os.makedirs(os.path.dirname(new_full), exist_ok=True)
+                    shutil.move(old_full, new_full)
+                    renamed_files.append({'old': asset.file_path, 'new': new_rel})
+                    asset.file_path = new_rel
+                except Exception as e:
+                    errors.append(f'Error moving {asset.file_path}: {str(e)}')
+            else:
+                # File doesn't exist, just update the path in DB
+                asset.file_path = new_rel
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'old_qid': old_qid,
+        'new_qid': new_qid,
+        'renamed_files': renamed_files,
+        'errors': errors,
+        'message': f'Question renamed from {old_qid} to {new_qid}'
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/upload', methods=['POST'])
+@login_required
+@admin_required
+def upload_question_asset(question_id):
+    """Upload a new asset part for a question"""
+    question = Question.query.get_or_404(question_id)
+
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    if question.subject not in admin_subjects:
+        return jsonify({'error': 'Access denied'}), 403
+
+    language = request.form.get('language', 'EN')
+    asset_type = request.form.get('asset_type', 'QUE')
+    
+    if language not in ('EN', 'CH', 'BI'):
+        return jsonify({'error': 'Invalid language'}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'Invalid asset type'}), 400
+
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    source_path = current_app.config['SOURCE_PATH']
+    
+    # Determine next part number
+    existing_parts = QuestionAsset.query.filter_by(
+        question_id=question_id, language=language, asset_type=asset_type
+    ).order_by(QuestionAsset.part_number.desc()).first()
+    next_part = (existing_parts.part_number + 1) if existing_parts else 1
+
+    uploaded = []
+    for f in files:
+        if not f.filename:
+            continue
+        
+        ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else 'png'
+        
+        # Determine file format
+        if ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp'):
+            file_format = 'IMG'
+        elif ext in ('doc', 'docx'):
+            file_format = 'DOC'
+        else:
+            continue  # skip unsupported
+
+        part_suffix = f'_{next_part}' if next_part > 1 else ''
+        
+        if question.source in ('DSE', 'CE', 'AL'):
+            filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
+            folder = os.path.join(question.subject, 'PP', question.source,
+                                  str(question.year), question.paper)
+        else:
+            detail = question.qid.split('_')[2]
+            filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
+            folder = os.path.join(question.subject, 'QB', detail)
+
+        rel_path = os.path.join(folder, filename)
+        full_path = os.path.join(source_path, rel_path)
+        
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        f.save(full_path)
+
+        asset = QuestionAsset(
+            question_id=question_id,
+            asset_type=asset_type,
+            file_format=file_format,
+            language=language,
+            file_path=rel_path,
+            part_number=next_part
+        )
+        db.session.add(asset)
+        uploaded.append({
+            'id': None,  # will be set after commit
+            'part_number': next_part,
+            'file_path': rel_path,
+        })
+        next_part += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'uploaded_count': len(uploaded),
+        'message': f'Uploaded {len(uploaded)} asset(s)'
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+@admin_required
+def delete_question_asset(question_id, asset_id):
+    """Delete a specific asset (DB record only, file stays on disk)"""
+    asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    
+    db.session.delete(asset)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Asset deleted from database'})
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/reorder', methods=['POST'])
+@login_required
+@admin_required
+def reorder_question_assets(question_id):
+    """Reorder asset parts for a given language and type"""
+    data = request.get_json()
+    language = data.get('language')
+    asset_type = data.get('asset_type')
+    asset_ids = data.get('asset_ids', [])  # ordered list of asset IDs
+
+    if not language or not asset_type or not asset_ids:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    for idx, aid in enumerate(asset_ids, start=1):
+        asset = QuestionAsset.query.filter_by(
+            id=aid, question_id=question_id,
+            language=language, asset_type=asset_type
+        ).first()
+        if asset:
+            asset.part_number = idx
+
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@admin_bp.route('/questions/create', methods=['POST'])
+@login_required
+@admin_required
+def create_question():
+    """Create a new question"""
+    data = request.get_json()
+    
+    subject = data.get('subject', '').strip()
+    source = data.get('source', '').strip()
+    year = data.get('year')
+    paper = data.get('paper', '').strip()
+    qno = data.get('qno')
+    detail = data.get('detail', '').strip()  # For QB source
+
+    if not subject or not source or not qno:
+        return jsonify({'error': 'Subject, source, and question number are required'}), 400
+
+    # Check subject access
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    if subject not in admin_subjects:
+        return jsonify({'error': f'You do not have admin access to subject {subject}'}), 403
+
+    # Check subject exists
+    if not Subject.query.get(subject):
+        return jsonify({'error': f'Subject {subject} does not exist'}), 400
+
+    # Build QID
+    qno_int = int(qno)
+    if source in ('DSE', 'CE', 'AL'):
+        if not year or not paper:
+            return jsonify({'error': 'Year and paper are required for PP questions'}), 400
+        year_int = int(year)
+        qid = f"{subject}_{source}_{year_int}_{paper}_Q{qno_int}"
+    elif source == 'QB':
+        if not detail:
+            return jsonify({'error': 'Detail/book name is required for QB questions'}), 400
+        if '_' in detail:
+            return jsonify({'error': 'Detail/book name cannot contain underscores'}), 400
+        qid = f"{subject}_QB_{detail}_Q{qno_int}"
+        year_int = None
+        paper = None
+    else:
+        return jsonify({'error': 'Invalid source type'}), 400
+
+    # Validate format
+    parsed, err = validate_qid_format(qid)
+    if err:
+        return jsonify({'error': err}), 400
+
+    # Check duplicate
+    if Question.query.filter_by(qid=qid).first():
+        return jsonify({'error': f'Question {qid} already exists'}), 409
+
+    question = Question(
+        qid=qid,
+        subject=subject,
+        source=source,
+        year=year_int if source != 'QB' else None,
+        paper=paper if source != 'QB' else None,
+        qno=qno_int,
+    )
+    db.session.add(question)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'question': {
+            'id': question.id,
+            'qid': question.qid,
+        },
+        'message': f'Question {qid} created successfully'
+    })
 
 
 # ==================== User Management (Super Admin Only) ====================

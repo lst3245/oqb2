@@ -363,10 +363,9 @@
                                 onclick="showBatchEditModal()" title="Batch edit selected questions">
                             <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
                         </button>
-                        <button type="button" class="btn btn-sm btn-danger" id="deleteBtn" style="display:none"
-                                onclick="showDeleteConfirmation()" title="Delete selected questions">
-                            <i class="bi bi-trash"></i> <span class="btn-text">Delete</span>
-                        </button>
+                        <a href="{{ url_for('admin.questions_page') }}" class="btn btn-sm btn-outline-secondary" title="Manage questions (add, delete, edit assets)">
+                            <i class="bi bi-journal-text"></i> <span class="btn-text">Manage</span>
+                        </a>
                         {% endif %}
                         {% if current_user.can_generate() %}
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" style="display:none"
@@ -965,38 +964,7 @@
     </div>
 </div>
 
-<!-- Delete Confirmation Modal (Admin Only) -->
-<div class="modal fade" id="deleteModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Delete Questions</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-danger">
-                    <strong>Warning!</strong> You are about to delete <span id="deleteCount" class="fw-bold">0</span> question(s) from the database.
-                    <br><br>
-                    <strong>This action cannot be undone.</strong> The questions and all their associated assets will be permanently removed from the database.
-                    <br><br>
-                    <small class="text-muted">Note: The original files on disk will NOT be deleted.</small>
-                </div>
-                <div class="form-check mt-3">
-                    <input class="form-check-input" type="checkbox" id="confirmDeleteCheck">
-                    <label class="form-check-label" for="confirmDeleteCheck">
-                        I understand this action is permanent and want to delete these questions
-                    </label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()" disabled>
-                    <i class="bi bi-trash"></i> Delete Questions
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- Delete moved to Admin > Question Management page -->
 {% endif %}
 
 <!-- Save Filter Profile Modal -->
@@ -1076,11 +1044,9 @@ function updatePermissionButtons() {
     const canGen = (role === 'user' || role === 'admin');
 
     const batchEditBtn = document.getElementById('batchEditBtn');
-    const deleteBtn = document.getElementById('deleteBtn');
     const generateBtn = document.getElementById('generateBtn');
 
     if (batchEditBtn) batchEditBtn.style.display = canEdit ? '' : 'none';
-    if (deleteBtn) deleteBtn.style.display = canEdit ? '' : 'none';
     if (generateBtn) generateBtn.style.display = canGen ? '' : 'none';
 }
 
@@ -3433,90 +3399,12 @@ function openViewerMode() {
 {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
 // Admin-only functions for editing tags and deletion
 let editModal;
-let deleteModal;
 let batchEditModal;
 
 document.addEventListener('DOMContentLoaded', function() {
     editModal = new bootstrap.Modal(document.getElementById('editModal'));
-    deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
     batchEditModal = new bootstrap.Modal(document.getElementById('batchEditModal'));
-    
-    // Enable/disable delete button based on checkbox
-    document.getElementById('confirmDeleteCheck').addEventListener('change', function() {
-        document.getElementById('confirmDeleteBtn').disabled = !this.checked;
-    });
 });
-
-// Show delete confirmation modal
-function showDeleteConfirmation() {
-    const questionIds = Array.from(selectedQuestions);
-    
-    if (questionIds.length === 0) {
-        alert('Please select at least one question to delete');
-        return;
-    }
-    
-    // Reset the checkbox
-    document.getElementById('confirmDeleteCheck').checked = false;
-    document.getElementById('confirmDeleteBtn').disabled = true;
-    
-    // Update count
-    document.getElementById('deleteCount').textContent = questionIds.length;
-    
-    deleteModal.show();
-}
-
-// Confirm and execute deletion
-function confirmDelete() {
-    const questionIds = Array.from(selectedQuestions);
-    
-    if (questionIds.length === 0) {
-        deleteModal.hide();
-        return;
-    }
-    
-    // Disable button to prevent double-click
-    const btn = document.getElementById('confirmDeleteBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
-    
-    // Build form data
-    const formData = new FormData();
-    questionIds.forEach(id => formData.append('question_ids', id));
-    
-    fetch('{{ url_for("admin.delete_questions") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            deleteModal.hide();
-            alert(`Successfully deleted ${data.deleted_count} question(s)`);
-            
-            // Clear selection
-            selectedQuestions.clear();
-            updateSelectionCounter();
-            
-            // Refresh the question list
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                htmx.trigger(filterForm, 'submit');
-            }
-        } else {
-            throw new Error(data.error || 'Error deleting questions');
-        }
-    })
-    .catch(err => {
-        console.error('Error:', err);
-        alert('Error deleting questions: ' + err.message);
-    })
-    .finally(() => {
-        // Reset button
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-trash"></i> Delete Questions';
-    });
-}
 
 // ============== BATCH EDIT FUNCTIONS ==============
 
