@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Regex patterns for parsing filenames
 # PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png  or  MATC_DSE_2025_P2_Q5_EN_QUE_2.png (multi-part)
 PP_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P\d+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 # QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png  or  ..._QUE_2.png (multi-part)

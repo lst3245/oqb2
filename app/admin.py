@@ -749,7 +749,7 @@ def batch_update_questions():
 # ==================== Question Management ====================
 
 # QID validation patterns (same as ingestor)
-PP_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_(?P<source>DSE|CE|AL)_(?P<year>\d{4})_(?P<paper>P\d+)_Q(?P<qno>\d+)$')
+PP_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_(?P<source>DSE|CE|AL)_(?P<year>\d{4})_(?P<paper>P[A-Za-z0-9]+)_Q(?P<qno>\d+)$')
 QB_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_QB_(?P<detail>[^_]+)_Q(?P<qno>\d+)$')
 
 
@@ -769,7 +769,7 @@ def validate_qid_format(qid):
             'subject': d['subj'], 'source': 'QB',
             'detail': d['detail'], 'qno': int(d['qno'])
         }, None
-    return None, 'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO (e.g. MATC_DSE_2024_P1_Q5) or SUBJ_QB_DETAIL_QNO (e.g. MATC_QB_BOOK1_Q1)'
+    return None, 'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO (e.g. MATC_DSE_2024_P1_Q5 or MATC_DSE_2024_P2A_Q1) or SUBJ_QB_DETAIL_QNO (e.g. MATC_QB_BOOK1_Q1)'
 
 
 def _build_asset_file_path(question, asset):

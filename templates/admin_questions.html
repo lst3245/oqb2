@@ -270,11 +270,7 @@
                     <div class="row g-3 mt-1">
                         <div class="col-md-4" id="addPaperGroup">
                             <label class="form-label fw-bold">Paper</label>
-                            <select class="form-select" id="addPaper" onchange="updateAddQidPreview()">
-                                <option value="P1">P1</option>
-                                <option value="P2">P2</option>
-                                <option value="P3">P3</option>
-                            </select>
+                            <input type="text" class="form-control" id="addPaper" value="P1" placeholder="e.g. P1, P2, P2A, P2B" oninput="updateAddQidPreview()">
                         </div>
                         <div class="col-md-4" id="addDetailGroup" style="display:none">
                             <label class="form-label fw-bold">Detail / Book Name</label>
