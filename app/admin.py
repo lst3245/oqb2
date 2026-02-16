@@ -1202,8 +1202,8 @@ def reorder_question_assets(question_id):
 
     question = Question.query.get_or_404(question_id)
     source_path = current_app.config['SOURCE_PATH']
-    
-    # Gather assets and plan renames
+
+    # Gather assets and record old state
     assets_to_reorder = []
     for idx, aid in enumerate(asset_ids, start=1):
         asset = QuestionAsset.query.filter_by(
@@ -1213,48 +1213,64 @@ def reorder_question_assets(question_id):
         if asset:
             old_full_path = os.path.join(source_path, asset.file_path)
             old_part = asset.part_number
-            asset.part_number = idx  # Update part number in DB
-            new_rel_path = _build_asset_file_path(question, asset)
-            new_full_path = os.path.join(source_path, new_rel_path)
             assets_to_reorder.append({
                 'asset': asset,
                 'old_full_path': old_full_path,
-                'new_full_path': new_full_path,
-                'new_rel_path': new_rel_path,
                 'old_part': old_part,
                 'new_part': idx,
             })
-    
+
+    # Two-phase DB update to avoid UniqueConstraint violation when swapping part numbers.
+    # Phase 1: set all part_numbers to temporary negative values
+    for item in assets_to_reorder:
+        item['asset'].part_number = -item['new_part']
+    db.session.flush()
+    # Phase 2: set to the real positive values
+    for item in assets_to_reorder:
+        item['asset'].part_number = item['new_part']
+    db.session.flush()
+
+    # Now compute new file paths based on updated part_numbers
+    for item in assets_to_reorder:
+        new_rel_path = _build_asset_file_path(question, item['asset'])
+        new_full_path = os.path.join(source_path, new_rel_path)
+        item['new_rel_path'] = new_rel_path
+        item['new_full_path'] = new_full_path
+
     # Rename files on disk using temp names to avoid conflicts (e.g. swapping part 1 and 2)
     rename_errors = []
     temp_renames = []
     for item in assets_to_reorder:
-        if item['old_full_path'] != item['new_full_path'] and os.path.exists(item['old_full_path']):
-            temp_path = item['old_full_path'] + '.tmp_reorder'
+        # Normalise both paths with os.path.normpath for reliable comparison on Windows
+        old_norm = os.path.normpath(item['old_full_path'])
+        new_norm = os.path.normpath(item['new_full_path'])
+        if old_norm != new_norm and os.path.exists(old_norm):
+            temp_path = old_norm + '.tmp_reorder'
             try:
-                os.rename(item['old_full_path'], temp_path)
+                os.rename(old_norm, temp_path)
                 temp_renames.append((temp_path, item))
             except OSError as e:
-                rename_errors.append(f"Failed to rename {os.path.basename(item['old_full_path'])}: {e}")
-    
+                rename_errors.append(f"Failed to rename {os.path.basename(old_norm)}: {e}")
+
     # Now move from temp to final paths
     files_renamed = 0
     for temp_path, item in temp_renames:
+        final_path = os.path.normpath(item['new_full_path'])
         try:
-            os.makedirs(os.path.dirname(item['new_full_path']), exist_ok=True)
-            os.rename(temp_path, item['new_full_path'])
+            os.makedirs(os.path.dirname(final_path), exist_ok=True)
+            os.rename(temp_path, final_path)
             item['asset'].file_path = item['new_rel_path']
             files_renamed += 1
         except OSError as e:
             # Try to restore original
             try:
-                os.rename(temp_path, item['old_full_path'])
+                os.rename(temp_path, os.path.normpath(item['old_full_path']))
             except OSError:
                 pass
-            rename_errors.append(f"Failed to rename to {os.path.basename(item['new_full_path'])}: {e}")
+            rename_errors.append(f"Failed to rename to {os.path.basename(final_path)}: {e}")
 
     db.session.commit()
-    
+
     result = {'success': True, 'files_renamed': files_renamed}
     if rename_errors:
         result['warnings'] = rename_errors
