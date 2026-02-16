@@ -772,22 +772,33 @@ def validate_qid_format(qid):
     return None, 'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO (e.g. MATC_DSE_2024_P1_Q5 or MATC_DSE_2024_P2A_Q1) or SUBJ_QB_DETAIL_QNO (e.g. MATC_QB_BOOK1_Q1)'
 
 
+def _extract_qb_detail(qid):
+    """Extract the 'detail' component from a QB-style QID (SUBJ_QB_DETAIL_QNO).
+    Uses the QB regex for robust parsing, falls back to string split."""
+    m = QB_QID_PATTERN.match(qid)
+    if m:
+        return m.group('detail')
+    parts = qid.split('_')
+    return parts[2] if len(parts) >= 4 else 'UNKNOWN'
+
+
 def _build_asset_file_path(question, asset):
-    """Build the expected relative file path for an asset based on the question's QID components."""
+    """Build the expected relative file path for an asset based on the question's QID components.
+    Always returns forward-slash separated paths for cross-platform consistency."""
     ext = asset.file_path.rsplit('.', 1)[-1] if '.' in asset.file_path else 'png'
     part_suffix = f'_{asset.part_number}' if asset.part_number > 1 else ''
     
     if question.source in ('DSE', 'CE', 'AL'):
         filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
-        folder = os.path.join(question.subject, 'PP', question.source,
-                              str(question.year), question.paper)
+        folder = '/'.join([question.subject, 'PP', question.source,
+                           str(question.year), question.paper])
     else:
         # QB
-        detail = question.qid.split('_')[2]  # SUBJ_QB_DETAIL_QNO
+        detail = _extract_qb_detail(question.qid)
         filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
-        folder = os.path.join(question.subject, 'QB', detail)
+        folder = '/'.join([question.subject, 'QB', detail])
     
-    return os.path.join(folder, filename)
+    return f"{folder}/{filename}"
 
 
 @admin_bp.route('/questions')
@@ -1101,15 +1112,15 @@ def upload_question_asset(question_id):
         
         if question.source in ('DSE', 'CE', 'AL'):
             filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
-            folder = os.path.join(question.subject, 'PP', question.source,
-                                  str(question.year), question.paper)
+            folder = '/'.join([question.subject, 'PP', question.source,
+                               str(question.year), question.paper])
         else:
-            detail = question.qid.split('_')[2]
+            detail = _extract_qb_detail(question.qid)
             filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
-            folder = os.path.join(question.subject, 'QB', detail)
+            folder = '/'.join([question.subject, 'QB', detail])
 
-        rel_path = os.path.join(folder, filename)
-        full_path = os.path.join(source_path, rel_path)
+        rel_path = f"{folder}/{filename}"
+        full_path = os.path.join(source_path, *rel_path.split('/'))
         
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         f.save(full_path)
@@ -2200,6 +2211,20 @@ def health_stats():
     source_path = current_app.config['SOURCE_PATH']
     stats = get_database_stats(source_path)
     return jsonify(stats)
+
+
+@admin_bp.route('/health/untracked')
+@login_required
+@super_admin_required
+def health_untracked():
+    """Find files on disk that are not tracked in the database (reverse orphan check)"""
+    from app.ingestor import find_untracked_files
+    source_path = current_app.config['SOURCE_PATH']
+    untracked = find_untracked_files(source_path)
+    return jsonify({
+        'count': len(untracked),
+        'files': untracked[:500]  # Cap for UI
+    })
 
 
 @admin_bp.route('/health/sync')

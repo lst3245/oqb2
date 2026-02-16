@@ -4,6 +4,7 @@ File scanner/ingestor module for importing questions from file system
 import os
 import re
 import logging
+from datetime import datetime, timedelta
 from flask import current_app
 from natsort import natsorted
 from app import db
@@ -182,8 +183,8 @@ def upsert_asset(question, parsed, file_path, source_path):
         logger.warning(f"Unknown file format: {parsed['ext']} for {file_path}")
         return
     
-    # Get relative path from source
-    rel_path = os.path.relpath(file_path, source_path)
+    # Get relative path from source, normalised to forward slashes for cross-platform consistency
+    rel_path = os.path.relpath(file_path, source_path).replace('\\', '/')
     
     # Check if asset already exists (uniqueness includes part_number)
     asset = QuestionAsset.query.filter_by(
@@ -325,9 +326,14 @@ def sync_database(source_path, dry_run=False):
         deleted_assets = len(orphaned_assets)
     
     # Check for questions with no assets remaining
+    # Grace period: skip questions created within the last 24 hours (may be mid-upload via admin)
+    grace_cutoff = datetime.utcnow() - timedelta(hours=24)
     all_questions = Question.query.all()
     for question in all_questions:
         if question.assets.count() == 0:
+            if question.created_at > grace_cutoff:
+                logger.info(f"Skipping recently created question (grace period): {question.qid} (ID: {question.id})")
+                continue
             orphaned_questions.append({
                 'id': question.id,
                 'qid': question.qid
@@ -642,13 +648,25 @@ def sync_database_stream(source_path, dry_run=True):
         yield {'type': 'success', 'message': f'Deleted {deleted_assets} orphaned assets'}
     
     # Check for questions with no assets
-    yield {'type': 'info', 'message': 'Checking for questions with no assets...'}
+    # Grace period: skip questions created within the last 24 hours (may be mid-upload via admin)
+    grace_cutoff = datetime.utcnow() - timedelta(hours=24)
+    yield {'type': 'info', 'message': 'Checking for questions with no assets (skipping < 24h old)...'}
     all_questions = Question.query.all()
     total_questions = len(all_questions)
+    skipped_grace = 0
     
     orphaned_questions = []
     for i, question in enumerate(all_questions):
         if question.assets.count() == 0:
+            if question.created_at > grace_cutoff:
+                skipped_grace += 1
+                yield {
+                    'type': 'info',
+                    'message': f'Skipping recently created question (grace period): {question.qid}',
+                    'current': i + 1,
+                    'total': total_questions
+                }
+                continue
             orphaned_questions.append(question)
             yield {
                 'type': 'warning',
@@ -665,7 +683,8 @@ def sync_database_stream(source_path, dry_run=True):
                 'total': total_questions
             }
     
-    yield {'type': 'info', 'message': f'Found {len(orphaned_questions)} questions with no assets'}
+    yield {'type': 'info', 'message': f'Found {len(orphaned_questions)} orphaned questions with no assets' +
+           (f' (skipped {skipped_grace} recently created)' if skipped_grace else '')}
     
     # Delete orphaned questions if not dry run
     deleted_questions = 0
@@ -694,6 +713,7 @@ def sync_database_stream(source_path, dry_run=True):
             'orphaned_questions': len(orphaned_questions),
             'deleted_assets': deleted_assets if not dry_run else 0,
             'deleted_questions': deleted_questions if not dry_run else 0,
+            'skipped_grace': skipped_grace,
             'dry_run': dry_run
         }
     }
@@ -741,13 +761,18 @@ def get_database_stats(source_path=None):
     stats['questions_no_subtopic'] = len(no_subtopic_q)
     stats['questions_no_subtopic_list'] = [q.qid for q in no_subtopic_q[:LIST_CAP]]
     
-    # Questions with no assets (use a subquery for efficiency)
+    # Questions with no assets — split into "recent" (< 24h, grace period) and "stale"
+    grace_cutoff = datetime.utcnow() - timedelta(hours=24)
     questions_with_assets = db.session.query(QuestionAsset.question_id).distinct().subquery()
     no_asset_questions = Question.query.filter(
         ~Question.id.in_(db.session.query(questions_with_assets))
     ).all()
-    stats['questions_no_assets'] = len(no_asset_questions)
-    stats['questions_no_assets_list'] = [q.qid for q in no_asset_questions[:LIST_CAP]]
+    stale_no_assets = [q for q in no_asset_questions if q.created_at <= grace_cutoff]
+    recent_no_assets = [q for q in no_asset_questions if q.created_at > grace_cutoff]
+    stats['questions_no_assets'] = len(stale_no_assets)
+    stats['questions_no_assets_list'] = [q.qid for q in stale_no_assets[:LIST_CAP]]
+    stats['questions_no_assets_recent'] = len(recent_no_assets)
+    stats['questions_no_assets_recent_list'] = [q.qid for q in recent_no_assets[:LIST_CAP]]
     
     # Note: File existence check is intentionally skipped here (too slow for network drives).
     # Use the "Orphaned Records Sync" to perform filesystem checks.
@@ -756,6 +781,48 @@ def get_database_stats(source_path=None):
     # Duplicate QID check (should not happen with unique constraint, but just in case)
     dup_qids = db.session.query(Question.qid, func.count(Question.id)).group_by(Question.qid).having(func.count(Question.id) > 1).all()
     stats['duplicate_qids'] = [{'qid': qid, 'count': count} for qid, count in dup_qids]
+    
+    # Duplicate asset check — same (question_id, asset_type, language, file_format, part_number) > 1
+    dup_assets = db.session.query(
+        QuestionAsset.question_id, QuestionAsset.asset_type,
+        QuestionAsset.language, QuestionAsset.file_format,
+        QuestionAsset.part_number, func.count(QuestionAsset.id).label('cnt')
+    ).group_by(
+        QuestionAsset.question_id, QuestionAsset.asset_type,
+        QuestionAsset.language, QuestionAsset.file_format,
+        QuestionAsset.part_number
+    ).having(func.count(QuestionAsset.id) > 1).all()
+    dup_asset_details = []
+    for row in dup_assets:
+        q = Question.query.get(row.question_id)
+        dup_asset_details.append(
+            f"{q.qid if q else '?'}:{row.asset_type}_{row.language}_P{row.part_number} (×{row.cnt})"
+        )
+    stats['duplicate_assets'] = len(dup_assets)
+    stats['duplicate_assets_list'] = dup_asset_details[:LIST_CAP]
+    
+    # File-path consistency check — compare stored file_path against expected path
+    # Import _build_asset_file_path lazily to avoid circular imports
+    path_mismatches = []
+    try:
+        from app.admin import _build_asset_file_path
+        # Only check a reasonable number to keep this fast
+        assets_sample = QuestionAsset.query.limit(5000).all()
+        for asset in assets_sample:
+            question = asset.question
+            if not question:
+                continue
+            try:
+                expected = _build_asset_file_path(question, asset)
+                stored = asset.file_path.replace('\\', '/')
+                if stored != expected:
+                    path_mismatches.append(f"{question.qid}: stored={stored} expected={expected}")
+            except Exception:
+                pass  # Skip if path can't be computed (e.g. missing fields)
+    except ImportError:
+        pass
+    stats['path_mismatches'] = len(path_mismatches)
+    stats['path_mismatches_list'] = path_mismatches[:LIST_CAP]
     
     # Questions without q_type
     no_type_q = Question.query.filter(Question.q_type == None).all()
@@ -768,3 +835,35 @@ def get_database_stats(source_path=None):
     stats['questions_no_level_list'] = [q.qid for q in no_level_q[:LIST_CAP]]
     
     return stats
+
+
+def find_untracked_files(source_path):
+    """
+    Scan filesystem for parseable question asset files that have no matching DB record.
+    Returns a list of dicts with file info for un-tracked files.
+    This is the 'reverse orphan' check — files on disk not in the database.
+    """
+    if not os.path.exists(source_path):
+        return []
+
+    # Build a set of all known file_paths (normalised to forward slashes)
+    known_paths = set()
+    for asset in QuestionAsset.query.with_entities(QuestionAsset.file_path).all():
+        known_paths.add(asset.file_path.replace('\\', '/'))
+
+    untracked = []
+    for root, dirs, files in os.walk(source_path):
+        for filename in files:
+            parsed = parse_filename(filename)
+            if not parsed:
+                continue  # Not a recognised question file
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, source_path).replace('\\', '/')
+            if rel_path not in known_paths:
+                qid = construct_qid(parsed)
+                untracked.append({
+                    'file_path': rel_path,
+                    'qid': qid,
+                    'filename': filename,
+                })
+    return untracked

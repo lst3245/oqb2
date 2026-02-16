@@ -246,8 +246,13 @@ class QuestionAsset(db.Model):
     asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', name='asset_type_enum'), nullable=False)
     file_format = db.Column(db.Enum('IMG', 'DOC', name='file_format_enum'), nullable=False)
     language = db.Column(db.Enum('EN', 'CH', 'BI', name='language_enum'), nullable=False)
-    file_path = db.Column(db.String(500), nullable=False)  # Relative path
+    file_path = db.Column(db.String(500), nullable=False)  # Relative path (always forward-slash separated)
     part_number = db.Column(db.Integer, nullable=False, default=1)  # For multi-image questions (1, 2, 3...)
+    
+    __table_args__ = (
+        db.UniqueConstraint('question_id', 'asset_type', 'language', 'file_format', 'part_number',
+                            name='uq_asset_identity'),
+    )
     
     def __repr__(self):
         return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language}) part {self.part_number}>'
