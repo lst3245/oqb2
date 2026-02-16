@@ -1426,8 +1426,34 @@ function initializeSelectionState() {
             if (card) card.classList.remove('selected');
         }
     });
+    // Reorder selectedQuestions to match current display order so that
+    // "Manage" page and other consumers see IDs in the sorted order
+    reorderSelectedQuestions();
     updateSelectAllCheckbox();
     updateSelectionCounter();
+}
+
+// Reorder the selectedQuestions set to match the current filter/sort display order
+function reorderSelectedQuestions() {
+    const allIdsElement = document.getElementById('allQuestionIds');
+    if (!allIdsElement) return;
+    const allQuestionIds = allIdsElement.dataset.ids.split(',').filter(id => id);
+    if (allQuestionIds.length === 0) return;
+
+    const oldSelected = new Set(selectedQuestions);
+    selectedQuestions = new Set();
+
+    // First: add selected IDs that appear in the current display, in display order
+    allQuestionIds.forEach(id => {
+        if (oldSelected.has(id)) {
+            selectedQuestions.add(id);
+            oldSelected.delete(id);
+        }
+    });
+    // Then: append any remaining selected IDs not in the current filter results
+    oldSelected.forEach(id => selectedQuestions.add(id));
+
+    saveStateToStorage();
 }
 
 // Toggle question selection when clicking on the card
