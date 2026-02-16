@@ -38,7 +38,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" name="display_name" id="displayName" 
                                        value="{{ regen_display_name or '' }}" placeholder="questions (auto-timestamped)">
-                                <span class="input-group-text">.docx</span>
+                                <span class="input-group-text" id="fileExtLabel">.docx</span>
                             </div>
                         </div>
                         
@@ -174,7 +174,7 @@
                         </div>
                         
                         
-                        <!-- Topic/Chapter Display Options (compact 2-column layout) -->
+                        <!-- Topic/Chapter Display Options (compact 3-column layout) -->
                         <div class="card mb-3 border-secondary">
                             <div class="card-header bg-secondary bg-opacity-10 py-2">
                                 <strong><i class="bi bi-tags"></i> Topic / Chapter Display</strong>
@@ -182,7 +182,7 @@
                             <div class="card-body py-2">
                                 <div class="row">
                                     <!-- Per-Question Info Line -->
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <small class="text-muted fw-bold d-block mb-1">Info line under each Q:</small>
                                         <div class="form-check form-check-sm mb-1">
                                             <input type="checkbox" class="form-check-input" id="infoTopic" name="info_topic">
@@ -202,7 +202,7 @@
                                         </div>
                                     </div>
                                     <!-- Section Heading on Change -->
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <small class="text-muted fw-bold d-block mb-1">Section heading on change:</small>
                                         <div class="form-check form-check-sm mb-1">
                                             <input type="checkbox" class="form-check-input" id="sectionTopic" name="section_topic">
@@ -219,6 +219,26 @@
                                         <div class="form-check form-check-sm mb-1">
                                             <input type="checkbox" class="form-check-input" id="sectionSubchapter" name="section_subchapter">
                                             <label class="form-check-label small" for="sectionSubchapter">Subchapter</label>
+                                        </div>
+                                    </div>
+                                    <!-- Split File on Change -->
+                                    <div class="col-4">
+                                        <small class="text-muted fw-bold d-block mb-1">Split file on change:</small>
+                                        <div class="form-check form-check-sm mb-1">
+                                            <input type="checkbox" class="form-check-input" id="splitTopic" name="split_topic">
+                                            <label class="form-check-label small" for="splitTopic">Topic</label>
+                                        </div>
+                                        <div class="form-check form-check-sm mb-1">
+                                            <input type="checkbox" class="form-check-input" id="splitSubtopic" name="split_subtopic">
+                                            <label class="form-check-label small" for="splitSubtopic">Subtopic</label>
+                                        </div>
+                                        <div class="form-check form-check-sm mb-1">
+                                            <input type="checkbox" class="form-check-input" id="splitChapter" name="split_chapter">
+                                            <label class="form-check-label small" for="splitChapter">Chapter</label>
+                                        </div>
+                                        <div class="form-check form-check-sm mb-1">
+                                            <input type="checkbox" class="form-check-input" id="splitSubchapter" name="split_subchapter">
+                                            <label class="form-check-label small" for="splitSubchapter">Subchapter</label>
                                         </div>
                                     </div>
                                 </div>
@@ -395,6 +415,12 @@ document.addEventListener('DOMContentLoaded', function() {
     renderSortCriteria();
     initQuestionDragDrop();
     updateAnswerQidVisibility();
+    updateFileExtLabel();
+    
+    // Listen to split checkbox changes to update file extension label
+    document.querySelectorAll('#splitTopic, #splitSubtopic, #splitChapter, #splitSubchapter').forEach(cb => {
+        cb.addEventListener('change', updateFileExtLabel);
+    });
     
     // Sort mode toggle handlers
     document.querySelectorAll('input[name="sort_mode_radio"]').forEach(radio => {
@@ -417,6 +443,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Restore saved generation options if regenerating from My Files
     if (savedGenerationOptions && Object.keys(savedGenerationOptions).length > 0) {
         restoreGenerationOptions(savedGenerationOptions);
+        updateFileExtLabel();  // Update extension label after restoring split options
     }
     
     // Show question source choice banner for regen
@@ -705,9 +732,38 @@ function restoreGenerationOptions(opts) {
             if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
         }
     }
+    
+    // Split file on change fields
+    if (opts.split_fields) {
+        const fields = opts.split_fields;
+        if (fields.topic !== undefined) {
+            const el = document.getElementById('splitTopic');
+            if (el) el.checked = (fields.topic === 'on' || fields.topic === true);
+        }
+        if (fields.subtopic !== undefined) {
+            const el = document.getElementById('splitSubtopic');
+            if (el) el.checked = (fields.subtopic === 'on' || fields.subtopic === true);
+        }
+        if (fields.chapter !== undefined) {
+            const el = document.getElementById('splitChapter');
+            if (el) el.checked = (fields.chapter === 'on' || fields.chapter === true);
+        }
+        if (fields.subchapter !== undefined) {
+            const el = document.getElementById('splitSubchapter');
+            if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
+        }
+    }
 }
 
 // Show/hide the "Show QID for answers" option based on answer mode
+function updateFileExtLabel() {
+    const anySplit = document.getElementById('splitTopic').checked ||
+                     document.getElementById('splitSubtopic').checked ||
+                     document.getElementById('splitChapter').checked ||
+                     document.getElementById('splitSubchapter').checked;
+    document.getElementById('fileExtLabel').textContent = anySplit ? '.zip' : '.docx';
+}
+
 function updateAnswerQidVisibility() {
     const answerMode = document.getElementById('answerMode').value;
     const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');

@@ -13,7 +13,10 @@ import os
 import re
 import json
 import threading
+import zipfile
+import tempfile
 from datetime import datetime
+from collections import OrderedDict
 from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
@@ -313,6 +316,12 @@ def create_document():
         'chapter': request.form.get('section_chapter') == 'on',
         'subchapter': request.form.get('section_subchapter') == 'on',
     }
+    split_fields = {
+        'topic': request.form.get('split_topic') == 'on',
+        'subtopic': request.form.get('split_subtopic') == 'on',
+        'chapter': request.form.get('split_chapter') == 'on',
+        'subchapter': request.form.get('split_subchapter') == 'on',
+    }
     
     preferred_language = request.form.get('preferred_language', 'EN')
     answer_preference = request.form.get('answer_preference', 'image_first')
@@ -343,22 +352,25 @@ def create_document():
         'show_seq_no': show_seq_no, 'show_page_no': show_page_no,
         'keep_together': keep_together,
         'info_fields': info_fields, 'section_fields': section_fields,
+        'split_fields': split_fields,
         'preferred_language': preferred_language,
         'answer_preference': answer_preference,
         'question_ids': question_ids,
     }
     
     # Create filename
+    any_split = any(split_fields.values())
+    file_ext = '.zip' if any_split else '.docx'
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if not display_name:
         display_name = f'questions_{timestamp}'
-        filename = f'{display_name}.docx'
+        filename = f'{display_name}{file_ext}'
     else:
-        filename = f'{display_name}_{timestamp}.docx'
+        filename = f'{display_name}_{timestamp}{file_ext}'
     # Sanitize filename
     filename = "".join(c for c in filename if c.isalnum() or c in '._- ').strip()
-    if not filename.endswith('.docx'):
-        filename += '.docx'
+    if not filename.endswith(file_ext):
+        filename += file_ext
     
     # Create GeneratedFile record
     gen_file = GeneratedFile(
@@ -394,7 +406,7 @@ def create_document():
               answer_mode, spacing_config, show_qid, show_qid_answer,
               preferred_language, show_correct_pct, answer_preference,
               show_seq_no, show_page_no, keep_together,
-              info_fields, section_fields, filename)
+              info_fields, section_fields, split_fields, filename)
     )
     thread.daemon = True
     thread.start()
@@ -406,8 +418,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             answer_mode, spacing_config, show_qid, show_qid_answer,
                             preferred_language, show_correct_pct, answer_preference,
                             show_seq_no, show_page_no, keep_together,
-                            info_fields, section_fields, filename):
-    """Background thread function to generate the Word document"""
+                            info_fields, section_fields, split_fields, filename):
+    """Background thread function to generate the Word document(s)"""
     with app.app_context():
         gen_file = GeneratedFile.query.get(gen_file_id)
         if not gen_file:
@@ -437,19 +449,54 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                 questions = list(questions_dict.values())
                 questions = apply_multi_sort(questions, sort_config)
             
-            # Create document
-            doc = create_word_document(
-                questions, answer_mode, spacing_config,
-                show_qid, show_qid_answer, preferred_language,
-                show_correct_pct, answer_preference,
-                show_seq_no, show_page_no, keep_together,
-                info_fields, section_fields
-            )
-            
-            # Save document
+            any_split = split_fields and any(split_fields.values())
             output_path = app.config['OUTPUT_PATH']
             filepath = os.path.join(output_path, filename)
-            doc.save(filepath)
+            
+            if any_split:
+                # Split questions into groups based on split_fields
+                groups = _split_questions_into_groups(questions, split_fields)
+                
+                # Generate one doc per group and zip them
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    docx_files = []  # (filename, filepath) tuples
+                    used_names = set()  # track names to avoid duplicates
+                    
+                    for group_label, group_questions in groups.items():
+                        doc = create_word_document(
+                            group_questions, answer_mode, spacing_config,
+                            show_qid, show_qid_answer, preferred_language,
+                            show_correct_pct, answer_preference,
+                            show_seq_no, show_page_no, keep_together,
+                            info_fields, section_fields
+                        )
+                        # Build per-file name from the group label, dedup if needed
+                        safe_label = _sanitize_filename(group_label)
+                        docx_name = f'{safe_label}.docx'
+                        counter = 2
+                        while docx_name in used_names:
+                            docx_name = f'{safe_label} ({counter}).docx'
+                            counter += 1
+                        used_names.add(docx_name)
+                        
+                        docx_path = os.path.join(tmpdir, docx_name)
+                        doc.save(docx_path)
+                        docx_files.append((docx_name, docx_path))
+                    
+                    # Create zip
+                    with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for docx_name, docx_path in docx_files:
+                            zf.write(docx_path, docx_name)
+            else:
+                # Single document
+                doc = create_word_document(
+                    questions, answer_mode, spacing_config,
+                    show_qid, show_qid_answer, preferred_language,
+                    show_correct_pct, answer_preference,
+                    show_seq_no, show_page_no, keep_together,
+                    info_fields, section_fields
+                )
+                doc.save(filepath)
             
             gen_file.status = 'completed'
             gen_file.completed_at = datetime.utcnow()
@@ -459,6 +506,55 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
             gen_file.status = 'failed'
             gen_file.error_message = str(e)
             db.session.commit()
+
+
+def _split_questions_into_groups(questions, split_fields):
+    """
+    Split questions into ordered groups based on split_fields.
+    Returns an OrderedDict of {group_label: [questions]}.
+    The group label is built from the field values (e.g. "Topic - Subtopic").
+    """
+    groups = OrderedDict()
+    
+    for question in questions:
+        key = _get_section_key(question, split_fields)
+        
+        # Build human-readable label from key parts
+        label = _build_split_label(key)
+        
+        if label not in groups:
+            groups[label] = []
+        groups[label].append(question)
+    
+    return groups
+
+
+def _build_split_label(key):
+    """Build a human-readable label from a section key tuple for split filenames."""
+    topic_parts = []
+    chapter_parts = []
+    
+    for field_name, value in key:
+        val = value or 'Unknown'
+        if field_name in ('topic', 'subtopic'):
+            topic_parts.append(val)
+        elif field_name in ('chapter', 'subchapter'):
+            chapter_parts.append(val)
+    
+    parts = []
+    if topic_parts:
+        parts.append(' - '.join(topic_parts))
+    if chapter_parts:
+        parts.append(' - '.join(chapter_parts))
+    
+    return ' _ '.join(parts) if parts else 'Uncategorized'
+
+
+def _sanitize_filename(name):
+    """Sanitize a string for use as a filename."""
+    # Replace characters not safe for filenames
+    safe = "".join(c for c in name if c.isalnum() or c in '._- ').strip()
+    return safe if safe else 'Untitled'
 
 
 @generator_bp.route('/status/<int:file_id>')
@@ -503,11 +599,17 @@ def download_file(file_id):
         flash('File not found on disk', 'danger')
         return redirect(url_for('user.files'))
     
+    # Determine mimetype based on file extension
+    if gen_file.filename.endswith('.zip'):
+        mimetype = 'application/zip'
+    else:
+        mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    
     return send_file(
         filepath,
         as_attachment=True,
         download_name=gen_file.filename,
-        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        mimetype=mimetype
     )
 
 def get_question_spacing_config(question, spacing_config):

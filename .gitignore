@@ -42,6 +42,7 @@ instance/
 
 # Output
 output/*.docx
+output/*.zip
 ingest_errors.log
 
 # Database
