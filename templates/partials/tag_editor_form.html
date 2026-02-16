@@ -1,0 +1,212 @@
+{# 
+   Shared Tag Editor Form Fields
+   Include this inside a <form> element. Uses searchable dropdowns for topics/chapters.
+   Element IDs use "edit" prefix: editLevel, editQType, editMajorTopic, etc.
+   Requires partials/tag_editor_js.html to be included in the page's <script> block.
+#}
+<div class="row g-3">
+    <div class="col-lg-3 col-md-4">
+        <label class="form-label">Level</label>
+        <select class="form-select" id="editLevel" name="level">
+            <option value="">None</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+        </select>
+    </div>
+    <div class="col-lg-3 col-md-4">
+        <label class="form-label">Question Type</label>
+        <select class="form-select" id="editQType" name="q_type">
+            <option value="">None</option>
+            <option value="MC">Multiple Choice</option>
+            <option value="CQ">Conventional Question</option>
+        </select>
+    </div>
+    <div class="col-lg-3 col-md-4">
+        <label class="form-label">Section</label>
+        <input type="text" class="form-control" id="editSection" name="section" 
+               placeholder="A, B, or leave empty">
+    </div>
+    <div class="col-lg-3 col-md-4">
+        <label class="form-label">Correct %</label>
+        <input type="number" class="form-control" id="editCorrectPercentage" name="correct_percentage" 
+               min="0" max="100" placeholder="0-100">
+    </div>
+</div>
+
+<div class="row g-3 mt-1">
+    <div class="col-lg-4 col-md-6">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" id="editDescription" name="description" 
+                  rows="2" placeholder="Optional description"></textarea>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <label class="form-label">Answer Text</label>
+        <textarea class="form-control" id="editAnswer" name="answer" 
+                  rows="2" placeholder="Plain text answer (alt to ANS image)"></textarea>
+    </div>
+    <div class="col-lg-4 col-md-6">
+        <label class="form-label">Comment</label>
+        <textarea class="form-control" id="editComment" name="comment" 
+                  rows="2" placeholder="Notes"></textarea>
+    </div>
+</div>
+
+<hr>
+<h6 class="mb-3"><i class="bi bi-tags"></i> Topic Tagging</h6>
+
+<div class="row g-3">
+    {# Major Topic - searchable single-select #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Major Topic (select 1)</label>
+        <div class="dropdown searchable-single-select" id="editMajorTopicDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editMajorTopicLabel">None</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editMajorTopicSearch" placeholder="Search topics...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorTopicSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div id="editMajorTopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="editMajorTopic" name="major_topic_id" value="">
+    </div>
+
+    {# Major Subtopic - searchable single-select #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Major Subtopic</label>
+        <div class="dropdown searchable-single-select" id="editMajorSubtopicDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editMajorSubtopicLabel">None</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editMajorSubtopicSearch" placeholder="Search subtopics...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorSubtopicSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div id="editMajorSubtopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                    <div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic('', 'None')">None</div>
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="editMajorSubtopic" name="major_subtopic_id" value="">
+        <small class="text-muted">Select major topic first to see subtopics</small>
+    </div>
+</div>
+
+<div class="row g-3 mt-1">
+    {# Minor Topics - multi-select with checkboxes #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Minor Topics (multiple)</label>
+        <div class="dropdown multi-select-dropdown" id="editMinorTopicsDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editMinorTopicsLabel">None selected</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editMinorTopicsSearch" placeholder="Search topics...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditMinorTopicsSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div class="d-flex gap-1 mb-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditMinorTopics()">All</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditMinorTopics()">None</button>
+                </div>
+                <div id="editMinorTopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
+                </div>
+            </div>
+        </div>
+        <!-- Hidden select to store values -->
+        <select id="editMinorTopics" name="minor_topic_ids" multiple style="display:none;"></select>
+    </div>
+
+    {# Subtopics - multi-select with checkboxes #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Subtopics (from Major + Minor Topics)</label>
+        <div class="dropdown multi-select-dropdown" id="editSubtopicsDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editSubtopicsLabel">None selected</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editSubtopicsSearch" placeholder="Search subtopics...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubtopicsSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div class="d-flex gap-1 mb-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditSubtopics()">All</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditSubtopics()">None</button>
+                </div>
+                <div id="editSubtopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
+                </div>
+            </div>
+        </div>
+        <!-- Hidden select to store values -->
+        <select id="editSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
+        <small class="text-muted">All subtopics shown (including hidden ones)</small>
+    </div>
+</div>
+
+<hr>
+<h6 class="mb-3"><i class="bi bi-book"></i> Chapter Tagging</h6>
+
+<div class="row g-3">
+    {# Chapter - searchable single-select #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Chapter</label>
+        <div class="dropdown searchable-single-select" id="editChapterDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editChapterLabel">None</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editChapterSearch" placeholder="Search chapters...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditChapterSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div id="editChapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="editChapter" name="chapter_id" value="">
+    </div>
+
+    {# Subchapter - searchable single-select #}
+    <div class="col-lg-6 col-md-6">
+        <label class="form-label">Subchapter</label>
+        <div class="dropdown searchable-single-select" id="editSubchapterDropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <span id="editSubchapterLabel">None</span>
+            </button>
+            <div class="dropdown-menu w-100 p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="editSubchapterSearch" placeholder="Search subchapters...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubchapterSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div id="editSubchapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
+                    <div class="searchable-option" data-value="" onclick="selectEditSubchapter('', 'None')">None</div>
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="editSubchapter" name="subchapter_id" value="">
+        <small class="text-muted">Select chapter first to see subchapters (all shown including hidden)</small>
+    </div>
+</div>

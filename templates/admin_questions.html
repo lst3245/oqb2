@@ -38,6 +38,14 @@
 
 /* Toast */
 .toast-container { position: fixed; top: 80px; right: 20px; z-index: 10000; }
+
+/* Wider modals for desktop */
+@media (min-width: 1200px) {
+    .modal-dialog.modal-xxl { max-width: 90vw; }
+}
+@media (min-width: 992px) and (max-width: 1199px) {
+    .modal-dialog.modal-xxl { max-width: 85vw; }
+}
 </style>
 {% endblock %}
 
@@ -143,7 +151,7 @@
 
 <!-- ======================== EDIT QUESTION MODAL ======================== -->
 <div class="modal fade" id="editQuestionModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-xxl modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Edit Question: <span id="editQidTitle"></span></h5>
@@ -218,105 +226,8 @@
 
                     <!-- Tags Tab -->
                     <div class="tab-pane" id="tabTags">
-                        <form id="editTagForm">
-                            <input type="hidden" id="tagEditQuestionId">
-                            
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label class="form-label">Level</label>
-                                    <select class="form-select" id="tagLevel" name="level">
-                                        <option value="">None</option>
-                                        <option value="1">1</option>
-                                        <option value="2">2</option>
-                                        <option value="3">3</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Question Type</label>
-                                    <select class="form-select" id="tagQType" name="q_type">
-                                        <option value="">None</option>
-                                        <option value="MC">Multiple Choice</option>
-                                        <option value="CQ">Conventional Question</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Section</label>
-                                    <input type="text" class="form-control" id="tagSection" name="section" placeholder="A, B, or empty">
-                                </div>
-                            </div>
-
-                            <div class="row g-3 mt-1">
-                                <div class="col-md-6">
-                                    <label class="form-label">Description</label>
-                                    <textarea class="form-control" id="tagDescription" name="description" rows="2" placeholder="Optional description"></textarea>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Correct %</label>
-                                    <input type="number" class="form-control" id="tagCorrectPct" name="correct_percentage" min="0" max="100" placeholder="0-100">
-                                </div>
-                            </div>
-
-                            <div class="row g-3 mt-1">
-                                <div class="col-md-6">
-                                    <label class="form-label">Answer Text</label>
-                                    <textarea class="form-control" id="tagAnswer" name="answer" rows="2" placeholder="Plain text answer"></textarea>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Comment</label>
-                                    <textarea class="form-control" id="tagComment" name="comment" rows="2" placeholder="Notes"></textarea>
-                                </div>
-                            </div>
-
-                            <hr>
-                            <h6><i class="bi bi-tags"></i> Topic Tagging</h6>
-
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Major Topic</label>
-                                    <select class="form-select" id="tagMajorTopic" name="major_topic_id" onchange="onTagMajorTopicChange()">
-                                        <option value="">None</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Major Subtopic</label>
-                                    <select class="form-select" id="tagMajorSubtopic" name="major_subtopic_id">
-                                        <option value="">None</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="row g-3 mt-1">
-                                <div class="col-md-6">
-                                    <label class="form-label">Minor Topics</label>
-                                    <select class="form-select" id="tagMinorTopics" name="minor_topic_ids" multiple size="4">
-                                    </select>
-                                    <small class="text-muted">Hold Ctrl/Cmd to select multiple</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Subtopics</label>
-                                    <select class="form-select" id="tagSubtopics" name="subtopic_ids" multiple size="4">
-                                    </select>
-                                </div>
-                            </div>
-
-                            <hr>
-                            <h6><i class="bi bi-book"></i> Chapter Tagging</h6>
-
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Chapter</label>
-                                    <select class="form-select" id="tagChapter" name="chapter_id" onchange="onTagChapterChange()">
-                                        <option value="">None</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Subchapter</label>
-                                    <select class="form-select" id="tagSubchapter" name="subchapter_id">
-                                        <option value="">None</option>
-                                    </select>
-                                </div>
-                            </div>
-
+                        <form id="editForm">
+                            {% include 'partials/tag_editor_form.html' %}
                             <div class="mt-3 text-end">
                                 <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">
                                     <i class="bi bi-check-lg"></i> Save Tags
@@ -332,7 +243,7 @@
 
 <!-- ======================== ADD QUESTION MODAL ======================== -->
 <div class="modal fade" id="addQuestionModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-xxl modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add New Question</h5>
@@ -801,6 +712,9 @@ function executeBulkDelete() {
         .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i> Delete'; });
 }
 
+// ==================== SHARED TAG EDITOR FUNCTIONS ====================
+{% include 'partials/tag_editor_js.html' %}
+
 // ===================== EDIT MODAL =====================
 function openEditModal(questionId) {
     editQuestionData = null;
@@ -834,9 +748,8 @@ function openEditModal(questionId) {
             document.getElementById('editPaperDisplay').value = data.paper || '-';
             document.getElementById('editQnoDisplay').value = data.qno;
 
-            // Load tags
-            loadTagFormData(data.subject, data);
-            document.getElementById('tagEditQuestionId').value = data.id;
+            // Use shared populateTagForm to fill in tag fields
+            populateTagForm(data);
 
             // Load assets
             loadAssetsForEdit(data.id);
@@ -846,8 +759,8 @@ function openEditModal(questionId) {
         .catch(err => showToast('Error loading question: ' + err.message, 'danger'));
 }
 
-// ===================== TAG FORM LOGIC =====================
-function loadTopicsForSubject(subjectId) {
+// ===================== TAG FORM (caching for add-question flow) =====================
+function fetchTopicsForSubject(subjectId) {
     if (allTopicsCache[subjectId]) {
         return Promise.resolve(allTopicsCache[subjectId]);
     }
@@ -859,7 +772,7 @@ function loadTopicsForSubject(subjectId) {
         });
 }
 
-function loadChaptersForSubject(subjectId) {
+function fetchChaptersForSubject(subjectId) {
     if (allChaptersCache[subjectId]) {
         return Promise.resolve(allChaptersCache[subjectId]);
     }
@@ -871,106 +784,9 @@ function loadChaptersForSubject(subjectId) {
         });
 }
 
-function loadTagFormData(subjectId, questionData) {
-    // Load topics and chapters in parallel
-    Promise.all([
-        loadTopicsForSubject(subjectId),
-        loadChaptersForSubject(subjectId)
-    ]).then(([topics, chapters]) => {
-        // Populate Major Topic
-        const mtSel = document.getElementById('tagMajorTopic');
-        mtSel.innerHTML = '<option value="">None</option>' +
-            topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-
-        // Populate Minor Topics
-        const minSel = document.getElementById('tagMinorTopics');
-        minSel.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-
-        // Populate all subtopics
-        const stSel = document.getElementById('tagSubtopics');
-        let stOpts = '';
-        topics.forEach(t => {
-            if (t.subtopics) {
-                t.subtopics.forEach(s => {
-                    stOpts += `<option value="${s.id}" data-topic="${t.id}">${t.name} > ${s.name}</option>`;
-                });
-            }
-        });
-        stSel.innerHTML = stOpts;
-
-        // Populate Chapters
-        const chSel = document.getElementById('tagChapter');
-        chSel.innerHTML = '<option value="">None</option>' +
-            chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-
-        // Set values
-        if (questionData) {
-            document.getElementById('tagLevel').value = questionData.level != null ? questionData.level : '';
-            document.getElementById('tagQType').value = questionData.q_type || '';
-            document.getElementById('tagSection').value = questionData.section || '';
-            document.getElementById('tagDescription').value = questionData.description || '';
-            document.getElementById('tagCorrectPct').value = questionData.correct_percentage != null ? questionData.correct_percentage : '';
-            document.getElementById('tagAnswer').value = questionData.answer || '';
-            document.getElementById('tagComment').value = questionData.comment || '';
-            mtSel.value = questionData.major_topic_id || '';
-            onTagMajorTopicChange(questionData.major_subtopic_id);
-
-            // Set minor topics
-            if (questionData.minor_topic_ids) {
-                Array.from(minSel.options).forEach(o => {
-                    o.selected = questionData.minor_topic_ids.includes(parseInt(o.value));
-                });
-            }
-            // Set subtopics
-            if (questionData.subtopic_ids) {
-                Array.from(stSel.options).forEach(o => {
-                    o.selected = questionData.subtopic_ids.includes(parseInt(o.value));
-                });
-            }
-            // Set chapter
-            chSel.value = questionData.chapter_id || '';
-            onTagChapterChange(questionData.subchapter_id);
-        }
-    });
-}
-
-function onTagMajorTopicChange(presetSubtopicId) {
-    const topicId = document.getElementById('tagMajorTopic').value;
-    const mstSel = document.getElementById('tagMajorSubtopic');
-    mstSel.innerHTML = '<option value="">None</option>';
-
-    if (topicId && editQuestionData) {
-        const topics = allTopicsCache[editQuestionData.subject] || [];
-        const topic = topics.find(t => t.id == topicId);
-        if (topic && topic.subtopics) {
-            mstSel.innerHTML += topic.subtopics.map(s =>
-                `<option value="${s.id}">${s.name}</option>`
-            ).join('');
-        }
-    }
-    if (presetSubtopicId) mstSel.value = presetSubtopicId;
-}
-
-function onTagChapterChange(presetSubchapterId) {
-    const chapterId = document.getElementById('tagChapter').value;
-    const scSel = document.getElementById('tagSubchapter');
-    scSel.innerHTML = '<option value="">None</option>';
-
-    if (chapterId && editQuestionData) {
-        const chapters = allChaptersCache[editQuestionData.subject] || [];
-        const chapter = chapters.find(c => c.id == chapterId);
-        if (chapter && chapter.subchapters) {
-            scSel.innerHTML += chapter.subchapters.map(s =>
-                `<option value="${s.id}">${s.name}</option>`
-            ).join('');
-        }
-    }
-    if (presetSubchapterId) scSel.value = presetSubchapterId;
-}
-
 function saveQuestionTags() {
-    const qId = document.getElementById('tagEditQuestionId').value || document.getElementById('editQId').value;
-    const formData = new FormData(document.getElementById('editTagForm'));
+    const qId = document.getElementById('editQId').value;
+    const formData = new FormData(document.getElementById('editForm'));
 
     fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
         method: 'POST',
@@ -1374,8 +1190,8 @@ function createQuestionStep1() {
 
 function loadAddTagFormData(subjectId) {
     Promise.all([
-        loadTopicsForSubject(subjectId),
-        loadChaptersForSubject(subjectId)
+        fetchTopicsForSubject(subjectId),
+        fetchChaptersForSubject(subjectId)
     ]).then(([topics, chapters]) => {
         const mtSel = document.getElementById('addTagMajorTopic');
         mtSel.innerHTML = '<option value="">None</option>' +
