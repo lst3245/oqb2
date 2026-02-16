@@ -525,10 +525,11 @@ def update_question(question_id):
 @login_required
 @admin_required
 def delete_questions():
-    """Delete selected questions from database (batch delete)"""
+    """Delete selected questions from database (batch delete), optionally also delete files from disk"""
     try:
         # Get question IDs from request
         question_ids = request.form.getlist('question_ids')
+        delete_files = request.form.get('delete_files', 'false') == 'true'
         
         if not question_ids:
             return jsonify({
@@ -556,20 +557,39 @@ def delete_questions():
         
         deleted_count = 0
         deleted_qids = []
+        files_deleted = 0
+        source_path = current_app.config['SOURCE_PATH']
         
         for question in questions:
             deleted_qids.append(question.qid)
+            
+            # Optionally delete associated files from disk
+            if delete_files:
+                for asset in question.assets:
+                    full_path = os.path.join(source_path, asset.file_path)
+                    if os.path.exists(full_path):
+                        try:
+                            os.remove(full_path)
+                            files_deleted += 1
+                        except OSError:
+                            pass
+            
             # Assets will be cascade deleted due to model relationship
             db.session.delete(question)
             deleted_count += 1
         
         db.session.commit()
         
+        msg = f'Successfully deleted {deleted_count} question(s) from database'
+        if delete_files:
+            msg += f' and {files_deleted} file(s) from disk'
+        
         return jsonify({
             'success': True,
             'deleted_count': deleted_count,
             'deleted_qids': deleted_qids,
-            'message': f'Successfully deleted {deleted_count} question(s)'
+            'files_deleted': files_deleted,
+            'message': msg
         })
         
     except Exception as e:
@@ -918,7 +938,7 @@ def question_assets(question_id):
             'part_number': a.part_number,
             'file_format': a.file_format,
             'file_path': a.file_path,
-            'preview_url': f"/dashboard/files/{a.file_path}",
+            'preview_url': url_for('dashboard.get_asset_preview', asset_id=a.id),
         })
 
     return jsonify({'assets': result, 'qid': question.qid})
@@ -1099,20 +1119,44 @@ def upload_question_asset(question_id):
 @login_required
 @admin_required
 def delete_question_asset(question_id, asset_id):
-    """Delete a specific asset (DB record only, file stays on disk)"""
+    """Delete a specific asset (DB record + file on disk by default)"""
     asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    
+    file_deleted = False
+    file_path = asset.file_path
+    source_path = current_app.config['SOURCE_PATH']
+    full_path = os.path.join(source_path, file_path)
+    
+    # Check if request asks to also delete from disk (default: True for individual asset)
+    delete_from_disk = True
+    if request.is_json:
+        delete_from_disk = request.get_json().get('delete_from_disk', True)
+    
+    if delete_from_disk and os.path.exists(full_path):
+        try:
+            os.remove(full_path)
+            file_deleted = True
+        except OSError as e:
+            # Continue with DB deletion even if file removal fails
+            pass
     
     db.session.delete(asset)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Asset deleted from database'})
+    msg = 'Asset deleted from database'
+    if file_deleted:
+        msg += ' and disk'
+    elif delete_from_disk:
+        msg += ' (file was not found on disk)'
+    
+    return jsonify({'success': True, 'message': msg})
 
 
 @admin_bp.route('/questions/<int:question_id>/assets/reorder', methods=['POST'])
 @login_required
 @admin_required
 def reorder_question_assets(question_id):
-    """Reorder asset parts for a given language and type"""
+    """Reorder asset parts for a given language and type, renaming files on disk"""
     data = request.get_json()
     language = data.get('language')
     asset_type = data.get('asset_type')
@@ -1121,16 +1165,65 @@ def reorder_question_assets(question_id):
     if not language or not asset_type or not asset_ids:
         return jsonify({'error': 'Missing required fields'}), 400
 
+    question = Question.query.get_or_404(question_id)
+    source_path = current_app.config['SOURCE_PATH']
+    
+    # Gather assets and plan renames
+    assets_to_reorder = []
     for idx, aid in enumerate(asset_ids, start=1):
         asset = QuestionAsset.query.filter_by(
             id=aid, question_id=question_id,
             language=language, asset_type=asset_type
         ).first()
         if asset:
-            asset.part_number = idx
+            old_full_path = os.path.join(source_path, asset.file_path)
+            old_part = asset.part_number
+            asset.part_number = idx  # Update part number in DB
+            new_rel_path = _build_asset_file_path(question, asset)
+            new_full_path = os.path.join(source_path, new_rel_path)
+            assets_to_reorder.append({
+                'asset': asset,
+                'old_full_path': old_full_path,
+                'new_full_path': new_full_path,
+                'new_rel_path': new_rel_path,
+                'old_part': old_part,
+                'new_part': idx,
+            })
+    
+    # Rename files on disk using temp names to avoid conflicts (e.g. swapping part 1 and 2)
+    rename_errors = []
+    temp_renames = []
+    for item in assets_to_reorder:
+        if item['old_full_path'] != item['new_full_path'] and os.path.exists(item['old_full_path']):
+            temp_path = item['old_full_path'] + '.tmp_reorder'
+            try:
+                os.rename(item['old_full_path'], temp_path)
+                temp_renames.append((temp_path, item))
+            except OSError as e:
+                rename_errors.append(f"Failed to rename {os.path.basename(item['old_full_path'])}: {e}")
+    
+    # Now move from temp to final paths
+    files_renamed = 0
+    for temp_path, item in temp_renames:
+        try:
+            os.makedirs(os.path.dirname(item['new_full_path']), exist_ok=True)
+            os.rename(temp_path, item['new_full_path'])
+            item['asset'].file_path = item['new_rel_path']
+            files_renamed += 1
+        except OSError as e:
+            # Try to restore original
+            try:
+                os.rename(temp_path, item['old_full_path'])
+            except OSError:
+                pass
+            rename_errors.append(f"Failed to rename to {os.path.basename(item['new_full_path'])}: {e}")
 
     db.session.commit()
-    return jsonify({'success': True})
+    
+    result = {'success': True, 'files_renamed': files_renamed}
+    if rename_errors:
+        result['warnings'] = rename_errors
+    return jsonify(result)
 
 
 @admin_bp.route('/questions/create', methods=['POST'])

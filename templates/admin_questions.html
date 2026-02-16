@@ -12,23 +12,31 @@
 .q-table td { vertical-align: middle; }
 .q-row.selected-row { background-color: #e7f1ff !important; }
 
-/* Asset preview */
-.asset-preview-img { max-width: 400px; max-height: 300px; object-fit: contain; cursor: pointer; border: 1px solid #dee2e6; border-radius: 4px; }
+/* Asset preview - full width, stacked vertically */
+.asset-preview-img { width: 100%; display: block; cursor: pointer; border: 1px solid #dee2e6; border-radius: 0 0 4px 4px; background: #fff; }
 .asset-preview-img:hover { border-color: #0d6efd; box-shadow: 0 2px 8px rgba(13,110,253,.2); }
 
 /* Drop zone */
-.drop-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 2rem; text-align: center; color: #6c757d; transition: all .2s; cursor: pointer; }
+.drop-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 1.5rem; text-align: center; color: #6c757d; transition: all .2s; cursor: pointer; }
 .drop-zone:hover, .drop-zone.drag-over { border-color: #0d6efd; background: #f0f7ff; color: #0d6efd; }
+.drop-zone.paste-target { border-color: #198754; background: #f0fff4; color: #198754; }
 
-/* Asset part card */
-.asset-part-card { display: inline-block; position: relative; margin: 0.5rem; }
-.asset-part-card .part-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
-.asset-part-card .part-actions .btn { padding: 2px 6px; font-size: 0.7rem; }
-.asset-part-badge { position: absolute; bottom: 4px; left: 4px; }
+/* Asset part card - stacked full width, controls as toolbar */
+.asset-part-card { display: block; margin-bottom: 0.5rem; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; }
+.asset-part-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+.asset-part-toolbar .part-label { font-size: 0.8rem; font-weight: 600; color: #495057; }
+.asset-part-toolbar .part-actions { display: flex; gap: 3px; }
+.asset-part-toolbar .part-actions .btn { padding: 2px 7px; font-size: 0.75rem; }
 
-/* Full-size image overlay */
+/* Asset section header - clickable for paste target */
+.asset-section { border: 2px solid transparent; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; transition: border-color .2s; }
+.asset-section.paste-active { border-color: #198754; }
+.asset-section .section-header { cursor: pointer; }
+.asset-section .section-header:hover .paste-hint { opacity: 1; }
+
+/* Full-size image overlay - white bg behind image for transparency */
 .fullsize-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
-.fullsize-overlay img { max-width: 95%; max-height: 95%; object-fit: contain; }
+.fullsize-overlay img { max-width: 95%; max-height: 95%; object-fit: contain; background: #fff; border-radius: 4px; padding: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
 
 /* Step wizard */
 .step-indicator { display: flex; gap: 0; margin-bottom: 1.5rem; }
@@ -425,12 +433,22 @@
             </div>
             <div class="modal-body">
                 <div class="alert alert-danger">
-                    <strong>Warning!</strong> You are about to delete <span id="bulkDeleteCount" class="fw-bold">0</span> question(s).
-                    <br><small class="text-muted">Database records will be removed. Files on disk will NOT be deleted.</small>
+                    <strong>Warning!</strong> You are about to delete <span id="bulkDeleteCount" class="fw-bold">0</span> question(s) from the database.
                 </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="bulkDeleteFiles" onchange="toggleDeleteFilesWarning()">
+                    <label class="form-check-label" for="bulkDeleteFiles">
+                        Also delete asset files from disk
+                    </label>
+                </div>
+                <div class="alert alert-warning py-2 d-none" id="deleteFilesWarning">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>Caution:</strong> This will permanently remove the image/document files from the server filesystem. This cannot be undone!
+                </div>
+                <hr>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="bulkDeleteConfirm" onchange="document.getElementById('bulkDeleteExecBtn').disabled = !this.checked">
-                    <label class="form-check-label" for="bulkDeleteConfirm">I understand this is permanent</label>
+                    <label class="form-check-label" for="bulkDeleteConfirm">I understand this action is permanent</label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -655,18 +673,30 @@ function updateSelectionUI() {
 }
 
 // ===================== BULK DELETE =====================
+function toggleDeleteFilesWarning() {
+    const checked = document.getElementById('bulkDeleteFiles').checked;
+    document.getElementById('deleteFilesWarning').classList.toggle('d-none', !checked);
+    // Uncheck confirm when toggling this, force re-confirmation
+    document.getElementById('bulkDeleteConfirm').checked = false;
+    document.getElementById('bulkDeleteExecBtn').disabled = true;
+}
+
 function bulkDeleteSelected() {
     if (selectedQIds.size === 0) return;
     document.getElementById('bulkDeleteCount').textContent = selectedQIds.size;
     document.getElementById('bulkDeleteConfirm').checked = false;
+    document.getElementById('bulkDeleteFiles').checked = false;
+    document.getElementById('deleteFilesWarning').classList.add('d-none');
     document.getElementById('bulkDeleteExecBtn').disabled = true;
     new bootstrap.Modal(document.getElementById('bulkDeleteModal')).show();
 }
 
 function executeBulkDelete() {
     const ids = Array.from(selectedQIds);
+    const deleteFiles = document.getElementById('bulkDeleteFiles').checked;
     const formData = new FormData();
     ids.forEach(id => formData.append('question_ids', id));
+    if (deleteFiles) formData.append('delete_files', 'true');
 
     const btn = document.getElementById('bulkDeleteExecBtn');
     btn.disabled = true;
@@ -824,6 +854,8 @@ function executeRename() {
 // ===================== ASSET MANAGEMENT =====================
 function switchAssetLang(lang) {
     currentAssetLang = lang;
+    // Reset paste target to QUE for the new language
+    setActivePasteTarget(lang, 'QUE');
 }
 
 function loadAssetsForEdit(questionId) {
@@ -840,50 +872,81 @@ function loadAssetsForEdit(questionId) {
 
 function renderAssetSections(questionId, lang, langAssets) {
     let html = '';
-    ['QUE', 'ANS', 'SOL'].forEach(atype => {
+    ['QUE', 'ANS', 'SOL'].forEach((atype, sectionIdx) => {
         const parts = langAssets[atype] || [];
         const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
-        html += `<div class="mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0"><i class="bi bi-image"></i> ${label} (${lang})</h6>
+        const isDefault = sectionIdx === 0; // QUE is default paste target
+        html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="assetSection_${lang}_${atype}"
+                      onclick="setActivePasteTarget('${lang}', '${atype}')">
+            <div class="d-flex justify-content-between align-items-center mb-2 section-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-image"></i> ${label} (${lang})
+                    <span class="paste-hint badge bg-success bg-opacity-75 ms-2" style="font-size:0.65rem; opacity:${isDefault ? '1' : '0'}; transition: opacity .2s">
+                        <i class="bi bi-clipboard"></i> Ctrl+V target
+                    </span>
+                </h6>
                 <span class="badge bg-secondary">${parts.length} part(s)</span>
             </div>
-            <div class="d-flex flex-wrap align-items-start" id="assetParts_${lang}_${atype}">`;
+            <div id="assetParts_${lang}_${atype}">`;
         
         if (parts.length === 0) {
-            html += '<div class="text-muted fst-italic">No assets</div>';
+            html += '<div class="text-muted fst-italic p-2">No assets</div>';
         } else {
             parts.forEach((p, idx) => {
                 const isImg = p.file_format === 'IMG';
+                const fname = p.file_path.split('/').pop();
                 html += `<div class="asset-part-card">
-                    <div class="part-actions">
-                        ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
-                        ${idx < parts.length-1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
-                        <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteAssetPart(${questionId},${p.id})"><i class="bi bi-x"></i></button>
+                    <div class="asset-part-toolbar">
+                        <span class="part-label">Part ${p.part_number} <small class="text-muted fw-normal ms-1">${fname}</small></span>
+                        <div class="part-actions">
+                            ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
+                            ${idx < parts.length-1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
+                        </div>
                     </div>
                     ${isImg
-                        ? `<img src="${p.preview_url}" class="asset-preview-img" onclick="showFullSize('${p.preview_url}')" loading="lazy">`
-                        : `<div class="border rounded p-3 text-center" style="width:200px;height:150px;display:flex;align-items:center;justify-content:center;">
-                            <div><i class="bi bi-file-word fs-1 text-primary"></i><br><small>${p.file_path.split('/').pop()}</small></div></div>`
+                        ? `<img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">`
+                        : `<div class="border-0 p-3 text-center" style="height:80px;display:flex;align-items:center;justify-content:center;background:#fff;">
+                            <div><i class="bi bi-file-word fs-1 text-primary"></i> <small>${fname}</small></div></div>`
                     }
-                    <span class="asset-part-badge badge bg-dark">Part ${p.part_number}</span>
                 </div>`;
             });
         }
 
         html += `</div>
             <div class="drop-zone mt-2" id="dropZone_${lang}_${atype}"
-                 ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                 ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
                  ondragleave="this.classList.remove('drag-over')"
                  ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
-                 onclick="triggerAssetUpload(${questionId}, '${lang}', '${atype}')">
-                <i class="bi bi-cloud-upload"></i> Drop file here, click to browse, or Ctrl+V to paste
+                 onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}')">
+                <i class="bi bi-cloud-upload"></i> Drop files here or click to browse
             </div>
             <input type="file" class="d-none" id="fileInput_${lang}_${atype}" accept="image/*,.doc,.docx"
                    multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
         </div>`;
     });
     return html;
+}
+
+// Track active paste target (lang + atype)
+let activePasteTarget = { lang: 'EN', atype: 'QUE' };
+
+function setActivePasteTarget(lang, atype) {
+    activePasteTarget = { lang, atype };
+    addActivePasteTarget = { lang, atype }; // Also update for add modal
+    // Update visual indicators — only within the currently visible modal
+    const visibleModal = document.querySelector('.modal.show .modal-body') || document;
+    visibleModal.querySelectorAll('.asset-section').forEach(el => {
+        el.classList.remove('paste-active');
+        const hint = el.querySelector('.paste-hint');
+        if (hint) hint.style.opacity = '0';
+    });
+    const activeSection = document.getElementById(`assetSection_${lang}_${atype}`);
+    if (activeSection) {
+        activeSection.classList.add('paste-active');
+        const hint = activeSection.querySelector('.paste-hint');
+        if (hint) hint.style.opacity = '1';
+    }
 }
 
 function triggerAssetUpload(questionId, lang, atype) {
@@ -925,15 +988,17 @@ function uploadAssetFiles(questionId, lang, atype, files) {
     .catch(err => showToast('Upload error: ' + err.message, 'danger'));
 }
 
-function deleteAssetPart(questionId, assetId) {
-    if (!confirm('Delete this asset from the database? (File on disk will NOT be deleted)')) return;
+function deleteAssetPart(questionId, assetId, filename) {
+    if (!confirm(`Delete asset "${filename || 'this part'}"?\n\nThis will remove the file from BOTH the database AND the disk.`)) return;
     fetch(`{{ url_for('admin.delete_question_asset', question_id=0, asset_id=0) }}`.replace('/0/assets/0', `/${questionId}/assets/${assetId}`), {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ delete_from_disk: true })
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            showToast('Asset deleted');
+            showToast(data.message);
             loadAssetsForEdit(questionId);
         } else {
             showToast(data.error || 'Error', 'danger');
@@ -943,10 +1008,7 @@ function deleteAssetPart(questionId, assetId) {
 }
 
 function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
-    // Get current asset IDs in order from the DOM
-    const container = document.getElementById(`assetParts_${lang}_${atype}`);
-    const cards = container.querySelectorAll('.asset-part-card');
-    // We need to re-fetch and reorder. For simplicity, reload assets first.
+    // Re-fetch current ordering, then swap and send reorder request
     fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
         .then(r => r.json())
         .then(data => {
@@ -964,7 +1026,16 @@ function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
         })
         .then(r => r.json())
         .then(data => {
-            if (data.success) loadAssetsForEdit(questionId);
+            if (data.success) {
+                const msg = data.files_renamed > 0 ? `Reordered (${data.files_renamed} file(s) renamed)` : 'Reordered';
+                showToast(msg);
+                if (data.warnings && data.warnings.length > 0) {
+                    showToast('Warnings: ' + data.warnings.join('; '), 'warning');
+                }
+                loadAssetsForEdit(questionId);
+            } else {
+                showToast(data.error || 'Reorder failed', 'danger');
+            }
         })
         .catch(err => showToast('Error reordering: ' + err.message, 'danger'));
 }
@@ -972,54 +1043,65 @@ function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
 function showFullSize(url) {
     const overlay = document.createElement('div');
     overlay.className = 'fullsize-overlay';
-    overlay.innerHTML = `<img src="${url}">`;
-    overlay.onclick = () => overlay.remove();
+    const img = document.createElement('img');
+    img.src = url;
+    img.onerror = () => {
+        overlay.innerHTML = '<div class="text-white text-center"><i class="bi bi-exclamation-triangle fs-1"></i><br>Image not found</div>';
+    };
+    overlay.appendChild(img);
+    overlay.onclick = (e) => { e.stopPropagation(); overlay.remove(); };
+    // Close on Escape key
+    const onEsc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+    document.addEventListener('keydown', onEsc);
     document.body.appendChild(overlay);
 }
 
-// Ctrl+V paste support
-document.addEventListener('paste', function(e) {
-    // Only handle if edit modal is open and we're on assets tab
-    const editModal = document.getElementById('editQuestionModal');
-    if (!editModal.classList.contains('show')) return;
-    const activeTab = document.querySelector('#editQuestionModal .tab-pane.active');
-    if (!activeTab || activeTab.id !== 'tabAssets') return;
-
-    const items = e.clipboardData.items;
+// Helper to extract image files from clipboard
+function extractImageFiles(clipboardData) {
     const files = [];
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].type.startsWith('image/')) {
-            const blob = items[i].getAsFile();
-            // Create a proper File object with a name
-            const ext = items[i].type.split('/')[1] || 'png';
-            const file = new File([blob], `pasted_image.${ext}`, { type: items[i].type });
-            files.push(file);
+    for (let i = 0; i < clipboardData.items.length; i++) {
+        if (clipboardData.items[i].type.startsWith('image/')) {
+            const blob = clipboardData.items[i].getAsFile();
+            const ext = clipboardData.items[i].type.split('/')[1] || 'png';
+            files.push(new File([blob], `pasted_image.${ext}`, { type: clipboardData.items[i].type }));
         }
     }
-    if (files.length > 0 && editQuestionData) {
-        // Determine active language tab
-        const activeLangTab = document.querySelector('#langTabs .nav-link.active');
-        const lang = activeLangTab ? activeLangTab.getAttribute('href').replace('#lang', '') : 'EN';
-        // Default to QUE type for paste
-        uploadAssetFiles(editQuestionData.id, lang, 'QUE', files);
-        e.preventDefault();
+    return files;
+}
+
+// Paste target for add modal
+let addActivePasteTarget = { lang: 'EN', atype: 'QUE' };
+
+// Ctrl+V paste support — uses tracked activePasteTarget for section
+document.addEventListener('paste', function(e) {
+    // Handle paste in edit modal
+    const editModal = document.getElementById('editQuestionModal');
+    if (editModal.classList.contains('show') && editQuestionData) {
+        const activeTab = document.querySelector('#editQuestionModal .tab-pane.active');
+        if (!activeTab || activeTab.id !== 'tabAssets') return;
+
+        const files = extractImageFiles(e.clipboardData);
+        if (files.length > 0) {
+            // Use active language tab + tracked paste target section
+            const activeLangTab = document.querySelector('#langTabs .nav-link.active');
+            const lang = activeLangTab ? activeLangTab.getAttribute('href').replace('#lang', '') : activePasteTarget.lang;
+            const atype = activePasteTarget.atype;
+            uploadAssetFiles(editQuestionData.id, lang, atype, files);
+            showToast(`Pasted to ${atype} (${lang})`, 'info');
+            e.preventDefault();
+        }
+        return;
     }
 
-    // Also handle paste in add modal
+    // Handle paste in add modal
     const addModal = document.getElementById('addQuestionModal');
     if (addModal.classList.contains('show') && addCreatedQuestionId) {
-        const addItems = e.clipboardData.items;
-        const addFiles = [];
-        for (let i = 0; i < addItems.length; i++) {
-            if (addItems[i].type.startsWith('image/')) {
-                const blob = addItems[i].getAsFile();
-                const ext = addItems[i].type.split('/')[1] || 'png';
-                const file = new File([blob], `pasted_image.${ext}`, { type: addItems[i].type });
-                addFiles.push(file);
-            }
-        }
-        if (addFiles.length > 0) {
-            uploadAssetFiles(addCreatedQuestionId, 'EN', 'QUE', addFiles);
+        const files = extractImageFiles(e.clipboardData);
+        if (files.length > 0) {
+            const lang = addActivePasteTarget ? addActivePasteTarget.lang : 'EN';
+            const atype = addActivePasteTarget ? addActivePasteTarget.atype : 'QUE';
+            uploadAssetFiles(addCreatedQuestionId, lang, atype, files);
+            showToast(`Pasted to ${atype} (${lang})`, 'info');
             e.preventDefault();
         }
     }
@@ -1102,6 +1184,8 @@ function reloadAddAssets(lang, btn) {
     // Toggle active button
     btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    // Update paste target for add modal
+    addActivePasteTarget = { lang, atype: 'QUE' };
     // Remove existing sections and re-render
     const area = document.getElementById('addAssetUploadArea');
     // Keep the language selector (first child)
