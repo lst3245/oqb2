@@ -467,7 +467,9 @@ function loadQuestions() {
     const showSelected = document.getElementById('showDashboardSelected').checked;
     const pageSize = document.getElementById('pageSizeSelect').value;
 
-    let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${currentSort.field}&dir=${currentSort.dir}`;
+    // When showing dashboard selections, default to preserving dashboard order
+    const sortField = showSelected && currentSort.field === 'created_at' ? 'selection_order' : currentSort.field;
+    let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${sortField}&dir=${currentSort.dir}`;
 
     if (showSelected) {
         const dashIds = getDashboardSelectedIds();

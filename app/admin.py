@@ -816,12 +816,18 @@ def questions_api_list():
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     query = Question.query.filter(Question.subject.in_(admin_subjects))
 
+    preserve_selection_order = False
+    selected_ids = []
+
     if selected_ids_str:
         # Filter by specific question internal IDs (from dashboard localStorage)
         try:
             selected_ids = [int(x) for x in selected_ids_str.split(',') if x.strip()]
             if selected_ids:
                 query = query.filter(Question.id.in_(selected_ids))
+                # Default to preserving selection order (dashboard order)
+                if sort_field == 'selection_order' or sort_field == 'created_at':
+                    preserve_selection_order = True
         except ValueError:
             pass
     elif qid_search:
@@ -833,21 +839,39 @@ def questions_api_list():
             query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
 
     # Sorting
-    sort_col_map = {
-        'qid': Question.qid,
-        'subject': Question.subject,
-        'source': Question.source,
-        'year': Question.year,
-        'paper': Question.paper,
-        'qno': Question.qno,
-        'q_type': Question.q_type,
-        'created_at': Question.created_at,
-    }
-    sort_col = sort_col_map.get(sort_field, Question.created_at)
-    if sort_dir == 'asc':
-        query = query.order_by(sort_col.asc())
+    if preserve_selection_order and selected_ids:
+        # Use CASE expression to preserve the original selection order from dashboard
+        from sqlalchemy import case
+        whens = [(qid, idx) for idx, qid in enumerate(selected_ids)]
+        ordering = case(*whens, value=Question.id, else_=len(selected_ids))
+        query = query.order_by(ordering)
+    elif sort_field == 'qid':
+        # Natural sort for QID: sort by component fields (subject, source, year, paper, qno)
+        if sort_dir == 'asc':
+            query = query.order_by(
+                Question.subject.asc(), Question.source.asc(),
+                Question.year.asc(), Question.paper.asc(), Question.qno.asc()
+            )
+        else:
+            query = query.order_by(
+                Question.subject.desc(), Question.source.desc(),
+                Question.year.desc(), Question.paper.desc(), Question.qno.desc()
+            )
     else:
-        query = query.order_by(sort_col.desc())
+        sort_col_map = {
+            'subject': Question.subject,
+            'source': Question.source,
+            'year': Question.year,
+            'paper': Question.paper,
+            'qno': Question.qno,
+            'q_type': Question.q_type,
+            'created_at': Question.created_at,
+        }
+        sort_col = sort_col_map.get(sort_field, Question.created_at)
+        if sort_dir == 'asc':
+            query = query.order_by(sort_col.asc())
+        else:
+            query = query.order_by(sort_col.desc())
 
     total = query.count()
     questions = query.offset((page - 1) * page_size).limit(page_size).all()
