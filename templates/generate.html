@@ -137,12 +137,20 @@
                         </div>
                         
                         <!-- Show Sequential Question Number -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="showSeqNo" 
-                                   name="show_seq_no">
-                            <label class="form-check-label" for="showSeqNo">
-                                Show Sequential Question Number (1. 2. 3. ...)
-                            </label>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="showSeqNo"
+                                       name="show_seq_no"
+                                       onchange="document.getElementById('seqStartDiv').style.display = this.checked ? 'flex' : 'none'">
+                                <label class="form-check-label" for="showSeqNo">
+                                    Show Sequential Question Number (1. 2. 3. ...)
+                                </label>
+                            </div>
+                            <div id="seqStartDiv" style="display:none;" class="align-items-center gap-2 mt-1 ms-4">
+                                <label class="form-label small mb-0 text-muted">Start from:</label>
+                                <input type="number" class="form-control form-control-sm" id="seqStart"
+                                       name="seq_start" value="1" min="1" style="width:80px;">
+                            </div>
                         </div>
                         
                         <!-- Show Correct Percentage -->
@@ -676,7 +684,16 @@ function restoreGenerationOptions(opts) {
     // Sequential question number checkbox
     if (opts.show_seq_no !== undefined) {
         const el = document.getElementById('showSeqNo');
-        if (el) el.checked = (opts.show_seq_no === 'on' || opts.show_seq_no === true);
+        if (el) {
+            el.checked = (opts.show_seq_no === 'on' || opts.show_seq_no === true);
+            document.getElementById('seqStartDiv').style.display = el.checked ? 'flex' : 'none';
+        }
+    }
+    
+    // Sequential start number
+    if (opts.seq_start !== undefined) {
+        const el = document.getElementById('seqStart');
+        if (el) el.value = opts.seq_start;
     }
     
     // Page numbers checkbox

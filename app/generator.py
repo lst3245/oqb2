@@ -300,6 +300,7 @@ def create_document():
     show_qid_answer = request.form.get('show_qid_answer') == 'on'
     show_correct_pct = request.form.get('show_correct_pct') == 'on'
     show_seq_no = request.form.get('show_seq_no') == 'on'
+    seq_start = max(1, int(request.form.get('seq_start', 1) or 1))
     show_page_no = request.form.get('show_page_no') == 'on'
     keep_together = request.form.get('keep_together') == 'on'
     
@@ -349,7 +350,7 @@ def create_document():
         'cq_after_mode': cq_after_mode, 'cq_after_lines': cq_after_lines,
         'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
         'show_correct_pct': show_correct_pct,
-        'show_seq_no': show_seq_no, 'show_page_no': show_page_no,
+        'show_seq_no': show_seq_no, 'seq_start': seq_start, 'show_page_no': show_page_no,
         'keep_together': keep_together,
         'info_fields': info_fields, 'section_fields': section_fields,
         'split_fields': split_fields,
@@ -405,7 +406,7 @@ def create_document():
         args=(app, gen_file_id, question_ids, sort_mode, sort_config_str,
               answer_mode, spacing_config, show_qid, show_qid_answer,
               preferred_language, show_correct_pct, answer_preference,
-              show_seq_no, show_page_no, keep_together,
+              show_seq_no, seq_start, show_page_no, keep_together,
               info_fields, section_fields, split_fields, filename)
     )
     thread.daemon = True
@@ -417,7 +418,7 @@ def create_document():
 def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_config_str,
                             answer_mode, spacing_config, show_qid, show_qid_answer,
                             preferred_language, show_correct_pct, answer_preference,
-                            show_seq_no, show_page_no, keep_together,
+                            show_seq_no, seq_start, show_page_no, keep_together,
                             info_fields, section_fields, split_fields, filename):
     """Background thread function to generate the Word document(s)"""
     with app.app_context():
@@ -467,7 +468,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             group_questions, answer_mode, spacing_config,
                             show_qid, show_qid_answer, preferred_language,
                             show_correct_pct, answer_preference,
-                            show_seq_no, show_page_no, keep_together,
+                            show_seq_no, seq_start, show_page_no, keep_together,
                             info_fields, section_fields
                         )
                         # Build per-file name from the group label, dedup if needed
@@ -493,7 +494,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     questions, answer_mode, spacing_config,
                     show_qid, show_qid_answer, preferred_language,
                     show_correct_pct, answer_preference,
-                    show_seq_no, show_page_no, keep_together,
+                    show_seq_no, seq_start, show_page_no, keep_together,
                     info_fields, section_fields
                 )
                 doc.save(filepath)
@@ -752,7 +753,7 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
 _DPI = 96  # assumed screen DPI for image size conversion
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, show_page_no=False, keep_together=False, info_fields=None, section_fields=None):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None):
     """
     Create Word document with questions
     
@@ -766,6 +767,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         show_correct_pct: Show correct percentage with question ID (format: "QID [X%]")
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
         show_seq_no: Show sequential question number (1. 2. 3. ...)
+        seq_start: Starting number for sequential numbering (default 1)
         show_page_no: Show page numbers at bottom centre
         keep_together: Keep question info with image (prevent page split)
         info_fields: Dict of bools for per-question info line (topic/subtopic/chapter/subchapter)
@@ -819,7 +821,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
             
             had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = i + 1 if show_seq_no else None
+            seq_no = (seq_start + i) if show_seq_no else None
             add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
             last_had_page_break = add_after_spacing(doc, spacing)
         
@@ -836,7 +838,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = i + 1 if show_seq_no else None
+            seq_no = (seq_start + i) if show_seq_no else None
             add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together)
             last_had_page_break = add_after_spacing(doc, spacing)
     
@@ -850,7 +852,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = i + 1 if show_seq_no else None
+            seq_no = (seq_start + i) if show_seq_no else None
             add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
             last_had_page_break = add_after_spacing(doc, spacing)
         
@@ -867,7 +869,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         for i, question in enumerate(questions):
             spacing = get_question_spacing_config(question, spacing_config)
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = i + 1 if show_seq_no else None
+            seq_no = (seq_start + i) if show_seq_no else None
             add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together)
             last_had_page_break = add_after_spacing(doc, spacing)
     
@@ -881,7 +883,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = i + 1 if show_seq_no else None
+            seq_no = (seq_start + i) if show_seq_no else None
             add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
