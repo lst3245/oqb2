@@ -803,6 +803,24 @@
 </div>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+/* Filter active state: subtle blue tint on dropdown buttons when items are selected */
+.filter-btn-active {
+    background-color: #e8f1ff !important;
+    border-color: #86b4f8 !important;
+    color: #1a56db !important;
+}
+.filter-btn-active .text-muted {
+    color: #1a56db !important;
+}
+/* Keep the caret visible */
+.filter-btn-active.dropdown-toggle::after {
+    border-top-color: #1a56db;
+}
+</style>
+{% endblock %}
+
 {% block extra_js %}
 <script>
 // Global set to track selected question IDs across pages
@@ -1029,6 +1047,44 @@ function getCurrentFilterValues() {
     };
 }
 
+// ── Filter active-state indicator ──────────────────────────────────────────
+// Adds/removes the .filter-btn-active class on a dropdown toggle button.
+function setFilterActive(btnId, active) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.classList.toggle('filter-btn-active', active);
+}
+
+// Update active states for ALL filter controls at once.
+// Call this whenever any filter changes.
+function updateAllFilterActiveStates() {
+    // Years: active when at least one year is checked but not ALL
+    const checkedYears  = document.querySelectorAll('.year-checkbox:checked').length;
+    const totalYears    = document.querySelectorAll('.year-checkbox').length;
+    setFilterActive('yearDropdownBtn', checkedYears > 0 && checkedYears < totalYears);
+
+    // Section: active when not "all"
+    const section = document.getElementById('sectionSelect')?.value;
+    setFilterActive('sectionSelect', section && section !== 'all');
+
+    // Topics: active when some (not zero, not all)
+    const checkedTopics = document.querySelectorAll('.topic-checkbox:checked').length;
+    const totalTopics   = document.querySelectorAll('.topic-checkbox').length;
+    setFilterActive('topicDropdownBtn', checkedTopics > 0 && checkedTopics < totalTopics);
+
+    // Subtopics
+    const checkedSubs = document.querySelectorAll('.subtopic-checkbox:checked').length;
+    setFilterActive('subtopicDropdownBtn', checkedSubs > 0);
+
+    // Chapters
+    const checkedChapters = document.querySelectorAll('.chapter-checkbox:checked').length;
+    setFilterActive('chapterDropdownBtn', checkedChapters > 0);
+
+    // Subchapters
+    const checkedSubchapters = document.querySelectorAll('.subchapter-checkbox:checked').length;
+    setFilterActive('subchapterDropdownBtn', checkedSubchapters > 0);
+}
+
 // Check if filters have been modified since last search
 function checkFilterModification() {
     if (!lastSearchedFilters) {
@@ -1040,6 +1096,7 @@ function checkFilterModification() {
     const currentFilters = getCurrentFilterValues();
     const isModified = JSON.stringify(currentFilters) !== JSON.stringify(lastSearchedFilters);
     setFilterModifiedIndicator(isModified);
+    updateAllFilterActiveStates();
 }
 
 // Show or hide the filter modified indicator
@@ -1065,6 +1122,7 @@ function setFilterModifiedIndicator(modified) {
 function saveLastSearchedFilters() {
     lastSearchedFilters = getCurrentFilterValues();
     setFilterModifiedIndicator(false);
+    updateAllFilterActiveStates();
 }
 
 // Initialize filter change listeners
@@ -2864,6 +2922,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Update action buttons based on selected subject's permission
     updatePermissionButtons();
     
+    // Update filter active states to reflect restored filter values
+    updateAllFilterActiveStates();
+    
     // Initialize selection state (checkboxes)
     initializeSelectionState();
     
@@ -3162,6 +3223,13 @@ function resetFilters() {
     // Clear QID search
     clearQidSearch();
     
+    // Reset QID strict mode to default (loose)
+    const strictToggle = document.getElementById('qidStrictMode');
+    if (strictToggle) {
+        strictToggle.checked = false;
+        updateQidSearchHint();
+    }
+    
     // Clear all year selections
     clearAllYears();
     
@@ -3204,6 +3272,7 @@ function resetFilters() {
     // Clear filter modification indicator and last searched state
     lastSearchedFilters = null;
     setFilterModifiedIndicator(false);
+    updateAllFilterActiveStates();
 }
 
 // Helper: submit question IDs via a hidden POST form (avoids URL length limits)
