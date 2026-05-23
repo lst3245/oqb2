@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from PIL import Image
@@ -678,6 +679,50 @@ def add_after_spacing(doc, spacing):
         return False
 
 
+def _define_oqb_styles(doc):
+    """
+    Create (or ensure) the four OQB custom paragraph styles used throughout the document.
+    Defining them here keeps the visual defaults in one place and allows users to
+    override them inside Word after generation.
+
+    Styles created
+    ──────────────
+    OQB Section Heading  → centred, bold, 14 pt  (topic/chapter change headings)
+    OQB Question ID      → bold, 12 pt            (question number / QID / % line)
+    OQB Question Info    → italic, 10 pt, grey     (topic-chapter info line)
+    OQB Body Text        → 11 pt                   (answer text fallbacks, placeholders)
+    """
+    styles = doc.styles
+
+    def _make(name, font_size_pt, bold=False, italic=False,
+              align=None, colour_rgb=None, base_style='Normal'):
+        # Re-use if the style already exists (e.g. from a template)
+        if name in [s.name for s in styles]:
+            return styles[name]
+        style = styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+        style.base_style = styles[base_style]
+        style.quick_style = True           # appear in the Styles gallery in Word
+        font = style.font
+        font.size = Pt(font_size_pt)
+        font.bold = bold
+        font.italic = italic
+        if colour_rgb:
+            font.color.rgb = colour_rgb
+        pf = style.paragraph_format
+        pf.space_before = Pt(0)
+        pf.space_after = Pt(0)
+        if align:
+            pf.alignment = align
+        return style
+
+    _make('OQB Section Heading', 14, bold=True,
+          align=WD_ALIGN_PARAGRAPH.CENTER)
+    _make('OQB Question ID',     12, bold=True)
+    _make('OQB Question Info',   10, italic=True,
+          colour_rgb=RGBColor(100, 100, 100))
+    _make('OQB Body Text',       11)
+
+
 def _add_page_numbers(doc):
     """Add auto-generated page numbers at the bottom centre of every page."""
     for section in doc.sections:
@@ -749,11 +794,8 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
     heading_text = ' | '.join(parts) if parts else None
     
     if heading_text:
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run(heading_text)
-        heading_run.bold = True
-        heading_run.font.size = Pt(14)
-        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        heading = doc.add_paragraph(style='OQB Section Heading')
+        heading.add_run(heading_text)
         if keep_together:
             heading.paragraph_format.keep_with_next = True
     
@@ -803,6 +845,9 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     doc = Document()
     
+    # Define OQB custom styles (must be done before any content is added)
+    _define_oqb_styles(doc)
+    
     # Set page size to A4
     section = doc.sections[0]
     section.page_height = Cm(29.7)  # A4 height
@@ -848,10 +893,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         
         # Then add all answers - always start on new page
         doc.add_page_break()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run('ANSWERS')
-        heading_run.bold = True
-        heading_run.font.size = Pt(16)
+        heading = doc.add_paragraph('ANSWERS', style='Heading 1')
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.add_paragraph()
         last_had_page_break = False
@@ -879,10 +921,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         
         # Then add all solutions - always start on new page
         doc.add_page_break()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run('SOLUTIONS')
-        heading_run.bold = True
-        heading_run.font.size = Pt(16)
+        heading = doc.add_paragraph('SOLUTIONS', style='Heading 1')
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.add_paragraph()
         last_had_page_break = False
@@ -942,24 +981,18 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     has_pct = show_correct_pct and asset_type == 'QUE' and question.correct_percentage is not None
     
     if has_seq or has_qid or has_pct:
-        heading = doc.add_paragraph()
         parts = []
-        
         if has_seq:
             parts.append(f"{seq_no}.")
-        
         if has_qid:
             parts.append(question.qid)
-        
         if has_pct:
             parts.append(f"[{question.correct_percentage}%]")
         
         heading_text = " ".join(parts)
-        
         if heading_text:
-            heading_run = heading.add_run(heading_text)
-            heading_run.bold = True
-            heading_run.font.size = Pt(12)
+            heading = doc.add_paragraph(style='OQB Question ID')
+            heading.add_run(heading_text)
             if keep_together:
                 heading.paragraph_format.keep_with_next = True
     
@@ -1008,11 +1041,8 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
             
             info_text = ' | '.join(info_parts)
             if info_text:
-                info_para = doc.add_paragraph()
-                info_run = info_para.add_run(info_text)
-                info_run.italic = True
-                info_run.font.size = Pt(10)
-                info_run.font.color.rgb = RGBColor(100, 100, 100)
+                info_para = doc.add_paragraph(style='OQB Question Info')
+                info_para.add_run(info_text)
                 if keep_together:
                     info_para.paragraph_format.keep_with_next = True
     
@@ -1020,9 +1050,8 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     if asset_type == 'ANS' and answer_preference == 'text_first':
         # Text first: use answer text if available, fall back to image
         if question.answer:
-            para = doc.add_paragraph()
-            run = para.add_run(question.answer)
-            run.font.size = Pt(11)
+            para = doc.add_paragraph(style='OQB Body Text')
+            para.add_run(question.answer)
             return
         # Fall through to image if no text
     
@@ -1036,12 +1065,11 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         # No image asset found
         if asset_type == 'ANS' and answer_preference == 'image_first' and question.answer:
             # Image first but no image available — fall back to answer text
-            para = doc.add_paragraph()
-            run = para.add_run(question.answer)
-            run.font.size = Pt(11)
+            para = doc.add_paragraph(style='OQB Body Text')
+            para.add_run(question.answer)
             return
         # No asset found, add placeholder
-        para = doc.add_paragraph()
+        para = doc.add_paragraph(style='OQB Body Text')
         run = para.add_run(f'[{asset_type} not available for {question.qid}]')
         run.italic = True
         return
@@ -1065,7 +1093,7 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     
     if not sorted_assets:
         # No asset found, add placeholder
-        para = doc.add_paragraph()
+        para = doc.add_paragraph(style='OQB Body Text')
         run = para.add_run(f'[{asset_type} not available for {question.qid}]')
         run.italic = True
         return
@@ -1081,7 +1109,7 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         file_path = os.path.join(source_path, asset.file_path)
         
         if not os.path.exists(file_path):
-            para = doc.add_paragraph()
+            para = doc.add_paragraph(style='OQB Body Text')
             run = para.add_run(f'[File not found: {asset.file_path}]')
             run.italic = True
             continue
@@ -1106,12 +1134,12 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
                 doc.add_picture(file_path, width=Inches(doc_width_inches))
                 
             except Exception as e:
-                para = doc.add_paragraph()
+                para = doc.add_paragraph(style='OQB Body Text')
                 run = para.add_run(f'[Error loading image: {str(e)}]')
                 run.italic = True
         
         elif asset.file_format == 'DOC':
             # For Word files, just add a placeholder for now
-            para = doc.add_paragraph()
+            para = doc.add_paragraph(style='OQB Body Text')
             run = para.add_run(f'[Word document: {asset.file_path}]')
             run.italic = True
