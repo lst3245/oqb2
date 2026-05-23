@@ -893,8 +893,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         
         # Then add all answers - always start on new page
         doc.add_page_break()
-        heading = doc.add_paragraph('ANSWERS', style='Heading 1')
-        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        heading = doc.add_paragraph('ANSWERS', style='OQB Section Heading')
         doc.add_paragraph()
         last_had_page_break = False
         
@@ -921,8 +920,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         
         # Then add all solutions - always start on new page
         doc.add_page_break()
-        heading = doc.add_paragraph('SOLUTIONS', style='Heading 1')
-        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        heading = doc.add_paragraph('SOLUTIONS', style='OQB Section Heading')
         doc.add_paragraph()
         last_had_page_break = False
         
