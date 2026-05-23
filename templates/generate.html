@@ -20,7 +20,28 @@
                 <div class="card-body">
                     <!-- Status Banner (shown after generation starts) -->
                     <div id="generationStatusBanner" style="display: none;" class="mb-3"></div>
-                    
+
+                    <!-- Saved Generation Presets bar -->
+                    <div class="card bg-light border-0 mb-3">
+                        <div class="card-body py-2">
+                            <div class="d-flex align-items-center flex-wrap gap-2">
+                                <label for="genProfileSelect" class="form-label small mb-0 text-muted">
+                                    <i class="bi bi-bookmark-star"></i> <strong>Presets:</strong>
+                                </label>
+                                <select id="genProfileSelect" class="form-select form-select-sm" style="max-width: 280px;" onchange="onGenProfileSelect(this)">
+                                    <option value="">Load preset…</option>
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveGenProfileModal()" title="Save current options as a preset">
+                                    <i class="bi bi-floppy"></i> Save as preset
+                                </button>
+                                <a href="{{ url_for('user.gen_profiles') }}" class="btn btn-sm btn-outline-secondary ms-auto" title="Manage saved presets">
+                                    <i class="bi bi-gear"></i> Manage
+                                </a>
+                            </div>
+                            <div id="genProfileFeedback" class="small mt-1" style="display:none;"></div>
+                        </div>
+                    </div>
+
                     <form id="generateForm" onsubmit="return submitGeneration(event)">
                         <!-- Hidden question IDs (order preserved from selection) -->
                         <div id="questionIdsContainer">
@@ -411,6 +432,32 @@
         </div>
     </div>
 </div>
+
+<!-- Save Generation Preset Modal -->
+<div class="modal fade" id="saveGenProfileModal" tabindex="-1" aria-labelledby="saveGenProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveGenProfileModalLabel"><i class="bi bi-floppy"></i> Save Generation Preset</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="genProfileNameInput" class="form-label">Preset name</label>
+                    <input type="text" class="form-control" id="genProfileNameInput" placeholder="e.g. MC Mock, English first" maxlength="200" autocomplete="off">
+                    <div class="form-text">Saving with an existing name will overwrite that preset.</div>
+                </div>
+                <div id="saveGenProfileError" class="alert alert-danger py-2 small" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveGenProfileBtn" onclick="saveGenProfile()">
+                    <i class="bi bi-floppy"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -478,6 +525,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (IS_REGEN) {
         showQuestionSourceChoice();
     }
+
+    // Load saved generation presets into the dropdown
+    loadGenProfilesDropdown();
 });
 
 // ============== QUESTION SOURCE CHOICE (for regen) ==============
@@ -802,6 +852,207 @@ function restoreGenerationOptions(opts) {
             if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
         }
     }
+}
+
+// ============== SAVED GENERATION PRESETS ==============
+
+function getCheckedValue(id) {
+    const el = document.getElementById(id);
+    return el && el.checked;
+}
+
+function getRadioValue(name) {
+    const el = document.querySelector(`input[name="${name}"]:checked`);
+    return el ? el.value : null;
+}
+
+function getInputValue(name) {
+    const el = document.querySelector(`[name="${name}"]`);
+    return el ? el.value : null;
+}
+
+// Collect the current generation options into a JSON-serialisable object.
+// Mirrors what create_document() persists into GeneratedFile.generation_options,
+// EXCEPT question_ids (presets are selection-independent).
+function getCurrentGenerationOptions() {
+    const sortConfigStr = document.getElementById('sortConfigInput')?.value || '';
+    return {
+        sort_mode: getInputValue('sort_mode'),
+        sort_config: sortConfigStr,
+        answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
+        preferred_language: document.getElementById('preferredLanguage')?.value || 'EN',
+        answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
+        show_qid: getCheckedValue('showQid'),
+        show_qid_answer: getCheckedValue('showQidAnswer'),
+        show_correct_pct: getCheckedValue('showCorrectPct'),
+        show_seq_no: getCheckedValue('showSeqNo'),
+        seq_start: parseInt(document.getElementById('seqStart')?.value || '1', 10) || 1,
+        show_page_no: getCheckedValue('showPageNo'),
+        keep_together: getCheckedValue('keepTogether'),
+        apply_spacing_to_ans: getCheckedValue('applySpacingToAns'),
+        denote_cross_topic: getCheckedValue('denoteCrossTopic'),
+        mc_before_mode: getRadioValue('mc_before_mode'),
+        mc_before_lines: parseInt(getInputValue('mc_before_lines') || '0', 10) || 0,
+        mc_after_mode: getRadioValue('mc_after_mode'),
+        mc_after_lines: parseInt(getInputValue('mc_after_lines') || '0', 10) || 0,
+        cq_before_mode: getRadioValue('cq_before_mode'),
+        cq_before_lines: parseInt(getInputValue('cq_before_lines') || '0', 10) || 0,
+        cq_after_mode: getRadioValue('cq_after_mode'),
+        cq_after_lines: parseInt(getInputValue('cq_after_lines') || '0', 10) || 0,
+        info_fields: {
+            topic: getCheckedValue('infoTopic'),
+            subtopic: getCheckedValue('infoSubtopic'),
+            chapter: getCheckedValue('infoChapter'),
+            subchapter: getCheckedValue('infoSubchapter'),
+        },
+        section_fields: {
+            topic: getCheckedValue('sectionTopic'),
+            subtopic: getCheckedValue('sectionSubtopic'),
+            chapter: getCheckedValue('sectionChapter'),
+            subchapter: getCheckedValue('sectionSubchapter'),
+        },
+        split_fields: {
+            topic: getCheckedValue('splitTopic'),
+            subtopic: getCheckedValue('splitSubtopic'),
+            chapter: getCheckedValue('splitChapter'),
+            subchapter: getCheckedValue('splitSubchapter'),
+        },
+    };
+}
+
+function loadGenProfilesDropdown() {
+    const sel = document.getElementById('genProfileSelect');
+    if (!sel) return;
+    fetch('{{ url_for("user.gen_profiles_list") }}')
+        .then(r => r.json())
+        .then(presets => {
+            // Clear existing options except the placeholder
+            sel.innerHTML = '<option value="">Load preset…</option>';
+            if (!Array.isArray(presets) || presets.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'No saved presets yet';
+                opt.disabled = true;
+                sel.appendChild(opt);
+                return;
+            }
+            const starred = presets.filter(p => p.is_starred);
+            const others = presets.filter(p => !p.is_starred);
+            if (starred.length > 0) {
+                const group = document.createElement('optgroup');
+                group.label = '★ Starred';
+                starred.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = '★ ' + p.name;
+                    group.appendChild(opt);
+                });
+                sel.appendChild(group);
+            }
+            if (others.length > 0) {
+                const group = document.createElement('optgroup');
+                group.label = 'Other presets';
+                others.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    group.appendChild(opt);
+                });
+                sel.appendChild(group);
+            }
+        })
+        .catch(() => {
+            // Silent: dropdown stays empty
+        });
+}
+
+function onGenProfileSelect(selectEl) {
+    const id = selectEl.value;
+    if (!id) return;
+    const url = `{{ url_for("user.gen_profiles_data", preset_id=0) }}`.replace('/0/data', `/${id}/data`);
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                showGenProfileFeedback('danger', data.error);
+                return;
+            }
+            const opts = data.options_data || {};
+            // Strip question_ids defensively before restoring
+            delete opts.question_ids;
+            restoreGenerationOptions(opts);
+            updateFileExtLabel();
+            showGenProfileFeedback('success', `Loaded preset “${data.name}”`);
+        })
+        .catch(err => showGenProfileFeedback('danger', 'Error loading preset: ' + err.message))
+        .finally(() => {
+            // Reset dropdown so the user can re-pick the same preset later
+            selectEl.value = '';
+        });
+}
+
+function showGenProfileFeedback(type, msg) {
+    const fb = document.getElementById('genProfileFeedback');
+    if (!fb) return;
+    fb.style.display = 'block';
+    fb.className = `small mt-1 text-${type === 'success' ? 'success' : 'danger'}`;
+    fb.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i> ${escapeHtml(msg)}`;
+    if (type === 'success') {
+        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+    }
+}
+
+function showSaveGenProfileModal() {
+    const input = document.getElementById('genProfileNameInput');
+    const err = document.getElementById('saveGenProfileError');
+    if (input) input.value = '';
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    const modal = new bootstrap.Modal(document.getElementById('saveGenProfileModal'));
+    modal.show();
+    setTimeout(() => { input?.focus(); }, 200);
+}
+
+function saveGenProfile() {
+    const name = (document.getElementById('genProfileNameInput')?.value || '').trim();
+    const errEl = document.getElementById('saveGenProfileError');
+    const btn = document.getElementById('saveGenProfileBtn');
+
+    if (!name) {
+        errEl.textContent = 'Please enter a preset name.';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving…';
+
+    fetch('{{ url_for("user.gen_profiles_save") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            name: name,
+            options_data: getCurrentGenerationOptions(),
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            errEl.textContent = data.error;
+            errEl.style.display = 'block';
+            return;
+        }
+        bootstrap.Modal.getInstance(document.getElementById('saveGenProfileModal'))?.hide();
+        showGenProfileFeedback('success', data.updated ? `Preset “${name}” updated.` : `Preset “${name}” saved.`);
+        loadGenProfilesDropdown();
+    })
+    .catch(err => {
+        errEl.textContent = 'Error: ' + err.message;
+        errEl.style.display = 'block';
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-floppy"></i> Save';
+    });
 }
 
 // Show/hide the "Show QID for answers" option based on answer mode

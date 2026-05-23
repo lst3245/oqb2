@@ -266,12 +266,31 @@ class SavedFilter(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
     filter_data = db.Column(db.Text, nullable=False)  # JSON blob of filter state
+    is_starred = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     user = db.relationship('User', backref=db.backref('saved_filters', lazy='dynamic'))
     
     def __repr__(self):
         return f'<SavedFilter {self.name}>'
+
+
+class SavedGenerationProfile(db.Model):
+    """Saved generation options preset for reusable document-generation configurations"""
+    __tablename__ = 'saved_generation_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    options_data = db.Column(db.Text, nullable=False)  # JSON blob of generation options (no question_ids)
+    is_starred = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('saved_generation_profiles', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<SavedGenerationProfile {self.name}>'
 
 
 class GeneratedFile(db.Model):

@@ -2,6 +2,38 @@
 
 All notable changes to the Online Question Bank System are documented in this file.
 
+## [Unreleased]
+
+### ✨ New Features
+
+#### Saved Generation Presets
+- New `/user/gen-profiles` page lists reusable generation-option presets per user
+- "Save as preset" button + "Load preset…" dropdown on the Generate page ([templates/generate.html](templates/generate.html)) — pick a preset to instantly restore every option (answer mode, spacing, info/section/split fields, language, sort, etc.) without changing the current question selection
+- Presets store options only — they are independent of the current question selection or filter
+- Saving with an existing name overwrites that preset (upsert by name)
+- Manage / bulk-delete / star presets at `/user/gen-profiles`
+
+#### Starring (Favorites) for Saved Profiles
+- Both Search Profiles and Generation Presets can be starred
+- Starred items always sort to the top of list pages and the Generate-page dropdown (with an `★ Starred` optgroup)
+- Click the star icon in either list to toggle
+
+### 🗄️ Database Changes
+- New table `saved_generation_profiles` (id, user_id, name, options_data JSON, is_starred, created_at, updated_at)
+- New column `saved_filters.is_starred` (BOOLEAN NOT NULL DEFAULT FALSE) + index
+- Migration: run `python migrate_starring.py` once on existing deployments
+
+### 🔌 API Changes
+- New `POST /user/profiles/<id>/star` — toggle star on a filter profile
+- New `GET /user/gen-profiles` — page
+- New `GET /user/gen-profiles/list` — JSON list (starred first, then by name)
+- New `POST /user/gen-profiles/save` — upsert preset by name
+- New `GET /user/gen-profiles/<id>/data` — fetch preset for restore
+- New `DELETE /user/gen-profiles/<id>` — delete one
+- New `POST /user/gen-profiles/bulk-delete` — delete many
+- New `POST /user/gen-profiles/<id>/star` — toggle star on a preset
+- Updated `GET /user/profiles/list` ordering: `is_starred DESC, name ASC`
+
 ## [2.3.0] - 2026-05-23
 
 ### ✨ New Features

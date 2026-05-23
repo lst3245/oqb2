@@ -80,5 +80,15 @@ Also supports ANS ↔ SOL fallback if one type is missing.
 Pass `?regen_file_id=<id>` to `GET /generate/` to pre-fill options from a previously generated file.
 Options are loaded from `GeneratedFile.generation_options` JSON.
 
+## Saved Generation Presets (independent of any specific selection)
+The Generate page has a "Presets" bar (above the form) with:
+- A **load dropdown** that lists `SavedGenerationProfile` rows (starred first under a `★ Starred` optgroup).
+- A **Save as preset** button that opens a modal and POSTs to `/user/gen-profiles/save` with the current option state via JS helper `getCurrentGenerationOptions()`. Save is upsert-by-name; `question_ids` is stripped client- and server-side.
+- A **Manage** link to `/user/gen-profiles`.
+
+Loading a preset calls the same `restoreGenerationOptions()` used by regen-from-file, but never touches the hidden `question_ids`, `sort_config` (its hidden input), or `filter_data` inputs.
+
+See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the full route list.
+
 ## Background Thread
 `_generate_in_background()` runs inside `with app.app_context()`. Always use `current_app._get_current_object()` to pass the real app object to the thread (not the proxy).

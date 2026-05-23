@@ -14,8 +14,9 @@
 6. [Generating Word Documents](#6-generating-word-documents)
 7. [My Generated Files](#7-my-generated-files)
 8. [Saved Search Profiles](#8-saved-search-profiles)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Quick Reference](#10-quick-reference)
+9. [Saved Generation Presets](#9-saved-generation-presets)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Quick Reference](#11-quick-reference)
 
 ---
 
@@ -283,8 +284,12 @@ Navigate to **Profiles** (top navigation).
 ### Loading a Profile
 
 1. Go to **Profiles**
-2. Click **Load** next to any profile
+2. Click **Apply** next to any profile
 3. You are taken to the Dashboard with that filter automatically applied
+
+### Starring Profiles
+
+Click the **star** icon next to any profile to mark it as a favourite. Starred profiles always appear at the top of the list. Click again to unstar.
 
 ### Managing Profiles
 
@@ -293,7 +298,40 @@ Navigate to **Profiles** (top navigation).
 
 ---
 
-## 9. Troubleshooting
+## 9. Saved Generation Presets
+
+Generation presets are reusable templates of the **generation options** (answer mode, spacing, info/section/split fields, language, sort, etc.). They are independent of any specific question selection — load a preset to instantly restore all the options without changing which questions are selected.
+
+Navigate to **My Stuff → Generation Presets** to view and manage your presets.
+
+### Saving a Preset
+
+1. Go to the **Generate** page (after selecting questions on the Dashboard)
+2. Configure all the options the way you want them
+3. Click **Save as preset** in the Presets bar at the top
+4. Enter a name and click **Save**
+
+> Saving with an existing name **overwrites** that preset, so you can iterate quickly.
+
+### Loading a Preset
+
+1. On the **Generate** page, open the **Load preset…** dropdown
+2. Starred presets appear first under "★ Starred"; the rest are under "Other presets"
+3. Select one — all your generation options are instantly restored
+4. Your current question selection is **not** touched
+
+### Starring Presets
+
+On the **Generation Presets** page, click the star icon next to any preset to favourite it. Starred presets are pinned to the top of both the management page and the Generate-page dropdown.
+
+### Managing Presets
+
+- **Delete** individual presets with the trash icon
+- **Bulk Delete** using the checkboxes and "Delete Selected"
+
+---
+
+## 10. Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
@@ -306,7 +344,7 @@ Navigate to **Profiles** (top navigation).
 
 ---
 
-## 10. Quick Reference
+## 11. Quick Reference
 
 ### Keyboard Shortcuts (Viewer)
 | Key | Action |

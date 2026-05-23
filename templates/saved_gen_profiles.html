@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Search Profiles - Question Bank{% endblock %}
+{% block title %}Generation Presets - Question Bank{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -12,14 +12,20 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2><i class="bi bi-bookmark"></i> Search Profiles</h2>
+        <h2><i class="bi bi-bookmark-star"></i> Generation Presets</h2>
         {% if current_user.is_super_admin %}
         <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadProfiles()">
+            <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadPresets()">
             <label class="form-check-label" for="showAllToggle">Show all users</label>
         </div>
         {% endif %}
     </div>
+
+    <p class="text-muted small">
+        Presets are reusable generation-option templates. Load them on the
+        <a href="{{ url_for('generator.index') }}">Generate page</a> via the "Presets" dropdown.
+        Starred presets always appear at the top of the dropdown.
+    </p>
 
     <!-- Bulk action bar -->
     <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
@@ -30,10 +36,10 @@
         <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
     </div>
 
-    <div id="profilesContainer">
+    <div id="presetsContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading profiles...</p>
+            <p class="mt-2 text-muted">Loading presets...</p>
         </div>
     </div>
 </div>
@@ -41,29 +47,29 @@
 
 {% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', loadProfiles);
+document.addEventListener('DOMContentLoaded', loadPresets);
 
-function loadProfiles() {
+function loadPresets() {
     const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
-    
-    fetch(`{{ url_for('user.profiles_list') }}?show_all=${showAll}`)
+
+    fetch(`{{ url_for('user.gen_profiles_list') }}?show_all=${showAll}`)
         .then(r => r.json())
-        .then(profiles => {
-            const container = document.getElementById('profilesContainer');
-            
-            if (profiles.length === 0) {
+        .then(presets => {
+            const container = document.getElementById('presetsContainer');
+
+            if (presets.length === 0) {
                 container.innerHTML = `
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> No saved profiles yet. 
-                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>, 
-                        set up your filters, and click the <i class="bi bi-floppy"></i> save button in the Filters header.
+                        <i class="bi bi-info-circle"></i> No saved generation presets yet.
+                        Go to the <a href="{{ url_for('generator.index') }}">Generate page</a>,
+                        set up the options you want, and click <i class="bi bi-floppy"></i> <strong>Save as preset</strong>.
                     </div>`;
                 updateBulkBar();
                 return;
             }
-            
+
             const showUsername = showAll === '1';
-            
+
             let html = `
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
@@ -72,15 +78,15 @@ function loadProfiles() {
                             <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
                             <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
                             <th>Name</th>
-                            <th>Subject</th>
                             ${showUsername ? '<th>User</th>' : ''}
                             <th>Created</th>
+                            <th>Updated</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>`;
-            
-            profiles.forEach(p => {
+
+            presets.forEach(p => {
                 const starIcon = p.is_starred
                     ? '<i class="bi bi-star-fill text-warning"></i>'
                     : '<i class="bi bi-star text-muted"></i>';
@@ -94,32 +100,46 @@ function loadProfiles() {
                                 </button>
                             </td>
                             <td><strong>${escapeHtml(p.name)}</strong></td>
-                            <td><span class="badge bg-secondary">${escapeHtml(p.subject || '-')}</span></td>
                             ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || '')}</span></td>` : ''}
                             <td><small class="text-muted">${formatLocalTime(p.created_at)}</small></td>
+                            <td><small class="text-muted">${formatLocalTime(p.updated_at)}</small></td>
                             <td class="text-end">
-                                <a href="{{ url_for('dashboard.index') }}?profile_id=${p.id}" class="btn btn-sm btn-primary" title="Apply this filter">
-                                    <i class="bi bi-play-fill"></i> Apply
-                                </a>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteProfile(${p.id})" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" onclick="deletePreset(${p.id})" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
                         </tr>`;
             });
-            
+
             html += `
                     </tbody>
                 </table>
             </div>`;
-            
+
             container.innerHTML = html;
             updateBulkBar();
         })
         .catch(err => {
-            document.getElementById('profilesContainer').innerHTML = `
-                <div class="alert alert-danger">Error loading profiles: ${err.message}</div>`;
+            document.getElementById('presetsContainer').innerHTML = `
+                <div class="alert alert-danger">Error loading presets: ${err.message}</div>`;
         });
+}
+
+function toggleStar(id, makeStarred) {
+    fetch(`{{ url_for('user.gen_profiles_star', preset_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_starred: makeStarred})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadPresets();
+        } else {
+            alert(data.error || 'Error updating star');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
 }
 
 function toggleAll(master) {
@@ -159,9 +179,9 @@ function getSelectedIds() {
 function bulkDelete() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected profile(s)? This cannot be undone.`)) return;
+    if (!confirm(`Delete ${ids.length} selected preset(s)? This cannot be undone.`)) return;
 
-    fetch(`{{ url_for('user.profiles_bulk_delete') }}`, {
+    fetch(`{{ url_for('user.gen_profiles_bulk_delete') }}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ids: ids})
@@ -169,43 +189,26 @@ function bulkDelete() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            loadProfiles();
+            loadPresets();
         } else {
-            alert(data.error || 'Error deleting profiles');
+            alert(data.error || 'Error deleting presets');
         }
     })
     .catch(err => alert('Error: ' + err.message));
 }
 
-function toggleStar(id, makeStarred) {
-    fetch(`{{ url_for('user.profiles_star', profile_id=0) }}`.replace('/0/', `/${id}/`), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({is_starred: makeStarred})
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            loadProfiles();
-        } else {
-            alert(data.error || 'Error updating star');
-        }
-    })
-    .catch(err => alert('Error: ' + err.message));
-}
+function deletePreset(id) {
+    if (!confirm('Delete this generation preset?')) return;
 
-function deleteProfile(id) {
-    if (!confirm('Delete this search profile?')) return;
-    
-    fetch(`{{ url_for('user.profiles_delete', profile_id=0) }}`.replace('/0', `/${id}`), {
+    fetch(`{{ url_for('user.gen_profiles_delete', preset_id=0) }}`.replace('/0', `/${id}`), {
         method: 'DELETE'
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            loadProfiles();
+            loadPresets();
         } else {
-            alert(data.error || 'Error deleting profile');
+            alert(data.error || 'Error deleting preset');
         }
     })
     .catch(err => alert('Error: ' + err.message));

@@ -1,6 +1,6 @@
 ---
-description: My Files and Saved Search Profiles — user_bp routes and behaviour
-globs: app/user.py,templates/my_files.html,templates/saved_filters.html
+description: My Files, Saved Search Profiles, and Saved Generation Presets — user_bp routes and behaviour
+globs: app/user.py,templates/my_files.html,templates/saved_filters.html,templates/saved_gen_profiles.html
 alwaysApply: false
 ---
 
@@ -14,16 +14,42 @@ Allows users to save and restore named dashboard filter configurations.
 | Route | Method | Description |
 |---|---|---|
 | `/user/profiles` | GET | Page render |
-| `/user/profiles/list?show_all=0` | GET | JSON list; super admin can pass `show_all=1` |
+| `/user/profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC`; super admin can pass `show_all=1` |
 | `/user/profiles/save` | POST JSON | `{name, filter_data}` — filter_data is the full dashboard filter state dict |
 | `/user/profiles/<id>/data` | GET | Returns `{id, name, filter_data}` for restoring on dashboard |
 | `/user/profiles/<id>` | DELETE | Owner or super admin only |
 | `/user/profiles/bulk-delete` | POST JSON | `{ids: []}` |
+| `/user/profiles/<id>/star` | POST JSON | `{is_starred: bool}` — toggle if omitted |
 
 ### filter_data JSON structure
 Same keys as the dashboard filter form: `subject`, `source_type`, `years`, `topics`, `subtopics`, `chapters`, `levels`, `q_type`, `qid_search`, `sort_config`, etc.
 
 The dashboard JS serialises the current form state into this blob when saving, and restores it by re-populating the filter form when loading.
+
+## Saved Generation Presets (`/user/gen-profiles`)
+
+Reusable generation-option templates. **Options only** — never store `question_ids` or `filter_data`.
+
+Backed by `SavedGenerationProfile` (user_id, name, options_data JSON, is_starred, created_at, updated_at).
+
+### API
+| Route | Method | Description |
+|---|---|---|
+| `/user/gen-profiles` | GET | Page render (`saved_gen_profiles.html`) |
+| `/user/gen-profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC` |
+| `/user/gen-profiles/save` | POST JSON | `{name, options_data}` — upsert by `(user_id, name)`; `question_ids` is stripped server-side |
+| `/user/gen-profiles/<id>/data` | GET | `{id, name, is_starred, options_data}` for restoring on Generate page |
+| `/user/gen-profiles/<id>` | DELETE | Owner or super admin only |
+| `/user/gen-profiles/bulk-delete` | POST JSON | `{ids: []}` |
+| `/user/gen-profiles/<id>/star` | POST JSON | `{is_starred: bool}` — toggle if omitted |
+
+### options_data JSON structure
+Same shape as `GeneratedFile.generation_options` (see [document-generation.mdc](mdc:.cursor/rules/document-generation.mdc)) minus `question_ids`.
+
+The Generate-page JS (`getCurrentGenerationOptions()` in `templates/generate.html`) builds this dict by reading every option control, and `restoreGenerationOptions()` applies it back. Loading a preset never touches the hidden `question_ids`, `sort_config`, or `filter_data` form inputs bound to the current selection.
+
+### Starring
+Both `SavedFilter` and `SavedGenerationProfile` have an `is_starred` boolean column (indexed). List endpoints return starred items first; the Generate-page dropdown groups them under a `★ Starred` optgroup.
 
 ## My Generated Files (`/user/files`)
 

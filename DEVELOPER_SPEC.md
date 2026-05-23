@@ -82,7 +82,7 @@ oqb2/
 │   ├── dashboard.py       # dashboard_bp: filter_questions(), API endpoints
 │   ├── admin.py           # admin_bp: ~2500 lines, 8 major sections
 │   ├── generator.py       # generator_bp: create_word_document(), viewer, background thread
-│   ├── user.py            # user_bp: SavedFilter CRUD, GeneratedFile list/delete
+│   ├── user.py            # user_bp: SavedFilter + SavedGenerationProfile CRUD, GeneratedFile list/delete
 │   ├── ingestor.py        # File scanning, DB sync, health stats, streaming generators
 │   ├── config.py          # Config class (reads .env via python-dotenv)
 │   └── utils.py           # Permission decorators, apply_multi_sort(), SORT_FIELDS
@@ -93,6 +93,7 @@ oqb2/
 │   ├── viewer.html        # Presentation mode
 │   ├── my_files.html      # Generated files list
 │   ├── saved_filters.html # Saved search profiles
+│   ├── saved_gen_profiles.html # Saved generation presets
 │   ├── admin_*.html       # Admin panel pages
 │   └── partials/
 │       ├── question_list.html     # HTMX target: question cards
@@ -239,7 +240,19 @@ Unique constraint: `(question_id, asset_type, language, file_format, part_number
 | `user_id` | INT FK → users | |
 | `name` | VARCHAR(200) | Profile name |
 | `filter_data` | TEXT | JSON blob of dashboard filter state |
+| `is_starred` | BOOLEAN | Indexed; starred profiles sort first |
 | `created_at` | DATETIME | |
+
+#### `saved_generation_profiles`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `user_id` | INT FK → users | |
+| `name` | VARCHAR(200) | Preset name (unique per user; save acts as upsert) |
+| `options_data` | TEXT | JSON blob of generation options (no `question_ids`) |
+| `is_starred` | BOOLEAN | Indexed; starred presets sort first |
+| `created_at` | DATETIME | |
+| `updated_at` | DATETIME | Refreshed on every save |
 
 #### `generated_files`
 | Column | Type | Notes |
@@ -354,12 +367,20 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 ### `user_bp` — `app/user.py` — prefix: `/user`
 | Route | Method | Description |
 |---|---|---|
-| `/profiles` | GET | Saved profiles page |
-| `/profiles/list` | GET | JSON list of profiles |
+| `/profiles` | GET | Saved search profiles page |
+| `/profiles/list` | GET | JSON list of profiles (starred first, then by name) |
 | `/profiles/save` | POST | Save new profile |
 | `/profiles/<id>/data` | GET | Get filter data for a profile |
 | `/profiles/<id>` | DELETE | Delete profile |
 | `/profiles/bulk-delete` | POST | Delete multiple profiles |
+| `/profiles/<id>/star` | POST | Toggle starred status of a filter profile |
+| `/gen-profiles` | GET | Saved generation presets page |
+| `/gen-profiles/list` | GET | JSON list of presets (starred first, then by name) |
+| `/gen-profiles/save` | POST | Save/upsert a preset (by `(user_id, name)`) |
+| `/gen-profiles/<id>/data` | GET | Get options data for a preset |
+| `/gen-profiles/<id>` | DELETE | Delete preset |
+| `/gen-profiles/bulk-delete` | POST | Delete multiple presets |
+| `/gen-profiles/<id>/star` | POST | Toggle starred status of a preset |
 | `/files` | GET | My Files page |
 | `/files/list` | GET | JSON list of generated files |
 | `/files/<id>/filter` | GET | Get saved filter data from a file |
