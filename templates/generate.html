@@ -253,6 +253,16 @@
                             </div>
                         </div>
                         
+                        <!-- Denote Cross-Topic Questions -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="denoteCrossTopic"
+                                   name="denote_cross_topic">
+                            <label class="form-check-label" for="denoteCrossTopic">
+                                Denote cross-topic questions
+                            </label>
+                            <small class="text-muted d-block">If a question has minor topics, force the info line to show major topic with <code>[Cross Topic: ...]</code></small>
+                        </div>
+                        
                         <hr>
                         
                         <!-- MC Question Spacing -->
@@ -339,6 +349,16 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- Apply spacing to ANS/SOL -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="applySpacingToAns"
+                                   name="apply_spacing_to_ans">
+                            <label class="form-check-label" for="applySpacingToAns">
+                                Apply same spacing to Answers/Solutions
+                            </label>
+                            <small class="text-muted d-block">When unchecked (default), the Answers/Solutions section (in "All QUE then All ANS/SOL" modes) uses minimal spacing (1 line between items)</small>
                         </div>
                         
                         <div class="d-flex gap-2">
@@ -706,6 +726,18 @@ function restoreGenerationOptions(opts) {
     if (opts.keep_together !== undefined) {
         const el = document.getElementById('keepTogether');
         if (el) el.checked = (opts.keep_together === 'on' || opts.keep_together === true);
+    }
+    
+    // Apply spacing to ANS/SOL checkbox
+    if (opts.apply_spacing_to_ans !== undefined) {
+        const el = document.getElementById('applySpacingToAns');
+        if (el) el.checked = (opts.apply_spacing_to_ans === 'on' || opts.apply_spacing_to_ans === true);
+    }
+    
+    // Denote cross-topic checkbox
+    if (opts.denote_cross_topic !== undefined) {
+        const el = document.getElementById('denoteCrossTopic');
+        if (el) el.checked = (opts.denote_cross_topic === 'on' || opts.denote_cross_topic === true);
     }
     
     // Info line fields (topic/subtopic/chapter/subchapter under each Q)

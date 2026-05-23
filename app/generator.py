@@ -303,6 +303,8 @@ def create_document():
     seq_start = max(1, int(request.form.get('seq_start', 1) or 1))
     show_page_no = request.form.get('show_page_no') == 'on'
     keep_together = request.form.get('keep_together') == 'on'
+    apply_spacing_to_ans = request.form.get('apply_spacing_to_ans') == 'on'
+    denote_cross_topic = request.form.get('denote_cross_topic') == 'on'
     
     # Topic/Chapter display options
     info_fields = {
@@ -352,6 +354,8 @@ def create_document():
         'show_correct_pct': show_correct_pct,
         'show_seq_no': show_seq_no, 'seq_start': seq_start, 'show_page_no': show_page_no,
         'keep_together': keep_together,
+        'apply_spacing_to_ans': apply_spacing_to_ans,
+        'denote_cross_topic': denote_cross_topic,
         'info_fields': info_fields, 'section_fields': section_fields,
         'split_fields': split_fields,
         'preferred_language': preferred_language,
@@ -407,6 +411,7 @@ def create_document():
               answer_mode, spacing_config, show_qid, show_qid_answer,
               preferred_language, show_correct_pct, answer_preference,
               show_seq_no, seq_start, show_page_no, keep_together,
+              apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename)
     )
     thread.daemon = True
@@ -419,6 +424,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             answer_mode, spacing_config, show_qid, show_qid_answer,
                             preferred_language, show_correct_pct, answer_preference,
                             show_seq_no, seq_start, show_page_no, keep_together,
+                            apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename):
     """Background thread function to generate the Word document(s)"""
     with app.app_context():
@@ -469,7 +475,9 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             show_qid, show_qid_answer, preferred_language,
                             show_correct_pct, answer_preference,
                             show_seq_no, seq_start, show_page_no, keep_together,
-                            info_fields, section_fields
+                            info_fields, section_fields,
+                            apply_spacing_to_ans=apply_spacing_to_ans,
+                            denote_cross_topic=denote_cross_topic
                         )
                         # Build per-file name from the group label, dedup if needed
                         safe_label = _sanitize_filename(group_label)
@@ -495,7 +503,9 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     show_qid, show_qid_answer, preferred_language,
                     show_correct_pct, answer_preference,
                     show_seq_no, seq_start, show_page_no, keep_together,
-                    info_fields, section_fields
+                    info_fields, section_fields,
+                    apply_spacing_to_ans=apply_spacing_to_ans,
+                    denote_cross_topic=denote_cross_topic
                 )
                 doc.save(filepath)
             
@@ -753,7 +763,7 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
 _DPI = 96  # assumed screen DPI for image size conversion
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False):
     """
     Create Word document with questions
     
@@ -772,6 +782,10 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         keep_together: Keep question info with image (prevent page split)
         info_fields: Dict of bools for per-question info line (topic/subtopic/chapter/subchapter)
         section_fields: Dict of bools for section heading on change (topic/subtopic/chapter/subchapter)
+        apply_spacing_to_ans: If True, apply the same MC/CQ spacing to ANS/SOL in THEN modes.
+                              If False (default), use minimal spacing (1 line between items).
+        denote_cross_topic: If True and a question has minor topics, force info line to show
+                            major topic with "[Cross Topic: ...]" annotation.
     """
     if info_fields is None:
         info_fields = {}
@@ -779,6 +793,13 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         section_fields = {}
     
     any_section_heading = any(section_fields.values())
+    
+    # Minimal spacing for ANS/SOL when apply_spacing_to_ans is False:
+    # 0 lines before, 1 line after, no page breaks.
+    minimal_ans_spacing = {
+        'before_mode': 'lines', 'before_lines': 0,
+        'after_mode': 'lines', 'after_lines': 1,
+    }
     
     doc = Document()
     
@@ -822,7 +843,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all answers - always start on new page
@@ -836,10 +857,10 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         last_had_page_break = False
         
         for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config)
+            spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -853,7 +874,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -867,10 +888,10 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         last_had_page_break = False
         
         for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config)
+            spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -884,7 +905,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
@@ -896,7 +917,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -909,6 +930,8 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         seq_no: Sequential question number (int) or None to skip
         info_fields: Dict of bools for per-question info line (topic/subtopic/chapter/subchapter)
         keep_together: Set keep_with_next on heading/info paragraphs
+        denote_cross_topic: If True and a question has minor topics, force info line to show
+                            major topic with "[Cross Topic: ...]" annotation.
     """
     if info_fields is None:
         info_fields = {}
@@ -941,34 +964,57 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
                 heading.paragraph_format.keep_with_next = True
     
     # Add per-question info line (QUE only): "Topic - Subtopic | Chapter - Subchapter"
-    if asset_type == 'QUE' and any(info_fields.values()):
-        topic_part = []
-        chapter_part = []
+    # If denote_cross_topic is on AND question has minor topics, force the info line
+    # to show the major topic with "[Cross Topic: <minor topics>]" suffix.
+    if asset_type == 'QUE':
+        # Determine if this question is cross-topic (has minor topics)
+        minor_topic_names = []
+        if denote_cross_topic:
+            try:
+                minor_topic_names = [t.name for t in question.minor_topics]
+            except Exception:
+                minor_topic_names = []
+        is_cross_topic = denote_cross_topic and bool(minor_topic_names)
         
-        if info_fields.get('topic') and question.major_topic:
-            topic_part.append(question.major_topic.name)
-        if info_fields.get('subtopic') and question.major_subtopic:
-            topic_part.append(question.major_subtopic.name)
-        if info_fields.get('chapter') and question.chapter:
-            chapter_part.append(question.chapter.name)
-        if info_fields.get('subchapter') and question.subchapter:
-            chapter_part.append(question.subchapter.name)
-        
-        info_parts = []
-        if topic_part:
-            info_parts.append(' - '.join(topic_part))
-        if chapter_part:
-            info_parts.append(' - '.join(chapter_part))
-        
-        info_text = ' | '.join(info_parts)
-        if info_text:
-            info_para = doc.add_paragraph()
-            info_run = info_para.add_run(info_text)
-            info_run.italic = True
-            info_run.font.size = Pt(10)
-            info_run.font.color.rgb = RGBColor(100, 100, 100)
-            if keep_together:
-                info_para.paragraph_format.keep_with_next = True
+        # Show info line if any info_field is enabled OR cross-topic is being denoted
+        if any(info_fields.values()) or is_cross_topic:
+            topic_part = []
+            chapter_part = []
+            
+            # If cross-topic is being denoted, force major topic to be shown
+            show_major_topic = info_fields.get('topic') or is_cross_topic
+            
+            if show_major_topic and question.major_topic:
+                topic_part.append(question.major_topic.name)
+            if info_fields.get('subtopic') and question.major_subtopic:
+                topic_part.append(question.major_subtopic.name)
+            if info_fields.get('chapter') and question.chapter:
+                chapter_part.append(question.chapter.name)
+            if info_fields.get('subchapter') and question.subchapter:
+                chapter_part.append(question.subchapter.name)
+            
+            info_parts = []
+            if topic_part:
+                topic_str = ' - '.join(topic_part)
+                # Append cross-topic annotation if applicable
+                if is_cross_topic:
+                    topic_str += f' [Cross Topic: {", ".join(minor_topic_names)}]'
+                info_parts.append(topic_str)
+            elif is_cross_topic:
+                # No topic_part but still cross-topic — show the annotation alone
+                info_parts.append(f'[Cross Topic: {", ".join(minor_topic_names)}]')
+            if chapter_part:
+                info_parts.append(' - '.join(chapter_part))
+            
+            info_text = ' | '.join(info_parts)
+            if info_text:
+                info_para = doc.add_paragraph()
+                info_run = info_para.add_run(info_text)
+                info_run.italic = True
+                info_run.font.size = Pt(10)
+                info_run.font.color.rgb = RGBColor(100, 100, 100)
+                if keep_together:
+                    info_para.paragraph_format.keep_with_next = True
     
     # For ANS type, handle answer_preference (text_first vs image_first)
     if asset_type == 'ANS' and answer_preference == 'text_first':
