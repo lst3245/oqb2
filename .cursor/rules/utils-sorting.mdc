@@ -1,0 +1,54 @@
+---
+description: Permission decorators, sort helpers, and utility functions
+globs: app/utils.py
+alwaysApply: false
+---
+
+# Utilities (`app/utils.py`)
+
+## Permission Decorators
+
+| Decorator | Requirement |
+|---|---|
+| `@admin_required` | `is_super_admin` OR has `admin` role for any subject |
+| `@super_admin_required` | `is_super_admin` only |
+| `@subject_access_required` | `is_super_admin` OR any role for the subject in the request |
+| `@subject_admin_required` | `is_super_admin` OR `admin` role for the subject in the request |
+
+`@subject_access_required` / `@subject_admin_required` extract `subject_id` from: URL kwargs → `request.args` → `request.form` → JSON body.
+
+## Permission Helpers
+
+```python
+get_user_accessible_subjects()  # → [Subject] for current_user
+get_user_admin_subjects()       # → [Subject] where current_user has admin role
+```
+
+## Sorting
+
+### SORT_FIELDS dict
+Maps field name → `{label, key: lambda q, natural: bool}`.
+
+Current fields: `qid`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`
+
+`correct_percentage` uses a `(0, value)` / `(1, 0)` tuple so NULLs always sort last regardless of direction.
+
+### apply_multi_sort(items, sort_config)
+- `items`: list of `Question` objects
+- `sort_config`: `[{"field": "qid", "direction": "asc"}, ...]`
+- Sorting is **Python-side** to support natural sort and proper NULL handling
+- Uses `natsort_keygen()` for fields with `natural: True`
+- Uses `cmp_to_key` to handle multi-level comparison with direction per level
+
+**Do not move this to SQL ORDER BY** without careful consideration of these requirements.
+
+### Adding a New Sort Field
+```python
+SORT_FIELDS['my_field'] = {
+    'label': 'My Field',
+    'key': lambda q: q.my_field if q.my_field else '',
+    'natural': False
+}
+```
+
+Then add the new field option to the sort dropdowns in `dashboard.html` and `generate.html`.

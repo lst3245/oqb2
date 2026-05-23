@@ -1,0 +1,70 @@
+---
+description: Admin panel sections, permissions, ingestion, export/import, and health checks
+globs: app/admin.py,templates/admin_*.html
+alwaysApply: false
+---
+
+# Admin Panel (`app/admin.py`)
+
+Very large file (~2500 lines). Organised into clearly labelled sections with `# ===` comments.
+
+## Permission Tiers
+- Most routes: `@admin_required` — any subject admin or super admin
+- User management: `@super_admin_required` — super admin only
+- Health / File Browser: `@super_admin_required`
+- Ingestion: `@admin_required` (filtered by user's admin subjects)
+
+## Sections
+
+### Topic Management (`/admin/topics`)
+CRUD + reorder for Topics and Subtopics per subject.
+- Topics/Subtopics have `sort_order` for drag-and-drop reorder
+- Subtopics have `hidden` flag (hidden subtopics excluded from dashboard, but shown in admin with `include_hidden=1`)
+- Same structure for Chapters/Subchapters at `/admin/chapters`
+
+### Question Tagging (`POST /admin/questions/<id>/update`)
+Updates question metadata fields: `major_topic_id`, `major_subtopic_id`, `minor_topics` (M2M), `subtopics` (M2M), `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `description`, `correct_percentage`, `answer`, `comment`.  
+Validation: `major_subtopic_id` must belong to `major_topic_id` when both are set.
+
+### Question Management (`/admin/questions`)
+- List with full filter support (same params as dashboard)
+- `POST /admin/questions/create` — create a question manually (without ingestor)
+- `POST /admin/questions/<id>/rename` — change QID (renames files on disk too, via `_build_asset_file_path`)
+- `POST /admin/questions/<id>/assets/upload` — upload new asset file
+- `DELETE /admin/questions/<id>/assets/<asset_id>` — delete asset (removes file from disk)
+- `POST /admin/questions/<id>/assets/reorder` — update part_number ordering
+
+### Batch Operations
+`POST /admin/questions/batch-update` — selectively update multiple questions:
+- Checkbox flags: `update_level`, `update_q_type`, `update_section`, `update_topics`, `update_correct_pct`
+- `POST /admin/questions/delete` — delete multiple questions + cascade assets + delete files from disk
+
+### User Management (`/admin/users`) — super admin only
+- Add/edit/delete users
+- `POST /admin/users/<id>/permissions` — set subject permissions (replaces all permissions for that user)
+- Payload: `{subject_id: role}` dict where role is `'viewer'`, `'user'`, `'admin'`, or `''` to remove
+
+### Export / Import (`/admin/export-import`)
+All exports are CSV. Imports are idempotent (upsert logic).
+- **Question Tags CSV**: `qid, major_topic, major_subtopic, level, q_type, section, minor_topics, subtopics, chapter, subchapter`
+- **Topics CSV**: `subject_id, topic_name, sort_order, subtopics (semicolon-separated)`
+- **Chapters CSV**: `subject_id, chapter_name, sort_order, subchapters (semicolon-separated)`
+
+### Ingestion (`/admin/ingestion`)
+- `GET /admin/ingestion/preview` — scan SOURCE_PATH, show directory tree + parseable file counts
+- `GET /admin/ingestion/start?subject=MATC` — **SSE stream** that yields JSON progress events
+  - Event types: `info`, `success`, `skip`, `error`, `progress`, `done`
+  - `subject` param scans only `SOURCE_PATH/<subject>/` subfolder; omit to scan all
+  - Uses `scan_directory_stream()` from `app/ingestor.py`
+
+### Database Health (`/admin/health`) — super admin only
+- `GET /admin/health/stats` — fast DB-only stats (counts, untagged, no-asset questions, duplicates, path mismatches)
+- `GET /admin/health/untracked` — files on disk not in DB
+- `GET /admin/health/sync?dry_run=1` — **SSE stream** to find/remove orphaned DB records
+  - Grace period: questions created < 24h ago are skipped
+
+### File Browser (`/admin/files`) — super admin only
+Browse, upload, download, rename, delete files and create directories within `SOURCE_PATH`.
+
+## Key Helper Function
+`_build_asset_file_path(question, asset)` — reconstructs the canonical relative file path for an asset based on question fields. Used by rename and health path-mismatch check.

@@ -1,0 +1,77 @@
+---
+description: File ingestion system - filename parsing, folder structure, and sync logic
+globs: app/ingestor.py,templates/admin_ingestion.html
+alwaysApply: false
+---
+
+# File Ingestion (`app/ingestor.py`)
+
+Scans `SOURCE_PATH` and upserts questions + assets into the database based on filename patterns.
+
+## Expected Folder Structure
+```
+SOURCE_PATH/
+  <SUBJ>/
+    PP/
+      <SOURCE>/        # DSE, CE, AL
+        <YEAR>/
+          <PAPER>/     # P1, P2, etc.
+            MATC_DSE_2024_P1_Q5_EN_QUE.png
+    QB/
+      <DETAIL>/        # e.g. MATHSMART2024
+        MATC_QB_MATHSMART2024_Q1_EN_QUE.png
+```
+
+## Filename Patterns (Regex)
+**Past Paper (PP):**
+```
+SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
+MATC_DSE_2025_P2_Q5_EN_QUE.png
+MATC_DSE_2025_P2_Q5_EN_QUE_2.png   ← part 2 of multi-image
+```
+
+**Question Bank (QB):**
+```
+SUBJ_QB_DETAIL_QNO_LANG_TYPE[_PART].EXT
+MATC_QB_MATHSMART2024_Q1_EN_QUE.png
+```
+
+- `SUBJ`: subject ID (e.g. `MATC`, `MAT1`)
+- `SOURCE`: `DSE`, `CE`, `AL`, `QB`
+- `LANG`: `EN`, `CH`, `BI`
+- `TYPE`: `QUE`, `ANS`, `SOL`
+- `PART`: optional integer (default 1)
+- `EXT`: `png`, `jpg`, `jpeg`, `gif`, `bmp` (→ IMG) or `doc`, `docx` (→ DOC)
+
+## Auto Question Type Detection
+Set at ingestion time based on subject + source + paper (only for MATC):
+- `MATC DSE P1` → `CQ`
+- `MATC DSE P2` → `MC`
+- `MAT1/MAT2 DSE` → `CQ`
+- All others → `NULL` (must be tagged manually)
+
+## Key Functions
+- `parse_filename(filename)` → dict or None
+- `construct_qid(parsed)` → QID string
+- `upsert_question(qid, parsed, folder_meta)` → Question object (create or fetch existing)
+- `upsert_asset(question, parsed, file_path, source_path)` → insert or update asset
+- `scan_directory(source_path)` → bulk ingest (CLI use)
+- `scan_directory_stream(source_path, base_path)` → **generator** yielding progress dicts (UI/SSE use)
+- `sync_database(source_path, dry_run)` → remove orphaned DB records
+- `sync_database_stream(source_path, dry_run)` → **generator** yielding progress dicts (UI/SSE use)
+- `find_untracked_files(source_path)` → files on disk with no DB record
+- `get_database_stats(source_path)` → health statistics dict
+- `preview_source_directory(source_path)` → folder tree summary
+
+## Important: base_path vs source_path
+When scanning a subject subfolder (e.g. `SOURCE_PATH/MATC`):
+- Pass `source_path=SOURCE_PATH/MATC` (the dir to walk)
+- Pass `base_path=SOURCE_PATH` (root for computing relative paths)
+
+This ensures stored `file_path` values include the subject prefix: `MATC/PP/DSE/2024/P1/filename.png`
+
+## Sync Grace Period
+Questions created within the last **24 hours** are skipped during sync orphan checks. This prevents deleting questions that were just manually created but not yet had assets uploaded.
+
+## File Path Convention
+All `file_path` values stored in DB use **forward slashes** regardless of OS (normalised on ingest).

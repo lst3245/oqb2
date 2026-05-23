@@ -1,0 +1,60 @@
+---
+description: OQB2 project orientation - always read first in every chat
+alwaysApply: true
+---
+
+# Online Question Bank System (OQB2)
+
+Flask web app for managing, browsing, tagging, and generating exam question papers from a library of image/doc assets.
+
+## Tech Stack
+- **Backend**: Python 3, Flask 3, SQLAlchemy ORM, MariaDB (pymysql)
+- **Frontend**: Bootstrap 5 + HTMX (no SPA framework — server-rendered with HTMX partials)
+- **Document output**: python-docx + Pillow
+- **Auth**: Flask-Login
+
+## Entry Points
+- `run.py` — start dev server
+- `init_db.py` — create DB tables
+- `cli.py` — CLI (ingest, sync)
+- `.env` — all environment config (DB credentials, SOURCE_PATH, OUTPUT_PATH)
+
+## Blueprint Map
+
+| Blueprint | File | URL Prefix | Purpose |
+|---|---|---|---|
+| `auth_bp` | `app/auth.py` | `/` | Login / logout / register |
+| `dashboard_bp` | `app/dashboard.py` | `/dashboard` | Question browsing, filtering, search |
+| `admin_bp` | `app/admin.py` | `/admin` | Admin panel (topics, questions, users, ingest, export) |
+| `generator_bp` | `app/generator.py` | `/generate` | Word doc generation + viewer mode |
+| `user_bp` | `app/user.py` | `/user` | My Files + Saved Filter Profiles |
+
+## Key Files to Read for Context
+- `app/models.py` — **source of truth** for DB schema and all model relationships
+- `app/utils.py` — permission decorators, sort helpers (`apply_multi_sort`, `SORT_FIELDS`)
+- `app/config.py` — all config keys and their `.env` defaults
+- `CHANGELOG.md` — most current record of features (more accurate than DEVELOPER_SPEC.md)
+
+## Permission System (3 tiers)
+- `is_super_admin` — god mode, full access to everything
+- `role='admin'` in `UserSubjectPermission` — subject admin (can tag, edit, ingest for that subject)
+- `role='user'` — can browse and generate documents for that subject
+- `role='viewer'` — read-only, cannot generate
+
+Decorators in `app/utils.py`: `@admin_required`, `@super_admin_required`, `@subject_admin_required`
+
+## Question ID (QID) Format
+- Past papers: `SUBJ_SOURCE_YEAR_PAPER_QNO` → e.g. `MATC_DSE_2024_P1_Q5`
+- Question bank: `SUBJ_QB_DETAIL_QNO` → e.g. `MATC_QB_MATHSMART2024_Q1`
+
+## Asset Files
+Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG) or Word docs (DOC), with types QUE/ANS/SOL and languages EN/CH/BI.
+
+## Templates
+All in `templates/`. Partials (HTMX targets) are in `templates/partials/`.
+`base.html` is the shared layout.
+
+## Documentation Status
+- `DEVELOPER_SPEC.md` / `ADMIN_GUIDE.md` — background reference only, may lag behind code
+- `CHANGELOG.md` — most up-to-date feature history
+- `app/models.py` — always the definitive schema reference

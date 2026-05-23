@@ -1,0 +1,57 @@
+---
+description: Documentation maintenance — update docs and rules when adding or changing features
+alwaysApply: true
+---
+
+# Documentation Maintenance
+
+When you add, change, or remove a feature, **always update documentation as part of the same task**.
+
+## What to Update
+
+### CHANGELOG.md (required for every feature/fix)
+Add an entry under the current unreleased version (or create a new version block).
+- New features → `### ✨ New Features`
+- Enhancements → `### ✨ Enhanced Features`
+- Bug fixes → `### 🐛 Bug Fixes`
+- DB changes → `### 🗄️ Database Changes`
+- API changes → note under the feature description
+
+### .cursor/rules/*.mdc (required when changing backend logic)
+Update the relevant rule file so future AI agents have accurate context:
+- Changed filter params or sort fields → update `dashboard-search.mdc`
+- Changed generation options, answer modes, or doc structure → update `document-generation.mdc`
+- Changed admin routes or ingestion logic → update `admin-panel.mdc`
+- Changed models → update `data-models.mdc`
+- Changed filename patterns or ingestor logic → update `file-ingestion.mdc`
+- New blueprint or major new feature area → add a new `.mdc` rule file
+
+### DEVELOPER_SPEC.md (update for API/schema/architecture changes)
+Keep the API endpoint tables, DB schema, and architecture sections current.
+
+### README.md (update for feature additions visible at a glance)
+Update the Features section and project structure if it changes significantly.
+
+### USER_MANUAL.md (update for any user-facing behaviour changes)
+Keep the filter, generation, and UI descriptions accurate.
+
+### ADMIN_GUIDE.md (update for admin-panel or deployment changes)
+Keep admin operations and configuration instructions current.
+
+## When to Skip
+
+- Pure refactors with no behaviour change → update code comments only
+- Styling/layout-only changes → no doc update needed
+- Typo/small fixes → no doc update needed
+
+## Rule File Format Reminder
+
+```
+---
+description: One-line description
+globs: app/somefile.py,templates/some*.html   # omit for alwaysApply rules
+alwaysApply: false                            # true for global rules
+---
+```
+
+Keep rule files **concise** (under 150 lines). They are loaded into every relevant chat — brevity matters.

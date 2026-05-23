@@ -1,0 +1,74 @@
+---
+description: Dashboard filtering, search, sorting and HTMX integration
+globs: app/dashboard.py,templates/dashboard.html,templates/partials/question_list.html
+alwaysApply: false
+---
+
+# Dashboard — Search, Filter & Sort
+
+Core route: `POST /dashboard/filter` in `app/dashboard.py` → `filter_questions()`
+
+## All Filter Parameters
+
+| Param | Type | Notes |
+|---|---|---|
+| `subject` | string | Subject ID (e.g. `MATC`) |
+| `source_type` | string | `DSE`, `CE`, `AL`, `QB` |
+| `years` | list[int] | Multi-select, PP only |
+| `section` | string | `A`, `Section I`, etc. |
+| `topics` | list[int] | Topic IDs |
+| `topic_mode` | `AND`\|`OR` | AND = question must have ALL selected |
+| `subtopics` | list[int] | Subtopic IDs |
+| `subtopic_mode` | `AND`\|`OR` | Same logic |
+| `is_crosstopic` | bool | Include questions with topics as minor topics too |
+| `is_crosssubtopic` | bool | Include questions with subtopics in M2M too |
+| `chapters` | list[int] | Chapter IDs |
+| `subchapters` | list[int] | Subchapter IDs |
+| `levels` | list | `1`, `2`, `3`, and/or literal string `'null'` |
+| `q_type` | string | `MC`, `CQ`, or `all` |
+| `qid_search` | string | Direct QID search |
+| `qid_strict` | bool | Strict: user controls pattern with `*` wildcard; Loose (default): tokenise and match in order |
+| `page` | int | Page number (default 1) |
+| `page_size` | int | 10, 20, 50, or 100 (default 20) |
+| `preview_language` | `EN`\|`CH` | Asset language preference for card previews |
+| `sort_config` | JSON string | Array of `{field, direction}` objects |
+
+## Topic/Subtopic AND Logic
+In AND mode, each selected topic must appear as **major OR any minor topic** (since a question can only have one major topic). The filter loops and applies one `.filter()` call per topic ID.
+
+## QID Search Logic
+- **Loose mode** (default): normalises to uppercase alphanumeric tokens, builds `%TOKEN1%TOKEN2%` LIKE pattern
+- **Strict mode**: user writes the pattern directly; `*` maps to SQL `%`; no wildcards means substring match
+- QID search **overrides all other filters** if provided
+
+## Sorting
+Uses `apply_multi_sort()` from `app/utils.py`. Multi-level: `[{field, direction}, ...]`.  
+Available sort fields defined in `SORT_FIELDS` dict in `utils.py`:  
+`qid`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`
+
+**Important**: Sorting is done **in Python** after fetching all results from DB (not via SQL ORDER BY). This is intentional to support natural sort (Q1, Q2, Q10 not Q1, Q10, Q2) and multi-field sorting with null-handling. Do not move sorting to SQLAlchemy without careful consideration.
+
+Pagination is also done in Python (slice after sort).
+
+## Session Storage
+- `session['filter_params']` — current filter state
+- `session['sort_config']` — current sort config
+- `session['generator_question_ids']` — question IDs carried to generator
+
+## HTMX Pattern
+When `HX-Request` header is present → return `partials/question_list.html` fragment only.  
+Full page requests → return complete `dashboard.html`.
+
+## API Endpoints (all require login)
+- `GET /dashboard/api/topics/<subject_id>` — topics for subject
+- `GET /dashboard/api/subtopics?topic_ids=1,2&include_hidden=0&q_type=all` — subtopics with question counts
+- `GET /dashboard/api/chapters/<subject_id>` — chapters for subject
+- `GET /dashboard/api/subchapters?chapter_ids=1,2&include_hidden=0` — subchapters
+- `GET /dashboard/api/years/<subject_id>/<source>` — available years
+- `GET /dashboard/api/sections/<subject_id>/<source>` — available sections
+- `GET /dashboard/api/asset/<asset_id>` — asset info
+- `GET /dashboard/api/question/<id>/assets/<type>` — all parts for a question's asset type
+- `GET /dashboard/files/<path>` — serve raw asset file from SOURCE_PATH
+
+## Asset Language Selection (Preview)
+Best language group is selected: preferred (`EN`/`CH`) → `BI` → other. All `part_number` parts for the chosen language are returned together.

@@ -2,6 +2,85 @@
 
 All notable changes to the Online Question Bank System are documented in this file.
 
+## [2.3.0] - 2026-05-23
+
+### ✨ New Features
+
+#### Subject-Based Permission System (Replaces Legacy Role)
+- Replaced the simple `is_admin` boolean with a full subject-level RBAC system
+- New `UserSubjectPermission` model with roles: `viewer`, `user`, `admin`
+- `is_super_admin` flag for god-mode access (all subjects, all operations)
+- `viewer` role: read-only access, cannot generate documents
+- `user` role: can browse + generate documents for that subject
+- `admin` role: full subject admin (tagging, ingestion, export)
+- Permission decorators: `@admin_required`, `@super_admin_required`, `@subject_admin_required`
+
+#### Background Document Generation
+- Generation now runs in a **background thread** instead of blocking the HTTP request
+- New `GeneratedFile` DB model tracks generation status (`pending` → `generating` → `completed` / `failed`)
+- Frontend polls `GET /generate/status/<id>` for live status updates
+- Stale `pending`/`generating` records auto-reset to `failed` on app restart
+
+#### My Files & Saved Filter Profiles (user_bp)
+- New `/user/files` page: list, download, re-generate, and delete previously generated documents
+- New `/user/profiles` page: save and restore named dashboard filter configurations
+- Bulk delete for both files and profiles
+- Super admin can view all users' files/profiles with `?show_all=1`
+
+#### Viewer / Presentation Mode
+- New `GET /generate/viewer` page for slide-style question review (no Word generation)
+- Supports all question types with ANS/SOL toggle, language preference
+- ANS ↔ SOL automatic fallback if one type is missing
+- Asset API: `GET /generate/api/viewer_asset/<question_id>/<type>?lang=EN`
+
+#### Answer & Comment Text Fields on Questions
+- `answer` (TEXT): text-based answer, alternative to ANS image asset
+- `comment` (TEXT): notes/commentary, displayed in dashboard card and viewer
+- In generation: `answer_preference` controls whether text or image is used first for ANS
+
+#### Chapter / Subchapter System
+- New `Chapter` and `Subchapter` models parallel to Topic/Subtopic
+- Questions can be linked to a `chapter_id` / `subchapter_id` (textbook organisation)
+- Chapters visible on dashboard filter and in generated documents
+- Admin CRUD at `/admin/chapters` (same reorder/hidden behaviour as topics)
+
+#### Admin File Browser
+- New `/admin/files` page (super admin only) for managing files directly within `SOURCE_PATH`
+- Upload, download, rename, delete files; create directories
+- Useful for correcting filenames without SSH/file system access
+
+#### Database Health Dashboard
+- New `/admin/health` page (super admin only) with fast DB-only statistics
+- Reports: total counts, untagged questions, questions with no assets, duplicates, file-path mismatches
+- `GET /admin/health/untracked` — files on disk that have no DB record
+- `GET /admin/health/sync?dry_run=1` — SSE stream to find and optionally delete orphaned DB records
+
+#### Export / Import (CSV Round-trip)
+- `/admin/export-import` page with full CSV export and import for:
+  - **Question Tags**: `qid, major_topic, major_subtopic, level, q_type, section, minor_topics, subtopics, chapter, subchapter`
+  - **Topics/Subtopics**: per-subject topic tree
+  - **Chapters/Subchapters**: per-subject chapter tree
+- Imports are idempotent (safe to re-run)
+
+### ✨ Enhanced Generation Options
+- **Split to ZIP**: enable per-topic/chapter splits — one `.docx` per group, zipped together
+- **Sequential numbering**: show `1. 2. 3.` prefixes with configurable start number
+- **Page numbers**: footer page numbers on generated documents
+- **Keep together**: Word `keep_with_next` on headings/info lines
+- **Apply spacing to answers**: in `QUE_THEN_ANS` / `QUE_THEN_SOL` modes, apply full MC/CQ spacing to the answer section (default: minimal 1-line spacing)
+- **Denote cross-topic**: adds `[Cross Topic: X, Y]` to info line if question has minor topics
+
+### 🗄️ Database Changes
+- New table: `user_subject_permissions (id, user_id, subject_id, role)`
+- New table: `saved_filters (id, user_id, name, filter_data)`
+- New table: `generated_files (id, user_id, display_name, filename, status, ...)`
+- New table: `chapters (id, subject_id, name, sort_order)`
+- New table: `subchapters (id, chapter_id, name, hidden, sort_order)`
+- New columns on `questions`: `answer TEXT`, `comment TEXT`, `chapter_id INT`, `subchapter_id INT`
+- New columns on `users`: `is_super_admin BOOL`
+
+---
+
 ## [2.1.0] - 2026-01-09
 
 ### ✨ New Feature: Correct Percentage Tracking

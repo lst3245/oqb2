@@ -1,0 +1,84 @@
+---
+description: Word document generation, viewer mode, background threading, and generation options
+globs: app/generator.py,templates/generate.html,templates/viewer.html
+alwaysApply: false
+---
+
+# Document Generation
+
+## Flow Overview
+1. User selects questions on dashboard → POSTs to `GET /generate/` (question_ids in form)
+2. User configures options on `generate.html` → POSTs to `POST /generate/create`
+3. `create_document()` creates a `GeneratedFile` DB record (status=`pending`), spawns a **background thread**
+4. Frontend polls `GET /generate/status/<id>` until status is `completed` or `failed`
+5. User downloads via `GET /generate/download/<id>`
+
+## Answer Modes
+| Mode | Behaviour |
+|---|---|
+| `QUE_ONLY` | Questions only |
+| `QUE_ANS` | Each question immediately followed by its answer |
+| `QUE_SOL` | Each question immediately followed by its solution |
+| `QUE_THEN_ANS` | All questions first, then all answers (new page + "ANSWERS" heading) |
+| `QUE_THEN_SOL` | All questions first, then all solutions (new page + "SOLUTIONS" heading) |
+
+## Spacing Config
+Separate settings for MC and CQ questions:
+```python
+spacing_config = {
+    'mc': {'before_mode': 'lines'|'page', 'before_lines': int, 'after_mode': 'lines'|'page', 'after_lines': int},
+    'cq': { ... same ... }
+}
+```
+Smart logic: if the previous question already added a page break, skip the `before_mode='page'` to avoid a blank page.
+
+## Generation Options (stored as JSON in GeneratedFile.generation_options)
+| Option | Type | Default |
+|---|---|---|
+| `answer_mode` | string | `QUE_ONLY` |
+| `preferred_language` | `EN`\|`CH` | `EN` |
+| `answer_preference` | `image_first`\|`text_first` | `image_first` |
+| `show_qid` | bool | — |
+| `show_qid_answer` | bool | — |
+| `show_correct_pct` | bool | — format: `QID [75%]` |
+| `show_seq_no` | bool | — sequential 1. 2. 3. |
+| `seq_start` | int | 1 |
+| `show_page_no` | bool | — footer page numbers |
+| `keep_together` | bool | — Word keep_with_next on headings |
+| `apply_spacing_to_ans` | bool | False — use minimal spacing for ANS/SOL in THEN modes |
+| `denote_cross_topic` | bool | — appends `[Cross Topic: X, Y]` to info line |
+| `info_fields` | dict | topic/subtopic/chapter/subchapter booleans — per-question info line |
+| `section_fields` | dict | topic/subtopic/chapter/subchapter booleans — section headings on change |
+| `split_fields` | dict | topic/subtopic/chapter/subchapter booleans — split into separate .docx, zipped |
+
+## Split to ZIP
+If any `split_fields` are enabled, output is a `.zip` file containing one `.docx` per group.
+Groups are built by `_split_questions_into_groups()`. Group labels become filenames (sanitised).
+
+## Custom Word Styles
+Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:
+- `OQB Section Heading` — centred bold 14pt (section change headings)
+- `OQB Question ID` — bold 12pt (QID / seq number line)
+- `OQB Question Info` — italic 10pt grey (topic/chapter info line)
+- `OQB Body Text` — 11pt (text answers, placeholders)
+
+## Asset Selection Logic
+Language: preferred (`EN`/`CH`) → `BI` → other  
+Format: `IMG` preferred over `DOC`  
+All parts sharing the best (format, language) group are included in order of `part_number`.
+
+For `ANS` with `answer_preference='text_first'`: use `question.answer` text if available, fall back to image.  
+For `ANS` with `answer_preference='image_first'`: use image if available, fall back to `question.answer` text.
+
+## Viewer / Presentation Mode
+Route: `POST /generate/viewer` → `viewer.html`  
+Separate page for slide-style question review (not Word generation).  
+Asset API: `GET /generate/api/viewer_asset/<question_id>/<asset_type>?lang=EN`  
+Also supports ANS ↔ SOL fallback if one type is missing.
+
+## Regeneration
+Pass `?regen_file_id=<id>` to `GET /generate/` to pre-fill options from a previously generated file.
+Options are loaded from `GeneratedFile.generation_options` JSON.
+
+## Background Thread
+`_generate_in_background()` runs inside `with app.app_context()`. Always use `current_app._get_current_object()` to pass the real app object to the thread (not the proxy).

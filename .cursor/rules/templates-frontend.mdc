@@ -1,0 +1,66 @@
+---
+description: HTML template conventions, shared partials, HTMX patterns, and JS architecture
+globs: templates/**
+alwaysApply: false
+---
+
+# Templates & Frontend
+
+## Layout
+- `base.html` — shared layout: navbar, Bootstrap 5.3 CDN, Bootstrap Icons 1.11, HTMX 1.9.10
+- All pages `{% extends "base.html" %}` and fill `{% block content %}`, `{% block extra_css %}`, `{% block extra_js %}`
+
+## HTMX Usage Pattern
+The dashboard filter form uses HTMX:
+```html
+<form hx-post="/dashboard/filter" hx-target="#questionList" hx-indicator="#loading">
+```
+The server detects `HX-Request` header and returns only the `partials/question_list.html` fragment.
+
+**Rule**: All new HTMX interactions should target a specific `id` container and return the matching partial template. Full-page fallback is also supported by checking for the HTMX header.
+
+## Shared Partials
+| File | Used by |
+|---|---|
+| `partials/question_list.html` | Dashboard (HTMX target), admin questions list |
+| `partials/tag_editor_form.html` | Admin question edit modal (Tags tab), admin questions add modal (Step 3) |
+| `partials/tag_editor_js.html` | Same as above — JS is in a separate partial for cleanliness |
+
+## Multi-Select Dropdowns (custom, not native `<select multiple>`)
+Topics, subtopics, chapters, years all use a custom dropdown pattern:
+- Bootstrap dropdown component with `data-bs-auto-close="outside"`
+- Checkboxes inside the dropdown panel
+- A hidden `<select multiple>` stores the selected values for form submission
+- Search input inside each dropdown for filtering options
+- "All" / "None" quick-select buttons
+
+When adding a new multi-select filter, follow the same pattern for consistency.
+
+## SSE (Server-Sent Events)
+Used for ingestion and health sync progress streams.
+```javascript
+const es = new EventSource('/admin/ingestion/start?subject=MATC');
+es.addEventListener('message', e => {
+    const data = JSON.parse(e.data);
+    appendLog(data.message, data.type);
+    if (data.type === 'done') es.close();
+});
+```
+The server yields `data: {...}\n\n` using Flask `Response` with `mimetype='text/event-stream'`.
+
+nginx must have `proxy_buffering off` for SSE to work through a reverse proxy.
+
+## Generation Status Polling
+`generate.html` polls `GET /generate/status/<id>` every 2 seconds until `status` is `completed` or `failed`, then shows a download link.
+
+## My Files Auto-Refresh
+`my_files.html` runs `setInterval` every 5 seconds, but only re-fetches if any row has the `.status-generating` class.
+
+## Admin Question Modal Tabs
+`admin_questions.html` uses a static Bootstrap tabbed modal with three tabs:
+1. **Details** — level, q_type, section, description, correct_pct, answer, comment
+2. **Assets** — upload/delete/reorder; shows existing assets with type/language badges
+3. **Tags** — dynamically borrows the shared tag editor form via JS DOM manipulation
+
+## Drag-to-Reorder
+Both the sort criteria (dashboard + generate page) and the topic/chapter admin lists use plain HTML5 drag-and-drop API (`dragstart`, `dragover`, `drop` events). No external library required.

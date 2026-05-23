@@ -1,0 +1,70 @@
+---
+description: Database schema, models, and permission logic for OQB2
+globs: app/models.py
+alwaysApply: false
+---
+
+# Data Models Reference
+
+Source of truth: `app/models.py`. Read it directly when in doubt — never trust docs over the actual model.
+
+## Model Hierarchy
+
+```
+Subject (id: string, e.g. 'MATC')
+  └── Topic (subject_id, sort_order)
+        └── Subtopic (topic_id, hidden, sort_order)
+
+Chapter (subject_id, sort_order)
+  └── Subchapter (chapter_id, hidden, sort_order)
+
+Question (qid, subject, source, year, paper, section, qno, q_type, level, ...)
+  ├── major_topic_id → Topic
+  ├── major_subtopic_id → Subtopic  (must belong to major_topic)
+  ├── minor_topics → [Topic]  (M2M via question_minor_topics)
+  ├── subtopics → [Subtopic]  (M2M via question_subtopics)
+  ├── chapter_id → Chapter
+  ├── subchapter_id → Subchapter
+  └── assets → [QuestionAsset]
+
+QuestionAsset (question_id, asset_type, file_format, language, file_path, part_number)
+
+User (username, password_hash, is_super_admin)
+  └── subject_permissions → [UserSubjectPermission]
+
+UserSubjectPermission (user_id, subject_id, role)  — role: 'viewer'|'user'|'admin'
+SavedFilter (user_id, name, filter_data JSON)
+GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, ...)
+```
+
+## Key Question Fields
+| Field | Notes |
+|---|---|
+| `qid` | Unique string ID, indexed. Format: `MATC_DSE_2024_P1_Q5` |
+| `source` | `DSE`, `CE`, `AL`, `QB` |
+| `q_type` | `MC`, `CQ`, or NULL (auto-set by ingestor for MATC only) |
+| `level` | 1–3 or NULL (manually tagged) |
+| `section` | Free text (e.g. `A`, `Section I`) |
+| `correct_percentage` | 0–100 or NULL (public exam correct rate) |
+| `answer` | Text answer (alternative to ANS image) |
+| `comment` | Notes/commentary text |
+
+## QuestionAsset Constraints
+- `asset_type`: `QUE`, `ANS`, `SOL`
+- `file_format`: `IMG`, `DOC`
+- `language`: `EN`, `CH`, `BI`
+- `part_number`: int starting at 1 (for multi-image questions)
+- Unique constraint: `(question_id, asset_type, language, file_format, part_number)`
+- `file_path` stored as forward-slash relative path from `SOURCE_PATH`
+
+## Permission Checks (User model methods)
+- `user.has_subject_access(subject_id)` — any access (viewer/user/admin)
+- `user.is_subject_admin(subject_id)` — admin role or super admin
+- `user.can_generate()` — has 'user' or 'admin' role for ANY subject
+- `user.is_all_view_only()` — all permissions are 'viewer'
+- `user.get_subject_roles()` → `{subject_id: role}`
+
+## GeneratedFile Status Flow
+`pending` → `generating` → `completed` | `failed`
+
+Stale `pending`/`generating` records are reset to `failed` on app startup (in `create_app()`).
