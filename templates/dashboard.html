@@ -300,12 +300,19 @@
                             <label class="form-label">Quick Search by QID</label>
                             <div class="input-group input-group-sm">
                                 <input type="text" class="form-control" name="qid_search" id="qidSearch" 
-                                       placeholder="e.g. MATC_DSE_2025_P2_Q1">
+                                       placeholder="e.g. 2025 Q1 or MATC_DSE_2025_P2_Q1">
                                 <button type="button" class="btn btn-outline-secondary" onclick="clearQidSearch()" title="Clear">
                                     <i class="bi bi-x"></i>
                                 </button>
                             </div>
-                            <small class="text-muted">Use * as wildcard (e.g. *2025*Q1)</small>
+                            <div class="d-flex align-items-center justify-content-between mt-1">
+                                <small class="text-muted" id="qidSearchHint">Loose mode: casual search like <code>2025 q1</code></small>
+                                <div class="form-check form-switch mb-0 ms-2" style="white-space:nowrap;">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="qidStrictMode"
+                                           name="qid_strict" onchange="updateQidSearchHint()">
+                                    <label class="form-check-label small text-muted" for="qidStrictMode" style="cursor:pointer;">Strict</label>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="d-flex gap-2">
@@ -1017,6 +1024,7 @@ function getCurrentFilterValues() {
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value).sort().join(','),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
         qid_search: document.getElementById('qidSearch')?.value || '',
+        qid_strict: document.getElementById('qidStrictMode')?.checked || false,
         sort_config: document.getElementById('sortConfigInput')?.value || ''
     };
 }
@@ -1075,6 +1083,11 @@ function initFilterChangeListeners() {
     const qidSearch = document.getElementById('qidSearch');
     if (qidSearch) {
         qidSearch.addEventListener('input', checkFilterModification);
+    }
+    // Listen for strict-mode toggle changes
+    const qidStrictToggle = document.getElementById('qidStrictMode');
+    if (qidStrictToggle) {
+        qidStrictToggle.addEventListener('change', checkFilterModification);
     }
 }
 
@@ -1678,7 +1691,8 @@ function saveStateToStorage() {
         show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
         q_type: document.querySelector('input[name="q_type"]:checked')?.value || 'all',
-        qid_search: document.getElementById('qidSearch')?.value || ''
+        qid_search: document.getElementById('qidSearch')?.value || '',
+        qid_strict: document.getElementById('qidStrictMode')?.checked || false
     };
     localStorage.setItem(STORAGE_KEYS.FILTER_SETTINGS, JSON.stringify(filterSettings));
     
@@ -1823,6 +1837,15 @@ async function restoreFilterSettings(settings) {
         const qidInput = document.getElementById('qidSearch');
         if (qidInput) {
             qidInput.value = settings.qid_search;
+        }
+    }
+    
+    // Restore QID strict mode toggle
+    if (settings.qid_strict !== undefined) {
+        const strictToggle = document.getElementById('qidStrictMode');
+        if (strictToggle) {
+            strictToggle.checked = !!settings.qid_strict;
+            updateQidSearchHint();
         }
     }
     
@@ -3076,6 +3099,20 @@ function clearQidSearch() {
     }
 }
 
+// Update the hint text below the QID search when strict mode is toggled
+function updateQidSearchHint() {
+    const strict = document.getElementById('qidStrictMode')?.checked;
+    const hint = document.getElementById('qidSearchHint');
+    if (!hint) return;
+    if (strict) {
+        hint.innerHTML = 'Strict mode: use <code>*</code> as wildcard (e.g. <code>*2025*Q1</code>)';
+    } else {
+        hint.innerHTML = 'Loose mode: casual search like <code>2025 q1</code>';
+    }
+    saveStateToStorage();
+    checkFilterModification();
+}
+
 // Reset filters to defaults
 function resetFilters() {
     // Clear localStorage filter settings
@@ -4043,7 +4080,8 @@ function convertProfileToSettings(data) {
         show_hidden_subchapters: data.show_hidden_subchapters === true || data.show_hidden_subchapters === 'true',
         levels: toArray(data.levels),
         q_type: data.q_type || 'all',
-        qid_search: data.qid_search || ''
+        qid_search: data.qid_search || '',
+        qid_strict: data.qid_strict === true || data.qid_strict === 'true'
     };
 }
 </script>

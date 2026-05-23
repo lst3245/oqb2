@@ -8,6 +8,7 @@ from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import natural_sort, apply_multi_sort, get_user_accessible_subjects
 import os
+import re
 import json
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
@@ -54,6 +55,7 @@ def filter_questions():
     levels = request.args.getlist('levels') or request.form.getlist('levels')
     q_type = request.args.get('q_type') or request.form.get('q_type')
     qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
+    qid_strict = (request.args.get('qid_strict') or request.form.get('qid_strict')) in ('on', 'true', '1', True)
     page = int(request.args.get('page', 1))
     page_size = request.args.get('page_size') or request.form.get('page_size')
     preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
@@ -95,7 +97,8 @@ def filter_questions():
         'subchapters': subchapters,
         'levels': levels,
         'q_type': q_type,
-        'qid_search': qid_search
+        'qid_search': qid_search,
+        'qid_strict': qid_strict
     }
     session['sort_config'] = sort_config
     
@@ -104,14 +107,25 @@ def filter_questions():
     
     # Direct QID search - if provided, search by QID directly and ignore other filters
     if qid_search and qid_search.strip():
-        qid_pattern = qid_search.strip()
-        # Support partial matching with wildcards
-        if '*' in qid_pattern or '%' in qid_pattern:
-            qid_pattern = qid_pattern.replace('*', '%')
-            query = query.filter(Question.qid.ilike(qid_pattern))
+        if qid_strict:
+            # Strict mode: user controls the pattern with * as wildcard
+            qid_pattern = qid_search.strip()
+            if '*' in qid_pattern or '%' in qid_pattern:
+                qid_pattern = qid_pattern.replace('*', '%')
+                query = query.filter(Question.qid.ilike(qid_pattern))
+            else:
+                query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
         else:
-            # Exact or partial match
-            query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
+            # Loose mode: normalize input — keep only alphanumeric chars as tokens,
+            # then match any QID that contains all tokens in order (case-insensitive).
+            # e.g. "2025 q1" → LIKE '%2025%Q1%'
+            raw = qid_search.strip().upper()
+            tokens = re.split(r'[^A-Z0-9]+', raw)
+            tokens = [t for t in tokens if t]
+            if tokens:
+                # Build a single LIKE pattern: %TOKEN1%TOKEN2%...%
+                qid_pattern = '%' + '%'.join(tokens) + '%'
+                query = query.filter(Question.qid.ilike(qid_pattern))
     
     # Filter by subject
     if subject:
