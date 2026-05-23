@@ -14,34 +14,39 @@ Allows users to save and restore named dashboard filter configurations.
 | Route | Method | Description |
 |---|---|---|
 | `/user/profiles` | GET | Page render |
-| `/user/profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC`; super admin can pass `show_all=1` |
+| `/user/profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC`. Returns user's own + any `is_shared` profile; super admin can pass `show_all=1` |
 | `/user/profiles/save` | POST JSON | `{name, filter_data}` — filter_data is the full dashboard filter state dict |
-| `/user/profiles/<id>/data` | GET | Returns `{id, name, filter_data}` for restoring on dashboard |
+| `/user/profiles/<id>/data` | GET | Returns `{id, name, filter_data}` for restoring on dashboard. Owner / super admin / any logged-in user if `is_shared=True` |
 | `/user/profiles/<id>` | DELETE | Owner or super admin only |
 | `/user/profiles/bulk-delete` | POST JSON | `{ids: []}` |
-| `/user/profiles/<id>/star` | POST JSON | `{is_starred: bool}` — toggle if omitted |
+| `/user/profiles/<id>/star` | POST JSON | `{is_starred: bool}` — toggle if omitted (owner / super admin) |
+| `/user/profiles/<id>/share` | POST JSON | `{is_shared: bool}` — toggle if omitted (**super admin only**) |
 
 ### filter_data JSON structure
 Same keys as the dashboard filter form: `subject`, `source_type`, `years`, `topics`, `subtopics`, `chapters`, `levels`, `q_type`, `qid_search`, `sort_config`, etc.
 
 The dashboard JS serialises the current form state into this blob when saving, and restores it by re-populating the filter form when loading.
 
+### Dashboard "Load profile" dropdown
+A small `bi-folder2-open` icon button sits next to the save (`bi-floppy`) button in the Filters card header. Clicking it opens a Bootstrap `dropdown-menu` (`#filterProfileMenu`) built by `loadFilterProfilesDropdown()` on `DOMContentLoaded`. The menu is structured as section headers (`<h6 class="dropdown-header">`) + dividers: **Starred**, **My profiles**, **Shared by admins**, plus a fixed "Manage profiles" footer link. Each item carries `data-profile-id` and on click calls `onFilterProfileSelect(id)` → fetches `/user/profiles/<id>/data` → `convertProfileToSettings()` → `restoreFilterSettings()` → `htmx.trigger(filterForm, 'submit')`. The menu is refreshed after a successful save.
+
 ## Saved Generation Presets (`/user/gen-profiles`)
 
 Reusable generation-option templates. **Options only** — never store `question_ids` or `filter_data`.
 
-Backed by `SavedGenerationProfile` (user_id, name, options_data JSON, is_starred, created_at, updated_at).
+Backed by `SavedGenerationProfile` (user_id, name, options_data JSON, is_starred, is_shared, created_at, updated_at).
 
 ### API
 | Route | Method | Description |
 |---|---|---|
 | `/user/gen-profiles` | GET | Page render (`saved_gen_profiles.html`) |
-| `/user/gen-profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC` |
+| `/user/gen-profiles/list?show_all=0` | GET | JSON list, ordered `is_starred DESC, name ASC`. Returns user's own + any `is_shared` preset |
 | `/user/gen-profiles/save` | POST JSON | `{name, options_data}` — upsert by `(user_id, name)`; `question_ids` is stripped server-side |
-| `/user/gen-profiles/<id>/data` | GET | `{id, name, is_starred, options_data}` for restoring on Generate page |
+| `/user/gen-profiles/<id>/data` | GET | `{id, name, is_starred, options_data}` — accessible to owner / super admin / any logged-in user if shared |
 | `/user/gen-profiles/<id>` | DELETE | Owner or super admin only |
 | `/user/gen-profiles/bulk-delete` | POST JSON | `{ids: []}` |
 | `/user/gen-profiles/<id>/star` | POST JSON | `{is_starred: bool}` — toggle if omitted |
+| `/user/gen-profiles/<id>/share` | POST JSON | `{is_shared: bool}` — toggle if omitted (**super admin only**) |
 
 ### options_data JSON structure
 Same shape as `GeneratedFile.generation_options` (see [document-generation.mdc](mdc:.cursor/rules/document-generation.mdc)) minus `question_ids`.
@@ -49,7 +54,13 @@ Same shape as `GeneratedFile.generation_options` (see [document-generation.mdc](
 The Generate-page JS (`getCurrentGenerationOptions()` in `templates/generate.html`) builds this dict by reading every option control, and `restoreGenerationOptions()` applies it back. Loading a preset never touches the hidden `question_ids`, `sort_config`, or `filter_data` form inputs bound to the current selection.
 
 ### Starring
-Both `SavedFilter` and `SavedGenerationProfile` have an `is_starred` boolean column (indexed). List endpoints return starred items first; the Generate-page dropdown groups them under a `★ Starred` optgroup.
+Both `SavedFilter` and `SavedGenerationProfile` have an `is_starred` boolean column (indexed). List endpoints return starred items first; the Generate-page and Dashboard dropdowns group them under a `★ Starred` optgroup.
+
+### Sharing
+Both tables also have an `is_shared` boolean column (indexed). Only **super admins** can toggle `is_shared` (via `/share` endpoints). Shared profiles/presets appear in every user's list and dropdowns:
+- List pages show a green `Shared` badge plus the owner's username; non-owners cannot delete or star them.
+- The dashboard and generate dropdowns group shared rows under a `Shared by admins` optgroup with the owner's name appended.
+- `/data` endpoints accept any logged-in user when `is_shared=True` so shared profiles can be applied by anyone.
 
 ## My Generated Files (`/user/files`)
 

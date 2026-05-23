@@ -267,6 +267,7 @@ class SavedFilter(db.Model):
     name = db.Column(db.String(200), nullable=False)
     filter_data = db.Column(db.Text, nullable=False)  # JSON blob of filter state
     is_starred = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    is_shared = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     user = db.relationship('User', backref=db.backref('saved_filters', lazy='dynamic'))
@@ -284,6 +285,7 @@ class SavedGenerationProfile(db.Model):
     name = db.Column(db.String(200), nullable=False)
     options_data = db.Column(db.Text, nullable=False)  # JSON blob of generation options (no question_ids)
     is_starred = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    is_shared = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

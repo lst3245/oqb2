@@ -6,6 +6,21 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Profile Sharing (Super Admin)
+- Super admins can mark any Search Profile or Generation Preset as "Shared" — visible to every user
+- New share toggle (green share-icon) on `/user/profiles` and `/user/gen-profiles` pages (super admin only)
+- Other users see shared profiles/presets in their dropdowns under a "Shared by admins" optgroup, and in their list pages with a green **Shared** badge and the owner's username
+- Non-owners cannot delete, star, or bulk-select shared profiles they don't own
+- New `is_shared` column on `saved_filters` and `saved_generation_profiles`
+- New `POST /user/profiles/<id>/share` and `POST /user/gen-profiles/<id>/share` endpoints (super-admin only)
+- `/data` endpoints for both now accept any logged-in user when the profile is shared
+
+#### Dashboard "Load Profile" Dropdown
+- Added a "Load profile…" dropdown at the top of the Dashboard filters card, matching the Generate page pattern
+- Three optgroups: ★ Starred, My profiles, Shared by admins
+- Selecting a profile restores the filters and re-runs the search via HTMX (no page reload, no URL juggling)
+- Newly-saved profiles appear in the dropdown immediately after the save modal closes
+
 #### Saved Generation Presets
 - New `/user/gen-profiles` page lists reusable generation-option presets per user
 - "Save as preset" button + "Load preset…" dropdown on the Generate page ([templates/generate.html](templates/generate.html)) — pick a preset to instantly restore every option (answer mode, spacing, info/section/split fields, language, sort, etc.) without changing the current question selection
@@ -19,20 +34,23 @@ All notable changes to the Online Question Bank System are documented in this fi
 - Click the star icon in either list to toggle
 
 ### 🗄️ Database Changes
-- New table `saved_generation_profiles` (id, user_id, name, options_data JSON, is_starred, created_at, updated_at)
-- New column `saved_filters.is_starred` (BOOLEAN NOT NULL DEFAULT FALSE) + index
-- Migration: run `python migrate_starring.py` once on existing deployments
+- New table `saved_generation_profiles` (id, user_id, name, options_data JSON, is_starred, is_shared, created_at, updated_at)
+- New columns on `saved_filters`: `is_starred` and `is_shared` (BOOLEAN NOT NULL DEFAULT FALSE), each with its own index
+- Migration: run `python migrate_starring.py` once on existing deployments (idempotent — safe to re-run)
 
 ### 🔌 API Changes
-- New `POST /user/profiles/<id>/star` — toggle star on a filter profile
+- New `POST /user/profiles/<id>/star` — toggle star on a filter profile (owner / super admin)
+- New `POST /user/profiles/<id>/share` — toggle share on a filter profile (super admin only)
 - New `GET /user/gen-profiles` — page
-- New `GET /user/gen-profiles/list` — JSON list (starred first, then by name)
+- New `GET /user/gen-profiles/list` — JSON list (starred first, then by name; includes own + shared)
 - New `POST /user/gen-profiles/save` — upsert preset by name
-- New `GET /user/gen-profiles/<id>/data` — fetch preset for restore
-- New `DELETE /user/gen-profiles/<id>` — delete one
+- New `GET /user/gen-profiles/<id>/data` — fetch preset for restore (now accepts shared)
+- New `DELETE /user/gen-profiles/<id>` — delete one (owner / super admin)
 - New `POST /user/gen-profiles/bulk-delete` — delete many
 - New `POST /user/gen-profiles/<id>/star` — toggle star on a preset
-- Updated `GET /user/profiles/list` ordering: `is_starred DESC, name ASC`
+- New `POST /user/gen-profiles/<id>/share` — toggle share on a preset (super admin only)
+- Updated `GET /user/profiles/list` ordering: `is_starred DESC, name ASC`; now also returns shared profiles owned by other users plus `is_own` / `is_shared` flags
+- Updated `GET /user/profiles/<id>/data`: any logged-in user can fetch a shared profile
 
 ## [2.3.0] - 2026-05-23
 

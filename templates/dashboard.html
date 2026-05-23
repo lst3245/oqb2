@@ -18,9 +18,22 @@
             <div class="card filter-sidebar">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveFilterModal()" title="Save current filter as profile">
-                        <i class="bi bi-floppy"></i>
-                    </button>
+                    <div class="btn-group">
+                        <div class="dropdown">
+                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-bs-toggle="dropdown" aria-expanded="false"
+                                    title="Load a saved search profile">
+                                <i class="bi bi-folder2-open"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" id="filterProfileMenu"
+                                style="max-height: 60vh; overflow-y: auto; min-width: 240px;">
+                                <li><span class="dropdown-item-text text-muted small">Loading…</span></li>
+                            </ul>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveFilterModal()" title="Save current filter as profile">
+                            <i class="bi bi-floppy"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <form id="filterForm" hx-post="{{ url_for('dashboard.filter_questions') }}" 
@@ -4114,12 +4127,136 @@ function saveFilterProfile() {
             alert.innerHTML = `<i class="bi bi-check-circle"></i> Filter saved as "<strong>${name}</strong>" <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
             document.body.appendChild(alert);
             setTimeout(() => alert.remove(), 3000);
+            // Refresh the load-profile dropdown so the new entry appears immediately
+            if (typeof loadFilterProfilesDropdown === 'function') {
+                loadFilterProfilesDropdown();
+            }
         } else {
             alert(data.error || 'Error saving filter');
         }
     })
     .catch(err => alert('Error saving filter: ' + err.message));
 }
+
+// ============== LOAD-PROFILE DROPDOWN ==============
+
+function loadFilterProfilesDropdown() {
+    const menu = document.getElementById('filterProfileMenu');
+    if (!menu) return;
+
+    fetch(`{{ url_for('user.profiles_list') }}`)
+        .then(r => r.json())
+        .then(profiles => {
+            menu.innerHTML = '';
+
+            if (!Array.isArray(profiles) || profiles.length === 0) {
+                menu.innerHTML = `
+                    <li><span class="dropdown-item-text text-muted small">No saved profiles yet</span></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item small" href="{{ url_for('user.profiles') }}">
+                        <i class="bi bi-gear"></i> Manage profiles
+                    </a></li>`;
+                return;
+            }
+
+            // Three groups, mirroring the generate-page preset dropdown:
+            //  ★ Starred (current user's own starred)
+            //  My profiles (current user's own non-starred)
+            //  Shared by admins (any profile not owned by current user)
+            const myStarred = profiles.filter(p => p.is_own !== false && p.is_starred);
+            const myOthers  = profiles.filter(p => p.is_own !== false && !p.is_starred);
+            const shared    = profiles.filter(p => p.is_own === false);
+
+            const esc = (s) => {
+                const d = document.createElement('div');
+                d.textContent = s == null ? '' : s;
+                return d.innerHTML;
+            };
+
+            const appendSection = (label, items, iconHtml) => {
+                if (items.length === 0) return;
+                if (menu.children.length > 0) {
+                    menu.insertAdjacentHTML('beforeend', '<li><hr class="dropdown-divider"></li>');
+                }
+                menu.insertAdjacentHTML('beforeend',
+                    `<li><h6 class="dropdown-header">${label}</h6></li>`);
+                items.forEach(p => {
+                    const subj = p.subject ? ` <span class="badge bg-secondary">${esc(p.subject)}</span>` : '';
+                    const owner = p.username ? ` <span class="text-muted small">by ${esc(p.username)}</span>` : '';
+                    menu.insertAdjacentHTML('beforeend',
+                        `<li><a class="dropdown-item d-flex align-items-center gap-2" href="#" data-profile-id="${p.id}">
+                            ${iconHtml || ''}<span class="flex-grow-1">${esc(p.name)}${subj}${owner}</span>
+                         </a></li>`);
+                });
+            };
+
+            appendSection('Starred', myStarred, '<i class="bi bi-star-fill text-warning"></i>');
+            appendSection('My profiles', myOthers, '<i class="bi bi-bookmark text-muted"></i>');
+            appendSection('Shared by admins', shared, '<i class="bi bi-share-fill text-success"></i>');
+
+            // Always-visible footer
+            menu.insertAdjacentHTML('beforeend', '<li><hr class="dropdown-divider"></li>');
+            menu.insertAdjacentHTML('beforeend',
+                `<li><a class="dropdown-item small" href="{{ url_for('user.profiles') }}">
+                    <i class="bi bi-gear"></i> Manage profiles
+                </a></li>`);
+
+            // Wire up click handlers
+            menu.querySelectorAll('[data-profile-id]').forEach(a => {
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    onFilterProfileSelect(parseInt(a.getAttribute('data-profile-id'), 10));
+                });
+            });
+        })
+        .catch(() => {
+            menu.innerHTML = '<li><span class="dropdown-item-text text-danger small">Error loading profiles</span></li>';
+        });
+}
+
+async function onFilterProfileSelect(id) {
+    if (!id) return;
+    try {
+        const resp = await fetch(`{{ url_for('user.profiles_data', profile_id=0) }}`.replace('/0/', `/${id}/`));
+        const data = await resp.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        if (!data.filter_data) {
+            alert('This profile is empty.');
+            return;
+        }
+
+        const settings = convertProfileToSettings(data.filter_data);
+        await restoreFilterSettings(settings);
+
+        if (typeof updateAllFilterActiveStates === 'function') {
+            updateAllFilterActiveStates();
+        }
+        if (typeof updatePermissionButtons === 'function') {
+            updatePermissionButtons();
+        }
+
+        // Trigger filter form submission so the question list refreshes
+        const filterForm = document.getElementById('filterForm');
+        if (filterForm && settings.subject) {
+            htmx.trigger(filterForm, 'submit');
+        }
+
+        // Update baseline so the "modified" indicator does not light up
+        setTimeout(() => {
+            if (typeof getCurrentFilterValues === 'function') {
+                lastSearchedFilters = getCurrentFilterValues();
+            }
+        }, 500);
+    } catch (err) {
+        alert('Error loading profile: ' + err.message);
+    }
+}
+
+// Refresh the dropdown after saving a new profile (called by saveFilterProfile success path)
+document.addEventListener('DOMContentLoaded', loadFilterProfilesDropdown);
 
 // ============== FILTER RESTORE LOGIC ==============
 

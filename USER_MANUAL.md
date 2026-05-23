@@ -281,20 +281,30 @@ Navigate to **Profiles** (top navigation).
 2. Click the **floppy disk** (💾) icon in the Filters panel header
 3. Enter a profile name and click Save
 
-### Loading a Profile
+### Loading a Profile (two ways)
 
-1. Go to **Profiles**
-2. Click **Apply** next to any profile
-3. You are taken to the Dashboard with that filter automatically applied
+**From the Dashboard (fastest):**
+1. Click the small **folder** icon in the Filters panel header (next to the floppy save icon)
+2. Pick a profile from the menu — starred profiles appear first, then your other profiles, then any profile **Shared by admins**
+3. Your filters and question list update immediately
+
+**From the Profiles page:**
+1. Go to **My Stuff → Search Profiles**
+2. Click **Apply** next to any profile — you are taken to the Dashboard with that filter applied
 
 ### Starring Profiles
 
-Click the **star** icon next to any profile to mark it as a favourite. Starred profiles always appear at the top of the list. Click again to unstar.
+Click the **star** icon next to any profile to mark it as a favourite. Starred profiles always appear at the top of the list and in the Dashboard dropdown. Click again to unstar.
+
+### Shared Profiles (admin-curated)
+
+Super admins can mark any profile as **Shared** so it appears in every user's dropdown and Profiles page (under the "Shared by admins" optgroup or with a green "Shared" badge). You can apply shared profiles freely, but only the owner or a super admin can edit, delete, star, or unshare them.
 
 ### Managing Profiles
 
-- **Delete** individual profiles with the trash icon
+- **Delete** individual profiles with the trash icon (own profiles or, for super admins, any profile)
 - **Bulk Delete** using the checkboxes and "Delete Selected"
+- **(Super admin)** click the green share icon to share / unshare a profile with all users
 
 ---
 
@@ -316,7 +326,7 @@ Navigate to **My Stuff → Generation Presets** to view and manage your presets.
 ### Loading a Preset
 
 1. On the **Generate** page, open the **Load preset…** dropdown
-2. Starred presets appear first under "★ Starred"; the rest are under "Other presets"
+2. Three sections appear: **★ Starred** (your own favourites), **My presets** (your other presets), and **Shared by admins** (presets shared by super admins, with the owner's name shown)
 3. Select one — all your generation options are instantly restored
 4. Your current question selection is **not** touched
 
@@ -324,10 +334,15 @@ Navigate to **My Stuff → Generation Presets** to view and manage your presets.
 
 On the **Generation Presets** page, click the star icon next to any preset to favourite it. Starred presets are pinned to the top of both the management page and the Generate-page dropdown.
 
+### Shared Presets (admin-curated)
+
+Super admins can mark any preset as **Shared** so it appears in every user's preset dropdown and Generation Presets page. Shared presets show a green "Shared" badge plus the owner's name. You can use shared presets freely, but only the owner or a super admin can edit, delete, star, or unshare them.
+
 ### Managing Presets
 
-- **Delete** individual presets with the trash icon
+- **Delete** individual presets with the trash icon (own presets or, for super admins, any preset)
 - **Bulk Delete** using the checkboxes and "Delete Selected"
+- **(Super admin)** click the green share icon to share / unshare a preset with all users
 
 ---
 

@@ -241,6 +241,7 @@ Unique constraint: `(question_id, asset_type, language, file_format, part_number
 | `name` | VARCHAR(200) | Profile name |
 | `filter_data` | TEXT | JSON blob of dashboard filter state |
 | `is_starred` | BOOLEAN | Indexed; starred profiles sort first |
+| `is_shared` | BOOLEAN | Indexed; super-admin only toggle. Shared profiles appear in every user's list/dropdown |
 | `created_at` | DATETIME | |
 
 #### `saved_generation_profiles`
@@ -251,6 +252,7 @@ Unique constraint: `(question_id, asset_type, language, file_format, part_number
 | `name` | VARCHAR(200) | Preset name (unique per user; save acts as upsert) |
 | `options_data` | TEXT | JSON blob of generation options (no `question_ids`) |
 | `is_starred` | BOOLEAN | Indexed; starred presets sort first |
+| `is_shared` | BOOLEAN | Indexed; super-admin only toggle. Shared presets appear in every user's list/dropdown |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | Refreshed on every save |
 
@@ -368,19 +370,21 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | Route | Method | Description |
 |---|---|---|
 | `/profiles` | GET | Saved search profiles page |
-| `/profiles/list` | GET | JSON list of profiles (starred first, then by name) |
+| `/profiles/list` | GET | JSON list (own + shared); starred first, then by name |
 | `/profiles/save` | POST | Save new profile |
-| `/profiles/<id>/data` | GET | Get filter data for a profile |
+| `/profiles/<id>/data` | GET | Get filter data for a profile (owner / super admin / any user if `is_shared`) |
 | `/profiles/<id>` | DELETE | Delete profile |
 | `/profiles/bulk-delete` | POST | Delete multiple profiles |
-| `/profiles/<id>/star` | POST | Toggle starred status of a filter profile |
+| `/profiles/<id>/star` | POST | Toggle starred status (owner / super admin) |
+| `/profiles/<id>/share` | POST | Toggle shared status (**super admin only**) |
 | `/gen-profiles` | GET | Saved generation presets page |
-| `/gen-profiles/list` | GET | JSON list of presets (starred first, then by name) |
+| `/gen-profiles/list` | GET | JSON list (own + shared); starred first, then by name |
 | `/gen-profiles/save` | POST | Save/upsert a preset (by `(user_id, name)`) |
-| `/gen-profiles/<id>/data` | GET | Get options data for a preset |
+| `/gen-profiles/<id>/data` | GET | Get options data (owner / super admin / any user if `is_shared`) |
 | `/gen-profiles/<id>` | DELETE | Delete preset |
 | `/gen-profiles/bulk-delete` | POST | Delete multiple presets |
-| `/gen-profiles/<id>/star` | POST | Toggle starred status of a preset |
+| `/gen-profiles/<id>/star` | POST | Toggle starred status (owner / super admin) |
+| `/gen-profiles/<id>/share` | POST | Toggle shared status (**super admin only**) |
 | `/files` | GET | My Files page |
 | `/files/list` | GET | JSON list of generated files |
 | `/files/<id>/filter` | GET | Get saved filter data from a file |

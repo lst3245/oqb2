@@ -936,30 +936,31 @@ function loadGenProfilesDropdown() {
                 sel.appendChild(opt);
                 return;
             }
-            const starred = presets.filter(p => p.is_starred);
-            const others = presets.filter(p => !p.is_starred);
-            if (starred.length > 0) {
+            // Group presets:
+            //  1. ★ Starred (current user's own starred items)
+            //  2. My presets (current user's own non-starred items)
+            //  3. Shared by admins (any preset with is_shared=true owned by someone else)
+            const myStarred = presets.filter(p => p.is_own !== false && p.is_starred);
+            const myOthers  = presets.filter(p => p.is_own !== false && !p.is_starred);
+            const shared    = presets.filter(p => p.is_own === false);
+
+            const appendGroup = (label, items, prefix) => {
+                if (items.length === 0) return;
                 const group = document.createElement('optgroup');
-                group.label = '★ Starred';
-                starred.forEach(p => {
+                group.label = label;
+                items.forEach(p => {
                     const opt = document.createElement('option');
                     opt.value = p.id;
-                    opt.textContent = '★ ' + p.name;
+                    const owner = p.username ? ` (by ${p.username})` : '';
+                    opt.textContent = (prefix || '') + p.name + owner;
                     group.appendChild(opt);
                 });
                 sel.appendChild(group);
-            }
-            if (others.length > 0) {
-                const group = document.createElement('optgroup');
-                group.label = 'Other presets';
-                others.forEach(p => {
-                    const opt = document.createElement('option');
-                    opt.value = p.id;
-                    opt.textContent = p.name;
-                    group.appendChild(opt);
-                });
-                sel.appendChild(group);
-            }
+            };
+
+            appendGroup('\u2605 Starred', myStarred, '\u2605 ');
+            appendGroup('My presets', myOthers, '');
+            appendGroup('Shared by admins', shared, '\u{1F4E4} ');
         })
         .catch(() => {
             // Silent: dropdown stays empty

@@ -33,8 +33,8 @@ User (username, password_hash, is_super_admin)
   └── subject_permissions → [UserSubjectPermission]
 
 UserSubjectPermission (user_id, subject_id, role)  — role: 'viewer'|'user'|'admin'
-SavedFilter (user_id, name, filter_data JSON, is_starred)
-SavedGenerationProfile (user_id, name, options_data JSON, is_starred, created_at, updated_at)
+SavedFilter (user_id, name, filter_data JSON, is_starred, is_shared)
+SavedGenerationProfile (user_id, name, options_data JSON, is_starred, is_shared, created_at, updated_at)
 GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, ...)
 ```
 

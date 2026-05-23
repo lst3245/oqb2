@@ -68,7 +68,9 @@ function loadPresets() {
                 return;
             }
 
-            const showUsername = showAll === '1';
+            const isSuperAdmin = {{ 'true' if current_user.is_super_admin else 'false' }};
+            const anyForeign = presets.some(p => p.username);
+            const showUsername = anyForeign || showAll === '1';
 
             let html = `
             <div class="table-responsive">
@@ -78,7 +80,7 @@ function loadPresets() {
                             <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
                             <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
                             <th>Name</th>
-                            ${showUsername ? '<th>User</th>' : ''}
+                            ${showUsername ? '<th>Owner</th>' : ''}
                             <th>Created</th>
                             <th>Updated</th>
                             <th class="text-end">Actions</th>
@@ -90,23 +92,39 @@ function loadPresets() {
                 const starIcon = p.is_starred
                     ? '<i class="bi bi-star-fill text-warning"></i>'
                     : '<i class="bi bi-star text-muted"></i>';
+                const canManage = p.is_own || isSuperAdmin;
+                const starBtn = canManage
+                    ? `<button class="btn btn-sm btn-link p-0" onclick="toggleStar(${p.id}, ${p.is_starred ? 'false' : 'true'})"
+                              title="${p.is_starred ? 'Unstar' : 'Star'}">${starIcon}</button>`
+                    : `<span title="Only the owner can star this preset">${starIcon}</span>`;
+                const sharedBadge = p.is_shared
+                    ? ' <span class="badge bg-success" title="Shared with all users"><i class="bi bi-share-fill"></i> Shared</span>'
+                    : '';
+                const shareBtn = isSuperAdmin
+                    ? `<button class="btn btn-sm ${p.is_shared ? 'btn-success' : 'btn-outline-success'}" onclick="toggleShare(${p.id}, ${p.is_shared ? 'false' : 'true'})"
+                               title="${p.is_shared ? 'Stop sharing (make private)' : 'Share with all users'}">
+                          <i class="bi bi-${p.is_shared ? 'share-fill' : 'share'}"></i>
+                       </button>`
+                    : '';
+                const deleteBtn = canManage
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deletePreset(${p.id})" title="Delete">
+                          <i class="bi bi-trash"></i>
+                       </button>`
+                    : '';
+                const checkbox = canManage
+                    ? `<input type="checkbox" class="form-check-input row-check" value="${p.id}" onchange="updateBulkBar()">`
+                    : '';
                 html += `
                         <tr>
-                            <td><input type="checkbox" class="form-check-input row-check" value="${p.id}" onchange="updateBulkBar()"></td>
-                            <td>
-                                <button class="btn btn-sm btn-link p-0" onclick="toggleStar(${p.id}, ${p.is_starred ? 'false' : 'true'})"
-                                        title="${p.is_starred ? 'Unstar' : 'Star'}">
-                                    ${starIcon}
-                                </button>
-                            </td>
-                            <td><strong>${escapeHtml(p.name)}</strong></td>
-                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || '')}</span></td>` : ''}
+                            <td>${checkbox}</td>
+                            <td>${starBtn}</td>
+                            <td><strong>${escapeHtml(p.name)}</strong>${sharedBadge}</td>
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || 'me')}</span></td>` : ''}
                             <td><small class="text-muted">${formatLocalTime(p.created_at)}</small></td>
                             <td><small class="text-muted">${formatLocalTime(p.updated_at)}</small></td>
                             <td class="text-end">
-                                <button class="btn btn-sm btn-outline-danger" onclick="deletePreset(${p.id})" title="Delete">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                ${shareBtn}
+                                ${deleteBtn}
                             </td>
                         </tr>`;
             });
@@ -137,6 +155,25 @@ function toggleStar(id, makeStarred) {
             loadPresets();
         } else {
             alert(data.error || 'Error updating star');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function toggleShare(id, makeShared) {
+    const verb = makeShared ? 'share this preset with all users' : 'stop sharing this preset';
+    if (!confirm(`Are you sure you want to ${verb}?`)) return;
+    fetch(`{{ url_for('user.gen_profiles_share', preset_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_shared: makeShared})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadPresets();
+        } else {
+            alert(data.error || 'Error updating share status');
         }
     })
     .catch(err => alert('Error: ' + err.message));

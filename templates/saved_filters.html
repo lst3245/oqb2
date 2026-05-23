@@ -62,8 +62,12 @@ function loadProfiles() {
                 return;
             }
             
-            const showUsername = showAll === '1';
-            
+            const isSuperAdmin = {{ 'true' if current_user.is_super_admin else 'false' }};
+            // Always show the User column if any row was not authored by current user, so the
+            // user can tell whose shared profile they are looking at.
+            const anyForeign = profiles.some(p => p.username);
+            const showUsername = anyForeign || showAll === '1';
+
             let html = `
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
@@ -73,37 +77,53 @@ function loadProfiles() {
                             <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
                             <th>Name</th>
                             <th>Subject</th>
-                            ${showUsername ? '<th>User</th>' : ''}
+                            ${showUsername ? '<th>Owner</th>' : ''}
                             <th>Created</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>`;
-            
+
             profiles.forEach(p => {
                 const starIcon = p.is_starred
                     ? '<i class="bi bi-star-fill text-warning"></i>'
                     : '<i class="bi bi-star text-muted"></i>';
+                const canManage = p.is_own || isSuperAdmin;
+                const starBtn = canManage
+                    ? `<button class="btn btn-sm btn-link p-0" onclick="toggleStar(${p.id}, ${p.is_starred ? 'false' : 'true'})"
+                              title="${p.is_starred ? 'Unstar' : 'Star'}">${starIcon}</button>`
+                    : `<span title="Only the owner can star this profile">${starIcon}</span>`;
+                const sharedBadge = p.is_shared
+                    ? ' <span class="badge bg-success" title="Shared with all users"><i class="bi bi-share-fill"></i> Shared</span>'
+                    : '';
+                const shareBtn = isSuperAdmin
+                    ? `<button class="btn btn-sm ${p.is_shared ? 'btn-success' : 'btn-outline-success'}" onclick="toggleShare(${p.id}, ${p.is_shared ? 'false' : 'true'})"
+                               title="${p.is_shared ? 'Stop sharing (make private)' : 'Share with all users'}">
+                          <i class="bi bi-${p.is_shared ? 'share-fill' : 'share'}"></i>
+                       </button>`
+                    : '';
+                const deleteBtn = canManage
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteProfile(${p.id})" title="Delete">
+                          <i class="bi bi-trash"></i>
+                       </button>`
+                    : '';
+                const checkbox = canManage
+                    ? `<input type="checkbox" class="form-check-input row-check" value="${p.id}" onchange="updateBulkBar()">`
+                    : '';
                 html += `
                         <tr>
-                            <td><input type="checkbox" class="form-check-input row-check" value="${p.id}" onchange="updateBulkBar()"></td>
-                            <td>
-                                <button class="btn btn-sm btn-link p-0" onclick="toggleStar(${p.id}, ${p.is_starred ? 'false' : 'true'})"
-                                        title="${p.is_starred ? 'Unstar' : 'Star'}">
-                                    ${starIcon}
-                                </button>
-                            </td>
-                            <td><strong>${escapeHtml(p.name)}</strong></td>
+                            <td>${checkbox}</td>
+                            <td>${starBtn}</td>
+                            <td><strong>${escapeHtml(p.name)}</strong>${sharedBadge}</td>
                             <td><span class="badge bg-secondary">${escapeHtml(p.subject || '-')}</span></td>
-                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || '')}</span></td>` : ''}
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || 'me')}</span></td>` : ''}
                             <td><small class="text-muted">${formatLocalTime(p.created_at)}</small></td>
                             <td class="text-end">
                                 <a href="{{ url_for('dashboard.index') }}?profile_id=${p.id}" class="btn btn-sm btn-primary" title="Apply this filter">
                                     <i class="bi bi-play-fill"></i> Apply
                                 </a>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteProfile(${p.id})" title="Delete">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                ${shareBtn}
+                                ${deleteBtn}
                             </td>
                         </tr>`;
             });
@@ -189,6 +209,25 @@ function toggleStar(id, makeStarred) {
             loadProfiles();
         } else {
             alert(data.error || 'Error updating star');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function toggleShare(id, makeShared) {
+    const verb = makeShared ? 'share this profile with all users' : 'stop sharing this profile';
+    if (!confirm(`Are you sure you want to ${verb}?`)) return;
+    fetch(`{{ url_for('user.profiles_share', profile_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_shared: makeShared})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            loadProfiles();
+        } else {
+            alert(data.error || 'Error updating share status');
         }
     })
     .catch(err => alert('Error: ' + err.message));
