@@ -295,6 +295,36 @@ class SavedGenerationProfile(db.Model):
         return f'<SavedGenerationProfile {self.name}>'
 
 
+class SavedQuestionSet(db.Model):
+    """Saved question set (subject-tied, named list of question DB IDs).
+
+    Used by the dashboard "Set" feature: users save the current selection
+    (or the result of a set-algebra operation) under a name, and reload it
+    later as a chip in the set-operations modal or apply it directly via
+    `/dashboard/?question_set_id=<id>`.
+
+    The payload (`question_ids`) is a JSON list of integer Question.id values
+    materialised at save time — not a formula. To change the contents, save
+    again under the same name (upsert) or under a new name.
+    """
+    __tablename__ = 'saved_question_sets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    subject = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    question_ids = db.Column(db.Text, nullable=False)  # JSON list of int IDs
+    is_starred = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    is_shared = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('saved_question_sets', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<SavedQuestionSet {self.subject}/{self.name}>'
+
+
 class GeneratedFile(db.Model):
     """Tracks background-generated Word documents"""
     __tablename__ = 'generated_files'

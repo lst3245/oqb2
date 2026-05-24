@@ -4,7 +4,7 @@ User-facing routes: Saved Search Profiles and My Generated Files
 from flask import Blueprint, render_template, request, jsonify, current_app, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from app import db
-from app.models import SavedFilter, SavedGenerationProfile, GeneratedFile
+from app.models import SavedFilter, SavedGenerationProfile, GeneratedFile, SavedQuestionSet, Question, Subject
 import json
 import os
 
@@ -405,6 +405,293 @@ def gen_profiles_share(preset_id):
 
     db.session.commit()
     return jsonify({'success': True, 'is_shared': bool(preset.is_shared)})
+
+
+# ==================== Saved Question Sets ====================
+
+def _serialize_question_set(qs, include_ids=False):
+    """Build the JSON dict returned by list/data endpoints."""
+    is_own = (qs.user_id == current_user.id)
+    out = {
+        'id': qs.id,
+        'name': qs.name,
+        'subject': qs.subject,
+        'is_starred': bool(qs.is_starred),
+        'is_shared': bool(qs.is_shared),
+        'is_own': is_own,
+        'username': qs.user.username if not is_own else None,
+        'created_at': qs.created_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'updated_at': qs.updated_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }
+    try:
+        ids = json.loads(qs.question_ids)
+        if not isinstance(ids, list):
+            ids = []
+    except (json.JSONDecodeError, TypeError):
+        ids = []
+    out['question_count'] = len(ids)
+    if include_ids:
+        out['question_ids'] = ids
+    return out
+
+
+def _can_view_set(qs):
+    """Owner / super admin / shared-and-has-subject-access."""
+    if qs.user_id == current_user.id or current_user.is_super_admin:
+        return True
+    if qs.is_shared and current_user.has_subject_access(qs.subject):
+        return True
+    return False
+
+
+def _can_manage_set(qs):
+    """Owner / super admin only — for delete, rename, star."""
+    return qs.user_id == current_user.id or current_user.is_super_admin
+
+
+@user_bp.route('/sets')
+@login_required
+def sets():
+    """Saved question sets manage page."""
+    if current_user.is_super_admin:
+        subjects = Subject.query.order_by(Subject.id.asc()).all()
+    else:
+        accessible = {p.subject_id for p in current_user.subject_permissions}
+        subjects = Subject.query.filter(Subject.id.in_(accessible)).order_by(Subject.id.asc()).all() if accessible else []
+    subjects_data = [{'id': s.id, 'name': s.name} for s in subjects]
+    return render_template('saved_question_sets.html', subjects=subjects_data)
+
+
+@user_bp.route('/sets/list')
+@login_required
+def sets_list():
+    """API: list saved question sets (JSON).
+
+    Returns:
+      - user's own sets, plus
+      - shared sets the user has subject access to,
+      - super admin with ?show_all=1 sees every set.
+
+    Optional ?subject=<id> filters to a single subject.
+    """
+    show_all = request.args.get('show_all', '0') == '1' and current_user.is_super_admin
+    subject_filter = (request.args.get('subject') or '').strip()
+
+    query = SavedQuestionSet.query
+    if subject_filter:
+        query = query.filter(SavedQuestionSet.subject == subject_filter)
+
+    if show_all:
+        rows = query.order_by(
+            SavedQuestionSet.is_starred.desc(),
+            SavedQuestionSet.subject.asc(),
+            SavedQuestionSet.name.asc(),
+        ).all()
+    else:
+        rows = query.filter(
+            (SavedQuestionSet.user_id == current_user.id) | (SavedQuestionSet.is_shared.is_(True))
+        ).order_by(
+            SavedQuestionSet.is_starred.desc(),
+            SavedQuestionSet.subject.asc(),
+            SavedQuestionSet.name.asc(),
+        ).all()
+
+    # When not show_all, hide shared sets the user lacks subject access to.
+    result = []
+    for qs in rows:
+        if show_all:
+            result.append(_serialize_question_set(qs))
+            continue
+        is_own = qs.user_id == current_user.id
+        if is_own or current_user.has_subject_access(qs.subject):
+            result.append(_serialize_question_set(qs))
+
+    return jsonify(result)
+
+
+@user_bp.route('/sets/save', methods=['POST'])
+@login_required
+def sets_save():
+    """API: upsert a question set by (user_id, subject, name).
+
+    Body: {name, subject, question_ids: [int...]}
+    """
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    subject = (data.get('subject') or '').strip()
+    question_ids = data.get('question_ids') or []
+
+    if not name:
+        return jsonify({'error': 'Set name is required'}), 400
+    if not subject:
+        return jsonify({'error': 'Subject is required'}), 400
+    if not isinstance(question_ids, list):
+        return jsonify({'error': 'question_ids must be a list'}), 400
+
+    if not Subject.query.get(subject):
+        return jsonify({'error': f'Unknown subject: {subject}'}), 400
+    if not current_user.has_subject_access(subject):
+        return jsonify({'error': 'No access to this subject'}), 403
+
+    # Coerce to int and de-duplicate while preserving order
+    seen = set()
+    cleaned = []
+    for qid in question_ids:
+        try:
+            qid_int = int(qid)
+        except (TypeError, ValueError):
+            continue
+        if qid_int in seen:
+            continue
+        seen.add(qid_int)
+        cleaned.append(qid_int)
+
+    # Validate that the IDs exist and belong to this subject
+    if cleaned:
+        valid_rows = Question.query.with_entities(Question.id).filter(
+            Question.id.in_(cleaned),
+            Question.subject == subject,
+        ).all()
+        valid_ids = {row.id for row in valid_rows}
+        cleaned = [qid for qid in cleaned if qid in valid_ids]
+
+    payload = json.dumps(cleaned)
+
+    existing = SavedQuestionSet.query.filter_by(
+        user_id=current_user.id, subject=subject, name=name
+    ).first()
+
+    if existing:
+        existing.question_ids = payload
+        db.session.commit()
+        return jsonify({
+            'success': True, 'id': existing.id, 'updated': True,
+            'question_count': len(cleaned),
+        })
+
+    qs = SavedQuestionSet(
+        user_id=current_user.id,
+        name=name,
+        subject=subject,
+        question_ids=payload,
+    )
+    db.session.add(qs)
+    db.session.commit()
+    return jsonify({
+        'success': True, 'id': qs.id, 'updated': False,
+        'question_count': len(cleaned),
+    })
+
+
+@user_bp.route('/sets/<int:set_id>/data')
+@login_required
+def sets_data(set_id):
+    """API: return question IDs for a set (for loading into the set-ops modal)."""
+    qs = SavedQuestionSet.query.get_or_404(set_id)
+
+    if not _can_view_set(qs):
+        return jsonify({'error': 'Access denied'}), 403
+
+    payload = _serialize_question_set(qs, include_ids=True)
+    # Strip IDs the user no longer has subject access to (paranoid: subject
+    # access was checked above, but if a question was moved to a different
+    # subject in the meantime we keep the payload consistent with permissions).
+    if not current_user.has_subject_access(qs.subject):
+        payload['question_ids'] = []
+        payload['question_count'] = 0
+    return jsonify(payload)
+
+
+@user_bp.route('/sets/<int:set_id>', methods=['DELETE'])
+@login_required
+def sets_delete(set_id):
+    qs = SavedQuestionSet.query.get_or_404(set_id)
+    if not _can_manage_set(qs):
+        return jsonify({'error': 'Access denied'}), 403
+    db.session.delete(qs)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@user_bp.route('/sets/bulk-delete', methods=['POST'])
+@login_required
+def sets_bulk_delete():
+    data = request.get_json() or {}
+    ids = data.get('ids', [])
+    if not ids:
+        return jsonify({'error': 'No IDs provided'}), 400
+
+    deleted = 0
+    for sid in ids:
+        qs = SavedQuestionSet.query.get(sid)
+        if not qs:
+            continue
+        if not _can_manage_set(qs):
+            continue
+        db.session.delete(qs)
+        deleted += 1
+    db.session.commit()
+    return jsonify({'success': True, 'deleted': deleted})
+
+
+@user_bp.route('/sets/<int:set_id>/star', methods=['POST'])
+@login_required
+def sets_star(set_id):
+    qs = SavedQuestionSet.query.get_or_404(set_id)
+    if not _can_manage_set(qs):
+        return jsonify({'error': 'Access denied'}), 403
+
+    data = request.get_json() or {}
+    if 'is_starred' in data:
+        qs.is_starred = bool(data['is_starred'])
+    else:
+        qs.is_starred = not qs.is_starred
+    db.session.commit()
+    return jsonify({'success': True, 'is_starred': bool(qs.is_starred)})
+
+
+@user_bp.route('/sets/<int:set_id>/share', methods=['POST'])
+@login_required
+def sets_share(set_id):
+    """Toggle shared status (super admin only)."""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Only super admins can share sets'}), 403
+
+    qs = SavedQuestionSet.query.get_or_404(set_id)
+    data = request.get_json() or {}
+    if 'is_shared' in data:
+        qs.is_shared = bool(data['is_shared'])
+    else:
+        qs.is_shared = not qs.is_shared
+    db.session.commit()
+    return jsonify({'success': True, 'is_shared': bool(qs.is_shared)})
+
+
+@user_bp.route('/sets/<int:set_id>/rename', methods=['POST'])
+@login_required
+def sets_rename(set_id):
+    qs = SavedQuestionSet.query.get_or_404(set_id)
+    if not _can_manage_set(qs):
+        return jsonify({'error': 'Access denied'}), 403
+
+    data = request.get_json() or {}
+    new_name = (data.get('name') or '').strip()
+    if not new_name:
+        return jsonify({'error': 'New name is required'}), 400
+
+    # Avoid collision with another set the same user has under the same subject
+    clash = SavedQuestionSet.query.filter(
+        SavedQuestionSet.user_id == qs.user_id,
+        SavedQuestionSet.subject == qs.subject,
+        SavedQuestionSet.name == new_name,
+        SavedQuestionSet.id != qs.id,
+    ).first()
+    if clash:
+        return jsonify({'error': f'A set named "{new_name}" already exists for this subject'}), 409
+
+    qs.name = new_name
+    db.session.commit()
+    return jsonify({'success': True, 'name': qs.name})
 
 
 # ==================== Generated Files ====================

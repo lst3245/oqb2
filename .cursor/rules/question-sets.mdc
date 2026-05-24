@@ -1,0 +1,58 @@
+---
+description: Saved Question Sets feature (per-subject named question collections + dashboard set-algebra builder)
+globs: app/user.py,app/models.py,templates/saved_question_sets.html,templates/dashboard.html
+alwaysApply: false
+---
+# Question Sets (`SavedQuestionSet`)
+
+Per-subject saved collection of question DB IDs. Parallel to `SavedFilter` and `SavedGenerationProfile` — same `is_starred` / `is_shared` machinery, super-admin-only sharing.
+
+## Model
+`SavedQuestionSet` in `app/models.py`:
+- `user_id` (FK), `name` (200), `subject` (FK to subjects.id, String(10))
+- `question_ids` — JSON list of int Question.id values, materialised at save time (not a formula)
+- `is_starred`, `is_shared` (bool, indexed), `created_at`, `updated_at`
+- Upsert key: `(user_id, subject, name)`
+
+## API (`app/user.py`, prefix `/user`)
+| Route | Method | Description |
+|---|---|---|
+| `/sets` | GET | Manage page (`saved_question_sets.html`); passes accessible subjects |
+| `/sets/list?subject=&show_all=0` | GET | JSON list. Own + `is_shared` (filtered by subject access). `show_all=1` for super admin |
+| `/sets/save` | POST JSON | `{name, subject, question_ids:[int]}` — upsert by `(user, subject, name)`. Coerces, dedupes, validates IDs belong to subject |
+| `/sets/<id>/data` | GET | `{id, name, subject, question_ids, ...}`. Owner / super admin / shared-with-subject-access |
+| `/sets/<id>` | DELETE | Owner or super admin |
+| `/sets/bulk-delete` | POST JSON | `{ids:[]}` |
+| `/sets/<id>/star` | POST JSON | `{is_starred?: bool}` (toggle if omitted) |
+| `/sets/<id>/share` | POST JSON | `{is_shared?: bool}` — **super admin only** |
+| `/sets/<id>/rename` | POST JSON | `{name}` — owner / super admin; rejects collisions |
+
+## Dashboard "Set" button + Set Operations modal
+Inserted in the question-list header between **Manage** and **Generate**, gated on `current_user.can_generate()`.
+
+Opens `#setOpsModal` (in `templates/dashboard.html`):
+- **Sources panel (left)**: `Selection` chip (live, mirrors `selectedQuestions`), `Result` chip (last evaluation), saved sets for the current subject grouped Starred / My sets / Shared by admins.
+- **Expression chip bar**: tap a source chip → it's appended; operator buttons (∪ ∩ \\) and parens append their own chips. Backspace and Clear edit the chip array.
+- **Evaluate**: parses the chip array via recursive descent (single precedence, left-associative, parens for grouping) into an AST and evaluates client-side over `Set<string>` of question IDs.
+- **Apply actions**: `Replace Selection` (order-preserving), `Append to Selection`, `Save Result as set…`. There is also a "Save current Selection as set…" entry that bypasses the expression.
+
+### Operators
+- **Union (∪)** — `setUnion(a, b)`
+- **Intersection (∩)** — `setIntersect(a, b)`
+- **Difference (\\)** — `setDifference(a, b)` — left minus right, binary, left-associative
+- No `Not` / complement (universe ambiguity).
+
+### ID type
+`selectedQuestions` stores **string** IDs (matches checkbox `value`). All chip set IDs are strings. Saved sets are coerced to int on save (server) and back to string on load (client) to match the existing convention.
+
+## Apply via URL
+`/dashboard/?question_set_id=<id>` — fetches `/user/sets/<id>/data`, force-restores subject, replaces `selectedQuestions` with the set, auto-enables Show Selected Only, then submits the filter form. Implemented next to the existing `?profile_id=` and `?filter_data_id=` handlers in the dashboard `DOMContentLoaded` hook.
+
+## Permissions
+| Operation | Owner | Super admin | Other w/ subject access |
+|---|---|---|---|
+| List | yes | yes | yes (only `is_shared`) |
+| Read `/data` | yes | yes | yes if `is_shared` |
+| Create / Save | yes (must have subject access) | yes | yes (must have subject access) |
+| Delete / Rename / Star | yes | yes | no |
+| Toggle Share | no | yes | no |

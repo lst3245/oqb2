@@ -4,7 +4,23 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### 🗄️ Database Changes
+
+#### New `saved_question_sets` table
+- Added by `db.create_all()` in `init_db.py` — additive only, safe to run on existing databases.
+- Columns: `id`, `user_id` (FK), `name`, `subject` (FK to subjects.id), `question_ids` (JSON list of int IDs), `is_starred`, `is_shared`, `created_at`, `updated_at`.
+- Backs the new Question Sets feature (see below).
+
 ### ✨ New Features
+
+#### Question Sets — saved per-subject question collections + set-algebra builder
+- New "**Set**" button on the dashboard (between Manage and Generate) opens a **Set Operations** modal that lets you combine the live **Selection** with one or more **saved sets** using **Union (∪)**, **Intersection (∩)**, and **Difference (\\)** in a freeform formula chip expression bar. The result can replace the current selection, be appended to it, or be saved as a new named set.
+- Sets are **subject-scoped** — each saved set stores a snapshot of question DB IDs for one subject and is only listed when that subject is active in the dashboard. Subject permissions still apply when applying or loading a set.
+- New page **My Stuff → Question Sets** lists, stars, renames, deletes, bulk-deletes, and (super-admin only) shares saved sets with all users that have access to that subject. Admin-shared sets show a green **Shared** badge.
+- Apply directly via URL: `?question_set_id=<id>` on the dashboard restores the subject, replaces the selection with the set's questions, and auto-enables **Show Selected Only**.
+- Save flow upserts by `(user, subject, name)` — saving with the same name in the same subject overwrites the contents.
+- Backend: new `SavedQuestionSet` model and `/user/sets/*` JSON API mirroring the existing `SavedFilter` pattern (list, save, data, delete, bulk-delete, star, share, rename).
+- Files: `app/models.py`, `app/user.py`, `init_db.py`, `templates/saved_question_sets.html` (new), `templates/dashboard.html`, `templates/base.html`.
 
 #### DB Health anomaly view — jump to questions in Dashboard / Question Management
 - The anomaly detail modal (Admin → Database Health → Anomaly Detection → **View**) now has two extra buttons in the footer:

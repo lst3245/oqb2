@@ -15,8 +15,9 @@
 7. [My Generated Files](#7-my-generated-files)
 8. [Saved Search Profiles](#8-saved-search-profiles)
 9. [Saved Generation Presets](#9-saved-generation-presets)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Quick Reference](#11-quick-reference)
+10. [Question Sets](#10-question-sets)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Quick Reference](#12-quick-reference)
 
 ---
 
@@ -148,6 +149,7 @@ Individual questions can also be selected/deselected with their checkbox.
 
 Once you have a selection, the action buttons become active:
 
+- **Set** — open the Set Operations modal to save the selection as a named **Question Set**, or combine it with other saved sets via Union (∪), Intersection (∩), or Difference (\\). See [Question Sets](#10-question-sets).
 - **Generate** — go to the document generation page
 - **Viewer** — open presentation/review mode
 - **Clear** — deselect all
@@ -346,7 +348,46 @@ Super admins can mark any preset as **Shared** so it appears in every user's pre
 
 ---
 
-## 10. Troubleshooting
+## 10. Question Sets
+
+A **Question Set** is a saved, named list of questions for a single subject. Sets let you build up a custom collection of questions across multiple searches and combine them with **set algebra** — Union (∪), Intersection (∩), Difference (\\) — to produce arbitrary groupings.
+
+Typical workflow: search Topic A and select some questions, switch to Topic B and select more, save each round as its own set, then on a later session combine them with `SetA ∪ SetB ∩ ¬SomeOther` (well — minus `SomeOther`) to get exactly the mix you want.
+
+### Opening the Set Operations modal
+
+On the Dashboard, click the **Set** button (between **Manage** and **Generate**, with an intersect icon). The modal opens with three areas:
+
+- **Available Sets (left)** — the live **Selection** chip, optional **Result** chip (after evaluating), and your saved sets for the current subject grouped Starred / My sets / Shared by admins.
+- **Expression bar (top right)** — a chip-by-chip view of your formula. Tap a set on the left to add it; tap operator buttons (∪, ∩, \\) and parentheses to build up the expression. Backspace removes the last chip; Clear empties the bar.
+- **Result (bottom right)** — appears after you click **Evaluate**, with three actions: **Replace Selection**, **Append to Selection**, and **Save Result as set…**.
+
+### Saving a set
+
+You can save a set in three ways:
+
+1. From the modal: **"Save current Selection as set…"** (no formula needed) — names and saves whatever is currently selected on the dashboard.
+2. From the modal: **Evaluate** an expression first, then **"Save Result as set…"**.
+3. From the manage page (`My Stuff → Question Sets`): rename existing sets.
+
+> Saving with an existing name (for the same subject) **overwrites** that set's contents, so you can iterate quickly without producing duplicates.
+
+### Applying a saved set
+
+- From the manage page: click **Apply** next to a set. The dashboard opens with the matching subject preselected, the saved questions loaded as your selection, and "Show Selected Only" enabled so you immediately see them.
+- From the Set Operations modal: tap a saved set chip → tap a `∪` / `∩` / `\\` operator → tap another set → **Evaluate** → **Replace Selection** or **Append to Selection**.
+
+### Sharing sets
+
+Super admins can mark any set as **Shared** so it appears for every user with access to that subject (under "Shared by admins" inside the modal, with a green badge on the manage page). You can use shared sets freely, but only the owner or a super admin can edit, delete, star, share, or rename them.
+
+### Subject scoping
+
+Sets are tied to a single subject. The modal only shows sets for the subject currently selected in the dashboard. Saving a set always uses the active dashboard subject. If you switch subjects, the available-sets list changes accordingly. (Cross-subject expressions are not supported.)
+
+---
+
+## 11. Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
@@ -359,7 +400,7 @@ Super admins can mark any preset as **Shared** so it appears in every user's pre
 
 ---
 
-## 11. Quick Reference
+## 12. Quick Reference
 
 ### Keyboard Shortcuts (Viewer)
 | Key | Action |

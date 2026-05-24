@@ -71,6 +71,10 @@ python run.py
   - Super admin can view all users' files
 - **Search Profiles** (`/user/profiles`) — save and restore named filter configurations
   - Load a profile on the dashboard to instantly restore a complex filter set
+- **Question Sets** (`/user/sets`) — per-subject named lists of questions (built from a selection)
+  - Dashboard **Set** button opens a chip-builder for **Union (∪) / Intersection (∩) / Difference (\\)** of the live Selection and any saved sets
+  - Apply a saved set to instantly populate the dashboard selection; save a new set from the current selection or from an evaluated result
+  - Super admin can share a set with all users that have access to its subject
 
 ### Admin Panel
 - **Topic Management** (`/admin/topics`) — CRUD + drag-to-reorder for topics and subtopics; hidden subtopic flag

@@ -82,7 +82,7 @@ oqb2/
 │   ├── dashboard.py       # dashboard_bp: filter_questions(), API endpoints
 │   ├── admin.py           # admin_bp: ~2500 lines, 8 major sections
 │   ├── generator.py       # generator_bp: create_word_document(), viewer, background thread
-│   ├── user.py            # user_bp: SavedFilter + SavedGenerationProfile CRUD, GeneratedFile list/delete
+│   ├── user.py            # user_bp: SavedFilter + SavedGenerationProfile + SavedQuestionSet CRUD, GeneratedFile list/delete
 │   ├── ingestor.py        # File scanning, DB sync, health stats, streaming generators
 │   ├── config.py          # Config class (reads .env via python-dotenv)
 │   └── utils.py           # Permission decorators, apply_multi_sort(), SORT_FIELDS
@@ -92,7 +92,8 @@ oqb2/
 │   ├── generate.html      # Generation options form
 │   ├── viewer.html        # Presentation mode
 │   ├── my_files.html      # Generated files list
-│   ├── saved_filters.html # Saved search profiles
+│   ├── saved_filters.html       # Saved search profiles
+│   ├── saved_question_sets.html # Saved question sets (per-subject named ID lists)
 │   ├── saved_gen_profiles.html # Saved generation presets
 │   ├── admin_*.html       # Admin panel pages
 │   └── partials/
@@ -253,6 +254,19 @@ Unique constraint: `(question_id, asset_type, language, file_format, part_number
 | `options_data` | TEXT | JSON blob of generation options (no `question_ids`) |
 | `is_starred` | BOOLEAN | Indexed; starred presets sort first |
 | `is_shared` | BOOLEAN | Indexed; super-admin only toggle. Shared presets appear in every user's list/dropdown |
+| `created_at` | DATETIME | |
+| `updated_at` | DATETIME | Refreshed on every save |
+
+#### `saved_question_sets`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `user_id` | INT FK → users | |
+| `name` | VARCHAR(200) | Set name (unique per `(user, subject)`; save acts as upsert) |
+| `subject` | VARCHAR(10) FK → subjects | Subject the set belongs to |
+| `question_ids` | TEXT | JSON list of int Question.id values, materialised at save time |
+| `is_starred` | BOOLEAN | Indexed |
+| `is_shared` | BOOLEAN | Indexed; super-admin only toggle. Shared sets appear to every user with subject access |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | Refreshed on every save |
 

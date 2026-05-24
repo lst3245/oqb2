@@ -392,6 +392,10 @@
                         </a>
                         {% endif %}
                         {% if current_user.can_generate() %}
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="setOpsBtn"
+                                onclick="openSetOpsModal()" title="Set operations: combine selection with saved sets via union, intersection, difference">
+                            <i class="bi bi-intersect"></i> <span class="btn-text">Set</span>
+                        </button>
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" style="display:none"
                                 onclick="generateDocument()">
                             <i class="bi bi-file-earmark-word"></i> <span class="btn-text">Generate</span>
@@ -806,6 +810,191 @@
 
 <!-- Delete moved to Admin > Question Management page -->
 {% endif %}
+
+<!-- Set Operations Modal -->
+<div class="modal fade" id="setOpsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-intersect"></i> Set Operations
+                    <span id="setOpsSubjectBadge" class="badge bg-secondary ms-2"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    Combine the live <strong>Selection</strong> with saved sets using
+                    <code>&cup;</code> (union), <code>&cap;</code> (intersection), and
+                    <code>\</code> (difference). Tap a set chip on the left to add it to the
+                    expression, then tap operator buttons. Use parentheses to control grouping.
+                </p>
+                <div class="row g-3">
+                    <!-- Sources panel -->
+                    <div class="col-lg-4">
+                        <div class="card h-100">
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <strong><i class="bi bi-collection"></i> Available Sets</strong>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        onclick="refreshAvailableSets()" title="Reload from server">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="card-body p-2" style="max-height: 50vh; overflow-y: auto;">
+                                <div class="mb-2">
+                                    <div class="text-muted small fw-bold px-1 mb-1">Live</div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary w-100 text-start"
+                                            id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})">
+                                        <i class="bi bi-cursor"></i>
+                                        <strong>Selection</strong>
+                                        <span class="badge bg-primary ms-1" id="selectionChipCount">0</span>
+                                    </button>
+                                </div>
+                                <div class="mb-2" id="resultChipWrap" style="display:none;">
+                                    <div class="text-muted small fw-bold px-1 mb-1">Last result</div>
+                                    <button type="button" class="btn btn-sm btn-outline-success w-100 text-start"
+                                            onclick="appendChip({type:'set', src:'result'})">
+                                        <i class="bi bi-stars"></i>
+                                        <strong>Result</strong>
+                                        <span class="badge bg-success ms-1" id="resultChipCount">0</span>
+                                    </button>
+                                </div>
+                                <hr class="my-2">
+                                <div class="text-muted small fw-bold px-1 mb-1">Saved Sets <span class="text-muted">(this subject)</span></div>
+                                <div id="savedSetsList" class="d-flex flex-column gap-1">
+                                    <div class="text-muted small px-1">Loading…</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Builder + Result panel -->
+                    <div class="col-lg-8 d-flex flex-column gap-3">
+                        <div class="card">
+                            <div class="card-header py-2"><strong><i class="bi bi-braces"></i> Expression</strong></div>
+                            <div class="card-body">
+                                <div id="setExpressionBar" class="border rounded p-2 mb-2 d-flex flex-wrap gap-1 align-items-center"
+                                     style="min-height: 3rem; background: var(--bs-light);">
+                                    <span class="text-muted small fst-italic" id="setExpressionPlaceholder">
+                                        Tap a set on the left, then operator buttons below…
+                                    </span>
+                                </div>
+                                <div class="d-flex flex-wrap gap-1 mb-2">
+                                    <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
+                                            title="Union (everything in either set)"
+                                            onclick="appendChip({type:'op', op:'union'})">&cup; Union</button>
+                                    <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
+                                            title="Intersection (only items in both)"
+                                            onclick="appendChip({type:'op', op:'intersect'})">&cap; Intersect</button>
+                                    <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
+                                            title="Difference (left side minus right side)"
+                                            onclick="appendChip({type:'op', op:'diff'})">\ Difference</button>
+                                    <span class="vr"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            onclick="appendChip({type:'paren', v:'('})">(</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            onclick="appendChip({type:'paren', v:')'})">)</button>
+                                    <span class="vr"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-warning"
+                                            onclick="popLastChip()" title="Remove last chip">
+                                        <i class="bi bi-backspace"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            onclick="clearExpression()" title="Clear expression">
+                                        <i class="bi bi-x-lg"></i> Clear
+                                    </button>
+                                    <span class="vr"></span>
+                                    <button type="button" class="btn btn-sm btn-primary ms-auto"
+                                            onclick="evaluateExpression()">
+                                        <i class="bi bi-play-fill"></i> Evaluate
+                                    </button>
+                                </div>
+                                <div id="setExpressionStatus" class="small text-muted">
+                                    Empty expression.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <strong><i class="bi bi-stars"></i> Result</strong>
+                                <span id="setResultCount" class="badge bg-success">0 questions</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="setResultEmpty" class="text-muted small">
+                                    No result yet. Build an expression and click <strong>Evaluate</strong>,
+                                    or save the current Selection directly.
+                                </div>
+                                <div id="setResultActions" class="d-none">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                onclick="applyResultToSelection('replace')">
+                                            <i class="bi bi-arrow-repeat"></i> Replace Selection
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                                onclick="applyResultToSelection('append')">
+                                            <i class="bi bi-plus-circle"></i> Append to Selection
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-success"
+                                                onclick="showSaveSetModal('result')">
+                                            <i class="bi bi-floppy"></i> Save Result as set…
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card border-0 bg-light">
+                            <div class="card-body py-2">
+                                <button type="button" class="btn btn-sm btn-outline-success"
+                                        onclick="showSaveSetModal('selection')"
+                                        title="Save the current dashboard Selection (no expression needed)">
+                                    <i class="bi bi-floppy"></i> Save current Selection as set…
+                                </button>
+                                <a href="{{ url_for('user.sets') }}" class="btn btn-sm btn-outline-secondary float-end">
+                                    <i class="bi bi-gear"></i> Manage saved sets
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Question Set Modal -->
+<div class="modal fade" id="saveSetModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-floppy"></i> Save Question Set</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label for="saveSetSourceLabel" class="form-label small text-muted">Saving</label>
+                    <div id="saveSetSourceLabel" class="fw-bold"></div>
+                </div>
+                <div class="mb-3">
+                    <label for="saveSetName" class="form-label">Set Name</label>
+                    <input type="text" class="form-control" id="saveSetName" maxlength="200" placeholder="e.g. Topic 5 hard MC" required>
+                    <div class="form-text">Saved per subject. If a set with the same name already exists for this subject, it will be overwritten.</div>
+                </div>
+                <div class="text-muted small" id="saveSetSubjectInfo"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="confirmSaveSet()">
+                    <i class="bi bi-floppy"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Save Filter Profile Modal -->
 <div class="modal fade" id="saveFilterModal" tabindex="-1">
@@ -2894,6 +3083,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const profileId = urlParams.get('profile_id');
     const filterDataId = urlParams.get('filter_data_id');
+    const questionSetId = urlParams.get('question_set_id');
     // Explicit QID list filter (from Admin → DB Health "View in Dashboard")
     let qidsParam = urlParams.get('qids');
     const qidsToken = urlParams.get('qids_token');
@@ -2937,6 +3127,33 @@ document.addEventListener('DOMContentLoaded', async function() {
         } catch(err) {
             console.error('Error loading generation options for selection restore:', err);
         }
+    } else if (questionSetId) {
+        // Apply a saved Question Set: force-set subject, replace selection, then auto-submit filter
+        try {
+            const resp = await fetch(`{{ url_for('user.sets_data', set_id=0) }}`.replace('/0/', `/${questionSetId}/`));
+            const data = await resp.json();
+            if (data.error) {
+                console.error('Error loading question set:', data.error);
+            } else {
+                profileFilters = {
+                    subject: data.subject || '',
+                    source_type: 'DSE', section: 'all', topic_mode: 'OR', subtopic_mode: 'OR', q_type: 'all',
+                    years: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
+                    qid_search: '', qid_strict: false,
+                    is_crosstopic: false, is_crosssubtopic: false,
+                    show_hidden_subtopics: false, show_hidden_subchapters: false,
+                };
+                selectedQuestions = new Set();
+                (data.question_ids || []).forEach(id => selectedQuestions.add(String(id)));
+                saveStateToStorage();
+                // Auto-enable Show Selected Only so the user immediately sees just the set
+                try {
+                    localStorage.setItem(STORAGE_KEYS.SHOW_SELECTED_ONLY, 'true');
+                } catch(e) { /* ignore */ }
+            }
+        } catch(err) {
+            console.error('Error loading question set:', err);
+        }
     }
     
     // If the URL specifies an explicit QID list, that takes precedence: we still
@@ -2974,7 +3191,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Auto-trigger search if we have filters with a subject selected
     // restoreFilterSettings now properly awaits all async loads, so filters are fully set
     else if (filtersToRestore && filtersToRestore.subject) {
-        if (profileFilters) {
+        if (profileFilters || questionSetId) {
             // Profile restore: always start at page 1
             const filterForm = document.getElementById('filterForm');
             if (filterForm) {
@@ -3005,12 +3222,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Clear URL parameters after successful restore to prevent re-applying on refresh.
     // qids / qids_token are also cleared — the active filter lives in the hidden
     // input + banner from this point on. clearQidsFilter() returns to normal browsing.
-    if (profileId || filterDataId || qidsParam || qidsToken) {
+    if (profileId || filterDataId || qidsParam || qidsToken || questionSetId) {
         const cleanUrl = new URL(window.location.href);
         cleanUrl.searchParams.delete('profile_id');
         cleanUrl.searchParams.delete('filter_data_id');
         cleanUrl.searchParams.delete('qids');
         cleanUrl.searchParams.delete('qids_token');
+        cleanUrl.searchParams.delete('question_set_id');
         window.history.replaceState({}, document.title, cleanUrl.toString());
     }
 });
@@ -4351,5 +4569,441 @@ function convertProfileToSettings(data) {
         qid_strict: data.qid_strict === true || data.qid_strict === 'true'
     };
 }
+
+// ============== SET OPERATIONS MODAL ==============
+//
+// In-memory state:
+//   - setOpsExpression: array of chip tokens
+//       chip := {type:'set', src:'selection'|'result'|'saved', id?:int, name?:str, ids:Set<string>}
+//             | {type:'op',  op:'union'|'intersect'|'diff'}
+//             | {type:'paren', v:'(' | ')'}
+//   - setOpsLoadedSets: cache of {id -> {name, ids:Set<string>}}
+//   - setOpsLastResult: Set<string> | null  (becomes the "Result" source chip)
+//
+// Question IDs are stored as strings to match the existing `selectedQuestions`
+// Set, which uses checkbox `value` strings.
+
+let setOpsModalInstance = null;
+let saveSetModalInstance = null;
+let setOpsExpression = [];
+let setOpsLoadedSets = {};       // id -> {id, name, ids:Set<string>, is_starred, is_shared, is_own, username}
+let setOpsAvailableMeta = [];    // raw list rows from /user/sets/list
+let setOpsLastResult = null;     // Set<string>
+let setOpsCurrentSubject = '';
+let saveSetMode = 'selection';   // 'selection' | 'result'
+
+document.addEventListener('DOMContentLoaded', function() {
+    const setEl = document.getElementById('setOpsModal');
+    if (setEl) setOpsModalInstance = new bootstrap.Modal(setEl);
+    const saveEl = document.getElementById('saveSetModal');
+    if (saveEl) saveSetModalInstance = new bootstrap.Modal(saveEl);
+});
+
+function getCurrentSubject() {
+    return document.getElementById('subjectSelect')?.value || '';
+}
+
+function openSetOpsModal() {
+    setOpsCurrentSubject = getCurrentSubject();
+    if (!setOpsCurrentSubject) {
+        alert('Please pick a subject first.');
+        return;
+    }
+    // Lazy-init in case DOMContentLoaded handler was skipped/errored
+    if (!setOpsModalInstance) {
+        const el = document.getElementById('setOpsModal');
+        if (el) setOpsModalInstance = new bootstrap.Modal(el);
+    }
+    if (!saveSetModalInstance) {
+        const el = document.getElementById('saveSetModal');
+        if (el) saveSetModalInstance = new bootstrap.Modal(el);
+    }
+    if (!setOpsModalInstance) {
+        console.error('Set Operations modal element missing.');
+        return;
+    }
+    document.getElementById('setOpsSubjectBadge').textContent = setOpsCurrentSubject;
+    setOpsExpression = [];
+    setOpsLastResult = null;
+    setOpsLoadedSets = {};
+    document.getElementById('resultChipWrap').style.display = 'none';
+    document.getElementById('resultChipCount').textContent = '0';
+    renderSetExpression();
+    renderSetResult();
+    refreshAvailableSets();
+    updateSelectionChip();
+    setOpsModalInstance.show();
+}
+
+function updateSelectionChip() {
+    const countEl = document.getElementById('selectionChipCount');
+    if (countEl) countEl.textContent = selectedQuestions.size;
+}
+
+function refreshAvailableSets() {
+    const list = document.getElementById('savedSetsList');
+    if (!list) return;
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    list.innerHTML = '<div class="text-muted small px-1">Loading…</div>';
+
+    const url = `{{ url_for('user.sets_list') }}?subject=${encodeURIComponent(subject)}`;
+    fetch(url)
+        .then(r => r.json())
+        .then(rows => {
+            setOpsAvailableMeta = Array.isArray(rows) ? rows : [];
+            renderAvailableSets();
+        })
+        .catch(err => {
+            list.innerHTML = `<div class="text-danger small px-1">Error: ${escapeSetHtml(err.message)}</div>`;
+        });
+}
+
+function renderAvailableSets() {
+    const list = document.getElementById('savedSetsList');
+    if (!list) return;
+
+    if (setOpsAvailableMeta.length === 0) {
+        list.innerHTML = `<div class="text-muted small px-1 fst-italic">No saved sets for this subject yet.</div>`;
+        return;
+    }
+
+    const starred = setOpsAvailableMeta.filter(s => s.is_own && s.is_starred);
+    const own     = setOpsAvailableMeta.filter(s => s.is_own && !s.is_starred);
+    const shared  = setOpsAvailableMeta.filter(s => !s.is_own);
+
+    let html = '';
+    const renderRow = (s) => {
+        const owner = s.username ? `<span class="text-muted small"> by ${escapeSetHtml(s.username)}</span>` : '';
+        const sharedIcon = s.is_shared ? '<i class="bi bi-share-fill text-success ms-1" title="Shared"></i>' : '';
+        const starIcon = s.is_starred ? '<i class="bi bi-star-fill text-warning me-1"></i>' : '';
+        return `
+            <button type="button" class="btn btn-sm btn-outline-secondary text-start"
+                    onclick="addSavedSetChip(${s.id})" title="Click to add as chip; ${s.question_count} questions">
+                ${starIcon}<strong>${escapeSetHtml(s.name)}</strong>${sharedIcon}${owner}
+                <span class="badge bg-secondary float-end">${s.question_count}</span>
+            </button>`;
+    };
+    const section = (label, rows) => {
+        if (rows.length === 0) return;
+        html += `<div class="text-muted small fst-italic px-1 mt-1">${label}</div>`;
+        rows.forEach(s => html += renderRow(s));
+    };
+    section('Starred', starred);
+    section('My sets', own);
+    section('Shared by admins', shared);
+    list.innerHTML = html;
+}
+
+async function addSavedSetChip(setId) {
+    let cached = setOpsLoadedSets[setId];
+    if (!cached) {
+        try {
+            const resp = await fetch(`{{ url_for('user.sets_data', set_id=0) }}`.replace('/0/', `/${setId}/`));
+            const data = await resp.json();
+            if (data.error) { alert(data.error); return; }
+            cached = {
+                id: data.id,
+                name: data.name,
+                ids: new Set((data.question_ids || []).map(String)),
+            };
+            setOpsLoadedSets[setId] = cached;
+        } catch (err) {
+            alert('Error loading set: ' + err.message);
+            return;
+        }
+    }
+    appendChip({type: 'set', src: 'saved', id: setId, name: cached.name, ids: cached.ids});
+}
+
+function appendChip(chip) {
+    setOpsExpression.push(chip);
+    renderSetExpression();
+}
+
+function popLastChip() {
+    setOpsExpression.pop();
+    renderSetExpression();
+}
+
+function clearExpression() {
+    setOpsExpression = [];
+    renderSetExpression();
+}
+
+function chipLabel(chip) {
+    if (chip.type === 'set') {
+        if (chip.src === 'selection') return `<i class="bi bi-cursor"></i> Selection (${selectedQuestions.size})`;
+        if (chip.src === 'result')    return `<i class="bi bi-stars"></i> Result (${setOpsLastResult ? setOpsLastResult.size : 0})`;
+        const cached = setOpsLoadedSets[chip.id];
+        const sz = cached ? cached.ids.size : 0;
+        return `<i class="bi bi-collection"></i> ${escapeSetHtml(chip.name || ('#' + chip.id))} (${sz})`;
+    }
+    if (chip.type === 'op') {
+        if (chip.op === 'union')     return '&cup;';
+        if (chip.op === 'intersect') return '&cap;';
+        if (chip.op === 'diff')      return '\\';
+    }
+    if (chip.type === 'paren') return chip.v;
+    return '?';
+}
+
+function chipClass(chip) {
+    if (chip.type === 'set') {
+        if (chip.src === 'selection') return 'bg-primary';
+        if (chip.src === 'result')    return 'bg-success';
+        return 'bg-secondary';
+    }
+    if (chip.type === 'op')    return 'bg-dark';
+    if (chip.type === 'paren') return 'bg-light text-dark border';
+    return 'bg-secondary';
+}
+
+function renderSetExpression() {
+    const bar = document.getElementById('setExpressionBar');
+    const status = document.getElementById('setExpressionStatus');
+    if (!bar) return;
+
+    if (setOpsExpression.length === 0) {
+        bar.innerHTML = `<span class="text-muted small fst-italic" id="setExpressionPlaceholder">Tap a set on the left, then operator buttons below…</span>`;
+        if (status) {
+            status.className = 'small text-muted';
+            status.textContent = 'Empty expression.';
+        }
+        return;
+    }
+    let html = '';
+    setOpsExpression.forEach((chip, idx) => {
+        html += `<span class="badge ${chipClass(chip)} d-inline-flex align-items-center gap-1" style="font-size: 0.95rem;">
+                    ${chipLabel(chip)}
+                    <button type="button" class="btn-close btn-close-white ms-1" style="font-size:0.55rem;"
+                            onclick="removeChipAt(${idx})" title="Remove this chip"></button>
+                 </span>`;
+    });
+    bar.innerHTML = html;
+    if (!status) return;
+    try {
+        parseSetExpression(setOpsExpression);
+        status.className = 'small text-success';
+        status.innerHTML = '<i class="bi bi-check-circle"></i> Valid expression. Click Evaluate to compute.';
+    } catch (err) {
+        status.className = 'small text-warning';
+        status.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${escapeSetHtml(err.message)}`;
+    }
+}
+
+function removeChipAt(idx) {
+    setOpsExpression.splice(idx, 1);
+    renderSetExpression();
+}
+
+// -------- Parser & evaluator (recursive descent) --------
+//
+// Grammar (left-associative, single precedence):
+//   expr   := term ( OP term )*
+//   term   := setRef | '(' expr ')'
+//   OP     := union | intersect | diff
+//
+// We keep a mutable cursor over the chip list. Errors throw with a message
+// that the UI shows inline.
+function parseSetExpression(tokens) {
+    const ctx = { tokens, i: 0 };
+    if (tokens.length === 0) throw new Error('Expression is empty.');
+    const ast = parseExpr(ctx);
+    if (ctx.i < tokens.length) throw new Error('Unexpected chip after end of expression.');
+    return ast;
+}
+
+function parseExpr(ctx) {
+    let left = parseTerm(ctx);
+    while (ctx.i < ctx.tokens.length && ctx.tokens[ctx.i].type === 'op') {
+        const opChip = ctx.tokens[ctx.i++];
+        if (ctx.i >= ctx.tokens.length) throw new Error('Operator at end of expression has nothing on its right.');
+        const right = parseTerm(ctx);
+        left = { kind: 'op', op: opChip.op, left, right };
+    }
+    return left;
+}
+
+function parseTerm(ctx) {
+    if (ctx.i >= ctx.tokens.length) throw new Error('Expected a set or "(" but expression ended.');
+    const t = ctx.tokens[ctx.i];
+    if (t.type === 'set') {
+        ctx.i++;
+        return { kind: 'set', chip: t };
+    }
+    if (t.type === 'paren' && t.v === '(') {
+        ctx.i++;
+        const inner = parseExpr(ctx);
+        if (ctx.i >= ctx.tokens.length || !(ctx.tokens[ctx.i].type === 'paren' && ctx.tokens[ctx.i].v === ')')) {
+            throw new Error('Missing closing ")".');
+        }
+        ctx.i++;
+        return inner;
+    }
+    if (t.type === 'paren' && t.v === ')') throw new Error('Unexpected ")".');
+    if (t.type === 'op') throw new Error('Operator with no left-hand side.');
+    throw new Error('Unrecognised chip.');
+}
+
+function evaluateAst(node) {
+    if (node.kind === 'set') return resolveSetChip(node.chip);
+    const a = evaluateAst(node.left);
+    const b = evaluateAst(node.right);
+    if (node.op === 'union')     return setUnion(a, b);
+    if (node.op === 'intersect') return setIntersect(a, b);
+    if (node.op === 'diff')      return setDifference(a, b);
+    throw new Error('Unknown operator: ' + node.op);
+}
+
+function resolveSetChip(chip) {
+    if (chip.src === 'selection') return new Set(selectedQuestions);
+    if (chip.src === 'result')    return setOpsLastResult ? new Set(setOpsLastResult) : new Set();
+    const cached = setOpsLoadedSets[chip.id];
+    return cached ? new Set(cached.ids) : new Set();
+}
+
+function setUnion(a, b)        { const out = new Set(a); b.forEach(x => out.add(x)); return out; }
+function setIntersect(a, b)    { const out = new Set(); a.forEach(x => { if (b.has(x)) out.add(x); }); return out; }
+function setDifference(a, b)   { const out = new Set(); a.forEach(x => { if (!b.has(x)) out.add(x); }); return out; }
+
+function evaluateExpression() {
+    let ast;
+    try {
+        ast = parseSetExpression(setOpsExpression);
+    } catch (err) {
+        alert('Cannot evaluate: ' + err.message);
+        return;
+    }
+    let result;
+    try {
+        result = evaluateAst(ast);
+    } catch (err) {
+        alert('Evaluation error: ' + err.message);
+        return;
+    }
+    setOpsLastResult = result;
+    document.getElementById('resultChipWrap').style.display = '';
+    document.getElementById('resultChipCount').textContent = result.size;
+    renderSetResult();
+    renderSetExpression();
+}
+
+function renderSetResult() {
+    const empty = document.getElementById('setResultEmpty');
+    const actions = document.getElementById('setResultActions');
+    const countBadge = document.getElementById('setResultCount');
+    if (!setOpsLastResult) {
+        empty.classList.remove('d-none');
+        actions.classList.add('d-none');
+        countBadge.textContent = '0 questions';
+        return;
+    }
+    empty.classList.add('d-none');
+    actions.classList.remove('d-none');
+    countBadge.textContent = `${setOpsLastResult.size} question${setOpsLastResult.size === 1 ? '' : 's'}`;
+}
+
+function applyResultToSelection(mode) {
+    if (!setOpsLastResult) return;
+    if (mode === 'replace') {
+        if (selectedQuestions.size > 0 &&
+            !confirm(`Replace current selection (${selectedQuestions.size}) with the result (${setOpsLastResult.size})?`)) {
+            return;
+        }
+        // Order-preserve: keep result IDs in the existing selection's display order, then append rest
+        const existingOrdered = Array.from(selectedQuestions).filter(id => setOpsLastResult.has(id));
+        const newOnes = Array.from(setOpsLastResult).filter(id => !selectedQuestions.has(id));
+        selectedQuestions = new Set([...existingOrdered, ...newOnes]);
+    } else if (mode === 'append') {
+        setOpsLastResult.forEach(id => selectedQuestions.add(id));
+    }
+    saveStateToStorage();
+    initializeSelectionState();
+    updateSelectionChip();
+    setOpsModalInstance.hide();
+}
+
+// -------- Save modal --------
+function showSaveSetModal(mode) {
+    saveSetMode = mode;
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    if (!subject) { alert('Please pick a subject first.'); return; }
+    if (mode === 'result' && !setOpsLastResult) {
+        alert('No result to save. Click Evaluate first.');
+        return;
+    }
+    if (mode === 'selection' && selectedQuestions.size === 0) {
+        alert('Selection is empty.');
+        return;
+    }
+    const sourceLabel = document.getElementById('saveSetSourceLabel');
+    if (mode === 'result') {
+        sourceLabel.innerHTML = `<i class="bi bi-stars text-success"></i> Evaluated <strong>Result</strong> (${setOpsLastResult.size} questions)`;
+    } else {
+        sourceLabel.innerHTML = `<i class="bi bi-cursor text-primary"></i> Current <strong>Selection</strong> (${selectedQuestions.size} questions)`;
+    }
+    document.getElementById('saveSetSubjectInfo').textContent = `Subject: ${subject}`;
+    document.getElementById('saveSetName').value = '';
+    saveSetModalInstance.show();
+    document.getElementById('saveSetModal').addEventListener('shown.bs.modal', function() {
+        document.getElementById('saveSetName').focus();
+    }, {once: true});
+}
+
+function confirmSaveSet() {
+    const name = document.getElementById('saveSetName').value.trim();
+    if (!name) { alert('Please enter a set name.'); return; }
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    let ids;
+    if (saveSetMode === 'result') {
+        ids = setOpsLastResult ? Array.from(setOpsLastResult) : [];
+    } else {
+        ids = Array.from(selectedQuestions);
+    }
+    // Coerce IDs to integers for the backend
+    const intIds = ids.map(x => parseInt(x, 10)).filter(x => !isNaN(x));
+
+    fetch(`{{ url_for('user.sets_save') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, subject, question_ids: intIds})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            saveSetModalInstance.hide();
+            const verb = data.updated ? 'Updated' : 'Saved';
+            const alertEl = document.createElement('div');
+            alertEl.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5';
+            alertEl.style.zIndex = '9999';
+            alertEl.innerHTML = `<i class="bi bi-check-circle"></i> ${verb} set "<strong>${escapeSetHtml(name)}</strong>" (${data.question_count} questions)
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+            document.body.appendChild(alertEl);
+            setTimeout(() => alertEl.remove(), 3000);
+            // Refresh available-sets list and bust the cache for this id (so new contents show)
+            if (data.id) delete setOpsLoadedSets[data.id];
+            refreshAvailableSets();
+        } else {
+            alert(data.error || 'Error saving set');
+        }
+    })
+    .catch(err => alert('Error saving set: ' + err.message));
+}
+
+function escapeSetHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+// Keep the Selection chip badge fresh whenever selection changes elsewhere.
+// (cheap polling — only runs while modal open via observer pattern)
+document.addEventListener('DOMContentLoaded', function() {
+    const setEl = document.getElementById('setOpsModal');
+    if (setEl) {
+        setEl.addEventListener('shown.bs.modal', updateSelectionChip);
+    }
+});
 </script>
 {% endblock %}

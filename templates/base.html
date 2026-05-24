@@ -416,6 +416,7 @@
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('user.profiles') }}"><i class="bi bi-bookmark"></i> Search Profiles</a></li>
                                 {% if current_user.can_generate() %}
+                                <li><a class="dropdown-item" href="{{ url_for('user.sets') }}"><i class="bi bi-collection"></i> Question Sets</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('user.gen_profiles') }}"><i class="bi bi-bookmark-star"></i> Generation Presets</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('user.files') }}"><i class="bi bi-file-earmark-word"></i> My Files</a></li>
                                 {% endif %}

@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Question Sets - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .bulk-bar { display: none; }
+    .bulk-bar.show { display: flex; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h2><i class="bi bi-collection"></i> Question Sets</h2>
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <label for="subjectFilter" class="form-label small mb-0 me-2 text-muted">Subject:</label>
+                <select id="subjectFilter" class="form-select form-select-sm d-inline-block" style="width:auto;" onchange="loadSets()">
+                    <option value="">All</option>
+                </select>
+            </div>
+            {% if current_user.is_super_admin %}
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadSets()">
+                <label class="form-check-label" for="showAllToggle">Show all users</label>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <p class="text-muted small">
+        Saved question sets are subject-scoped collections of questions. Use the
+        <i class="bi bi-intersect"></i> <strong>Set</strong> button on the dashboard to create one
+        from a selection or from the result of a Union/Intersection/Difference operation.
+    </p>
+
+    <!-- Bulk action bar -->
+    <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
+        <span id="selectedCount" class="text-muted small">0 selected</span>
+        <button class="btn btn-sm btn-danger" onclick="bulkDelete()">
+            <i class="bi bi-trash"></i> Delete Selected
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
+    </div>
+
+    <div id="setsContainer">
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading question sets...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SUBJECT_LIST = {{ subjects | default([]) | tojson }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    populateSubjectFilter();
+    loadSets();
+});
+
+function populateSubjectFilter() {
+    const sel = document.getElementById('subjectFilter');
+    if (!sel) return;
+    if (Array.isArray(SUBJECT_LIST)) {
+        SUBJECT_LIST.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id || s;
+            opt.textContent = s.name ? `${s.id} \u2014 ${s.name}` : s;
+            sel.appendChild(opt);
+        });
+    }
+}
+
+function loadSets() {
+    const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
+    const subject = document.getElementById('subjectFilter')?.value || '';
+    const params = new URLSearchParams();
+    params.set('show_all', showAll);
+    if (subject) params.set('subject', subject);
+
+    fetch(`{{ url_for('user.sets_list') }}?` + params.toString())
+        .then(r => r.json())
+        .then(sets => {
+            const container = document.getElementById('setsContainer');
+
+            if (!Array.isArray(sets) || sets.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> No saved question sets yet.
+                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>,
+                        select some questions, click the <i class="bi bi-intersect"></i> <strong>Set</strong>
+                        button, then "Save Selection as set…".
+                    </div>`;
+                updateBulkBar();
+                return;
+            }
+
+            const isSuperAdmin = {{ 'true' if current_user.is_super_admin else 'false' }};
+            const anyForeign = sets.some(s => s.username);
+            const showUsername = anyForeign || showAll === '1';
+
+            let html = `
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
+                            <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
+                            <th>Name</th>
+                            <th>Subject</th>
+                            <th class="text-end" title="Number of questions"># Q</th>
+                            ${showUsername ? '<th>Owner</th>' : ''}
+                            <th>Updated</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+            sets.forEach(s => {
+                const starIcon = s.is_starred
+                    ? '<i class="bi bi-star-fill text-warning"></i>'
+                    : '<i class="bi bi-star text-muted"></i>';
+                const canManage = s.is_own || isSuperAdmin;
+                const starBtn = canManage
+                    ? `<button class="btn btn-sm btn-link p-0" onclick="toggleStar(${s.id}, ${s.is_starred ? 'false' : 'true'})"
+                              title="${s.is_starred ? 'Unstar' : 'Star'}">${starIcon}</button>`
+                    : `<span title="Only the owner can star this set">${starIcon}</span>`;
+                const sharedBadge = s.is_shared
+                    ? ' <span class="badge bg-success" title="Shared with all users with subject access"><i class="bi bi-share-fill"></i> Shared</span>'
+                    : '';
+                const shareBtn = isSuperAdmin
+                    ? `<button class="btn btn-sm ${s.is_shared ? 'btn-success' : 'btn-outline-success'}" onclick="toggleShare(${s.id}, ${s.is_shared ? 'false' : 'true'})"
+                               title="${s.is_shared ? 'Stop sharing (make private)' : 'Share with all users'}">
+                          <i class="bi bi-${s.is_shared ? 'share-fill' : 'share'}"></i>
+                       </button>`
+                    : '';
+                const renameBtn = canManage
+                    ? `<button class="btn btn-sm btn-outline-secondary" onclick="renameSet(${s.id}, '${escapeAttr(s.name)}')" title="Rename">
+                          <i class="bi bi-pencil"></i>
+                       </button>`
+                    : '';
+                const deleteBtn = canManage
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteSet(${s.id})" title="Delete">
+                          <i class="bi bi-trash"></i>
+                       </button>`
+                    : '';
+                const checkbox = canManage
+                    ? `<input type="checkbox" class="form-check-input row-check" value="${s.id}" onchange="updateBulkBar()">`
+                    : '';
+                html += `
+                        <tr>
+                            <td>${checkbox}</td>
+                            <td>${starBtn}</td>
+                            <td><strong>${escapeHtml(s.name)}</strong>${sharedBadge}</td>
+                            <td><span class="badge bg-secondary">${escapeHtml(s.subject)}</span></td>
+                            <td class="text-end"><span class="badge bg-info">${s.question_count}</span></td>
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(s.username || 'me')}</span></td>` : ''}
+                            <td><small class="text-muted">${formatLocalTime(s.updated_at || s.created_at)}</small></td>
+                            <td class="text-end">
+                                <a href="{{ url_for('dashboard.index') }}?question_set_id=${s.id}" class="btn btn-sm btn-primary" title="Apply this set as the dashboard selection">
+                                    <i class="bi bi-play-fill"></i> Apply
+                                </a>
+                                ${renameBtn}
+                                ${shareBtn}
+                                ${deleteBtn}
+                            </td>
+                        </tr>`;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            </div>`;
+
+            container.innerHTML = html;
+            updateBulkBar();
+        })
+        .catch(err => {
+            document.getElementById('setsContainer').innerHTML = `
+                <div class="alert alert-danger">Error loading question sets: ${err.message}</div>`;
+        });
+}
+
+function toggleAll(master) {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = master.checked);
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const bar = document.getElementById('bulkBar');
+    const countEl = document.getElementById('selectedCount');
+    if (checked.length > 0) {
+        bar.classList.add('show');
+        countEl.textContent = checked.length + ' selected';
+    } else {
+        bar.classList.remove('show');
+    }
+    const all = document.querySelectorAll('.row-check');
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) selectAll.checked = false;
+    updateBulkBar();
+}
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => parseInt(cb.value));
+}
+
+function bulkDelete() {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected question set(s)? This cannot be undone.`)) return;
+
+    fetch(`{{ url_for('user.sets_bulk_delete') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadSets();
+        else alert(data.error || 'Error deleting sets');
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function toggleStar(id, makeStarred) {
+    fetch(`{{ url_for('user.sets_star', set_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_starred: makeStarred})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadSets();
+        else alert(data.error || 'Error updating star');
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function toggleShare(id, makeShared) {
+    const verb = makeShared ? 'share this set with all users' : 'stop sharing this set';
+    if (!confirm(`Are you sure you want to ${verb}?`)) return;
+    fetch(`{{ url_for('user.sets_share', set_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_shared: makeShared})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadSets();
+        else alert(data.error || 'Error updating share status');
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function deleteSet(id) {
+    if (!confirm('Delete this question set?')) return;
+    fetch(`{{ url_for('user.sets_delete', set_id=0) }}`.replace('/0', `/${id}`), {
+        method: 'DELETE'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadSets();
+        else alert(data.error || 'Error deleting set');
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function renameSet(id, currentName) {
+    const newName = prompt('Rename question set:', currentName);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === currentName) return;
+
+    fetch(`{{ url_for('user.sets_rename', set_id=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: trimmed})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadSets();
+        else alert(data.error || 'Error renaming set');
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function formatLocalTime(utcStr) {
+    if (!utcStr) return '';
+    const d = new Date(utcStr);
+    if (isNaN(d)) return utcStr;
+    return d.toLocaleString(undefined, {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+
+function escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    if (text == null) return '';
+    return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}
