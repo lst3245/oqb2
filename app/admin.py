@@ -1111,11 +1111,14 @@ def upload_question_asset(question_id):
     source_path = current_app.config['SOURCE_PATH']
     md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
 
-    # Determine next part number for IMG/DOC parts (MD is always part_number=1).
-    existing_parts = QuestionAsset.query.filter_by(
-        question_id=question_id, language=language, asset_type=asset_type
+    # Determine next image part number — only IMG assets are multi-part.
+    # MD and DOC are always part_number=1 (single-slot), so they must not
+    # consume an image part index.
+    last_img_part = QuestionAsset.query.filter_by(
+        question_id=question_id, language=language,
+        asset_type=asset_type, file_format='IMG'
     ).order_by(QuestionAsset.part_number.desc()).first()
-    next_part = (existing_parts.part_number + 1) if existing_parts else 1
+    next_img_part = (last_img_part.part_number + 1) if last_img_part else 1
 
     uploaded = []
     errors = []
@@ -1137,7 +1140,7 @@ def upload_question_asset(question_id):
             continue
 
         if file_format == 'MD':
-            # MD is single-part: reject if an MD asset already exists for this slot.
+            # MD is single-slot: reject if an MD asset already exists.
             existing_md = QuestionAsset.query.filter_by(
                 question_id=question_id, language=language,
                 asset_type=asset_type, file_format='MD'
@@ -1160,10 +1163,26 @@ def upload_question_asset(question_id):
             ext = 'md'
             filename = f"{question.qid}_{language}_{asset_type}.{ext}"
             part_to_use = 1
-        else:
-            part_suffix = f'_{next_part}' if next_part > 1 else ''
+
+        elif file_format == 'DOC':
+            # DOC is single-slot too: only one Word document per (lang, atype).
+            existing_doc = QuestionAsset.query.filter_by(
+                question_id=question_id, language=language,
+                asset_type=asset_type, file_format='DOC'
+            ).first()
+            if existing_doc:
+                errors.append(
+                    f'{f.filename}: a Word document already exists for {asset_type}/{language}. '
+                    f'Delete it first to replace.'
+                )
+                continue
+            filename = f"{question.qid}_{language}_{asset_type}.{ext}"
+            part_to_use = 1
+
+        else:  # IMG — multi-part allowed
+            part_suffix = f'_{next_img_part}' if next_img_part > 1 else ''
             filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
-            part_to_use = next_part
+            part_to_use = next_img_part
 
         if question.source in ('DSE', 'CE', 'AL'):
             folder = '/'.join([question.subject, 'PP', question.source,
@@ -1196,8 +1215,8 @@ def upload_question_asset(question_id):
             'part_number': part_to_use,
             'file_path': rel_path,
         })
-        if file_format != 'MD':
-            next_part += 1
+        if file_format == 'IMG':
+            next_img_part += 1
 
     db.session.commit()
 

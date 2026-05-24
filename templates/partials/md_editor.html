@@ -15,6 +15,10 @@
   window.oqbCreateMdEditor is already defined.
 #}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
+{# Pin FontAwesome 4.7.0 explicitly: EasyMDE's built-in icons (and ours) target
+   FA4 class names like `fa-superscript`. Loading from CDN deterministically
+   avoids the auto-download race + 404s on offline networks. #}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
 <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 {# KaTeX (CSS + auto-render) is already loaded by base.html.
@@ -22,17 +26,44 @@
    harmless because the script body bails out when oqbCreateMdEditor exists. #}
 
 <style>
-    /* EasyMDE + KaTeX visual tweaks scoped to OQB editor instances */
+    /* ---- EasyMDE + KaTeX visual tweaks scoped to OQB editor instances ---- */
+
     .oqb-md-editor-wrap .EasyMDEContainer {
         background: #fff;
     }
     .oqb-md-editor-wrap .editor-toolbar {
         border-radius: 0.375rem 0.375rem 0 0;
+        /* Make sure the toolbar sits ABOVE side-by-side preview pane (which is
+           position: absolute inside the container at z-index ~7). */
+        position: relative;
+        z-index: 11;
+        background: #fff;
+        /* Keep all toolbar buttons on a single row; scroll horizontally if the
+           container is narrower than the button strip. Prevents the "stray icon
+           floats on row 2" look when the modal is at intermediate widths. */
+        white-space: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+    .oqb-md-editor-wrap .editor-toolbar > * {
+        display: inline-block;
+        vertical-align: middle;
+        float: none;
+    }
+    /* Class-name collision: EasyMDE gives the Insert-Table button the class
+       `.table`, which Bootstrap also uses for `.table { width: 100% }`. That
+       makes the button stretch across the entire toolbar. Cancel it inside
+       any EasyMDE toolbar — including when the container has been reparented
+       to <body> for fullscreen mode (where `.oqb-md-editor-wrap` is no longer
+       an ancestor). */
+    .EasyMDEContainer .editor-toolbar button.table {
+        width: auto !important;
+        margin: 0;
     }
     .oqb-md-editor-wrap .CodeMirror {
-        min-height: 320px;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.9rem;
+        min-height: 320px;
     }
     .oqb-md-editor-wrap .editor-preview,
     .oqb-md-editor-wrap .editor-preview-side {
@@ -48,6 +79,42 @@
     .oqb-md-editor-wrap .editor-preview-side .katex-display {
         overflow-x: auto;
     }
+
+    /* Default side-by-side (no fullscreen): preview pane is position:absolute
+       inside the container. Keep a modest z-index that sits BELOW the toolbar. */
+    .EasyMDEContainer.sided--no-fullscreen .editor-preview-side {
+        z-index: 7;
+    }
+    /* Fullscreen z-index handling is done in the rule block at the bottom
+       (`body > .EasyMDEContainer ...`) because we physically reparent to body. */
+
+    /* ---- Modal context: deterministic editor height ----
+       The CodeMirror wrapper must be a fixed height (not auto) so that:
+         (a) scrolling happens inside CodeMirror, not the modal body, and
+         (b) EasyMDE's side-by-side preview can copy the height correctly
+             (it reads CodeMirror's offsetHeight on toggle — if CM is
+             auto-sized to content, the preview collapses too). */
+    .modal-body .oqb-md-editor-wrap .CodeMirror,
+    .modal-body .oqb-md-editor-wrap .CodeMirror-scroll {
+        height: 55vh !important;
+        max-height: 55vh !important;
+        min-height: 320px !important;
+    }
+    /* Side-by-side / preview panes match the CodeMirror height. */
+    .modal-body .oqb-md-editor-wrap .editor-preview,
+    .modal-body .oqb-md-editor-wrap .editor-preview-side {
+        height: 55vh !important;
+        max-height: 55vh !important;
+        min-height: 320px !important;
+        overflow-y: auto;
+    }
+    /* Stop the modal itself from scrolling vertically when an editor is in it;
+       we want scrolling to happen inside CodeMirror. */
+    .modal-body:has(.oqb-md-editor-wrap) {
+        overflow: hidden;
+    }
+
+    /* ---- Size meta footer ---- */
     .oqb-md-editor-meta {
         display: flex;
         gap: 0.5rem;
@@ -84,6 +151,47 @@
         }
     }
 
+    // Render `$$...$$` (display) and `$...$` (inline) math via KaTeX to HTML
+    // BEFORE marked sees the markdown. Without this, `$$\n...\n$$` ends up in
+    // multiple <p> tags and KaTeX auto-render can't pair the delimiters.
+    function _oqbPreprocessMath(text) {
+        if (!text || typeof katex === 'undefined') return text;
+
+        // 1) Display math: $$...$$, may span multiple lines.
+        //    Wrap the rendered HTML in blank lines so marked treats it as an
+        //    HTML block (preventing it from getting wrapped in a stray <p>).
+        text = text.replace(/\$\$([\s\S]+?)\$\$/g, function(_m, formula) {
+            try {
+                const html = katex.renderToString(formula.trim(), {
+                    displayMode: true, throwOnError: false, output: 'html',
+                });
+                return '\n\n<div class="katex-display-wrap">' + html + '</div>\n\n';
+            } catch (e) {
+                return '\n\n<pre class="text-danger small">' +
+                       String(e && e.message ? e.message : 'KaTeX error') +
+                       '</pre>\n\n';
+            }
+        });
+
+        // 2) Inline math: $...$. Must not match across newlines, and must not
+        //    accidentally catch the leftover currency-style "$ 5" usage. We
+        //    require non-whitespace immediately after the opening `$` and
+        //    non-whitespace immediately before the closing `$`.
+        text = text.replace(/(?<![\\$])\$(\S(?:[^$\n]*\S)?)\$(?!\d)/g, function(_m, formula) {
+            try {
+                return katex.renderToString(formula, {
+                    displayMode: false, throwOnError: false, output: 'html',
+                });
+            } catch (e) {
+                return '<code class="text-danger">' +
+                       String(e && e.message ? e.message : 'math err') +
+                       '</code>';
+            }
+        });
+
+        return text;
+    }
+
     function fmtBytes(n) {
         if (n < 1024) return n + ' B';
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KiB';
@@ -117,7 +225,9 @@
         meta.querySelector('.size-max').textContent = fmtBytes(maxSize);
         wrap.appendChild(meta);
 
-        // Custom toolbar with math + base64 image insert buttons.
+        // Custom toolbar with math + base64 image insert buttons. Icon classes
+        // all target FontAwesome 4.7.0 (loaded by the partial), since EasyMDE's
+        // built-in buttons (bold, italic, etc.) also use FA4 names.
         const customToolbar = [
             'bold', 'italic', 'heading', '|',
             'quote', 'unordered-list', 'ordered-list', '|',
@@ -132,7 +242,6 @@
                 },
                 className: 'fa fa-superscript',
                 title: 'Inline math: $...$',
-                text: '$x$',
             },
             {
                 name: 'mathBlock',
@@ -142,25 +251,27 @@
                     cm.replaceSelection('\n$$\n' + (sel || 'x = y') + '\n$$\n');
                     cm.focus();
                 },
-                className: 'fa fa-square-root-alt',
-                title: 'Display math: $$...$$',
-                text: '$$x$$',
+                className: 'fa fa-calculator',
+                title: 'Display math block: $$...$$',
             },
             {
                 name: 'imageBase64',
                 action: function customImage(editor) {
-                    pickImageAsBase64(function(dataUrl, fname) {
+                    pickImageAsBase64(function(dataUrl /*, fname */) {
                         if (!dataUrl) return;
+                        // Empty alt-text: pandoc would otherwise render the
+                        // alt text as a visible caption underneath the image
+                        // in the generated .docx. Decorative-image semantics
+                        // (alt="") is the right default for "I just want the
+                        // picture in the doc".
                         const cm = editor.codemirror;
-                        const alt = (fname || 'image').replace(/[\[\]]/g, '');
-                        cm.replaceSelection('\n![' + alt + '](' + dataUrl + ')\n');
+                        cm.replaceSelection('\n![](' + dataUrl + ')\n');
                         cm.focus();
                         updateSize();
                     });
                 },
-                className: 'fa fa-image',
-                title: 'Insert image (base64 embedded)',
-                text: 'IMG',
+                className: 'fa fa-picture-o',
+                title: 'Insert image (embedded as base64)',
             },
             '|',
             'preview', 'side-by-side', 'fullscreen',
@@ -168,35 +279,53 @@
             'guide',
         ];
 
-        const easymde = new EasyMDE({
+        // EasyMDE options. We intentionally avoid the `maxHeight` option here:
+        // it inlines `height: <maxHeight>` on the CodeMirror wrapper which
+        // causes the side-by-side preview pane to read a collapsed offsetHeight
+        // and shrink to ~77px. Height bounds are handled via CSS for the modal
+        // context instead (`.modal-body .oqb-md-editor-wrap .CodeMirror`).
+        const easymdeOptions = {
             element: textareaEl,
-            autoDownloadFontAwesome: true,
+            autoDownloadFontAwesome: false,  // we load FA4 explicitly in the partial
             spellChecker: false,
             indentWithTabs: false,
             tabSize: 2,
-            status: false,             // we draw our own size meta below
-            minHeight: '320px',
+            status: false,
             toolbar: customToolbar,
             initialValue: initialContent,
-            previewRender: function(plainText) {
-                // Use marked for the live preview, then async-typeset math.
-                let html = '';
-                try {
-                    html = marked.parse(plainText || '');
-                } catch (e) {
-                    html = '<pre>' + (e && e.message ? e.message : 'preview error') + '</pre>';
-                }
-                const self = this;
-                setTimeout(function() {
-                    try {
-                        if (self.parent && self.parent.preview) {
-                            window.oqbTypesetMath(self.parent.preview);
-                        }
-                    } catch (e) { /* ignore */ }
-                }, 0);
-                return html;
-            },
-        });
+            sideBySideFullscreen: false,     // toggling side-by-side shouldn't force fullscreen
+            minHeight: opts.minHeight || '320px',
+        };
+
+        // Forward-declared so the previewRender closure can read it as soon
+        // as it's assigned after EasyMDE construction. (EasyMDE may invoke
+        // previewRender from inside its constructor, so this must use `let`
+        // and start as null — using `const` declared later would be a TDZ
+        // reference error.)
+        let editorContainer = null;
+
+        easymdeOptions.previewRender = function(plainText) {
+            // We render math FIRST (via KaTeX renderToString) and pass the
+            // resulting HTML through marked. This avoids the "$$ ... $$ becomes
+            // three separate paragraphs" problem that breaks KaTeX auto-render
+            // when the user separates delimiters from the formula with blank
+            // lines. Inline `$...$` is handled the same way for consistency.
+            try {
+                return marked.parse(_oqbPreprocessMath(plainText || ''));
+            } catch (e) {
+                return '<pre>' + (e && e.message ? e.message : 'preview error') + '</pre>';
+            }
+        };
+
+        const easymde = new EasyMDE(easymdeOptions);
+
+        // Back-reference so the fullscreen MutationObserver can call
+        // codemirror.refresh() after reparenting the container to <body>.
+        const cmWrapper = easymde.codemirror.getWrapperElement();
+        editorContainer = cmWrapper && cmWrapper.closest('.EasyMDEContainer');
+        if (editorContainer) {
+            editorContainer._oqbEasyMDE = easymde;
+        }
 
         const sizeEl = meta.querySelector('.size');
         function updateSize() {
@@ -216,15 +345,19 @@
         updateSize();
 
         // Handle Ctrl+V pasting of image clipboards as base64.
+        // Empty alt-text — see imageBase64 button comment above.
+        // stopPropagation is critical: without it, the surrounding admin page's
+        // document-level paste listener also fires and uploads the same image
+        // as a multi-part IMG asset on the question.
         easymde.codemirror.on('paste', function(cm, e) {
             if (!e.clipboardData || !e.clipboardData.items) return;
             for (const item of e.clipboardData.items) {
                 if (item.kind === 'file' && item.type.startsWith('image/')) {
                     e.preventDefault();
+                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
                     const blob = item.getAsFile();
                     blobToBase64(blob, function(dataUrl) {
-                        const alt = 'pasted-image';
-                        cm.replaceSelection('\n![' + alt + '](' + dataUrl + ')\n');
+                        cm.replaceSelection('\n![](' + dataUrl + ')\n');
                         updateSize();
                     });
                     break;
@@ -241,7 +374,25 @@
             insertAtCursor: function(s) { easymde.codemirror.replaceSelection(s); updateSize(); },
             focus: function() { easymde.codemirror.focus(); },
             refreshPreview: function() { /* EasyMDE re-renders on toggle */ },
-            destroy: function() { try { easymde.toTextArea(); } catch (e) {} },
+            destroy: function() {
+                // If we're still in fullscreen (e.g. user closed the modal via X),
+                // exit it first so the container is restored to its placeholder
+                // before EasyMDE tears the DOM down. Otherwise the textarea
+                // ends up reparented onto <body>.
+                try {
+                    const toolbar = editorContainer && editorContainer.querySelector('.editor-toolbar.fullscreen');
+                    if (toolbar && easymde.toggleFullScreen) {
+                        easymde.toggleFullScreen();
+                    }
+                } catch (e) { /* ignore */ }
+                // Also synchronously sweep any leftover placeholders we created.
+                try {
+                    document.querySelectorAll('.oqb-mde-fs-placeholder').forEach(function(p) {
+                        if (p.parentNode) p.parentNode.removeChild(p);
+                    });
+                } catch (e) { /* ignore */ }
+                try { easymde.toTextArea(); } catch (e) {}
+            },
         };
     };
 
@@ -266,5 +417,94 @@
         reader.onerror = function() { cb(null); };
         reader.readAsDataURL(blob);
     }
+
+    // ---- Fullscreen handling ----
+    //
+    // EasyMDE's fullscreen mode applies `position: fixed` to the toolbar and
+    // CodeMirror. Inside a Bootstrap modal that does NOT actually fill the
+    // viewport — the modal establishes a stacking context at z-index 1055,
+    // and the `position: fixed` children only stack within that context.
+    //
+    // Cleanest fix: when ANY .EasyMDEContainer enters fullscreen, physically
+    // move it out to <body> (leaving a placeholder behind) and tag <body> so
+    // CSS can hide the navbar/backdrop. Restore on exit.
+    function _isFullscreen(container) {
+        return !!container.querySelector('.editor-toolbar.fullscreen, .CodeMirror-fullscreen');
+    }
+
+    function _syncFullscreen() {
+        // Collect every editor container present anywhere (body or in a modal).
+        const containers = document.querySelectorAll('.EasyMDEContainer');
+        let anyFs = false;
+        containers.forEach(function(container) {
+            const fs = _isFullscreen(container);
+            const wasFs = container.dataset.oqbFs === '1';
+            if (fs) anyFs = true;
+            if (fs && !wasFs) {
+                // Entering fullscreen: drop a placeholder and reparent to <body>.
+                container.dataset.oqbFs = '1';
+                const placeholder = document.createElement('div');
+                placeholder.className = 'oqb-mde-fs-placeholder';
+                placeholder.style.display = 'none';
+                container._oqbPlaceholder = placeholder;
+                if (container.parentNode) {
+                    container.parentNode.insertBefore(placeholder, container);
+                }
+                document.body.appendChild(container);
+                // CodeMirror needs a refresh after reparenting so gutters and
+                // cursor positions recompute against the new viewport.
+                if (container._oqbEasyMDE) {
+                    setTimeout(function() {
+                        try { container._oqbEasyMDE.codemirror.refresh(); } catch (e) {}
+                    }, 0);
+                }
+            } else if (!fs && wasFs) {
+                // Exiting fullscreen: restore to original location.
+                container.dataset.oqbFs = '';
+                const placeholder = container._oqbPlaceholder;
+                if (placeholder && placeholder.parentNode) {
+                    placeholder.parentNode.replaceChild(container, placeholder);
+                }
+                container._oqbPlaceholder = null;
+                if (container._oqbEasyMDE) {
+                    setTimeout(function() {
+                        try { container._oqbEasyMDE.codemirror.refresh(); } catch (e) {}
+                    }, 0);
+                }
+            }
+        });
+        document.body.classList.toggle('oqb-mde-fullscreen-active', anyFs);
+    }
+
+    const _fsObserver = new MutationObserver(_syncFullscreen);
+    document.addEventListener('DOMContentLoaded', function() {
+        _fsObserver.observe(document.body, {
+            subtree: true, attributes: true, attributeFilter: ['class'], childList: true,
+        });
+    });
 })();
 </script>
+
+<style>
+    /* While any EasyMDE instance is fullscreen (and therefore lives on <body>),
+       hide page chrome that would otherwise be visible at higher z-index. */
+    body.oqb-mde-fullscreen-active .navbar.sticky-top,
+    body.oqb-mde-fullscreen-active .modal-backdrop {
+        display: none !important;
+    }
+    /* When a modal is open behind the editor, keep it visible (the editor was
+       moved OUT of the modal, but the modal-content still shows below). Push
+       the modal way back so fixed-position editor panes overlay it cleanly. */
+    body.oqb-mde-fullscreen-active .modal.show {
+        z-index: 1040;
+    }
+    /* The reparented container sits at the root of <body>; its fullscreen
+       toolbar/CodeMirror are position:fixed and stack above everything else. */
+    body > .EasyMDEContainer > .editor-toolbar.fullscreen,
+    body > .EasyMDEContainer > .CodeMirror-fullscreen {
+        z-index: 99999;
+    }
+    body > .EasyMDEContainer > .editor-preview-side {
+        z-index: 99998;
+    }
+</style>

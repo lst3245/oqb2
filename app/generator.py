@@ -822,6 +822,31 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
 _DPI = 96  # assumed screen DPI for image size conversion
 
 
+# Match $$...$$ blocks (display math), greedy across newlines but non-greedy
+# between two consecutive `$$` so adjacent blocks don't merge.
+_MD_DISPLAY_MATH_RE = re.compile(r'\$\$([\s\S]+?)\$\$', re.MULTILINE)
+
+
+def _preprocess_md_for_pandoc(src):
+    """
+    Normalise a user-authored .md file so pandoc renders it the way the
+    in-browser preview does.
+
+    1. Collapse blank lines INSIDE $$...$$ display-math blocks. Pandoc's
+       `tex_math_dollars` extension treats a blank line as a paragraph break,
+       so `$$\\n\\nformula\\n\\n$$` becomes three separate <p> elements and the
+       math never renders. The live editor doesn't care (we KaTeX-render the
+       blocks ourselves), but pandoc does, so we squash the blank lines here.
+    """
+    def _collapse_blank_lines(match):
+        inner = match.group(1)
+        # Replace any run of (newline + whitespace-only line(s) + newline) with
+        # a single newline so the math content is one contiguous paragraph.
+        inner = re.sub(r'\n[ \t]*\n+', '\n', inner)
+        return '$$' + inner + '$$'
+    return _MD_DISPLAY_MATH_RE.sub(_collapse_blank_lines, src)
+
+
 def _append_md_via_pandoc(master_doc, md_abs_path):
     """
     Convert a single self-contained Markdown file to .docx via pandoc, then
@@ -831,6 +856,11 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
     The Markdown file is expected to be self-contained (LaTeX math via
     `$...$` / `$$...$$` and base64-embedded images). Pandoc converts dollar
     math to native Word OMML equations.
+
+    Pre-processing notes:
+      * Blank lines inside $$...$$ are collapsed (see _preprocess_md_for_pandoc).
+      * `-implicit_figures` is passed to pandoc's reader so standalone images
+        do NOT get rendered as captioned figures with the alt text as caption.
     """
     pandoc = current_app.config.get('PANDOC_PATH', 'pandoc')
     # Resolve to a usable absolute path.
@@ -851,14 +881,27 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
                 break
     pandoc_bin = pandoc_bin or pandoc
 
+    # Read the source and pre-process. We write to a tmp file because pandoc
+    # accepts a path more reliably than stdin on Windows (no encoding fuss).
+    try:
+        with open(md_abs_path, 'r', encoding='utf-8') as src_f:
+            src = src_f.read()
+    except OSError as e:
+        raise RuntimeError(f'failed to read md file: {e}') from e
+    src = _preprocess_md_for_pandoc(src)
+
     with tempfile.TemporaryDirectory(prefix='oqb_md_') as tmpdir:
+        prepped_md = os.path.join(tmpdir, 'input.md')
+        with open(prepped_md, 'w', encoding='utf-8') as out_f:
+            out_f.write(src)
+
         out_docx = os.path.join(tmpdir, 'fragment.docx')
         cmd = [
             pandoc_bin,
-            '--from=markdown+tex_math_dollars+tex_math_double_backslash',
+            '--from=markdown+tex_math_dollars+tex_math_double_backslash-implicit_figures',
             '--to=docx',
             '-o', out_docx,
-            md_abs_path,
+            prepped_md,
         ]
         try:
             result = subprocess.run(

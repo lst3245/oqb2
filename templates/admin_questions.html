@@ -34,6 +34,14 @@
 .asset-section .section-header { cursor: pointer; }
 .asset-section .section-header:hover .paste-hint { opacity: 1; }
 
+/* Format sub-groups (Images / Markdown / Word) within each asset-section */
+.asset-format-group { padding: 0.5rem 0.6rem; border: 1px dashed #e5e7eb; border-radius: 6px; background: #fbfbfc; }
+.asset-format-group + .asset-format-group { margin-top: 0.5rem; }
+.asset-format-group .format-group-label { display: flex; align-items: center; gap: 0.25rem; font-weight: 600; color: #495057; }
+.asset-format-group.asset-format-img { border-color: #cfe2ff; background: #f7fbff; }
+.asset-format-group.asset-format-md  { border-color: #d1f5e0; background: #f7fff9; }
+.asset-format-group.asset-format-doc { border-color: #ffe5b4; background: #fffaf3; }
+
 /* Full-size image overlay - white bg behind image for transparency */
 .fullsize-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .fullsize-overlay img { max-width: 95%; max-height: 95%; object-fit: contain; background: #fff; border-radius: 4px; padding: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
@@ -905,73 +913,150 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
     ctx = ctx || 'edit';
     let html = '';
     ['QUE', 'ANS', 'SOL'].forEach((atype, sectionIdx) => {
-        const parts = langAssets[atype] || [];
+        const allParts = langAssets[atype] || [];
+        const imgs = allParts.filter(p => p.file_format === 'IMG')
+                             .sort((a, b) => a.part_number - b.part_number);
+        const md   = allParts.find(p => p.file_format === 'MD') || null;
+        const doc  = allParts.find(p => p.file_format === 'DOC') || null;
         const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
         const isDefault = sectionIdx === 0; // QUE is default paste target
+        const fullscreenMdNewUrl = `/admin/questions/${questionId}/assets/md/new?language=${lang}&asset_type=${atype}`;
+
         html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="${ctx}_assetSection_${lang}_${atype}"
                       onclick="setActivePasteTarget('${lang}', '${atype}', '${ctx}')">
             <div class="d-flex justify-content-between align-items-center mb-2 section-header">
                 <h6 class="mb-0">
-                    <i class="bi bi-image"></i> ${label} (${lang})
+                    <i class="bi bi-collection"></i> ${label} (${lang})
                     <span class="paste-hint badge bg-success bg-opacity-75 ms-2" style="font-size:0.65rem; opacity:${isDefault ? '1' : '0'}; transition: opacity .2s">
-                        <i class="bi bi-clipboard"></i> Ctrl+V target
+                        <i class="bi bi-clipboard"></i> Ctrl+V image target
                     </span>
                 </h6>
-                <span class="badge bg-secondary">${parts.length} part(s)</span>
+                <span class="text-muted small">
+                    <i class="bi bi-images"></i> ${imgs.length}
+                    &middot; <i class="bi bi-markdown"></i> ${md ? '1' : '0'}
+                    &middot; <i class="bi bi-file-word"></i> ${doc ? '1' : '0'}
+                </span>
             </div>
-            <div id="${ctx}_assetParts_${lang}_${atype}">`;
-        
-        if (parts.length === 0) {
-            html += '<div class="text-muted fst-italic p-2">No assets</div>';
+
+            <!-- ===== IMAGES (multi-part) ===== -->
+            <div class="asset-format-group asset-format-img mb-3">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
+                </div>
+                <div id="${ctx}_assetParts_${lang}_${atype}">`;
+
+        if (imgs.length === 0) {
+            html += '<div class="text-muted fst-italic small p-2">No images</div>';
         } else {
-            parts.forEach((p, idx) => {
-                const isImg = p.file_format === 'IMG';
-                const isMd  = p.file_format === 'MD';
+            imgs.forEach((p, idx) => {
                 const fname = p.file_path.split('/').pop();
-                const fullscreenUrl = `/admin/questions/${questionId}/assets/${p.id}/md/edit`;
                 html += `<div class="asset-part-card">
                     <div class="asset-part-toolbar">
                         <span class="part-label">Part ${p.part_number} <small class="text-muted fw-normal ms-1">${fname}</small></span>
                         <div class="part-actions">
-                            ${isMd ? `<button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${p.id})"><i class="bi bi-pencil-square"></i></button>` : ''}
-                            ${isMd ? `<a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${fullscreenUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>` : ''}
                             ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
-                            ${idx < parts.length-1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                            ${idx < imgs.length - 1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
-                    ${isImg
-                        ? `<img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">`
-                        : (isMd
-                            ? `<div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-lang="${lang}" style="max-height:160px; cursor:pointer;" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${p.id})"><div class="text-muted small fst-italic">Rendering...</div></div>`
-                            : `<div class="border-0 p-3 text-center" style="height:80px;display:flex;align-items:center;justify-content:center;background:#fff;">
-                                <div><i class="bi bi-file-word fs-1 text-primary"></i> <small>${fname}</small></div></div>`
-                          )
-                    }
+                    <img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">
                 </div>`;
             });
         }
 
-        const hasMd = parts.some(p => p.file_format === 'MD');
-        const newMdUrl = `/admin/questions/${questionId}/assets/md/new?language=${lang}&asset_type=${atype}`;
         html += `</div>
-            <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_${atype}"
-                 ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
-                 ondragleave="this.classList.remove('drag-over')"
-                 ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
-                 onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}', '${ctx}')">
-                <i class="bi bi-cloud-upload"></i> Drop files here or click to browse
+                <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_${atype}"
+                     ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
+                     ondragleave="this.classList.remove('drag-over')"
+                     ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
+                     onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}', '${ctx}')">
+                    <i class="bi bi-cloud-upload"></i> Drop images here, click to browse, or Ctrl+V to paste
+                </div>
+                <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*"
+                       multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
             </div>
-            <div class="d-flex gap-2 mt-2">
-                ${hasMd ? '' : `<button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')"><i class="bi bi-markdown"></i> New Markdown (inline)</button>`}
-                ${hasMd ? '' : `<a class="btn btn-sm btn-outline-secondary" target="_blank" href="${newMdUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i> New Markdown (fullscreen)</a>`}
-            </div>
-            <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*,.doc,.docx,.md,.markdown"
-                   multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
+
+            <!-- ===== MARKDOWN (single) ===== -->
+            <div class="asset-format-group asset-format-md mb-3">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-markdown"></i> Markdown <span class="badge bg-secondary ms-1">${md ? '1' : '0'} / 1</span>
+                </div>`;
+        if (md) {
+            const mdFname = md.file_path.split('/').pop();
+            const mdFsUrl = `/admin/questions/${questionId}/assets/${md.id}/md/edit`;
+            html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label"><i class="bi bi-file-earmark-text"></i> <small class="text-muted fw-normal ms-1">${mdFname}</small></span>
+                        <div class="part-actions">
+                            <button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})"><i class="bi bi-pencil-square"></i></button>
+                            <a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${mdFsUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-lang="${lang}"
+                         style="max-height:160px; cursor:pointer;"
+                         onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})">
+                        <div class="text-muted small fst-italic">Rendering...</div>
+                    </div>
+                </div>`;
+        } else {
+            html += `<div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')">
+                        <i class="bi bi-markdown"></i> New Markdown (inline)
+                    </button>
+                    <a class="btn btn-sm btn-outline-secondary" target="_blank" href="${fullscreenMdNewUrl}" onclick="event.stopPropagation()">
+                        <i class="bi bi-arrows-fullscreen"></i> Fullscreen editor
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="event.stopPropagation(); triggerSingleFileUpload(${questionId}, '${lang}', '${atype}', '${ctx}', 'md')">
+                        <i class="bi bi-upload"></i> Upload .md file
+                    </button>
+                </div>
+                <input type="file" class="d-none" id="${ctx}_mdInput_${lang}_${atype}" accept=".md,.markdown"
+                       onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">`;
+        }
+        html += `</div>
+
+            <!-- ===== WORD DOCUMENT (single) ===== -->
+            <div class="asset-format-group asset-format-doc">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-file-word"></i> Word document <span class="badge bg-secondary ms-1">${doc ? '1' : '0'} / 1</span>
+                </div>`;
+        if (doc) {
+            const docFname = doc.file_path.split('/').pop();
+            const docUrl = `/dashboard/files/${doc.file_path}`;
+            html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label"><i class="bi bi-file-earmark-word"></i> <small class="text-muted fw-normal ms-1">${docFname}</small></span>
+                        <div class="part-actions">
+                            <a class="btn btn-sm btn-outline-primary" title="Download" target="_blank" href="${docUrl}" onclick="event.stopPropagation()"><i class="bi bi-download"></i></a>
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${doc.id},'${docFname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="border-0 p-3 text-center" style="height:80px; display:flex; align-items:center; justify-content:center; background:#fff;">
+                        <div><i class="bi bi-file-earmark-word fs-1 text-primary"></i> <small class="ms-2">${docFname}</small></div>
+                    </div>
+                </div>`;
+        } else {
+            html += `<button class="btn btn-sm btn-outline-primary" type="button" onclick="event.stopPropagation(); triggerSingleFileUpload(${questionId}, '${lang}', '${atype}', '${ctx}', 'doc')">
+                    <i class="bi bi-upload"></i> Upload .doc / .docx file
+                </button>
+                <input type="file" class="d-none" id="${ctx}_docInput_${lang}_${atype}" accept=".doc,.docx"
+                       onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">`;
+        }
+        html += `</div>
         </div>`;
     });
     setTimeout(() => window.oqbLoadMarkdownPreviewCards && window.oqbLoadMarkdownPreviewCards(), 0);
     return html;
+}
+
+// Trigger a single-file picker for MD or DOC slots (separate from the
+// multi-file image drop-zone).
+function triggerSingleFileUpload(questionId, lang, atype, ctx, kind) {
+    ctx = ctx || 'edit';
+    const inputId = `${ctx}_${kind}Input_${lang}_${atype}`;
+    const el = document.getElementById(inputId);
+    if (el) el.click();
 }
 
 // Track active paste target (lang + atype + ctx)
@@ -1054,7 +1139,15 @@ function uploadAssetFiles(questionId, lang, atype, files) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            showToast(`Uploaded ${data.uploaded_count} asset(s)`);
+            if (data.uploaded_count > 0) {
+                showToast(`Uploaded ${data.uploaded_count} asset(s)`);
+            }
+            // Surface per-file rejections (e.g. "MD already exists for QUE/EN").
+            if (Array.isArray(data.errors) && data.errors.length > 0) {
+                showToast(data.errors.join('\n'), 'warning');
+            } else if (data.uploaded_count === 0) {
+                showToast('No files uploaded', 'warning');
+            }
             refreshAssetsView(questionId);
         } else {
             showToast(data.error || 'Upload failed', 'danger');
@@ -1138,6 +1231,8 @@ function openMdEditorModal(questionId, assetId, lang, atype) {
             mdEditorModalEditor = window.oqbCreateMdEditor(textarea, {
                 initialContent: initialContent || '',
                 maxSize: {{ md_max_size_bytes if md_max_size_bytes is defined else 5242880 }},
+                // Bound to viewport so scrolling stays inside CodeMirror, not the modal body.
+                maxHeight: '55vh',
                 onChange: function() {
                     if (!mdEditorModalState.dirty) {
                         mdEditorModalState.dirty = true;
@@ -1146,6 +1241,13 @@ function openMdEditorModal(questionId, assetId, lang, atype) {
                     }
                 },
             });
+            // CodeMirror sometimes mis-measures inside a freshly-shown modal —
+            // a deferred refresh fixes the gutter / cursor alignment.
+            setTimeout(() => {
+                if (mdEditorModalEditor && mdEditorModalEditor.easymde) {
+                    mdEditorModalEditor.easymde.codemirror.refresh();
+                }
+            }, 50);
         }
 
         if (isCreate) {
@@ -1274,11 +1376,14 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
-    // Re-fetch current ordering, then swap and send reorder request
+    // Reorder applies only to IMG parts (MD/DOC are single-slot).
+    // currentIdx is the index within the IMG-only sorted list rendered in the UI.
     fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
         .then(r => r.json())
         .then(data => {
-            const parts = (data.assets[lang] || {})[atype] || [];
+            const parts = ((data.assets[lang] || {})[atype] || [])
+                .filter(p => p.file_format === 'IMG')
+                .sort((a, b) => a.part_number - b.part_number);
             const ids = parts.map(p => p.id);
             const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
             if (swapIdx < 0 || swapIdx >= ids.length) return;
@@ -1337,6 +1442,15 @@ function extractImageFiles(clipboardData) {
 
 // Ctrl+V paste support — uses tracked activePasteTarget for section
 document.addEventListener('paste', function(e) {
+    // If the focused element is inside the Markdown editor, OR the MD editor
+    // modal is currently visible, defer to the editor's own paste handler.
+    // Without this, an image paste lands BOTH inside the MD editor (as base64)
+    // AND as a multi-part IMG asset on the question.
+    const mdModal = document.getElementById('mdEditorModal');
+    if (mdModal && mdModal.classList.contains('show')) return;
+    const tgt = e.target;
+    if (tgt && (tgt.closest && tgt.closest('.EasyMDEContainer, .CodeMirror'))) return;
+
     // Handle paste in edit modal
     const editModal = document.getElementById('editQuestionModal');
     if (editModal.classList.contains('show') && editQuestionData) {

@@ -118,6 +118,8 @@
         editor = window.oqbCreateMdEditor(textarea, {
             initialContent: initialContent || '',
             maxSize: mdMax,
+            // Fill most of the viewport but keep scrolling internal to CodeMirror.
+            maxHeight: 'calc(100vh - 220px)',
             onChange: function() { markDirty(); },
         });
     }
