@@ -376,15 +376,33 @@ Typical workflow: search Topic A and select some questions, switch to Topic B an
 
 On the Dashboard, click the **Set** button (between **Manage** and **Generate**, with an intersect icon). The modal opens with three areas:
 
-- **Available Sets (left)** — four kinds of source chips:
+- **Available Sets (left)** — five kinds of source chips:
   - **Selection** (live, mirrors the dashboard's tick boxes)
   - **Filter Result** (every question matching your current sidebar filter, across all pages — useful for trimming the selection to whatever the filter currently shows)
   - **Result** (the previous Evaluate output; appears after the first Evaluate)
-  - Your saved sets for the current subject, grouped Starred / My sets / Shared by admins
+  - **Scratch Sets** (named snapshots saved in your browser only, see below)
+  - Your saved Question Sets for the current subject, grouped Starred / My sets / Shared by admins
 - **Expression bar (top right)** — a chip-by-chip view of your formula. Tap a set on the left to add it; tap operator buttons (∪, ∩, \\) and parentheses to build up the expression. Backspace removes the last chip; Clear empties the bar.
 - **Result (bottom right)** — appears after you click **Evaluate**, with three actions: **Replace Selection**, **Append to Selection**, and **Save Result as set…**.
 
 > Tip: `Selection ∩ Filter Result` followed by **Replace Selection** is the way to "trim my selection to the current filter" — useful after you change a filter and want to drop the questions that no longer match.
+
+### Scratch sets (browser-only snapshots)
+
+Click the small copy icon next to **Selection**, **Filter Result**, or **Result** to save a frozen snapshot under a name you choose. These **scratch sets**:
+
+- Are saved in your browser (localStorage) and survive across reloads.
+- Are tied to the current subject — they only show up when that subject is active.
+- Can be **renamed** or **deleted** with the inline icons next to each row.
+- Can be cleared in bulk for the current subject via **Clear all** at the top of the section.
+- Are NOT synced to the server. To make a scratch shareable / persistent across browsers, append it as the only chip, click Evaluate, then **Save Result as set…** to promote it to a regular saved Question Set.
+
+Workflow example:
+
+1. Filter Topic A, select 5 questions, click **Set** → Duplicate Selection as `Topic A picks`.
+2. Filter Topic B, select 8 questions, Duplicate Selection as `Topic B picks`.
+3. Open Set Operations again, build `Topic A picks ∪ Topic B picks`, **Evaluate**, **Replace Selection**.
+4. You now have a 13-question selection combining both topics, without ever committing them to a server-side set.
 
 ### Saving a set
 

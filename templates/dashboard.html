@@ -846,32 +846,70 @@
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </div>
-                            <div class="card-body p-2" style="max-height: 50vh; overflow-y: auto;">
+                            <div class="card-body p-2" style="max-height: 60vh; overflow-y: auto;">
                                 <div class="mb-2">
                                     <div class="text-muted small fw-bold px-1 mb-1">Live</div>
-                                    <button type="button" class="btn btn-sm btn-outline-primary w-100 text-start"
-                                            id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})"
-                                            title="Click to add the live dashboard selection as a chip">
-                                        <i class="bi bi-cursor"></i>
-                                        <strong>Selection</strong>
-                                        <span class="badge bg-primary ms-1" id="selectionChipCount">0</span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-info w-100 text-start mt-1"
-                                            id="filterResultChipBtn" onclick="appendChip({type:'set', src:'filter'})"
-                                            title="All questions matching the current dashboard filter (all pages)">
-                                        <i class="bi bi-funnel"></i>
-                                        <strong>Filter Result</strong>
-                                        <span class="badge bg-info ms-1" id="filterResultChipCount">0</span>
-                                    </button>
+                                    <div class="input-group input-group-sm mb-1">
+                                        <button type="button" class="btn btn-outline-primary text-start flex-grow-1"
+                                                id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})"
+                                                title="Click to add the live dashboard selection as a chip">
+                                            <i class="bi bi-cursor"></i>
+                                            <strong>Selection</strong>
+                                            <span class="badge bg-primary ms-1" id="selectionChipCount">0</span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                onclick="duplicateAsScratch('selection')"
+                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                            <i class="bi bi-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="input-group input-group-sm mb-1">
+                                        <button type="button" class="btn btn-outline-info text-start flex-grow-1"
+                                                id="filterResultChipBtn" onclick="appendChip({type:'set', src:'filter'})"
+                                                title="All questions matching the current dashboard filter (all pages)">
+                                            <i class="bi bi-funnel"></i>
+                                            <strong>Filter Result</strong>
+                                            <span class="badge bg-info ms-1" id="filterResultChipCount">0</span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                onclick="duplicateAsScratch('filter')"
+                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                            <i class="bi bi-copy"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="mb-2" id="resultChipWrap" style="display:none;">
                                     <div class="text-muted small fw-bold px-1 mb-1">Last result</div>
-                                    <button type="button" class="btn btn-sm btn-outline-success w-100 text-start"
-                                            onclick="appendChip({type:'set', src:'result'})">
-                                        <i class="bi bi-stars"></i>
-                                        <strong>Result</strong>
-                                        <span class="badge bg-success ms-1" id="resultChipCount">0</span>
+                                    <div class="input-group input-group-sm">
+                                        <button type="button" class="btn btn-outline-success text-start flex-grow-1"
+                                                onclick="appendChip({type:'set', src:'result'})">
+                                            <i class="bi bi-stars"></i>
+                                            <strong>Result</strong>
+                                            <span class="badge bg-success ms-1" id="resultChipCount">0</span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                onclick="duplicateAsScratch('result')"
+                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                            <i class="bi bi-copy"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <hr class="my-2">
+                                <div class="d-flex justify-content-between align-items-center px-1 mb-1">
+                                    <div class="text-muted small fw-bold">
+                                        Scratch Sets
+                                        <span class="text-muted fw-normal" title="Saved in your browser only, not on the server">(in browser)</span>
+                                    </div>
+                                    <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="clearScratchesBtn"
+                                            onclick="clearAllScratches()" title="Clear all scratch sets for this subject"
+                                            style="display:none;">
+                                        <i class="bi bi-trash"></i> Clear all
                                     </button>
+                                </div>
+                                <div id="scratchSetsList" class="d-flex flex-column gap-1 mb-2">
+                                    <div class="text-muted small fst-italic px-1" id="scratchSetsEmpty">
+                                        No scratch sets yet. Click <i class="bi bi-copy"></i> next to a live chip to make one.
+                                    </div>
                                 </div>
                                 <hr class="my-2">
                                 <div class="text-muted small fw-bold px-1 mb-1">Saved Sets <span class="text-muted">(this subject)</span></div>
@@ -1074,7 +1112,8 @@ const STORAGE_KEYS = {
     SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly',
     SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics',
     SHOW_HIDDEN_SUBCHAPTERS: 'oqb_showHiddenSubchapters',
-    CURRENT_PAGE: 'oqb_currentPage'
+    CURRENT_PAGE: 'oqb_currentPage',
+    SCRATCH_SETS: 'oqb_scratchSets'
 };
 
 // Track filter modification state
@@ -4659,6 +4698,15 @@ let setOpsLastResult = null;     // Set<string>
 let setOpsCurrentSubject = '';
 let saveSetMode = 'selection';   // 'selection' | 'result'
 
+// Scratch sets — frozen snapshots of live sources, persisted in localStorage
+// only (no server side). Subject-scoped. Shape:
+//   localStorage[STORAGE_KEYS.SCRATCH_SETS] = JSON.stringify([
+//     { id: 'scr_<timestamp>_<rand>', subject: 'MATC',
+//       name: 'My picks', ids: ['12','34',...], createdAt: '...' }
+//   ])
+// `setOpsScratchCache` holds the same array in memory while the modal is open.
+let setOpsScratchCache = [];
+
 document.addEventListener('DOMContentLoaded', function() {
     const setEl = document.getElementById('setOpsModal');
     if (setEl) setOpsModalInstance = new bootstrap.Modal(setEl);
@@ -4698,6 +4746,7 @@ function openSetOpsModal() {
     renderSetExpression();
     renderSetResult();
     refreshAvailableSets();
+    renderScratchSets();
     updateSelectionChip();
     setOpsModalInstance.show();
 }
@@ -4784,6 +4833,178 @@ async function addSavedSetChip(setId) {
     appendChip({type: 'set', src: 'saved', id: setId, name: cached.name, ids: cached.ids});
 }
 
+// ============== SCRATCH SETS (browser-only, subject-scoped snapshots) ==============
+
+function loadScratchSets() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEYS.SCRATCH_SETS);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveScratchSets(arr) {
+    try {
+        localStorage.setItem(STORAGE_KEYS.SCRATCH_SETS, JSON.stringify(arr || []));
+    } catch (e) {
+        console.error('Failed to save scratch sets:', e);
+    }
+}
+
+function getScratchById(id) {
+    return setOpsScratchCache.find(s => s.id === id) || null;
+}
+
+function refreshScratchCacheForCurrentSubject() {
+    const all = loadScratchSets();
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    setOpsScratchCache = all.filter(s => s.subject === subject);
+}
+
+function newScratchId() {
+    return 'scr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+// Resolve the live source name → snapshot of IDs (Set<string>)
+function snapshotLiveSource(srcName) {
+    if (srcName === 'selection') return new Set(selectedQuestions);
+    if (srcName === 'filter')    return getCurrentFilterResultIds();
+    if (srcName === 'result')    return setOpsLastResult ? new Set(setOpsLastResult) : new Set();
+    return new Set();
+}
+
+function defaultScratchName(srcName) {
+    if (srcName === 'selection') return 'Selection snapshot';
+    if (srcName === 'filter')    return 'Filter Result snapshot';
+    if (srcName === 'result')    return 'Result snapshot';
+    return 'Scratch';
+}
+
+function duplicateAsScratch(srcName) {
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    if (!subject) { alert('Please pick a subject first.'); return; }
+    if (srcName === 'result' && !setOpsLastResult) {
+        alert('No result to duplicate yet — click Evaluate first.');
+        return;
+    }
+    const ids = snapshotLiveSource(srcName);
+    if (ids.size === 0 && !confirm('Source is empty. Create an empty scratch set anyway?')) {
+        return;
+    }
+    const proposed = prompt('Name this scratch set:', defaultScratchName(srcName));
+    if (proposed === null) return;
+    const name = proposed.trim();
+    if (!name) { alert('Name is required.'); return; }
+
+    const all = loadScratchSets();
+    all.push({
+        id: newScratchId(),
+        subject,
+        name,
+        ids: Array.from(ids),
+        createdAt: new Date().toISOString(),
+    });
+    saveScratchSets(all);
+    refreshScratchCacheForCurrentSubject();
+    renderScratchSets();
+}
+
+function renameScratch(id) {
+    const all = loadScratchSets();
+    const idx = all.findIndex(s => s.id === id);
+    if (idx < 0) return;
+    const proposed = prompt('Rename scratch set:', all[idx].name);
+    if (proposed === null) return;
+    const name = proposed.trim();
+    if (!name) { alert('Name is required.'); return; }
+    all[idx].name = name;
+    saveScratchSets(all);
+    refreshScratchCacheForCurrentSubject();
+    renderScratchSets();
+    // Also refresh chip labels in case this scratch is already in the expression
+    renderSetExpression();
+}
+
+function deleteScratch(id) {
+    const cached = getScratchById(id);
+    const label = cached ? `"${cached.name}"` : 'this scratch set';
+    if (!confirm(`Delete ${label}?`)) return;
+    const all = loadScratchSets().filter(s => s.id !== id);
+    saveScratchSets(all);
+    refreshScratchCacheForCurrentSubject();
+    // Drop any matching chip from the current expression
+    setOpsExpression = setOpsExpression.filter(c => !(c.type === 'set' && c.src === 'scratch' && c.id === id));
+    renderScratchSets();
+    renderSetExpression();
+}
+
+function clearAllScratches() {
+    const subject = setOpsCurrentSubject || getCurrentSubject();
+    refreshScratchCacheForCurrentSubject();
+    if (setOpsScratchCache.length === 0) return;
+    if (!confirm(`Clear all ${setOpsScratchCache.length} scratch set(s) for ${subject}?`)) return;
+    // Keep scratch sets for OTHER subjects intact
+    const remaining = loadScratchSets().filter(s => s.subject !== subject);
+    saveScratchSets(remaining);
+    refreshScratchCacheForCurrentSubject();
+    setOpsExpression = setOpsExpression.filter(c => !(c.type === 'set' && c.src === 'scratch'));
+    renderScratchSets();
+    renderSetExpression();
+}
+
+function addScratchChip(id) {
+    const s = getScratchById(id);
+    if (!s) return;
+    appendChip({
+        type: 'set', src: 'scratch',
+        id: s.id, name: s.name,
+        // ids resolved on demand via getScratchById in resolveSetChip
+    });
+}
+
+function renderScratchSets() {
+    const list = document.getElementById('scratchSetsList');
+    const empty = document.getElementById('scratchSetsEmpty');
+    const clearBtn = document.getElementById('clearScratchesBtn');
+    if (!list) return;
+    refreshScratchCacheForCurrentSubject();
+    list.innerHTML = '';
+    if (setOpsScratchCache.length === 0) {
+        if (empty) {
+            empty.style.display = '';
+            list.appendChild(empty);
+        }
+        if (clearBtn) clearBtn.style.display = 'none';
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (clearBtn) clearBtn.style.display = '';
+    setOpsScratchCache.forEach(s => {
+        const wrap = document.createElement('div');
+        wrap.className = 'input-group input-group-sm';
+        wrap.innerHTML = `
+            <button type="button" class="btn btn-outline-warning text-start flex-grow-1"
+                    onclick="addScratchChip('${s.id}')"
+                    title="Click to add this scratch set as a chip">
+                <i class="bi bi-clipboard"></i>
+                <strong>${escapeSetHtml(s.name)}</strong>
+                <span class="badge bg-warning text-dark ms-1">${s.ids.length}</span>
+            </button>
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="renameScratch('${s.id}')" title="Rename">
+                <i class="bi bi-pencil"></i>
+            </button>
+            <button type="button" class="btn btn-outline-danger"
+                    onclick="deleteScratch('${s.id}')" title="Delete">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        `;
+        list.appendChild(wrap);
+    });
+}
+
 function appendChip(chip) {
     setOpsExpression.push(chip);
     renderSetExpression();
@@ -4816,6 +5037,12 @@ function chipLabel(chip) {
         if (chip.src === 'selection') return `<i class="bi bi-cursor"></i> Selection (${selectedQuestions.size})`;
         if (chip.src === 'filter')    return `<i class="bi bi-funnel"></i> Filter Result (${getCurrentFilterResultIds().size})`;
         if (chip.src === 'result')    return `<i class="bi bi-stars"></i> Result (${setOpsLastResult ? setOpsLastResult.size : 0})`;
+        if (chip.src === 'scratch') {
+            const sc = getScratchById(chip.id);
+            const sz = sc ? sc.ids.length : 0;
+            const name = sc ? sc.name : (chip.name || '#' + chip.id);
+            return `<i class="bi bi-clipboard"></i> ${escapeSetHtml(name)} (${sz})`;
+        }
         const cached = setOpsLoadedSets[chip.id];
         const sz = cached ? cached.ids.size : 0;
         return `<i class="bi bi-collection"></i> ${escapeSetHtml(chip.name || ('#' + chip.id))} (${sz})`;
@@ -4834,6 +5061,7 @@ function chipClass(chip) {
         if (chip.src === 'selection') return 'bg-primary';
         if (chip.src === 'filter')    return 'bg-info text-dark';
         if (chip.src === 'result')    return 'bg-success';
+        if (chip.src === 'scratch')   return 'bg-warning text-dark';
         return 'bg-secondary';
     }
     if (chip.type === 'op')    return 'bg-dark';
@@ -4942,6 +5170,10 @@ function resolveSetChip(chip) {
     if (chip.src === 'selection') return new Set(selectedQuestions);
     if (chip.src === 'filter')    return getCurrentFilterResultIds();
     if (chip.src === 'result')    return setOpsLastResult ? new Set(setOpsLastResult) : new Set();
+    if (chip.src === 'scratch') {
+        const sc = getScratchById(chip.id);
+        return sc ? new Set(sc.ids) : new Set();
+    }
     const cached = setOpsLoadedSets[chip.id];
     return cached ? new Set(cached.ids) : new Set();
 }

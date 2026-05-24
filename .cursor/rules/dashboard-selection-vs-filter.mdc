@@ -60,18 +60,54 @@ Edge case for individual checkbox toggle while Show Selected Only is on: an unti
 
 ## Set Operations chip taxonomy
 
-Sources panel of the Set Operations modal exposes four chip kinds:
+Sources panel of the Set Operations modal exposes five chip kinds:
 
 | Chip | `chip.src` | Resolves to | When count is shown |
 |---|---|---|---|
 | Selection | `'selection'` | `new Set(selectedQuestions)` | live, badge updates on modal open |
 | Filter Result | `'filter'` | `getCurrentFilterResultIds()` reading `#allQuestionIds.dataset.ids` | live, all IDs across all pages of the current sidebar filter |
 | Result | `'result'` | `setOpsLastResult` (the previous Evaluate output) | only shown after first Evaluate |
+| Scratch | `'scratch'` (chip carries `id`, `name`) | `getScratchById(id).ids` from `setOpsScratchCache` | from the cached array; resolved on every chip render |
 | Saved set | `'saved'` (chip carries `id`, `name`, cached `ids`) | cached payload from `GET /user/sets/<id>/data` | from the API response |
 
 `Filter Result` lets users do "trim selection to current filter" via `Selection ∩ Filter Result` → Replace. While Show Selected Only is ON, the dashboard's `#allQuestionIds` equals the selection, so Filter Result chip equals the Selection chip (redundant but not wrong).
 
 Operators: `union (∪)`, `intersect (∩)`, `diff (\)`. Single precedence, left-associative, parens for grouping. Empty expression → empty result; difference is binary.
+
+## Scratch sets (browser-only)
+
+Frozen, named snapshots of any live source (Selection / Filter Result / Result), persisted in `localStorage[STORAGE_KEYS.SCRATCH_SETS]`. **Subject-scoped** — each scratch row carries a `subject` field, and the modal only lists scratches matching the active subject (`setOpsCurrentSubject`).
+
+Storage shape (flat array):
+```json
+[ { "id": "scr_<base36>_<rand>", "subject": "MATC", "name": "My picks",
+    "ids": ["12","34", ...], "createdAt": "2026-05-25T..." } ]
+```
+
+UI (sources panel of `#setOpsModal`):
+
+- Each live chip (Selection, Filter Result, Result) has a small `bi-copy` button that calls `duplicateAsScratch('selection'|'filter'|'result')`. Prompts the user for a name; default name is "<Source> snapshot".
+- A "Scratch Sets (in browser)" section between Live and Saved Sets shows one row per scratch (with `bi-clipboard` icon, count badge, Rename, Delete).
+- A "Clear all" link in that section header wipes scratches **for the current subject only** — other subjects' scratches survive.
+
+Helpers (all in `templates/dashboard.html`):
+
+| Function | Purpose |
+|---|---|
+| `loadScratchSets()` / `saveScratchSets(arr)` | localStorage I/O |
+| `refreshScratchCacheForCurrentSubject()` | filters by subject into `setOpsScratchCache` |
+| `getScratchById(id)` | lookup in cache |
+| `duplicateAsScratch(srcName)` | snapshot → prompt-for-name → save |
+| `renameScratch(id)` / `deleteScratch(id)` | inline actions |
+| `clearAllScratches()` | wipe current subject's scratches |
+| `addScratchChip(id)` | `appendChip({type:'set', src:'scratch', id, name})` |
+| `renderScratchSets()` | rebuilds the scratch UI; also auto-shown when modal opens |
+
+Deleting a scratch **also removes any matching chip from the current expression** so the bar never holds dangling references; `clearAllScratches` does the same en masse.
+
+Limitations / out of scope:
+- Scratch sets are not synced to the server. They live in this browser only — clearing browser data destroys them.
+- They cannot be shared with other users; promote to a real saved Question Set via "Save Result as set…" if persistence/sharing is needed.
 
 ## Code map (in `templates/dashboard.html`)
 

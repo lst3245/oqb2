@@ -18,6 +18,14 @@ All notable changes to the Online Question Bank System are documented in this fi
 - Common use case: build `Selection ∩ Filter Result` and click `Replace Selection` to trim the selection down to whatever the current filter returns. Or `Selection ∪ Filter Result` to add the entire current filter's results to the selection.
 - Files: `templates/dashboard.html` (chip button + `getCurrentFilterResultIds()` resolver).
 
+#### Set Operations modal — Scratch Sets (browser-only named snapshots)
+- Each live source chip (Selection, Filter Result, Result) now has a small **Duplicate** button (`bi-copy`) that snapshots the current contents into a named "scratch set". Scratch sets persist in the browser (`localStorage`), are **subject-scoped**, and never touch the server.
+- A new "Scratch Sets (in browser)" section in the modal's sources panel lists them with **Rename** and **Delete** actions per row, plus a **Clear all** link that wipes the current subject's scratches (other subjects' scratches survive).
+- Useful for building up several frozen "buckets" of questions across separate filter passes (e.g. "Topic A picks", "hard MC subset", "needs review") and then combining them via Union / Intersection / Difference, without committing to a server-side saved Question Set yet.
+- Promoting a scratch into a permanent saved Question Set: append it as the only chip in the expression, click Evaluate, then "Save Result as set…".
+- Deleting a scratch (or Clear all) also removes any matching chips from the current expression so the bar never holds dangling references.
+- Files: `templates/dashboard.html` (`SCRATCH_SETS` storage key, helpers `loadScratchSets / saveScratchSets / duplicateAsScratch / renameScratch / deleteScratch / clearAllScratches / renderScratchSets`, new chip kind `src='scratch'`).
+
 ### 🐛 Bug Fixes
 
 #### Selection vs Filter — independence policy and stale-tick fix
