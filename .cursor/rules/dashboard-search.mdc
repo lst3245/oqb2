@@ -28,6 +28,7 @@ Core route: `POST /dashboard/filter` in `app/dashboard.py` → `filter_questions
 | `q_type` | string | `MC`, `CQ`, or `all` |
 | `qid_search` | string | Direct QID search |
 | `qid_strict` | bool | Strict: user controls pattern with `*` wildcard; Loose (default): tokenise and match in order |
+| `qids` | string | Comma-separated explicit QID list. **Overrides all other filters** (only QIDs intersected with user-accessible subjects are returned). Set via `?qids=…` URL param from the Admin → DB Health anomaly view. The dashboard stores it in hidden input `#qidsInput` and shows a dismissible banner. |
 | `page` | int | Page number (default 1) |
 | `page_size` | int | 10, 20, 50, or 100 (default 20) |
 | `preview_language` | `EN`\|`CH` | Asset language preference for card previews |
@@ -39,7 +40,8 @@ In AND mode, each selected topic must appear as **major OR any minor topic** (si
 ## QID Search Logic
 - **Loose mode** (default): normalises to uppercase alphanumeric tokens, builds `%TOKEN1%TOKEN2%` LIKE pattern
 - **Strict mode**: user writes the pattern directly; `*` maps to SQL `%`; no wildcards means substring match
-- QID search **overrides all other filters** if provided
+- QID search and the `qids` list both apply at the start of the query
+- `qids` (exact list) wins over `qid_search` (pattern) when both are present and **explicitly nulls out the other filter variables** so subject/topic/etc. blocks become no-ops
 
 ## Sorting
 Uses `apply_multi_sort()` from `app/utils.py`. Multi-level: `[{field, direction}, ...]`.  

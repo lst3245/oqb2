@@ -56,6 +56,10 @@ def filter_questions():
     q_type = request.args.get('q_type') or request.form.get('q_type')
     qid_search = request.args.get('qid_search') or request.form.get('qid_search')  # Direct QID search
     qid_strict = (request.args.get('qid_strict') or request.form.get('qid_strict')) in ('on', 'true', '1', True)
+    # Explicit QID list filter (comma-separated). When provided, overrides all other filters.
+    # Used by the Admin → DB Health anomaly view to jump to a specific set of questions.
+    qids_raw = request.args.get('qids') or request.form.get('qids')
+    qid_list = [q.strip() for q in qids_raw.split(',') if q.strip()] if qids_raw else []
     page = int(request.args.get('page', 1))
     page_size = request.args.get('page_size') or request.form.get('page_size')
     preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
@@ -98,15 +102,38 @@ def filter_questions():
         'levels': levels,
         'q_type': q_type,
         'qid_search': qid_search,
-        'qid_strict': qid_strict
+        'qid_strict': qid_strict,
+        'qids': qid_list,
     }
     session['sort_config'] = sort_config
     
     # Build query
     query = Question.query
-    
-    # Direct QID search - if provided, search by QID directly and ignore other filters
-    if qid_search and qid_search.strip():
+
+    # Explicit QID list - if provided, filter by exact QID matches and ignore all other filters.
+    # This is used by the admin DB-health "view anomaly" buttons to jump to a specific set
+    # without losing visibility behind subject/source/topic filters. Access is still scoped
+    # to subjects the user has permission to view.
+    if qid_list:
+        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
+        query = query.filter(
+            Question.qid.in_(qid_list),
+            Question.subject.in_(accessible_subjects)
+        )
+        # Null out other filter variables so the remaining filter blocks become no-ops
+        subject = None
+        source_type = None
+        years = []
+        section = None
+        topics = []
+        subtopics = []
+        chapters = []
+        subchapters = []
+        levels = []
+        q_type = None
+        qid_search = None
+    # Direct QID search - if provided, search by QID directly
+    elif qid_search and qid_search.strip():
         if qid_strict:
             # Strict mode: user controls the pattern with * as wildcard
             qid_pattern = qid_search.strip()
@@ -126,7 +153,7 @@ def filter_questions():
                 # Build a single LIKE pattern: %TOKEN1%TOKEN2%...%
                 qid_pattern = '%' + '%'.join(tokens) + '%'
                 query = query.filter(Question.qid.ilike(qid_pattern))
-    
+
     # Filter by subject
     if subject:
         query = query.filter(Question.subject == subject)

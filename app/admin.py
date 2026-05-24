@@ -817,6 +817,9 @@ def questions_api_list():
     """API: fetch paginated & filtered question list"""
     qid_search = request.args.get('qid_search', '').strip()
     selected_ids_str = request.args.get('selected_ids', '').strip()
+    # Explicit QID-string list filter (comma-separated). Used by the DB-Health
+    # anomaly modal to jump straight to a specific set of questions.
+    qids_str = request.args.get('qids', '').strip()
     sort_field = request.args.get('sort', 'created_at')
     sort_dir = request.args.get('dir', 'desc')
     page = int(request.args.get('page', 1))
@@ -829,8 +832,17 @@ def questions_api_list():
 
     preserve_selection_order = False
     selected_ids = []
+    qid_order_list = []
 
-    if selected_ids_str:
+    if qids_str:
+        # Filter by explicit QID string list (anomaly view, etc.)
+        qid_order_list = [q.strip() for q in qids_str.split(',') if q.strip()]
+        if qid_order_list:
+            query = query.filter(Question.qid.in_(qid_order_list))
+            # Preserve the supplied order unless user picked an explicit sort
+            if sort_field in ('selection_order', 'created_at'):
+                preserve_selection_order = True
+    elif selected_ids_str:
         # Filter by specific question internal IDs (from dashboard localStorage)
         try:
             selected_ids = [int(x) for x in selected_ids_str.split(',') if x.strip()]
@@ -850,7 +862,13 @@ def questions_api_list():
             query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
 
     # Sorting
-    if preserve_selection_order and selected_ids:
+    if preserve_selection_order and qid_order_list:
+        # Preserve order of the supplied QID list
+        from sqlalchemy import case
+        whens = [(qid, idx) for idx, qid in enumerate(qid_order_list)]
+        ordering = case(*whens, value=Question.qid, else_=len(qid_order_list))
+        query = query.order_by(ordering)
+    elif preserve_selection_order and selected_ids:
         # Use CASE expression to preserve the original selection order from dashboard
         from sqlalchemy import case
         whens = [(qid, idx) for idx, qid in enumerate(selected_ids)]

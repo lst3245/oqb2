@@ -28,6 +28,11 @@ Validation: `major_subtopic_id` must belong to `major_topic_id` when both are se
 
 ### Question Management (`/admin/questions`)
 - List with full filter support (same params as dashboard)
+- `GET /admin/questions/api/list` accepts these mutually exclusive filters (first match wins):
+  - `qids=Q1,Q2,...` — exact QID list (used by DB-Health anomaly view, preserves supplied order when sort is `selection_order`/`created_at`)
+  - `selected_ids=1,2,3` — internal int IDs (used by "Show dashboard selections")
+  - `qid_search=...` — LIKE substring/wildcard pattern
+- Page reads `?qids=…` (or `?qids_token=…` → localStorage fallback) from URL on load and shows a dismissible banner; user typing in search or toggling dashboard-selections drops the pinned QID list.
 - `POST /admin/questions/create` — create a question manually (without ingestor)
 - `POST /admin/questions/<id>/rename` — change QID (renames files on disk too, via `_build_asset_file_path`)
 - `POST /admin/questions/<id>/assets/upload` — upload new asset file
@@ -62,6 +67,7 @@ All exports are CSV. Imports are idempotent (upsert logic).
 - `GET /admin/health/untracked` — files on disk not in DB
 - `GET /admin/health/sync?dry_run=1` — **SSE stream** to find/remove orphaned DB records
   - Grace period: questions created < 24h ago are skipped
+- Anomaly modal (in `templates/admin_health.html`) tracks two parallel maps: `anomalyData` (display strings shown in the modal body) and `anomalyDataQids` (raw QIDs used by the "View in Dashboard" / "View in Question Management" footer buttons). For `duplicate_assets_list` and `path_mismatches_list`, the QID prefix is extracted from each formatted entry via `extractQidPrefix()`. The buttons pass QIDs via `?qids=…` URL param (or `?qids_token=…` with localStorage fallback when the joined list exceeds ~6 KB).
 
 ### File Browser (`/admin/files`) — super admin only
 Browse, upload, download, rename, delete files and create directories within `SOURCE_PATH`.

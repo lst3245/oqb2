@@ -201,9 +201,17 @@ Click "Clean Up" to actually remove orphaned records.
             </div>
             <div class="modal-body" id="anomalyModalBody">
             </div>
-            <div class="modal-footer">
-                <span id="anomalyModalCount" class="text-muted me-auto"></span>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <div class="modal-footer flex-wrap gap-1">
+                <span id="anomalyModalCount" class="text-muted me-auto small"></span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="anomalyViewDashboardBtn"
+                        onclick="openAnomalyInDashboard()" title="Open these questions in the dashboard (new tab)">
+                    <i class="bi bi-grid-3x3-gap"></i> View in Dashboard
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="anomalyViewAdminBtn"
+                        onclick="openAnomalyInAdmin()" title="Open these questions in Question Management (new tab)">
+                    <i class="bi bi-journal-text"></i> View in Question Management
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -299,8 +307,31 @@ function renderStats(data) {
     }
 }
 
-// Global store for anomaly detail lists
+// Global store for anomaly detail lists.
+// anomalyData[key]      = display strings (what's shown in the modal body)
+// anomalyDataQids[key]  = raw QID strings (passed to dashboard / admin pages)
 let anomalyData = {};
+let anomalyDataQids = {};
+
+// Extract the QID prefix from a formatted entry like
+//   "MATC_DSE_2024_P1_Q5:QUE_EN_P1 (×2)"  → "MATC_DSE_2024_P1_Q5"
+//   "MATC_DSE_2024_P1_Q5: stored=... expected=..." → "MATC_DSE_2024_P1_Q5"
+function extractQidPrefix(s) {
+    if (!s) return null;
+    const idx = String(s).indexOf(':');
+    const qid = idx > -1 ? String(s).slice(0, idx).trim() : String(s).trim();
+    return qid || null;
+}
+
+// De-duplicate while preserving order
+function uniqueKeepOrder(arr) {
+    const seen = new Set();
+    const out = [];
+    for (const x of arr) {
+        if (x && !seen.has(x)) { seen.add(x); out.push(x); }
+    }
+    return out;
+}
 
 function renderAnomalies(data) {
     const anomalyLoading = document.getElementById('anomalyLoading');
@@ -310,14 +341,20 @@ function renderAnomalies(data) {
 
     // Store lists for modal display
     anomalyData = {};
+    anomalyDataQids = {};
     let rows = '';
     let totalIssues = 0;
 
     // Helper to build a row
-    function addRow(icon, label, count, colorClass, listKey, qidList, description) {
+    // qidList   : display strings shown in modal body
+    // rawQids   : raw QID strings used by the "View in Dashboard/Manage" buttons
+    //             (defaults to qidList — for entries that already are pure QIDs)
+    function addRow(icon, label, count, colorClass, listKey, qidList, description, rawQids) {
         if (count <= 0) return;
         totalIssues += count;
         if (qidList) anomalyData[listKey] = qidList;
+        if (rawQids === undefined) rawQids = qidList;
+        if (rawQids) anomalyDataQids[listKey] = uniqueKeepOrder(rawQids);
         const viewBtn = qidList && qidList.length > 0
             ? `<button class="btn btn-sm btn-outline-secondary" onclick="showAnomalyDetail('${listKey}', '${label}', ${count})"><i class="bi bi-list-ul"></i> View</button>`
             : '';
@@ -337,7 +374,9 @@ function renderAnomalies(data) {
     // Duplicate QIDs (special - show inline since typically very few)
     if (data.duplicate_qids && data.duplicate_qids.length > 0) {
         const dupList = data.duplicate_qids.map(d => `${d.qid} (×${d.count})`);
+        const dupQids = data.duplicate_qids.map(d => d.qid);
         anomalyData['duplicate_qids'] = dupList;
+        anomalyDataQids['duplicate_qids'] = uniqueKeepOrder(dupQids);
         totalIssues += data.duplicate_qids.length;
         rows += `
             <div class="anomaly-row">
@@ -355,12 +394,14 @@ function renderAnomalies(data) {
     // Duplicate assets (same identity tuple)
     addRow('bi-files', 'Duplicate Assets', data.duplicate_assets || 0, 'text-danger',
         'dup_assets', data.duplicate_assets_list,
-        'Same (question, type, language, format, part) appears more than once in the database.');
+        'Same (question, type, language, format, part) appears more than once in the database.',
+        (data.duplicate_assets_list || []).map(extractQidPrefix));
 
     // File-path mismatches
     addRow('bi-signpost-split', 'Asset Path Mismatches', data.path_mismatches || 0, 'text-warning',
         'path_mismatches', data.path_mismatches_list,
-        'Stored file_path does not match the expected path derived from the question ID.');
+        'Stored file_path does not match the expected path derived from the question ID.',
+        (data.path_mismatches_list || []).map(extractQidPrefix));
 
     addRow('bi-file-earmark-x', 'Questions With No Assets (stale)', data.questions_no_assets, 'text-warning',
         'no_assets', data.questions_no_assets_list,
@@ -394,16 +435,41 @@ function renderAnomalies(data) {
     }
 }
 
+// Currently-displayed anomaly key (used by the modal's action buttons).
+let currentAnomalyKey = null;
+let currentAnomalyTitle = null;
+
 function showAnomalyDetail(key, title, totalCount) {
     const list = anomalyData[key] || [];
+    const qids = anomalyDataQids[key] || [];
+    currentAnomalyKey = key;
+    currentAnomalyTitle = title;
+
     const modalLabel = document.getElementById('anomalyModalLabel');
     const modalBody = document.getElementById('anomalyModalBody');
     const modalCount = document.getElementById('anomalyModalCount');
+    const dashBtn = document.getElementById('anomalyViewDashboardBtn');
+    const adminBtn = document.getElementById('anomalyViewAdminBtn');
 
     modalLabel.textContent = title;
-    modalCount.textContent = list.length < totalCount
+    const countLabel = list.length < totalCount
         ? `Showing ${list.length} of ${totalCount}`
         : `${list.length} item(s)`;
+    const qidLabel = qids.length && qids.length !== list.length
+        ? ` · ${qids.length} unique QID(s)`
+        : '';
+    modalCount.textContent = countLabel + qidLabel;
+
+    // Enable / disable action buttons based on whether we have raw QIDs to forward.
+    const hasQids = qids.length > 0;
+    dashBtn.disabled = !hasQids;
+    adminBtn.disabled = !hasQids;
+    dashBtn.title = hasQids
+        ? `Open these ${qids.length} question(s) in the dashboard (new tab)`
+        : 'No QIDs available for this anomaly';
+    adminBtn.title = hasQids
+        ? `Open these ${qids.length} question(s) in Question Management (new tab)`
+        : 'No QIDs available for this anomaly';
 
     if (list.length === 0) {
         modalBody.innerHTML = '<p class="text-muted">No items to display.</p>';
@@ -414,6 +480,41 @@ function showAnomalyDetail(key, title, totalCount) {
 
     const modal = new bootstrap.Modal(document.getElementById('anomalyModal'));
     modal.show();
+}
+
+// Browsers cap URL length somewhere around 8–32k characters. Stay well under
+// that even for large QID lists by falling back to localStorage when needed.
+const ANOMALY_URL_CHAR_LIMIT = 6000;
+
+function _openQidsTarget(baseUrl) {
+    const qids = anomalyDataQids[currentAnomalyKey] || [];
+    if (qids.length === 0) return;
+    const joined = qids.join(',');
+    let url;
+    if (joined.length <= ANOMALY_URL_CHAR_LIMIT) {
+        url = baseUrl + '?qids=' + encodeURIComponent(joined);
+    } else {
+        // Fallback: stash in localStorage under a one-shot token. The target
+        // page reads ?qids_token=<token> on load and converts it to a normal
+        // qids filter, then removes the token from storage.
+        const token = 'qids_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        try {
+            localStorage.setItem(token, joined);
+        } catch (e) {
+            alert('Too many QIDs to forward and localStorage is unavailable.');
+            return;
+        }
+        url = baseUrl + '?qids_token=' + encodeURIComponent(token);
+    }
+    window.open(url, '_blank', 'noopener');
+}
+
+function openAnomalyInDashboard() {
+    _openQidsTarget('{{ url_for("dashboard.index") }}');
+}
+
+function openAnomalyInAdmin() {
+    _openQidsTarget('{{ url_for("admin.questions_page") }}');
 }
 
 function escapeHtml(text) {

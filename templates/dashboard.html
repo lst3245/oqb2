@@ -344,6 +344,10 @@
                         <input type="hidden" name="sort_config" id="sortConfigInput" value='[{"field":"qid","direction":"asc"}]'>
                         <!-- Hidden input for page size -->
                         <input type="hidden" name="page_size" id="pageSizeInput" value="20">
+                        <!-- Hidden input for an explicit QID list filter (set via ?qids=… URL param,
+                             e.g. from the Admin → DB Health anomaly view). When non-empty, this
+                             overrides all other filters on the backend. -->
+                        <input type="hidden" name="qids" id="qidsInput" value="">
                     </form>
                     
                     <hr class="my-3">
@@ -469,6 +473,18 @@
                     </div>
                 </div>
                 <div class="card-body">
+                    <!-- QID list filter banner (shown when ?qids= URL param is active) -->
+                    <div id="qidsFilterBanner" class="alert alert-info py-2 px-3 d-none mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <i class="bi bi-funnel-fill"></i>
+                            <strong>Filtering by specific QIDs</strong>
+                            <span class="text-muted small ms-2" id="qidsFilterBannerCount"></span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearQidsFilter()">
+                            <i class="bi bi-x-lg"></i> Clear list filter
+                        </button>
+                    </div>
+
                     <div id="loading" class="htmx-indicator text-center">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -1147,6 +1163,14 @@ function initFilterChangeListeners() {
     filterForm.addEventListener('change', function(event) {
         // Skip hidden inputs and non-filter elements
         if (event.target.type === 'hidden' && event.target.id !== 'sortConfigInput') return;
+        // If the QID list filter (anomaly view) is currently active, any sidebar
+        // change means the user wants normal browsing — clear it so their filter
+        // actually applies on the next search.
+        const qidsInput = document.getElementById('qidsInput');
+        if (qidsInput && qidsInput.value) {
+            qidsInput.value = '';
+            document.getElementById('qidsFilterBanner')?.classList.add('d-none');
+        }
         checkFilterModification();
     });
     
@@ -2870,6 +2894,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const profileId = urlParams.get('profile_id');
     const filterDataId = urlParams.get('filter_data_id');
+    // Explicit QID list filter (from Admin → DB Health "View in Dashboard")
+    let qidsParam = urlParams.get('qids');
+    const qidsToken = urlParams.get('qids_token');
+    if (!qidsParam && qidsToken) {
+        try {
+            qidsParam = localStorage.getItem(qidsToken) || null;
+            if (qidsParam) localStorage.removeItem(qidsToken);
+        } catch(e) { /* ignore */ }
+    }
     let profileFilters = null;
     
     if (profileId) {
@@ -2906,6 +2939,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
+    // If the URL specifies an explicit QID list, that takes precedence: we still
+    // restore saved filters in the sidebar (so the form has sensible defaults if
+    // the user later clears the QID list filter), but we then submit using only
+    // the qids hidden input.
+    const qidList = qidsParam ? qidsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+
     // Use profile filters if available, otherwise use localStorage saved filters
     const filtersToRestore = profileFilters || savedFilters;
     
@@ -2927,9 +2966,14 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initialize filter change listeners for modification tracking
     initFilterChangeListeners();
     
+    // If a QID list was supplied via URL, apply it as a one-shot filter
+    // (overrides subject/topic/etc. on the backend) and trigger the search.
+    if (qidList.length > 0) {
+        applyQidsFilter(qidList);
+    }
     // Auto-trigger search if we have filters with a subject selected
     // restoreFilterSettings now properly awaits all async loads, so filters are fully set
-    if (filtersToRestore && filtersToRestore.subject) {
+    else if (filtersToRestore && filtersToRestore.subject) {
         if (profileFilters) {
             // Profile restore: always start at page 1
             const filterForm = document.getElementById('filterForm');
@@ -2958,14 +3002,46 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Clear URL parameters after successful restore to prevent re-applying on refresh
-    if (profileId || filterDataId) {
+    // Clear URL parameters after successful restore to prevent re-applying on refresh.
+    // qids / qids_token are also cleared — the active filter lives in the hidden
+    // input + banner from this point on. clearQidsFilter() returns to normal browsing.
+    if (profileId || filterDataId || qidsParam || qidsToken) {
         const cleanUrl = new URL(window.location.href);
         cleanUrl.searchParams.delete('profile_id');
         cleanUrl.searchParams.delete('filter_data_id');
+        cleanUrl.searchParams.delete('qids');
+        cleanUrl.searchParams.delete('qids_token');
         window.history.replaceState({}, document.title, cleanUrl.toString());
     }
 });
+
+// ===================== QID list filter (from Admin DB Health anomaly view) =====================
+// Populates the hidden #qidsInput, shows the banner, and triggers a fresh search.
+// While the banner is visible, the search results are restricted to the supplied
+// QIDs and all sidebar filters are ignored by the backend.
+function applyQidsFilter(qids) {
+    const input = document.getElementById('qidsInput');
+    const banner = document.getElementById('qidsFilterBanner');
+    const countEl = document.getElementById('qidsFilterBannerCount');
+    if (!input || !banner) return;
+    input.value = qids.join(',');
+    banner.classList.remove('d-none');
+    countEl.textContent = `${qids.length} QID${qids.length === 1 ? '' : 's'}`;
+
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) htmx.trigger(filterForm, 'submit');
+}
+
+function clearQidsFilter() {
+    const input = document.getElementById('qidsInput');
+    const banner = document.getElementById('qidsFilterBanner');
+    if (!input || !banner) return;
+    if (!input.value) { banner.classList.add('d-none'); return; }
+    input.value = '';
+    banner.classList.add('d-none');
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) htmx.trigger(filterForm, 'submit');
+}
 
 // Trigger search with a specific page number
 function triggerSearchWithPage(pageNum) {
@@ -3215,6 +3291,11 @@ function resetFilters() {
     
     // Clear QID search
     clearQidSearch();
+
+    // Clear QID list filter (from anomaly view)
+    const qidsInput = document.getElementById('qidsInput');
+    if (qidsInput) qidsInput.value = '';
+    document.getElementById('qidsFilterBanner')?.classList.add('d-none');
     
     // Reset QID strict mode to default (loose)
     const strictToggle = document.getElementById('qidStrictMode');

@@ -4,6 +4,17 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ New Features
+
+#### DB Health anomaly view — jump to questions in Dashboard / Question Management
+- The anomaly detail modal (Admin → Database Health → Anomaly Detection → **View**) now has two extra buttons in the footer:
+  - **View in Dashboard** — opens the dashboard in a new tab, filtered to exactly the QIDs from that anomaly
+  - **View in Question Management** — same, but lands on `/admin/questions`
+- Backend: both `/dashboard/filter` and `/admin/questions/api/list` now accept a `qids` parameter (comma-separated list of QIDs). When set, it overrides all other filters and returns only the matching questions. Order is preserved on the admin page.
+- The destination page shows a dismissible **"Filtering by N specific QIDs"** banner; clicking *Clear list filter* returns to normal browsing. Any sidebar filter change on the dashboard automatically clears the list filter too.
+- For very large QID lists (above ~6,000 URL chars) the modal falls back to a one-shot `localStorage` token (`?qids_token=…`) so the request never hits browser URL limits.
+- Files: `app/dashboard.py`, `app/admin.py`, `templates/admin_health.html`, `templates/dashboard.html`, `templates/admin_questions.html`.
+
 ### ✨ Enhanced Features
 
 #### Generate page — quick preview button on each selected question

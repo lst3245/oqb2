@@ -123,6 +123,18 @@
         </div>
     </div>
 
+    <!-- QID list filter banner (shown when ?qids= URL param is active) -->
+    <div id="qidsFilterBanner" class="alert alert-info py-2 px-3 d-none mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <i class="bi bi-funnel-fill"></i>
+            <strong>Filtering by specific QIDs</strong>
+            <span class="text-muted small ms-2" id="qidsFilterBannerCount"></span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearQidsFilter()">
+            <i class="bi bi-x-lg"></i> Clear list filter
+        </button>
+    </div>
+
     <!-- Question list -->
     <div class="card">
         <div class="table-responsive">
@@ -462,16 +474,24 @@ document.getElementById('qidSearchInput').addEventListener('input', function() {
     searchDebounce = setTimeout(() => { currentPage = 1; loadQuestions(); }, 300);
 });
 
+// Active QID list filter from ?qids=… URL param (anomaly view).
+// When non-empty, takes precedence over the search box and the dashboard-selected toggle.
+let pinnedQids = [];
+
 function loadQuestions() {
     const search = document.getElementById('qidSearchInput').value.trim();
     const showSelected = document.getElementById('showDashboardSelected').checked;
     const pageSize = document.getElementById('pageSizeSelect').value;
 
-    // When showing dashboard selections, default to preserving dashboard order
-    const sortField = showSelected && currentSort.field === 'created_at' ? 'selection_order' : currentSort.field;
+    // While the pinned QID list is active, default to preserving its order
+    const usingPinned = pinnedQids.length > 0;
+    const sortField = (usingPinned || showSelected) && currentSort.field === 'created_at'
+        ? 'selection_order' : currentSort.field;
     let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${sortField}&dir=${currentSort.dir}`;
 
-    if (showSelected) {
+    if (usingPinned) {
+        url += '&qids=' + encodeURIComponent(pinnedQids.join(','));
+    } else if (showSelected) {
         const dashIds = getDashboardSelectedIds();
         if (dashIds.length > 0) {
             url += '&selected_ids=' + dashIds.join(',');
@@ -1328,16 +1348,70 @@ function finishAndEdit() {
     });
 }
 
+// ===================== QID list filter (from Admin DB Health anomaly view) =====================
+// Read ?qids=… (or ?qids_token=… → localStorage) from the URL and apply it as a
+// pinned filter. While the banner is visible the search box and the
+// "Show dashboard selections" toggle are ignored.
+function applyPinnedQidsFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    let qidsParam = urlParams.get('qids');
+    const qidsToken = urlParams.get('qids_token');
+    if (!qidsParam && qidsToken) {
+        try {
+            qidsParam = localStorage.getItem(qidsToken) || null;
+            if (qidsParam) localStorage.removeItem(qidsToken);
+        } catch (e) { /* ignore */ }
+    }
+    if (!qidsParam) return false;
+
+    pinnedQids = qidsParam.split(',').map(s => s.trim()).filter(Boolean);
+    if (pinnedQids.length === 0) return false;
+
+    const banner = document.getElementById('qidsFilterBanner');
+    const countEl = document.getElementById('qidsFilterBannerCount');
+    banner.classList.remove('d-none');
+    countEl.textContent = `${pinnedQids.length} QID${pinnedQids.length === 1 ? '' : 's'}`;
+
+    // Strip qids params from the URL so refresh doesn't reapply, similar to dashboard.
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('qids');
+    cleanUrl.searchParams.delete('qids_token');
+    window.history.replaceState({}, document.title, cleanUrl.toString());
+    return true;
+}
+
+function clearQidsFilter() {
+    pinnedQids = [];
+    document.getElementById('qidsFilterBanner').classList.add('d-none');
+    currentPage = 1;
+    loadQuestions();
+}
+
+// When the user types in the search box or toggles "Show dashboard selections",
+// they are explicitly asking for a different filter — drop the pinned QID list.
+function _dropPinnedOnUserAction() {
+    if (pinnedQids.length === 0) return;
+    pinnedQids = [];
+    document.getElementById('qidsFilterBanner').classList.add('d-none');
+}
+
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', function() {
     // Show count of dashboard selected questions
     const dashIds = getDashboardSelectedIds();
     document.getElementById('dashSelCount').textContent = dashIds.length;
 
+    // Hook user actions that should drop the pinned QID list filter
+    document.getElementById('qidSearchInput').addEventListener('input', _dropPinnedOnUserAction);
+    document.getElementById('showDashboardSelected').addEventListener('change', _dropPinnedOnUserAction);
+
     // When the add modal is closed, always return the shared tag form to the edit modal
     document.getElementById('addQuestionModal').addEventListener('hidden.bs.modal', function() {
         returnTagFormToEditModal();
     });
+
+    // Apply pinned QID filter from URL (if any) before initial load
+    applyPinnedQidsFromUrl();
 
     // Initial load
     loadQuestions();
