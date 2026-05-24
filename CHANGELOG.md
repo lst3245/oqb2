@@ -6,6 +6,13 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+#### Generate page — quick preview button on each selected question
+- Each row in the **Selected Questions** panel now has a small eye (👁) button.
+- Clicking it opens a modal showing the question image without leaving the page.
+- The image is fetched via the existing `/generate/api/viewer_asset/<id>/QUE?lang=` endpoint, using whichever **Preferred Language** is currently selected in the form (EN or CH), with the same `BI` → other fallback logic used during document generation.
+- No new backend route needed; button tap is isolated from SortableJS drag via `touch-action: manipulation`.
+- File: `templates/generate.html`.
+
 #### Generator Sort Order — clearer labels and auto-switch on manual reorder
 - Renamed the two Sort Order modes on the Generate page for clarity:
   - **"Custom Sort" → "Auto Sort"** (sorts automatically by tags like Year, Level, Topic, etc.)
