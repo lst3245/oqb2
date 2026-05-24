@@ -140,6 +140,16 @@
                             </select>
                             <small class="text-muted">Order: Preferred → Bilingual → Other</small>
                         </div>
+
+                        <!-- Format Priority -->
+                        <div class="mb-3">
+                            <label class="form-label d-flex align-items-center gap-2">
+                                <span>Format Priority</span>
+                                <span class="text-muted small fw-normal">highest wins when a question has multiple formats</span>
+                            </label>
+                            <div id="formatPriorityChips" class="d-flex gap-1 flex-wrap align-items-center"></div>
+                            <input type="hidden" name="format_priority" id="formatPriority" value="IMG,MD,DOC">
+                        </div>
                         
                         <!-- Show Question ID -->
                         <div class="mb-3 form-check">
@@ -678,6 +688,15 @@ function restoreGenerationOptions(opts) {
         const el = document.getElementById('preferredLanguage');
         if (el) el.value = opts.preferred_language;
     }
+
+    // Format priority (comma-separated list, e.g. "IMG,MD,DOC")
+    if (opts.format_priority) {
+        const el = document.getElementById('formatPriority');
+        if (el) {
+            el.value = String(opts.format_priority);
+            if (typeof renderFormatPriorityChips === 'function') renderFormatPriorityChips();
+        }
+    }
     
     // Show QID checkbox
     if (opts.show_qid !== undefined) {
@@ -892,6 +911,71 @@ function getInputValue(name) {
 // Collect the current generation options into a JSON-serialisable object.
 // Mirrors what create_document() persists into GeneratedFile.generation_options,
 // EXCEPT question_ids (presets are selection-independent).
+// ===================== Format Priority chip widget =====================
+// Renders a small reorderable strip of format chips (IMG, MD, DOC) backed
+// by the hidden #formatPriority input. The first format wins when a
+// question has multiple available formats; ties fall through in order.
+const FORMAT_PRIORITY_META = {
+    IMG: { icon: 'bi-image',         label: 'Image' },
+    MD:  { icon: 'bi-markdown',      label: 'Markdown' },
+    DOC: { icon: 'bi-file-word',     label: 'Word' },
+};
+
+function readFormatPriority() {
+    const raw = (document.getElementById('formatPriority')?.value || 'IMG,MD,DOC')
+        .split(',').map(s => s.trim()).filter(s => s in FORMAT_PRIORITY_META);
+    // Guarantee all three present, in some order. Append any missing in default order.
+    for (const fmt of ['IMG', 'MD', 'DOC']) {
+        if (!raw.includes(fmt)) raw.push(fmt);
+    }
+    return raw.slice(0, 3);
+}
+
+function writeFormatPriority(arr) {
+    const el = document.getElementById('formatPriority');
+    if (el) el.value = arr.join(',');
+    renderFormatPriorityChips();
+}
+
+function moveFormatPriority(idx, dir) {
+    const arr = readFormatPriority();
+    const j = idx + (dir === 'up' ? -1 : 1);
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    writeFormatPriority(arr);
+}
+
+function renderFormatPriorityChips() {
+    const host = document.getElementById('formatPriorityChips');
+    if (!host) return;
+    const arr = readFormatPriority();
+    host.innerHTML = arr.map((fmt, i) => {
+        const meta = FORMAT_PRIORITY_META[fmt];
+        const upDisabled  = i === 0           ? 'disabled' : '';
+        const downDisabled = i === arr.length-1 ? 'disabled' : '';
+        return `
+            <span class="badge bg-light text-dark border d-inline-flex align-items-center gap-1 py-1 px-2"
+                  style="font-weight: 500;">
+                <span class="text-muted">${i+1}.</span>
+                <i class="bi ${meta.icon}"></i>
+                <span>${meta.label}</span>
+                <button type="button" class="btn btn-sm p-0 ms-1 ${upDisabled ? 'text-muted' : 'text-primary'}"
+                        style="line-height: 1;" ${upDisabled}
+                        onclick="moveFormatPriority(${i}, 'up')" title="Move up">
+                    <i class="bi bi-caret-up-fill"></i>
+                </button>
+                <button type="button" class="btn btn-sm p-0 ${downDisabled ? 'text-muted' : 'text-primary'}"
+                        style="line-height: 1;" ${downDisabled}
+                        onclick="moveFormatPriority(${i}, 'down')" title="Move down">
+                    <i class="bi bi-caret-down-fill"></i>
+                </button>
+            </span>`;
+    }).join('');
+}
+
+// Initial render on page load.
+document.addEventListener('DOMContentLoaded', renderFormatPriorityChips);
+
 function getCurrentGenerationOptions() {
     const sortConfigStr = document.getElementById('sortConfigInput')?.value || '';
     return {
@@ -900,6 +984,7 @@ function getCurrentGenerationOptions() {
         answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
         preferred_language: document.getElementById('preferredLanguage')?.value || 'EN',
         answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
+        format_priority: readFormatPriority().join(','),
         show_qid: getCheckedValue('showQid'),
         show_qid_answer: getCheckedValue('showQidAnswer'),
         show_correct_pct: getCheckedValue('showCorrectPct'),

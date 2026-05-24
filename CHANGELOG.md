@@ -30,6 +30,14 @@ All notable changes to the Online Question Bank System are documented in this fi
   ```
 - Existing rows are unaffected — only the set of allowed values grows.
 
+### ✨ Enhanced Features
+
+#### Format Priority — per-generation reorderable format preference
+- New **Format Priority** widget on the Generate page (below Preferred Language). Three pill chips (Image / Markdown / Word) with up/down arrows let the user reorder the format preference that applies when a question has multiple available formats for the same asset slot.
+- Default order is `IMG > MD > DOC` (matches the dashboard preview resolver). Reorder to e.g. `MD > IMG > DOC` to prefer rendered Markdown over images for questions that have both.
+- Stored as `format_priority` (comma-separated string) in `generation_options`, so it round-trips through Generation Presets, regenerate-from-file, and the SavedGenerationProfile load/save flow.
+- Files: `app/generator.py` (`_parse_format_priority`, threaded through `add_question_content_to_doc`), `templates/generate.html` (chip widget JS + getCurrent/restore plumbing).
+
 ### 🔧 Technical Improvements
 
 - New config keys `PANDOC_PATH` (defaults to `pandoc` on `PATH`) and `MD_MAX_SIZE_BYTES` (default 5 MiB) in `app/config.py`.

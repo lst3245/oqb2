@@ -64,7 +64,7 @@ Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:
 
 ## Asset Selection Logic
 Language: preferred (`EN`/`CH`) → `BI` → other  
-Format: **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`).  
+Format: defaults to **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`), but **user-configurable per generation** via the **Format Priority** widget on the Generate page. Stored in `generation_options.format_priority` as a comma-separated list (e.g. `MD,IMG,DOC`), parsed by `_parse_format_priority()`, threaded through `_generate_in_background → create_word_document → add_question_content_to_doc(format_priority=...)`.  
 All parts sharing the best (format, language) group are included in order of `part_number`.
 
 For `ANS` with `answer_preference='text_first'`: use `question.answer` text if available, fall back to image.  

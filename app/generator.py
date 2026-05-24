@@ -346,7 +346,8 @@ def create_document():
     
     preferred_language = request.form.get('preferred_language', 'EN')
     answer_preference = request.form.get('answer_preference', 'image_first')
-    
+    format_priority = _parse_format_priority(request.form.get('format_priority', ''))
+
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
 
@@ -378,6 +379,7 @@ def create_document():
         'split_fields': split_fields,
         'preferred_language': preferred_language,
         'answer_preference': answer_preference,
+        'format_priority': ','.join(format_priority),
         'question_ids': question_ids,
     }
     
@@ -430,7 +432,8 @@ def create_document():
               preferred_language, show_correct_pct, answer_preference,
               show_seq_no, seq_start, show_page_no, keep_together,
               apply_spacing_to_ans, denote_cross_topic,
-              info_fields, section_fields, split_fields, filename)
+              info_fields, section_fields, split_fields, filename,
+              format_priority)
     )
     thread.daemon = True
     thread.start()
@@ -443,8 +446,10 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             preferred_language, show_correct_pct, answer_preference,
                             show_seq_no, seq_start, show_page_no, keep_together,
                             apply_spacing_to_ans, denote_cross_topic,
-                            info_fields, section_fields, split_fields, filename):
+                            info_fields, section_fields, split_fields, filename,
+                            format_priority=None):
     """Background thread function to generate the Word document(s)"""
+    format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     with app.app_context():
         gen_file = GeneratedFile.query.get(gen_file_id)
         if not gen_file:
@@ -495,7 +500,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             show_seq_no, seq_start, show_page_no, keep_together,
                             info_fields, section_fields,
                             apply_spacing_to_ans=apply_spacing_to_ans,
-                            denote_cross_topic=denote_cross_topic
+                            denote_cross_topic=denote_cross_topic,
+                            format_priority=format_priority,
                         )
                         # Build per-file name from the group label, dedup if needed
                         safe_label = _sanitize_filename(group_label)
@@ -523,7 +529,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     show_seq_no, seq_start, show_page_no, keep_together,
                     info_fields, section_fields,
                     apply_spacing_to_ans=apply_spacing_to_ans,
-                    denote_cross_topic=denote_cross_topic
+                    denote_cross_topic=denote_cross_topic,
+                    format_priority=format_priority,
                 )
                 doc.save(filepath)
             
@@ -822,6 +829,27 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
 _DPI = 96  # assumed screen DPI for image size conversion
 
 
+# Default format priority for picking which asset to render when a question
+# has multiple file_format options (IMG, MD, DOC). Lower index = preferred.
+_DEFAULT_FORMAT_PRIORITY = ('IMG', 'MD', 'DOC')
+
+
+def _parse_format_priority(raw):
+    """Parse a comma-separated `format_priority` form value into a 3-element
+    list. Defaults to ('IMG', 'MD', 'DOC') and tolerates missing / unknown
+    tokens by appending the defaults in order."""
+    valid = set(_DEFAULT_FORMAT_PRIORITY)
+    parts = [p.strip().upper() for p in (raw or '').split(',') if p.strip()]
+    out = []
+    for p in parts:
+        if p in valid and p not in out:
+            out.append(p)
+    for p in _DEFAULT_FORMAT_PRIORITY:
+        if p not in out:
+            out.append(p)
+    return out[:len(_DEFAULT_FORMAT_PRIORITY)]
+
+
 # Match $$...$$ blocks (display math), greedy across newlines but non-greedy
 # between two consecutive `$$` so adjacent blocks don't merge.
 _MD_DISPLAY_MATH_RE = re.compile(r'\$\$([\s\S]+?)\$\$', re.MULTILINE)
@@ -935,10 +963,10 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         Composer(master_doc).append(fragment)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None):
     """
-    Create Word document with questions
-    
+    Create Word document with questions.
+
     Args:
         questions: List of Question objects
         answer_mode: One of QUE_ONLY, QUE_ANS, QUE_SOL, QUE_THEN_ANS, QUE_THEN_SOL
@@ -958,7 +986,14 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                               If False (default), use minimal spacing (1 line between items).
         denote_cross_topic: If True and a question has minor topics, force info line to show
                             major topic with "[Cross Topic: ...]" annotation.
+        format_priority: Ordered list (or tuple) of file_format strings — subset
+                         of {'IMG','MD','DOC'}. When a question has multiple
+                         available formats for the same asset type/language,
+                         the first format in this list wins. Defaults to
+                         ('IMG','MD','DOC').
     """
+    if not format_priority:
+        format_priority = list(_DEFAULT_FORMAT_PRIORITY)
     if info_fields is None:
         info_fields = {}
     if section_fields is None:
@@ -1018,7 +1053,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all answers - always start on new page
@@ -1031,7 +1066,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -1045,7 +1080,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -1058,7 +1093,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -1072,19 +1107,19 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, keep_together=keep_together)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority)
             elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, keep_together=keep_together)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, keep_together=keep_together, format_priority=format_priority)
             
             last_had_page_break = add_after_spacing(doc, spacing)
     
     return doc
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -1212,12 +1247,13 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         else:
             return 2
 
-    # Format order: IMG > MD > DOC (mirror the dashboard's preview resolver)
-    _FMT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
+    # Format order: caller-supplied priority (default IMG > MD > DOC).
+    _fp = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
+    _FMT_RANK = {fmt: i for i, fmt in enumerate(_fp)}
     def format_order(asset):
         return _FMT_RANK.get(asset.file_format, 99)
 
-    # Sort by format first (IMG preferred), then by language, then by part_number
+    # Sort by format first (per priority), then by language, then by part_number
     sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
 
     if not sorted_assets:
