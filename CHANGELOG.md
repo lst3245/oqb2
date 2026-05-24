@@ -4,6 +4,18 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+#### Regenerate — search profile always copied from original file
+- Previously, if the user had visited the generator from the dashboard before clicking Regenerate, the stale session `generator_filter_data` would silently override the original file's saved search profile, causing the new file to record the wrong filter.
+- Fixed: the original file's `filter_data` now always wins when regenerating, regardless of session state (`app/generator.py`).
+
+### ✨ Enhanced Features
+
+#### "Reuse Filter" also restores the saved question selection
+- Clicking the funnel (🔽) button on the My Files page now pre-selects the question IDs that were used to generate that file, in addition to restoring the dashboard filter.
+- The question IDs are fetched from the file's saved generation options and added to the active selection before the filter re-run. Any IDs that no longer appear in the restored filter results are pruned (e.g. questions deleted since the file was generated).
+
 ### ✨ New Features
 
 #### Profile Sharing (Super Admin)

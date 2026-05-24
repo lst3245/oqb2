@@ -2924,6 +2924,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         } catch(err) {
             console.error('Error loading filter data:', err);
         }
+        // Also restore the saved question selection from that file's generation options
+        try {
+            const genResp = await fetch(`{{ url_for('user.files_generation_options', file_id=0) }}`.replace('/0/', `/${filterDataId}/`));
+            const genData = await genResp.json();
+            const savedIds = genData.generation_options && genData.generation_options.question_ids;
+            if (savedIds && savedIds.length > 0) {
+                savedIds.forEach(id => selectedQuestions.add(String(id)));
+                saveStateToStorage();
+            }
+        } catch(err) {
+            console.error('Error loading generation options for selection restore:', err);
+        }
     }
     
     // Use profile filters if available, otherwise use localStorage saved filters

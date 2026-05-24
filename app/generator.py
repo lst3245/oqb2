@@ -83,8 +83,8 @@ def index():
                 if saved_qids and not has_explicit_qids:
                     question_ids = [str(qid) for qid in saved_qids]
                     session['generator_question_ids'] = question_ids
-                # Load filter data
-                if gen_file.filter_data and not filter_data:
+                # Load filter data — always use the original file's filter, overriding any stale session value
+                if gen_file.filter_data:
                     filter_data = gen_file.filter_data
                     session['generator_filter_data'] = filter_data
                 # Load sort config
