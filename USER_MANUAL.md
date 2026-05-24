@@ -145,6 +145,24 @@ Sort configuration is preserved in your session as you navigate pages.
 
 Individual questions can also be selected/deselected with their checkbox.
 
+### Selection survives filter changes
+
+Your selection is **independent** of the sidebar filter. Searching, paging, sorting, applying a saved search profile — none of these touch your selection. Only these actions change the selection:
+
+- Ticking / unticking individual checkboxes, or Select Page / Select All / Deselect All
+- The header **Clear** button
+- Set Operations modal Apply (Replace / Append)
+- Applying a Question Set
+- **Changing the subject** (selections are subject-tied, so this auto-clears)
+
+### Show Selected Only — viewing your full selection
+
+Open the **View** dropdown in the question-list header and toggle **Show Selected Only**. While on:
+
+- The page paginates through your **complete** selection (every selected question, regardless of the sidebar filter).
+- Sidebar filters are temporarily ignored — a banner reminds you of this and offers a one-click **Show All** to turn the toggle off.
+- Unticking a card while in this mode hides it immediately (it's no longer in the selection).
+
 ### What To Do With Selected Questions
 
 Once you have a selection, the action buttons become active:
@@ -358,9 +376,15 @@ Typical workflow: search Topic A and select some questions, switch to Topic B an
 
 On the Dashboard, click the **Set** button (between **Manage** and **Generate**, with an intersect icon). The modal opens with three areas:
 
-- **Available Sets (left)** — the live **Selection** chip, optional **Result** chip (after evaluating), and your saved sets for the current subject grouped Starred / My sets / Shared by admins.
+- **Available Sets (left)** — four kinds of source chips:
+  - **Selection** (live, mirrors the dashboard's tick boxes)
+  - **Filter Result** (every question matching your current sidebar filter, across all pages — useful for trimming the selection to whatever the filter currently shows)
+  - **Result** (the previous Evaluate output; appears after the first Evaluate)
+  - Your saved sets for the current subject, grouped Starred / My sets / Shared by admins
 - **Expression bar (top right)** — a chip-by-chip view of your formula. Tap a set on the left to add it; tap operator buttons (∪, ∩, \\) and parentheses to build up the expression. Backspace removes the last chip; Clear empties the bar.
 - **Result (bottom right)** — appears after you click **Evaluate**, with three actions: **Replace Selection**, **Append to Selection**, and **Save Result as set…**.
+
+> Tip: `Selection ∩ Filter Result` followed by **Replace Selection** is the way to "trim my selection to the current filter" — useful after you change a filter and want to drop the questions that no longer match.
 
 ### Saving a set
 

@@ -4,6 +4,30 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### Show Selected Only — paginates the FULL selection (was previously broken)
+- Fixed: when `Show Selected Only` was on, the dashboard only showed the selected questions that happened to be on the current page of the active filter. With a 156-question selection and a filter that returned 5 of them on page 1, the user saw 5 and had no way to view the other 151 — the feature was effectively useless across pages.
+- The toggle now drives a server-side override: it writes the current selection into the new hidden `#idsInput` and re-submits the filter form. The backend's new `ids` parameter (mirrors the existing `qids` override) returns ONLY those questions, ignores all sidebar filters, and paginates them with the user's chosen `page_size`. The user can now browse their entire selection regardless of the sidebar filter.
+- The banner now reads "Showing selected questions only — N selected total, page shows M. Sidebar filters are temporarily ignored." Pagination links work normally.
+- Selection-changing actions while the toggle is on (Clear button, Set Operations Apply, Select All) automatically re-sync the visible page to the new selection.
+- Files: `app/dashboard.py` (new `ids` filter param), `templates/dashboard.html` (`#idsInput`, `syncShowSelectedOnlyToServer()`, refactored `applyShowSelectedOnly`).
+
+#### Set Operations modal — new "Filter Result" chip
+- Added a fourth source chip (after Selection, Result, Saved Sets) labelled **Filter Result**. It resolves to every DB ID matching the current sidebar filter (across all pages, not just the visible one).
+- Common use case: build `Selection ∩ Filter Result` and click `Replace Selection` to trim the selection down to whatever the current filter returns. Or `Selection ∪ Filter Result` to add the entire current filter's results to the selection.
+- Files: `templates/dashboard.html` (chip button + `getCurrentFilterResultIds()` resolver).
+
+### 🐛 Bug Fixes
+
+#### Selection vs Filter — independence policy and stale-tick fix
+- **Stale checkbox ticks** after a Replace Selection: `initializeSelectionState()` previously only set `cb.checked = true` for selected IDs and never reset it for the deselected branch. Switching from a 5-question selection to a 2-question result left 3 ticks stranded on screen. Now both branches go through `cb.checked = isSelected`.
+- **Auto-prune of selection on every filter change**: `pruneSelectionsToFilteredResults()` ran after every HTMX swap of `#questionList` and silently deleted selected IDs not in the new filter results. This violated the "selection survives across filter changes" mental model. Function and its caller removed; selection now strictly survives any filter / sort / paging change.
+- **Subject change** clears selection automatically (selections are subject-tied and cannot be generated as a mix). A `suppressSelectionClearOnSubjectChange` flag bypasses this for the `?question_set_id=` flow when its target subject differs from the current one.
+- **`?question_set_id=` apply** is now pure category (1) when the set's subject matches the active dashboard subject: only the selection changes; the sidebar filter is left untouched. (Different-subject apply still resets the filter to subject-only defaults since old topic IDs are stale.)
+- New rule file `.cursor/rules/dashboard-selection-vs-filter.mdc` documents the full touchpoint matrix and category (1) / (2) / (3) semantics for future agents.
+- Files: `templates/dashboard.html`, `.cursor/rules/dashboard-selection-vs-filter.mdc` (new), `.cursor/rules/dashboard-search.mdc`, `.cursor/rules/question-sets.mdc`.
+
 ### 🗄️ Database Changes
 
 #### New `saved_question_sets` table

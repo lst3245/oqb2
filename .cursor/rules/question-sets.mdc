@@ -31,10 +31,14 @@ Per-subject saved collection of question DB IDs. Parallel to `SavedFilter` and `
 Inserted in the question-list header between **Manage** and **Generate**, gated on `current_user.can_generate()`.
 
 Opens `#setOpsModal` (in `templates/dashboard.html`):
-- **Sources panel (left)**: `Selection` chip (live, mirrors `selectedQuestions`), `Result` chip (last evaluation), saved sets for the current subject grouped Starred / My sets / Shared by admins.
+- **Sources panel (left)** — four chip kinds (see [dashboard-selection-vs-filter.mdc](mdc:.cursor/rules/dashboard-selection-vs-filter.mdc) for the full taxonomy):
+  - `Selection` chip — live, mirrors `selectedQuestions`
+  - `Filter Result` chip — all DB IDs matching current sidebar filter (across all pages, from `#allQuestionIds`); enables "trim selection to current filter" via `Selection ∩ Filter Result`
+  - `Result` chip — last Evaluate output
+  - Saved sets — current subject only, grouped Starred / My sets / Shared by admins
 - **Expression chip bar**: tap a source chip → it's appended; operator buttons (∪ ∩ \\) and parens append their own chips. Backspace and Clear edit the chip array.
 - **Evaluate**: parses the chip array via recursive descent (single precedence, left-associative, parens for grouping) into an AST and evaluates client-side over `Set<string>` of question IDs.
-- **Apply actions**: `Replace Selection` (order-preserving), `Append to Selection`, `Save Result as set…`. There is also a "Save current Selection as set…" entry that bypasses the expression.
+- **Apply actions**: `Replace Selection` (order-preserving), `Append to Selection`, `Save Result as set…`. There is also a "Save current Selection as set…" entry that bypasses the expression. Apply actions are pure category (1) — they never touch the sidebar filter. If `Show Selected Only` is on at the time of Apply, the page re-syncs to the new selection automatically.
 
 ### Operators
 - **Union (∪)** — `setUnion(a, b)`
@@ -46,7 +50,11 @@ Opens `#setOpsModal` (in `templates/dashboard.html`):
 `selectedQuestions` stores **string** IDs (matches checkbox `value`). All chip set IDs are strings. Saved sets are coerced to int on save (server) and back to string on load (client) to match the existing convention.
 
 ## Apply via URL
-`/dashboard/?question_set_id=<id>` — fetches `/user/sets/<id>/data`, force-restores subject, replaces `selectedQuestions` with the set, auto-enables Show Selected Only, then submits the filter form. Implemented next to the existing `?profile_id=` and `?filter_data_id=` handlers in the dashboard `DOMContentLoaded` hook.
+`/dashboard/?question_set_id=<id>` — fetches `/user/sets/<id>/data` and behaves per the selection-vs-filter policy:
+- **Same subject** as the persisted dashboard subject → category (1): replace `selectedQuestions` only, do NOT touch sidebar filter, do NOT auto-submit. `Show Selected Only` is auto-enabled so the user immediately sees the set.
+- **Different subject** → switch subject (which would normally clear selection — bypassed via `suppressSelectionClearOnSubjectChange`), reset sidebar filter to subject-only defaults (old topic IDs are stale), seed selection from the set, auto-submit, auto-enable Show Selected Only.
+
+Implemented next to the existing `?profile_id=` and `?filter_data_id=` handlers in the dashboard `DOMContentLoaded` hook. See [dashboard-selection-vs-filter.mdc](mdc:.cursor/rules/dashboard-selection-vs-filter.mdc) for the full URL-handler matrix.
 
 ## Permissions
 | Operation | Owner | Super admin | Other w/ subject access |

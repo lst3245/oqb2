@@ -29,6 +29,7 @@ Core route: `POST /dashboard/filter` in `app/dashboard.py` → `filter_questions
 | `qid_search` | string | Direct QID search |
 | `qid_strict` | bool | Strict: user controls pattern with `*` wildcard; Loose (default): tokenise and match in order |
 | `qids` | string | Comma-separated explicit QID list. **Overrides all other filters** (only QIDs intersected with user-accessible subjects are returned). Set via `?qids=…` URL param from the Admin → DB Health anomaly view. The dashboard stores it in hidden input `#qidsInput` and shows a dismissible banner. |
+| `ids` | string | Comma-separated explicit DB-id list (`Question.id`). **Overrides all other filters** (subject access still enforced). Powers the **Show Selected Only** toggle: the frontend writes `selectedQuestions` into hidden `#idsInput` and submits the filter form so the user paginates through their FULL selection regardless of the sidebar filter. Mutually exclusive with `qids` (qids wins if both set). |
 | `page` | int | Page number (default 1) |
 | `page_size` | int | 10, 20, 50, or 100 (default 20) |
 | `preview_language` | `EN`\|`CH` | Asset language preference for card previews |

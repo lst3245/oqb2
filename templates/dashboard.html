@@ -348,6 +348,12 @@
                              e.g. from the Admin → DB Health anomaly view). When non-empty, this
                              overrides all other filters on the backend. -->
                         <input type="hidden" name="qids" id="qidsInput" value="">
+                        <!-- Hidden input for an explicit DB-id list filter. Driven by the
+                             "Show Selected Only" toggle: when on, this is set to the
+                             current selection (comma-separated DB IDs) and all sidebar
+                             filters are ignored on the backend so the user can paginate
+                             through their FULL selection. -->
+                        <input type="hidden" name="ids" id="idsInput" value="">
                     </form>
                     
                     <hr class="my-3">
@@ -844,10 +850,18 @@
                                 <div class="mb-2">
                                     <div class="text-muted small fw-bold px-1 mb-1">Live</div>
                                     <button type="button" class="btn btn-sm btn-outline-primary w-100 text-start"
-                                            id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})">
+                                            id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})"
+                                            title="Click to add the live dashboard selection as a chip">
                                         <i class="bi bi-cursor"></i>
                                         <strong>Selection</strong>
                                         <span class="badge bg-primary ms-1" id="selectionChipCount">0</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-info w-100 text-start mt-1"
+                                            id="filterResultChipBtn" onclick="appendChip({type:'set', src:'filter'})"
+                                            title="All questions matching the current dashboard filter (all pages)">
+                                        <i class="bi bi-funnel"></i>
+                                        <strong>Filter Result</strong>
+                                        <span class="badge bg-info ms-1" id="filterResultChipCount">0</span>
                                     </button>
                                 </div>
                                 <div class="mb-2" id="resultChipWrap" style="display:none;">
@@ -1044,6 +1058,11 @@
 // Global set to track selected question IDs across pages
 let selectedQuestions = new Set();
 
+// When true, the next subjectSelect 'change' event will NOT clear the selection.
+// Used by ?question_set_id= with a different subject so the seeded selection
+// survives the subject switch.
+let suppressSelectionClearOnSubjectChange = false;
+
 // LocalStorage keys for persistence
 const STORAGE_KEYS = {
     SELECTED_QUESTIONS: 'oqb_selectedQuestions',
@@ -1199,44 +1218,15 @@ function saveViewSettings() {
 }
 
 // Re-apply view settings after HTMX content swap
+// IMPORTANT: filter changes must NEVER mutate selection membership. We only
+// re-render checkbox state and reorder visible-first; we do NOT prune.
 document.body.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'questionList') {
-        // Remove selections that are no longer in the filtered results
-        pruneSelectionsToFilteredResults();
-        
         applyViewSettings();
         initializeSelectionState();
         applyShowSelectedOnly();
     }
 });
-
-// Remove selected questions that are no longer in the current filtered results
-function pruneSelectionsToFilteredResults() {
-    const allIdsElement = document.getElementById('allQuestionIds');
-    if (!allIdsElement) return;
-    
-    const filteredIds = new Set(allIdsElement.dataset.ids.split(',').filter(id => id));
-    
-    // Find selections that are no longer in filtered results
-    const toRemove = [];
-    selectedQuestions.forEach(id => {
-        if (!filteredIds.has(id)) {
-            toRemove.push(id);
-        }
-    });
-    
-    // Remove them from selection
-    if (toRemove.length > 0) {
-        toRemove.forEach(id => selectedQuestions.delete(id));
-        saveStateToStorage();
-        updateSelectionCounter();
-        
-        // Show a brief notification if any were removed
-        if (toRemove.length > 0) {
-            console.log(`Cleared ${toRemove.length} selection(s) not in current filter results`);
-        }
-    }
-}
 
 // ============== FILTER MODIFICATION TRACKING ==============
 
@@ -1418,12 +1408,21 @@ function onPageSizeChange() {
 function initShowSelectedOnly() {
     const savedShowSelected = localStorage.getItem(STORAGE_KEYS.SHOW_SELECTED_ONLY) === 'true';
     const showSelectedToggle = document.getElementById('showSelectedOnly');
-    
+
     if (showSelectedToggle) {
         showSelectedToggle.checked = savedShowSelected;
     }
-    
-    // Apply initial state
+
+    // If the toggle was previously on, prime the hidden #idsInput with the
+    // currently restored selection so the upcoming initial filter form submit
+    // already includes the `ids` override (and the backend returns just the
+    // selected questions, paginated, ignoring the sidebar filter).
+    const idsInput = document.getElementById('idsInput');
+    if (idsInput) {
+        idsInput.value = savedShowSelected ? Array.from(selectedQuestions).join(',') : '';
+    }
+
+    // Apply initial UI state (cosmetic — banner/counter)
     applyShowSelectedOnly();
 }
 
@@ -1431,54 +1430,70 @@ function initShowSelectedOnly() {
 function toggleShowSelectedOnly() {
     const showSelectedToggle = document.getElementById('showSelectedOnly');
     const isEnabled = showSelectedToggle.checked;
-    
+
     // Save to localStorage
     localStorage.setItem(STORAGE_KEYS.SHOW_SELECTED_ONLY, isEnabled);
-    
-    // Apply filter
-    applyShowSelectedOnly();
+
+    // Push state to the backend `ids` override and re-fetch
+    syncShowSelectedOnlyToServer();
 }
 
-// Apply the show selected only filter
+// Push the current Show-Selected-Only state to the backend filter override.
+// When ON: hidden #idsInput is set to the comma-separated selection IDs and the
+// filter form is re-submitted. The backend treats `ids` as a special override
+// (mirrors the `qids` mechanism) so the sidebar filter is bypassed and the user
+// paginates through their FULL selection.
+// When OFF: clear #idsInput and re-submit so the sidebar filter takes effect again.
+function syncShowSelectedOnlyToServer() {
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    const isEnabled = showSelectedToggle ? showSelectedToggle.checked : false;
+    const idsInput = document.getElementById('idsInput');
+    if (!idsInput) {
+        // Defensive fallback to the old client-side behaviour
+        applyShowSelectedOnly();
+        return;
+    }
+    if (isEnabled) {
+        idsInput.value = Array.from(selectedQuestions).join(',');
+    } else {
+        idsInput.value = '';
+    }
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm && typeof htmx !== 'undefined') {
+        // Reset to page 1 when the override changes
+        const pageSizeInput = document.getElementById('pageSizeInput');
+        // (page is implicit; submitting the form posts to /dashboard/filter without a page arg)
+        htmx.trigger(filterForm, 'submit');
+    }
+    // The notice / counter / show-all-controls visibility are updated after the
+    // HTMX swap completes, but we also update the notice immediately so the
+    // user gets instant visual feedback.
+    showFilterActiveNotice(isEnabled);
+}
+
+// Apply the show selected only filter — now mostly a UI-state refresher.
+// The actual hide/show of cards is handled server-side via the `ids` override.
+// This function still runs after every HTMX swap (and on initial page load) to:
+//  - Hide select-all controls and the in-list pagination header (purely cosmetic)
+//  - Refresh the banner notice and counter text
 function applyShowSelectedOnly() {
     const showSelectedToggle = document.getElementById('showSelectedOnly');
     const isEnabled = showSelectedToggle ? showSelectedToggle.checked : false;
-    
-    const questionCards = document.querySelectorAll('.question-card');
-    const pagination = document.querySelector('#questionList nav');
+
     const selectAllControls = document.querySelector('#questionList > .mb-3');
-    
-    questionCards.forEach(card => {
-        const checkbox = card.querySelector('input[name="question_checkbox"]');
-        if (!checkbox) return;
-        
-        const isSelected = selectedQuestions.has(checkbox.value);
-        
-        if (isEnabled && !isSelected) {
-            // Hide non-selected questions
-            card.style.display = 'none';
-        } else {
-            // Show all or show this selected one
-            card.style.display = '';
-        }
+    if (selectAllControls) {
+        selectAllControls.style.display = isEnabled ? 'none' : '';
+    }
+
+    // The cards themselves are now filtered server-side (the response only
+    // contains the selected questions when isEnabled), so we do NOT hide
+    // anything client-side. Reset any stale inline display on cards just in
+    // case (e.g. legacy localStorage state).
+    document.querySelectorAll('.question-card').forEach(card => {
+        if (card.style.display === 'none') card.style.display = '';
     });
-    
-    // Hide pagination when filtering client-side (it doesn't work with client-side filtering)
-    if (pagination) {
-        pagination.style.display = isEnabled ? 'none' : '';
-    }
-    
-    // Hide the select all controls when showing selected only (doesn't make sense in this mode)
-    if (selectAllControls && isEnabled) {
-        selectAllControls.style.display = 'none';
-    } else if (selectAllControls) {
-        selectAllControls.style.display = '';
-    }
-    
-    // Update the visible count display
+
     updateVisibleCountDisplay();
-    
-    // Show a notice when filtering is active
     showFilterActiveNotice(isEnabled);
 }
 
@@ -1486,20 +1501,17 @@ function applyShowSelectedOnly() {
 function updateVisibleCountDisplay() {
     const showSelectedToggle = document.getElementById('showSelectedOnly');
     const isEnabled = showSelectedToggle ? showSelectedToggle.checked : false;
-    
+
     if (isEnabled) {
-        // Show how many are visible vs total on page
-        const totalOnPage = document.querySelectorAll('.question-card').length;
-        const visibleOnPage = document.querySelectorAll('.question-card:not([style*="display: none"])').length;
-        
-        // Update the selection counter to show filter status
+        // Cards on this page (post server-filter) — paginated subset of the selection.
+        const onPage = document.querySelectorAll('.question-card').length;
         const counter = document.getElementById('selectionCounter');
         if (counter) {
-            counter.textContent = `${selectedQuestions.size} selected (showing ${visibleOnPage})`;
+            counter.textContent = `${selectedQuestions.size} selected (page shows ${onPage})`;
         }
         const mainCounter = document.getElementById('mainSelectionCounter');
         if (mainCounter) {
-            mainCounter.textContent = `${selectedQuestions.size} selected (showing ${visibleOnPage})`;
+            mainCounter.textContent = `${selectedQuestions.size} selected (page shows ${onPage})`;
         }
     }
 }
@@ -1516,25 +1528,23 @@ function showFilterActiveNotice(isEnabled) {
     }
     
     if (isEnabled) {
-        // Check if there are any selected questions visible
-        const visibleCount = document.querySelectorAll('.question-card:not([style*="display: none"])').length;
-        
-        // Create notice
+        const onPage = document.querySelectorAll('.question-card').length;
+        const total = selectedQuestions.size;
+
         const notice = document.createElement('div');
         notice.id = 'showSelectedOnlyNotice';
-        notice.className = 'alert alert-info mb-3 d-flex align-items-center justify-content-between';
+        notice.className = 'alert alert-info mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2';
         notice.innerHTML = `
             <div>
-                <i class="bi bi-funnel-fill"></i> 
-                <strong>Showing selected questions only</strong> 
-                (${selectedQuestions.size} total selected, ${visibleCount} visible on this page)
+                <i class="bi bi-funnel-fill"></i>
+                <strong>Showing selected questions only</strong>
+                — ${total} selected total, page shows ${onPage}.
+                <span class="text-muted small ms-2">Sidebar filters are temporarily ignored.</span>
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('showSelectedOnly').checked = false; toggleShowSelectedOnly();">
                 <i class="bi bi-x"></i> Show All
             </button>
         `;
-        
-        // Insert at the top of question list
         questionList.insertBefore(notice, questionList.firstChild);
     }
 }
@@ -1684,12 +1694,9 @@ function initializeSelectionState() {
     const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
     checkboxes.forEach(cb => {
         const card = cb.closest('.question-card');
-        if (selectedQuestions.has(cb.value)) {
-            cb.checked = true;
-            if (card) card.classList.add('selected');
-        } else {
-            if (card) card.classList.remove('selected');
-        }
+        const isSelected = selectedQuestions.has(cb.value);
+        cb.checked = isSelected;
+        if (card) card.classList.toggle('selected', isSelected);
     });
     // Reorder selectedQuestions to match current display order so that
     // "Manage" page and other consumers see IDs in the sorted order
@@ -1762,10 +1769,14 @@ function updateSelection(checkbox) {
     updateSelectionCounter();
     saveStateToStorage();
     
-    // Re-apply show selected only filter if enabled
+    // While "Show Selected Only" is active, an unticked card should disappear
+    // immediately (it's no longer in the selection that the page is filtered to).
+    // We hide it locally for instant feedback; the next pagination / refresh fetch
+    // will already exclude it server-side via the `ids` override.
     const showSelectedToggle = document.getElementById('showSelectedOnly');
-    if (showSelectedToggle && showSelectedToggle.checked) {
-        applyShowSelectedOnly();
+    if (showSelectedToggle && showSelectedToggle.checked && !checkbox.checked) {
+        if (card) card.style.display = 'none';
+        updateVisibleCountDisplay();
     }
 }
 
@@ -1897,9 +1908,15 @@ function toggleSelectAll(checkbox, allPages) {
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
-    
-    // Re-apply show selected only filter if enabled
-    applyShowSelectedOnly();
+
+    // If Show Selected Only is active, the server-side selection-set just changed,
+    // so re-sync to keep the visible page in lock-step with the selection.
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    if (showSelectedToggle && showSelectedToggle.checked) {
+        syncShowSelectedOnlyToServer();
+    } else {
+        applyShowSelectedOnly();
+    }
 }
 
 // Listen for HTMX content updates
@@ -3084,6 +3101,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     const profileId = urlParams.get('profile_id');
     const filterDataId = urlParams.get('filter_data_id');
     const questionSetId = urlParams.get('question_set_id');
+    // Set true after the question-set URL handler determines that the set's subject
+    // matches the localStorage-restored subject. In that case we treat the apply as
+    // pure (1) — selection-only — and skip the auto-submit that would otherwise wipe
+    // the user's current filter view.
+    let questionSetSameSubject = false;
     // Explicit QID list filter (from Admin → DB Health "View in Dashboard")
     let qidsParam = urlParams.get('qids');
     const qidsToken = urlParams.get('qids_token');
@@ -3128,21 +3150,25 @@ document.addEventListener('DOMContentLoaded', async function() {
             console.error('Error loading generation options for selection restore:', err);
         }
     } else if (questionSetId) {
-        // Apply a saved Question Set: force-set subject, replace selection, then auto-submit filter
+        // Apply a saved Question Set.
+        // - Same subject as the (localStorage-restored) dashboard subject → category (1):
+        //     replace selection only; do NOT touch filter, do NOT auto-submit. The
+        //     existing filter view is preserved and the user can toggle Show Selected
+        //     Only (auto-enabled below) to immediately see the set.
+        // - Different subject → subject must change. We supply a clean subject-only
+        //     filter (since old topic/chapter IDs are stale for the new subject) and
+        //     replace the selection. The subject-change clear is bypassed via
+        //     `suppressSelectionClearOnSubjectChange` so the new selection survives.
         try {
             const resp = await fetch(`{{ url_for('user.sets_data', set_id=0) }}`.replace('/0/', `/${questionSetId}/`));
             const data = await resp.json();
             if (data.error) {
                 console.error('Error loading question set:', data.error);
             } else {
-                profileFilters = {
-                    subject: data.subject || '',
-                    source_type: 'DSE', section: 'all', topic_mode: 'OR', subtopic_mode: 'OR', q_type: 'all',
-                    years: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
-                    qid_search: '', qid_strict: false,
-                    is_crosstopic: false, is_crosssubtopic: false,
-                    show_hidden_subtopics: false, show_hidden_subchapters: false,
-                };
+                const setSubject = data.subject || '';
+                const persistedSubject = (savedFilters && savedFilters.subject) || '';
+                questionSetSameSubject = setSubject && setSubject === persistedSubject;
+
                 selectedQuestions = new Set();
                 (data.question_ids || []).forEach(id => selectedQuestions.add(String(id)));
                 saveStateToStorage();
@@ -3150,6 +3176,19 @@ document.addEventListener('DOMContentLoaded', async function() {
                 try {
                     localStorage.setItem(STORAGE_KEYS.SHOW_SELECTED_ONLY, 'true');
                 } catch(e) { /* ignore */ }
+
+                if (!questionSetSameSubject) {
+                    // Different subject: hand a clean subject-only filter to the restore path
+                    profileFilters = {
+                        subject: setSubject,
+                        source_type: 'DSE', section: 'all', topic_mode: 'OR', subtopic_mode: 'OR', q_type: 'all',
+                        years: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
+                        qid_search: '', qid_strict: false,
+                        is_crosstopic: false, is_crosssubtopic: false,
+                        show_hidden_subtopics: false, show_hidden_subchapters: false,
+                    };
+                }
+                // Same subject: leave profileFilters null so existing localStorage filter is used unchanged.
             }
         } catch(err) {
             console.error('Error loading question set:', err);
@@ -3164,9 +3203,18 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Use profile filters if available, otherwise use localStorage saved filters
     const filtersToRestore = profileFilters || savedFilters;
-    
-    // Restore filter settings (including default subject)
-    await restoreFilterSettings(filtersToRestore);
+
+    // If we are about to programmatically switch subject as part of a question-set
+    // apply, suppress the auto-clear that would otherwise wipe the seeded selection.
+    if (questionSetId && !questionSetSameSubject) {
+        suppressSelectionClearOnSubjectChange = true;
+    }
+    try {
+        // Restore filter settings (including default subject)
+        await restoreFilterSettings(filtersToRestore);
+    } finally {
+        suppressSelectionClearOnSubjectChange = false;
+    }
     
     // Update action buttons based on selected subject's permission
     updatePermissionButtons();
@@ -3191,7 +3239,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Auto-trigger search if we have filters with a subject selected
     // restoreFilterSettings now properly awaits all async loads, so filters are fully set
     else if (filtersToRestore && filtersToRestore.subject) {
-        if (profileFilters || questionSetId) {
+        // Same-subject question-set apply is category (1): selection-only. Do not
+        // re-submit the filter form — that would drop the user's current filter view.
+        // Fall through to the localStorage-restore branch below to keep the existing
+        // filter intact (the new selection is already in place; Show Selected Only
+        // was auto-enabled by the question-set handler above).
+        const isQuestionSetWithFilterChange = questionSetId && !questionSetSameSubject;
+        if (profileFilters || isQuestionSetWithFilterChange) {
             // Profile restore: always start at page 1
             const filterForm = document.getElementById('filterForm');
             if (filterForm) {
@@ -3308,6 +3362,13 @@ document.getElementById('subjectSelect').addEventListener('change', function() {
     const subjectId = this.value;
     const sourceType = document.querySelector('input[name="source_type"]:checked').value;
 
+    // Subject change always clears the current selection — questions are subject-tied
+    // and a cross-subject selection cannot be generated. The flag bypass exists for
+    // ?question_set_id= where we want to switch subject AND seed a new selection.
+    if (!suppressSelectionClearOnSubjectChange && selectedQuestions.size > 0) {
+        clearSelection();
+    }
+
     if (subjectId) {
         loadSubjectData(subjectId, sourceType);
         // Load chapters for the new subject
@@ -3421,7 +3482,7 @@ function previewText(title, textContent) {
 // Clear all selections
 function clearSelection() {
     selectedQuestions.clear();
-    
+
     // Uncheck all visible checkboxes and remove selected class
     const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');
     checkboxes.forEach(cb => {
@@ -3429,14 +3490,20 @@ function clearSelection() {
         const card = cb.closest('.question-card');
         if (card) card.classList.remove('selected');
     });
-    
-    // Update UI
+
     updateSelectAllCheckbox();
     updateSelectionCounter();
     saveStateToStorage();
-    
-    // Re-apply show selected only filter (will hide all if enabled)
-    applyShowSelectedOnly();
+
+    // If "Show Selected Only" is active, re-sync to server so the empty selection
+    // produces an empty response instead of leaving stale cards from the previous
+    // selection on screen. Otherwise just refresh the local UI state.
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    if (showSelectedToggle && showSelectedToggle.checked) {
+        syncShowSelectedOnlyToServer();
+    } else {
+        applyShowSelectedOnly();
+    }
 }
 
 // Clear QID search field
@@ -4638,6 +4705,8 @@ function openSetOpsModal() {
 function updateSelectionChip() {
     const countEl = document.getElementById('selectionChipCount');
     if (countEl) countEl.textContent = selectedQuestions.size;
+    const filterEl = document.getElementById('filterResultChipCount');
+    if (filterEl) filterEl.textContent = getCurrentFilterResultIds().size;
 }
 
 function refreshAvailableSets() {
@@ -4730,9 +4799,22 @@ function clearExpression() {
     renderSetExpression();
 }
 
+// Read the current dashboard filter result IDs from the question-list partial.
+// The #allQuestionIds div is rendered by templates/partials/question_list.html
+// with `data-ids` containing every DB id matching the active filter (across all
+// pages, NOT just the current page). When the filter result is empty, the div
+// won't be rendered, so we fall back to an empty Set.
+function getCurrentFilterResultIds() {
+    const el = document.getElementById('allQuestionIds');
+    if (!el) return new Set();
+    const raw = (el.dataset.ids || '').split(',').filter(id => id);
+    return new Set(raw);
+}
+
 function chipLabel(chip) {
     if (chip.type === 'set') {
         if (chip.src === 'selection') return `<i class="bi bi-cursor"></i> Selection (${selectedQuestions.size})`;
+        if (chip.src === 'filter')    return `<i class="bi bi-funnel"></i> Filter Result (${getCurrentFilterResultIds().size})`;
         if (chip.src === 'result')    return `<i class="bi bi-stars"></i> Result (${setOpsLastResult ? setOpsLastResult.size : 0})`;
         const cached = setOpsLoadedSets[chip.id];
         const sz = cached ? cached.ids.size : 0;
@@ -4750,6 +4832,7 @@ function chipLabel(chip) {
 function chipClass(chip) {
     if (chip.type === 'set') {
         if (chip.src === 'selection') return 'bg-primary';
+        if (chip.src === 'filter')    return 'bg-info text-dark';
         if (chip.src === 'result')    return 'bg-success';
         return 'bg-secondary';
     }
@@ -4857,6 +4940,7 @@ function evaluateAst(node) {
 
 function resolveSetChip(chip) {
     if (chip.src === 'selection') return new Set(selectedQuestions);
+    if (chip.src === 'filter')    return getCurrentFilterResultIds();
     if (chip.src === 'result')    return setOpsLastResult ? new Set(setOpsLastResult) : new Set();
     const cached = setOpsLoadedSets[chip.id];
     return cached ? new Set(cached.ids) : new Set();
@@ -4921,6 +5005,13 @@ function applyResultToSelection(mode) {
     initializeSelectionState();
     updateSelectionChip();
     setOpsModalInstance.hide();
+
+    // If "Show Selected Only" is active, the server-side `ids` override is now
+    // stale — re-sync so the visible page reflects the new selection.
+    const showSelectedToggle = document.getElementById('showSelectedOnly');
+    if (showSelectedToggle && showSelectedToggle.checked) {
+        syncShowSelectedOnlyToServer();
+    }
 }
 
 // -------- Save modal --------

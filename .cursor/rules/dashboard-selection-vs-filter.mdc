@@ -1,0 +1,88 @@
+---
+description: Selection vs Filter independence policy on the Dashboard, Show Selected Only semantics, Set Operations chip taxonomy
+globs: app/dashboard.py,templates/dashboard.html,templates/partials/question_list.html
+alwaysApply: false
+---
+
+# Dashboard — Selection vs Filter
+
+The dashboard maintains two **independent** pieces of state that callers (URL-handlers, modal actions, etc.) MUST never silently couple:
+
+- **Selection** (`selectedQuestions: Set<string>`) — stringified DB IDs of questions the user has explicitly chosen. Persisted in `localStorage['oqb_selectedQuestions']`. Survives filter changes, page reloads, and HTMX swaps.
+- **Filter** (sidebar form `#filterForm` + hidden inputs `#qidsInput`, `#idsInput`) — what the backend search returns. Persisted in `localStorage['oqb_filterSettings']`.
+
+> **Core rule**: a flow may update one, the other, or both — but never as a hidden side-effect. There is **no auto-prune** of selection on filter changes; selections survive by default.
+
+## Touchpoint matrix
+
+| Trigger | Filter | Selection | Banner |
+|---|---|---|---|
+| Sidebar filter form submit / Reset | yes | no | no |
+| Sidebar subject change | yes | **cleared** (subject-coupling exception) | no |
+| Card / checkbox toggle | no | yes | no |
+| Select Page / Select All / Deselect All | no | yes | no |
+| Header `Clear` button | no | cleared | no |
+| `Show Selected Only` toggle | overridden via `ids` (sidebar bypassed) | no | yes (showSelectedOnlyNotice) |
+| Set Operations modal: Replace / Append / Save | no | yes | no |
+| `?profile_id=` (Apply saved search profile) | yes | no | no |
+| `?filter_data_id=` (My Files Re-filter) | yes | yes | no |
+| `?question_set_id=` same subject | no | replaced | Show Selected Only auto-on |
+| `?question_set_id=` different subject | reset to subject-only | replaced | Show Selected Only auto-on |
+| `?qids=` / `?qids_token=` (DB Health anomaly) | one-shot `qids` override | no | yes (dismissible) |
+| Initial localStorage restore | yes | yes | no |
+| HTMX swap of `#questionList` (any cause) | n/a | reorder only, never delete | no |
+
+The category meanings used in commit messages and PRs:
+
+- **(1) Selection-only** — change selection, never touch sidebar filter (e.g. Set Ops Apply, same-subject question-set apply).
+- **(2) Both** — change selection AND filter together (e.g. `?filter_data_id=`).
+- **(3) Both + banner + special-purpose filter** — bypass sidebar via dedicated override + banner (e.g. `?qids=`).
+- **Filter-only** — sidebar form, `?profile_id=`, subject change.
+
+## Subject change is the ONE exception
+
+Selections are subject-tied (Generate cannot mix subjects). Changing `#subjectSelect` therefore auto-clears the selection. The `let suppressSelectionClearOnSubjectChange = false;` flag at the top of the dashboard script is set briefly during `?question_set_id=` apply with a different subject, so the seeded selection survives the implied subject switch.
+
+## "Show Selected Only" — server-side via the `ids` override
+
+The toggle in the View dropdown (`#showSelectedOnly`) is **NOT a client-side hide**. It writes the current `selectedQuestions` into hidden `#idsInput` (comma-separated DB IDs) and submits the filter form. The backend's `ids` parameter overrides every other sidebar filter, so the user paginates through their **complete** selection (not just the subset matching the current filter).
+
+```text
+toggle ON  → idsInput.value = Array.from(selectedQuestions).join(',') → submit form
+toggle OFF → idsInput.value = ''                                       → submit form
+```
+
+The `syncShowSelectedOnlyToServer()` function is the single entry point. It is also called whenever the selection changes WHILE the toggle is on (Clear button, Set Ops Apply, Select All) so the visible page stays in lock-step with the selection.
+
+`applyShowSelectedOnly()` is now purely cosmetic (banner + Select-All-controls visibility). It does NOT hide cards anymore — the server already filtered them out.
+
+Edge case for individual checkbox toggle while Show Selected Only is on: an unticked card hides locally for instant feedback (`updateSelection()`), since a server roundtrip per checkbox would be too expensive. The next pagination / refresh fetch will already exclude it.
+
+## Set Operations chip taxonomy
+
+Sources panel of the Set Operations modal exposes four chip kinds:
+
+| Chip | `chip.src` | Resolves to | When count is shown |
+|---|---|---|---|
+| Selection | `'selection'` | `new Set(selectedQuestions)` | live, badge updates on modal open |
+| Filter Result | `'filter'` | `getCurrentFilterResultIds()` reading `#allQuestionIds.dataset.ids` | live, all IDs across all pages of the current sidebar filter |
+| Result | `'result'` | `setOpsLastResult` (the previous Evaluate output) | only shown after first Evaluate |
+| Saved set | `'saved'` (chip carries `id`, `name`, cached `ids`) | cached payload from `GET /user/sets/<id>/data` | from the API response |
+
+`Filter Result` lets users do "trim selection to current filter" via `Selection ∩ Filter Result` → Replace. While Show Selected Only is ON, the dashboard's `#allQuestionIds` equals the selection, so Filter Result chip equals the Selection chip (redundant but not wrong).
+
+Operators: `union (∪)`, `intersect (∩)`, `diff (\)`. Single precedence, left-associative, parens for grouping. Empty expression → empty result; difference is binary.
+
+## Code map (in `templates/dashboard.html`)
+
+- Selection state: `let selectedQuestions = new Set();` (top of script block)
+- Subject-clear bypass: `let suppressSelectionClearOnSubjectChange = false;`
+- HTMX afterSwap on `#questionList`: only `applyViewSettings`, `initializeSelectionState`, `applyShowSelectedOnly` — **never** prune selection
+- `initializeSelectionState()` always sets `cb.checked = isSelected` (both branches) — do NOT regress to an if/else that only handles the selected case
+- `syncShowSelectedOnlyToServer()` — single source of truth for the `ids` override
+- Set Ops chip resolver: `resolveSetChip(chip)` switches on `chip.src`
+- Filter Result helper: `getCurrentFilterResultIds()` reads `#allQuestionIds`
+
+## Backend (`app/dashboard.py` `filter_questions()`)
+
+The `qids` and `ids` overrides share the same shape: when set, they bypass the rest of the sidebar filters and only intersect with subject access. Both null out the other variables before the topic/level/etc. blocks run. `qids` is checked first so an active anomaly banner wins over Show-Selected-Only if both are somehow set together.

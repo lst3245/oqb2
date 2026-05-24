@@ -60,6 +60,22 @@ def filter_questions():
     # Used by the Admin → DB Health anomaly view to jump to a specific set of questions.
     qids_raw = request.args.get('qids') or request.form.get('qids')
     qid_list = [q.strip() for q in qids_raw.split(',') if q.strip()] if qids_raw else []
+    # Explicit DB id list filter (comma-separated integer Question.id). When provided,
+    # overrides all other filters. Used by the dashboard "Show Selected Only" feature
+    # so the user can paginate through their full selection regardless of any topic /
+    # level / subject filters configured in the sidebar. Access is still scoped to the
+    # subjects the user has permission to view.
+    ids_raw = request.args.get('ids') or request.form.get('ids')
+    id_list = []
+    if ids_raw:
+        for tok in ids_raw.split(','):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                id_list.append(int(tok))
+            except ValueError:
+                continue
     page = int(request.args.get('page', 1))
     page_size = request.args.get('page_size') or request.form.get('page_size')
     preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
@@ -104,6 +120,7 @@ def filter_questions():
         'qid_search': qid_search,
         'qid_strict': qid_strict,
         'qids': qid_list,
+        'ids': id_list,
     }
     session['sort_config'] = sort_config
     
@@ -121,6 +138,27 @@ def filter_questions():
             Question.subject.in_(accessible_subjects)
         )
         # Null out other filter variables so the remaining filter blocks become no-ops
+        subject = None
+        source_type = None
+        years = []
+        section = None
+        topics = []
+        subtopics = []
+        chapters = []
+        subchapters = []
+        levels = []
+        q_type = None
+        qid_search = None
+    # Explicit DB id list - same override semantics as `qids` but keyed on Question.id.
+    # Drives the "Show Selected Only" toggle: the frontend submits the user's full
+    # `selectedQuestions` set so all selections paginate cleanly, regardless of the
+    # sidebar filter. Subject access is still enforced.
+    elif id_list:
+        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
+        query = query.filter(
+            Question.id.in_(id_list),
+            Question.subject.in_(accessible_subjects)
+        )
         subject = None
         source_type = None
         years = []
