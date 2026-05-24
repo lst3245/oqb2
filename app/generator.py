@@ -9,15 +9,21 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docxcompose.composer import Composer
 from PIL import Image
 import os
 import re
 import json
+import logging
+import shutil
+import subprocess
 import threading
 import zipfile
 import tempfile
 from datetime import datetime
 from collections import OrderedDict
+
+logger = logging.getLogger(__name__)
 from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
@@ -227,7 +233,7 @@ def get_viewer_asset(question_id, asset_type):
     if not assets:
         return jsonify({'error': 'Asset not found', 'asset_type': asset_type}), 404
     
-    # Sort by language preference and format
+    # Sort by language preference and format. Priority: IMG > MD > DOC.
     def lang_order(asset):
         if asset.language == preferred_language:
             return 0
@@ -235,19 +241,20 @@ def get_viewer_asset(question_id, asset_type):
             return 1
         else:
             return 2
-    
+
+    _FMT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
     def format_order(asset):
-        return 0 if asset.file_format == 'IMG' else 1
-    
+        return _FMT_RANK.get(asset.file_format, 99)
+
     sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
-    
+
     # Pick the best language+format group, then return all parts for that group
     best = sorted_assets[0]
     selected = [a for a in sorted_assets
                 if a.file_format == best.file_format and a.language == best.language]
     # Ensure ordered by part_number
     selected.sort(key=lambda a: a.part_number)
-    
+
     parts = []
     for a in selected:
         parts.append({
@@ -258,7 +265,7 @@ def get_viewer_asset(question_id, asset_type):
             'part_number': a.part_number,
             'url': f"/dashboard/files/{a.file_path}"
         })
-    
+
     # Return parts array + backward-compat top-level fields from first part
     result = {
         'parts': parts,
@@ -266,8 +273,18 @@ def get_viewer_asset(question_id, asset_type):
         'type': parts[0]['type'],
         'format': parts[0]['format'],
         'language': parts[0]['language'],
-        'url': parts[0]['url']
+        'url': parts[0]['url'],
+        'asset_type': asset_type,
     }
+
+    # For MD assets, also include the rendered HTML so the viewer can show
+    # the markdown inline (no download required).
+    if best.file_format == 'MD':
+        from app import md_render
+        source_path = current_app.config['SOURCE_PATH']
+        abs_path = os.path.join(source_path, *best.file_path.split('/'))
+        result['html'] = md_render.render_file(best.id, abs_path)
+
     return jsonify(result)
 
 @generator_bp.route('/create', methods=['POST'])
@@ -805,6 +822,76 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
 _DPI = 96  # assumed screen DPI for image size conversion
 
 
+def _append_md_via_pandoc(master_doc, md_abs_path):
+    """
+    Convert a single self-contained Markdown file to .docx via pandoc, then
+    splice it into `master_doc` using docxcompose. Raises on any failure so
+    the caller can fall back to a placeholder.
+
+    The Markdown file is expected to be self-contained (LaTeX math via
+    `$...$` / `$$...$$` and base64-embedded images). Pandoc converts dollar
+    math to native Word OMML equations.
+    """
+    pandoc = current_app.config.get('PANDOC_PATH', 'pandoc')
+    # Resolve to a usable absolute path.
+    # shutil.which only looks at the PATH that was set when the process *started*,
+    # so on Windows a freshly-installed pandoc is often invisible here even though
+    # it works fine in a new terminal. Fall through to well-known install locations.
+    pandoc_bin = shutil.which(pandoc)
+    if not pandoc_bin and pandoc == 'pandoc':
+        _WIN_PANDOC_CANDIDATES = [
+            r'C:\Program Files\Pandoc\pandoc.exe',
+            r'C:\Program Files (x86)\Pandoc\pandoc.exe',
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Pandoc', 'pandoc.exe'),
+            os.path.join(os.environ.get('APPDATA', ''), 'Pandoc', 'pandoc.exe'),
+        ]
+        for candidate in _WIN_PANDOC_CANDIDATES:
+            if candidate and os.path.isfile(candidate):
+                pandoc_bin = candidate
+                break
+    pandoc_bin = pandoc_bin or pandoc
+
+    with tempfile.TemporaryDirectory(prefix='oqb_md_') as tmpdir:
+        out_docx = os.path.join(tmpdir, 'fragment.docx')
+        cmd = [
+            pandoc_bin,
+            '--from=markdown+tex_math_dollars+tex_math_double_backslash',
+            '--to=docx',
+            '-o', out_docx,
+            md_abs_path,
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+                check=False,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                f'pandoc not found at {pandoc!r}. Install pandoc or set PANDOC_PATH.'
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError('pandoc timed out converting Markdown') from e
+
+        if result.returncode != 0:
+            err = (result.stderr or b'').decode('utf-8', errors='replace').strip()
+            raise RuntimeError(f'pandoc failed (rc={result.returncode}): {err[:400]}')
+
+        if not os.path.exists(out_docx):
+            raise RuntimeError('pandoc produced no output file')
+
+        try:
+            fragment = Document(out_docx)
+        except Exception as e:
+            raise RuntimeError(f'failed to open pandoc output: {e}') from e
+
+        # docxcompose appends the fragment's body elements into the master,
+        # remapping styles, numbering, and media references.
+        Composer(master_doc).append(fragment)
+
+
 def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False):
     """
     Create Word document with questions
@@ -1081,61 +1168,73 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
             return 1
         else:
             return 2
-    
-    # Format order: IMG before DOC
+
+    # Format order: IMG > MD > DOC (mirror the dashboard's preview resolver)
+    _FMT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
     def format_order(asset):
-        return 0 if asset.file_format == 'IMG' else 1
-    
+        return _FMT_RANK.get(asset.file_format, 99)
+
     # Sort by format first (IMG preferred), then by language, then by part_number
     sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
-    
+
     if not sorted_assets:
         # No asset found, add placeholder
         para = doc.add_paragraph(style='OQB Body Text')
         run = para.add_run(f'[{asset_type} not available for {question.qid}]')
         run.italic = True
         return
-    
+
     # Pick the best language+format group, then include all parts for that group
     best = sorted_assets[0]
     selected_assets = [a for a in sorted_assets
                        if a.file_format == best.file_format and a.language == best.language]
     selected_assets.sort(key=lambda a: a.part_number)
-    
+
     # Add all selected assets to the document
     for asset in selected_assets:
         file_path = os.path.join(source_path, asset.file_path)
-        
+
         if not os.path.exists(file_path):
             para = doc.add_paragraph(style='OQB Body Text')
             run = para.add_run(f'[File not found: {asset.file_path}]')
             run.italic = True
             continue
-        
+
         if asset.file_format == 'IMG':
             try:
                 # Open image to get dimensions
                 img = Image.open(file_path)
                 img_width, img_height = img.size
-                
+
                 # Calculate size for document
                 # Max width: 6 inches (to fit in A4 with margins)
                 max_width_inches = 6.0
                 max_width_pixels = max_width_inches * _DPI
-                
+
                 if img_width > max_width_pixels:
                     doc_width_inches = max_width_inches
                 else:
                     doc_width_inches = img_width / _DPI
-                
+
                 # Add picture
                 doc.add_picture(file_path, width=Inches(doc_width_inches))
-                
+
             except Exception as e:
                 para = doc.add_paragraph(style='OQB Body Text')
                 run = para.add_run(f'[Error loading image: {str(e)}]')
                 run.italic = True
-        
+
+        elif asset.file_format == 'MD':
+            # Markdown: convert via pandoc -> .docx, then splice into the master doc.
+            try:
+                _append_md_via_pandoc(doc, file_path)
+            except Exception as e:
+                para = doc.add_paragraph(style='OQB Body Text')
+                run = para.add_run(
+                    f'[Error rendering Markdown {asset.file_path}: {e}]'
+                )
+                run.italic = True
+
         elif asset.file_format == 'DOC':
             # For Word files, just add a placeholder for now
             para = doc.add_paragraph(style='OQB Body Text')

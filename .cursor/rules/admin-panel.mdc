@@ -35,9 +35,18 @@ Validation: `major_subtopic_id` must belong to `major_topic_id` when both are se
 - Page reads `?qids=…` (or `?qids_token=…` → localStorage fallback) from URL on load and shows a dismissible banner; user typing in search or toggling dashboard-selections drops the pinned QID list.
 - `POST /admin/questions/create` — create a question manually (without ingestor)
 - `POST /admin/questions/<id>/rename` — change QID (renames files on disk too, via `_build_asset_file_path`)
-- `POST /admin/questions/<id>/assets/upload` — upload new asset file
-- `DELETE /admin/questions/<id>/assets/<asset_id>` — delete asset (removes file from disk)
+- `POST /admin/questions/<id>/assets/upload` — upload new asset file (IMG/DOC/MD; rejects a second MD for the same QUE/ANS/SOL × EN/CH/BI slot and enforces `MD_MAX_SIZE_BYTES`)
+- `DELETE /admin/questions/<id>/assets/<asset_id>` — delete asset (removes file from disk; invalidates MD render cache)
 - `POST /admin/questions/<id>/assets/reorder` — update part_number ordering
+
+### Markdown asset editor (MD only)
+- `GET  /admin/questions/<id>/assets/<asset_id>/md/content` — JSON: raw text + `mtime_ns`
+- `POST /admin/questions/<id>/assets/<asset_id>/md/save` — body `{content, expected_mtime_ns?, force?}`; 409 on optimistic conflict
+- `POST /admin/questions/<id>/assets/md/create` — body `{language, asset_type, content}`; rejects 409 if MD exists in slot
+- `GET  /admin/questions/<id>/assets/<asset_id>/md/edit` — fullscreen editor page (`templates/admin_md_editor.html`)
+- `GET  /admin/questions/<id>/assets/md/new?language=&asset_type=` — fullscreen editor in create mode
+
+Editor frontend lives in `templates/partials/md_editor.html` (EasyMDE + marked + KaTeX). The Edit Question modal in `admin_questions.html` includes both an **inline modal** editor (`#mdEditorModal`) and a link to the fullscreen variant per MD asset card.
 
 ### Batch Operations
 `POST /admin/questions/batch-update` — selectively update multiple questions:

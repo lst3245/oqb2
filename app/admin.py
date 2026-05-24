@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
 from app.utils import admin_required, super_admin_required, get_user_admin_subjects
+from app import md_render
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -807,7 +808,11 @@ def _build_asset_file_path(question, asset):
 def questions_page():
     """Admin question management page"""
     subjects = get_user_admin_subjects()
-    return render_template('admin_questions.html', subjects=subjects)
+    return render_template(
+        'admin_questions.html',
+        subjects=subjects,
+        md_max_size_bytes=current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
+    )
 
 
 @admin_bp.route('/questions/api/list')
@@ -1104,44 +1109,78 @@ def upload_question_asset(question_id):
         return jsonify({'error': 'No files provided'}), 400
 
     source_path = current_app.config['SOURCE_PATH']
-    
-    # Determine next part number
+    md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
+
+    # Determine next part number for IMG/DOC parts (MD is always part_number=1).
     existing_parts = QuestionAsset.query.filter_by(
         question_id=question_id, language=language, asset_type=asset_type
     ).order_by(QuestionAsset.part_number.desc()).first()
     next_part = (existing_parts.part_number + 1) if existing_parts else 1
 
     uploaded = []
+    errors = []
     for f in files:
         if not f.filename:
             continue
-        
+
         ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else 'png'
-        
+
         # Determine file format
         if ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp'):
             file_format = 'IMG'
         elif ext in ('doc', 'docx'):
             file_format = 'DOC'
+        elif ext in ('md', 'markdown'):
+            file_format = 'MD'
         else:
-            continue  # skip unsupported
+            errors.append(f'{f.filename}: unsupported extension')
+            continue
 
-        part_suffix = f'_{next_part}' if next_part > 1 else ''
-        
-        if question.source in ('DSE', 'CE', 'AL'):
+        if file_format == 'MD':
+            # MD is single-part: reject if an MD asset already exists for this slot.
+            existing_md = QuestionAsset.query.filter_by(
+                question_id=question_id, language=language,
+                asset_type=asset_type, file_format='MD'
+            ).first()
+            if existing_md:
+                errors.append(
+                    f'{f.filename}: a Markdown asset already exists for {asset_type}/{language}. '
+                    f'Edit or delete it first.'
+                )
+                continue
+
+            # Enforce size cap (read into memory; MD files are small text).
+            data = f.read()
+            if len(data) > md_max:
+                errors.append(
+                    f'{f.filename}: exceeds MD_MAX_SIZE_BYTES ({md_max} bytes)'
+                )
+                continue
+            # Normalise extension to .md for consistency.
+            ext = 'md'
+            filename = f"{question.qid}_{language}_{asset_type}.{ext}"
+            part_to_use = 1
+        else:
+            part_suffix = f'_{next_part}' if next_part > 1 else ''
             filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
+            part_to_use = next_part
+
+        if question.source in ('DSE', 'CE', 'AL'):
             folder = '/'.join([question.subject, 'PP', question.source,
                                str(question.year), question.paper])
         else:
             detail = _extract_qb_detail(question.qid)
-            filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
             folder = '/'.join([question.subject, 'QB', detail])
 
         rel_path = f"{folder}/{filename}"
         full_path = os.path.join(source_path, *rel_path.split('/'))
-        
+
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        f.save(full_path)
+        if file_format == 'MD':
+            with open(full_path, 'wb') as out:
+                out.write(data)
+        else:
+            f.save(full_path)
 
         asset = QuestionAsset(
             question_id=question_id,
@@ -1149,23 +1188,280 @@ def upload_question_asset(question_id):
             file_format=file_format,
             language=language,
             file_path=rel_path,
-            part_number=next_part
+            part_number=part_to_use
         )
         db.session.add(asset)
         uploaded.append({
             'id': None,  # will be set after commit
-            'part_number': next_part,
+            'part_number': part_to_use,
             'file_path': rel_path,
         })
-        next_part += 1
+        if file_format != 'MD':
+            next_part += 1
 
     db.session.commit()
 
     return jsonify({
         'success': True,
         'uploaded_count': len(uploaded),
-        'message': f'Uploaded {len(uploaded)} asset(s)'
+        'errors': errors,
+        'message': f'Uploaded {len(uploaded)} asset(s)' + (
+            f', skipped {len(errors)}' if errors else ''
+        )
     })
+
+
+# ==================== Markdown asset edit/create endpoints ====================
+#
+# MD assets are single-part text files. These three endpoints (content/save/create)
+# back the in-browser live editor (modal + fullscreen). They are gated on the
+# admin subject-access check just like upload.
+
+def _require_md_admin(question):
+    """Helper: ensure current_user can admin the question's subject. Returns
+    a (jsonify, status) tuple to return on failure, or None if allowed."""
+    if current_user.is_super_admin:
+        return None
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    if question.subject not in admin_subjects:
+        return jsonify({'error': 'Access denied'}), 403
+    return None
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/md/content', methods=['GET'])
+@login_required
+@admin_required
+def get_md_asset_content(question_id, asset_id):
+    """Return raw .md text + mtime for the editor to load."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+
+    asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    if asset.file_format != 'MD':
+        return jsonify({'error': 'Asset is not Markdown'}), 400
+
+    source_path = current_app.config['SOURCE_PATH']
+    full_path = os.path.join(source_path, *asset.file_path.split('/'))
+    if not os.path.exists(full_path):
+        return jsonify({'error': 'File not found on disk'}), 404
+
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except OSError as e:
+        return jsonify({'error': f'Read failed: {e}'}), 500
+
+    return jsonify({
+        'asset_id': asset.id,
+        'qid': question.qid,
+        'language': asset.language,
+        'asset_type': asset.asset_type,
+        'file_path': asset.file_path,
+        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'content': content,
+        'max_size': current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/md/save', methods=['POST'])
+@login_required
+@admin_required
+def save_md_asset_content(question_id, asset_id):
+    """Overwrite an MD asset's contents. Optimistic conflict check on mtime_ns."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+
+    asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    if asset.file_format != 'MD':
+        return jsonify({'error': 'Asset is not Markdown'}), 400
+
+    data = request.get_json(silent=True) or {}
+    content = data.get('content')
+    if content is None:
+        return jsonify({'error': 'content is required'}), 400
+    if not isinstance(content, str):
+        return jsonify({'error': 'content must be a string'}), 400
+
+    md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
+    payload = content.encode('utf-8')
+    if len(payload) > md_max:
+        return jsonify({
+            'error': f'Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {len(payload)}'
+        }), 413
+
+    source_path = current_app.config['SOURCE_PATH']
+    full_path = os.path.join(source_path, *asset.file_path.split('/'))
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+    # Optimistic concurrency: if the caller passes expected_mtime_ns and the
+    # file on disk has changed since, reject with 409 unless `force` is set.
+    expected = data.get('expected_mtime_ns')
+    force = bool(data.get('force'))
+    if expected is not None and not force and os.path.exists(full_path):
+        try:
+            current = os.stat(full_path).st_mtime_ns
+            if int(expected) != current:
+                return jsonify({
+                    'error': 'File changed on disk since you opened it. '
+                             'Reload to see the latest content, or pass force=true to overwrite.',
+                    'current_mtime_ns': current,
+                }), 409
+        except (OSError, ValueError):
+            pass
+
+    try:
+        with open(full_path, 'wb') as f:
+            f.write(payload)
+    except OSError as e:
+        return jsonify({'error': f'Write failed: {e}'}), 500
+
+    md_render.invalidate(asset.id)
+
+    return jsonify({
+        'success': True,
+        'asset_id': asset.id,
+        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'size_bytes': len(payload),
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/md/create', methods=['POST'])
+@login_required
+@admin_required
+def create_md_asset(question_id):
+    """Create a new MD asset for (question, language, asset_type) from editor content.
+
+    Rejects if an MD asset already exists in that slot (MD is single-part).
+    """
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+
+    data = request.get_json(silent=True) or {}
+    language = data.get('language', 'EN')
+    asset_type = data.get('asset_type', 'QUE')
+    content = data.get('content', '')
+
+    if language not in ('EN', 'CH', 'BI'):
+        return jsonify({'error': 'Invalid language'}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'Invalid asset_type'}), 400
+    if not isinstance(content, str):
+        return jsonify({'error': 'content must be a string'}), 400
+
+    md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
+    payload = content.encode('utf-8')
+    if len(payload) > md_max:
+        return jsonify({
+            'error': f'Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {len(payload)}'
+        }), 413
+
+    existing = QuestionAsset.query.filter_by(
+        question_id=question_id, language=language,
+        asset_type=asset_type, file_format='MD'
+    ).first()
+    if existing:
+        return jsonify({
+            'error': f'A Markdown asset already exists for {asset_type}/{language}. '
+                     f'Edit or delete it first.',
+            'existing_asset_id': existing.id,
+        }), 409
+
+    filename = f"{question.qid}_{language}_{asset_type}.md"
+    if question.source in ('DSE', 'CE', 'AL'):
+        folder = '/'.join([question.subject, 'PP', question.source,
+                           str(question.year), question.paper])
+    else:
+        detail = _extract_qb_detail(question.qid)
+        folder = '/'.join([question.subject, 'QB', detail])
+    rel_path = f"{folder}/{filename}"
+
+    source_path = current_app.config['SOURCE_PATH']
+    full_path = os.path.join(source_path, *rel_path.split('/'))
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+    try:
+        with open(full_path, 'wb') as f:
+            f.write(payload)
+    except OSError as e:
+        return jsonify({'error': f'Write failed: {e}'}), 500
+
+    asset = QuestionAsset(
+        question_id=question_id,
+        asset_type=asset_type,
+        file_format='MD',
+        language=language,
+        file_path=rel_path,
+        part_number=1,
+    )
+    db.session.add(asset)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'asset_id': asset.id,
+        'file_path': rel_path,
+        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'size_bytes': len(payload),
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/md/edit', methods=['GET'])
+@login_required
+@admin_required
+def edit_md_asset_page(question_id, asset_id):
+    """Fullscreen Markdown editor page (templates/admin_md_editor.html)."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+
+    asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    if asset.file_format != 'MD':
+        flash('That asset is not a Markdown file.', 'warning')
+        return redirect(url_for('admin.questions_page'))
+
+    return render_template(
+        'admin_md_editor.html',
+        question=question,
+        asset=asset,
+        md_max=current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
+    )
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/md/new', methods=['GET'])
+@login_required
+@admin_required
+def new_md_asset_page(question_id):
+    """Fullscreen Markdown editor in create mode.
+
+    Query params: language=EN|CH|BI, asset_type=QUE|ANS|SOL.
+    """
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+
+    language = request.args.get('language', 'EN')
+    asset_type = request.args.get('asset_type', 'QUE')
+    if language not in ('EN', 'CH', 'BI'):
+        language = 'EN'
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        asset_type = 'QUE'
+
+    return render_template(
+        'admin_md_editor.html',
+        question=question,
+        asset=None,
+        create_language=language,
+        create_asset_type=asset_type,
+        md_max=current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
+    )
 
 
 @admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/delete', methods=['POST', 'DELETE'])
@@ -1192,7 +1488,10 @@ def delete_question_asset(question_id, asset_id):
         except OSError as e:
             # Continue with DB deletion even if file removal fails
             pass
-    
+
+    if asset.file_format == 'MD':
+        md_render.invalidate(asset.id)
+
     db.session.delete(asset)
     db.session.commit()
 

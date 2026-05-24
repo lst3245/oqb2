@@ -42,7 +42,7 @@ python run.py
 - Natural sort (Q1, Q2, Q10 — not Q1, Q10, Q2)
 - Configurable page size (10 / 20 / 50 / 100)
 - Language preference for previews (English / Chinese first)
-- Question cards with image preview, answer/solution modals, comment display
+- Question cards with image / Markdown / Word preview (Markdown rendered inline with KaTeX math), answer/solution modals, comment display
 - Select questions individually, by page, or all results
 - **Save and restore filter profiles** (named search presets)
 
@@ -81,6 +81,7 @@ python run.py
 - **Chapter Management** (`/admin/chapters`) — same structure as topics; textbook organisation
 - **Question Management** (`/admin/questions`) — full list with filter, edit modal with Details/Assets/Tags tabs
   - Create questions manually, rename QID, upload/delete/reorder assets
+  - **Markdown live editor** (modal + fullscreen) for `.md` assets: EasyMDE editor, live KaTeX preview, base64 image insert, optimistic concurrency
   - Batch update (level, type, section, topic/subtopic, correct %) and batch delete
 - **User Management** (`/admin/users`) — super admin only; per-subject permission assignment
 - **Export / Import** (`/admin/export-import`) — CSV round-trip for question tags, topics, chapters
@@ -146,7 +147,9 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 | LANG | `EN` (English), `CH` (Chinese), `BI` (Bilingual) |
 | TYPE | `QUE` (Question), `ANS` (Answer), `SOL` (Solution) |
 | PART | Optional integer ≥ 2 for multi-image questions |
-| EXT | `png`, `jpg`, `jpeg`, `gif`, `bmp`, `docx` |
+| EXT | `png`, `jpg`, `jpeg`, `gif`, `bmp`, `doc`, `docx`, `md`, `markdown` |
+
+> `.md` files are self-contained (LaTeX math via `$...$` / `$$...$$`, base64-embedded images). They render inline on the dashboard/viewer and convert to `.docx` during generation via **pandoc** + docxcompose. Install pandoc separately (it is not a pip package): `apt install pandoc` / `brew install pandoc` / [Windows installer](https://github.com/jgm/pandoc/releases). If pandoc is not on `PATH`, set `PANDOC_PATH=...` in `.env`.
 
 ---
 

@@ -209,9 +209,23 @@ Edit → Details tab → change QID field. This renames all associated files on 
 
 ### Asset Management
 Edit → Assets tab:
-- **Upload**: select file, choose type (QUE/ANS/SOL), language (EN/CH/BI), and part number
+- **Upload**: select file, choose type (QUE/ANS/SOL), language (EN/CH/BI), and part number. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`).
 - **Delete**: removes from DB and disk
 - **Reorder**: drag to change part_number order (for multi-image questions)
+
+### Markdown assets
+Markdown assets are **self-contained**: LaTeX math goes inside `$...$` (inline) or `$$...$$` (display), and images are embedded as `data:image/...;base64,...` URIs (not separate files). Each (QUE/ANS/SOL × EN/CH/BI) slot can hold **at most one** `.md` asset (single-part only).
+
+The Edit Question modal exposes two editors per slot:
+- **Inline modal** — click **Edit** on an MD asset card (pencil icon), or **New Markdown (inline)** in an empty slot. EasyMDE toolbar, live KaTeX preview, paste-image-as-base64, optimistic concurrency (Ctrl/Cmd+S to save).
+- **Fullscreen page** — click **Open fullscreen** on a card, or **New Markdown (fullscreen)** in an empty slot. Same editor, full viewport, beforeunload guard.
+
+### Pandoc requirement (for generation)
+Document generation converts Markdown assets to Word via **pandoc** + docxcompose, so pandoc must be installed on the server. Install once:
+- **Windows**: [pandoc releases](https://github.com/jgm/pandoc/releases); if pandoc is not on `PATH`, set `PANDOC_PATH=C:\Program Files\Pandoc\pandoc.exe` in `.env`.
+- **Linux**: `apt install pandoc` (or distro equivalent).
+- **macOS**: `brew install pandoc`.
+Verify with `pandoc --version`. Without pandoc, MD assets fall back to an italic placeholder in generated `.docx` (with a clear error message in the log).
 
 ---
 
@@ -236,6 +250,7 @@ SOURCE_PATH/
 SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
 MATC_DSE_2024_P1_Q5_EN_QUE.png
 MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← multi-image part 2
+MATC_DSE_2024_P1_Q5_EN_QUE.md      ← Markdown (no _PART; single-part only)
 ```
 
 ### Running Ingestion

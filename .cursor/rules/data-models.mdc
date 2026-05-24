@@ -52,9 +52,10 @@ GeneratedFile (user_id, display_name, filename, status, filter_data, generation_
 
 ## QuestionAsset Constraints
 - `asset_type`: `QUE`, `ANS`, `SOL`
-- `file_format`: `IMG`, `DOC`
+- `file_format`: `IMG`, `DOC`, `MD`
+  - `MD` is single-part only (one `.md` = one whole asset, self-contained with LaTeX math + base64 images). Ingest skips any `.md` with `part_number > 1`; upload rejects a second MD for the same `(question, asset_type, language)` slot.
 - `language`: `EN`, `CH`, `BI`
-- `part_number`: int starting at 1 (for multi-image questions)
+- `part_number`: int starting at 1 (for multi-image questions; always 1 for MD)
 - Unique constraint: `(question_id, asset_type, language, file_format, part_number)`
 - `file_path` stored as forward-slash relative path from `SOURCE_PATH`
 

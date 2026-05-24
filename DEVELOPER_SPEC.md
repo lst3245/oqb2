@@ -59,11 +59,17 @@ Flask Application (app factory: create_app())
 | Flask-Login | 0.6.3 | Session auth |
 | pymysql | 1.1.0 | MariaDB driver |
 | python-docx | 1.1.0 | Word document creation |
+| docxcompose | 1.4.0 | Splicing pandoc-rendered MD fragments into the master doc |
 | Pillow | 10.1.0 | Image dimensions for Word layout |
 | python-dotenv | 1.0.0 | `.env` loading |
 | natsort | 8.4.0 | Natural sort (Q1, Q2, Q10) |
 | click | 8.1.7 | CLI framework |
 | cryptography | 41.0.7 | pymysql dependency |
+| markdown-it-py | 3.0.0 | Server-side Markdown -> HTML (preview / viewer) |
+| mdit-py-plugins | 0.4.1 | GFM tables, footnotes, deflists, dollarmath |
+| bleach | 6.1.0 | HTML sanitisation allowlist for rendered MD |
+
+External binary (not pip): **pandoc** — required for MD -> docx during generation. Configure via `PANDOC_PATH` env var (default: `pandoc` on `PATH`).
 
 Frontend (CDN-loaded):
 - Bootstrap 5.3 + Bootstrap Icons 1.11
@@ -228,7 +234,7 @@ Many-to-many via association tables:
 | `id` | INT PK | |
 | `question_id` | INT FK → questions | Cascade delete |
 | `asset_type` | ENUM | `QUE`, `ANS`, `SOL` |
-| `file_format` | ENUM | `IMG`, `DOC` |
+| `file_format` | ENUM | `IMG`, `DOC`, `MD` (MD is single-part only) |
 | `language` | ENUM | `EN`, `CH`, `BI` |
 | `file_path` | VARCHAR(500) | Relative to SOURCE_PATH, always forward slashes |
 | `part_number` | INT | ≥ 1; for multi-image questions |
@@ -341,7 +347,8 @@ user.get_admin_subjects()             # [subject_id, ...]
 | `/api/sections/<subject_id>/<source>` | GET | Available sections |
 | `/api/asset/<asset_id>` | GET | Asset info |
 | `/api/asset_preview/<asset_id>` | GET | Serve asset file for preview |
-| `/api/question/<id>/assets/<type>` | GET | All asset parts for a question + type |
+| `/api/question/<id>/assets/<type>` | GET | All asset parts for a question + type (legacy; image-centric) |
+| `/api/question/<id>/preview/<type>?lang=EN` | GET | **Unified preview resolver** for IMG / MD / DOC. Returns `{mode, format, language, ...}` |
 | `/files/<path>` | GET | Serve source asset file (authenticated) |
 
 **Key notes on `filter_questions()`:**
@@ -374,6 +381,7 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | Question Deletion | `/questions/delete` (batch) |
 | Batch Update | `/questions/batch-update` |
 | Question Management | `/questions`, `/questions/api/list`, `/questions/<id>/details`, `/questions/<id>/assets`, `/questions/<id>/rename`, `/questions/<id>/assets/upload`, `/questions/<id>/assets/<aid>/delete`, `/questions/<id>/assets/reorder`, `/questions/create` |
+| Markdown Editor | `/questions/<id>/assets/<aid>/md/content` (GET), `/questions/<id>/assets/<aid>/md/save` (POST), `/questions/<id>/assets/md/create` (POST), `/questions/<id>/assets/<aid>/md/edit` (GET fullscreen), `/questions/<id>/assets/md/new` (GET fullscreen create) |
 | User Management | `/users`, `/users/add`, `/users/<id>/edit`, `/users/<id>/delete`, `/users/<id>/permissions`, `/users/<id>/permissions/get` |
 | Export / Import | `/export-import`, `/export/question-tags`, `/import/question-tags`, `/export/topics`, `/import/topics`, `/export/chapters`, `/import/chapters` |
 | Ingestion | `/ingestion`, `/ingestion/preview`, `/ingestion/start` (SSE) |
@@ -423,6 +431,8 @@ GET  /dashboard/api/sections/<subject_id>/<source>
 GET  /dashboard/api/asset/<asset_id>
 GET  /dashboard/api/asset_preview/<asset_id>
 GET  /dashboard/api/question/<id>/assets/<type>
+GET  /dashboard/api/question/<id>/preview/<type>?lang=EN
+     → {mode: 'image'|'html'|'download', format, language, parts/html/url, ...}
 ```
 
 ### Generation API

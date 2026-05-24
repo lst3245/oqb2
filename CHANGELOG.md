@@ -4,6 +4,39 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ New Features
+
+#### Markdown source format — self-contained `.md` assets with live editor
+- `QuestionAsset.file_format` now accepts a third value `MD` alongside `IMG` and `DOC`. Markdown files are **self-contained**: LaTeX math via `$...$` / `$$...$$` and images embedded as `data:image/...;base64,...` URIs — no sidecar files. Multi-part (`_2.md` etc.) is **not** supported; one `.md` = one whole asset.
+- **Ingestion**: `.md` and `.markdown` files matching the standard filename pattern (`MATC_DSE_2024_P1_Q5_EN_QUE.md`) are picked up by both the CLI scanner and the SSE-streaming admin Ingestion UI. A `part_number > 1` MD file is logged and skipped.
+- **Admin upload**: drag-and-drop or click-to-upload now accepts `.md`/`.markdown`. Uploads are size-capped by `MD_MAX_SIZE_BYTES` (default 5 MiB) and rejected if an MD asset already exists in the (QUE/ANS/SOL × EN/CH/BI) slot — use Edit instead.
+- **In-browser live editor**: new EasyMDE + KaTeX + marked editor with a math toolbar (`$x$` / `$$x$$`), an "Insert image as base64" button, clipboard-image paste handler, and a live size meter that warns at 80 % of the cap. Two entry points per asset slot:
+  - **Inline modal** in the Edit Question modal — opens over the asset list, saves into place.
+  - **Fullscreen page** at `/admin/questions/<id>/assets/<asset_id>/md/edit` (or `/assets/md/new?language=&asset_type=` for create) — full viewport, Ctrl/Cmd+S to save, `beforeunload` guard.
+  - Concurrent edits use optimistic concurrency on `mtime_ns`; a 409 prompts the user to discard or overwrite.
+- **Dashboard preview**: when a question has no IMG QUE assets the card lazily fetches the new `GET /dashboard/api/question/<id>/preview/<asset_type>` resolver and renders the sanitized HTML inline (KaTeX typesets the math client-side). DOC-only questions now show an inline download stub instead of the broken `<img>` fallback.
+- **Modal preview**: `previewAsset()` on dashboard, admin, and generator pages now uses the unified preview resolver, branching on `mode: image | html | download`.
+- **Viewer mode**: `format === 'MD'` renders the sanitized HTML in the existing question/answer panels (zoom controls still apply).
+- **Generation**: `add_question_content_to_doc()` gained an MD branch that converts the file via `pandoc --from=markdown+tex_math_dollars --to=docx` and splices the produced fragment into the master document with `docxcompose.Composer.append()`. Format priority is now **IMG > MD > DOC** in both preview and generation.
+- New module `app/md_render.py` (markdown-it-py + plugins + bleach allowlist) renders MD to sanitized HTML and caches by `(asset_id, mtime_ns)`. The cache is invalidated on save and delete.
+
+### 🗄️ Database Changes
+
+#### `question_assets.file_format` enum widened to include `MD`
+- Run `python migrate_md_format.py` once on existing deployments (idempotent — safe to re-run; checks the current `information_schema` column type before issuing the `ALTER`).
+- The migration executes:
+  ```
+  ALTER TABLE question_assets MODIFY COLUMN file_format ENUM('IMG','DOC','MD') NOT NULL;
+  ```
+- Existing rows are unaffected — only the set of allowed values grows.
+
+### 🔧 Technical Improvements
+
+- New config keys `PANDOC_PATH` (defaults to `pandoc` on `PATH`) and `MD_MAX_SIZE_BYTES` (default 5 MiB) in `app/config.py`.
+- New dependencies in `requirements.txt`: `markdown-it-py`, `mdit-py-plugins`, `bleach`. **Pandoc binary** is required for document generation and must be installed separately (not a pip package).
+- KaTeX (CSS + JS + auto-render) added to `templates/base.html`; shared `oqbTypesetMath()` / `oqbRenderMarkdownInto()` / `oqbLoadMarkdownPreviewCards()` JS helpers live there too. Auto-runs on `DOMContentLoaded` and `htmx:afterSwap` so HTMX swaps pick up new preview cards without bespoke wiring.
+- Files: `app/models.py`, `app/config.py`, `app/ingestor.py`, `app/admin.py`, `app/dashboard.py`, `app/generator.py`, `app/md_render.py` (new), `templates/base.html`, `templates/partials/md_editor.html` (new), `templates/admin_md_editor.html` (new), `templates/partials/question_list.html`, `templates/dashboard.html`, `templates/viewer.html`, `templates/admin_questions.html`, `migrate_md_format.py` (new), `.env`.
+
 ### ✨ Enhanced Features
 
 #### Show Selected Only — paginates the FULL selection (was previously broken)

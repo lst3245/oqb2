@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if asset %}Edit {% else %}New {% endif %}Markdown — {{ question.qid }}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .md-editor-page {
+        padding: 1rem 1.5rem 2rem;
+    }
+    .md-editor-page .editor-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    .md-editor-page .editor-header h1 {
+        font-size: 1.25rem;
+        margin: 0;
+    }
+    .md-editor-page .editor-header .meta {
+        color: #6c757d;
+        font-size: 0.875rem;
+    }
+    .md-editor-page .status-bar {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+    }
+    .md-editor-page .status-bar .status-dirty { color: #d97706; }
+    .md-editor-page .status-bar .status-saved { color: #16a34a; }
+    .md-editor-page .status-bar .status-error { color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include 'partials/md_editor.html' %}
+<div class="md-editor-page">
+
+    <div class="editor-header">
+        <a href="{{ url_for('admin.questions_page') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+        <h1>
+            {% if asset %}Edit Markdown{% else %}New Markdown{% endif %}
+            <small class="text-muted">— {{ question.qid }}</small>
+        </h1>
+        <div class="meta">
+            {% if asset %}
+                <span class="badge bg-secondary">{{ asset.asset_type }}</span>
+                <span class="badge bg-info">{{ asset.language }}</span>
+                <code class="ms-2">{{ asset.file_path }}</code>
+            {% else %}
+                <span class="badge bg-success">CREATE</span>
+                <span class="badge bg-secondary">{{ create_asset_type }}</span>
+                <span class="badge bg-info">{{ create_language }}</span>
+            {% endif %}
+        </div>
+        <div class="ms-auto d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="mdReloadBtn"
+                    {% if not asset %}style="display:none"{% endif %}>
+                <i class="bi bi-arrow-clockwise"></i> Reload from disk
+            </button>
+            <button type="button" class="btn btn-sm btn-primary" id="mdSaveBtn">
+                <i class="bi bi-save"></i> Save
+            </button>
+        </div>
+    </div>
+
+    <textarea id="mdEditorTextarea"></textarea>
+
+    <div class="status-bar">
+        <span id="mdStatusText" class="text-muted">Loading editor...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const qid       = {{ question.id }};
+    const isCreate  = {{ 'false' if asset else 'true' }};
+    {% if asset %}
+    const assetId   = {{ asset.id }};
+    {% endif %}
+    const createLanguage = {{ (create_language or 'EN') | tojson if not asset else 'null' }};
+    const createAssetType = {{ (create_asset_type or 'QUE') | tojson if not asset else 'null' }};
+    const mdMax     = {{ md_max }};
+
+    const textarea  = document.getElementById('mdEditorTextarea');
+    const statusEl  = document.getElementById('mdStatusText');
+    const saveBtn   = document.getElementById('mdSaveBtn');
+    const reloadBtn = document.getElementById('mdReloadBtn');
+
+    let editor = null;
+    let lastMtime = null;       // last known mtime_ns from server (null for create)
+    let dirty = false;
+
+    function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.classList.remove('status-dirty', 'status-saved', 'status-error');
+        if (kind) statusEl.classList.add('status-' + kind);
+    }
+
+    function markDirty() {
+        if (dirty) return;
+        dirty = true;
+        setStatus('Unsaved changes', 'dirty');
+    }
+
+    function markClean(message) {
+        dirty = false;
+        setStatus(message || 'Saved', 'saved');
+    }
+
+    function initEditor(initialContent) {
+        editor = window.oqbCreateMdEditor(textarea, {
+            initialContent: initialContent || '',
+            maxSize: mdMax,
+            onChange: function() { markDirty(); },
+        });
+    }
+
+    function loadFromServer() {
+        if (isCreate) {
+            initEditor('');
+            setStatus('New file. Start typing.', null);
+            return;
+        }
+        setStatus('Loading...', null);
+        fetch(`/admin/questions/${qid}/assets/${assetId}/md/content`)
+            .then(r => r.json().then(data => ({status: r.status, data: data})))
+            .then(({status, data}) => {
+                if (status !== 200) {
+                    setStatus('Error: ' + (data.error || 'load failed'), 'error');
+                    return;
+                }
+                lastMtime = data.mtime_ns;
+                if (editor) {
+                    editor.setValue(data.content);
+                    markClean('Reloaded');
+                } else {
+                    initEditor(data.content);
+                    setStatus('Loaded.', null);
+                }
+            })
+            .catch(err => setStatus('Error: ' + err.message, 'error'));
+    }
+
+    function doSave(force) {
+        if (!editor) return;
+        const content = editor.getValue();
+        const sizeBytes = editor.getBytes();
+        if (sizeBytes > mdMax) {
+            setStatus(`Content too large (${sizeBytes} > ${mdMax} bytes)`, 'error');
+            return;
+        }
+        setStatus('Saving...', null);
+        saveBtn.disabled = true;
+
+        let url, body;
+        if (isCreate) {
+            url = `/admin/questions/${qid}/assets/md/create`;
+            body = JSON.stringify({
+                language: createLanguage,
+                asset_type: createAssetType,
+                content: content,
+            });
+        } else {
+            url = `/admin/questions/${qid}/assets/${assetId}/md/save`;
+            body = JSON.stringify({
+                content: content,
+                expected_mtime_ns: lastMtime,
+                force: !!force,
+            });
+        }
+
+        fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: body,
+        })
+            .then(r => r.json().then(data => ({status: r.status, data: data})))
+            .then(({status, data}) => {
+                saveBtn.disabled = false;
+                if (status === 409 && !isCreate) {
+                    if (confirm('File changed on disk since you opened it. Overwrite with your changes?')) {
+                        doSave(true);
+                    } else {
+                        setStatus('Save cancelled (file changed on disk)', 'error');
+                    }
+                    return;
+                }
+                if (status === 201 || (status === 200 && data.success)) {
+                    lastMtime = data.mtime_ns;
+                    markClean('Saved ' + new Date().toLocaleTimeString());
+                    if (isCreate && data.asset_id) {
+                        // Redirect to edit mode for the freshly created asset so
+                        // subsequent saves use the optimistic-mtime flow.
+                        window.location.href = `/admin/questions/${qid}/assets/${data.asset_id}/md/edit`;
+                    }
+                } else {
+                    setStatus('Error: ' + (data.error || 'save failed'), 'error');
+                }
+            })
+            .catch(err => {
+                saveBtn.disabled = false;
+                setStatus('Error: ' + err.message, 'error');
+            });
+    }
+
+    saveBtn.addEventListener('click', () => doSave(false));
+    if (reloadBtn) reloadBtn.addEventListener('click', () => {
+        if (dirty && !confirm('Discard unsaved changes and reload from disk?')) return;
+        loadFromServer();
+    });
+
+    // Ctrl/Cmd+S anywhere on the page (including inside the editor).
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+            e.preventDefault();
+            doSave(false);
+        }
+    });
+
+    // Warn before leaving with unsaved changes.
+    window.addEventListener('beforeunload', function(e) {
+        if (dirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+
+    loadFromServer();
+})();
+</script>
+{% endblock %}

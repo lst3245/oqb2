@@ -33,3 +33,10 @@ class Config:
     
     # Pagination
     QUESTIONS_PER_PAGE = 20
+
+    # Markdown source format
+    # Path to pandoc binary used for MD -> docx during generation.
+    # Defaults to looking up `pandoc` on PATH.
+    PANDOC_PATH = os.getenv('PANDOC_PATH', 'pandoc')
+    # Hard cap for an individual .md asset (base64-embedded images can balloon size).
+    MD_MAX_SIZE_BYTES = int(os.getenv('MD_MAX_SIZE_BYTES', str(5 * 1024 * 1024)))

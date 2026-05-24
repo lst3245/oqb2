@@ -3,9 +3,16 @@ Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 pymysql==1.1.0
 python-docx==1.1.0
-docxcompose==1.4.0
+docxcompose==2.1.0
 Pillow==10.1.0
 python-dotenv==1.0.0
 natsort==8.4.0
 cryptography==41.0.7
 click==8.1.7
+markdown-it-py==3.0.0
+mdit-py-plugins==0.4.1
+bleach==6.1.0
+# (docxcompose 2.1.0 dropped the pkg_resources dependency — no setuptools pin needed)
+# pandoc binary required separately (not a pip package) for MD -> docx generation.
+# Windows:  https://github.com/jgm/pandoc/releases  (set PANDOC_PATH if not on PATH)
+# Linux:    apt install pandoc / brew install pandoc

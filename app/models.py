@@ -244,7 +244,7 @@ class QuestionAsset(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False, index=True)
     asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', name='asset_type_enum'), nullable=False)
-    file_format = db.Column(db.Enum('IMG', 'DOC', name='file_format_enum'), nullable=False)
+    file_format = db.Column(db.Enum('IMG', 'DOC', 'MD', name='file_format_enum'), nullable=False)
     language = db.Column(db.Enum('EN', 'CH', 'BI', name='language_enum'), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)  # Relative path (always forward-slash separated)
     part_number = db.Column(db.Integer, nullable=False, default=1)  # For multi-image questions (1, 2, 3...)

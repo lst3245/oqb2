@@ -105,6 +105,8 @@ def determine_file_format(ext):
         return 'IMG'
     elif ext_lower in ['doc', 'docx']:
         return 'DOC'
+    elif ext_lower in ['md', 'markdown']:
+        return 'MD'
     return None
 
 def determine_question_type(subject, source, paper):
@@ -181,6 +183,14 @@ def upsert_asset(question, parsed, file_path, source_path):
     
     if not file_format:
         logger.warning(f"Unknown file format: {parsed['ext']} for {file_path}")
+        return
+
+    # MD assets are self-contained — multi-part is not supported. Skip silently-but-loudly.
+    if file_format == 'MD' and part_number != 1:
+        logger.warning(
+            f"Markdown asset with part_number={part_number} is not supported "
+            f"(MD is single-part only): {file_path}"
+        )
         return
     
     # Get relative path from source, normalised to forward slashes for cross-platform consistency

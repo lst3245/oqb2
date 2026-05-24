@@ -16,6 +16,11 @@
 
     <!-- SortableJS (mouse + touch drag-and-drop) -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+    <!-- KaTeX (math typesetting for rendered Markdown) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     
     <style>
         .question-card {
@@ -387,6 +392,56 @@
         .sticky-pagination .pagination {
             margin-bottom: 0;
         }
+
+        /* Markdown preview blocks (dashboard cards, modal, viewer) */
+        .md-preview-card,
+        .md-preview-modal,
+        .md-preview {
+            font-size: 0.95rem;
+            line-height: 1.45;
+            color: #212529;
+        }
+        .md-preview-card {
+            max-height: 400px;
+            overflow: auto;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.375rem;
+            background: #fff;
+        }
+        .md-preview img,
+        .md-preview-card img,
+        .md-preview-modal img {
+            max-width: 100%;
+            height: auto;
+        }
+        .md-preview pre,
+        .md-preview-card pre,
+        .md-preview-modal pre {
+            background: #f8f9fa;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            overflow-x: auto;
+        }
+        .md-preview table,
+        .md-preview-card table,
+        .md-preview-modal table {
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+        }
+        .md-preview th, .md-preview td,
+        .md-preview-card th, .md-preview-card td,
+        .md-preview-modal th, .md-preview-modal td {
+            border: 1px solid #dee2e6;
+            padding: 0.25rem 0.5rem;
+        }
+        /* KaTeX display blocks should never overflow horizontally without a scrollbar */
+        .md-preview .katex-display,
+        .md-preview-card .katex-display,
+        .md-preview-modal .katex-display {
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
@@ -475,7 +530,69 @@
 
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
+
+    <!-- Shared markdown preview helpers (uses KaTeX auto-render loaded in <head>) -->
+    <script>
+        // Typeset all `$...$` / `$$...$$` inside `el` using KaTeX. Safe to call
+        // multiple times; KaTeX skips already-rendered nodes via its own state.
+        window.oqbTypesetMath = function(el) {
+            if (!el || typeof renderMathInElement !== 'function') return;
+            try {
+                renderMathInElement(el, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$',  right: '$',  display: false},
+                        {left: '\\(', right: '\\)', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                    ],
+                    throwOnError: false,
+                    trust: false,
+                });
+            } catch (e) { /* swallow KaTeX errors so the page still renders */ }
+        };
+
+        // Insert sanitized server-rendered HTML into `el` and run KaTeX.
+        window.oqbRenderMarkdownInto = function(el, html) {
+            if (!el) return;
+            el.innerHTML = html || '';
+            window.oqbTypesetMath(el);
+        };
+
+        // Lazily fill any `.md-preview-card[data-preview-q][data-preview-type]`
+        // placeholders by hitting the unified preview API.
+        window.oqbLoadMarkdownPreviewCards = function(root) {
+            const scope = root || document;
+            const cards = scope.querySelectorAll('.md-preview-card[data-preview-q]:not([data-loaded])');
+            cards.forEach(card => {
+                const qid = card.dataset.previewQ;
+                const atype = card.dataset.previewType || 'QUE';
+                card.dataset.loaded = '1';
+                fetch(`/dashboard/api/question/${qid}/preview/${atype}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data && data.mode === 'html' && data.html) {
+                            window.oqbRenderMarkdownInto(card, data.html);
+                        } else if (data && data.mode === 'image' && data.parts) {
+                            card.innerHTML = data.parts.map(p =>
+                                `<img src="${p.url}" alt="" style="display:block; margin-bottom:2px;">`
+                            ).join('');
+                        } else if (data && data.mode === 'download') {
+                            card.innerHTML = `<div class="text-muted small"><i class="bi bi-file-earmark-word"></i> ${data.filename || 'Word document'} <a href="${data.url}" target="_blank" class="ms-1">download</a></div>`;
+                        } else {
+                            card.innerHTML = '<div class="text-muted small">No preview available</div>';
+                        }
+                    })
+                    .catch(() => {
+                        card.innerHTML = '<div class="text-danger small">Error loading preview</div>';
+                    });
+            });
+        };
+
+        // Auto-load on initial page load and after every HTMX swap.
+        document.addEventListener('DOMContentLoaded', () => window.oqbLoadMarkdownPreviewCards());
+        document.body.addEventListener('htmx:afterSwap', e => window.oqbLoadMarkdownPreviewCards(e.target));
+    </script>
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>

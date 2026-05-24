@@ -41,7 +41,10 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 - `LANG`: `EN`, `CH`, `BI`
 - `TYPE`: `QUE`, `ANS`, `SOL`
 - `PART`: optional integer (default 1)
-- `EXT`: `png`, `jpg`, `jpeg`, `gif`, `bmp` (→ IMG) or `doc`, `docx` (→ DOC)
+- `EXT`: `png`, `jpg`, `jpeg`, `gif`, `bmp` (→ IMG) or `doc`, `docx` (→ DOC) or `md`, `markdown` (→ MD)
+
+### MD-specific rule
+Markdown assets are **single-part only**. A filename with `_PART` ≥ 2 and a `.md` / `.markdown` extension is logged and skipped by `upsert_asset`. One `.md` file is one whole, self-contained asset (LaTeX math + base64 images).
 
 ## Auto Question Type Detection
 Set at ingestion time based on subject + source + paper (only for MATC):

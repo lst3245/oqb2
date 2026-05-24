@@ -7,6 +7,7 @@ from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import natural_sort, apply_multi_sort, get_user_accessible_subjects
+from app import md_render
 import os
 import re
 import json
@@ -346,13 +347,32 @@ def filter_questions():
             lang_order,  # Preferred > BI > Other
             QuestionAsset.part_number  # Then by part number
         ).all()
-        
+
         # Pick the best language group: take the language of the first result
-        # then filter to only that language so all parts share the same language
+        # then filter to only that language so all parts share the same language.
+        # Within that language pick the best format (IMG > MD > DOC) so the
+        # dashboard card knows which preview mode to render.
         que_asset_ids = []
+        preview_mode = None  # 'image' | 'html' | 'download' | None
+        preview_format = None  # 'IMG' | 'MD' | 'DOC'
         if que_assets:
             best_lang = que_assets[0].language
-            que_asset_ids = [a.id for a in que_assets if a.language == best_lang]
+            same_lang = [a for a in que_assets if a.language == best_lang]
+            # IMG=0, MD=1, DOC=2 (mirror dashboard._PREVIEW_FORMAT_ORDER)
+            fmt_rank = {'IMG': 0, 'MD': 1, 'DOC': 2}
+            same_lang.sort(key=lambda a: (fmt_rank.get(a.file_format, 99),
+                                          a.part_number))
+            best_fmt = same_lang[0].file_format
+            selected = [a for a in same_lang if a.file_format == best_fmt]
+            selected.sort(key=lambda a: a.part_number)
+            preview_format = best_fmt
+            if best_fmt == 'IMG':
+                preview_mode = 'image'
+                que_asset_ids = [a.id for a in selected]
+            elif best_fmt == 'MD':
+                preview_mode = 'html'
+            else:
+                preview_mode = 'download'
         
         # Check for ANS and SOL
         has_ans = QuestionAsset.query.filter_by(
@@ -392,6 +412,8 @@ def filter_questions():
             'correct_percentage': q.correct_percentage,
             'que_asset_id': que_asset_ids[0] if que_asset_ids else None,
             'que_asset_ids': que_asset_ids,
+            'preview_mode': preview_mode,
+            'preview_format': preview_format,
             'has_ans': has_ans,
             'has_sol': has_sol,
             'answer': q.answer,
@@ -643,4 +665,106 @@ def get_question_asset(question_id, asset_type):
         'format': parts[0]['format'],
         'language': parts[0]['language'],
         'url': parts[0]['url']
+    })
+
+
+# Format preference for the unified preview resolver.
+# Lower number = preferred. IMG first (rich rendering), then MD (rendered HTML),
+# then DOC (download-only). Mirrored in app/generator.py for generation order.
+_PREVIEW_FORMAT_ORDER = {'IMG': 0, 'MD': 1, 'DOC': 2}
+
+
+def _resolve_preview_assets(question_id, asset_type, language_pref):
+    """
+    Pick the best asset group for a question's asset_type.
+
+    Order: language preference (preferred -> BI -> other), then format
+    (IMG > MD > DOC). All parts in the winning (language, format) group are
+    returned in part_number order.
+    """
+    assets = QuestionAsset.query.filter_by(
+        question_id=question_id, asset_type=asset_type
+    ).all()
+    if not assets:
+        return None, None, []
+
+    def lang_rank(a):
+        if a.language == language_pref:
+            return 0
+        if a.language == 'BI':
+            return 1
+        return 2
+
+    def fmt_rank(a):
+        return _PREVIEW_FORMAT_ORDER.get(a.file_format, 99)
+
+    assets.sort(key=lambda a: (lang_rank(a), fmt_rank(a), a.part_number))
+    best = assets[0]
+    selected = [a for a in assets
+                if a.language == best.language and a.file_format == best.file_format]
+    selected.sort(key=lambda a: a.part_number)
+    return best.language, best.file_format, selected
+
+
+@dashboard_bp.route('/api/question/<int:question_id>/preview/<asset_type>')
+@login_required
+def get_question_preview(question_id, asset_type):
+    """
+    Unified preview resolver. Returns one of three shapes:
+
+      {mode: 'image',    format: 'IMG', language, parts: [{url, part_number, id}]}
+      {mode: 'html',     format: 'MD',  language, html, asset_id, url}
+      {mode: 'download', format: 'DOC', language, url, filename, asset_id}
+
+    Plus `{error: ...}` with 404 when no matching asset exists.
+    """
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'Invalid asset_type'}), 400
+
+    lang_pref = (request.args.get('lang') or 'EN').upper()
+    if lang_pref not in ('EN', 'CH', 'BI'):
+        lang_pref = 'EN'
+
+    language, file_format, selected = _resolve_preview_assets(
+        question_id, asset_type, lang_pref
+    )
+    if not selected:
+        return jsonify({'error': 'Asset not found'}), 404
+
+    source_path = current_app.config['SOURCE_PATH']
+
+    if file_format == 'IMG':
+        return jsonify({
+            'mode': 'image',
+            'format': 'IMG',
+            'language': language,
+            'parts': [{
+                'id': a.id,
+                'part_number': a.part_number,
+                'url': f"/dashboard/files/{a.file_path}",
+            } for a in selected],
+        })
+
+    if file_format == 'MD':
+        asset = selected[0]
+        abs_path = os.path.join(source_path, *asset.file_path.split('/'))
+        html = md_render.render_file(asset.id, abs_path)
+        return jsonify({
+            'mode': 'html',
+            'format': 'MD',
+            'language': language,
+            'asset_id': asset.id,
+            'html': html,
+            'url': f"/dashboard/files/{asset.file_path}",
+        })
+
+    # DOC fallback: download-only (browsers cannot inline-render .docx).
+    asset = selected[0]
+    return jsonify({
+        'mode': 'download',
+        'format': 'DOC',
+        'language': language,
+        'asset_id': asset.id,
+        'url': f"/dashboard/files/{asset.file_path}",
+        'filename': asset.file_path.rsplit('/', 1)[-1],
     })

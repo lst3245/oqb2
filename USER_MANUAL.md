@@ -106,7 +106,7 @@ When QID search is active, other filters are ignored.
 Each card shows:
 - QID, year, level, section, type badge
 - Topic and subtopic
-- Preview image (click to expand full-size)
+- Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document download link, depending on what assets the question has. Format priority is **image > markdown > Word**.
 - Answer/Solution buttons (if assets exist)
 - Comment text (if set)
 - Correct percentage (if recorded, e.g. "75% correct")

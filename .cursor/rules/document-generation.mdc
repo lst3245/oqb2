@@ -64,11 +64,17 @@ Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:
 
 ## Asset Selection Logic
 Language: preferred (`EN`/`CH`) → `BI` → other  
-Format: `IMG` preferred over `DOC`  
+Format: **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`).  
 All parts sharing the best (format, language) group are included in order of `part_number`.
 
 For `ANS` with `answer_preference='text_first'`: use `question.answer` text if available, fall back to image.  
 For `ANS` with `answer_preference='image_first'`: use image if available, fall back to `question.answer` text.
+
+### Markdown asset rendering
+`add_question_content_to_doc()` has three format branches:
+- `IMG` → `doc.add_picture()` (auto-resized by `_DPI`)
+- `MD`  → `_append_md_via_pandoc()` calls `pandoc <md> -o tmp.docx --from=markdown+tex_math_dollars --to=docx` then `docxcompose.Composer(doc).append(fragment)`. Requires `PANDOC_PATH` (default: `pandoc` on `PATH`); errors fall through to an italic placeholder. Math comes through as native Word equations (OMML).
+- `DOC` → still a placeholder (no merge yet).
 
 ## Viewer / Presentation Mode
 Route: `POST /generate/viewer` → `viewer.html`  

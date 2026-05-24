@@ -1,0 +1,270 @@
+{#
+  Shared Markdown editor partial (EasyMDE + marked + KaTeX).
+
+  Usage (in any template):
+    1. Include this partial once on the page (idempotent JS guard).
+    2. Place a textarea where the editor should live.
+    3. Call oqbCreateMdEditor(textareaEl, options) once the DOM is ready.
+
+  This partial only registers the factory. The caller decides:
+    - where the editor sits in the DOM (modal vs fullscreen),
+    - how/where the Save button lives, and
+    - the save endpoint (md/save vs md/create).
+
+  CDN includes are idempotent because the script body bails out as soon as
+  window.oqbCreateMdEditor is already defined.
+#}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
+<script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+{# KaTeX (CSS + auto-render) is already loaded by base.html.
+   This partial is JS-guard-safe: including it twice in the same page is
+   harmless because the script body bails out when oqbCreateMdEditor exists. #}
+
+<style>
+    /* EasyMDE + KaTeX visual tweaks scoped to OQB editor instances */
+    .oqb-md-editor-wrap .EasyMDEContainer {
+        background: #fff;
+    }
+    .oqb-md-editor-wrap .editor-toolbar {
+        border-radius: 0.375rem 0.375rem 0 0;
+    }
+    .oqb-md-editor-wrap .CodeMirror {
+        min-height: 320px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9rem;
+    }
+    .oqb-md-editor-wrap .editor-preview,
+    .oqb-md-editor-wrap .editor-preview-side {
+        padding: 0.75rem 1rem;
+        background: #fff;
+    }
+    .oqb-md-editor-wrap .editor-preview img,
+    .oqb-md-editor-wrap .editor-preview-side img {
+        max-width: 100%;
+        height: auto;
+    }
+    .oqb-md-editor-wrap .editor-preview .katex-display,
+    .oqb-md-editor-wrap .editor-preview-side .katex-display {
+        overflow-x: auto;
+    }
+    .oqb-md-editor-meta {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+    .oqb-md-editor-meta .size-warn { color: #d97706; font-weight: 500; }
+    .oqb-md-editor-meta .size-over { color: #dc3545; font-weight: 600; }
+</style>
+
+<script>
+(function() {
+    // Idempotent: bail if a previous include already registered the factory.
+    if (window.oqbCreateMdEditor) return;
+
+    // Configure marked once. We turn off raw HTML to keep the live preview
+    // aligned with the bleach-sanitized server render.
+    if (window.marked && marked.setOptions) {
+        marked.setOptions({
+            gfm: true,
+            breaks: false,
+            mangle: false,
+            headerIds: false,
+        });
+    }
+
+    function bytesOf(text) {
+        try {
+            return new TextEncoder().encode(text || '').length;
+        } catch (e) {
+            return (text || '').length;
+        }
+    }
+
+    function fmtBytes(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KiB';
+        return (n / (1024 * 1024)).toFixed(2) + ' MiB';
+    }
+
+    /**
+     * Create an OQB Markdown editor on the given <textarea>.
+     * Returns { easymde, getValue, setValue, getBytes, getMaxBytes,
+     *           insertAtCursor, focus, refreshPreview, destroy }.
+     */
+    window.oqbCreateMdEditor = function(textareaEl, opts) {
+        opts = opts || {};
+        const maxSize = Number(opts.maxSize) || (5 * 1024 * 1024);
+        const initialContent = opts.initialContent != null ? String(opts.initialContent) : (textareaEl.value || '');
+        textareaEl.value = initialContent;
+
+        // Wrap the textarea so we can attach a meta footer right after.
+        let wrap = textareaEl.parentElement;
+        if (!wrap || !wrap.classList.contains('oqb-md-editor-wrap')) {
+            const w = document.createElement('div');
+            w.className = 'oqb-md-editor-wrap';
+            textareaEl.parentNode.insertBefore(w, textareaEl);
+            w.appendChild(textareaEl);
+            wrap = w;
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'oqb-md-editor-meta';
+        meta.innerHTML = '<span class="size">0 B</span> / <span class="size-max"></span>';
+        meta.querySelector('.size-max').textContent = fmtBytes(maxSize);
+        wrap.appendChild(meta);
+
+        // Custom toolbar with math + base64 image insert buttons.
+        const customToolbar = [
+            'bold', 'italic', 'heading', '|',
+            'quote', 'unordered-list', 'ordered-list', '|',
+            'link', 'table', 'code', '|',
+            {
+                name: 'mathInline',
+                action: function customMathInline(editor) {
+                    const cm = editor.codemirror;
+                    const sel = cm.getSelection();
+                    cm.replaceSelection('$' + (sel || 'x') + '$');
+                    cm.focus();
+                },
+                className: 'fa fa-superscript',
+                title: 'Inline math: $...$',
+                text: '$x$',
+            },
+            {
+                name: 'mathBlock',
+                action: function customMathBlock(editor) {
+                    const cm = editor.codemirror;
+                    const sel = cm.getSelection();
+                    cm.replaceSelection('\n$$\n' + (sel || 'x = y') + '\n$$\n');
+                    cm.focus();
+                },
+                className: 'fa fa-square-root-alt',
+                title: 'Display math: $$...$$',
+                text: '$$x$$',
+            },
+            {
+                name: 'imageBase64',
+                action: function customImage(editor) {
+                    pickImageAsBase64(function(dataUrl, fname) {
+                        if (!dataUrl) return;
+                        const cm = editor.codemirror;
+                        const alt = (fname || 'image').replace(/[\[\]]/g, '');
+                        cm.replaceSelection('\n![' + alt + '](' + dataUrl + ')\n');
+                        cm.focus();
+                        updateSize();
+                    });
+                },
+                className: 'fa fa-image',
+                title: 'Insert image (base64 embedded)',
+                text: 'IMG',
+            },
+            '|',
+            'preview', 'side-by-side', 'fullscreen',
+            '|',
+            'guide',
+        ];
+
+        const easymde = new EasyMDE({
+            element: textareaEl,
+            autoDownloadFontAwesome: true,
+            spellChecker: false,
+            indentWithTabs: false,
+            tabSize: 2,
+            status: false,             // we draw our own size meta below
+            minHeight: '320px',
+            toolbar: customToolbar,
+            initialValue: initialContent,
+            previewRender: function(plainText) {
+                // Use marked for the live preview, then async-typeset math.
+                let html = '';
+                try {
+                    html = marked.parse(plainText || '');
+                } catch (e) {
+                    html = '<pre>' + (e && e.message ? e.message : 'preview error') + '</pre>';
+                }
+                const self = this;
+                setTimeout(function() {
+                    try {
+                        if (self.parent && self.parent.preview) {
+                            window.oqbTypesetMath(self.parent.preview);
+                        }
+                    } catch (e) { /* ignore */ }
+                }, 0);
+                return html;
+            },
+        });
+
+        const sizeEl = meta.querySelector('.size');
+        function updateSize() {
+            const text = easymde.value();
+            const n = bytesOf(text);
+            sizeEl.textContent = fmtBytes(n);
+            sizeEl.classList.remove('size-warn', 'size-over');
+            if (n > maxSize) sizeEl.classList.add('size-over');
+            else if (n > maxSize * 0.8) sizeEl.classList.add('size-warn');
+            if (typeof opts.onChange === 'function') {
+                try { opts.onChange(text, n); } catch (e) { /* ignore */ }
+            }
+            return n;
+        }
+
+        easymde.codemirror.on('change', updateSize);
+        updateSize();
+
+        // Handle Ctrl+V pasting of image clipboards as base64.
+        easymde.codemirror.on('paste', function(cm, e) {
+            if (!e.clipboardData || !e.clipboardData.items) return;
+            for (const item of e.clipboardData.items) {
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const blob = item.getAsFile();
+                    blobToBase64(blob, function(dataUrl) {
+                        const alt = 'pasted-image';
+                        cm.replaceSelection('\n![' + alt + '](' + dataUrl + ')\n');
+                        updateSize();
+                    });
+                    break;
+                }
+            }
+        });
+
+        return {
+            easymde: easymde,
+            getValue: function() { return easymde.value(); },
+            setValue: function(v) { easymde.value(v == null ? '' : String(v)); updateSize(); },
+            getBytes: function() { return bytesOf(easymde.value()); },
+            getMaxBytes: function() { return maxSize; },
+            insertAtCursor: function(s) { easymde.codemirror.replaceSelection(s); updateSize(); },
+            focus: function() { easymde.codemirror.focus(); },
+            refreshPreview: function() { /* EasyMDE re-renders on toggle */ },
+            destroy: function() { try { easymde.toTextArea(); } catch (e) {} },
+        };
+    };
+
+    function pickImageAsBase64(cb) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.style.display = 'none';
+        input.onchange = function() {
+            const f = input.files && input.files[0];
+            if (!f) { cb(null); return; }
+            blobToBase64(f, function(url) { cb(url, f.name); });
+        };
+        document.body.appendChild(input);
+        input.click();
+        setTimeout(() => input.remove(), 100);
+    }
+
+    function blobToBase64(blob, cb) {
+        const reader = new FileReader();
+        reader.onload = function() { cb(reader.result); };
+        reader.onerror = function() { cb(null); };
+        reader.readAsDataURL(blob);
+    }
+})();
+</script>

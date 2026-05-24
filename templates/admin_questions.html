@@ -355,6 +355,37 @@
     </div>
 </div>
 
+<!-- ======================== MARKDOWN EDITOR MODAL ======================== -->
+{% include 'partials/md_editor.html' %}
+<div class="modal fade" id="mdEditorModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-fullscreen-md-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-markdown"></i>
+                    <span id="mdEditorModalTitle">Markdown Editor</span>
+                </h5>
+                <div class="ms-auto d-flex gap-2 align-items-center">
+                    <small id="mdEditorModalStatus" class="text-muted">Loading...</small>
+                    <a id="mdEditorModalFullscreenLink" href="#" target="_blank" class="btn btn-sm btn-outline-secondary" title="Open in fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <textarea id="mdEditorModalTextarea"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="mdEditorModalSaveBtn">
+                    <i class="bi bi-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Rename confirmation modal -->
 <div class="modal fade" id="renameConfirmModal" tabindex="-1">
     <div class="modal-dialog">
@@ -895,11 +926,15 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
         } else {
             parts.forEach((p, idx) => {
                 const isImg = p.file_format === 'IMG';
+                const isMd  = p.file_format === 'MD';
                 const fname = p.file_path.split('/').pop();
+                const fullscreenUrl = `/admin/questions/${questionId}/assets/${p.id}/md/edit`;
                 html += `<div class="asset-part-card">
                     <div class="asset-part-toolbar">
                         <span class="part-label">Part ${p.part_number} <small class="text-muted fw-normal ms-1">${fname}</small></span>
                         <div class="part-actions">
+                            ${isMd ? `<button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${p.id})"><i class="bi bi-pencil-square"></i></button>` : ''}
+                            ${isMd ? `<a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${fullscreenUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>` : ''}
                             ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
                             ${idx < parts.length-1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
@@ -907,13 +942,18 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                     </div>
                     ${isImg
                         ? `<img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">`
-                        : `<div class="border-0 p-3 text-center" style="height:80px;display:flex;align-items:center;justify-content:center;background:#fff;">
-                            <div><i class="bi bi-file-word fs-1 text-primary"></i> <small>${fname}</small></div></div>`
+                        : (isMd
+                            ? `<div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-lang="${lang}" style="max-height:160px; cursor:pointer;" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${p.id})"><div class="text-muted small fst-italic">Rendering...</div></div>`
+                            : `<div class="border-0 p-3 text-center" style="height:80px;display:flex;align-items:center;justify-content:center;background:#fff;">
+                                <div><i class="bi bi-file-word fs-1 text-primary"></i> <small>${fname}</small></div></div>`
+                          )
                     }
                 </div>`;
             });
         }
 
+        const hasMd = parts.some(p => p.file_format === 'MD');
+        const newMdUrl = `/admin/questions/${questionId}/assets/md/new?language=${lang}&asset_type=${atype}`;
         html += `</div>
             <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_${atype}"
                  ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
@@ -922,10 +962,15 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                  onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}', '${ctx}')">
                 <i class="bi bi-cloud-upload"></i> Drop files here or click to browse
             </div>
-            <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*,.doc,.docx"
+            <div class="d-flex gap-2 mt-2">
+                ${hasMd ? '' : `<button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')"><i class="bi bi-markdown"></i> New Markdown (inline)</button>`}
+                ${hasMd ? '' : `<a class="btn btn-sm btn-outline-secondary" target="_blank" href="${newMdUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i> New Markdown (fullscreen)</a>`}
+            </div>
+            <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*,.doc,.docx,.md,.markdown"
                    multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
         </div>`;
     });
+    setTimeout(() => window.oqbLoadMarkdownPreviewCards && window.oqbLoadMarkdownPreviewCards(), 0);
     return html;
 }
 
@@ -1036,6 +1081,197 @@ function deleteAssetPart(questionId, assetId, filename) {
     })
     .catch(err => showToast('Error: ' + err.message, 'danger'));
 }
+
+// ============== Markdown editor modal (inline edit + inline create) ==============
+//
+// openMdEditorModal(questionId, assetId)                 -> EDIT existing MD asset
+// openMdEditorModal(questionId, null, lang, asset_type)  -> CREATE new MD asset
+let mdEditorModalInstance = null;
+let mdEditorModalEditor = null;
+let mdEditorModalState = null;   // { questionId, assetId, lang, atype, isCreate, lastMtime, dirty }
+
+function openMdEditorModal(questionId, assetId, lang, atype) {
+    const isCreate = !assetId;
+    const language = lang || 'EN';
+    const assetType = atype || 'QUE';
+
+    mdEditorModalState = {
+        questionId, assetId, isCreate,
+        lang: language, atype: assetType,
+        lastMtime: null,
+        dirty: false,
+    };
+
+    const modalEl = document.getElementById('mdEditorModal');
+    const titleEl = document.getElementById('mdEditorModalTitle');
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    const textarea = document.getElementById('mdEditorModalTextarea');
+    const saveBtn = document.getElementById('mdEditorModalSaveBtn');
+    const fsLink = document.getElementById('mdEditorModalFullscreenLink');
+
+    titleEl.textContent = isCreate
+        ? `New Markdown (${assetType}/${language})`
+        : `Edit Markdown (${assetType}/${language})`;
+    statusEl.textContent = 'Loading...';
+    statusEl.className = 'text-muted';
+
+    fsLink.href = isCreate
+        ? `/admin/questions/${questionId}/assets/md/new?language=${language}&asset_type=${assetType}`
+        : `/admin/questions/${questionId}/assets/${assetId}/md/edit`;
+
+    // Destroy any prior editor instance so EasyMDE re-initialises cleanly.
+    if (mdEditorModalEditor) {
+        try { mdEditorModalEditor.destroy(); } catch (e) {}
+        mdEditorModalEditor = null;
+    }
+    textarea.value = '';
+
+    if (!mdEditorModalInstance) {
+        mdEditorModalInstance = new bootstrap.Modal(modalEl);
+    }
+    // Register the one-shot init handler BEFORE show() so we never miss the event.
+    modalEl.addEventListener('shown.bs.modal', initOnce, { once: true });
+    mdEditorModalInstance.show();
+
+    function initOnce() {
+        function buildEditor(initialContent) {
+            mdEditorModalEditor = window.oqbCreateMdEditor(textarea, {
+                initialContent: initialContent || '',
+                maxSize: {{ md_max_size_bytes if md_max_size_bytes is defined else 5242880 }},
+                onChange: function() {
+                    if (!mdEditorModalState.dirty) {
+                        mdEditorModalState.dirty = true;
+                        statusEl.textContent = 'Unsaved changes';
+                        statusEl.className = 'text-warning';
+                    }
+                },
+            });
+        }
+
+        if (isCreate) {
+            buildEditor('');
+            statusEl.textContent = 'New file. Start typing.';
+            statusEl.className = 'text-muted';
+        } else {
+            fetch(`/admin/questions/${questionId}/assets/${assetId}/md/content`)
+                .then(r => r.json().then(d => ({status: r.status, data: d})))
+                .then(({status, data}) => {
+                    if (status !== 200) {
+                        statusEl.textContent = 'Error: ' + (data.error || 'load failed');
+                        statusEl.className = 'text-danger';
+                        return;
+                    }
+                    mdEditorModalState.lastMtime = data.mtime_ns;
+                    buildEditor(data.content);
+                    statusEl.textContent = 'Loaded.';
+                    statusEl.className = 'text-muted';
+                })
+                .catch(err => {
+                    statusEl.textContent = 'Error: ' + err.message;
+                    statusEl.className = 'text-danger';
+                });
+        }
+    }
+
+    saveBtn.onclick = () => doSaveMdEditorModal(false);
+}
+
+function doSaveMdEditorModal(force) {
+    const s = mdEditorModalState;
+    if (!s || !mdEditorModalEditor) return;
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    const saveBtn = document.getElementById('mdEditorModalSaveBtn');
+    const content = mdEditorModalEditor.getValue();
+    const sizeBytes = mdEditorModalEditor.getBytes();
+    const maxBytes = mdEditorModalEditor.getMaxBytes();
+    if (sizeBytes > maxBytes) {
+        statusEl.textContent = `Content too large (${sizeBytes} > ${maxBytes} bytes)`;
+        statusEl.className = 'text-danger';
+        return;
+    }
+
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'text-muted';
+    saveBtn.disabled = true;
+
+    let url, body;
+    if (s.isCreate) {
+        url = `/admin/questions/${s.questionId}/assets/md/create`;
+        body = JSON.stringify({ language: s.lang, asset_type: s.atype, content: content });
+    } else {
+        url = `/admin/questions/${s.questionId}/assets/${s.assetId}/md/save`;
+        body = JSON.stringify({
+            content: content,
+            expected_mtime_ns: s.lastMtime,
+            force: !!force,
+        });
+    }
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+    })
+        .then(r => r.json().then(d => ({status: r.status, data: d})))
+        .then(({status, data}) => {
+            saveBtn.disabled = false;
+            if (status === 409 && !s.isCreate) {
+                if (confirm('File changed on disk since you opened it. Overwrite with your changes?')) {
+                    doSaveMdEditorModal(true);
+                } else {
+                    statusEl.textContent = 'Save cancelled (file changed)';
+                    statusEl.className = 'text-danger';
+                }
+                return;
+            }
+            if (data.success) {
+                s.dirty = false;
+                s.lastMtime = data.mtime_ns;
+                statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString();
+                statusEl.className = 'text-success';
+                // Refresh asset list under the modal so the new/edited MD card appears
+                // (esp. for create: the new asset only exists after save).
+                refreshAssetsView(s.questionId);
+                if (s.isCreate && data.asset_id) {
+                    // Promote create -> edit so subsequent saves use mtime checks.
+                    s.isCreate = false;
+                    s.assetId = data.asset_id;
+                    const fsLink = document.getElementById('mdEditorModalFullscreenLink');
+                    fsLink.href = `/admin/questions/${s.questionId}/assets/${data.asset_id}/md/edit`;
+                    document.getElementById('mdEditorModalTitle').textContent =
+                        `Edit Markdown (${s.atype}/${s.lang})`;
+                }
+            } else {
+                statusEl.textContent = 'Error: ' + (data.error || 'save failed');
+                statusEl.className = 'text-danger';
+            }
+        })
+        .catch(err => {
+            saveBtn.disabled = false;
+            statusEl.textContent = 'Error: ' + err.message;
+            statusEl.className = 'text-danger';
+        });
+}
+
+// Warn before closing modal with unsaved changes.
+document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('mdEditorModal');
+    if (!modalEl) return;
+    modalEl.addEventListener('hide.bs.modal', function(e) {
+        if (mdEditorModalState && mdEditorModalState.dirty) {
+            if (!confirm('Discard unsaved changes?')) {
+                e.preventDefault();
+            }
+        }
+    });
+    modalEl.addEventListener('hidden.bs.modal', function() {
+        if (mdEditorModalEditor) {
+            try { mdEditorModalEditor.destroy(); } catch (e) {}
+            mdEditorModalEditor = null;
+        }
+        mdEditorModalState = null;
+    });
+});
 
 function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
     // Re-fetch current ordering, then swap and send reorder request

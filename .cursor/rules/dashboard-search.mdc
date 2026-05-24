@@ -70,8 +70,9 @@ Full page requests → return complete `dashboard.html`.
 - `GET /dashboard/api/years/<subject_id>/<source>` — available years
 - `GET /dashboard/api/sections/<subject_id>/<source>` — available sections
 - `GET /dashboard/api/asset/<asset_id>` — asset info
-- `GET /dashboard/api/question/<id>/assets/<type>` — all parts for a question's asset type
+- `GET /dashboard/api/question/<id>/assets/<type>` — all parts for a question's asset type (legacy; image-centric)
+- `GET /dashboard/api/question/<id>/preview/<type>?lang=EN` — **unified preview resolver**. Returns `{mode: 'image'|'html'|'download', format, language, parts/html/url, ...}`. Format priority: **IMG > MD > DOC**. Used by dashboard cards (lazy fetch for HTML/download), the preview modal (`previewAsset()`), and the in-browser MD render helpers in `templates/base.html`.
 - `GET /dashboard/files/<path>` — serve raw asset file from SOURCE_PATH
 
 ## Asset Language Selection (Preview)
-Best language group is selected: preferred (`EN`/`CH`) → `BI` → other. All `part_number` parts for the chosen language are returned together.
+Best language group is selected: preferred (`EN`/`CH`) → `BI` → other. Within that language, best format wins (IMG > MD > DOC). All `part_number` parts for the chosen (language, format) are returned together.

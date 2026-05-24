@@ -3470,29 +3470,46 @@ document.getElementById('sectionSelect').addEventListener('change', function() {
 
 // Topic change is now handled by onTopicChange() via checkbox onclick handlers
 
-// Preview asset
+// Preview asset (unified for IMG / MD / DOC via /preview/ resolver)
 function previewAsset(questionId, assetType) {
     const modal = new bootstrap.Modal(document.getElementById('previewModal'));
     const modalBody = document.getElementById('previewModalBody');
     const modalLabel = document.getElementById('previewModalLabel');
-    
+
     modalLabel.textContent = `Preview ${assetType}`;
     modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
-    
+
     modal.show();
-    
-    fetch(`/dashboard/api/question/${questionId}/assets/${assetType}`)
+
+    const lang = (typeof getPreviewLanguage === 'function') ? getPreviewLanguage() : 'EN';
+    fetch(`/dashboard/api/question/${questionId}/preview/${assetType}?lang=${encodeURIComponent(lang)}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {
                 modalBody.innerHTML = `<p class="text-danger">${data.error}</p>`;
-            } else if (data.parts && data.parts.length > 0) {
-                // Multi-part: stack all images vertically
+                return;
+            }
+            if (data.mode === 'image' && data.parts && data.parts.length > 0) {
                 modalBody.innerHTML = data.parts.map(p =>
                     `<img src="${p.url}" class="preview-modal-img" alt="${assetType}" style="display:block; margin-bottom:4px; max-width:100%;">`
                 ).join('');
+            } else if (data.mode === 'html') {
+                const wrap = document.createElement('div');
+                wrap.className = 'md-preview-modal text-start';
+                modalBody.innerHTML = '';
+                modalBody.appendChild(wrap);
+                window.oqbRenderMarkdownInto(wrap, data.html || '');
+            } else if (data.mode === 'download') {
+                modalBody.innerHTML = `
+                    <div class="p-4">
+                        <i class="bi bi-file-earmark-word display-3 text-primary"></i>
+                        <p class="mt-3 mb-2">Word document — inline preview not supported.</p>
+                        <a href="${data.url}" target="_blank" class="btn btn-primary">
+                            <i class="bi bi-download"></i> Download ${data.filename || ''}
+                        </a>
+                    </div>`;
             } else {
-                modalBody.innerHTML = `<img src="${data.url}" class="preview-modal-img" alt="${assetType}">`;
+                modalBody.innerHTML = `<p class="text-muted">No preview available</p>`;
             }
         })
         .catch(err => {
