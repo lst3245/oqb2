@@ -477,11 +477,20 @@
     }
 
     const _fsObserver = new MutationObserver(_syncFullscreen);
-    document.addEventListener('DOMContentLoaded', function() {
+    function _attachFsObserver() {
+        if (!document.body) return false;
         _fsObserver.observe(document.body, {
             subtree: true, attributes: true, attributeFilter: ['class'], childList: true,
         });
-    });
+        return true;
+    }
+    // Try to attach immediately. If the partial is included after
+    // DOMContentLoaded has already fired (e.g. via HTMX swap), the listener
+    // would never run, so prefer the synchronous path when document.body is
+    // already present.
+    if (!_attachFsObserver()) {
+        document.addEventListener('DOMContentLoaded', _attachFsObserver);
+    }
 })();
 </script>
 

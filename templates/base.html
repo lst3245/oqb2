@@ -559,15 +559,19 @@
         };
 
         // Lazily fill any `.md-preview-card[data-preview-q][data-preview-type]`
-        // placeholders by hitting the unified preview API.
+        // placeholders by hitting the unified preview API. Honour the
+        // optional `data-preview-lang` attribute so language-specific MD
+        // slots (EN / CH / BI) render with the correct content.
         window.oqbLoadMarkdownPreviewCards = function(root) {
             const scope = root || document;
             const cards = scope.querySelectorAll('.md-preview-card[data-preview-q]:not([data-loaded])');
             cards.forEach(card => {
                 const qid = card.dataset.previewQ;
                 const atype = card.dataset.previewType || 'QUE';
+                const lang = card.dataset.previewLang || 'EN';
                 card.dataset.loaded = '1';
-                fetch(`/dashboard/api/question/${qid}/preview/${atype}`)
+                const url = `/dashboard/api/question/${qid}/preview/${atype}?lang=${encodeURIComponent(lang)}`;
+                fetch(url)
                     .then(r => r.json())
                     .then(data => {
                         if (data && data.mode === 'html' && data.html) {

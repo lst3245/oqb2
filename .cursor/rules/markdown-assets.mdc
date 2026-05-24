@@ -1,0 +1,136 @@
+---
+description: Markdown (MD) source-asset format end-to-end — schema, ingestion, render, editor, generation, security model
+globs: app/md_render.py,app/generator.py,templates/partials/md_editor.html,templates/admin_md_editor.html,migrate_md_format.py
+alwaysApply: false
+---
+
+# Markdown Source Format (MD)
+
+`QuestionAsset.file_format='MD'` is the third source format alongside `IMG` and `DOC`. MD files are **self-contained**: LaTeX math via `$...$` / `$$...$$` and images embedded as `data:image/...;base64,...` URIs. **Single-slot only** — one `.md` per (question × asset_type × language); no `_PART` suffix, no part_number > 1.
+
+## End-to-end pipeline
+
+```
+  ┌── ingest (filename ext .md/.markdown) ─────────┐
+  ├── admin upload (.md, single-slot, size cap)    │
+  ├── admin editor create/save (inline + fullscreen)──→ on disk in SOURCE_PATH
+  └────────────────────────────────────────────────┘
+                          │
+                          ├──→ render_file() (markdown-it-py + bleach)  ──→ dashboard cards / preview modal / viewer
+                          │
+                          └──→ _append_md_via_pandoc()  ──→ docx via pandoc subprocess + docxcompose
+```
+
+## Files map (cross-reference)
+
+| Concern | File(s) |
+|---|---|
+| Schema | [app/models.py](mdc:app/models.py) `QuestionAsset.file_format` enum |
+| Migration | [migrate_md_format.py](mdc:migrate_md_format.py) — idempotent `ALTER TABLE` |
+| Config | [app/config.py](mdc:app/config.py) `PANDOC_PATH`, `MD_MAX_SIZE_BYTES` |
+| Ingestion | [app/ingestor.py](mdc:app/ingestor.py) `determine_file_format`, `upsert_asset` (multi-part guard) |
+| Admin upload / endpoints | [app/admin.py](mdc:app/admin.py) `upload_question_asset` + 5 MD endpoints |
+| Server render | [app/md_render.py](mdc:app/md_render.py) — markdown-it-py + bleach, mtime-keyed LRU cache |
+| Dashboard preview | [app/dashboard.py](mdc:app/dashboard.py) `_resolve_preview_assets`, `get_question_preview`, `filter_questions` |
+| Viewer | [app/generator.py](mdc:app/generator.py) `get_viewer_asset` (returns `{format:'MD', html}`) |
+| Generation | [app/generator.py](mdc:app/generator.py) `_append_md_via_pandoc`, `_preprocess_md_for_pandoc`, `_parse_format_priority` |
+| Editor factory | [templates/partials/md_editor.html](mdc:templates/partials/md_editor.html) |
+| Fullscreen editor page | [templates/admin_md_editor.html](mdc:templates/admin_md_editor.html) |
+| Modal integration | [templates/admin_questions.html](mdc:templates/admin_questions.html) `renderAssetSections`, `openMdEditorModal` |
+| Shared client helpers | [templates/base.html](mdc:templates/base.html) `oqbTypesetMath`, `oqbRenderMarkdownInto`, `oqbLoadMarkdownPreviewCards` |
+| Viewer client | [templates/viewer.html](mdc:templates/viewer.html) — duplicates helpers (does NOT extend base.html) |
+
+## Locked decisions
+
+1. **Self-contained MD**: no sidecar image files. Images MUST be base64 data URIs in the markdown source.
+2. **Single-slot**: one MD per (question, asset_type, language). Multi-part is rejected at ingest (`upsert_asset`) and upload (`upload_question_asset`).
+3. **Filename**: `<QID>_<LANG>_<ATYPE>.md` (no `_PART` suffix).
+4. **Default format priority**: `IMG > MD > DOC` — but **user-configurable** at generation time via the Format Priority widget on the Generate page. Stored as `format_priority` comma list in `generation_options`.
+5. **No server-side KaTeX**: math is left as `$...$` / `$$...$$` in HTML; the **client** (KaTeX auto-render) typesets it. The live editor's preview path runs `katex.renderToString()` client-side before marked because marked splits blank-line-separated `$$` into multiple `<p>` (breaks auto-render). Server render relies on dollarmath_plugin re-emitting delimiters.
+6. **Editor stack**: EasyMDE + marked + KaTeX + FontAwesome 4.7 (pinned), all via CDN.
+
+## Security model
+
+**Threat surface**: admin-authored content rendered to other admins (and to read-only users on dashboard preview / viewer). Authors are trusted but compromised admin accounts are a concern.
+
+[app/md_render.py](mdc:app/md_render.py) `sanitize()` enforces:
+- **Tag allowlist** (`_ALLOWED_TAGS`): markdown-emitted tags + MathML elements + KaTeX-emitted `span/svg/path`. No `<script>`, `<iframe>`, `<object>`, etc.
+- **Attribute callable** (`_attr_allowed`): per-tag attribute names + **URL scheme validation** via `_is_safe_url()`.
+  - `<a href>`: only `http(s)`, `mailto`, `tel`, `/`, `#`, `//`. **Rejects `javascript:`, `vbscript:`, all `data:`**.
+  - `<img src>`: same safe URLs, PLUS `data:image/<type>;base64,<...>` (the embedded-image case).
+- **`protocols=_BLEACH_PROTOCOLS`** must include `data` — bleach pre-filters URL attributes against this list BEFORE invoking the callable. Without `data`, base64 images get silently stripped.
+- `html: false` on the markdown-it instance — raw HTML in MD source is escaped, not parsed.
+- `style` attribute is allowed (no CSS sanitizer); acceptable because authors are admins, not anonymous.
+
+## Render cache
+
+`render_file(asset_id, abs_path)`:
+- Keyed by `asset_id → (mtime_ns, html)`.
+- mtime read **BEFORE** content read so a concurrent writer can't desync the cached HTML from its mtime (otherwise next save's optimistic-mtime check would accept a stale write).
+- LRU eviction at `_CACHE_MAX_ENTRIES = 512`.
+- Invalidated on save (`save_md_asset_content`) and delete (`delete_question_asset` MD branch).
+- Returns `''` on missing file or `UnicodeDecodeError` (corrupted UTF-8) — never caches errors.
+
+## Admin endpoints
+
+All require `@admin_required` + `_require_md_admin(question)` (subject-admin check).
+
+| Method | URL | Purpose |
+|---|---|---|
+| GET  | `/admin/questions/<qid>/assets/<aid>/md/content` | raw MD text + `mtime_ns` |
+| POST | `/admin/questions/<qid>/assets/<aid>/md/save`    | overwrite file; body `{content, expected_mtime_ns?, force?}`; **409 on optimistic conflict** |
+| POST | `/admin/questions/<qid>/assets/md/create`        | new MD asset; body `{language, asset_type, content}`; **409 if slot already has MD** |
+| GET  | `/admin/questions/<qid>/assets/<aid>/md/edit`    | fullscreen editor page |
+| GET  | `/admin/questions/<qid>/assets/md/new?language=&asset_type=` | fullscreen editor in create mode |
+
+Optimistic concurrency:
+- `save` reads `expected_mtime_ns` from body; if disk mtime differs (and `force=False`), returns 409 with the current mtime. Editor prompts user to discard or force-overwrite.
+
+## Editor (`templates/partials/md_editor.html`)
+
+`oqbCreateMdEditor(textareaEl, {initialContent, maxSize, minHeight, onChange})` is the factory. Returns `{easymde, getValue, setValue, getBytes, getMaxBytes, focus, destroy}`.
+
+Key behaviours:
+- **Live preview pipeline**: `_oqbPreprocessMath()` runs KaTeX `renderToString()` for every `$...$` / `$$...$$` block first, then passes the resulting HTML through marked. This matches dashboard fidelity and survives blank-line-separated `$$` blocks.
+- **Image insert / paste**: both produce `![](data:image/...;base64,...)` with **empty alt** (pandoc would otherwise render alt as a visible caption in the docx).
+- **Paste isolation**: CodeMirror paste handler calls `e.stopPropagation()` so the outer admin-page document-level paste handler doesn't ALSO upload the image as an IMG asset. [templates/admin_questions.html](mdc:templates/admin_questions.html) also defensively skips its paste handler when the MD modal is showing or focus is inside an `.EasyMDEContainer`.
+- **Fullscreen reparenting**: a MutationObserver watches for EasyMDE's `.fullscreen` class. On entry, the entire `.EasyMDEContainer` is physically moved to `<body>` (placeholder left behind in the original spot), bypassing the Bootstrap-modal stacking-context trap that would otherwise confine the `position: fixed` editor inside the modal. On exit it's restored. `destroy()` exits fullscreen first so the textarea isn't reparented onto `<body>`.
+- **Toolbar collision**: `button.table` is scoped via `.EasyMDEContainer .editor-toolbar button.table { width: auto !important; }` because Bootstrap's `.table { width: 100% }` otherwise stretches the Insert-Table button to the full toolbar.
+- **Idempotent include**: script body bails immediately if `window.oqbCreateMdEditor` is already defined.
+
+## Generation (`_append_md_via_pandoc`)
+
+```
+md file → _preprocess_md_for_pandoc → tmp/input.md →
+   pandoc --from=markdown+tex_math_dollars+tex_math_double_backslash-implicit_figures → tmp/fragment.docx →
+   docxcompose.Composer(master).append(fragment)
+```
+
+Why each piece matters:
+- **`_preprocess_md_for_pandoc`**: collapses blank lines INSIDE `$$...$$` blocks. Pandoc's `tex_math_dollars` treats blank lines as paragraph breaks, so `$$\n\nformula\n\n$$` becomes three paragraphs and the math never renders. Same root cause as the marked-side bug we fixed in the live editor.
+- **`-implicit_figures`**: disabled so a standalone `![](data:...)` image is rendered as a plain inline image, NOT a captioned figure with the alt text shown below.
+- **`tex_math_dollars+tex_math_double_backslash`**: enable `$...$` and `$$...$$` parsing AND allow `\\` line breaks in math.
+- **Pandoc resolution**: `_append_md_via_pandoc` falls back to standard Windows install paths (`C:\Program Files\Pandoc\pandoc.exe` etc.) when `shutil.which('pandoc')` fails — installers update PATH only for *new* shells, so a freshly-installed pandoc is invisible to long-running Flask processes.
+- **Format order in generation**: `add_question_content_to_doc` takes a `format_priority` arg (defaults to `_DEFAULT_FORMAT_PRIORITY = ('IMG','MD','DOC')`) threaded from `create_word_document` and ultimately from the form `format_priority`.
+
+## Common gotchas (read me before changing things)
+
+1. **DO NOT** add raw markdown processing to the live preview without preserving the KaTeX preprocess step. marked + auto-render alone breaks on blank-line-separated `$$...$$`.
+2. **DO NOT** drop `data` from `_BLEACH_PROTOCOLS` — base64 images will silently disappear. The narrow gate is in `_attr_allowed`, not the protocol list.
+3. **DO NOT** call `easymde.toTextArea()` while the editor is in fullscreen mode without first calling `toggleFullScreen()` — the container has been reparented to `<body>` and the textarea would end up there too.
+4. **DO NOT** use `easymde.maxHeight` option in modal contexts — it collapses the side-by-side preview to ~77px. Bound heights with CSS instead.
+5. **DO NOT** assume `data-preview-lang` defaults work — the `oqbLoadMarkdownPreviewCards` reads it, and admin cards explicitly set it per (lang × atype) slot.
+6. **DO** invalidate `md_render` cache on every disk write to MD files (save, delete). The mtime check is the safety net but eager invalidation gives more deterministic behaviour, especially across processes.
+7. **DO** keep `viewer.html` helpers (`oqbTypesetMath`, `oqbRenderMarkdownInto`) in sync with `base.html` — viewer.html does NOT extend base.html.
+8. **DO** keep the reorder endpoint and frontend `moveAssetPart` IMG-only — MD and DOC are single-slot.
+
+## Pandoc external dependency
+
+Required for document generation. **Not** a pip package. Install separately:
+- Windows: https://github.com/jgm/pandoc/releases (or `winget install --id=JohnMacFarlane.Pandoc`)
+- Linux: `apt install pandoc` or distro equivalent
+- macOS: `brew install pandoc`
+
+If not on PATH, set `PANDOC_PATH=<full path to binary>` in `.env`. On Windows the resolver also checks `C:\Program Files\Pandoc\pandoc.exe` and a few standard locations as fallback.
+
+Without pandoc, MD assets in generated docx fall through to italic placeholder text — generation does NOT fail entirely.

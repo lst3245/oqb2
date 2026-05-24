@@ -381,7 +381,7 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | Question Deletion | `/questions/delete` (batch) |
 | Batch Update | `/questions/batch-update` |
 | Question Management | `/questions`, `/questions/api/list`, `/questions/<id>/details`, `/questions/<id>/assets`, `/questions/<id>/rename`, `/questions/<id>/assets/upload`, `/questions/<id>/assets/<aid>/delete`, `/questions/<id>/assets/reorder`, `/questions/create` |
-| Markdown Editor | `/questions/<id>/assets/<aid>/md/content` (GET), `/questions/<id>/assets/<aid>/md/save` (POST), `/questions/<id>/assets/md/create` (POST), `/questions/<id>/assets/<aid>/md/edit` (GET fullscreen), `/questions/<id>/assets/md/new` (GET fullscreen create) |
+| Markdown Editor | `/questions/<id>/assets/<aid>/md/content` (GET; returns mtime_ns + content for optimistic concurrency), `/questions/<id>/assets/<aid>/md/save` (POST; 409 on mtime conflict unless `force`), `/questions/<id>/assets/md/create` (POST; 409 if slot already has MD), `/questions/<id>/assets/<aid>/md/edit` (GET fullscreen), `/questions/<id>/assets/md/new` (GET fullscreen create) — see `.cursor/rules/markdown-assets.mdc` for the full pipeline |
 | User Management | `/users`, `/users/add`, `/users/<id>/edit`, `/users/<id>/delete`, `/users/<id>/permissions`, `/users/<id>/permissions/get` |
 | Export / Import | `/export-import`, `/export/question-tags`, `/import/question-tags`, `/export/topics`, `/import/topics`, `/export/chapters`, `/import/chapters` |
 | Ingestion | `/ingestion`, `/ingestion/preview`, `/ingestion/start` (SSE) |

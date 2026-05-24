@@ -38,6 +38,16 @@ All notable changes to the Online Question Bank System are documented in this fi
 - Stored as `format_priority` (comma-separated string) in `generation_options`, so it round-trips through Generation Presets, regenerate-from-file, and the SavedGenerationProfile load/save flow.
 - Files: `app/generator.py` (`_parse_format_priority`, threaded through `add_question_content_to_doc`), `templates/generate.html` (chip widget JS + getCurrent/restore plumbing).
 
+### 🐛 Bug Fixes (Markdown follow-ups, same release)
+
+- **Security**: `md_render.sanitize()` now properly rejects `javascript:` / `vbscript:` / `data:` URLs in `<a href>` while still allowing `data:image/...;base64,...` in `<img src>`. The previous bleach configuration delegated attribute filtering to a callable but the callable wasn't checking URL schemes, leaving the door open to stored XSS via crafted Markdown.
+- **TOCTOU**: `get_md_asset_content` now `os.stat`s the file BEFORE reading it so the returned `mtime_ns` cannot belong to a newer version than the returned content. The previous order could let an optimistic-mtime `save` silently overwrite a concurrent write.
+- **Reorder API**: `/admin/questions/<id>/assets/reorder` now skips non-IMG asset IDs (MD and DOC are single-slot) — a buggy client can no longer renumber MD/DOC.
+- **UTF-8**: both `get_md_asset_content` and `_append_md_via_pandoc` now catch `UnicodeDecodeError` on corrupted `.md` files and return a clear 4xx / runtime error instead of a 500.
+- **Multi-language MD preview cards**: the lazy dashboard / admin preview-card loader (`oqbLoadMarkdownPreviewCards`) now honours `data-preview-lang`, so the CH / BI / EN slots render the right content.
+- **HTMX-loaded editor partial**: the fullscreen MutationObserver now attaches synchronously when the DOM is already ready, so the editor's fullscreen mode works on pages that include the partial via an HTMX swap (not just initial render).
+- **Cache cap**: `md_render._CACHE` is now an OrderedDict with a 512-entry LRU cap so a long-running worker can't grow the cache unboundedly.
+
 ### 🔧 Technical Improvements
 
 - New config keys `PANDOC_PATH` (defaults to `pandoc` on `PATH`) and `MD_MAX_SIZE_BYTES` (default 5 MiB) in `app/config.py`.

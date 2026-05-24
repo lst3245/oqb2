@@ -48,9 +48,11 @@ Decorators in `app/utils.py`: `@admin_required`, `@super_admin_required`, `@subj
 - Question bank: `SUBJ_QB_DETAIL_QNO` → e.g. `MATC_QB_MATHSMART2024_Q1`
 
 ## Asset Files
-Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG), Word docs (DOC), or Markdown (MD), with types QUE/ANS/SOL and languages EN/CH/BI.
+Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG, multi-part), Word docs (DOC, single-slot), or Markdown (MD, single-slot), with types QUE/ANS/SOL and languages EN/CH/BI.
 
-MD assets are self-contained: LaTeX math (`$...$` / `$$...$$`) and base64-embedded images, single-part only. They render inline on the dashboard / viewer via `app/md_render.py` (markdown-it-py + bleach + client-side KaTeX) and convert to .docx during generation via pandoc + docxcompose. Optional config keys: `PANDOC_PATH`, `MD_MAX_SIZE_BYTES`.
+MD assets are self-contained (LaTeX math `$...$` / `$$...$$` + base64-embedded images). They render inline on the dashboard / viewer via `app/md_render.py` (markdown-it-py + bleach + client-side KaTeX) and convert to `.docx` during generation via pandoc + docxcompose. Format priority (default `IMG > MD > DOC`) is user-configurable per generation. Optional config keys: `PANDOC_PATH`, `MD_MAX_SIZE_BYTES`.
+
+For the full Markdown pipeline — security model, optimistic concurrency, fullscreen reparenting, cache invariants, common gotchas — see [.cursor/rules/markdown-assets.mdc](mdc:.cursor/rules/markdown-assets.mdc).
 
 ## Templates
 All in `templates/`. Partials (HTMX targets) are in `templates/partials/`.

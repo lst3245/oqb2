@@ -1263,7 +1263,15 @@ def get_md_asset_content(question_id, asset_id):
 
     source_path = current_app.config['SOURCE_PATH']
     full_path = os.path.join(source_path, *asset.file_path.split('/'))
-    if not os.path.exists(full_path):
+
+    # Stat BEFORE read so the returned mtime_ns matches the returned content.
+    # If we stat after reading, a concurrent write between read and stat would
+    # return a NEW mtime alongside the OLD content; the next save's optimistic
+    # mtime check would then accept a stale-write and silently clobber the
+    # newer disk state.
+    try:
+        mtime_ns = os.stat(full_path).st_mtime_ns
+    except OSError:
         return jsonify({'error': 'File not found on disk'}), 404
 
     try:
@@ -1271,6 +1279,11 @@ def get_md_asset_content(question_id, asset_id):
             content = f.read()
     except OSError as e:
         return jsonify({'error': f'Read failed: {e}'}), 500
+    except UnicodeDecodeError as e:
+        return jsonify({
+            'error': f'File is not valid UTF-8 ({e.reason} at byte {e.start}). '
+                     f'Check the source file encoding.'
+        }), 400
 
     return jsonify({
         'asset_id': asset.id,
@@ -1278,7 +1291,7 @@ def get_md_asset_content(question_id, asset_id):
         'language': asset.language,
         'asset_type': asset.asset_type,
         'file_path': asset.file_path,
-        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'mtime_ns': mtime_ns,
         'content': content,
         'max_size': current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
     })
@@ -1539,22 +1552,35 @@ def reorder_question_assets(question_id):
     question = Question.query.get_or_404(question_id)
     source_path = current_app.config['SOURCE_PATH']
 
-    # Gather assets and record old state
+    # Gather assets and record old state. Reordering only applies to IMG
+    # assets (MD and DOC are single-slot, always part_number=1); silently
+    # ignoring non-IMG IDs here prevents a buggy / hand-crafted client from
+    # re-numbering MD/DOC and violating the single-part invariant.
     assets_to_reorder = []
+    skipped = 0
     for idx, aid in enumerate(asset_ids, start=1):
         asset = QuestionAsset.query.filter_by(
             id=aid, question_id=question_id,
             language=language, asset_type=asset_type
         ).first()
-        if asset:
-            old_full_path = os.path.join(source_path, asset.file_path)
-            old_part = asset.part_number
-            assets_to_reorder.append({
-                'asset': asset,
-                'old_full_path': old_full_path,
-                'old_part': old_part,
-                'new_part': idx,
-            })
+        if not asset:
+            continue
+        if asset.file_format != 'IMG':
+            skipped += 1
+            continue
+        old_full_path = os.path.join(source_path, asset.file_path)
+        old_part = asset.part_number
+        assets_to_reorder.append({
+            'asset': asset,
+            'old_full_path': old_full_path,
+            'old_part': old_part,
+            'new_part': idx,
+        })
+
+    if skipped and not assets_to_reorder:
+        return jsonify({
+            'error': 'Reorder only supports IMG parts; MD and DOC are single-slot.'
+        }), 400
 
     # Two-phase DB update to avoid UniqueConstraint violation when swapping part numbers.
     # Phase 1: set all part_numbers to temporary negative values

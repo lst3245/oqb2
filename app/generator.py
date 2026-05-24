@@ -916,6 +916,10 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
             src = src_f.read()
     except OSError as e:
         raise RuntimeError(f'failed to read md file: {e}') from e
+    except UnicodeDecodeError as e:
+        raise RuntimeError(
+            f'md file is not valid UTF-8 ({e.reason} at byte {e.start})'
+        ) from e
     src = _preprocess_md_for_pandoc(src)
 
     with tempfile.TemporaryDirectory(prefix='oqb_md_') as tmpdir:
