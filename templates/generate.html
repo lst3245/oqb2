@@ -72,17 +72,19 @@
                             <!-- Sort mode toggle -->
                             <div class="btn-group w-100 mb-3" role="group">
                                 <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeCustom" value="custom" checked>
-                                <label class="btn btn-outline-primary" for="sortModeCustom">
-                                    <i class="bi bi-sort-alpha-down"></i> Custom Sort
+                                <label class="btn btn-outline-primary" for="sortModeCustom"
+                                       title="Sort automatically by tags such as Year, Level, Topic, etc.">
+                                    <i class="bi bi-magic"></i> Auto Sort
                                 </label>
-                                
+
                                 <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeSelection" value="selection">
-                                <label class="btn btn-outline-primary" for="sortModeSelection">
-                                    <i class="bi bi-list-ol"></i> Selection Order
+                                <label class="btn btn-outline-primary" for="sortModeSelection"
+                                       title="Use the order in the Selected Questions panel (drag to reorder)">
+                                    <i class="bi bi-hand-index"></i> Manual Sort
                                 </label>
                             </div>
-                            
-                            <!-- Custom sort panel -->
+
+                            <!-- Auto sort panel -->
                             <div id="customSortPanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <small class="text-muted">Drag to reorder. First criterion has highest priority.</small>
@@ -94,13 +96,13 @@
                                     <!-- Sort criteria items will be added here dynamically -->
                                 </div>
                             </div>
-                            
-                            <!-- Selection order info -->
+
+                            <!-- Manual sort info -->
                             <div id="selectionOrderInfo" style="display: none;">
-                                <div class="alert alert-info mb-0">
-                                    <i class="bi bi-info-circle"></i> 
-                                    Questions will be output in the same order as you selected them.
-                                    You can reorder by dragging items in the "Selected Questions" panel.
+                                <div class="alert alert-info mb-0 py-2">
+                                    <i class="bi bi-info-circle"></i>
+                                    Questions will be output in the exact order shown in the
+                                    <strong>Selected Questions</strong> panel. Drag items there to reorder.
                                 </div>
                             </div>
                         </div>
@@ -399,14 +401,16 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Selected Questions ({{ questions | length }})</h5>
-                    <small class="text-muted" id="reorderHint">Drag to reorder</small>
+                    <small class="text-muted" id="reorderHint" title="Dragging will switch Sort Order to Manual Sort">
+                        <i class="bi bi-grip-vertical"></i> Drag to reorder (switches to Manual Sort)
+                    </small>
                 </div>
                 <div class="card-body p-2" style="max-height: 500px; overflow-y: auto;">
                     <div id="selectedQuestionsList" class="list-group list-group-flush">
                         {% for question in questions %}
-                        <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 selected-question-item" 
-                             data-id="{{ question.id }}" draggable="true">
-                            <span class="drag-handle text-muted"><i class="bi bi-grip-vertical"></i></span>
+                        <div class="list-group-item list-group-item-action d-flex align-items-center gap-2 selected-question-item"
+                             data-id="{{ question.id }}">
+                            <span class="drag-handle text-muted" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <span class="priority-num badge bg-primary">{{ loop.index }}</span>
                             <div class="flex-grow-1">
                                 <div class="fw-medium" style="font-size: 0.875rem;">{{ question.qid }}</div>
@@ -500,20 +504,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Sort mode toggle handlers
     document.querySelectorAll('input[name="sort_mode_radio"]').forEach(radio => {
         radio.addEventListener('change', function() {
-            sortMode = this.value;
-            document.getElementById('sortModeInput').value = sortMode;
-            
-            if (sortMode === 'custom') {
-                document.getElementById('customSortPanel').style.display = 'block';
-                document.getElementById('selectionOrderInfo').style.display = 'none';
-                document.getElementById('reorderHint').style.display = 'none';
-            } else {
-                document.getElementById('customSortPanel').style.display = 'none';
-                document.getElementById('selectionOrderInfo').style.display = 'block';
-                document.getElementById('reorderHint').style.display = 'inline';
-            }
+            applySortModeUI(this.value);
         });
     });
+    // Make sure the UI matches the default-checked radio on first load.
+    applySortModeUI(document.querySelector('input[name="sort_mode_radio"]:checked')?.value || 'custom');
     
     // Restore saved generation options if regenerating from My Files
     if (savedGenerationOptions && Object.keys(savedGenerationOptions).length > 0) {
@@ -1097,47 +1092,64 @@ function updateAnswerQidVisibility() {
 function renderSortCriteria() {
     const container = document.getElementById('sortCriteria');
     container.innerHTML = '';
-    
+
     sortConfig.forEach((criterion, index) => {
         const item = document.createElement('div');
         item.className = 'gen-sort-criterion';
-        item.draggable = true;
         item.dataset.index = index;
-        
+
         // Build field options
-        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) => 
+        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) =>
             `<option value="${value}" ${criterion.field === value ? 'selected' : ''}>${label}</option>`
         ).join('');
-        
+
         item.innerHTML = `
-            <span class="drag-handle"><i class="bi bi-grip-vertical"></i></span>
+            <span class="drag-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
             <span class="priority-badge">${index + 1}</span>
             <select class="form-select form-select-sm" style="flex:1;" onchange="updateSortField(${index}, this.value)">
                 ${fieldOptions}
             </select>
-            <button type="button" class="btn btn-sm btn-outline-secondary" 
+            <button type="button" class="btn btn-sm btn-outline-secondary"
                     onclick="toggleSortDirection(${index})" title="Toggle direction">
                 <i class="bi bi-sort-${criterion.direction === 'asc' ? 'up' : 'down'}"></i>
                 ${criterion.direction === 'asc' ? 'Asc' : 'Desc'}
             </button>
-            <button type="button" class="btn btn-sm btn-link text-danger" 
+            <button type="button" class="btn btn-sm btn-link text-danger"
                     onclick="removeSortCriterion(${index})" title="Remove" ${sortConfig.length <= 1 ? 'disabled' : ''}>
                 <i class="bi bi-x-lg"></i>
             </button>
         `;
-        
-        // Drag and drop handlers
-        item.addEventListener('dragstart', handleCriteriaDragStart);
-        item.addEventListener('dragend', handleCriteriaDragEnd);
-        item.addEventListener('dragover', handleCriteriaDragOver);
-        item.addEventListener('dragenter', handleCriteriaDragEnter);
-        item.addEventListener('dragleave', handleCriteriaDragLeave);
-        item.addEventListener('drop', handleCriteriaDrop);
-        
+
         container.appendChild(item);
     });
-    
+
+    initSortCriteriaSortable();
     updateSortConfigInput();
+}
+
+function initSortCriteriaSortable() {
+    const container = document.getElementById('sortCriteria');
+    if (!container || typeof Sortable === 'undefined') return;
+    if (container._sortableInstance) return;
+
+    container._sortableInstance = Sortable.create(container, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        forceFallback: true,
+        fallbackTolerance: 4,
+        delay: 100,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
+        onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            const [moved] = sortConfig.splice(evt.oldIndex, 1);
+            sortConfig.splice(evt.newIndex, 0, moved);
+            renderSortCriteria();
+        }
+    });
 }
 
 function addSortCriterion() {
@@ -1168,120 +1180,49 @@ function updateSortConfigInput() {
     document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
 }
 
-// Criteria drag and drop
-let draggedCriterion = null;
-
-function handleCriteriaDragStart(e) {
-    draggedCriterion = this;
-    this.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', this.dataset.index);
+// Update the visible panels / hint when the sort mode changes.
+// Kept separate from the radio handler so we can also call it from onEnd
+// (auto-switch to Manual Sort when the user drags a question).
+function applySortModeUI(mode) {
+    sortMode = mode;
+    document.getElementById('sortModeInput').value = mode;
+    const isCustom = (mode === 'custom');
+    document.getElementById('customSortPanel').style.display = isCustom ? 'block' : 'none';
+    document.getElementById('selectionOrderInfo').style.display = isCustom ? 'none' : 'block';
 }
 
-function handleCriteriaDragEnd(e) {
-    this.classList.remove('dragging');
-    document.querySelectorAll('.gen-sort-criterion').forEach(item => {
-        item.classList.remove('drag-over');
-    });
-    draggedCriterion = null;
-}
-
-function handleCriteriaDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-}
-
-function handleCriteriaDragEnter(e) {
-    e.preventDefault();
-    if (this !== draggedCriterion) {
-        this.classList.add('drag-over');
-    }
-}
-
-function handleCriteriaDragLeave(e) {
-    this.classList.remove('drag-over');
-}
-
-function handleCriteriaDrop(e) {
-    e.preventDefault();
-    this.classList.remove('drag-over');
-    
-    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
-    const toIndex = parseInt(this.dataset.index);
-    
-    if (fromIndex !== toIndex) {
-        const [removed] = sortConfig.splice(fromIndex, 1);
-        sortConfig.splice(toIndex, 0, removed);
-        renderSortCriteria();
-    }
-}
-
-// Question list drag and drop (for selection order mode)
-let draggedQuestion = null;
-
+// Question list drag-and-drop. Works in either mode — if the user drags here
+// while Auto Sort is active, we automatically switch to Manual Sort because
+// otherwise their reorder would be silently discarded at generation time.
 function initQuestionDragDrop() {
-    const items = document.querySelectorAll('.selected-question-item');
-    
-    items.forEach(item => {
-        item.addEventListener('dragstart', handleQuestionDragStart);
-        item.addEventListener('dragend', handleQuestionDragEnd);
-        item.addEventListener('dragover', handleQuestionDragOver);
-        item.addEventListener('dragenter', handleQuestionDragEnter);
-        item.addEventListener('dragleave', handleQuestionDragLeave);
-        item.addEventListener('drop', handleQuestionDrop);
-    });
-}
+    const list = document.getElementById('selectedQuestionsList');
+    if (!list || typeof Sortable === 'undefined') return;
+    if (list._sortableInstance) return;
 
-function handleQuestionDragStart(e) {
-    draggedQuestion = this;
-    this.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', this.dataset.id);
-}
-
-function handleQuestionDragEnd(e) {
-    this.classList.remove('dragging');
-    document.querySelectorAll('.selected-question-item').forEach(item => {
-        item.classList.remove('drag-over');
-    });
-    draggedQuestion = null;
-}
-
-function handleQuestionDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-}
-
-function handleQuestionDragEnter(e) {
-    e.preventDefault();
-    if (this !== draggedQuestion) {
-        this.classList.add('drag-over');
-    }
-}
-
-function handleQuestionDragLeave(e) {
-    this.classList.remove('drag-over');
-}
-
-function handleQuestionDrop(e) {
-    e.preventDefault();
-    this.classList.remove('drag-over');
-    
-    if (draggedQuestion && draggedQuestion !== this) {
-        const list = document.getElementById('selectedQuestionsList');
-        const items = Array.from(list.children);
-        const fromIndex = items.indexOf(draggedQuestion);
-        const toIndex = items.indexOf(this);
-        
-        if (fromIndex < toIndex) {
-            this.parentNode.insertBefore(draggedQuestion, this.nextSibling);
-        } else {
-            this.parentNode.insertBefore(draggedQuestion, this);
+    list._sortableInstance = Sortable.create(list, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        forceFallback: true,
+        fallbackTolerance: 4,
+        delay: 100,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
+        onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            updateQuestionOrder();
+            // Auto-switch to Manual Sort so the new order is actually respected.
+            if (sortMode !== 'selection') {
+                const radio = document.getElementById('sortModeSelection');
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change'));
+                }
+            }
         }
-        
-        // Update priority numbers and hidden inputs
-        updateQuestionOrder();
-    }
+    });
 }
 
 function updateQuestionOrder() {
@@ -1420,18 +1361,10 @@ function escapeHtml(text) {
 
 <style>
 .selected-question-item {
-    cursor: grab;
-    transition: all 0.15s ease;
+    transition: background-color 0.15s ease;
 }
 .selected-question-item:hover {
     background-color: #f8f9fa;
-}
-.selected-question-item.dragging {
-    opacity: 0.5;
-    cursor: grabbing;
-}
-.selected-question-item.drag-over {
-    border-top: 2px solid #0d6efd;
 }
 .priority-num {
     min-width: 24px;
@@ -1439,10 +1372,6 @@ function escapeHtml(text) {
 }
 .sort-criteria-container {
     min-height: 50px;
-}
-.gen-sort-criterion.drag-over {
-    border-color: #0d6efd;
-    border-style: dashed;
 }
 </style>
 {% endblock %}

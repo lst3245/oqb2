@@ -63,4 +63,24 @@ nginx must have `proxy_buffering off` for SSE to work through a reverse proxy.
 3. **Tags** — dynamically borrows the shared tag editor form via JS DOM manipulation
 
 ## Drag-to-Reorder
-Both the sort criteria (dashboard + generate page) and the topic/chapter admin lists use plain HTML5 drag-and-drop API (`dragstart`, `dragover`, `drop` events). No external library required.
+Sort criteria (dashboard + generate page) and the generator's Selected Questions list use **SortableJS** (loaded from CDN in `base.html`). HTML5 native drag-and-drop is **not** used — it does not work on touch devices.
+
+Standard config used by all sortable lists in this project:
+```js
+Sortable.create(container, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    dragClass: 'sortable-drag',
+    forceFallback: true,        // unified mouse + touch path
+    fallbackTolerance: 4,
+    delay: 100,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 4,
+    onEnd(evt) { /* reorder model array using evt.oldIndex / evt.newIndex */ }
+});
+```
+Init is idempotent — stash the instance on `container._sortableInstance` and bail if already set, so re-rendering children doesn't double-init.
+
+The `.drag-handle` element needs `touch-action: none` (already set globally in `base.html`) so the browser doesn't steal the touch for scrolling. Bigger handle hit area on coarse-pointer / mobile is also defined globally.

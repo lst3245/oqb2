@@ -4,7 +4,27 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### Generator Sort Order — clearer labels and auto-switch on manual reorder
+- Renamed the two Sort Order modes on the Generate page for clarity:
+  - **"Custom Sort" → "Auto Sort"** (sorts automatically by tags like Year, Level, Topic, etc.)
+  - **"Selection Order" → "Manual Sort"** (uses the order shown in the Selected Questions panel)
+- Updated the toggle icons (`bi-magic`, `bi-hand-index`) and added explanatory tooltips to each button.
+- Dragging a row in the **Selected Questions** panel now automatically switches the Sort Order to **Manual Sort** — previously the reorder would be silently discarded if Auto Sort was active.
+- The "Drag to reorder" hint on the Selected Questions panel is now always visible (with a sub-hint that dragging switches modes), and the info banner under Manual Sort got tightened wording.
+- Underlying form values (`custom` / `selection`) are unchanged, so existing saved generation presets continue to work.
+- File: `templates/generate.html`.
+
 ### 🐛 Bug Fixes
+
+#### Drag-to-reorder now works on mobile/touch and gives clear visual feedback
+- The dashboard's **Sort By** list, and the generator's **Sort By** list + **Selected Questions** list, previously used the HTML5 native drag-and-drop API. That API does not fire on mobile/touch devices at all, and on desktop gave only a faint opacity change with no insertion indicator.
+- Replaced with [SortableJS](https://github.com/SortableJS/Sortable) (loaded from CDN in `templates/base.html`), configured with `forceFallback: true` so mouse and touch use the same code path.
+- New visual cues: a blue dashed ghost shows where the item will land, the dragged row gets a subtle shadow and tilt, and the touched item gets a blue focus ring.
+- Dragging is limited to the grip handle (`.drag-handle`) so vertical scrolling still works elsewhere on the row.
+- Touch handles are enlarged automatically on small screens / coarse pointers, and a 100 ms hold delay (`delayOnTouchOnly`) prevents drags from being triggered by an accidental scroll-start.
+- Files: `templates/base.html`, `templates/dashboard.html`, `templates/generate.html`.
 
 #### Regenerate — search profile always copied from original file
 - Previously, if the user had visited the generator from the dashboard before clicking Regenerate, the stale session `generator_filter_data` would silently override the original file's saved search profile, causing the new file to record the wrong filter.

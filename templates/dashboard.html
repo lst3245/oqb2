@@ -1371,46 +1371,63 @@ function updatePaginationSortConfig(link, event) {
 function renderSortCriteria() {
     const container = document.getElementById('sortCriteria');
     container.innerHTML = '';
-    
+
     sortConfig.forEach((criterion, index) => {
         const item = document.createElement('div');
         item.className = 'sort-criterion';
-        item.draggable = true;
         item.dataset.index = index;
-        
+
         // Build field options
-        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) => 
+        const fieldOptions = Object.entries(SORT_FIELDS).map(([value, label]) =>
             `<option value="${value}" ${criterion.field === value ? 'selected' : ''}>${label}</option>`
         ).join('');
-        
+
         item.innerHTML = `
-            <span class="drag-handle"><i class="bi bi-grip-vertical"></i></span>
+            <span class="drag-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
             <select class="form-select form-select-sm field-select" onchange="updateSortField(${index}, this.value)">
                 ${fieldOptions}
             </select>
-            <button type="button" class="btn btn-sm btn-outline-secondary direction-btn" 
+            <button type="button" class="btn btn-sm btn-outline-secondary direction-btn"
                     onclick="toggleSortDirection(${index})" title="Toggle direction">
                 <i class="bi bi-sort-${criterion.direction === 'asc' ? 'up' : 'down'}"></i>
             </button>
-            <button type="button" class="btn btn-sm btn-link remove-btn" 
+            <button type="button" class="btn btn-sm btn-link remove-btn"
                     onclick="removeSortCriterion(${index})" title="Remove">
                 <i class="bi bi-x-lg"></i>
             </button>
         `;
-        
-        // Drag and drop handlers
-        item.addEventListener('dragstart', handleDragStart);
-        item.addEventListener('dragend', handleDragEnd);
-        item.addEventListener('dragover', handleDragOver);
-        item.addEventListener('dragenter', handleDragEnter);
-        item.addEventListener('dragleave', handleDragLeave);
-        item.addEventListener('drop', handleDrop);
-        
+
         container.appendChild(item);
     });
-    
-    // Update hidden input
+
+    initSortCriteriaSortable();
     updateSortConfigInput();
+}
+
+// Initialise SortableJS on the sort criteria list (idempotent).
+function initSortCriteriaSortable() {
+    const container = document.getElementById('sortCriteria');
+    if (!container || typeof Sortable === 'undefined') return;
+    if (container._sortableInstance) return; // already initialised
+
+    container._sortableInstance = Sortable.create(container, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        forceFallback: true,           // unified mouse + touch experience
+        fallbackTolerance: 4,
+        delay: 100,                    // hold briefly before drag (helps avoid accidental scroll)
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
+        onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            const [moved] = sortConfig.splice(evt.oldIndex, 1);
+            sortConfig.splice(evt.newIndex, 0, moved);
+            renderSortCriteria();
+        }
+    });
 }
 
 function addSortCriterion() {
@@ -1447,55 +1464,6 @@ function updateSortConfigInput() {
     localStorage.setItem(STORAGE_KEYS.SORT_CONFIG, JSON.stringify(sortConfig));
     // Check if filters are modified
     checkFilterModification();
-}
-
-// Drag and drop handlers
-let draggedItem = null;
-
-function handleDragStart(e) {
-    draggedItem = this;
-    this.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', this.dataset.index);
-}
-
-function handleDragEnd(e) {
-    this.classList.remove('dragging');
-    document.querySelectorAll('.sort-criterion').forEach(item => {
-        item.classList.remove('drag-over');
-    });
-    draggedItem = null;
-}
-
-function handleDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-}
-
-function handleDragEnter(e) {
-    e.preventDefault();
-    if (this !== draggedItem) {
-        this.classList.add('drag-over');
-    }
-}
-
-function handleDragLeave(e) {
-    this.classList.remove('drag-over');
-}
-
-function handleDrop(e) {
-    e.preventDefault();
-    this.classList.remove('drag-over');
-    
-    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
-    const toIndex = parseInt(this.dataset.index);
-    
-    if (fromIndex !== toIndex) {
-        // Reorder sortConfig array
-        const [removed] = sortConfig.splice(fromIndex, 1);
-        sortConfig.splice(toIndex, 0, removed);
-        renderSortCriteria();
-    }
 }
 
 // Initialize selection state after page content changes
