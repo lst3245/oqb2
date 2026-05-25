@@ -27,15 +27,17 @@ alwaysApply: false
 | Concern | File(s) |
 |---|---|
 | Schema | [app/models.py](mdc:app/models.py) `QuestionAsset.file_format` enum |
-| Config | [app/config.py](mdc:app/config.py) `WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT`, `DOC_THUMBNAIL_PATH`, `DOC_THUMBNAIL_WIDTH` |
+| Config (bootstrap) | [app/config.py](mdc:app/config.py) `WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT`, `DOC_THUMBNAIL_PATH`, `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX`, `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP`, `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` |
+| Settings (runtime) | [app/settings.py](mdc:app/settings.py) REGISTRY, [templates/admin_settings.html](mdc:templates/admin_settings.html) — see [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) |
 | Ingestion | [app/ingestor.py](mdc:app/ingestor.py) — `determine_file_format`, `upsert_asset` returns `(asset, was_created)` |
 | Admin upload / delete | [app/admin.py](mdc:app/admin.py) `upload_question_asset`, `delete_question_asset` (lifecycle hooks) |
-| Word COM engine | [app/word_com.py](mdc:app/word_com.py) — `word_session`, `merge_doc_into_master`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion` |
-| Thumbnail lifecycle | [app/doc_thumbnails.py](mdc:app/doc_thumbnails.py) — slot-aware helpers + `schedule_thumbnail` |
-| Dashboard preview | [app/dashboard.py](mdc:app/dashboard.py) — resolver `mode: 'thumbnail'`, route `/dashboard/api/doc_thumbnail/<id>.png` |
+| Word COM engine | [app/word_com.py](mdc:app/word_com.py) — `word_session`, `merge_doc_into_master`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion`, `_compute_crop_box` (shared by thumbnail + batch IMG paths) |
+| Thumbnail lifecycle | [app/doc_thumbnails.py](mdc:app/doc_thumbnails.py) — slot-aware helpers + `schedule_thumbnail` + `ensure_thumbnail` (lazy w/ cooldown) + `force_rerender` |
+| Batch IMG (DOC/MD → PNG) | [app/batch_image_gen.py](mdc:app/batch_image_gen.py) — `render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets` |
+| Dashboard preview | [app/dashboard.py](mdc:app/dashboard.py) — resolver `mode: 'thumbnail'`, route `/dashboard/api/doc_thumbnail/<id>.png` (with `no-cache, must-revalidate`) |
 | Viewer | [app/generator.py](mdc:app/generator.py) `get_viewer_asset` — attaches `thumbnail_url` for DOC |
-| Generation | [app/generator.py](mdc:app/generator.py) — `add_question_content_to_doc` DOC branch, `_run_word_postprocess_single`, `_run_word_postprocess_split` |
-| Frontend | [templates/base.html](mdc:templates/base.html) `oqbLoadMarkdownPreviewCards`, [templates/dashboard.html](mdc:templates/dashboard.html) `previewAsset`, [templates/viewer.html](mdc:templates/viewer.html) `loadAsset` / `loadAnswerAsset`, [templates/generate.html](mdc:templates/generate.html) Output Format |
+| Generation | [app/generator.py](mdc:app/generator.py) — `add_question_content_to_doc` DOC branch, `_run_word_postprocess_single`, `_run_word_postprocess_split`, `md_to_docx_via_pandoc` (shared by generation + batch IMG MD path) |
+| Frontend | [templates/base.html](mdc:templates/base.html) `oqbLoadMarkdownPreviewCards` / `oqbPollDocThumbnails` / `oqbRerenderThumb` / `_oqbBuildThumbHtml` / `OQB_IS_ADMIN`, [templates/dashboard.html](mdc:templates/dashboard.html) `previewAsset`, [templates/viewer.html](mdc:templates/viewer.html) `loadAsset` / `loadAnswerAsset`, [templates/generate.html](mdc:templates/generate.html) Output Format, [templates/admin_questions.html](mdc:templates/admin_questions.html) `#batchImgModal` |
 
 ## Locked decisions
 
@@ -148,7 +150,9 @@ SSE endpoint: `GET /admin/questions/batch-generate-images` — see [admin-panel.
 
 ## Live-fetch the rendered PNG (frontend polling)
 
-`window.oqbPollDocThumbnails(root)` in [templates/base.html](mdc:templates/base.html) scans `root` (or `document`) for `[data-doc-pending-id]` elements and polls each thumbnail URL until it 200s or the budget expires (20 attempts × 3 s ≈ 60 s). When the PNG becomes available the placeholder element's `innerHTML` is replaced with the real `<img>` + download link, in-place — no page refresh.
+`window.oqbPollDocThumbnails(root)` in [templates/base.html](mdc:templates/base.html) scans `root` (or `document`) for `[data-doc-pending-id]` elements and polls each thumbnail URL until it 200s or the budget expires (60 attempts × 3 s ≈ 3 minutes). When the PNG becomes available the placeholder element's `innerHTML` is replaced with the real `<img>` + download link, in-place — no page refresh.
+
+The same cache-busted URL (`?t=<Date.now()>`) is used for BOTH the `Image()` probe AND the swap-in `<img src>` — so the just-loaded probe result is reused and we avoid serving a stale entry under the bare URL. Paired with the server-side `Cache-Control: private, no-cache, must-revalidate` (Flask's `send_file(conditional=True)` emits `ETag`/`Last-Modified` for cheap 304 revalidations), this guarantees the rerender button shows the new PNG without a hard refresh.
 
 Wired into:
 - Dashboard card list (`templates/partials/question_list.html`) — auto-runs on `DOMContentLoaded` and `htmx:afterSwap`.
@@ -200,12 +204,15 @@ No untrusted content is ever passed to Word. The threat model is similar to the 
 
 1. **DO NOT** call any Word COM API outside a `word_session` context — you'll leak the global lock and orphan WINWORD.EXE.
 2. **DO NOT** call `merge_doc_into_master` from inside another generation job's Word session — the lock is non-reentrant; you'll deadlock.
-3. **DO NOT** import `pywin32` at the top of any module that needs to run on Linux/macOS — it's gated behind `sys.platform == 'win32'` inside `app/word_com.py` only.
+3. **DO NOT** import `pywin32` at the top of any module that needs to run on Linux/macOS — it's gated behind `sys.platform == 'win32'` inside `app/word_com.py` only. You CAN safely `from app import word_com` anywhere; the wrapper raises `WordComUnavailable` from its entry points on non-Windows.
 4. **DO NOT** key thumbnails by `file_path` — use `asset_id`. Question renames update `file_path` but keep `asset_id`, so the cached PNG survives correctly.
 5. **DO NOT** add raw cross-language thumbnail logic — the slot check uses `(question_id, asset_type, language)` to mirror how the preview resolver picks its winner. EN-DOC and CH-IMG can coexist; we only suppress thumbnails when an IMG wins the SAME slot.
-6. **DO** wait for `db.session.commit()` BEFORE calling any `on_*_asset_*` lifecycle helper. The helpers query the DB and need the new row visible.
-7. **DO** treat `word_com.IS_AVAILABLE` as the single source of truth. The DOC branch in `add_question_content_to_doc`, the thumbnail scheduler, and `_run_word_postprocess_*` all gate on it.
-8. **DO** assume sources may have their own page setup. `sanitize_docx_for_insertion` strips `<w:sectPr>` precisely so the merged result inherits the master document's layout, not the source's.
+6. **DO NOT** add long `Cache-Control: max-age=...` to the thumbnail endpoint — the rerender button relies on `no-cache, must-revalidate` so the browser revalidates against the file's mtime/ETag. With a long max-age, rerendered thumbnails appear stale until cache expires.
+7. **DO** wait for `db.session.commit()` BEFORE calling any `on_*_asset_*` lifecycle helper. The helpers query the DB and need the new row visible.
+8. **DO** treat `word_com.IS_AVAILABLE` as the single source of truth. The DOC branch in `add_question_content_to_doc`, the thumbnail scheduler, and `_run_word_postprocess_*` all gate on it.
+9. **DO** import `word_com` at module scope in any file that uses it (e.g. `from app import word_com` near the top of `app/admin.py`). Don't rely on local imports inside nested closures only — the endpoint-level `IS_AVAILABLE` guards run before the SSE generator closure is invoked.
+10. **DO** carry `question_id` (not just `asset_id`) through the per-preview rerender flow — `data-doc-pending-question-id` on the placeholder element, threaded through the poller into `_oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId)`. The rerender button is admin-only and hidden unless BOTH ids are present.
+11. **DO** assume sources may have their own page setup. `sanitize_docx_for_insertion` strips `<w:sectPr>` precisely so the merged result inherits the master document's layout, not the source's.
 
 ## External dependencies
 

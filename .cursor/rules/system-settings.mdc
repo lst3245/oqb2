@@ -39,6 +39,22 @@ _spec('DOC_THUMBNAIL_WIDTH', 'int', group='Thumbnails',
 
 Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts that build a numeric range validator. Custom validators receive the already-coerced value and may raise `ValueError`.
 
+## Current REGISTRY entries
+
+| Group | Key | Type | Default | Notes |
+|---|---|---|---|---|
+| Dashboard | `QUESTIONS_PER_PAGE` | int | 20 | Page size cap for question lists |
+| Markdown | `MD_MAX_SIZE_BYTES` | int | 5 MiB | Hard cap on `.md` asset uploads |
+| Word COM | `WORD_COM_TIMEOUT` | int | 300s | Per-job watchdog |
+| Word COM | `WORD_COM_LOCK_TIMEOUT` | int | 600s | Max wait for the global Word lock |
+| Thumbnails | `DOC_THUMBNAIL_WIDTH` | int | 1000 | Render width (px) |
+| Thumbnails | `THUMBNAIL_TRANSPARENT` | bool | False | Make white background transparent (alpha = 255 − luminance) |
+| Thumbnails | `THUMBNAIL_WHITENESS_THRESHOLD` | int 0–255 | 250 | Background-vs-content cutoff |
+| Thumbnails | `THUMBNAIL_BOTTOM_PADDING_PX` | int | 24 | Padding kept on every side after auto-crop |
+| Thumbnails | `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | bool | False | Cap left/right crop at `min(left_white, right_white)` so asymmetric content preserves its A4-relative position |
+| Batch IMG | `BATCH_IMG_DEFAULT_WIDTH` | int | 1500 | Pre-fills the bulk IMG-gen modal |
+| Batch IMG | `BATCH_IMG_DEFAULT_STITCH` | bool | True | Stitch multi-page sources by default |
+
 ## Lifecycle
 
 1. **Startup** — `create_app()` calls `app/settings.load_all(app)`. It captures the current `app.config[key]` for every registry key into `_BOOTSTRAP_DEFAULTS` (so `reset()` knows what to restore), then reads each row of `system_settings` and overwrites `app.config[key]` with the parsed value. Missing tables / malformed JSON / failed validation are logged and skipped — the bootstrap defaults remain authoritative.

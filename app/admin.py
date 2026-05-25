@@ -11,6 +11,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
+from app import word_com
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
 from app.utils import admin_required, super_admin_required, get_user_admin_subjects
 from app import md_render
@@ -2686,7 +2687,7 @@ def doc_thumbnail_backfill():
       * After tweaking DOC_THUMBNAIL_WIDTH (renders are cached by asset_id
         only, not by width — wipe and backfill to apply a new width).
     """
-    from app import word_com, doc_thumbnails
+    from app import doc_thumbnails
 
     if not word_com.IS_AVAILABLE:
         return jsonify({
@@ -2922,7 +2923,7 @@ def batch_generate_images():
     app = current_app._get_current_object()
 
     def generate():
-        from app import batch_image_gen, word_com as _word_com
+        from app import batch_image_gen
 
         with app.app_context():
             # Resolve defaults from Settings after entering app context so
@@ -2962,7 +2963,7 @@ def batch_generate_images():
             current = 0
 
             try:
-                with _word_com.word_session(lock_timeout=lock_timeout) as word_app:
+                with word_com.word_session(lock_timeout=lock_timeout) as word_app:
                     for question, atype, lang in work:
                         current += 1
                         slot_label = f'{question.qid} / {atype} / {lang}'

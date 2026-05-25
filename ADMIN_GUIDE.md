@@ -266,12 +266,18 @@ DOCX source assets are merged into the generated document via Microsoft Word COM
 **Backfilling thumbnails for an existing library:**
 - Open **Admin → Database Health** as a super admin and scroll to the **DOC Asset Thumbnails** card.
 - **Backfill Missing** walks every DOC asset and renders a PNG when one isn't already on disk. Skips slots where an IMG eclipses the DOC.
-- **Force Re-render All** wipes and regenerates every DOC thumbnail. Useful after changing `DOC_THUMBNAIL_WIDTH`.
-- You can also let the lazy-render kick in automatically: any time a user opens a question card / modal / viewer that resolves to a DOC, a render is scheduled in the background. The thumbnail appears on their next refresh.
+- **Force Re-render All** wipes and regenerates every DOC thumbnail. Useful after changing `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP`, or any other rendering tunable.
+- **Delete All** drops every cached PNG; the lazy resolver re-creates them on demand.
+- You can also let the lazy-render kick in automatically: any time a user opens a question card / modal / viewer that resolves to a DOC, a render is scheduled in the background. The thumbnail appears in-place within a few seconds (live JS poller — no manual refresh needed).
+
+**Per-preview "Re-render" button:**
+Every rendered DOC thumbnail (dashboard card, preview modal, admin question modal) shows a small refresh icon next to the download link — visible only to admins. Clicking it deletes the cached PNG, schedules a fresh render with the current settings, and swaps in the new image live. Great for spot-checking changes to thumbnail tunables without doing a Force Re-render All on the whole library.
 
 **Troubleshooting:**
 - **Stuck job / orphan WINWORD.EXE process**: open Task Manager and end any Word processes; subsequent generations will start a fresh instance. The `word_session` cleanup falls back to `taskkill /f /im WINWORD.EXE` if Word.Quit fails.
-- **Thumbnails never appear** for a freshly-uploaded `.docx`: check the Flask log for `DOC thumbnail render failed`. Usually means Word is missing, hung, or the source file is corrupt. The dashboard falls back to the download stub automatically.
+- **Thumbnails never appear** for a freshly-uploaded `.docx`: check the Flask log for `DOC thumbnail render failed` or `DOC thumbnail worker crashed`. Usually means Word is missing, hung, or the source file is corrupt. The lazy resolver auto-retries after a 5-second cooldown, so a transient failure recovers automatically.
+- **Card shows "preview rendering…" indefinitely**: usually means the global Word lock is held by another long-running generation. The poll budget is 3 minutes; if it expires, hard-refresh the page or click the per-preview Re-render button to retry.
+- **Rerender doesn't show the new look**: hard-refresh once (Ctrl+F5 / Cmd+Shift+R) to evict any pre-fix browser cache entries. After that, the `Cache-Control: no-cache` headers force the browser to revalidate every fetch.
 - **"PDF requires Microsoft Word + pywin32" error**: install pywin32 (`pip install pywin32`) and ensure Word is licensed and runnable as the same user the Flask process runs as.
 
 ---

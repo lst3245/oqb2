@@ -36,6 +36,7 @@ UserSubjectPermission (user_id, subject_id, role)  — role: 'viewer'|'user'|'ad
 SavedFilter (user_id, name, filter_data JSON, is_starred, is_shared)
 SavedGenerationProfile (user_id, name, options_data JSON, is_starred, is_shared, created_at, updated_at)
 GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, ...)
+SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 ```
 
 ## Key Question Fields
@@ -70,3 +71,8 @@ GeneratedFile (user_id, display_name, filename, status, filter_data, generation_
 `pending` → `generating` → `completed` | `failed`
 
 Stale `pending`/`generating` records are reset to `failed` on app startup (in `create_app()`).
+
+## SystemSetting (DB-backed runtime config)
+Key/value table that overrides `.env` / `Config` bootstrap defaults at runtime. The full registry of tunables (type/label/help/validator) lives in `app/settings.py`. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) for the precedence rules, hot-reload semantics, and "adding a new tunable" guide.
+
+The table is auto-created on app startup if missing — no manual migration step needed when upgrading.

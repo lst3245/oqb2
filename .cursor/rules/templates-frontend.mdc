@@ -56,6 +56,24 @@ nginx must have `proxy_buffering off` for SSE to work through a reverse proxy.
 ## My Files Auto-Refresh
 `my_files.html` runs `setInterval` every 5 seconds, but only re-fetches if any row has the `.status-generating` class.
 
+## Shared JS helpers in `base.html`
+
+The base template defines a set of global helpers that every preview / asset interaction in the app reuses. Don't duplicate this logic per-page.
+
+| Helper | Purpose |
+|---|---|
+| `window.oqbTypesetMath(root)` | Typeset KaTeX math inside `root`. Called after Markdown inserts. |
+| `window.oqbRenderMarkdownInto(el, html)` | Set inner HTML + auto-typeset math. |
+| `window.oqbLoadMarkdownPreviewCards(root)` | Lazy-loads `.md-preview-card[data-preview-q]` placeholders by hitting `/dashboard/api/question/<id>/preview/<type>`. Branches on `mode` (image / html / thumbnail / download) and uses `_oqbBuildThumbHtml` for the DOC `thumbnail` shape. |
+| `window.oqbPollDocThumbnails(root)` | Polls `data-doc-pending-id` elements every 3 s (×60 attempts ≈ 3 min). Uses the SAME cache-busted URL for both the `Image()` probe and the swap-in `<img src>` so the rerender button immediately picks up the new PNG. Per-element dedup via `data-doc-poller-active`. |
+| `window.oqbRerenderThumb(qid, aid, btn)` | POSTs to `/admin/questions/<qid>/assets/<aid>/rerender-thumb`, then re-arms the placeholder for the poller. Admin-only — gated on `window.OQB_IS_ADMIN`. |
+| `_oqbBuildThumbHtml(url, filename, dl, aid, qid)` | Builds the inner HTML for a DOC thumbnail (image + filename + download + admin rerender button). Used by both the live poller swap and `oqbLoadMarkdownPreviewCards`. |
+| `window.OQB_IS_ADMIN` | Boolean emitted by Jinja in `base.html` — true when the user has any subject-admin or super-admin role. Used to gate admin-only UI like the per-preview rerender button. |
+
+`oqbLoadMarkdownPreviewCards` and `oqbPollDocThumbnails` auto-run on `DOMContentLoaded` AND on every `htmx:afterSwap` event, so HTMX-driven dashboard refreshes pick up new placeholders without bespoke wiring.
+
+**`viewer.html` does NOT extend `base.html`** — it has its own minimal copies of `oqbTypesetMath` and `oqbRenderMarkdownInto`. When adding a new shared helper, decide whether the viewer needs it; if so, duplicate it inline. The rerender button is intentionally NOT exposed in the viewer because forking that helper there would add too much code for the use case.
+
 ## Admin Question Modal Tabs
 `admin_questions.html` uses a static Bootstrap tabbed modal with three tabs:
 1. **Details** — level, q_type, section, description, correct_pct, answer, comment

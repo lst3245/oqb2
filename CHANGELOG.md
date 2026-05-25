@@ -27,6 +27,14 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 - `_save_cropped_png` now expands its bbox crop by `THUMBNAIL_BOTTOM_PADDING_PX` of margin on **all four sides** (clamped to image bounds). Previously the crop was width-preserving and only trimmed the bottom; now a short one-line question yields a tight thumbnail (~292×65 px) instead of a full-width strip with leading whitespace. The batch IMG generation pipeline applies the same logic in `_pdf_to_cropped_images`.
 
+### 🐛 Bug Fixes (this release)
+
+- **Batch IMG generation crash**: `GET /admin/questions/batch-generate-images` raised `NameError: name 'word_com' is not defined` before any work was done. Fixed by importing `word_com` at module scope in [`app/admin.py`](app/admin.py) (was only locally imported inside the SSE generator closure).
+- **Rerender button disappears after one click**: `oqbRerenderThumb` set `data-doc-pending-id` / `-filename` / `-downloadurl` on the placeholder but not `-question-id`. The poller read all four when building the swap-in HTML; without `questionId`, `_oqbBuildThumbHtml` couldn't construct the admin rerender button. Now `oqbRerenderThumb` writes `data-doc-pending-question-id` too.
+- **Rerendered thumbnail shows the old PNG until "Delete All"**: browser was caching the bare thumbnail URL with the previous `max-age=3600` policy. Fixed at two layers:
+  - **Server**: `/dashboard/api/doc_thumbnail/<id>.png` now responds with `Cache-Control: private, no-cache, must-revalidate` and `send_file(..., conditional=True)` so the browser revalidates every fetch against Flask's auto-emitted `ETag` / `Last-Modified`. Re-renders are reflected immediately; unchanged thumbnails return a tiny 304.
+  - **Frontend**: `oqbPollDocThumbnails` now uses the SAME cache-busted URL for both the `Image()` probe and the swap-in `<img src>`, so the swap reuses the just-loaded probe cache entry and never accidentally serves a stale bare-URL entry. Existing browsers will need a single hard-refresh to evict pre-fix `max-age=3600` cache entries; after that, future rerenders are instant.
+
 #### `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` setting — preserve A4-relative position for asymmetric layouts
 
 - New System Settings toggle: when ON, the left/right horizontal crops are both capped to `min(left_white_margin, right_white_margin)`. This preserves the content's proportional position on the original A4 page. Smoke test: a right-aligned single line that's `220 px` wide under tight cropping comes out `754 px` wide under symmetric, because the 534 px of left whitespace is preserved.

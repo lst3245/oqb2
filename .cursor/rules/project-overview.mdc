@@ -10,7 +10,8 @@ Flask web app for managing, browsing, tagging, and generating exam question pape
 ## Tech Stack
 - **Backend**: Python 3, Flask 3, SQLAlchemy ORM, MariaDB (pymysql)
 - **Frontend**: Bootstrap 5 + HTMX (no SPA framework — server-rendered with HTMX partials)
-- **Document output**: python-docx + Pillow
+- **Document output**: python-docx + Pillow + docxcompose (MD pipeline)
+- **DOC source / PDF output / DOC thumbnails**: Microsoft Word COM via `pywin32` (Windows-only). PyMuPDF rasterises PDFs to PNGs. See [.cursor/rules/docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc).
 - **Auth**: Flask-Login
 
 ## Entry Points
@@ -53,6 +54,11 @@ Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG, multi-part), Word
 MD assets are self-contained (LaTeX math `$...$` / `$$...$$` + base64-embedded images). They render inline on the dashboard / viewer via `app/md_render.py` (markdown-it-py + bleach + client-side KaTeX) and convert to `.docx` during generation via pandoc + docxcompose. Format priority (default `IMG > MD > DOC`) is user-configurable per generation. Optional config keys: `PANDOC_PATH`, `MD_MAX_SIZE_BYTES`.
 
 For the full Markdown pipeline — security model, optimistic concurrency, fullscreen reparenting, cache invariants, common gotchas — see [.cursor/rules/markdown-assets.mdc](mdc:.cursor/rules/markdown-assets.mdc).
+
+DOC source assets are merged natively via Microsoft Word COM at generation time — `Selection.InsertFile` preserves MathType OLE objects, embedded images, and native tables exactly. The same Word session can produce PDF output via `ExportAsFixedFormat`. Server-rendered first-page PNG thumbnails (cached at `DOC_THUMBNAIL_PATH/<asset_id>.png`) are auto-generated lazily for any DOC slot that no IMG eclipses. See [.cursor/rules/docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc).
+
+## Runtime Settings
+Admin → System Settings (super admin only) is a DB-backed page for tunables — thumbnail width / transparency / Word COM timeouts / dashboard page size / batch-IMG defaults. Settings hot-reload into `app.config` (no restart). Secrets and paths stay in `.env`. See [.cursor/rules/system-settings.mdc](mdc:.cursor/rules/system-settings.mdc).
 
 ## Templates
 All in `templates/`. Partials (HTMX targets) are in `templates/partials/`.

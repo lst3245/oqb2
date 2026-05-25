@@ -106,7 +106,7 @@ When QID search is active, other filters are ignored.
 Each card shows:
 - QID, year, level, section, type badge
 - Topic and subtopic
-- Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page.
+- Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page. Word thumbnails appear shortly after the first card load (a small "preview rendering…" placeholder is replaced live with the rendered PNG once the server has it).
 - Answer/Solution buttons (if assets exist)
 - Comment text (if set)
 - Correct percentage (if recorded, e.g. "75% correct")
