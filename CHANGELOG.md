@@ -27,6 +27,14 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 - `_save_cropped_png` now expands its bbox crop by `THUMBNAIL_BOTTOM_PADDING_PX` of margin on **all four sides** (clamped to image bounds). Previously the crop was width-preserving and only trimmed the bottom; now a short one-line question yields a tight thumbnail (~292×65 px) instead of a full-width strip with leading whitespace. The batch IMG generation pipeline applies the same logic in `_pdf_to_cropped_images`.
 
+#### `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` setting — preserve A4-relative position for asymmetric layouts
+
+- New System Settings toggle: when ON, the left/right horizontal crops are both capped to `min(left_white_margin, right_white_margin)`. This preserves the content's proportional position on the original A4 page. Smoke test: a right-aligned single line that's `220 px` wide under tight cropping comes out `754 px` wide under symmetric, because the 534 px of left whitespace is preserved.
+- Centred content (where left and right margins are equal) is unaffected — symmetric mode degrades gracefully to tight cropping.
+- Wired through `app/word_com.render_first_page_png` and `app/batch_image_gen.render_doc_to_pages / render_md_to_pages`. New shared helper `_compute_crop_box` consolidates the crop math; both pipelines now share it.
+- Per-batch override exposed in the **Generate IMG** modal under "Horizontal cropping" so admins can flip it on a single batch without changing the global default.
+- After flipping this setting, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply it to the existing cache.
+
 #### Per-preview "Re-render thumbnail" button
 
 - Every rendered DOC thumbnail in the dashboard cards, the preview modal, and the inline preview helper now shows a small `bi-arrow-clockwise` button next to the download link. One click POSTs to the new `/admin/questions/<qid>/assets/<aid>/rerender-thumb` endpoint (subject-admin permission), which deletes the cached PNG and schedules a fresh render. The frontend swaps the thumbnail for a "rendering..." placeholder and starts the standard live-poller so the new PNG appears in place without a refresh.

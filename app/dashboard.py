@@ -834,6 +834,13 @@ def doc_thumbnail(asset_id):
     if not os.path.isfile(path):
         return abort(404)
 
-    response = send_file(path, mimetype='image/png')
-    response.headers['Cache-Control'] = 'private, max-age=3600'
+    # `conditional=True` (the default for send_file) lets Flask emit
+    # Last-Modified + ETag and return 304 when the browser already has the
+    # current file. We pair it with `Cache-Control: no-cache` so the
+    # browser revalidates every fetch — this is what makes the per-preview
+    # "Re-render" button visibly update the thumbnail without a hard
+    # refresh. Revalidation is cheap (a small 304 response) when nothing
+    # has changed, so the dashboard stays fast.
+    response = send_file(path, mimetype='image/png', conditional=True)
+    response.headers['Cache-Control'] = 'private, no-cache, must-revalidate'
     return response

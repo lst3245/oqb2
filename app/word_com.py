@@ -368,7 +368,8 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
                           width_px: int = 1000,
                           transparent: bool | None = None,
                           whiteness_threshold: int | None = None,
-                          bottom_padding_px: int | None = None) -> None:
+                          bottom_padding_px: int | None = None,
+                          symmetric_horizontal_crop: bool | None = None) -> None:
     """
     Render the first page of `docx_path` to `png_path` (PNG).
 
@@ -387,8 +388,16 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
             Pixels brighter than this are treated as background when
             cropping. Read from `THUMBNAIL_WHITENESS_THRESHOLD`.
       * `bottom_padding_px` (int, default 24)
-            Blank space kept below the cropped content. Read from
+            Blank space kept around the cropped content (applied to top /
+            bottom / left / right with the symmetric-crop cap). Read from
             `THUMBNAIL_BOTTOM_PADDING_PX`.
+      * `symmetric_horizontal_crop` (bool, default False)
+            When True, the left and right horizontal crops are both
+            limited to `min(left_white_margin, right_white_margin)`. This
+            preserves the content's proportional position on the A4 page
+            — short questions keep enough whitespace so they render at the
+            same text scale as full-width questions when displayed at a
+            uniform card width. Read from `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP`.
     """
     _require_available()
 
@@ -398,8 +407,10 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
         raise WordComUnavailable(f'PyMuPDF (fitz) not installed: {e}') from e
 
     # Resolve tunables from app.config when not supplied explicitly.
-    transparent, whiteness_threshold, bottom_padding_px = _resolve_thumb_tunables(
-        transparent, whiteness_threshold, bottom_padding_px
+    (transparent, whiteness_threshold, bottom_padding_px,
+     symmetric_horizontal_crop) = _resolve_thumb_tunables(
+        transparent, whiteness_threshold, bottom_padding_px,
+        symmetric_horizontal_crop,
     )
 
     with tempfile.TemporaryDirectory(prefix='oqb_doc_thumb_') as tmpdir:
@@ -430,19 +441,19 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
                 bottom_padding_px=bottom_padding_px,
                 whiteness_threshold=whiteness_threshold,
                 transparent=transparent,
+                symmetric_horizontal_crop=symmetric_horizontal_crop,
             )
         finally:
             pdf.close()
 
 
-def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px):
+def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px,
+                            symmetric_horizontal_crop=None):
     """Pull defaults from `current_app.config` when a tunable is None.
 
     Falls back to module-level literals when no Flask app context is
     available (e.g. when called from a unit test or smoke script).
     """
-    if transparent is not None and whiteness_threshold is not None and bottom_padding_px is not None:
-        return transparent, whiteness_threshold, bottom_padding_px
     try:
         from flask import current_app
         cfg = current_app.config
@@ -454,12 +465,75 @@ def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px)
         whiteness_threshold = int(cfg.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
     if bottom_padding_px is None:
         bottom_padding_px = int(cfg.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
-    return transparent, whiteness_threshold, bottom_padding_px
+    if symmetric_horizontal_crop is None:
+        symmetric_horizontal_crop = bool(cfg.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
+    return transparent, whiteness_threshold, bottom_padding_px, symmetric_horizontal_crop
+
+
+def _compute_crop_box(img_size, bbox, pad: int, symmetric_horizontal: bool):
+    """
+    Compute the (left, top, right, bottom) crop box from a content bbox.
+
+    Behaviour:
+      * Vertical: always tight to bbox, expanded by `pad` on top and bottom,
+        clamped to image bounds.
+      * Horizontal (default): same — tight to bbox, expanded by `pad`.
+      * Horizontal (symmetric mode): crop the SAME amount from both sides,
+        set by `min(left_white_margin, right_white_margin) - pad`. The
+        content's relative position on the original page is preserved, so
+        short questions retain proportional whitespace and don't blow up
+        when displayed at a uniform target width.
+
+    Why symmetric:
+        A full-page question has left/right margins of ~96 px on a 1000-px
+        A4 render. A short one-line equation in the middle of the page may
+        have ~350 px on each side. Tight cropping yields ~808 px and
+        ~300 px respectively — when both are rendered at the same target
+        card width, the short one's content is enlarged ~2.7x. Symmetric
+        cropping yields ~808 px and ~300 px ONLY if the content is
+        precisely centred; for any asymmetric layout the side with less
+        whitespace is the binding constraint, so the result still
+        preserves proportional context.
+
+    Args:
+        img_size: `(width, height)` of the source image in pixels.
+        bbox: content bounding box `(left, top, right, bottom)`.
+        pad: padding (px) added around the content on each side.
+        symmetric_horizontal: enable the symmetric horizontal crop.
+    """
+    img_w, img_h = img_size
+    left, top, right, bottom = bbox
+    pad = max(0, int(pad))
+
+    if symmetric_horizontal:
+        left_white = left
+        right_white = max(0, img_w - right)
+        # Crop the SMALLER of the two margins from BOTH sides, minus `pad`
+        # so a thin padding column survives on each side. If `pad` exceeds
+        # the available margin we just crop nothing.
+        side_crop = max(0, min(left_white, right_white) - pad)
+        crop_left = side_crop
+        crop_right = img_w - side_crop
+    else:
+        crop_left = max(0, left - pad)
+        crop_right = min(img_w, right + pad)
+
+    crop_top = max(0, top - pad)
+    crop_bottom = min(img_h, bottom + pad)
+
+    # Guarantee a non-zero region even in pathological inputs.
+    if crop_right <= crop_left:
+        crop_right = min(img_w, crop_left + 1)
+    if crop_bottom <= crop_top:
+        crop_bottom = min(img_h, crop_top + 1)
+
+    return (crop_left, crop_top, crop_right, crop_bottom)
 
 
 def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
                       whiteness_threshold: int = 250,
-                      transparent: bool = False) -> None:
+                      transparent: bool = False,
+                      symmetric_horizontal_crop: bool = False) -> None:
     """
     Save a PyMuPDF Pixmap to `png_path` after cropping whitespace on every
     side.
@@ -470,9 +544,14 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
         image, then use `getbbox()` to find the smallest rectangle that
         contains all non-white pixels.
       * Crop to that bbox plus `bottom_padding_px` of margin on **all four
-        sides** (capped to image bounds). This trims the A4 page borders
-        AND any leading / leading-column whitespace, producing a tight
-        thumbnail proportional to the content.
+        sides** (capped to image bounds). Vertical crop is always tight.
+      * When `symmetric_horizontal_crop` is True, the horizontal crop on
+        each side is limited to `min(left_white_margin, right_white_margin)`
+        so a short question (e.g. a one-line equation in the middle of the
+        page) keeps proportional whitespace. This produces visually
+        consistent text scale across thumbnails when they're displayed at
+        a uniform width (e.g. dashboard cards). When False, both sides are
+        cropped tight to the content bounding box.
       * Optionally apply a luminance-based alpha mask so the white page
         background becomes transparent. Antialiased grey text edges
         receive partial alpha for clean rendering against any backdrop.
@@ -506,13 +585,9 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
             # doesn't fall through to "not rendered yet" forever.
             cropped = img.crop((0, 0, min(img.size[0], 400), min(img.size[1], 200)))
         else:
-            left, top, right, bottom = bbox
-            # Expand by `pad` on every side, clipped to image bounds.
-            crop_box = (
-                max(0, left - pad),
-                max(0, top - pad),
-                min(img.size[0], right + pad),
-                min(img.size[1], bottom + pad),
+            crop_box = _compute_crop_box(
+                img_size=img.size, bbox=bbox, pad=pad,
+                symmetric_horizontal=symmetric_horizontal_crop,
             )
             cropped = img.crop(crop_box)
 

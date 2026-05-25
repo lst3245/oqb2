@@ -42,14 +42,16 @@ logger = logging.getLogger(__name__)
 
 def render_doc_to_pages(word_app, src_path: str, width_px: int,
                         transparent: bool, whiteness_threshold: int,
-                        bottom_padding_px: int) -> list:
+                        bottom_padding_px: int,
+                        symmetric_horizontal_crop: bool = False) -> list:
     """
     Open `src_path` in Word, export to PDF, rasterise EVERY page via PyMuPDF,
     and return a list of cropped PIL Image objects (one per page).
 
     Mirrors the cropping + optional transparent post-processing used by
     `app/word_com._save_cropped_png` so a stitched batch result looks
-    identical to a same-page DOC thumbnail.
+    identical to a same-page DOC thumbnail. See `_compute_crop_box` for
+    `symmetric_horizontal_crop` semantics.
     """
     from PIL import Image, ImageChops, ImageOps
     import fitz  # type: ignore
@@ -72,13 +74,15 @@ def render_doc_to_pages(word_app, src_path: str, width_px: int,
             raise RuntimeError(f'Word produced no PDF for {src_path}')
 
         return _pdf_to_cropped_images(
-            tmp_pdf, width_px, transparent, whiteness_threshold, bottom_padding_px
+            tmp_pdf, width_px, transparent, whiteness_threshold,
+            bottom_padding_px, symmetric_horizontal_crop,
         )
 
 
 def render_md_to_pages(word_app, md_path: str, width_px: int,
                        transparent: bool, whiteness_threshold: int,
-                       bottom_padding_px: int) -> list:
+                       bottom_padding_px: int,
+                       symmetric_horizontal_crop: bool = False) -> list:
     """
     Convert `md_path` (MD source) to DOCX via pandoc, then render via Word
     COM exactly like a DOC asset. Returns a list of cropped PIL Image
@@ -98,20 +102,28 @@ def render_md_to_pages(word_app, md_path: str, width_px: int,
             raise RuntimeError(f'Word produced no PDF for MD {md_path}')
 
         return _pdf_to_cropped_images(
-            tmp_pdf, width_px, transparent, whiteness_threshold, bottom_padding_px
+            tmp_pdf, width_px, transparent, whiteness_threshold,
+            bottom_padding_px, symmetric_horizontal_crop,
         )
 
 
 def _pdf_to_cropped_images(pdf_path: str, width_px: int, transparent: bool,
                            whiteness_threshold: int,
-                           bottom_padding_px: int) -> list:
+                           bottom_padding_px: int,
+                           symmetric_horizontal_crop: bool = False) -> list:
     """
     Rasterise every page of `pdf_path` to a cropped PIL Image. Cropping +
     optional transparency uses the same per-page rules as the DOC thumbnail
     pipeline; this guarantees visual consistency between a thumbnail and
     its batch-generated IMG counterpart.
+
+    `symmetric_horizontal_crop` mirrors the thumbnail setting: when True,
+    the left/right crops are capped to `min(left_white, right_white)` so
+    short content keeps proportional whitespace. See
+    `app/word_com._compute_crop_box` for the full rationale.
     """
     from PIL import Image, ImageChops, ImageOps
+    from app.word_com import _compute_crop_box
     import fitz  # type: ignore
 
     pdf = fitz.open(pdf_path)
@@ -139,12 +151,9 @@ def _pdf_to_cropped_images(pdf_path: str, width_px: int, transparent: bool,
             if bbox is None:
                 cropped = img.crop((0, 0, min(img.size[0], 400), min(img.size[1], 200)))
             else:
-                left, top, right, bottom = bbox
-                crop_box = (
-                    max(0, left - pad),
-                    max(0, top - pad),
-                    min(img.size[0], right + pad),
-                    min(img.size[1], bottom + pad),
+                crop_box = _compute_crop_box(
+                    img_size=img.size, bbox=bbox, pad=pad,
+                    symmetric_horizontal=symmetric_horizontal_crop,
                 )
                 cropped = img.crop(crop_box)
 

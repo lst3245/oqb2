@@ -728,6 +728,11 @@
                               '<i class="bi bi-hourglass-split"></i> Re-rendering preview...' +
                             '</div>';
                         container.setAttribute('data-doc-pending-id', assetId);
+                        // Carrying the question id through is essential —
+                        // without it the swap-in HTML can't show the
+                        // re-render button (admin gating requires both
+                        // asset_id AND question_id).
+                        container.setAttribute('data-doc-pending-question-id', String(questionId));
                         if (filename) container.setAttribute('data-doc-pending-filename', filename);
                         if (downloadUrl) container.setAttribute('data-doc-pending-downloadurl', downloadUrl);
                         // Drop the dedup marker so the poller re-engages.
@@ -775,12 +780,22 @@
                 }
                 attempts++;
 
+                // Use the SAME cache-busted URL for both probe and swap
+                // so the swapped <img> hits the just-loaded probe cache
+                // entry (instant render) and doesn't accidentally serve
+                // a stale entry that the browser had under the bare URL.
+                // Critical for the per-preview Re-render button: without
+                // this, the swap reuses the bare URL which may still be
+                // cached with the OLD PNG until the cache entry expires.
+                const bust = '?t=' + Date.now();
+                const probeUrl = thumbUrl + bust;
+
                 const probe = new Image();
                 probe.onload = () => {
                     if (!document.body.contains(el)) return;
                     // Swap content in place. The element keeps its outer
                     // classes/styles so the surrounding layout doesn't shift.
-                    el.innerHTML = _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId);
+                    el.innerHTML = _oqbBuildThumbHtml(probeUrl, filename, downloadUrl, assetId, questionId);
                     el.classList.remove('alert', 'alert-secondary', 'alert-warning', 'py-2', 'd-flex', 'align-items-center', 'gap-2');
                     // Drop the data-* attributes so re-scans skip this node.
                     delete el.dataset.docPendingId;
@@ -790,9 +805,7 @@
                 probe.onerror = () => {
                     setTimeout(tick, _OQB_THUMB_INTERVAL_MS);
                 };
-                // Cache buster ensures the browser actually re-fetches each
-                // attempt instead of caching the 404.
-                probe.src = thumbUrl + '?t=' + Date.now();
+                probe.src = probeUrl;
             };
 
             // First attempt fires immediately; subsequent retries wait

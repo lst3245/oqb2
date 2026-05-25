@@ -580,6 +580,17 @@
                             <small class="text-muted">When off, slots that already have an IMG are skipped.</small>
                         </div>
                     </div>
+
+                    <div class="row g-3 align-items-end mt-1">
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold">Horizontal cropping</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="batchImgSymmetric">
+                                <label class="form-check-label" for="batchImgSymmetric">Symmetric (keep proportional margins)</label>
+                            </div>
+                            <small class="text-muted">When on, the left/right cropping is capped to <code>min(left_margin, right_margin)</code> so short questions keep proportional whitespace and don't blow up in size when displayed at a uniform width. Defaults to System Settings.</small>
+                        </div>
+                    </div>
                 </div>
 
                 <hr class="my-3">
@@ -934,6 +945,7 @@ function openBatchImgModal() {
             const widthDefault = reg['BATCH_IMG_DEFAULT_WIDTH']?.value || reg['DOC_THUMBNAIL_WIDTH']?.value || 1500;
             widthEl.value = widthDefault;
             document.getElementById('batchImgTransparent').checked = !!(reg['THUMBNAIL_TRANSPARENT']?.value);
+            document.getElementById('batchImgSymmetric').checked = !!(reg['THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP']?.value);
             const stitchDefault = !!(reg['BATCH_IMG_DEFAULT_STITCH']?.value);
             document.getElementById('batchImgStitch1').checked = stitchDefault !== false;
             document.getElementById('batchImgStitch0').checked = !stitchDefault && stitchDefault !== null;
@@ -986,6 +998,7 @@ function runBatchImg() {
     const overwrite = document.getElementById('batchImgOverwrite').checked ? '1' : '0';
     const widthVal = document.getElementById('batchImgWidth').value;
     const transparent = document.getElementById('batchImgTransparent').checked ? '1' : '0';
+    const symmetric = document.getElementById('batchImgSymmetric').checked ? '1' : '0';
 
     const params = new URLSearchParams();
     params.set('question_ids', Array.from(selectedQIds).join(','));
@@ -996,6 +1009,7 @@ function runBatchImg() {
     params.set('overwrite', overwrite);
     if (widthVal) params.set('width', widthVal);
     params.set('transparent', transparent);
+    params.set('symmetric_horizontal', symmetric);
 
     batchImgRunning = true;
     document.getElementById('batchImgRunBtn').classList.add('d-none');

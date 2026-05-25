@@ -2907,6 +2907,7 @@ def batch_generate_images():
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     transparent_raw = request.args.get('transparent')
     width_raw = request.args.get('width')
+    symmetric_raw = request.args.get('symmetric_horizontal')
 
     # Permission filter: scope question_ids to those the caller can admin.
     admin_subject_ids = [s.id for s in get_user_admin_subjects()]
@@ -2932,6 +2933,10 @@ def batch_generate_images():
             transparent = (
                 bool(int(transparent_raw)) if transparent_raw in ('0', '1') else
                 bool(app.config.get('THUMBNAIL_TRANSPARENT', False))
+            )
+            symmetric = (
+                bool(int(symmetric_raw)) if symmetric_raw in ('0', '1') else
+                bool(app.config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
             )
             whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
             padding = int(app.config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
@@ -2992,12 +2997,12 @@ def batch_generate_images():
                             if src_asset.file_format == 'DOC':
                                 pages = batch_image_gen.render_doc_to_pages(
                                     word_app, src_abs, width, transparent,
-                                    whiteness, padding,
+                                    whiteness, padding, symmetric,
                                 )
                             else:  # MD
                                 pages = batch_image_gen.render_md_to_pages(
                                     word_app, src_abs, width, transparent,
-                                    whiteness, padding,
+                                    whiteness, padding, symmetric,
                                 )
                         except Exception as e:
                             failed += 1

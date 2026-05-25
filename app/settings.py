@@ -191,6 +191,23 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Extra blank space kept below the content after auto-cropping. 0 hugs the content tightly; 24 leaves a small margin.',
         min=0, max=500,
     )),
+    ('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', _spec(
+        'THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', 'bool', group='Thumbnails',
+        label='Symmetric horizontal cropping',
+        help=(
+            "When ON, the left and right margins are cropped by the SAME "
+            "amount — min(left_white_margin, right_white_margin). The content's "
+            "relative position on the original A4 page is preserved, so "
+            "asymmetric layouts (right-aligned text, indented content, "
+            "left-justified equations with trailing whitespace) don't get "
+            "their position collapsed by the bbox crop. "
+            "Note: for content that's already centred on the page, this "
+            "behaves identically to tight cropping (both margins are equal). "
+            "When OFF (default), both sides are cropped tight to the content "
+            "bounding box — short asymmetric questions look stretched when "
+            "displayed in a card."
+        ),
+    )),
 
     # Batch image generation
     ('BATCH_IMG_DEFAULT_WIDTH', _spec(
