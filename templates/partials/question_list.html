@@ -110,11 +110,27 @@
                         <div class="md-preview-card" data-preview-q="{{ question.id }}" data-preview-type="QUE">
                             <div class="text-muted small fst-italic">Rendering markdown...</div>
                         </div>
+                    {% elif question.preview_mode == 'thumbnail' and question.preview_doc_asset_id %}
+                        <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
+                             class="question-image"
+                             style="display:block; margin-bottom:4px; max-width:100%;"
+                             alt="QUE preview"
+                             onerror="this.style.display='none'">
+                        <div class="text-muted small">
+                            <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
+                            <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
+                               target="_blank" class="ms-1">download .docx</a>
+                        </div>
                     {% elif question.preview_mode == 'download' %}
-                        <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2">
+                        <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2"
+                             {% if question.preview_doc_asset_id %}
+                             data-doc-pending-id="{{ question.preview_doc_asset_id }}"
+                             data-doc-pending-filename="{{ question.preview_doc_filename or '' }}"
+                             data-doc-pending-downloadurl="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
+                             {% endif %}>
                             <i class="bi bi-file-earmark-word fs-4 text-primary"></i>
                             <div class="flex-grow-1 small">
-                                Word document preview not available inline.
+                                Word document — preview rendering…
                                 <button type="button"
                                         class="btn btn-sm btn-outline-primary ms-2"
                                         onclick="previewAsset({{ question.id }}, 'QUE')">

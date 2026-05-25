@@ -16,3 +16,14 @@ bleach==6.1.0
 # pandoc binary required separately (not a pip package) for MD -> docx generation.
 # Windows:  https://github.com/jgm/pandoc/releases  (set PANDOC_PATH if not on PATH)
 # Linux:    apt install pandoc / brew install pandoc
+
+# DOC source format + PDF output (Word COM automation).
+# pywin32 is Windows-only — pip install will simply skip on Linux/macOS.
+# Microsoft Word must be installed on the same machine for DOCX-merging
+# (Selection.InsertFile) and PDF export (ExportAsFixedFormat) to work.
+# Use >=306 so Python 3.14 picks up the 311 wheel.
+pywin32>=306; sys_platform == "win32"
+# psutil enables precise WINWORD.EXE orphan cleanup. Optional but recommended.
+psutil>=5.9; sys_platform == "win32"
+# PyMuPDF rasterises the first PDF page to PNG for DOC asset thumbnails.
+PyMuPDF>=1.24.10

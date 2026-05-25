@@ -106,7 +106,7 @@ When QID search is active, other filters are ignored.
 Each card shows:
 - QID, year, level, section, type badge
 - Topic and subtopic
-- Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document download link, depending on what assets the question has. Format priority is **image > markdown > Word**.
+- Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page.
 - Answer/Solution buttons (if assets exist)
 - Comment text (if set)
 - Correct percentage (if recorded, e.g. "75% correct")
@@ -224,6 +224,18 @@ The viewer automatically falls back to ANS if SOL is not available and vice vers
 - **Image First** — uses the ANS image; falls back to the Answer Text field if no image
 - **Text First** — uses the Answer Text field; falls back to the ANS image
 
+#### Output Format
+Choose **Word (.docx)** (default) or **PDF (.pdf)**.
+
+- **DOCX** is the default and works on any server.
+- **PDF** uses Microsoft Word on the server to export the final document. Equations, MathType objects, and embedded objects are preserved with full fidelity. Slightly slower than DOCX.
+- Combined with **Split to ZIP** (below), PDF output produces a `.zip` containing one PDF per group.
+
+#### Format Priority
+When a question has both an image (IMG), a Markdown (MD), and a Word document (DOC) for the same slot, this widget controls which format wins. Drag the chips to reorder. Default is `IMG → MD → DOC`.
+
+- For Word-document-heavy questions where MathType / embedded objects matter, move **DOC** to the top.
+
 #### Language
 Choose **English First** or **Chinese First**. Falls back to Bilingual, then the other language.
 
@@ -255,8 +267,9 @@ Inserts a centred bold heading whenever the selected field changes as you go thr
 - "Number and Algebra | Chapter 3" as a heading before the first question in that group
 
 #### Split to ZIP
-Tick one or more fields under "Split documents by". Instead of one `.docx`, the output is a `.zip` containing one `.docx` per group.
+Tick one or more fields under "Split documents by". Instead of one `.docx`, the output is a `.zip` containing one file per group.
 - Example: tick "Topic" → one file per topic
+- Combined with **PDF** output format → `.zip` of `.pdf` files instead of `.docx`.
 
 #### Denote Cross-Topic
 Appends `[Cross Topic: X, Y]` to the info line when a question has minor topics in addition to its primary topic.
@@ -279,7 +292,7 @@ The table shows all your generated documents with their status:
 
 | Button | Action |
 |---|---|
-| Download | Download the `.docx` or `.zip` file |
+| Download | Download the `.docx`, `.pdf` or `.zip` file |
 | Re-generate | Go back to the generation page with all the same settings pre-filled |
 | Re-filter | Restore the original dashboard filter that was used for this file |
 | Delete | Remove the file and its database record |

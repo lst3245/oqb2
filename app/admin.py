@@ -1211,14 +1211,27 @@ def upload_question_asset(question_id):
         )
         db.session.add(asset)
         uploaded.append({
-            'id': None,  # will be set after commit
+            'asset': asset,  # bound to session; id populated on flush
             'part_number': part_to_use,
             'file_path': rel_path,
+            'file_format': file_format,
         })
         if file_format == 'IMG':
             next_img_part += 1
 
     db.session.commit()
+
+    # Post-commit DOC thumbnail lifecycle:
+    #   * IMG just uploaded into a slot → delete any stale DOC thumbnail.
+    #   * DOC just uploaded into a slot → schedule async thumbnail render
+    #     (only if no IMG wins the same slot).
+    from app import doc_thumbnails
+    for u in uploaded:
+        a = u['asset']
+        if a.file_format == 'IMG':
+            doc_thumbnails.on_img_asset_created(a)
+        elif a.file_format == 'DOC':
+            doc_thumbnails.on_doc_asset_created(a)
 
     return jsonify({
         'success': True,
@@ -1524,8 +1537,34 @@ def delete_question_asset(question_id, asset_id):
     if asset.file_format == 'MD':
         md_render.invalidate(asset.id)
 
+    # Capture the slot info before we lose the asset row — we need it for the
+    # DOC thumbnail lifecycle below.
+    deleted_format = asset.file_format
+    deleted_asset_id = asset.id
+    deleted_question_id = asset.question_id
+    deleted_asset_type = asset.asset_type
+    deleted_language = asset.language
+
     db.session.delete(asset)
     db.session.commit()
+
+    # Post-commit DOC thumbnail lifecycle:
+    #   * DOC deleted → drop its cached PNG.
+    #   * IMG deleted → if a DOC is still in the slot and no IMG remains,
+    #     that DOC becomes visible again — schedule its thumbnail render.
+    from app import doc_thumbnails
+    if deleted_format == 'DOC':
+        doc_thumbnails.on_doc_asset_deleted(deleted_asset_id)
+    elif deleted_format == 'IMG':
+        # Re-evaluate the slot: pass a lightweight stand-in with the relevant fields.
+        class _Stub:
+            pass
+        stub = _Stub()
+        stub.file_format = 'IMG'
+        stub.question_id = deleted_question_id
+        stub.asset_type = deleted_asset_type
+        stub.language = deleted_language
+        doc_thumbnails.on_img_asset_deleted(stub)
 
     msg = 'Asset deleted from database'
     if file_deleted:
@@ -2628,6 +2667,128 @@ def health_sync():
     
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== DOC Thumbnail Backfill (Super Admin Only) ====================
+
+@admin_bp.route('/health/doc-thumbnails/backfill')
+@login_required
+@super_admin_required
+def doc_thumbnail_backfill():
+    """
+    Walk every DOC asset and (re)render its first-page PNG thumbnail
+    when no IMG eclipses its slot. Streams progress via SSE.
+
+    Use cases:
+      * One-time priming after upgrading to a build that introduces DOC
+        thumbnails (existing DOC assets predate the per-upload hook).
+      * Recovering from a thumbnail directory that was wiped manually.
+      * After tweaking DOC_THUMBNAIL_WIDTH (renders are cached by asset_id
+        only, not by width — wipe and backfill to apply a new width).
+    """
+    from app import word_com, doc_thumbnails
+
+    if not word_com.IS_AVAILABLE:
+        return jsonify({
+            'error': 'Word COM unavailable on this server — DOC thumbnails cannot be rendered.'
+        }), 400
+
+    force = request.args.get('force', '0') in ('1', 'true', 'yes')
+    app = current_app._get_current_object()
+
+    def generate():
+        with app.app_context():
+            from app.models import QuestionAsset
+            try:
+                doc_assets = QuestionAsset.query.filter_by(file_format='DOC').all()
+                total = len(doc_assets)
+                yield f"data: {json.dumps({'type': 'info', 'message': f'Scanning {total} DOC asset(s)...'})}\n\n"
+
+                rendered = 0
+                skipped_img = 0
+                skipped_existing = 0
+                failed = 0
+
+                for i, a in enumerate(doc_assets, start=1):
+                    base_msg = f'[{i}/{total}] {a.file_path}'
+
+                    # Skip if an IMG wins the same slot (thumbnail would be
+                    # invisible to the resolver anyway).
+                    other_img = QuestionAsset.query.filter_by(
+                        question_id=a.question_id, asset_type=a.asset_type,
+                        language=a.language, file_format='IMG'
+                    ).first()
+                    if other_img:
+                        skipped_img += 1
+                        yield f"data: {json.dumps({'type': 'skip', 'message': f'{base_msg} - skipped (IMG wins slot)', 'current': i, 'total': total})}\n\n"
+                        continue
+
+                    # Skip if a cached PNG already exists and force=False.
+                    if not force and doc_thumbnails.thumbnail_exists(a.id):
+                        skipped_existing += 1
+                        yield f"data: {json.dumps({'type': 'skip', 'message': f'{base_msg} - already cached', 'current': i, 'total': total})}\n\n"
+                        continue
+
+                    ok = doc_thumbnails.render_doc_thumbnail_sync(app, a.id)
+                    if ok:
+                        rendered += 1
+                        yield f"data: {json.dumps({'type': 'success', 'message': f'{base_msg} - rendered', 'current': i, 'total': total})}\n\n"
+                    else:
+                        failed += 1
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'{base_msg} - render failed (see server log)', 'current': i, 'total': total})}\n\n"
+
+                summary = (
+                    f'Done. Rendered: {rendered}, '
+                    f'skipped (IMG wins): {skipped_img}, '
+                    f'skipped (already cached): {skipped_existing}, '
+                    f'failed: {failed}.'
+                )
+                yield f"data: {json.dumps({'type': 'done', 'message': summary, 'current': total, 'total': total, 'stats': {'rendered': rendered, 'skipped_img': skipped_img, 'skipped_existing': skipped_existing, 'failed': failed}})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Backfill aborted.'})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/health/doc-thumbnails/clear', methods=['POST'])
+@login_required
+@super_admin_required
+def doc_thumbnail_clear():
+    """
+    Delete every cached DOC thumbnail PNG from disk.
+
+    The next time a card / modal / viewer resolves to a DOC asset, the lazy
+    `ensure_thumbnail` path will re-schedule a render automatically. Use
+    this when you want to free disk space, recover from a partial render,
+    or apply a new `DOC_THUMBNAIL_WIDTH` without forcing an immediate
+    re-render of every file.
+    """
+    thumb_dir = current_app.config.get('DOC_THUMBNAIL_PATH')
+    if not thumb_dir or not os.path.isdir(thumb_dir):
+        return jsonify({'success': True, 'deleted': 0, 'message': 'No thumbnail directory present.'})
+
+    deleted = 0
+    errors = []
+    for entry in os.listdir(thumb_dir):
+        if not entry.lower().endswith('.png'):
+            continue
+        full = os.path.join(thumb_dir, entry)
+        try:
+            os.remove(full)
+            deleted += 1
+        except OSError as e:
+            errors.append(f'{entry}: {e}')
+
+    return jsonify({
+        'success': True,
+        'deleted': deleted,
+        'errors': errors,
+        'message': f'Deleted {deleted} thumbnail file(s).' + (
+            f' {len(errors)} error(s) — see response.' if errors else ''
+        ),
+    })
 
 
 # ==================== File Browser (Super Admin Only) ====================

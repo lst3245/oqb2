@@ -580,8 +580,29 @@
                             card.innerHTML = data.parts.map(p =>
                                 `<img src="${p.url}" alt="" style="display:block; margin-bottom:2px;">`
                             ).join('');
+                        } else if (data && data.mode === 'thumbnail') {
+                            // Server-rendered first-page PNG of a DOC asset, plus a
+                            // small download link to the original .docx so the user
+                            // can grab MathType / embedded objects exactly.
+                            const fname = data.filename || 'Word document';
+                            const dl = data.download_url || '#';
+                            card.innerHTML =
+                                `<img src="${data.thumbnail_url}" alt="" style="display:block; max-width:100%; margin-bottom:4px;">` +
+                                `<div class="text-muted small">` +
+                                `<i class="bi bi-file-earmark-word"></i> ${fname} ` +
+                                `<a href="${dl}" target="_blank" class="ms-1">download .docx</a>` +
+                                `</div>`;
                         } else if (data && data.mode === 'download') {
+                            // DOC asset whose first-page PNG isn't on disk yet.
+                            // Render the placeholder + start polling the
+                            // thumbnail URL so it swaps in when ready.
                             card.innerHTML = `<div class="text-muted small"><i class="bi bi-file-earmark-word"></i> ${data.filename || 'Word document'} <a href="${data.url}" target="_blank" class="ms-1">download</a></div>`;
+                            if (data.format === 'DOC' && data.asset_id) {
+                                card.setAttribute('data-doc-pending-id', String(data.asset_id));
+                                card.setAttribute('data-doc-pending-filename', data.filename || '');
+                                card.setAttribute('data-doc-pending-downloadurl', data.url || '');
+                                if (window.oqbPollDocThumbnails) window.oqbPollDocThumbnails(card.parentNode || card);
+                            }
                         } else {
                             card.innerHTML = '<div class="text-muted small">No preview available</div>';
                         }
@@ -595,6 +616,102 @@
         // Auto-load on initial page load and after every HTMX swap.
         document.addEventListener('DOMContentLoaded', () => window.oqbLoadMarkdownPreviewCards());
         document.body.addEventListener('htmx:afterSwap', e => window.oqbLoadMarkdownPreviewCards(e.target));
+
+        // ─── Live DOC thumbnail polling ────────────────────────────────────
+        // The dashboard / viewer / modal preview pipelines render a small
+        // "Word document — preview not yet rendered" stub for DOC assets
+        // whose first-page PNG hasn't been rendered yet. Word COM is
+        // already scheduled by the server in the background; this poller
+        // tries to load the PNG every few seconds and swaps the stub for
+        // a real thumbnail the moment it becomes available — no page
+        // refresh required.
+        //
+        // Wiring contract: any element you want polled should carry the
+        // attribute `data-doc-pending-id="<asset_id>"` and these optional
+        // attributes:
+        //   data-doc-pending-filename   — displayed below the thumbnail
+        //   data-doc-pending-downloadurl — link to the original .docx
+        // Call window.oqbPollDocThumbnails(root) after rendering. Dedup
+        // happens via a `data-doc-poller-active` marker on the element
+        // itself so a second scan over the same tree is a no-op.
+        const _OQB_THUMB_MAX_ATTEMPTS = 20;     // 20 × 3s ≈ 60s budget
+        const _OQB_THUMB_INTERVAL_MS = 3000;
+
+        function _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl) {
+            const fname = filename ? filename.replace(/[<>&"']/g, '') : 'Word document';
+            const dl = downloadUrl || '#';
+            return (
+                '<img src="' + thumbUrl + '" class="question-image" ' +
+                  'style="display:block; margin-bottom:4px; max-width:100%;" ' +
+                  'alt="QUE preview">' +
+                '<div class="text-muted small">' +
+                  '<i class="bi bi-file-earmark-word"></i> ' + fname + ' ' +
+                  '<a href="' + dl + '" target="_blank" class="ms-1">download .docx</a>' +
+                '</div>'
+            );
+        }
+
+        function _oqbPollOneThumb(el) {
+            if (!el || !el.dataset) return;
+            const assetId = el.dataset.docPendingId;
+            if (!assetId) return;
+
+            // Per-element dedup: stash a marker on the element itself the
+            // first time we poll it so a second invocation of
+            // oqbPollDocThumbnails on the same tree is a no-op.
+            if (el.dataset.docPollerActive === '1') return;
+            el.dataset.docPollerActive = '1';
+
+            const thumbUrl = '/dashboard/api/doc_thumbnail/' + encodeURIComponent(assetId) + '.png';
+            const filename = el.dataset.docPendingFilename || '';
+            const downloadUrl = el.dataset.docPendingDownloadurl || '';
+
+            let attempts = 0;
+            const tick = () => {
+                // Bail out if the element was detached from the DOM (e.g.
+                // user navigated away or the card was re-rendered).
+                if (!document.body.contains(el)) return;
+                if (attempts >= _OQB_THUMB_MAX_ATTEMPTS) {
+                    // Give up silently; placeholder stays in place. User can
+                    // refresh manually if they're impatient.
+                    delete el.dataset.docPollerActive;
+                    return;
+                }
+                attempts++;
+
+                const probe = new Image();
+                probe.onload = () => {
+                    if (!document.body.contains(el)) return;
+                    // Swap content in place. The element keeps its outer
+                    // classes/styles so the surrounding layout doesn't shift.
+                    el.innerHTML = _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl);
+                    el.classList.remove('alert', 'alert-secondary', 'alert-warning', 'py-2', 'd-flex', 'align-items-center', 'gap-2');
+                    // Drop the data-* attributes so re-scans skip this node.
+                    delete el.dataset.docPendingId;
+                    delete el.dataset.docPollerActive;
+                };
+                probe.onerror = () => {
+                    setTimeout(tick, _OQB_THUMB_INTERVAL_MS);
+                };
+                // Cache buster ensures the browser actually re-fetches each
+                // attempt instead of caching the 404.
+                probe.src = thumbUrl + '?t=' + Date.now();
+            };
+
+            // First attempt fires immediately; subsequent retries wait
+            // INTERVAL_MS so we don't hammer the server.
+            setTimeout(tick, 500);
+        }
+
+        window.oqbPollDocThumbnails = function(root) {
+            const scope = root || document;
+            const nodes = scope.querySelectorAll('[data-doc-pending-id]');
+            nodes.forEach(_oqbPollOneThumb);
+        };
+
+        // Auto-run on initial load and on HTMX-driven swaps of the question list.
+        document.addEventListener('DOMContentLoaded', () => window.oqbPollDocThumbnails());
+        document.body.addEventListener('htmx:afterSwap', e => window.oqbPollDocThumbnails(e.target));
     </script>
 
     {% block extra_js %}{% endblock %}

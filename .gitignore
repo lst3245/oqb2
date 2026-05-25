@@ -40,9 +40,14 @@ ENV/
 instance/
 .webassets-cache
 
-# Output
+# Output — generated artifacts that should never be committed
 output/*.docx
 output/*.zip
+output/*.pdf
+# DOC asset thumbnail cache (default location for DOC_THUMBNAIL_PATH).
+output/.doc_thumbnails/
+# Catch-all in case the user reconfigures DOC_THUMBNAIL_PATH or output paths.
+.doc_thumbnails/
 ingest_errors.log
 
 # Database

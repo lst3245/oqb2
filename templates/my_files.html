@@ -127,11 +127,37 @@ function loadFiles() {
                 const regenBtn = f.has_generation_options
                     ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
                     : '';
-                
+
+                // File extension badge — colour-coded so PDF stands out vs DOCX vs ZIP.
+                const extLabel = (f.file_ext || '').toLowerCase();
+                const extColour = (
+                    extLabel === 'pdf' ? 'bg-danger' :
+                    extLabel === 'zip' ? 'bg-warning text-dark' :
+                    'bg-primary'
+                );
+                const extBadge = extLabel
+                    ? `<span class="badge ${extColour} ms-2" style="font-size:0.7rem;">.${escapeHtml(extLabel)}</span>`
+                    : '';
+
+                // Preferred-format icon — shows which asset format had highest
+                // priority in this generation (first entry of format_priority).
+                // IMG = image, MD = markdown, DOC = Word document.
+                const fp = (f.format_priority_top || 'IMG').toUpperCase();
+                const fpMeta = {
+                    'IMG': {icon: 'bi-image', colour: 'text-success', label: 'Image-priority'},
+                    'MD':  {icon: 'bi-markdown', colour: 'text-info', label: 'Markdown-priority'},
+                    'DOC': {icon: 'bi-file-earmark-word', colour: 'text-primary', label: 'Word-document-priority'},
+                }[fp] || {icon: 'bi-question', colour: 'text-muted', label: fp};
+                const fpIcon = `<i class="bi ${fpMeta.icon} ${fpMeta.colour} ms-2" title="${fpMeta.label} (priority: ${escapeHtml(fp)})"></i>`;
+
                 html += `
                         <tr class="file-row ${statusClass}">
                             <td><input type="checkbox" class="form-check-input row-check" value="${f.id}" onchange="updateBulkBar()"></td>
-                            <td><strong>${escapeHtml(f.display_name)}</strong></td>
+                            <td>
+                                <strong>${escapeHtml(f.display_name)}</strong>
+                                ${extBadge}
+                                ${fpIcon}
+                            </td>
                             <td>${statusBadge}</td>
                             <td><span class="badge bg-secondary">${f.question_count}</span></td>
                             ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(f.username || '')}</span></td>` : ''}

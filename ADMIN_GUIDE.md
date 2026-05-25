@@ -227,6 +227,44 @@ Document generation converts Markdown assets to Word via **pandoc** + docxcompos
 - **macOS**: `brew install pandoc`.
 Verify with `pandoc --version`. Without pandoc, MD assets fall back to an italic placeholder in generated `.docx` (with a clear error message in the log).
 
+### Microsoft Word requirement (for DOC source files + PDF output + DOC thumbnails)
+
+DOCX source assets are merged into the generated document via Microsoft Word COM (`pywin32`), and PDF output uses Word's `ExportAsFixedFormat`. This gives full fidelity for MathType OLE objects, embedded images, drawings, custom fonts, and native tables — features that XML-splicing libraries can't preserve reliably.
+
+**Requirements (Windows only):**
+- Microsoft Word installed on the application server (any modern licensed version).
+- `pywin32` (installed automatically by `pip install -r requirements.txt` on Windows; the requirement is gated with `sys_platform == "win32"`).
+- `PyMuPDF` (used to rasterise PDF pages to PNG for DOC asset thumbnails).
+- Optional: `pip install psutil` for precise orphan-WINWORD.EXE cleanup.
+
+**Behaviour without Word:**
+- DOC source files render as the legacy italic placeholder (`[Word document: ...]`) in generated `.docx`.
+- PDF output is rejected at the API with HTTP 400 ("PDF output requires Microsoft Word + pywin32...").
+- DOC thumbnails are silently skipped; the dashboard / viewer show the old download-only stub.
+
+**Configuration keys (in `.env`):**
+| Key | Default | Purpose |
+|---|---|---|
+| `WORD_COM_TIMEOUT` | `300` | Per-job watchdog (seconds) — kill WINWORD if a single call hangs. |
+| `WORD_COM_LOCK_TIMEOUT` | `600` | Max wait for the global Word lock when another generation is running. |
+| `DOC_THUMBNAIL_PATH` | `<OUTPUT_PATH>/.doc_thumbnails` | Where the cached first-page PNGs live. |
+| `DOC_THUMBNAIL_WIDTH` | `1000` | Render width in pixels (~A4 at 96 DPI). |
+
+**Concurrency:** only ONE Word session runs at a time per server (a module-level `threading.Lock`). Concurrent generations queue up to `WORD_COM_LOCK_TIMEOUT`; on timeout the job fails with a clear error message in the GeneratedFile row.
+
+**Source DOCX format expectations:** the merger automatically strips section properties (`<w:sectPr>`) from each source DOCX before insertion, so the master document's A4 / narrow-margins / page numbers always win. Authors do not need to remove their own page setup manually.
+
+**Backfilling thumbnails for an existing library:**
+- Open **Admin → Database Health** as a super admin and scroll to the **DOC Asset Thumbnails** card.
+- **Backfill Missing** walks every DOC asset and renders a PNG when one isn't already on disk. Skips slots where an IMG eclipses the DOC.
+- **Force Re-render All** wipes and regenerates every DOC thumbnail. Useful after changing `DOC_THUMBNAIL_WIDTH`.
+- You can also let the lazy-render kick in automatically: any time a user opens a question card / modal / viewer that resolves to a DOC, a render is scheduled in the background. The thumbnail appears on their next refresh.
+
+**Troubleshooting:**
+- **Stuck job / orphan WINWORD.EXE process**: open Task Manager and end any Word processes; subsequent generations will start a fresh instance. The `word_session` cleanup falls back to `taskkill /f /im WINWORD.EXE` if Word.Quit fails.
+- **Thumbnails never appear** for a freshly-uploaded `.docx`: check the Flask log for `DOC thumbnail render failed`. Usually means Word is missing, hung, or the source file is corrupt. The dashboard falls back to the download stub automatically.
+- **"PDF requires Microsoft Word + pywin32" error**: install pywin32 (`pip install pywin32`) and ensure Word is licensed and runnable as the same user the Flask process runs as.
+
 ---
 
 ## 8. File Ingestion

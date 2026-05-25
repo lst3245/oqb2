@@ -6,6 +6,70 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### DOCX source files — native merging via Microsoft Word + first-page thumbnails
+
+`QuestionAsset.file_format='DOC'` is now first-class for generation. Previously a `.docx` source asset rendered as a placeholder line (`[Word document: ...]`) in the output; now it is **merged natively** so MathType OLE objects, embedded images, drawings, native tables, and fonts come through unchanged.
+
+- **Merging engine**: new module [`app/word_com.py`](app/word_com.py) drives Microsoft Word via COM (`pywin32`). The generator emits a unique marker paragraph for each DOC asset while building the master document with python-docx, saves the intermediate `.docx`, then opens it in a single background Word session that finds each marker and calls `Selection.InsertFile` with a section-property-stripped copy of the source DOCX. This is what gives MathType / OLE / drawing fidelity that XML splicing libraries can't match.
+- **Section-property stripping**: `sanitize_docx_for_insertion()` removes every `<w:sectPr>` from each source DOCX before insertion so the master document's A4 / margins / page numbers always win — source files with their own page setup or section breaks won't pollute the merged result.
+- **Concurrency**: a module-level `threading.Lock` (`WORD_COM_LOCK_TIMEOUT`, default 600s) serializes all Word sessions across the whole process. Multiple users can queue jobs but only one Word instance runs at a time.
+- **Orphan-process cleanup**: `word_session` registers an atexit-style fallback that kills any WINWORD.EXE if `Word.Quit` fails (via psutil if installed, falling back to `taskkill /f /im WINWORD.EXE`).
+- **Graceful fallback**: on non-Windows servers or when pywin32 isn't installed, `word_com.IS_AVAILABLE` is False and DOC assets keep rendering as the legacy italic placeholder (generation still completes).
+
+#### PDF output — directly generate `.pdf` instead of `.docx`
+
+New **Output Format** radio on the Generate page lets the user pick `.docx` (default) or `.pdf`. PDF export reuses the same Word COM session that merges DOC source files, calling `Document.ExportAsFixedFormat(wdExportFormatPDF)` — equations, MathType OLE objects, native tables, and fonts all survive intact.
+
+- **Split + PDF**: when any `split_fields` is enabled together with PDF output, the result is a `.zip` containing one PDF per group (mirrors the existing split-DOCX behaviour).
+- **Storage**: `generation_options.output_format` (`'DOCX'` | `'PDF'`) round-trips through generation presets, regenerate-from-file, and the saved-generation-profile JSON.
+- **Mimetype**: `/generate/download/<id>` now serves `application/pdf` for `.pdf` outputs.
+- **Hard requirement** for PDF: Microsoft Word + `pywin32` on the server. The Create button rejects PDF requests with a clear error when Word COM isn't available.
+
+#### DOC asset thumbnails — server-rendered first-page PNG
+
+DOC assets used to render as a download-only stub on the dashboard, viewer, and admin preview panels. They now show a real first-page PNG preview, rendered once on the server using Word + PyMuPDF and cached on disk.
+
+- **Lifecycle** (per user request):
+  - **Create**: thumbnail is rendered only when no IMG exists in the same `(question, asset_type, language)` slot — the IMG resolver would win anyway and we'd be wasting a Word session.
+  - **IMG arrives later**: any stale DOC thumbnail in the same slot is deleted (the IMG resolver takes over).
+  - **DOC deleted**: cached PNG is dropped.
+  - **IMG deleted from a slot that still has a DOC**: thumbnail is re-scheduled.
+  - **Lazy on-demand rendering**: every preview path (dashboard card, modal, viewer) calls `doc_thumbnails.ensure_thumbnail(asset_id)`. If the PNG is on disk → preview uses it. If missing → a render is scheduled in the background and the resolver falls back to the download stub for that request; the PNG appears on the next refresh. De-duplicated per-process so a 20-card page does not queue 20 redundant renders. This means **existing DOC assets that predate the feature get thumbnails on first view**, no migration required.
+- **Auto-crop trailing whitespace**: thumbnails now crop the empty space below the actual content (kept full width for uniform card columns). A one-line question that used to render as a full A4 page (1000 × 1414 px) now produces a tight 1000 × ~160 px thumbnail — roughly an 8× height reduction for short questions. Implemented via Pillow `ImageChops.subtract` + `getbbox()` with a configurable whiteness threshold and a small bottom-padding margin. Falls back to the un-cropped full-page image if cropping fails for any reason.
+- **Backfill + clear (super-admin)**: new SSE endpoint `GET /admin/health/doc-thumbnails/backfill?force=0|1` plus a sibling `POST /admin/health/doc-thumbnails/clear` that wipes every cached PNG from disk. The "DOC Asset Thumbnails" card on the Database Health page exposes three buttons — **Backfill Missing**, **Force Re-render All**, and **Delete All** — covering all routine maintenance flows (priming a fresh library, applying a new `DOC_THUMBNAIL_WIDTH`, reclaiming disk space).
+- **Live-fetch the rendered PNG**: new global JS helper `window.oqbPollDocThumbnails(root)` in `templates/base.html`. Any element carrying `data-doc-pending-id="<asset_id>"` is polled every 3 s (20 attempts ≈ 60 s) — when the cached PNG appears on disk the placeholder is swapped in-place for the real thumbnail without a page refresh. Wired into the dashboard card list (HTMX-aware), preview modal, and viewer (present mode). Per-process Set deduplication keeps a 20-card page from queuing 20 redundant pollers.
+
+#### My Files — file extension badge + preferred-format icon
+- Each row in **My Files** (`/user/files`) now shows the file extension as a colour-coded badge next to the display name (`.docx` blue, `.pdf` red, `.zip` yellow).
+- A small icon to the right of the badge indicates the user's **preferred asset format** for that generation (first entry of `format_priority`): `bi-image` for IMG, `bi-markdown` for MD, `bi-file-earmark-word` for DOC. Hover shows the full tooltip.
+- The API (`GET /user/files/list`) gained two response fields — `file_ext` and `format_priority_top` (also `output_format` for completeness).
+- **Storage**: `<DOC_THUMBNAIL_PATH>/<asset_id>.png` (default: `<OUTPUT_PATH>/.doc_thumbnails`). Keyed by `asset_id` so file_path renames don't invalidate.
+- **Rendering**: asynchronous via daemon thread — upload / save / ingest responses return immediately and the thumbnail appears shortly after.
+- **Routes**: new `GET /dashboard/api/doc_thumbnail/<asset_id>.png` serves the cached PNG with subject-access gating. The unified preview resolver gained a new `mode='thumbnail'` shape; the viewer's `/generate/api/viewer_asset/...` endpoint now also includes `thumbnail_url` for DOC results.
+- **Frontend**: dashboard / admin card preview, preview modal, viewer mode, and the `oqbLoadMarkdownPreviewCards` helper in `templates/base.html` all branch on the new shape and render `<img>` + a small "Open original .docx" link.
+
+### ✨ Enhanced Features
+
+#### Generate page — Output Format selector
+- New `output_format` radio group below File Name (`Word (.docx)` / `PDF (.pdf)`).
+- The file-extension badge next to the filename input updates live: `.docx`, `.pdf`, `.zip`, or `.zip (PDFs)` depending on split + format.
+- Persisted alongside other generation options in saved presets and via `?regen_file_id=`.
+
+### 🗄️ Database Changes
+
+None — `DOC` was already a valid `file_format` enum value. The migration introduced for the MD feature continues to apply; no new schema changes are needed.
+
+### 🔧 Technical Improvements
+
+- New module [`app/word_com.py`](app/word_com.py): `word_session` context manager (Word COM + global lock + cleanup), `merge_doc_into_master`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion`.
+- New module [`app/doc_thumbnails.py`](app/doc_thumbnails.py): slot-aware lifecycle helpers (`on_doc_asset_created`, `on_img_asset_created`, `on_doc_asset_deleted`, `on_img_asset_deleted`) and an async `schedule_thumbnail` daemon thread.
+- New config keys in [`app/config.py`](app/config.py): `WORD_COM_TIMEOUT` (default 300s), `WORD_COM_LOCK_TIMEOUT` (default 600s), `DOC_THUMBNAIL_PATH` (default `<OUTPUT_PATH>/.doc_thumbnails`), `DOC_THUMBNAIL_WIDTH` (default 1000 px).
+- New dependencies in `requirements.txt`: `pywin32==306` (Windows-only marker `sys_platform == "win32"`), `PyMuPDF==1.24.10`. Microsoft Word required on the server for DOC merge / PDF export / DOC thumbnails.
+- `app/ingestor.py` `upsert_asset()` now returns `(asset, was_created)` so the ingester can trigger DOC thumbnail rendering for newly-imported DOC files and drop stale thumbnails when a slot's IMG arrives via ingestion.
+- New rule file [`.cursor/rules/docx-source-format.mdc`](.cursor/rules/docx-source-format.mdc) — mirror of `markdown-assets.mdc` for the DOC pipeline. The existing `document-generation.mdc` rule was updated with the new `output_format` option and the post-save Word COM step.
+
+### ✨ New Features
+
 #### Markdown source format — self-contained `.md` assets with live editor
 - `QuestionAsset.file_format` now accepts a third value `MD` alongside `IMG` and `DOC`. Markdown files are **self-contained**: LaTeX math via `$...$` / `$$...$$` and images embedded as `data:image/...;base64,...` URIs — no sidecar files. Multi-part (`_2.md` etc.) is **not** supported; one `.md` = one whole asset.
 - **Ingestion**: `.md` and `.markdown` files matching the standard filename pattern (`MATC_DSE_2024_P1_Q5_EN_QUE.md`) are picked up by both the CLI scanner and the SSE-streaming admin Ingestion UI. A `part_number > 1` MD file is logged and skipped.

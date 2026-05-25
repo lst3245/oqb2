@@ -174,7 +174,14 @@ def upsert_question(qid, parsed, folder_meta):
 
 def upsert_asset(question, parsed, file_path, source_path):
     """
-    Insert or update question asset in database
+    Insert or update question asset in database.
+
+    Returns:
+        (asset, was_created) tuple where `was_created` is True for a brand-new
+        row and False if an existing row was updated. Returns (None, False)
+        if the file couldn't be ingested (unknown format / unsupported case).
+        Callers use the flag to trigger downstream side-effects (e.g. DOC
+        thumbnail rendering on first import).
     """
     asset_type = parsed['type']  # QUE, ANS, SOL
     language = parsed['lang']  # EN, CH, BI
@@ -183,7 +190,7 @@ def upsert_asset(question, parsed, file_path, source_path):
     
     if not file_format:
         logger.warning(f"Unknown file format: {parsed['ext']} for {file_path}")
-        return
+        return None, False
 
     # MD assets are self-contained — multi-part is not supported. Skip silently-but-loudly.
     if file_format == 'MD' and part_number != 1:
@@ -191,7 +198,7 @@ def upsert_asset(question, parsed, file_path, source_path):
             f"Markdown asset with part_number={part_number} is not supported "
             f"(MD is single-part only): {file_path}"
         )
-        return
+        return None, False
     
     # Get relative path from source, normalised to forward slashes for cross-platform consistency
     rel_path = os.path.relpath(file_path, source_path).replace('\\', '/')
@@ -209,6 +216,7 @@ def upsert_asset(question, parsed, file_path, source_path):
         # Update path
         asset.file_path = rel_path
         logger.info(f"Updated asset: {rel_path}")
+        return asset, False
     else:
         # Create new asset
         asset = QuestionAsset(
@@ -221,6 +229,7 @@ def upsert_asset(question, parsed, file_path, source_path):
         )
         db.session.add(asset)
         logger.info(f"Created new asset: {rel_path}")
+        return asset, True
 
 def scan_directory(source_path):
     """
@@ -263,11 +272,23 @@ def scan_directory(source_path):
                 db.session.commit()
                 
                 # Upsert asset
-                upsert_asset(question, parsed, file_path, source_path)
-                
+                ingested_asset, was_created = upsert_asset(question, parsed, file_path, source_path)
+
                 # Commit asset
                 db.session.commit()
-                
+
+                # DOC thumbnail lifecycle on first ingest (best effort — skipped
+                # silently if no Flask app context, e.g. early-CLI use).
+                if ingested_asset is not None and was_created:
+                    try:
+                        from app import doc_thumbnails
+                        if ingested_asset.file_format == 'DOC':
+                            doc_thumbnails.on_doc_asset_created(ingested_asset)
+                        elif ingested_asset.file_format == 'IMG':
+                            doc_thumbnails.on_img_asset_created(ingested_asset)
+                    except Exception as _e:
+                        logger.warning(f'Thumbnail lifecycle skipped for {file_path}: {_e}')
+
                 file_count += 1
                 
             except Exception as e:
@@ -326,12 +347,25 @@ def sync_database(source_path, dry_run=False):
     # Delete orphaned assets
     deleted_assets = 0
     if not dry_run:
+        # Collect DOC asset IDs ahead of deletion so we can drop their cached
+        # thumbnails after the DB commit succeeds.
+        doc_ids_to_drop = []
         for orphan in orphaned_assets:
             asset = QuestionAsset.query.get(orphan['id'])
             if asset:
+                if asset.file_format == 'DOC':
+                    doc_ids_to_drop.append(asset.id)
                 db.session.delete(asset)
                 deleted_assets += 1
         db.session.commit()
+
+        if doc_ids_to_drop:
+            try:
+                from app import doc_thumbnails
+                for aid in doc_ids_to_drop:
+                    doc_thumbnails.on_doc_asset_deleted(aid)
+            except Exception as _e:
+                logger.warning(f'Thumbnail cleanup skipped during sync: {_e}')
     else:
         deleted_assets = len(orphaned_assets)
     
@@ -555,9 +589,22 @@ def scan_directory_stream(source_path, base_path=None):
                     ).first()
                 
                 # Upsert asset (use base_path so stored rel_path includes subject prefix)
-                upsert_asset(question, parsed, file_path, base_path)
+                ingested_asset, was_created = upsert_asset(question, parsed, file_path, base_path)
                 db.session.commit()
-                
+
+                # DOC thumbnail lifecycle on first ingest:
+                #   * New DOC asset → schedule thumbnail render (unless IMG wins the slot).
+                #   * New IMG asset → drop any stale DOC thumbnail in the same slot.
+                if ingested_asset is not None and was_created:
+                    try:
+                        from app import doc_thumbnails
+                        if ingested_asset.file_format == 'DOC':
+                            doc_thumbnails.on_doc_asset_created(ingested_asset)
+                        elif ingested_asset.file_format == 'IMG':
+                            doc_thumbnails.on_img_asset_created(ingested_asset)
+                    except Exception as _e:
+                        logger.warning(f'Thumbnail lifecycle skipped for {file_path}: {_e}')
+
                 if existing_asset:
                     updated_assets += 1
                 else:
@@ -648,14 +695,26 @@ def sync_database_stream(source_path, dry_run=True):
     deleted_assets = 0
     if not dry_run and orphaned_assets:
         yield {'type': 'info', 'message': 'Deleting orphaned assets...'}
+        # Track DOC asset IDs so we can drop their cached thumbnails after commit.
+        doc_ids_to_drop = []
         for asset in orphaned_assets:
             try:
+                if asset.file_format == 'DOC':
+                    doc_ids_to_drop.append(asset.id)
                 db.session.delete(asset)
                 deleted_assets += 1
             except Exception as e:
                 yield {'type': 'error', 'message': f'Error deleting asset {asset.id}: {str(e)}'}
         db.session.commit()
         yield {'type': 'success', 'message': f'Deleted {deleted_assets} orphaned assets'}
+
+        if doc_ids_to_drop:
+            try:
+                from app import doc_thumbnails
+                for aid in doc_ids_to_drop:
+                    doc_thumbnails.on_doc_asset_deleted(aid)
+            except Exception as _e:
+                yield {'type': 'warning', 'message': f'Thumbnail cleanup skipped: {_e}'}
     
     # Check for questions with no assets
     # Grace period: skip questions created within the last 24 hours (may be mid-upload via admin)

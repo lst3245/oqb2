@@ -1,7 +1,7 @@
 """
 Dashboard routes for question browsing and filtering
 """
-from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort
+from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from app import db
@@ -353,8 +353,11 @@ def filter_questions():
         # Within that language pick the best format (IMG > MD > DOC) so the
         # dashboard card knows which preview mode to render.
         que_asset_ids = []
-        preview_mode = None  # 'image' | 'html' | 'download' | None
+        preview_mode = None  # 'image' | 'html' | 'thumbnail' | 'download' | None
         preview_format = None  # 'IMG' | 'MD' | 'DOC'
+        preview_doc_asset_id = None  # set when preview_mode in ('thumbnail', 'download')
+        preview_doc_filename = None
+        preview_doc_file_path = None
         if que_assets:
             best_lang = que_assets[0].language
             same_lang = [a for a in que_assets if a.language == best_lang]
@@ -372,7 +375,19 @@ def filter_questions():
             elif best_fmt == 'MD':
                 preview_mode = 'html'
             else:
-                preview_mode = 'download'
+                # DOC: prefer a server-rendered first-page PNG thumbnail when
+                # cached on disk; otherwise schedule a render in the
+                # background and fall back to the download stub for now.
+                # The thumbnail will appear on the user's next refresh.
+                doc_asset = selected[0]
+                preview_doc_asset_id = doc_asset.id
+                preview_doc_file_path = doc_asset.file_path
+                preview_doc_filename = doc_asset.file_path.rsplit('/', 1)[-1]
+                from app import doc_thumbnails as _doc_thumbnails
+                if _doc_thumbnails.ensure_thumbnail(doc_asset.id):
+                    preview_mode = 'thumbnail'
+                else:
+                    preview_mode = 'download'
         
         # Check for ANS and SOL
         has_ans = QuestionAsset.query.filter_by(
@@ -414,6 +429,9 @@ def filter_questions():
             'que_asset_ids': que_asset_ids,
             'preview_mode': preview_mode,
             'preview_format': preview_format,
+            'preview_doc_asset_id': preview_doc_asset_id,
+            'preview_doc_filename': preview_doc_filename,
+            'preview_doc_file_path': preview_doc_file_path,
             'has_ans': has_ans,
             'has_sol': has_sol,
             'answer': q.answer,
@@ -710,11 +728,16 @@ def _resolve_preview_assets(question_id, asset_type, language_pref):
 @login_required
 def get_question_preview(question_id, asset_type):
     """
-    Unified preview resolver. Returns one of three shapes:
+    Unified preview resolver. Returns one of four shapes:
 
-      {mode: 'image',    format: 'IMG', language, parts: [{url, part_number, id}]}
-      {mode: 'html',     format: 'MD',  language, html, asset_id, url}
-      {mode: 'download', format: 'DOC', language, url, filename, asset_id}
+      {mode: 'image',     format: 'IMG', language, parts: [{url, part_number, id}]}
+      {mode: 'html',      format: 'MD',  language, html, asset_id, url}
+      {mode: 'thumbnail', format: 'DOC', language, thumbnail_url, download_url, filename, asset_id}
+      {mode: 'download',  format: 'DOC', language, url, filename, asset_id}
+
+    DOC assets prefer 'thumbnail' mode when a cached PNG exists on disk (the
+    server-rendered first page); 'download' is the fallback when the
+    thumbnail isn't ready yet or Word COM is unavailable.
 
     Plus `{error: ...}` with 404 when no matching asset exists.
     """
@@ -758,13 +781,57 @@ def get_question_preview(question_id, asset_type):
             'url': f"/dashboard/files/{asset.file_path}",
         })
 
-    # DOC fallback: download-only (browsers cannot inline-render .docx).
+    # DOC: prefer a server-rendered first-page PNG thumbnail when present;
+    # otherwise schedule one in the background and fall back to download-only.
     asset = selected[0]
+    from app import doc_thumbnails
+    filename = asset.file_path.rsplit('/', 1)[-1]
+    download_url = f"/dashboard/files/{asset.file_path}"
+    if doc_thumbnails.ensure_thumbnail(asset.id):
+        return jsonify({
+            'mode': 'thumbnail',
+            'format': 'DOC',
+            'language': language,
+            'asset_id': asset.id,
+            'thumbnail_url': url_for('dashboard.doc_thumbnail', asset_id=asset.id),
+            'download_url': download_url,
+            'filename': filename,
+        })
     return jsonify({
         'mode': 'download',
         'format': 'DOC',
         'language': language,
         'asset_id': asset.id,
-        'url': f"/dashboard/files/{asset.file_path}",
-        'filename': asset.file_path.rsplit('/', 1)[-1],
+        'url': download_url,
+        'filename': filename,
     })
+
+
+@dashboard_bp.route('/api/doc_thumbnail/<int:asset_id>.png')
+@login_required
+def doc_thumbnail(asset_id):
+    """
+    Serve the cached first-page PNG thumbnail for a DOC asset.
+
+    Permission: any logged-in user who has access to the question's subject.
+    Returns 404 when the cached PNG isn't on disk (the frontend falls back to
+    the existing download stub).
+    """
+    asset = QuestionAsset.query.get_or_404(asset_id)
+    if asset.file_format != 'DOC':
+        return abort(404)
+
+    # Subject permission check (mirrors /dashboard/files/<path>).
+    question = Question.query.get(asset.question_id)
+    if question is not None and not current_user.is_super_admin:
+        if not current_user.has_subject_access(question.subject):
+            return abort(403)
+
+    from app import doc_thumbnails
+    path = doc_thumbnails.thumbnail_path(asset_id)
+    if not os.path.isfile(path):
+        return abort(404)
+
+    response = send_file(path, mimetype='image/png')
+    response.headers['Cache-Control'] = 'private, max-age=3600'
+    return response

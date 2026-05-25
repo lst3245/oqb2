@@ -40,3 +40,16 @@ class Config:
     PANDOC_PATH = os.getenv('PANDOC_PATH', 'pandoc')
     # Hard cap for an individual .md asset (base64-embedded images can balloon size).
     MD_MAX_SIZE_BYTES = int(os.getenv('MD_MAX_SIZE_BYTES', str(5 * 1024 * 1024)))
+
+    # DOC source format + PDF output (Word COM automation, Windows-only).
+    # Per-job watchdog: kill WINWORD.EXE if a single Word call exceeds this.
+    WORD_COM_TIMEOUT = int(os.getenv('WORD_COM_TIMEOUT', '300'))
+    # Bounded wait for the global Word COM lock when another generation is running.
+    WORD_COM_LOCK_TIMEOUT = int(os.getenv('WORD_COM_LOCK_TIMEOUT', '600'))
+    # Where to store cached DOC asset thumbnails (PNG, keyed by asset_id).
+    DOC_THUMBNAIL_PATH = os.getenv(
+        'DOC_THUMBNAIL_PATH',
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'output', '.doc_thumbnails')
+    )
+    # Thumbnail render width in pixels (~A4 page width at 96 DPI).
+    DOC_THUMBNAIL_WIDTH = int(os.getenv('DOC_THUMBNAIL_WIDTH', '1000'))

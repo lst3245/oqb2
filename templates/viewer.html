@@ -1419,6 +1419,33 @@
                         wrap.innerHTML = data.html || '';
                     }
                     applyZoom(type);
+                } else if (data.format === 'DOC' && data.thumbnail_url) {
+                    container.innerHTML = `
+                        <img src="${data.thumbnail_url}" alt="${type}"
+                             onload="applyZoom('${type}')" style="display:block;">
+                        <div class="text-center mt-2">
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> Download original .docx
+                            </a>
+                        </div>
+                    `;
+                } else if (data.format === 'DOC' && data.id) {
+                    // No thumbnail cached yet; server has scheduled a render.
+                    // Show a placeholder + start polling so it appears live.
+                    const filename = (data.url || '').split('/').pop();
+                    container.innerHTML = `
+                        <div class="empty-state" id="vwDocPending_${type}"
+                             data-doc-pending-id="${data.id}"
+                             data-doc-pending-filename="${filename}"
+                             data-doc-pending-downloadurl="${data.url || ''}">
+                            <i class="bi bi-file-earmark-word"></i>
+                            <span>Word document — preview rendering…</span>
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
+                                <i class="bi bi-download"></i> Download original .docx
+                            </a>
+                        </div>
+                    `;
+                    if (window.oqbPollDocThumbnails) window.oqbPollDocThumbnails(container);
                 } else {
                     container.innerHTML = `
                         <div class="empty-state">
@@ -1489,6 +1516,31 @@
                         wrap.innerHTML = data.html || '';
                     }
                     applyZoom('ANS');
+                } else if (data.format === 'DOC' && data.thumbnail_url) {
+                    container.innerHTML = `
+                        <img src="${data.thumbnail_url}" alt="${data.type}"
+                             onload="applyZoom('ANS')" style="display:block;">
+                        <div class="text-center mt-2">
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> Download original .docx
+                            </a>
+                        </div>
+                    `;
+                } else if (data.format === 'DOC' && data.id) {
+                    const filename = (data.url || '').split('/').pop();
+                    container.innerHTML = `
+                        <div class="empty-state" id="vwDocPending_ANS"
+                             data-doc-pending-id="${data.id}"
+                             data-doc-pending-filename="${filename}"
+                             data-doc-pending-downloadurl="${data.url || ''}">
+                            <i class="bi bi-file-earmark-word"></i>
+                            <span>Word document — preview rendering…</span>
+                            <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
+                                <i class="bi bi-download"></i> Download original .docx
+                            </a>
+                        </div>
+                    `;
+                    if (window.oqbPollDocThumbnails) window.oqbPollDocThumbnails(container);
                 } else {
                     container.innerHTML = `
                         <div class="empty-state">

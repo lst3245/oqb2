@@ -47,10 +47,12 @@ python run.py
 - **Save and restore filter profiles** (named search presets)
 
 ### Document Generation
-- Generate Word (`.docx`) documents from selected questions
+- Generate **Word (`.docx`) or PDF (`.pdf`)** documents from selected questions (PDF via Microsoft Word + `ExportAsFixedFormat`)
 - **5 answer modes**: Questions Only, Q+Answer, Q+Solution, All Qs then Answers, All Qs then Solutions
 - Answer content preference: image-first or text-first fallback
 - Preferred language: English or Chinese (falls back to Bilingual → Other)
+- **Native DOCX source merging** via Microsoft Word COM — MathType OLE objects, embedded images, drawings, custom fonts, and native tables come through unchanged. Source page setup is stripped so the master doc's layout always wins.
+- **Reorderable format priority** (IMG / MD / DOC) when a question has multiple representations for the same slot
 - Separate **MC and CQ spacing** — before/after: N lines or new page
 - Optional QID labels on questions and/or answers
 - Optional correct percentage display (e.g. `MATC_DSE_2024_P1_Q5 [75%]`)
@@ -58,11 +60,11 @@ python run.py
 - Optional footer page numbers
 - Per-question info line: topic / subtopic / chapter / subchapter
 - Section headings that auto-insert when a field changes
-- **Split to ZIP**: separate `.docx` per topic / subtopic / chapter / subchapter group
+- **Split to ZIP**: separate `.docx` (or `.pdf`) per topic / subtopic / chapter / subchapter group
 - Denote cross-topic questions with `[Cross Topic: X, Y]` annotation
 - Custom Word styles (OQB Section Heading, OQB Question ID, OQB Question Info, OQB Body Text)
 - **Background generation** — non-blocking; progress tracked in database
-- **Viewer / Presentation Mode** — slide-style question review with language and ANS/SOL toggle
+- **Viewer / Presentation Mode** — slide-style question review with language and ANS/SOL toggle (DOC assets show a server-rendered first-page thumbnail)
 - Regenerate previous documents with saved options
 
 ### My Files & Saved Profiles
@@ -150,6 +152,8 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 | EXT | `png`, `jpg`, `jpeg`, `gif`, `bmp`, `doc`, `docx`, `md`, `markdown` |
 
 > `.md` files are self-contained (LaTeX math via `$...$` / `$$...$$`, base64-embedded images). They render inline on the dashboard/viewer and convert to `.docx` during generation via **pandoc** + docxcompose. Install pandoc separately (it is not a pip package): `apt install pandoc` / `brew install pandoc` / [Windows installer](https://github.com/jgm/pandoc/releases). If pandoc is not on `PATH`, set `PANDOC_PATH=...` in `.env`.
+
+> `.docx` source files are merged natively via **Microsoft Word** (COM automation through `pywin32`) — MathType OLE objects, embedded images, drawings, and custom fonts are preserved exactly. Same Word session also produces **PDF output** when requested. Windows + Word required for both features; without them, DOC source files render as a placeholder and PDF output is rejected. DOC assets also show a server-rendered first-page PNG thumbnail on the dashboard / viewer (lazy, cached at `<OUTPUT_PATH>/.doc_thumbnails/`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#microsoft-word-requirement-for-doc-source-files--pdf-output--doc-thumbnails) for setup details.
 
 ---
 

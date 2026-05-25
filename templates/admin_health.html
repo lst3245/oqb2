@@ -189,6 +189,47 @@ Click "Clean Up" to actually remove orphaned records.
             <div class="row text-center" id="syncSummaryStats"></div>
         </div>
     </div>
+
+    <!-- DOC Thumbnail Backfill -->
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-image"></i> DOC Asset Thumbnails</span>
+            <div>
+                <button id="btnThumbBackfill" class="btn btn-sm btn-outline-light" onclick="runThumbBackfill(false)">
+                    <i class="bi bi-play"></i> Backfill Missing
+                </button>
+                <button id="btnThumbForce" class="btn btn-sm btn-warning ms-1" onclick="runThumbBackfill(true)">
+                    <i class="bi bi-arrow-clockwise"></i> Force Re-render All
+                </button>
+                <button id="btnThumbClear" class="btn btn-sm btn-danger ms-1" onclick="clearAllThumbs()">
+                    <i class="bi bi-trash"></i> Delete All
+                </button>
+                <button id="btnThumbStop" class="btn btn-sm btn-danger ms-1 d-none" onclick="stopThumbBackfill()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="thumbLog" class="log-console">DOC thumbnail backfill console ready.
+Click "Backfill Missing" to render PNG thumbnails for any DOC asset that doesn't have one yet (slow — uses Microsoft Word on the server).
+Click "Force Re-render All" to wipe and regenerate every DOC thumbnail (e.g. after changing DOC_THUMBNAIL_WIDTH).
+Click "Delete All" to remove every cached PNG from disk. The lazy render path will recreate them on demand.
+</div>
+        </div>
+        <div id="thumbProgressSection" class="card-footer d-none">
+            <div class="d-flex justify-content-between mb-1">
+                <small id="thumbProgressLabel" class="text-muted">Rendering...</small>
+                <small id="thumbStatus" class="badge bg-secondary">Idle</small>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div id="thumbProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 0%;"></div>
+            </div>
+        </div>
+        <div id="thumbSummary" class="card-footer d-none">
+            <div class="row text-center" id="thumbSummaryStats"></div>
+        </div>
+    </div>
 </div>
 
 <!-- Anomaly Detail Modal -->
@@ -666,6 +707,172 @@ function stopSync() {
     finishSync(null);
     document.getElementById('syncStatus').textContent = 'Stopped';
     document.getElementById('syncStatus').className = 'badge bg-warning text-dark';
+}
+
+// ==================== DOC Thumbnail Backfill ====================
+
+let thumbEventSource = null;
+let isThumbRunning = false;
+
+function appendThumbLog(message, type) {
+    const logEl = document.getElementById('thumbLog');
+    const timestamp = new Date().toLocaleTimeString();
+    const span = document.createElement('span');
+    span.className = `log-${type || 'info'}`;
+    span.textContent = `[${timestamp}] ${message}\n`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runThumbBackfill(force) {
+    if (isThumbRunning) return;
+    if (force && !confirm('This will re-render EVERY DOC thumbnail, even ones already on disk. Slow (Word runs once per file). Continue?')) {
+        return;
+    }
+
+    isThumbRunning = true;
+    const btn = document.getElementById('btnThumbBackfill');
+    const btnForce = document.getElementById('btnThumbForce');
+    const btnStop = document.getElementById('btnThumbStop');
+    const statusEl = document.getElementById('thumbStatus');
+    const progressSection = document.getElementById('thumbProgressSection');
+    const progressBar = document.getElementById('thumbProgressBar');
+    const summaryEl = document.getElementById('thumbSummary');
+
+    btn.disabled = true;
+    btnForce.disabled = true;
+    btnStop.classList.remove('d-none');
+    statusEl.textContent = force ? 'Re-rendering...' : 'Rendering...';
+    statusEl.className = 'badge bg-success';
+    progressSection.classList.remove('d-none');
+    progressBar.style.width = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    summaryEl.classList.add('d-none');
+
+    appendThumbLog(force ? 'Starting forced re-render of all DOC thumbnails...' : 'Starting DOC thumbnail backfill...', 'info');
+
+    const url = `{{ url_for('admin.doc_thumbnail_backfill') }}?force=${force ? '1' : '0'}`;
+    thumbEventSource = new EventSource(url);
+
+    thumbEventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            appendThumbLog(event.message, event.type);
+
+            if (event.current !== undefined && event.total && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                progressBar.style.width = pct + '%';
+                document.getElementById('thumbProgressLabel').textContent =
+                    `${event.current} / ${event.total}`;
+            }
+
+            if (event.type === 'done') {
+                finishThumbBackfill(event);
+            }
+        } catch (err) {
+            appendThumbLog('Error parsing event: ' + err.message, 'error');
+        }
+    };
+
+    thumbEventSource.onerror = function() {
+        if (isThumbRunning) {
+            appendThumbLog('Connection closed.', 'info');
+            finishThumbBackfill(null);
+        }
+    };
+}
+
+function finishThumbBackfill(event) {
+    if (thumbEventSource) {
+        thumbEventSource.close();
+        thumbEventSource = null;
+    }
+
+    isThumbRunning = false;
+    const btn = document.getElementById('btnThumbBackfill');
+    const btnForce = document.getElementById('btnThumbForce');
+    const btnStop = document.getElementById('btnThumbStop');
+    const statusEl = document.getElementById('thumbStatus');
+    const progressBar = document.getElementById('thumbProgressBar');
+    const summaryEl = document.getElementById('thumbSummary');
+
+    btn.disabled = false;
+    btnForce.disabled = false;
+    btnStop.classList.add('d-none');
+    statusEl.textContent = 'Complete';
+    statusEl.className = 'badge bg-primary';
+    progressBar.classList.remove('progress-bar-animated');
+
+    if (event && event.stats) {
+        const s = event.stats;
+        document.getElementById('thumbSummaryStats').innerHTML = `
+            <div class="col">
+                <div class="fs-4 fw-bold text-success">${s.rendered}</div>
+                <small class="text-muted">Rendered</small>
+            </div>
+            <div class="col">
+                <div class="fs-4 fw-bold text-secondary">${s.skipped_existing}</div>
+                <small class="text-muted">Already cached</small>
+            </div>
+            <div class="col">
+                <div class="fs-4 fw-bold text-secondary">${s.skipped_img}</div>
+                <small class="text-muted">IMG eclipsed</small>
+            </div>
+            <div class="col">
+                <div class="fs-4 fw-bold text-danger">${s.failed}</div>
+                <small class="text-muted">Failed</small>
+            </div>
+        `;
+        summaryEl.classList.remove('d-none');
+    }
+}
+
+function stopThumbBackfill() {
+    if (thumbEventSource) {
+        thumbEventSource.close();
+        thumbEventSource = null;
+    }
+    appendThumbLog('Backfill stopped by user.', 'warning');
+    finishThumbBackfill(null);
+    document.getElementById('thumbStatus').textContent = 'Stopped';
+    document.getElementById('thumbStatus').className = 'badge bg-warning text-dark';
+}
+
+function clearAllThumbs() {
+    if (isThumbRunning) {
+        alert('A backfill is in progress. Stop it first.');
+        return;
+    }
+    if (!confirm('Delete EVERY cached DOC thumbnail from disk? Cards will fall back to the download stub until each thumbnail is lazily re-rendered the next time someone views the question.')) {
+        return;
+    }
+
+    const btn = document.getElementById('btnThumbClear');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+    appendThumbLog('Deleting all cached DOC thumbnails...', 'info');
+
+    fetch('{{ url_for("admin.doc_thumbnail_clear") }}', {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                appendThumbLog(data.message || `Deleted ${data.deleted} thumbnail(s).`, 'success');
+                if (data.errors && data.errors.length) {
+                    data.errors.forEach(e => appendThumbLog('Error: ' + e, 'error'));
+                }
+            } else {
+                appendThumbLog('Failed: ' + (data.error || 'unknown error'), 'error');
+            }
+        })
+        .catch(err => appendThumbLog('Request failed: ' + err.message, 'error'))
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        });
 }
 
 // ==================== Untracked Files ====================

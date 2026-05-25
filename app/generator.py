@@ -18,6 +18,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import uuid
 import zipfile
 import tempfile
 from datetime import datetime
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
+from app import word_com
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
@@ -285,6 +287,18 @@ def get_viewer_asset(question_id, asset_type):
         abs_path = os.path.join(source_path, *best.file_path.split('/'))
         result['html'] = md_render.render_file(best.id, abs_path)
 
+    # For DOC assets, attach a server-rendered first-page PNG thumbnail when
+    # available so the viewer can render a real preview instead of a bare
+    # "download" stub. If no PNG is cached yet, schedule one asynchronously
+    # so it appears on the next viewer load.
+    if best.file_format == 'DOC':
+        from app import doc_thumbnails
+        if doc_thumbnails.ensure_thumbnail(best.id):
+            from flask import url_for as _url_for
+            result['thumbnail_url'] = _url_for(
+                'dashboard.doc_thumbnail', asset_id=best.id
+            )
+
     return jsonify(result)
 
 @generator_bp.route('/create', methods=['POST'])
@@ -348,6 +362,15 @@ def create_document():
     answer_preference = request.form.get('answer_preference', 'image_first')
     format_priority = _parse_format_priority(request.form.get('format_priority', ''))
 
+    # Output format: DOCX (default) or PDF. PDF requires Word COM on the server.
+    output_format = (request.form.get('output_format') or 'DOCX').upper()
+    if output_format not in ('DOCX', 'PDF'):
+        output_format = 'DOCX'
+    if output_format == 'PDF' and not word_com.IS_AVAILABLE:
+        return jsonify({
+            'error': 'PDF output requires Microsoft Word + pywin32 on the server, which is not available.'
+        }), 400
+
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
 
@@ -380,12 +403,18 @@ def create_document():
         'preferred_language': preferred_language,
         'answer_preference': answer_preference,
         'format_priority': ','.join(format_priority),
+        'output_format': output_format,
         'question_ids': question_ids,
     }
     
     # Create filename
     any_split = any(split_fields.values())
-    file_ext = '.zip' if any_split else '.docx'
+    if any_split:
+        file_ext = '.zip'
+    elif output_format == 'PDF':
+        file_ext = '.pdf'
+    else:
+        file_ext = '.docx'
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if not display_name:
         display_name = f'questions_{timestamp}'
@@ -433,7 +462,7 @@ def create_document():
               show_seq_no, seq_start, show_page_no, keep_together,
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
-              format_priority)
+              format_priority, output_format)
     )
     thread.daemon = True
     thread.start()
@@ -447,9 +476,10 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             show_seq_no, seq_start, show_page_no, keep_together,
                             apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename,
-                            format_priority=None):
-    """Background thread function to generate the Word document(s)"""
+                            format_priority=None, output_format='DOCX'):
+    """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
+    output_format = (output_format or 'DOCX').upper()
     with app.app_context():
         gen_file = GeneratedFile.query.get(gen_file_id)
         if not gen_file:
@@ -482,18 +512,31 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
             any_split = split_fields and any(split_fields.values())
             output_path = app.config['OUTPUT_PATH']
             filepath = os.path.join(output_path, filename)
-            
+
+            # Collected DOC merging requests across all groups in this job.
+            # Structure: list of (intermediate_docx_path, {marker: src_abs_path}, final_output_path_or_None)
+            # For single doc: one entry, final_output_path is set.
+            # For split: one entry per group, written to tmpdir.
+
             if any_split:
                 # Split questions into groups based on split_fields
                 groups = _split_questions_into_groups(questions, split_fields)
-                
-                # Generate one doc per group and zip them
+
+                # Generate one doc per group and zip them. For PDF output, each
+                # docx is exported to PDF inside the same Word session.
+                per_group_ext = '.pdf' if output_format == 'PDF' else '.docx'
+
                 with tempfile.TemporaryDirectory() as tmpdir:
-                    docx_files = []  # (filename, filepath) tuples
-                    used_names = set()  # track names to avoid duplicates
-                    
+                    # docx_files: list of (final_name_in_zip, abs_path_on_disk)
+                    docx_files = []
+                    # merge_jobs: list of (intermediate_docx_path, marker_map, final_path)
+                    #   final_path is the .docx if output_format == DOCX, else
+                    #   None — we still produce .docx first, then convert to PDF.
+                    merge_jobs = []
+                    used_names = set()
+
                     for group_label, group_questions in groups.items():
-                        doc = create_word_document(
+                        doc, group_insertions = create_word_document(
                             group_questions, answer_mode, spacing_config,
                             show_qid, show_qid_answer, preferred_language,
                             show_correct_pct, answer_preference,
@@ -503,26 +546,42 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             denote_cross_topic=denote_cross_topic,
                             format_priority=format_priority,
                         )
-                        # Build per-file name from the group label, dedup if needed
+
                         safe_label = _sanitize_filename(group_label)
-                        docx_name = f'{safe_label}.docx'
+                        in_zip_name = f'{safe_label}{per_group_ext}'
                         counter = 2
-                        while docx_name in used_names:
-                            docx_name = f'{safe_label} ({counter}).docx'
+                        while in_zip_name in used_names:
+                            in_zip_name = f'{safe_label} ({counter}){per_group_ext}'
                             counter += 1
-                        used_names.add(docx_name)
-                        
-                        docx_path = os.path.join(tmpdir, docx_name)
-                        doc.save(docx_path)
-                        docx_files.append((docx_name, docx_path))
-                    
-                    # Create zip
+                        used_names.add(in_zip_name)
+
+                        # Always save the intermediate .docx first.
+                        intermediate_docx = os.path.join(tmpdir, f'{safe_label}_{len(merge_jobs):03d}.docx')
+                        doc.save(intermediate_docx)
+                        merge_jobs.append((intermediate_docx, group_insertions, in_zip_name))
+
+                    # If any group has DOC insertions OR we need PDF, drive Word now.
+                    needs_word = output_format == 'PDF' or any(insert for _, insert, _ in merge_jobs)
+                    if needs_word:
+                        _run_word_postprocess_split(
+                            app, merge_jobs, tmpdir, output_format
+                        )
+
+                    # Build the final list of (in-zip-name, on-disk-path) for zipping.
+                    for intermediate_docx, _insertions, in_zip_name in merge_jobs:
+                        if output_format == 'PDF':
+                            # PDF was written next to the intermediate docx with same stem.
+                            pdf_path = os.path.splitext(intermediate_docx)[0] + '.pdf'
+                            docx_files.append((in_zip_name, pdf_path))
+                        else:
+                            docx_files.append((in_zip_name, intermediate_docx))
+
                     with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
-                        for docx_name, docx_path in docx_files:
-                            zf.write(docx_path, docx_name)
+                        for archive_name, on_disk in docx_files:
+                            zf.write(on_disk, archive_name)
             else:
                 # Single document
-                doc = create_word_document(
+                doc, doc_insertions = create_word_document(
                     questions, answer_mode, spacing_config,
                     show_qid, show_qid_answer, preferred_language,
                     show_correct_pct, answer_preference,
@@ -532,16 +591,87 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     denote_cross_topic=denote_cross_topic,
                     format_priority=format_priority,
                 )
-                doc.save(filepath)
+
+                # If we'll need Word for either DOC merging or PDF export, write
+                # the intermediate docx to a tmp location so we can swap to .pdf
+                # cleanly at the end.
+                needs_word = bool(doc_insertions) or output_format == 'PDF'
+
+                if needs_word:
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        intermediate_docx = os.path.join(tmpdir, 'master.docx')
+                        doc.save(intermediate_docx)
+
+                        _run_word_postprocess_single(
+                            app, intermediate_docx, doc_insertions, output_format, filepath
+                        )
+                else:
+                    doc.save(filepath)
             
             gen_file.status = 'completed'
             gen_file.completed_at = datetime.utcnow()
             db.session.commit()
             
         except Exception as e:
+            logger.exception('Generation failed for gen_file_id=%s', gen_file_id)
             gen_file.status = 'failed'
             gen_file.error_message = str(e)
             db.session.commit()
+
+
+def _run_word_postprocess_single(app, intermediate_docx, doc_insertions, output_format, final_path):
+    """
+    Open Word once: merge DOC source files (if any), then optionally export to
+    PDF. Write the final artifact to `final_path` (which already has the
+    correct extension matching `output_format`).
+    """
+    if not word_com.IS_AVAILABLE:
+        # No Word available. If we have DOC insertions, they were already
+        # rendered as placeholder text on the python-docx side (the DOC
+        # branch checks IS_AVAILABLE before emitting a marker). So we just
+        # move the intermediate to final.
+        if output_format == 'PDF':
+            raise RuntimeError(
+                'PDF output requested but Word COM is not available on this server.'
+            )
+        shutil.move(intermediate_docx, final_path)
+        return
+
+    lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+    with word_com.word_session(lock_timeout=lock_timeout) as word:
+        if doc_insertions:
+            word_com.merge_doc_into_master(word, intermediate_docx, doc_insertions)
+
+        if output_format == 'PDF':
+            word_com.export_to_pdf(word, intermediate_docx, final_path)
+        else:
+            shutil.move(intermediate_docx, final_path)
+
+
+def _run_word_postprocess_split(app, merge_jobs, tmpdir, output_format):
+    """
+    Per-group post-processing inside a single Word session.
+
+    merge_jobs: list of (intermediate_docx_path, marker_map, in_zip_name).
+    For each entry, merge DOC sources (if marker_map is non-empty), and if
+    output_format == 'PDF', export the result to a sibling .pdf file in tmpdir.
+    """
+    if not word_com.IS_AVAILABLE:
+        if output_format == 'PDF':
+            raise RuntimeError(
+                'PDF output requested but Word COM is not available on this server.'
+            )
+        # DOC insertions already rendered as placeholders by the generator.
+        return
+
+    lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+    with word_com.word_session(lock_timeout=lock_timeout) as word:
+        for intermediate_docx, marker_map, _in_zip_name in merge_jobs:
+            if marker_map:
+                word_com.merge_doc_into_master(word, intermediate_docx, marker_map)
+            if output_format == 'PDF':
+                pdf_path = os.path.splitext(intermediate_docx)[0] + '.pdf'
+                word_com.export_to_pdf(word, intermediate_docx, pdf_path)
 
 
 def _split_questions_into_groups(questions, split_fields):
@@ -636,8 +766,11 @@ def download_file(file_id):
         return redirect(url_for('user.files'))
     
     # Determine mimetype based on file extension
-    if gen_file.filename.endswith('.zip'):
+    lower = gen_file.filename.lower()
+    if lower.endswith('.zip'):
         mimetype = 'application/zip'
+    elif lower.endswith('.pdf'):
+        mimetype = 'application/pdf'
     else:
         mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     
@@ -971,6 +1104,17 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     """
     Create Word document with questions.
 
+    Returns:
+        (doc, doc_insertions) tuple where:
+          * doc is the python-docx Document
+          * doc_insertions is a dict {marker_string: abs_path_to_source_docx}
+            of placeholder markers emitted for DOC source assets. The caller
+            (after saving the docx) should hand this off to Word COM via
+            word_com.merge_doc_into_master() to replace each marker paragraph
+            with the actual source DOCX content. If Word COM is unavailable,
+            this dict is always empty — DOC parts fall back to placeholder
+            text inline (see the DOC branch in add_question_content_to_doc).
+
     Args:
         questions: List of Question objects
         answer_mode: One of QUE_ONLY, QUE_ANS, QUE_SOL, QUE_THEN_ANS, QUE_THEN_SOL
@@ -1002,6 +1146,11 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         info_fields = {}
     if section_fields is None:
         section_fields = {}
+
+    # Collect DOC source insertion markers across all calls to
+    # add_question_content_to_doc(). The caller drives Word COM merge after
+    # python-docx has saved the master file.
+    doc_insertions: dict = {}
     
     any_section_heading = any(section_fields.values())
     
@@ -1057,7 +1206,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all answers - always start on new page
@@ -1070,7 +1219,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -1084,7 +1233,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -1097,7 +1246,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -1111,19 +1260,19 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
             elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, keep_together=keep_together, format_priority=format_priority)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
             
             last_had_page_break = add_after_spacing(doc, spacing)
     
-    return doc
+    return doc, doc_insertions
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None, doc_insertions=None):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -1138,6 +1287,13 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         keep_together: Set keep_with_next on heading/info paragraphs
         denote_cross_topic: If True and a question has minor topics, force info line to show
                             major topic with "[Cross Topic: ...]" annotation.
+        doc_insertions: Optional dict (mutated in place). For each DOC asset
+                        the function emits a marker paragraph and records
+                        `{marker: abs_path}` here. The caller then drives
+                        Word COM to replace each marker with the inserted
+                        source file. Pass None on platforms / setups where
+                        Word COM is unavailable; the function then falls back
+                        to an italic placeholder line.
     """
     if info_fields is None:
         info_fields = {}
@@ -1319,7 +1475,20 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
                 run.italic = True
 
         elif asset.file_format == 'DOC':
-            # For Word files, just add a placeholder for now
-            para = doc.add_paragraph(style='OQB Body Text')
-            run = para.add_run(f'[Word document: {asset.file_path}]')
-            run.italic = True
+            # Word source files: emit a unique marker paragraph that the
+            # post-save Word COM step will find and replace with the actual
+            # inserted content via Selection.InsertFile. This preserves
+            # MathType OLE objects, embedded images, native tables, etc.
+            #
+            # If Word COM isn't available on this platform (or no
+            # doc_insertions dict was passed), fall back to the legacy
+            # italic placeholder so generation still completes.
+            if doc_insertions is not None and word_com.IS_AVAILABLE:
+                marker = f'__OQB_DOC_INSERT_{uuid.uuid4().hex}__'
+                para = doc.add_paragraph(style='OQB Body Text')
+                para.add_run(marker)
+                doc_insertions[marker] = file_path
+            else:
+                para = doc.add_paragraph(style='OQB Body Text')
+                run = para.add_run(f'[Word document: {asset.file_path}]')
+                run.italic = True

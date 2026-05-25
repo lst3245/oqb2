@@ -51,6 +51,9 @@ def create_app():
     
     # Create output directory if it doesn't exist
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
+    # DOC thumbnail cache directory
+    if app.config.get('DOC_THUMBNAIL_PATH'):
+        os.makedirs(app.config['DOC_THUMBNAIL_PATH'], exist_ok=True)
     
     # Startup cleanup: mark any stale 'generating' files as failed
     with app.app_context():

@@ -1,0 +1,180 @@
+---
+description: DOC (Word) source-asset format end-to-end — schema, ingestion, thumbnail lifecycle, generation pipeline, security/lock model, PDF output
+globs: app/word_com.py,app/doc_thumbnails.py,app/generator.py,app/admin.py
+alwaysApply: false
+---
+
+# DOC Source Format
+
+`QuestionAsset.file_format='DOC'` is the high-fidelity format for question content authored in Microsoft Word — MathType OLE objects, embedded images, drawings, native tables, custom fonts. Single-slot only (one `.docx` per `(question × asset_type × language)`).
+
+## End-to-end pipeline
+
+```
+  ┌── ingest (filename ext .doc/.docx) ─────────┐
+  ├── admin upload (.docx, single-slot)         │── on disk in SOURCE_PATH
+  └──────────────────────────────────────────────┘
+                          │
+                          ├──→ async thumbnail render (Word COM → PDF → PyMuPDF → PNG, cached on disk)
+                          │      → dashboard cards / preview modal / viewer
+                          │
+                          └──→ generation: marker paragraph + post-save Selection.InsertFile
+                                 → master.docx → (optional) ExportAsFixedFormat PDF
+```
+
+## Files map
+
+| Concern | File(s) |
+|---|---|
+| Schema | [app/models.py](mdc:app/models.py) `QuestionAsset.file_format` enum |
+| Config | [app/config.py](mdc:app/config.py) `WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT`, `DOC_THUMBNAIL_PATH`, `DOC_THUMBNAIL_WIDTH` |
+| Ingestion | [app/ingestor.py](mdc:app/ingestor.py) — `determine_file_format`, `upsert_asset` returns `(asset, was_created)` |
+| Admin upload / delete | [app/admin.py](mdc:app/admin.py) `upload_question_asset`, `delete_question_asset` (lifecycle hooks) |
+| Word COM engine | [app/word_com.py](mdc:app/word_com.py) — `word_session`, `merge_doc_into_master`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion` |
+| Thumbnail lifecycle | [app/doc_thumbnails.py](mdc:app/doc_thumbnails.py) — slot-aware helpers + `schedule_thumbnail` |
+| Dashboard preview | [app/dashboard.py](mdc:app/dashboard.py) — resolver `mode: 'thumbnail'`, route `/dashboard/api/doc_thumbnail/<id>.png` |
+| Viewer | [app/generator.py](mdc:app/generator.py) `get_viewer_asset` — attaches `thumbnail_url` for DOC |
+| Generation | [app/generator.py](mdc:app/generator.py) — `add_question_content_to_doc` DOC branch, `_run_word_postprocess_single`, `_run_word_postprocess_split` |
+| Frontend | [templates/base.html](mdc:templates/base.html) `oqbLoadMarkdownPreviewCards`, [templates/dashboard.html](mdc:templates/dashboard.html) `previewAsset`, [templates/viewer.html](mdc:templates/viewer.html) `loadAsset` / `loadAnswerAsset`, [templates/generate.html](mdc:templates/generate.html) Output Format |
+
+## Locked decisions
+
+1. **Single-slot**: one DOC per (question, asset_type, language). Multi-part `_2.docx` is not supported. Upload rejects a second DOC into the same slot.
+2. **Filename**: `<QID>_<LANG>_<ATYPE>.docx` (no `_PART` suffix).
+3. **Merging engine**: Microsoft Word COM via `pywin32`. NOT docxcompose. The reason is MathType OLE fidelity — XML splicing libraries can corrupt OLE references. `Selection.InsertFile` is what Word itself uses when a user does Insert > Text from File, so the merged output looks identical to opening the source by hand.
+4. **Section properties are stripped** from each source DOCX before insertion (`sanitize_docx_for_insertion()`). The master document's A4 + narrow margins + page numbers always win — source files with their own page setup will not leak into the merged output.
+5. **Global lock**: one Word.Application per process via `_WORD_COM_LOCK` (threading.Lock). All Word COM operations across generation jobs + thumbnail renders share the same lock. `WORD_COM_LOCK_TIMEOUT` bounds the wait.
+6. **Fresh Word per job**: `word_session` uses `DispatchEx('Word.Application')` so each call starts a NEW WINWORD.EXE process, not an existing foreground instance. Safer for servers; avoids stealing an interactive user's session.
+7. **Non-Windows fallback**: `word_com.IS_AVAILABLE` is False. The DOC branch falls back to the legacy italic placeholder line. Thumbnails are silently skipped. PDF requests are rejected at the API with HTTP 400.
+
+## Thumbnail lifecycle (slot-scoped)
+
+```
+DOC created  → IMG in slot? ─ yes → no-op (IMG resolver wins anyway)
+                              no  → schedule async Word render → save <asset_id>.png
+
+IMG created  → drop any DOC thumbnails in the same slot
+
+DOC deleted  → drop <asset_id>.png
+
+IMG deleted  → IMG still in slot? ─ yes → no-op
+                                    no  → re-schedule DOC thumbnails for the slot
+
+Preview path → ensure_thumbnail(asset_id):
+                 thumbnail on disk? ─ yes → return True (resolver uses 'thumbnail' mode)
+                                      no  → schedule async render, return False,
+                                            resolver returns 'download' for now;
+                                            next refresh shows the PNG.
+                 De-duplicated per-process by `_INFLIGHT` set so a 20-card
+                 page does not queue 20 renders for the same asset.
+```
+
+Files: `<DOC_THUMBNAIL_PATH>/<asset_id>.png`. Keyed by asset_id so file_path renames (question rename) don't invalidate. PNG width is `DOC_THUMBNAIL_WIDTH` (default 1000 px ≈ A4 at 96 DPI).
+
+Trigger points:
+- `app/admin.py` `upload_question_asset` post-commit
+- `app/admin.py` `delete_question_asset` post-commit
+- `app/ingestor.py` `scan_directory_stream` per-file (best-effort)
+- `app/ingestor.py` `sync_database` orphan cleanup (drops PNGs for deleted DOC IDs)
+- `app/dashboard.py` `filter_questions` (card resolver), `get_question_preview` (modal resolver), `app/generator.py` `get_viewer_asset` (viewer resolver) — all call `ensure_thumbnail` for lazy on-demand rendering when the cached PNG is missing.
+
+## Backfill / clear (super-admin only)
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/admin/health/doc-thumbnails/backfill?force=0` | GET (SSE) | Render only missing PNGs |
+| `/admin/health/doc-thumbnails/backfill?force=1` | GET (SSE) | Re-render every DOC, even cached ones |
+| `/admin/health/doc-thumbnails/clear` | POST | Delete every cached PNG from disk |
+
+The Database Health page exposes these as **Backfill Missing**, **Force Re-render All**, and **Delete All** in the "DOC Asset Thumbnails" card. Use cases:
+
+- One-time priming after upgrading to a build that introduces thumbnails (existing DOC assets predate the per-upload hook).
+- After wiping `<DOC_THUMBNAIL_PATH>` manually.
+- After changing `DOC_THUMBNAIL_WIDTH` or the cropping logic (renders are not invalidated by width or by code changes — use **Force Re-render All** to apply).
+- Reclaiming disk space — **Delete All** is the simplest path; the lazy resolver re-creates PNGs on demand when users next view the DOC.
+
+## Whitespace cropping
+
+`_save_cropped_png()` in `app/word_com.py` is what writes the final PNG. It:
+
+1. Converts the PyMuPDF Pixmap to a PIL RGB Image.
+2. Diffs against a near-white reference image (threshold 250) using `ImageChops.subtract(ref, ImageChops.darker(img, ref))` — antialiased grey pixels still register as content.
+3. `darkness.getbbox()` returns the smallest rectangle that bounds all non-white pixels.
+4. Crops the original image to the FULL width but `bbox.bottom + 24px` height. Full width keeps card columns uniform; cropping the tail removes blank A4 space.
+5. Falls back to the un-cropped image if anything in steps 1–4 raises (so the user always gets a thumbnail).
+
+Pure-white pages get a 200 px-high blank thumbnail so the resolver doesn't loop forever waiting for "real" content.
+
+## Live-fetch the rendered PNG (frontend polling)
+
+`window.oqbPollDocThumbnails(root)` in [templates/base.html](mdc:templates/base.html) scans `root` (or `document`) for `[data-doc-pending-id]` elements and polls each thumbnail URL until it 200s or the budget expires (20 attempts × 3 s ≈ 60 s). When the PNG becomes available the placeholder element's `innerHTML` is replaced with the real `<img>` + download link, in-place — no page refresh.
+
+Wired into:
+- Dashboard card list (`templates/partials/question_list.html`) — auto-runs on `DOMContentLoaded` and `htmx:afterSwap`.
+- Unified preview helper (`oqbLoadMarkdownPreviewCards` in `base.html`) — kicks polling when the resolver returns `mode='download'` for a DOC.
+- Preview modal (`templates/dashboard.html` `previewAsset`) — polls the modal body.
+- Viewer / present mode (`templates/viewer.html` `loadAsset` / `loadAnswerAsset`) — polls the panel container.
+
+Per-element de-duplication via a module-level `Set` so the same element isn't polled by two pollers if `oqbPollDocThumbnails` is invoked twice quickly.
+
+## Generation pipeline
+
+1. `add_question_content_to_doc` DOC branch emits a unique marker paragraph (`__OQB_DOC_INSERT_<uuid>__`) into the python-docx Document AND records `{marker: abs_path}` into `doc_insertions`.
+2. `create_word_document(...)` returns `(doc, doc_insertions)`.
+3. `_generate_in_background`:
+   - If `doc_insertions` is empty AND `output_format == 'DOCX'` → save to OUTPUT_PATH directly, no Word needed.
+   - Otherwise → save to a tmp `.docx`, open `word_session`, call `merge_doc_into_master(word, tmp, doc_insertions)` (which Finds each marker, deletes the placeholder paragraph, and `Selection.InsertFile`s a sanitised copy of the source DOCX), then optionally `export_to_pdf(word, tmp, final.pdf)` and drop the tmp.
+4. Split + DOC merging / split + PDF: ONE Word session per generation job, doing N merges + N exports in a single `word_session` context (much faster than spinning up Word per group).
+
+## Output format
+
+`generation_options.output_format` is `'DOCX'` (default) or `'PDF'`.
+
+| split_fields | output_format | filename |
+|---|---|---|
+| none | DOCX | `<name>.docx` |
+| none | PDF  | `<name>.pdf`  |
+| any  | DOCX | `<name>.zip` (one .docx per group) |
+| any  | PDF  | `<name>.zip` (one .pdf per group)  |
+
+Mimetype set in `/generate/download/<file_id>` based on filename extension.
+
+## Concurrency & robustness
+
+- **Global Word lock** (`_WORD_COM_LOCK`): only one Word session runs at a time. Generations queue up; the second call blocks up to `WORD_COM_LOCK_TIMEOUT` (default 600s) before failing with a clear error in `GeneratedFile.error_message`.
+- **CoInitialize/CoUninitialize**: each `word_session` call does this in its thread. Background generation runs in a daemon thread spawned from `create_document`.
+- **Orphan WINWORD.EXE**: `_kill_word_processes_started_after(start_time)` is called as a fallback if `Word.Quit` raises. Uses `psutil` when available; otherwise `taskkill /f /im WINWORD.EXE` (acceptable on a dedicated server).
+- **`Visible=False` + `DisplayAlerts=wdAlertsNone`**: prevents Word UI popups (e.g. "do you want to save?" dialogs blocking the lock indefinitely).
+
+## Security model
+
+DOC content is admin-authored. The server only:
+- Runs Word headlessly to open `<SOURCE_PATH>/...` files (`ReadOnly=True` for thumbnail export).
+- Inserts into a master document that the server itself just created.
+- Strips section properties via XML manipulation (`python-docx`) before passing to Word, but otherwise trusts the source DOCX.
+
+No untrusted content is ever passed to Word. The threat model is similar to the MD pipeline (admin-authored content rendered to other admins / readers).
+
+## Common gotchas (read me before changing things)
+
+1. **DO NOT** call any Word COM API outside a `word_session` context — you'll leak the global lock and orphan WINWORD.EXE.
+2. **DO NOT** call `merge_doc_into_master` from inside another generation job's Word session — the lock is non-reentrant; you'll deadlock.
+3. **DO NOT** import `pywin32` at the top of any module that needs to run on Linux/macOS — it's gated behind `sys.platform == 'win32'` inside `app/word_com.py` only.
+4. **DO NOT** key thumbnails by `file_path` — use `asset_id`. Question renames update `file_path` but keep `asset_id`, so the cached PNG survives correctly.
+5. **DO NOT** add raw cross-language thumbnail logic — the slot check uses `(question_id, asset_type, language)` to mirror how the preview resolver picks its winner. EN-DOC and CH-IMG can coexist; we only suppress thumbnails when an IMG wins the SAME slot.
+6. **DO** wait for `db.session.commit()` BEFORE calling any `on_*_asset_*` lifecycle helper. The helpers query the DB and need the new row visible.
+7. **DO** treat `word_com.IS_AVAILABLE` as the single source of truth. The DOC branch in `add_question_content_to_doc`, the thumbnail scheduler, and `_run_word_postprocess_*` all gate on it.
+8. **DO** assume sources may have their own page setup. `sanitize_docx_for_insertion` strips `<w:sectPr>` precisely so the merged result inherits the master document's layout, not the source's.
+
+## External dependencies
+
+Required on the server:
+- **Microsoft Word** (any modern version with MathType compatibility).
+- `pywin32` (pip; Windows-only marker in `requirements.txt`).
+- `PyMuPDF` (pip; rasterises PDF → PNG for thumbnails).
+- `psutil` (optional; used for precise WINWORD.EXE cleanup).
+
+Without Word + pywin32:
+- DOC source files render as the legacy italic placeholder in generated docx.
+- PDF output is rejected at the API layer with HTTP 400.
+- DOC thumbnails are silently skipped; dashboard / viewer fall back to the download stub.

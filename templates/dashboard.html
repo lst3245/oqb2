@@ -3499,15 +3499,41 @@ function previewAsset(questionId, assetType) {
                 modalBody.innerHTML = '';
                 modalBody.appendChild(wrap);
                 window.oqbRenderMarkdownInto(wrap, data.html || '');
+            } else if (data.mode === 'thumbnail') {
+                // Server-rendered first-page PNG of a DOC asset. Show large preview
+                // + a prominent download link for the original .docx (which keeps
+                // MathType / embedded OLE objects fully intact).
+                const fname = data.filename || '';
+                modalBody.innerHTML = `
+                    <div class="p-2 text-start">
+                        <img src="${data.thumbnail_url}" alt="${assetType} preview"
+                             class="preview-modal-img" style="display:block; max-width:100%; margin-bottom:12px;">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <span class="text-muted small">
+                                <i class="bi bi-info-circle"></i>
+                                First-page preview (rendered server-side). Download for full fidelity.
+                            </span>
+                            <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-primary">
+                                <i class="bi bi-download"></i> Download ${fname}
+                            </a>
+                        </div>
+                    </div>`;
             } else if (data.mode === 'download') {
                 modalBody.innerHTML = `
-                    <div class="p-4">
+                    <div class="p-4" id="docPreviewPendingBody"
+                         ${data.format === 'DOC' && data.asset_id ? `
+                         data-doc-pending-id="${data.asset_id}"
+                         data-doc-pending-filename="${data.filename || ''}"
+                         data-doc-pending-downloadurl="${data.url || ''}"` : ''}>
                         <i class="bi bi-file-earmark-word display-3 text-primary"></i>
-                        <p class="mt-3 mb-2">Word document — inline preview not supported.</p>
+                        <p class="mt-3 mb-2">Word document — preview rendering…</p>
                         <a href="${data.url}" target="_blank" class="btn btn-primary">
                             <i class="bi bi-download"></i> Download ${data.filename || ''}
                         </a>
                     </div>`;
+                if (data.format === 'DOC' && data.asset_id && window.oqbPollDocThumbnails) {
+                    window.oqbPollDocThumbnails(modalBody);
+                }
             } else {
                 modalBody.innerHTML = `<p class="text-muted">No preview available</p>`;
             }

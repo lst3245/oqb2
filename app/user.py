@@ -718,20 +718,47 @@ def files_list():
     
     result = []
     for gf in gen_files:
+        # Extract file extension for UI display
+        _, _ext = os.path.splitext(gf.filename or '')
+        file_ext = _ext.lstrip('.').lower() if _ext else ''
+
+        # Peek into generation_options to surface the user's preferred
+        # asset format (first entry of `format_priority`) for the My Files
+        # row icon. Defaults match `_DEFAULT_FORMAT_PRIORITY` in
+        # `app/generator.py` so older rows still get a sensible value.
+        format_priority_top = 'IMG'
+        output_format = 'DOCX'
+        if gf.generation_options:
+            try:
+                opts = json.loads(gf.generation_options)
+                fp_raw = (opts.get('format_priority') or '').strip()
+                if fp_raw:
+                    first = fp_raw.split(',')[0].strip().upper()
+                    if first in ('IMG', 'MD', 'DOC'):
+                        format_priority_top = first
+                of = (opts.get('output_format') or '').strip().upper()
+                if of in ('DOCX', 'PDF'):
+                    output_format = of
+            except (ValueError, TypeError):
+                pass
+
         result.append({
             'id': gf.id,
             'display_name': gf.display_name,
             'filename': gf.filename,
+            'file_ext': file_ext,
             'status': gf.status,
             'error_message': gf.error_message,
             'question_count': gf.question_count,
             'has_filter': bool(gf.filter_data),
             'has_generation_options': bool(gf.generation_options),
+            'format_priority_top': format_priority_top,
+            'output_format': output_format,
             'username': gf.user.username if show_all else None,
             'created_at': gf.created_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'completed_at': gf.completed_at.strftime('%Y-%m-%dT%H:%M:%SZ') if gf.completed_at else None,
         })
-    
+
     return jsonify(result)
 
 

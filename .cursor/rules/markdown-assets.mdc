@@ -113,6 +113,9 @@ Why each piece matters:
 - **Pandoc resolution**: `_append_md_via_pandoc` falls back to standard Windows install paths (`C:\Program Files\Pandoc\pandoc.exe` etc.) when `shutil.which('pandoc')` fails — installers update PATH only for *new* shells, so a freshly-installed pandoc is invisible to long-running Flask processes.
 - **Format order in generation**: `add_question_content_to_doc` takes a `format_priority` arg (defaults to `_DEFAULT_FORMAT_PRIORITY = ('IMG','MD','DOC')`) threaded from `create_word_document` and ultimately from the form `format_priority`.
 
+## DOC pipeline lives elsewhere
+The MD pipeline is independent of the DOC pipeline. DOC source files go through Microsoft Word COM (`app/word_com.py`), not pandoc / docxcompose. The two coexist inside `add_question_content_to_doc` as separate format branches. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the DOC pipeline.
+
 ## Common gotchas (read me before changing things)
 
 1. **DO NOT** add raw markdown processing to the live preview without preserving the KaTeX preprocess step. marked + auto-render alone breaks on blank-line-separated `$$...$$`.
