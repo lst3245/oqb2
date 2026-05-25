@@ -67,5 +67,21 @@ def create_app():
                 db.session.commit()
         except Exception:
             db.session.rollback()  # Table may not exist yet (pre-migration)
-    
+
+    # Auto-create the system_settings table if missing so admins running an
+    # upgraded build don't have to re-run init_db.py just for this. Other
+    # tables predate this feature and are already present.
+    with app.app_context():
+        try:
+            from app.models import SystemSetting
+            SystemSetting.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            pass  # broken DB connection / pre-init; settings will fall back to .env
+
+    # Load DB-backed system settings into app.config, overriding the
+    # .env / Config bootstrap. Safe to call before init_db.py — missing
+    # tables are swallowed and the bootstrap defaults remain authoritative.
+    from app import settings as _system_settings
+    _system_settings.load_all(app)
+
     return app

@@ -2752,6 +2752,52 @@ def doc_thumbnail_backfill():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/rerender-thumb', methods=['POST'])
+@login_required
+@admin_required
+def rerender_doc_thumbnail(question_id, asset_id):
+    """
+    Force a re-render of a single DOC asset thumbnail. Used by the per-preview
+    "Re-render" button in dashboard cards, the preview modal, and the
+    viewer.
+
+    Permission: subject-admin of the question (or super admin). The cost is
+    real (one Word session, 1–3 s) so we gate this to admins.
+
+    The endpoint returns immediately after scheduling — the frontend then
+    polls `/dashboard/api/doc_thumbnail/<asset_id>.png` to swap in the new
+    image when it's ready. See `window.oqbPollDocThumbnails`.
+    """
+    asset = QuestionAsset.query.filter_by(
+        id=asset_id, question_id=question_id, file_format='DOC'
+    ).first_or_404()
+
+    # Subject-admin permission check.
+    question = Question.query.get(question_id)
+    if question is None:
+        return jsonify({'error': 'Question not found'}), 404
+    if not current_user.is_super_admin:
+        admin_subjects = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subjects:
+            return jsonify({'error': 'Access denied — not an admin for this subject'}), 403
+
+    from app import doc_thumbnails as _doc_thumbnails
+
+    scheduled = _doc_thumbnails.force_rerender(asset_id)
+    if not scheduled:
+        return jsonify({
+            'success': False,
+            'asset_id': asset_id,
+            'error': 'Word COM not available on this server — re-render skipped.',
+        }), 503
+
+    return jsonify({
+        'success': True,
+        'asset_id': asset_id,
+        'message': 'Re-render scheduled. Poll the thumbnail URL for the new PNG.',
+    })
+
+
 @admin_bp.route('/health/doc-thumbnails/clear', methods=['POST'])
 @login_required
 @super_admin_required
@@ -2789,6 +2835,311 @@ def doc_thumbnail_clear():
             f' {len(errors)} error(s) — see response.' if errors else ''
         ),
     })
+
+
+# ==================== Batch IMG Generation from DOC/MD ====================
+#
+# Bulk-render Word/Markdown source files into IMG assets, replacing any
+# existing IMGs in the same slot. Powered by Word COM (DOC) and pandoc +
+# Word COM (MD). Streams progress via SSE.
+
+@admin_bp.route('/questions/batch-generate-images')
+@login_required
+@admin_required
+def batch_generate_images():
+    """
+    SSE stream that renders DOC/MD source assets into PNG IMGs in bulk.
+
+    Query params:
+      * `question_ids` (comma list, required) — DB ids of Question rows.
+      * `types`        (comma list, default `QUE`) — any of QUE / ANS / SOL.
+      * `langs`        (comma list, default `EN,CH,BI`) — restrict languages.
+      * `sources`      (comma list, default `DOC,MD`) — source formats.
+      * `stitch`       (`1`|`0`, default 1) — stitch multi-page output into
+                       one tall PNG vs. one PNG per source page.
+      * `overwrite`    (`1`|`0`, default 0) — replace IMG even when one
+                       already exists for the slot.
+      * `width`        (int) — render width in px (default from settings).
+      * `transparent`  (`1`|`0`) — alpha mask (default from settings).
+
+    Permission: subject-admin or super-admin. Each question is checked
+    individually; non-admin'd questions are silently dropped.
+
+    Streamed events:
+      * `info`    — bookkeeping messages.
+      * `skip`    — slot skipped (no source / IMG exists w/o overwrite).
+      * `success` — slot processed successfully.
+      * `error`   — render or DB failure for one slot; loop continues.
+      * `done`    — final summary with stats.
+    """
+    if not word_com.IS_AVAILABLE:
+        return jsonify({
+            'error': 'Word COM unavailable on this server — batch image generation requires Windows + Microsoft Word + pywin32.'
+        }), 400
+
+    # Parse + validate query params.
+    raw_qids = request.args.get('question_ids', '').strip()
+    if not raw_qids:
+        return jsonify({'error': 'question_ids is required'}), 400
+    try:
+        question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
+    except ValueError:
+        return jsonify({'error': 'question_ids must be a comma-separated list of integers'}), 400
+    if not question_ids:
+        return jsonify({'error': 'question_ids resolved to empty list'}), 400
+
+    def _csv_set(name, default):
+        raw = request.args.get(name, '').strip()
+        if not raw:
+            return set(default)
+        return {s.strip().upper() for s in raw.split(',') if s.strip()}
+
+    types = _csv_set('types', ['QUE']) & {'QUE', 'ANS', 'SOL'}
+    langs = _csv_set('langs', ['EN', 'CH', 'BI']) & {'EN', 'CH', 'BI'}
+    sources = _csv_set('sources', ['DOC', 'MD']) & {'DOC', 'MD'}
+
+    if not types:
+        return jsonify({'error': 'types must include at least one of QUE / ANS / SOL'}), 400
+    if not sources:
+        return jsonify({'error': 'sources must include at least one of DOC / MD'}), 400
+
+    stitch = request.args.get('stitch', '1') in ('1', 'true', 'yes')
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    transparent_raw = request.args.get('transparent')
+    width_raw = request.args.get('width')
+
+    # Permission filter: scope question_ids to those the caller can admin.
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    if not qs:
+        return jsonify({
+            'error': 'No questions you have admin access to in the selection.'
+        }), 403
+
+    app = current_app._get_current_object()
+
+    def generate():
+        from app import batch_image_gen, word_com as _word_com
+
+        with app.app_context():
+            # Resolve defaults from Settings after entering app context so
+            # any DB-overridden values are honoured.
+            width = int(width_raw) if width_raw else int(
+                app.config.get('BATCH_IMG_DEFAULT_WIDTH', app.config.get('DOC_THUMBNAIL_WIDTH', 1000))
+            )
+            transparent = (
+                bool(int(transparent_raw)) if transparent_raw in ('0', '1') else
+                bool(app.config.get('THUMBNAIL_TRANSPARENT', False))
+            )
+            whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
+            padding = int(app.config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
+            source_path = app.config['SOURCE_PATH']
+            lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+
+            # Build the work list before opening Word so we know the total
+            # for progress reporting up front. Each slot is a 4-tuple
+            # (question, asset_type, language, allow_sources).
+            work = []
+            for question in qs:
+                for atype in types:
+                    for lang in langs:
+                        work.append((question, atype, lang))
+            total = len(work)
+
+            yield f"data: {json.dumps({'type': 'info', 'message': f'Scanning {len(qs)} question(s) — {total} slots to consider...'})}\n\n"
+
+            rendered = 0
+            skipped_no_src = 0
+            skipped_has_img = 0
+            failed = 0
+            current = 0
+
+            try:
+                with _word_com.word_session(lock_timeout=lock_timeout) as word_app:
+                    for question, atype, lang in work:
+                        current += 1
+                        slot_label = f'{question.qid} / {atype} / {lang}'
+
+                        # 1. Find a usable source.
+                        src_asset = batch_image_gen.find_best_source(
+                            question, atype, lang,
+                            allow_doc=('DOC' in sources),
+                            allow_md=('MD' in sources),
+                        )
+                        if src_asset is None:
+                            skipped_no_src += 1
+                            yield f"data: {json.dumps({'type': 'skip', 'message': f'{slot_label} — no DOC/MD source', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        # 2. Honor overwrite=0.
+                        if not overwrite and batch_image_gen.slot_has_img(
+                            question.id, atype, lang
+                        ):
+                            skipped_has_img += 1
+                            yield f"data: {json.dumps({'type': 'skip', 'message': f'{slot_label} — IMG exists (overwrite off)', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        # 3. Render.
+                        src_abs = os.path.join(source_path, *src_asset.file_path.split('/'))
+                        if not os.path.isfile(src_abs):
+                            failed += 1
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'{slot_label} — source file missing on disk', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        try:
+                            if src_asset.file_format == 'DOC':
+                                pages = batch_image_gen.render_doc_to_pages(
+                                    word_app, src_abs, width, transparent,
+                                    whiteness, padding,
+                                )
+                            else:  # MD
+                                pages = batch_image_gen.render_md_to_pages(
+                                    word_app, src_abs, width, transparent,
+                                    whiteness, padding,
+                                )
+                        except Exception as e:
+                            failed += 1
+                            logger.exception('Render failed for %s', slot_label)
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'{slot_label} — render failed: {e}', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        if not pages:
+                            failed += 1
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'{slot_label} — render produced 0 pages', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        # 4. Persist (delete existing IMG + write new files + DB rows).
+                        try:
+                            summary = batch_image_gen.replace_img_assets(
+                                question, atype, lang, pages, stitch, source_path,
+                            )
+                        except Exception as e:
+                            failed += 1
+                            logger.exception('replace_img_assets failed for %s', slot_label)
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'{slot_label} — db/disk write failed: {e}', 'current': current, 'total': total})}\n\n"
+                            continue
+
+                        rendered += 1
+                        wrote = summary['wrote']
+                        deleted = summary['deleted']
+                        yield (
+                            f"data: {json.dumps({'type': 'success', 'message': f'{slot_label} — wrote {wrote} IMG part(s), replaced {deleted}', 'current': current, 'total': total})}\n\n"
+                        )
+
+                summary_msg = (
+                    f'Done. Rendered: {rendered}, '
+                    f'skipped (no source): {skipped_no_src}, '
+                    f'skipped (IMG exists): {skipped_has_img}, '
+                    f'failed: {failed}.'
+                )
+                done_event = {
+                    'type': 'done',
+                    'message': summary_msg,
+                    'current': total,
+                    'total': total,
+                    'stats': {
+                        'rendered': rendered,
+                        'skipped_no_src': skipped_no_src,
+                        'skipped_has_img': skipped_has_img,
+                        'failed': failed,
+                    },
+                }
+                yield f"data: {json.dumps(done_event)}\n\n"
+            except Exception as e:
+                logger.exception('Batch image generation aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Batch generation aborted.'})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== System Settings (Super Admin Only) ====================
+#
+# DB-backed runtime tunables. The full registry lives in `app/settings.py`;
+# these routes are the thin HTTP surface around it. All write paths require
+# super-admin because settings affect global behaviour.
+
+@admin_bp.route('/settings')
+@login_required
+@super_admin_required
+def settings_page():
+    """Render the system settings admin page."""
+    return render_template('admin_settings.html')
+
+
+@admin_bp.route('/settings/data')
+@login_required
+@super_admin_required
+def settings_data():
+    """Return the full registry + current values as JSON for the UI."""
+    from app import settings as system_settings
+    return jsonify(system_settings.as_dict())
+
+
+@admin_bp.route('/settings/save', methods=['POST'])
+@login_required
+@super_admin_required
+def settings_save():
+    """
+    Accept a JSON body `{key: value, ...}` and apply each entry. Per-key
+    validation errors are reported in the response (200 OK either way) so
+    a partial save can complete even if one field is bad.
+
+    Response shape:
+        {
+          'saved':   ['KEY_A', ...],
+          'errors':  {'KEY_B': 'must be >= 1', ...},
+          'values':  {'KEY_A': <parsed value>, ...},
+        }
+    """
+    from app import settings as system_settings
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'JSON object body required'}), 400
+
+    saved = []
+    errors = {}
+    values = {}
+    for key, raw in payload.items():
+        if key not in system_settings.REGISTRY:
+            errors[key] = 'unknown setting key'
+            continue
+        try:
+            parsed = system_settings.set_value(key, raw, user_id=current_user.id)
+            saved.append(key)
+            values[key] = parsed
+        except (ValueError, KeyError) as e:
+            errors[key] = str(e)
+        except Exception as e:  # pragma: no cover — surface DB errors gracefully
+            errors[key] = f'unexpected error: {e}'
+
+    return jsonify({'saved': saved, 'errors': errors, 'values': values})
+
+
+@admin_bp.route('/settings/reset/<key>', methods=['POST'])
+@login_required
+@super_admin_required
+def settings_reset(key):
+    """Drop the DB override for `key` and restore the bootstrap default.
+
+    Returns the restored value so the UI can update its display without a
+    refresh.
+    """
+    from app import settings as system_settings
+
+    if key not in system_settings.REGISTRY:
+        return jsonify({'error': 'Unknown setting key'}), 404
+
+    try:
+        default = system_settings.reset(key, user_id=current_user.id)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'key': key, 'value': default, 'has_override': False})
 
 
 # ==================== File Browser (Super Admin Only) ====================

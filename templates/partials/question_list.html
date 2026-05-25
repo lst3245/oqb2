@@ -111,20 +111,32 @@
                             <div class="text-muted small fst-italic">Rendering markdown...</div>
                         </div>
                     {% elif question.preview_mode == 'thumbnail' and question.preview_doc_asset_id %}
-                        <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
-                             class="question-image"
-                             style="display:block; margin-bottom:4px; max-width:100%;"
-                             alt="QUE preview"
-                             onerror="this.style.display='none'">
-                        <div class="text-muted small">
-                            <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
-                            <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
-                               target="_blank" class="ms-1">download .docx</a>
+                        <div data-doc-thumb-container>
+                            <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
+                                 class="question-image oqb-doc-thumb"
+                                 style="display:block; margin-bottom:4px; max-width:100%;"
+                                 alt="QUE preview"
+                                 data-doc-asset-id="{{ question.preview_doc_asset_id }}"
+                                 data-doc-question-id="{{ question.id }}"
+                                 onerror="this.style.display='none'">
+                            <div class="text-muted small">
+                                <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
+                                <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
+                                   target="_blank" class="ms-1">download .docx</a>
+                                {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
+                                <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline"
+                                        title="Re-render thumbnail"
+                                        onclick="oqbRerenderThumb({{ question.id }}, {{ question.preview_doc_asset_id }}, this); return false;">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                {% endif %}
+                            </div>
                         </div>
                     {% elif question.preview_mode == 'download' %}
                         <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2"
                              {% if question.preview_doc_asset_id %}
                              data-doc-pending-id="{{ question.preview_doc_asset_id }}"
+                             data-doc-pending-question-id="{{ question.id }}"
                              data-doc-pending-filename="{{ question.preview_doc_filename or '' }}"
                              data-doc-pending-downloadurl="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
                              {% endif %}>

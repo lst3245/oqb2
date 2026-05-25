@@ -272,6 +272,7 @@ def get_viewer_asset(question_id, asset_type):
     result = {
         'parts': parts,
         'id': parts[0]['id'],
+        'question_id': question_id,
         'type': parts[0]['type'],
         'format': parts[0]['format'],
         'language': parts[0]['language'],
@@ -1008,39 +1009,42 @@ def _preprocess_md_for_pandoc(src):
     return _MD_DISPLAY_MATH_RE.sub(_collapse_blank_lines, src)
 
 
-def _append_md_via_pandoc(master_doc, md_abs_path):
-    """
-    Convert a single self-contained Markdown file to .docx via pandoc, then
-    splice it into `master_doc` using docxcompose. Raises on any failure so
-    the caller can fall back to a placeholder.
+def _resolve_pandoc_binary():
+    """Return an absolute path to a usable pandoc binary, or the configured
+    string (`pandoc`) when we couldn't resolve it but expect it on PATH.
 
-    The Markdown file is expected to be self-contained (LaTeX math via
-    `$...$` / `$$...$$` and base64-embedded images). Pandoc converts dollar
-    math to native Word OMML equations.
-
-    Pre-processing notes:
-      * Blank lines inside $$...$$ are collapsed (see _preprocess_md_for_pandoc).
-      * `-implicit_figures` is passed to pandoc's reader so standalone images
-        do NOT get rendered as captioned figures with the alt text as caption.
+    Lifted out of `_append_md_via_pandoc` so other modules (batch image gen)
+    can share the same fallbacks. `shutil.which` only checks the PATH that
+    was set when the process started, so on Windows a freshly-installed
+    pandoc is often invisible even though it works fine in a new terminal.
+    Fall through to well-known install locations.
     """
     pandoc = current_app.config.get('PANDOC_PATH', 'pandoc')
-    # Resolve to a usable absolute path.
-    # shutil.which only looks at the PATH that was set when the process *started*,
-    # so on Windows a freshly-installed pandoc is often invisible here even though
-    # it works fine in a new terminal. Fall through to well-known install locations.
     pandoc_bin = shutil.which(pandoc)
     if not pandoc_bin and pandoc == 'pandoc':
-        _WIN_PANDOC_CANDIDATES = [
+        candidates = [
             r'C:\Program Files\Pandoc\pandoc.exe',
             r'C:\Program Files (x86)\Pandoc\pandoc.exe',
             os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Pandoc', 'pandoc.exe'),
             os.path.join(os.environ.get('APPDATA', ''), 'Pandoc', 'pandoc.exe'),
         ]
-        for candidate in _WIN_PANDOC_CANDIDATES:
+        for candidate in candidates:
             if candidate and os.path.isfile(candidate):
                 pandoc_bin = candidate
                 break
-    pandoc_bin = pandoc_bin or pandoc
+    return pandoc_bin or pandoc
+
+
+def md_to_docx_via_pandoc(md_abs_path, out_docx_path):
+    """
+    Convert a single self-contained Markdown file to a .docx fragment via
+    pandoc and write it to `out_docx_path`. Shared between the generation
+    pipeline (which then splices via docxcompose) and the batch image gen
+    pipeline (which renders the docx via Word COM).
+
+    Raises RuntimeError on any pandoc failure so callers can fall back.
+    """
+    pandoc_bin = _resolve_pandoc_binary()
 
     # Read the source and pre-process. We write to a tmp file because pandoc
     # accepts a path more reliably than stdin on Windows (no encoding fuss).
@@ -1055,17 +1059,19 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         ) from e
     src = _preprocess_md_for_pandoc(src)
 
+    out_dir = os.path.dirname(os.path.abspath(out_docx_path))
+    os.makedirs(out_dir, exist_ok=True)
+
     with tempfile.TemporaryDirectory(prefix='oqb_md_') as tmpdir:
         prepped_md = os.path.join(tmpdir, 'input.md')
         with open(prepped_md, 'w', encoding='utf-8') as out_f:
             out_f.write(src)
 
-        out_docx = os.path.join(tmpdir, 'fragment.docx')
         cmd = [
             pandoc_bin,
             '--from=markdown+tex_math_dollars+tex_math_double_backslash-implicit_figures',
             '--to=docx',
-            '-o', out_docx,
+            '-o', out_docx_path,
             prepped_md,
         ]
         try:
@@ -1078,7 +1084,7 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
             )
         except FileNotFoundError as e:
             raise RuntimeError(
-                f'pandoc not found at {pandoc!r}. Install pandoc or set PANDOC_PATH.'
+                f'pandoc not found at {pandoc_bin!r}. Install pandoc or set PANDOC_PATH.'
             ) from e
         except subprocess.TimeoutExpired as e:
             raise RuntimeError('pandoc timed out converting Markdown') from e
@@ -1086,6 +1092,24 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         if result.returncode != 0:
             err = (result.stderr or b'').decode('utf-8', errors='replace').strip()
             raise RuntimeError(f'pandoc failed (rc={result.returncode}): {err[:400]}')
+
+        if not os.path.exists(out_docx_path):
+            raise RuntimeError('pandoc produced no output file')
+
+
+def _append_md_via_pandoc(master_doc, md_abs_path):
+    """
+    Convert a single self-contained Markdown file to .docx via pandoc, then
+    splice it into `master_doc` using docxcompose. Raises on any failure so
+    the caller can fall back to a placeholder.
+
+    The Markdown file is expected to be self-contained (LaTeX math via
+    `$...$` / `$$...$$` and base64-embedded images). Pandoc converts dollar
+    math to native Word OMML equations.
+    """
+    with tempfile.TemporaryDirectory(prefix='oqb_md_compose_') as tmpdir:
+        out_docx = os.path.join(tmpdir, 'fragment.docx')
+        md_to_docx_via_pandoc(md_abs_path, out_docx)
 
         if not os.path.exists(out_docx):
             raise RuntimeError('pandoc produced no output file')

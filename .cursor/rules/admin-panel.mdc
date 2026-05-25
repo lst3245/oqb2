@@ -52,6 +52,17 @@ Editor frontend lives in `templates/partials/md_editor.html` (EasyMDE + marked +
 `POST /admin/questions/batch-update` — selectively update multiple questions:
 - Checkbox flags: `update_level`, `update_q_type`, `update_section`, `update_topics`, `update_correct_pct`
 - `POST /admin/questions/delete` — delete multiple questions + cascade assets + delete files from disk
+- `GET /admin/questions/batch-generate-images` — **SSE stream** that renders DOC/MD source assets into IMG PNGs in bulk. Query params: `question_ids` (csv), `types` (QUE/ANS/SOL), `langs` (EN/CH/BI), `sources` (DOC/MD), `stitch` (1/0), `overwrite` (1/0), `width`, `transparent`. UI lives in the **Generate IMG** bulk button on `templates/admin_questions.html`. Backed by `app/batch_image_gen.py` (`render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`). Word COM serialised through the same global lock as DOC thumbnails / docx generation.
+- `POST /admin/questions/<qid>/assets/<aid>/rerender-thumb` — force a re-render of a single DOC asset thumbnail. Subject-admin only. Drives the per-preview "Re-render" button in dashboard cards / preview modal / inline preview helper. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the frontend flow.
+
+### System Settings (`/admin/settings`) — super admin only
+DB-backed runtime tunables that override `.env` / `Config` defaults without a restart. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) for the full reference.
+- `GET  /admin/settings` — page (`templates/admin_settings.html`).
+- `GET  /admin/settings/data` — `{groups, registry}` JSON for the UI.
+- `POST /admin/settings/save` — body `{key: value, ...}`; per-key validation; partial saves succeed.
+- `POST /admin/settings/reset/<key>` — drop DB override, restore bootstrap default.
+
+The registry covers Dashboard / Markdown / Word COM / Thumbnails / Batch IMG groups. Secrets (DB creds, `SECRET_KEY`, paths, `PANDOC_PATH`, `DOC_THUMBNAIL_PATH`) stay `.env`-only.
 
 ### User Management (`/admin/users`) — super admin only
 - Add/edit/delete users

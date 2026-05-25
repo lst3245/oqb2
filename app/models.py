@@ -345,3 +345,28 @@ class GeneratedFile(db.Model):
     
     def __repr__(self):
         return f'<GeneratedFile {self.display_name} ({self.status})>'
+
+
+class SystemSetting(db.Model):
+    """Key-value table for runtime-tunable system settings.
+
+    The full source of truth for each setting's type, default, label, and
+    validator lives in `app/settings.py` (the REGISTRY). This table only
+    stores DB-side overrides of the .env / Config defaults — when a row
+    is absent for a key, the bootstrap default applies.
+
+    Values are JSON-encoded so we can store ints, floats, bools, and
+    strings through the same column without per-type schema churn.
+    """
+    __tablename__ = 'system_settings'
+
+    key = db.Column(db.String(80), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by])
+
+    def __repr__(self):
+        return f'<SystemSetting {self.key}={self.value!r}>'

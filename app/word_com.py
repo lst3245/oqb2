@@ -364,7 +364,11 @@ def export_to_pdf(word_app, docx_path: str, pdf_path: str) -> None:
             pass
 
 
-def render_first_page_png(word_app, docx_path: str, png_path: str, width_px: int = 1000) -> None:
+def render_first_page_png(word_app, docx_path: str, png_path: str,
+                          width_px: int = 1000,
+                          transparent: bool | None = None,
+                          whiteness_threshold: int | None = None,
+                          bottom_padding_px: int | None = None) -> None:
     """
     Render the first page of `docx_path` to `png_path` (PNG).
 
@@ -372,6 +376,19 @@ def render_first_page_png(word_app, docx_path: str, png_path: str, width_px: int
     use PyMuPDF (fitz) to rasterise page 0 to PNG at the requested width.
     The rendered image is auto-cropped to remove trailing whitespace so a
     one-paragraph question doesn't get a full A4 page of empty space below.
+
+    Tunables (all optional; resolved from `current_app.config` when None):
+      * `transparent` (bool, default False)
+            If True, post-process the cropped image so the white page
+            background becomes transparent. Antialiased text edges are
+            preserved via a luminance-based alpha mask. Read from
+            `THUMBNAIL_TRANSPARENT`.
+      * `whiteness_threshold` (int 0–255, default 250)
+            Pixels brighter than this are treated as background when
+            cropping. Read from `THUMBNAIL_WHITENESS_THRESHOLD`.
+      * `bottom_padding_px` (int, default 24)
+            Blank space kept below the cropped content. Read from
+            `THUMBNAIL_BOTTOM_PADDING_PX`.
     """
     _require_available()
 
@@ -379,6 +396,11 @@ def render_first_page_png(word_app, docx_path: str, png_path: str, width_px: int
         import fitz  # type: ignore
     except ImportError as e:
         raise WordComUnavailable(f'PyMuPDF (fitz) not installed: {e}') from e
+
+    # Resolve tunables from app.config when not supplied explicitly.
+    transparent, whiteness_threshold, bottom_padding_px = _resolve_thumb_tunables(
+        transparent, whiteness_threshold, bottom_padding_px
+    )
 
     with tempfile.TemporaryDirectory(prefix='oqb_doc_thumb_') as tmpdir:
         tmp_pdf = os.path.join(tmpdir, 'page.pdf')
@@ -403,29 +425,62 @@ def render_first_page_png(word_app, docx_path: str, png_path: str, width_px: int
             # use a fraction of the A4 page, so the rendered first page has
             # a large blank tail. Crop to the actual content height (keeping
             # full width so cards line up uniformly).
-            _save_cropped_png(pix, png_path)
+            _save_cropped_png(
+                pix, png_path,
+                bottom_padding_px=bottom_padding_px,
+                whiteness_threshold=whiteness_threshold,
+                transparent=transparent,
+            )
         finally:
             pdf.close()
 
 
-def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
-                      whiteness_threshold: int = 250) -> None:
+def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px):
+    """Pull defaults from `current_app.config` when a tunable is None.
+
+    Falls back to module-level literals when no Flask app context is
+    available (e.g. when called from a unit test or smoke script).
     """
-    Save a PyMuPDF Pixmap to `png_path` after cropping trailing whitespace.
+    if transparent is not None and whiteness_threshold is not None and bottom_padding_px is not None:
+        return transparent, whiteness_threshold, bottom_padding_px
+    try:
+        from flask import current_app
+        cfg = current_app.config
+    except Exception:  # pragma: no cover — no Flask context
+        cfg = {}
+    if transparent is None:
+        transparent = bool(cfg.get('THUMBNAIL_TRANSPARENT', False))
+    if whiteness_threshold is None:
+        whiteness_threshold = int(cfg.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
+    if bottom_padding_px is None:
+        bottom_padding_px = int(cfg.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
+    return transparent, whiteness_threshold, bottom_padding_px
+
+
+def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
+                      whiteness_threshold: int = 250,
+                      transparent: bool = False) -> None:
+    """
+    Save a PyMuPDF Pixmap to `png_path` after cropping whitespace on every
+    side.
 
     Strategy:
       * Convert the pixmap to a PIL Image.
-      * Compute a "content mask" by diffing against a pure-white image of
-        the same size, then use ImageChops.getbbox() to find the smallest
-        rectangle that contains all non-white pixels.
-      * Crop the source image to the FULL width but the content height
-        (plus a small bottom margin) so cards keep a consistent column
-        width but don't carry a page of empty space.
-      * Fall back to writing the un-cropped image when the bbox check fails
-        (corrupted source, fully-white page, etc.).
+      * Compute a "content mask" by diffing against a near-white reference
+        image, then use `getbbox()` to find the smallest rectangle that
+        contains all non-white pixels.
+      * Crop to that bbox plus `bottom_padding_px` of margin on **all four
+        sides** (capped to image bounds). This trims the A4 page borders
+        AND any leading / leading-column whitespace, producing a tight
+        thumbnail proportional to the content.
+      * Optionally apply a luminance-based alpha mask so the white page
+        background becomes transparent. Antialiased grey text edges
+        receive partial alpha for clean rendering against any backdrop.
+      * Fall back to writing the un-cropped pixmap on any error so the
+        caller always gets *some* file on disk.
     """
     try:
-        from PIL import Image, ImageChops
+        from PIL import Image, ImageChops, ImageOps
     except ImportError:
         # Pillow should be present (it's already a dependency) but guard
         # the import so a broken environment still produces a thumbnail.
@@ -433,33 +488,58 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
         return
 
     try:
-        # Pixmap → bytes → PIL Image. We force RGB so getbbox() on the
-        # diff has consistent semantics regardless of source alpha mode.
         img_bytes = pix.tobytes('png')
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
 
-        # Slight thresholding: treat near-white pixels as background by
-        # comparing against a slightly-grey reference so subpixel-rendered
-        # antialiased text doesn't fool the bbox into hugging the very top.
         threshold = max(0, min(255, whiteness_threshold))
         ref = Image.new('RGB', img.size, (threshold, threshold, threshold))
-        # `darker` produces the per-pixel min of img and ref. Subtracting
-        # from white gives the "darkness" of each pixel; bbox of that
-        # darkness is the content bounding box.
+        # `darker` = per-pixel min(img, ref). Subtracting from `ref` gives a
+        # "darkness" image where any non-near-white pixel is positive.
+        # bbox() returns the smallest enclosing rectangle of non-zero pixels.
         darkness = ImageChops.subtract(ref, ImageChops.darker(img, ref))
         bbox = darkness.getbbox()
+
+        pad = max(0, int(bottom_padding_px))
 
         if bbox is None:
             # Page is entirely white. Keep a small thumbnail so the resolver
             # doesn't fall through to "not rendered yet" forever.
-            cropped = img.crop((0, 0, img.size[0], min(img.size[1], 200)))
+            cropped = img.crop((0, 0, min(img.size[0], 400), min(img.size[1], 200)))
         else:
-            _left, _top, _right, bottom = bbox
-            new_height = min(img.size[1], bottom + bottom_padding_px)
-            cropped = img.crop((0, 0, img.size[0], max(new_height, 1)))
+            left, top, right, bottom = bbox
+            # Expand by `pad` on every side, clipped to image bounds.
+            crop_box = (
+                max(0, left - pad),
+                max(0, top - pad),
+                min(img.size[0], right + pad),
+                min(img.size[1], bottom + pad),
+            )
+            cropped = img.crop(crop_box)
 
-        cropped.save(png_path, format='PNG', optimize=True)
-    except Exception:
-        # Any failure in cropping → write the original full-page image so
-        # the user at least gets *some* thumbnail.
-        pix.save(png_path)
+        if transparent:
+            # RGB → RGBA where alpha = 255 - luminance. White → 0 alpha,
+            # antialiased grey → semi-transparent, black → opaque. This is
+            # the standard "save as transparent PNG" trick — fast (no
+            # per-pixel Python loop), and produces smooth edges.
+            gray = cropped.convert('L')
+            alpha = ImageOps.invert(gray)
+            cropped = cropped.convert('RGBA')
+            cropped.putalpha(alpha)
+
+        os.makedirs(os.path.dirname(png_path), exist_ok=True)
+        # Write to a temp sibling first, then atomically replace the target.
+        # Without this, a concurrent reader could see a partially-written
+        # PNG and return a corrupt response.
+        tmp_path = png_path + '.tmp'
+        # `optimize=True` is expensive for large RGBA PNGs. Skip it for the
+        # transparent path so a stuck Word session doesn't compound a slow
+        # save into a > 60 s tail.
+        cropped.save(tmp_path, format='PNG', optimize=(not transparent))
+        os.replace(tmp_path, png_path)
+    except Exception as e:
+        logger.exception('Cropped-PNG save failed; falling back to raw pixmap: %s', e)
+        try:
+            os.makedirs(os.path.dirname(png_path), exist_ok=True)
+            pix.save(png_path)
+        except Exception as e2:
+            logger.exception('Raw pixmap save also failed for %s: %s', png_path, e2)

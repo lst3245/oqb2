@@ -1,0 +1,79 @@
+---
+description: DB-backed runtime tunables — SystemSetting model, REGISTRY, hot-reload, and the .env vs DB precedence rules
+globs: app/settings.py,app/models.py,templates/admin_settings.html
+alwaysApply: false
+---
+
+# System Settings (DB-backed, hot-reload)
+
+`system_settings` is a key/value DB table whose entries override the `.env` / `Config` bootstrap default at runtime. The full source of truth for each tunable's type, default, label, and validator lives in `app/settings.py` (the REGISTRY); the table only stores admin-supplied overrides.
+
+## Files map
+
+| Concern | File(s) |
+|---|---|
+| Model | [app/models.py](mdc:app/models.py) `SystemSetting` |
+| Registry + load/get/set/reset/as_dict | [app/settings.py](mdc:app/settings.py) |
+| Routes | [app/admin.py](mdc:app/admin.py) `settings_page`, `settings_data`, `settings_save`, `settings_reset` |
+| UI | [templates/admin_settings.html](mdc:templates/admin_settings.html) |
+| Bootstrap defaults | [app/config.py](mdc:app/config.py) `Config` class — these are the values returned by `reset()` |
+
+## Precedence
+
+```
+hardcoded module literal  <  app/config.py default  <  .env  <  system_settings row
+```
+
+`app.config[key]` always holds the winning value at runtime. Consumers MUST read via `current_app.config[key]` (or `app.config[key]` inside a thread closure under `app_context`) — never re-read `os.getenv` or the `Config` class directly, or you'll miss DB overrides.
+
+## REGISTRY structure
+
+Each entry: `{type, default, group, label, help, validator}`.
+
+```python
+_spec('DOC_THUMBNAIL_WIDTH', 'int', group='Thumbnails',
+      label='Thumbnail width (px)',
+      help='Render width of DOC asset first-page PNG thumbnails.',
+      min=200, max=4000)
+```
+
+Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts that build a numeric range validator. Custom validators receive the already-coerced value and may raise `ValueError`.
+
+## Lifecycle
+
+1. **Startup** — `create_app()` calls `app/settings.load_all(app)`. It captures the current `app.config[key]` for every registry key into `_BOOTSTRAP_DEFAULTS` (so `reset()` knows what to restore), then reads each row of `system_settings` and overwrites `app.config[key]` with the parsed value. Missing tables / malformed JSON / failed validation are logged and skipped — the bootstrap defaults remain authoritative.
+2. **Save** — `POST /admin/settings/save` body `{key: value, ...}`. Each key is validated via the registry, upserted into `system_settings`, and mirrored to `app.config`. Response includes per-key results so partial saves succeed.
+3. **Reset** — `POST /admin/settings/reset/<key>` deletes the row and restores `app.config[key]` from `_BOOTSTRAP_DEFAULTS`.
+
+## Hot-reload guarantees
+
+- Single-process Flask dev server / single-worker prod WSGI: changes take effect on the **next** call to any consumer (most consumers read `app.config` per-request, so effectively immediate).
+- Multi-worker deployments: only the worker that handled the POST sees the new value. Other workers continue serving the old value until the process restarts. **Future improvement**: switch to a periodic DB poll or a Redis pubsub fanout.
+- Background threads (e.g. DOC thumbnail render in `app/doc_thumbnails.py`): run under `app.app_context()` and read `app.config[...]` at the time the work is performed, so they always see the latest values.
+
+## What stays in `.env` only
+
+Secrets and infrastructure paths are NOT exposed via the Settings UI:
+
+- `SECRET_KEY` — Flask session signing
+- DB credentials: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+- Filesystem roots: `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
+- External binaries: `PANDOC_PATH`
+
+Anything that needs a process restart to take effect (e.g. SQLAlchemy engine options, pre-fork Flask config) also stays in `.env`.
+
+## Adding a new tunable
+
+1. Add an entry to `REGISTRY` in `app/settings.py` (specify type, group, label, help, validator/min/max).
+2. Add the matching `Config` attribute in `app/config.py` reading from `os.getenv` with a sensible default.
+3. Document the new key in `.env` (commented) so admins know it can be overridden via env.
+4. Update the consumer to read from `current_app.config[KEY]` (avoid hardcoding constants).
+5. The UI auto-renders the new row — no template changes needed.
+
+## Common gotchas
+
+1. **DO NOT** hardcode tunable values inside Python modules. Read from `current_app.config[KEY]` or accept it as a function argument with `None` fallback that resolves from config.
+2. **DO** capture `app = current_app._get_current_object()` before spawning a background thread, then `with app.app_context()` inside the thread. Inside the context, `current_app.config` reflects the latest hot-reloaded value.
+3. **DO** treat missing rows / malformed JSON in `system_settings` as "use bootstrap default" — never raise from `load_all`, the app must boot even with a corrupted settings table.
+4. **DO** validate at write time (in `set_value`) so admins get a clean error message. The Save endpoint returns a per-key `errors` map so partial saves still apply the good rows.
+5. The Settings page is **super-admin only**. The `admin_required` decorator (subject-admin) is NOT sufficient — system-wide changes need super-admin.

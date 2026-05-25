@@ -124,6 +124,19 @@
             </div>
         </div>
     </div>
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card border-danger">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-sliders"></i> System Settings <span class="badge bg-danger">Super Admin</span></h5>
+                    <p class="card-text">Tune runtime preferences — thumbnail width / transparency, Word COM timeouts, dashboard page size, and more. Changes apply immediately, no server restart.</p>
+                    <a href="{{ url_for('admin.settings_page') }}" class="btn btn-danger">
+                        <i class="bi bi-arrow-right"></i> System Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
     {% endif %}
 </div>
 {% endblock %}

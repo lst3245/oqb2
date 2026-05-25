@@ -106,7 +106,13 @@ def render_doc_thumbnail_sync(app, asset_id: int) -> bool:
         try:
             with word_com.word_session(lock_timeout=lock_timeout) as word_app:
                 word_com.render_first_page_png(word_app, src_abs, target, width_px=width)
-            return True
+            ok = os.path.isfile(target) and os.path.getsize(target) > 0
+            if ok:
+                logger.info('DOC thumbnail rendered: asset=%s -> %s (%d bytes)',
+                            asset_id, target, os.path.getsize(target))
+            else:
+                logger.error('DOC thumbnail: render_first_page_png returned without producing %s', target)
+            return ok
         except Exception as e:
             logger.exception('DOC thumbnail render failed for asset %s: %s', asset_id, e)
             return False
@@ -132,13 +138,23 @@ def schedule_thumbnail(asset_id: int) -> None:
     t.start()
 
 
-# In-process de-dupe set for lazy `ensure_thumbnail` calls. Without this, a
-# dashboard page with 20 DOC questions would queue 20 Word sessions back to
-# back (serialised through the global lock anyway, but still wasteful). Once
-# a render is in flight or finished, the same `asset_id` is skipped until
-# the process restarts.
+# In-process de-dupe + retry-backoff for lazy `ensure_thumbnail` calls.
+#
+# `_INFLIGHT` tracks asset_ids whose render thread is currently running so
+# we don't queue duplicates from a single dashboard page load (20 cards
+# resolving the same DOC slot would otherwise spawn 20 background threads
+# all competing for the Word lock).
+#
+# `_LAST_ATTEMPT` records the timestamp of the most recent attempt per
+# asset. A re-attempt within `_RETRY_COOLDOWN_S` is skipped — but once
+# the cooldown elapses we DO retry, so a transient failure (Word hang,
+# bad source, etc.) doesn't permanently mark an asset as broken until
+# the process is restarted (the old behaviour, which caused 404-forever
+# loops in the frontend poller).
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: set[int] = set()
+_LAST_ATTEMPT: dict[int, float] = {}
+_RETRY_COOLDOWN_S = 5.0
 
 
 def ensure_thumbnail(asset_id: int) -> bool:
@@ -146,25 +162,33 @@ def ensure_thumbnail(asset_id: int) -> bool:
     Lazy thumbnail ensurer for the preview / viewer paths.
 
     Returns True if a cached thumbnail is already on disk (the caller can
-    serve it immediately). Returns False if no thumbnail exists yet; in that
-    case a render is scheduled in the background and the caller should
-    fall back to the existing download stub. The thumbnail will appear on
-    the next refresh.
+    serve it immediately). Returns False if no thumbnail exists yet; in
+    that case a render is scheduled in the background and the caller
+    should fall back to the existing download stub. The thumbnail will
+    appear on the next refresh.
 
-    Idempotent: a second call for the same `asset_id` while a render is in
-    flight (or after one completed in this process) is a no-op.
+    Idempotent within a short window: a second call within
+    `_RETRY_COOLDOWN_S` (or while the previous attempt is still in flight)
+    is a no-op. Calls beyond the cooldown will retry — so a transient
+    failure recovers automatically the next time someone views the asset.
     """
+    import time as _time
+
     if thumbnail_exists(asset_id):
         return True
 
     if not word_com.IS_AVAILABLE:
         return False
 
-    # Avoid scheduling the same asset multiple times.
+    now = _time.time()
     with _INFLIGHT_LOCK:
         if asset_id in _INFLIGHT:
             return False
+        last = _LAST_ATTEMPT.get(asset_id)
+        if last is not None and (now - last) < _RETRY_COOLDOWN_S:
+            return False
         _INFLIGHT.add(asset_id)
+        _LAST_ATTEMPT[asset_id] = now
 
     app = current_app._get_current_object()
 
@@ -173,14 +197,54 @@ def ensure_thumbnail(asset_id: int) -> bool:
             render_doc_thumbnail_sync(app, asset_id)
         except Exception:
             logger.exception('DOC thumbnail worker crashed (asset %s)', asset_id)
-        # NOTE: intentionally do NOT remove from _INFLIGHT on success — leave
-        # the entry as a "we tried, don't retry this session" marker. On
-        # failure we also leave it so we don't hammer Word on broken files.
-        # Restart the process to retry.
+        finally:
+            # Always clear the in-flight marker so the next ensure() call
+            # past the cooldown can retry. Without this, a single failure
+            # marks the asset as stuck until process restart.
+            with _INFLIGHT_LOCK:
+                _INFLIGHT.discard(asset_id)
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
     return False
+
+
+def force_rerender(asset_id: int) -> bool:
+    """
+    Delete any cached PNG for `asset_id` and schedule a fresh render
+    immediately, bypassing the cooldown check. Intended for the
+    per-preview "Re-render" button.
+
+    Returns True when a render was actually scheduled (Word available);
+    False otherwise (e.g. Word COM not available — caller should show
+    an error toast).
+    """
+    delete_thumbnail(asset_id)
+    if not word_com.IS_AVAILABLE:
+        return False
+
+    with _INFLIGHT_LOCK:
+        if asset_id in _INFLIGHT:
+            # Already rendering — caller can just start polling.
+            return True
+        _INFLIGHT.add(asset_id)
+        # Reset cooldown so a follow-up ensure_thumbnail call works too.
+        _LAST_ATTEMPT.pop(asset_id, None)
+
+    app = current_app._get_current_object()
+
+    def _worker():
+        try:
+            render_doc_thumbnail_sync(app, asset_id)
+        except Exception:
+            logger.exception('DOC thumbnail worker crashed (asset %s)', asset_id)
+        finally:
+            with _INFLIGHT_LOCK:
+                _INFLIGHT.discard(asset_id)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return True
 
 
 # ---------------------------------------------------------------------------

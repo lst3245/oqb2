@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings - Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .setting-row { padding: 0.75rem 0; border-bottom: 1px solid #f1f1f1; }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { font-weight: 600; }
+    .setting-help { font-size: 0.85rem; color: #6c757d; margin-top: 0.25rem; }
+    .setting-meta { font-size: 0.75rem; color: #adb5bd; margin-top: 0.25rem; }
+    .setting-overridden .form-control,
+    .setting-overridden .form-select { border-color: #ffc107; }
+    .setting-dirty { background-color: #fff8e1; }
+    .badge-override { background-color: #ffc107; color: #212529; font-size: 0.7rem; }
+    .badge-default { background-color: #6c757d; font-size: 0.7rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-sliders"></i> System Settings</h2>
+        <div>
+            <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Admin
+            </a>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i>
+        Settings persist in the database and override the <code>.env</code> bootstrap. Changes apply immediately to the running server &mdash; no restart needed. Secrets (DB credentials, paths, <code>PANDOC_PATH</code>, etc.) intentionally stay in <code>.env</code> and are not editable here.
+    </div>
+
+    <div id="settingsContainer">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading settings...</p>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mt-3 mb-5" id="actionBar" style="display: none !important;">
+        <button class="btn btn-outline-secondary" onclick="reloadSettings()">
+            <i class="bi bi-arrow-clockwise"></i> Reload
+        </button>
+        <button class="btn btn-primary" id="saveBtn" onclick="saveAllDirty()" disabled>
+            <i class="bi bi-floppy"></i> Save changes
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Global state — `serverData` is the most recent /settings/data response;
+// `dirty` tracks which keys the user has edited but not yet saved.
+let serverData = null;
+const dirty = new Set();
+
+document.addEventListener('DOMContentLoaded', reloadSettings);
+
+function reloadSettings() {
+    document.getElementById('settingsContainer').innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading settings...</p>
+        </div>`;
+    document.getElementById('actionBar').style.display = 'none';
+    dirty.clear();
+
+    fetch('{{ url_for("admin.settings_data") }}')
+        .then(r => r.json())
+        .then(data => {
+            serverData = data;
+            renderSettings();
+            document.getElementById('actionBar').style.display = '';
+            updateSaveBtn();
+        })
+        .catch(err => {
+            document.getElementById('settingsContainer').innerHTML =
+                `<div class="alert alert-danger">Failed to load settings: ${err.message}</div>`;
+        });
+}
+
+function renderSettings() {
+    const container = document.getElementById('settingsContainer');
+    const { groups, registry } = serverData;
+    const html = groups.map(group => {
+        // Filter registry entries belonging to this group, preserve REGISTRY order
+        // by iterating the response's keys (the server emits them in declaration order).
+        const keysInGroup = Object.keys(registry).filter(k => registry[k].group === group);
+        if (keysInGroup.length === 0) return '';
+        const rows = keysInGroup.map(k => renderRow(registry[k])).join('');
+        return `
+            <div class="card mb-3">
+                <div class="card-header bg-light"><strong>${escapeHtml(group)}</strong></div>
+                <div class="card-body py-2">${rows}</div>
+            </div>`;
+    }).join('');
+    container.innerHTML = html;
+
+    // Initialise switches (Bootstrap renders them via .form-check classes)
+}
+
+function renderRow(spec) {
+    const overrideBadge = spec.has_override
+        ? `<span class="badge badge-override ms-2">DB override</span>`
+        : `<span class="badge badge-default ms-2">.env default</span>`;
+    const resetLink = spec.has_override
+        ? `<a href="#" class="ms-2 small text-decoration-none" onclick="resetSetting('${spec.key}'); return false;"><i class="bi bi-arrow-counterclockwise"></i> Reset to .env default</a>`
+        : '';
+
+    let input = '';
+    const dataKey = `data-key="${escapeHtml(spec.key)}"`;
+    const overriddenClass = spec.has_override ? 'setting-overridden' : '';
+    if (spec.type === 'bool') {
+        const checked = spec.value ? 'checked' : '';
+        input = `
+            <div class="form-check form-switch ${overriddenClass}">
+                <input class="form-check-input" type="checkbox" id="cb_${spec.key}" ${dataKey} ${checked}
+                       onchange="markDirty('${spec.key}')">
+                <label class="form-check-label" for="cb_${spec.key}">Enabled</label>
+            </div>`;
+    } else if (spec.type === 'int' || spec.type === 'float') {
+        const step = spec.type === 'int' ? '1' : 'any';
+        const min = spec.min !== null && spec.min !== undefined ? `min="${spec.min}"` : '';
+        const max = spec.max !== null && spec.max !== undefined ? `max="${spec.max}"` : '';
+        input = `
+            <input type="number" class="form-control form-control-sm ${overriddenClass}" style="max-width: 220px;"
+                   ${dataKey} value="${spec.value ?? ''}" step="${step}" ${min} ${max}
+                   oninput="markDirty('${spec.key}')">`;
+    } else {
+        // string
+        input = `
+            <input type="text" class="form-control form-control-sm ${overriddenClass}" style="max-width: 360px;"
+                   ${dataKey} value="${escapeAttr(spec.value ?? '')}"
+                   oninput="markDirty('${spec.key}')">`;
+    }
+
+    const rangeNote = (spec.min !== null && spec.min !== undefined) || (spec.max !== null && spec.max !== undefined)
+        ? `range: ${spec.min ?? '−∞'}..${spec.max ?? '+∞'}`
+        : `type: ${spec.type}`;
+
+    return `
+        <div class="setting-row" id="row_${spec.key}">
+            <div class="setting-label">
+                ${escapeHtml(spec.label)}
+                ${overrideBadge}
+                ${resetLink}
+            </div>
+            <div class="mt-1">${input}</div>
+            <div class="setting-help">${escapeHtml(spec.help || '')}</div>
+            <div class="setting-meta">
+                <code>${escapeHtml(spec.key)}</code> &middot; ${rangeNote}
+                &middot; default: <code>${escapeHtml(String(spec.default ?? 'unset'))}</code>
+            </div>
+        </div>`;
+}
+
+function markDirty(key) {
+    dirty.add(key);
+    const row = document.getElementById(`row_${key}`);
+    if (row) row.classList.add('setting-dirty');
+    updateSaveBtn();
+}
+
+function updateSaveBtn() {
+    const btn = document.getElementById('saveBtn');
+    if (!btn) return;
+    btn.disabled = dirty.size === 0;
+    btn.innerHTML = dirty.size === 0
+        ? '<i class="bi bi-floppy"></i> Save changes'
+        : `<i class="bi bi-floppy"></i> Save ${dirty.size} change${dirty.size === 1 ? '' : 's'}`;
+}
+
+function readInputValue(key) {
+    const el = document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) return null;
+    const spec = serverData.registry[key];
+    if (spec.type === 'bool') return el.checked;
+    if (spec.type === 'int') return el.value === '' ? null : parseInt(el.value, 10);
+    if (spec.type === 'float') return el.value === '' ? null : parseFloat(el.value);
+    return el.value;
+}
+
+function saveAllDirty() {
+    if (dirty.size === 0) return;
+    const payload = {};
+    dirty.forEach(k => { payload[k] = readInputValue(k); });
+
+    const btn = document.getElementById('saveBtn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+
+    fetch('{{ url_for("admin.settings_save") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    })
+        .then(r => r.json())
+        .then(data => {
+            const savedKeys = data.saved || [];
+            const errors = data.errors || {};
+
+            savedKeys.forEach(k => {
+                dirty.delete(k);
+                if (serverData.registry[k]) {
+                    serverData.registry[k].value = data.values[k];
+                    serverData.registry[k].has_override = true;
+                }
+                const row = document.getElementById(`row_${k}`);
+                if (row) row.classList.remove('setting-dirty');
+            });
+
+            Object.entries(errors).forEach(([k, msg]) => {
+                const row = document.getElementById(`row_${k}`);
+                if (row) {
+                    row.classList.add('setting-dirty');
+                    let err = row.querySelector('.setting-error');
+                    if (!err) {
+                        err = document.createElement('div');
+                        err.className = 'setting-error text-danger small mt-1';
+                        row.appendChild(err);
+                    }
+                    err.textContent = `Save failed: ${msg}`;
+                }
+            });
+
+            // Re-render to reflect override badges / reset links.
+            renderSettings();
+            updateSaveBtn();
+
+            if (Object.keys(errors).length === 0) {
+                showToast('All changes saved.', 'success');
+            } else {
+                showToast(`Saved ${savedKeys.length}; ${Object.keys(errors).length} failed (see fields).`, 'warning');
+            }
+        })
+        .catch(err => {
+            showToast('Network error: ' + err.message, 'danger');
+        })
+        .finally(() => {
+            btn.innerHTML = orig;
+            updateSaveBtn();
+        });
+}
+
+function resetSetting(key) {
+    if (!confirm(`Reset ${key} to its .env / Config default? The DB override will be deleted.`)) return;
+    fetch(`{{ url_for("admin.settings_reset", key="__KEY__") }}`.replace('__KEY__', encodeURIComponent(key)), {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast('Reset failed: ' + data.error, 'danger'); return; }
+            if (serverData.registry[key]) {
+                serverData.registry[key].value = data.value;
+                serverData.registry[key].has_override = false;
+            }
+            dirty.delete(key);
+            renderSettings();
+            updateSaveBtn();
+            showToast(`Reset ${key} to default.`, 'success');
+        })
+        .catch(err => showToast('Network error: ' + err.message, 'danger'));
+}
+
+function showToast(msg, level) {
+    // Simple top-right alert toast — replaces a Bootstrap toast since we
+    // don't want to wire up the toast container just for this.
+    const div = document.createElement('div');
+    div.className = `alert alert-${level} position-fixed`;
+    div.style.cssText = 'top: 70px; right: 20px; z-index: 9999; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+    div.textContent = msg;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+
+function escapeAttr(s) {
+    return escapeHtml(s).replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}

@@ -53,3 +53,13 @@ class Config:
     )
     # Thumbnail render width in pixels (~A4 page width at 96 DPI).
     DOC_THUMBNAIL_WIDTH = int(os.getenv('DOC_THUMBNAIL_WIDTH', '1000'))
+
+    # Thumbnail post-processing — runtime-tunable via the Admin → System
+    # Settings page; the values below are .env bootstrap defaults only.
+    THUMBNAIL_TRANSPARENT = os.getenv('THUMBNAIL_TRANSPARENT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    THUMBNAIL_WHITENESS_THRESHOLD = int(os.getenv('THUMBNAIL_WHITENESS_THRESHOLD', '250'))
+    THUMBNAIL_BOTTOM_PADDING_PX = int(os.getenv('THUMBNAIL_BOTTOM_PADDING_PX', '24'))
+
+    # Batch IMG generation defaults — runtime-tunable via System Settings.
+    BATCH_IMG_DEFAULT_WIDTH = int(os.getenv('BATCH_IMG_DEFAULT_WIDTH', '1500'))
+    BATCH_IMG_DEFAULT_STITCH = os.getenv('BATCH_IMG_DEFAULT_STITCH', '1').strip().lower() in ('1', 'true', 'yes', 'on')

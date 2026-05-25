@@ -3504,18 +3504,34 @@ function previewAsset(questionId, assetType) {
                 // + a prominent download link for the original .docx (which keeps
                 // MathType / embedded OLE objects fully intact).
                 const fname = data.filename || '';
+                const aid = data.asset_id || '';
+                const qid = data.question_id || '';
+                const canRerender = (window.OQB_IS_ADMIN && aid && qid);
+                const rerenderBtn = canRerender
+                    ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                              title="Re-render thumbnail"
+                              onclick="oqbRerenderThumb(${qid}, ${aid}, this); return false;">
+                         <i class="bi bi-arrow-clockwise"></i> Re-render
+                       </button>`
+                    : '';
                 modalBody.innerHTML = `
-                    <div class="p-2 text-start">
+                    <div class="p-2 text-start" data-doc-thumb-container>
                         <img src="${data.thumbnail_url}" alt="${assetType} preview"
-                             class="preview-modal-img" style="display:block; max-width:100%; margin-bottom:12px;">
-                        <div class="d-flex align-items-center justify-content-between">
+                             class="preview-modal-img oqb-doc-thumb"
+                             ${aid ? `data-doc-asset-id="${aid}"` : ''}
+                             ${qid ? `data-doc-question-id="${qid}"` : ''}
+                             style="display:block; max-width:100%; margin-bottom:12px;">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                             <span class="text-muted small">
                                 <i class="bi bi-info-circle"></i>
                                 First-page preview (rendered server-side). Download for full fidelity.
                             </span>
-                            <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-primary">
-                                <i class="bi bi-download"></i> Download ${fname}
-                            </a>
+                            <div>
+                                <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-download"></i> Download ${fname}
+                                </a>
+                                ${rerenderBtn}
+                            </div>
                         </div>
                     </div>`;
             } else if (data.mode === 'download') {
@@ -3523,6 +3539,7 @@ function previewAsset(questionId, assetType) {
                     <div class="p-4" id="docPreviewPendingBody"
                          ${data.format === 'DOC' && data.asset_id ? `
                          data-doc-pending-id="${data.asset_id}"
+                         data-doc-pending-question-id="${data.question_id || ''}"
                          data-doc-pending-filename="${data.filename || ''}"
                          data-doc-pending-downloadurl="${data.url || ''}"` : ''}>
                         <i class="bi bi-file-earmark-word display-3 text-primary"></i>

@@ -93,17 +93,57 @@ The Database Health page exposes these as **Backfill Missing**, **Force Re-rende
 - After changing `DOC_THUMBNAIL_WIDTH` or the cropping logic (renders are not invalidated by width or by code changes — use **Force Re-render All** to apply).
 - Reclaiming disk space — **Delete All** is the simplest path; the lazy resolver re-creates PNGs on demand when users next view the DOC.
 
-## Whitespace cropping
+## Whitespace cropping + transparency
 
 `_save_cropped_png()` in `app/word_com.py` is what writes the final PNG. It:
 
 1. Converts the PyMuPDF Pixmap to a PIL RGB Image.
-2. Diffs against a near-white reference image (threshold 250) using `ImageChops.subtract(ref, ImageChops.darker(img, ref))` — antialiased grey pixels still register as content.
+2. Diffs against a near-white reference image (`THUMBNAIL_WHITENESS_THRESHOLD`, default 250) using `ImageChops.subtract(ref, ImageChops.darker(img, ref))` — antialiased grey pixels still register as content.
 3. `darkness.getbbox()` returns the smallest rectangle that bounds all non-white pixels.
-4. Crops the original image to the FULL width but `bbox.bottom + 24px` height. Full width keeps card columns uniform; cropping the tail removes blank A4 space.
-5. Falls back to the un-cropped image if anything in steps 1–4 raises (so the user always gets a thumbnail).
+4. Crops to that bbox **expanded by `THUMBNAIL_BOTTOM_PADDING_PX` of margin on all four sides** (clamped to image bounds). So a one-line question yields a tight thumbnail (~292×65 px) rather than a full-A4-width strip with leading whitespace.
+5. **If `THUMBNAIL_TRANSPARENT` is True**, converts to RGBA and sets `alpha = 255 − luminance` (via `ImageOps.invert(L-mode image)`). White → fully transparent, antialiased grey → semi-transparent, black → fully opaque. Standard "save as transparent PNG" trick — no per-pixel Python loop, smooth edges. `optimize=` is skipped for RGBA writes because it can be slow on large transparent PNGs.
+6. Writes to `<png_path>.tmp` first, then `os.replace`s into place — atomic from a reader's perspective, so a concurrent dashboard request never sees a half-written file.
+7. Falls back to the un-cropped pixmap if anything in steps 1–6 raises (so the user always gets a thumbnail). All failure paths log via `logger.exception`.
 
-Pure-white pages get a 200 px-high blank thumbnail so the resolver doesn't loop forever waiting for "real" content.
+Pure-white pages get a 400×200 px blank thumbnail so the resolver doesn't loop forever waiting for "real" content.
+
+`render_first_page_png(..., transparent=, whiteness_threshold=, bottom_padding_px=)` accepts explicit overrides. When any of those is `None`, the value is pulled from `current_app.config[...]` (with module-level literal fallback for unit tests with no Flask context). The three keys are exposed in the **Admin → System Settings** page; see [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc).
+
+## Re-render a single thumbnail on demand
+
+`POST /admin/questions/<qid>/assets/<aid>/rerender-thumb` (subject-admin) deletes the cached PNG for `aid` and calls `doc_thumbnails.force_rerender(asset_id)`, which bypasses the lazy-render cooldown and schedules an immediate background render.
+
+Every rendered DOC thumbnail in the dashboard cards / preview modal / inline preview helper shows a small `bi-arrow-clockwise` button (admins only — gated on `window.OQB_IS_ADMIN`). The button is wired to `window.oqbRerenderThumb(questionId, assetId, triggerEl)` in `base.html`, which:
+
+1. POSTs to the rerender endpoint.
+2. Replaces the container's `innerHTML` with a "Re-rendering preview..." placeholder, setting `data-doc-pending-id` / `-question-id` / `-filename` / `-downloadurl` so the standard live-poller picks it up.
+3. Drops `data-doc-poller-active` so the dedup marker doesn't block the new poll.
+4. Calls `window.oqbPollDocThumbnails(container.parentNode || container)` which detects the new pending node and starts probing the PNG URL.
+
+The viewer (Present Mode) intentionally does NOT show the rerender button — it doesn't extend `base.html`, so the helper isn't available there. Users can rerender from the dashboard or modal instead.
+
+## Scheduler retry-backoff
+
+`doc_thumbnails.ensure_thumbnail(asset_id)` uses an `_INFLIGHT` set + `_LAST_ATTEMPT` map to dedupe lazy renders. Key invariants:
+
+- `_INFLIGHT` is cleared in a `finally` block after every render attempt — a transient failure does NOT permanently mark an asset as broken. (Earlier versions held the asset id forever, which caused the frontend poller to 404-loop.)
+- `_LAST_ATTEMPT[id]` records the wall-clock time of the most recent attempt. A subsequent `ensure_thumbnail(id)` within `_RETRY_COOLDOWN_S` (default 5 s) is a no-op; calls beyond that retry.
+- The per-preview "Re-render" button calls `force_rerender(id)` instead, which bypasses the cooldown.
+
+Frontend poll budget: `_OQB_THUMB_MAX_ATTEMPTS = 60` × `_OQB_THUMB_INTERVAL_MS = 3 s` ≈ 3 minutes. Generous because a server-side Word render can block on the global lock while another generation is in progress.
+
+## Batch IMG generation (DOC/MD → IMG)
+
+`app/batch_image_gen.py` ships the bulk "Generate IMG from DOC/MD" feature on the Question Management page. Pipeline:
+
+```
+DOC source → sanitize_docx_for_insertion → Word.ExportAsFixedFormat → PDF → PyMuPDF rasterise N pages → Pillow crop + transparency → stitch (or N parts) → replace IMG asset(s)
+MD  source → md_to_docx_via_pandoc (in app/generator.py) → same Word path
+```
+
+Reuses every primitive from the thumbnail pipeline (cropping, transparency, sanitisation, Word session lock). Replacement is atomic: temp files write → delete old IMG rows + files → rename temps into place → insert new rows + commit → fire `doc_thumbnails.on_img_asset_created` to clear any eclipsed DOC thumbnail.
+
+SSE endpoint: `GET /admin/questions/batch-generate-images` — see [admin-panel.mdc](mdc:.cursor/rules/admin-panel.mdc) for parameters.
 
 ## Live-fetch the rendered PNG (frontend polling)
 

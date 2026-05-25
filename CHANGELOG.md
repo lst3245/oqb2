@@ -6,6 +6,55 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Admin → System Settings (DB-backed, hot-reload)
+
+- New super-admin page **Admin → System Settings** for tweaking runtime preferences without editing `.env` or restarting the server.
+- New DB table `system_settings` (`key`, `value` JSON, `updated_at`, `updated_by`); rows store **DB overrides** of the `.env` / `Config` bootstrap default. When no row exists for a key, the bootstrap value applies.
+- New module [`app/settings.py`](app/settings.py) hosts the **registry** of all tunables (type / default / label / group / validator) plus `load_all`, `get`, `set_value`, `reset`, and `as_dict` helpers. `load_all` is invoked from `create_app()` so DB values mirror into `app.config` at startup. Saves and resets hot-update `app.config` immediately — no restart needed.
+- Initial registry covers Dashboard (`QUESTIONS_PER_PAGE`), Markdown (`MD_MAX_SIZE_BYTES`), Word COM (`WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT`), Thumbnails (`DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX`), and Batch IMG (`BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH`).
+- Secrets and paths (`SECRET_KEY`, DB credentials, `SOURCE_PATH`, `OUTPUT_PATH`, `PANDOC_PATH`, `DOC_THUMBNAIL_PATH`) intentionally remain `.env`-only.
+- API routes: `GET /admin/settings` (page), `GET /admin/settings/data` (registry + current values), `POST /admin/settings/save` (validates per-key + upserts), `POST /admin/settings/reset/<key>` (drops the DB override, restores the bootstrap default).
+- New rule file [`.cursor/rules/system-settings.mdc`](.cursor/rules/system-settings.mdc) documents the registry pattern, hot-reload semantics, and `.env` vs DB precedence.
+
+#### Transparent PNG thumbnails — `THUMBNAIL_TRANSPARENT` setting
+
+- New post-processing pass in `_save_cropped_png` (in [`app/word_com.py`](app/word_com.py)) — when enabled, the rendered DOC thumbnail's white page background becomes transparent. Antialiased text edges are preserved via a luminance-based alpha mask (`alpha = 255 − luminance`), so the result looks clean against any backdrop without dark halos.
+- Driven from the new **System Settings → Thumbnails → Transparent background** toggle. Defaults to off so existing installs keep their current look.
+- The whiteness threshold and bottom padding used by the cropping pass are also surfaced as settings (`THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX`) and read live from `current_app.config`.
+- After flipping any of these settings, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply them to the existing cache.
+
+#### Crop whitespace on every side (not just the bottom)
+
+- `_save_cropped_png` now expands its bbox crop by `THUMBNAIL_BOTTOM_PADDING_PX` of margin on **all four sides** (clamped to image bounds). Previously the crop was width-preserving and only trimmed the bottom; now a short one-line question yields a tight thumbnail (~292×65 px) instead of a full-width strip with leading whitespace. The batch IMG generation pipeline applies the same logic in `_pdf_to_cropped_images`.
+
+#### Per-preview "Re-render thumbnail" button
+
+- Every rendered DOC thumbnail in the dashboard cards, the preview modal, and the inline preview helper now shows a small `bi-arrow-clockwise` button next to the download link. One click POSTs to the new `/admin/questions/<qid>/assets/<aid>/rerender-thumb` endpoint (subject-admin permission), which deletes the cached PNG and schedules a fresh render. The frontend swaps the thumbnail for a "rendering..." placeholder and starts the standard live-poller so the new PNG appears in place without a refresh.
+- The button is hidden for non-admin users (gated on a new `window.OQB_IS_ADMIN` flag emitted in `base.html`).
+
+#### Thumbnail scheduler retry-backoff (fixes "stuck at rendering…" loop)
+
+- `doc_thumbnails.ensure_thumbnail` previously cached the `asset_id` in a one-shot `_INFLIGHT` set with no clear path. A failed or hung render left the asset stuck — every subsequent dashboard hit returned `mode='download'` with no fresh render, so the JS poller looped forever returning 404. Now `_INFLIGHT` is cleared in a `finally` block after every attempt, and a per-asset 5-second cooldown prevents hammering Word on a broken file. Bonus: a new `force_rerender(asset_id)` helper backs the per-preview button by bypassing the cooldown for an explicit user-driven re-render.
+- The frontend poll budget bumped from 20 attempts × 3 s ≈ 60 s to 60 × 3 s ≈ 3 minutes — generous enough that a Word lock contention won't time out the placeholder before the render lands.
+- Cropped PNGs are now written to a `.tmp` sibling and `os.replace`d into place, so a concurrent reader never sees a half-written file.
+
+#### Question Management → bulk Generate IMG from DOC/MD source
+
+- New **Generate IMG** button in the Question Management bulk-action bar (next to **Delete Selected**), visible whenever ≥ 1 question is checked. Opens a configurable modal that drives a server-side SSE batch render.
+- Per-batch options: asset types (QUE / ANS / SOL), languages (EN / CH / BI), source formats (DOC preferred → MD fallback), multi-page mode (stitch into one tall PNG vs. one PNG per page), overwrite existing IMG (default on), render width (px), and apply transparency.
+- Backend pipeline lives in new module [`app/batch_image_gen.py`](app/batch_image_gen.py): `render_doc_to_pages` (DOC → Word COM → PDF → PyMuPDF + Pillow crop), `render_md_to_pages` (MD → pandoc → DOCX → same Word COM path), `stitch_vertically` (paste pages onto one canvas), and `replace_img_assets` (atomic delete-existing + write-new + insert-rows + DOC-thumbnail cleanup).
+- SSE endpoint `GET /admin/questions/batch-generate-images` streams `info | skip | success | error | done` events with current/total counters; permission-filters to questions the caller can admin; single Word session per batch (Word lock serialises with other Word jobs as usual).
+- After completion the modal auto-refreshes the question list so freshly-generated IMG previews show up. MathType OLE objects in the source DOCX render as native rasterised content in the output PNG (the Word→PDF→PyMuPDF path preserves the visual exactly).
+
+### 🗄️ Database Changes
+
+- New table `system_settings` (key PK / value Text / updated_at / updated_by FK). Auto-created by `create_app()` on startup if missing — no need to re-run `init_db.py`. The migration is additive; existing rows are untouched.
+
+### 🔧 Technical Improvements
+
+- Refactored MD-to-DOCX conversion in [`app/generator.py`](app/generator.py) into a shared `md_to_docx_via_pandoc(md_path, out_docx_path)` helper plus `_resolve_pandoc_binary()`. `_append_md_via_pandoc` (existing docx generation path) and `batch_image_gen.render_md_to_pages` (new batch IMG path) both reuse it.
+- `render_first_page_png` now takes optional `transparent / whiteness_threshold / bottom_padding_px` kwargs and falls back to `current_app.config` values when called without explicit overrides — so DOC thumbnail rendering and batch IMG generation share one set of tunables.
+
 #### DOCX source files — native merging via Microsoft Word + first-page thumbnails
 
 `QuestionAsset.file_format='DOC'` is now first-class for generation. Previously a `.docx` source asset rendered as a placeholder line (`[Word document: ...]`) in the output; now it is **merged natively** so MathType OLE objects, embedded images, drawings, native tables, and fonts come through unchanged.

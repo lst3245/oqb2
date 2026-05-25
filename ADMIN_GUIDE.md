@@ -17,9 +17,10 @@
 9. [Export & Import](#9-export--import)
 10. [Database Health & Sync](#10-database-health--sync)
 11. [File Browser](#11-file-browser)
-12. [Backup & Recovery](#12-backup--recovery)
-13. [Production Deployment](#13-production-deployment)
-14. [Troubleshooting](#14-troubleshooting)
+12. [System Settings](#12-system-settings-super-admin)
+13. [Backup & Recovery](#13-backup--recovery)
+14. [Production Deployment](#14-production-deployment)
+15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -197,6 +198,14 @@ Rules:
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
 - **Batch Update** — choose which fields to update (level, type, section, topics, correct %) and set their values. Only ticked fields are changed.
 - **Batch Delete** — permanently removes questions and their assets from DB and disk. Requires typing `DELETE` to confirm.
+- **Generate IMG from DOC/MD** — bulk-renders the DOC/MD source assets of the selected questions into PNG IMG assets via Microsoft Word. Modal options: asset types (QUE/ANS/SOL), languages, source format preference (DOC > MD), one tall PNG per slot **or** one PNG per source page, overwrite existing IMG, render width (px), transparent background. Streams progress live; refresh-free.
+
+  **Use cases:**
+  - Convert a question library authored in Word to flat images (e.g. for export to a system that can't read DOCX).
+  - Replace stale 3-part IMG scans with a single high-fidelity image rendered from the updated DOCX source.
+  - Bake the current rendering of an MD question (with pandoc-converted equations) into a plain PNG snapshot.
+
+  **Notes:** Requires Microsoft Word on the server (same path as DOC thumbnails / PDF output). Word is run once per question with the global lock serialising other Word jobs — a 100-question batch takes 2–5 minutes. The output PNG preserves MathType OLE objects, embedded images, and native tables because the path is Word → PDF → PyMuPDF rasterisation. Resolution defaults to the **System Settings → Batch IMG Generation → Default render width** value (default 1500 px).
 
 ### Creating a Question Manually
 Click **Add Question** → 3-step wizard:
@@ -384,7 +393,42 @@ Provides a web interface to browse, upload, download, rename, delete files and c
 
 ---
 
-## 12. Backup & Recovery
+## 12. System Settings (Super Admin)
+
+Navigate to **Admin → System Settings**.
+
+A DB-backed page for runtime tunables. Changes apply immediately to the running server — **no restart needed**. Settings persist in the `system_settings` table and override the `.env` / `Config` bootstrap default. Reset any single setting back to its `.env` default with the per-row "Reset to .env default" link.
+
+### Categories
+
+| Group | Keys | Notes |
+|---|---|---|
+| Dashboard | `QUESTIONS_PER_PAGE` | Default page size for question lists (users can still override per session). |
+| Markdown | `MD_MAX_SIZE_BYTES` | Hard cap on individual `.md` asset uploads. |
+| Word COM | `WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT` | Per-job watchdog / global-lock wait. |
+| Thumbnails | `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX` | Apply to new renders only — after changing, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply to existing cache. |
+| Batch IMG Generation | `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` | Pre-fill the **Generate IMG** modal in Question Management. |
+
+### Settings that stay in `.env`
+
+Secrets and infrastructure paths are intentionally NOT exposed here:
+
+- `SECRET_KEY`
+- DB credentials (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`)
+- `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
+- `PANDOC_PATH`
+
+Edit these in `.env` and restart the server.
+
+### Tips
+
+- After flipping **THUMBNAIL_TRANSPARENT** on/off, the existing cached PNGs still use the old setting. Run **Force Re-render All** in DB Health to apply.
+- **WORD_COM_LOCK_TIMEOUT** governs how long an incoming generation will wait if another Word job is in progress. Raise it for large batch generations; lower it for snappier UX.
+- **MD_MAX_SIZE_BYTES** is enforced on upload. Existing oversized MD assets remain readable.
+
+---
+
+## 13. Backup & Recovery
 
 ### Database Backup
 ```bash
@@ -405,7 +449,7 @@ python cli.py ingest
 
 ---
 
-## 13. Production Deployment
+## 14. Production Deployment
 
 ### Security Checklist
 - [ ] Change default `admin` password
@@ -440,7 +484,7 @@ location / {
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|

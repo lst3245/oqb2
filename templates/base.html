@@ -581,17 +581,16 @@
                                 `<img src="${p.url}" alt="" style="display:block; margin-bottom:2px;">`
                             ).join('');
                         } else if (data && data.mode === 'thumbnail') {
-                            // Server-rendered first-page PNG of a DOC asset, plus a
-                            // small download link to the original .docx so the user
-                            // can grab MathType / embedded objects exactly.
-                            const fname = data.filename || 'Word document';
-                            const dl = data.download_url || '#';
-                            card.innerHTML =
-                                `<img src="${data.thumbnail_url}" alt="" style="display:block; max-width:100%; margin-bottom:4px;">` +
-                                `<div class="text-muted small">` +
-                                `<i class="bi bi-file-earmark-word"></i> ${fname} ` +
-                                `<a href="${dl}" target="_blank" class="ms-1">download .docx</a>` +
-                                `</div>`;
+                            // Server-rendered first-page PNG of a DOC asset.
+                            // Reuse the shared builder so the per-preview
+                            // "Re-render" button is present for admins.
+                            card.innerHTML = _oqbBuildThumbHtml(
+                                data.thumbnail_url,
+                                data.filename,
+                                data.download_url,
+                                data.asset_id,
+                                data.question_id,
+                            );
                         } else if (data && data.mode === 'download') {
                             // DOC asset whose first-page PNG isn't on disk yet.
                             // Render the placeholder + start polling the
@@ -601,6 +600,9 @@
                                 card.setAttribute('data-doc-pending-id', String(data.asset_id));
                                 card.setAttribute('data-doc-pending-filename', data.filename || '');
                                 card.setAttribute('data-doc-pending-downloadurl', data.url || '');
+                                if (data.question_id) {
+                                    card.setAttribute('data-doc-pending-question-id', String(data.question_id));
+                                }
                                 if (window.oqbPollDocThumbnails) window.oqbPollDocThumbnails(card.parentNode || card);
                             }
                         } else {
@@ -634,22 +636,115 @@
         // Call window.oqbPollDocThumbnails(root) after rendering. Dedup
         // happens via a `data-doc-poller-active` marker on the element
         // itself so a second scan over the same tree is a no-op.
-        const _OQB_THUMB_MAX_ATTEMPTS = 20;     // 20 × 3s ≈ 60s budget
+        //
+        // Budget: 60 attempts × 3s = 3 minutes. Generous because a
+        // server-side Word render can block on the global lock if other
+        // generations are in progress; we'd rather wait than time out
+        // and leave a "rendering..." placeholder for the user.
+        const _OQB_THUMB_MAX_ATTEMPTS = 60;
         const _OQB_THUMB_INTERVAL_MS = 3000;
 
-        function _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl) {
+        // True when the current user is an admin (any subject). Set by
+        // base.html below using a Jinja conditional. Used to show/hide the
+        // per-preview "Re-render" buttons.
+        window.OQB_IS_ADMIN = {{ 'true' if current_user.is_authenticated and (current_user.is_super_admin or current_user.has_any_admin_access()) else 'false' }};
+
+        function _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId) {
             const fname = filename ? filename.replace(/[<>&"']/g, '') : 'Word document';
             const dl = downloadUrl || '#';
+            const aid = assetId || '';
+            const qid = questionId || '';
+            const rerenderBtn = (aid && qid && window.OQB_IS_ADMIN)
+                ? '<button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" ' +
+                    'title="Re-render thumbnail" ' +
+                    'onclick="oqbRerenderThumb(' + qid + ',' + aid + ', this); return false;">' +
+                    '<i class="bi bi-arrow-clockwise"></i></button>'
+                : '';
             return (
-                '<img src="' + thumbUrl + '" class="question-image" ' +
+                '<img src="' + thumbUrl + '" class="question-image oqb-doc-thumb" ' +
                   'style="display:block; margin-bottom:4px; max-width:100%;" ' +
-                  'alt="QUE preview">' +
+                  'alt="QUE preview" ' +
+                  (aid ? 'data-doc-asset-id="' + aid + '" ' : '') +
+                  (qid ? 'data-doc-question-id="' + qid + '" ' : '') +
+                '>' +
                 '<div class="text-muted small">' +
                   '<i class="bi bi-file-earmark-word"></i> ' + fname + ' ' +
                   '<a href="' + dl + '" target="_blank" class="ms-1">download .docx</a>' +
+                  rerenderBtn +
                 '</div>'
             );
         }
+
+        /**
+         * Force re-render the DOC thumbnail for `assetId`. Replaces the
+         * containing thumbnail with the "rendering..." placeholder and
+         * starts the standard poller, which will swap in the new PNG
+         * once Word writes it.
+         *
+         * `triggerEl` is the button the user clicked — we use it to find
+         * the surrounding container that should be reset.
+         */
+        window.oqbRerenderThumb = function(questionId, assetId, triggerEl) {
+            if (!questionId || !assetId) return;
+            // Locate the container holding the <img>. We climb to the
+            // nearest ancestor that contains a `data-doc-asset-id` image,
+            // then reset its contents to a polling placeholder.
+            let container = triggerEl ? triggerEl.closest(
+                '.md-preview-card, .alert, .modal-body, .empty-state, [data-doc-thumb-container]'
+            ) : null;
+            // Look up the image-side metadata so we can preserve the
+            // download URL / filename across the swap.
+            const img = container ? container.querySelector('.oqb-doc-thumb') : null;
+            const downloadAnchor = container ? container.querySelector('a[href*="/dashboard/files/"]') : null;
+            const downloadUrl = downloadAnchor ? downloadAnchor.getAttribute('href') : '';
+            const filename = downloadUrl ? decodeURIComponent(downloadUrl.split('/').pop()) : '';
+
+            // Disable the button briefly while we POST.
+            if (triggerEl) {
+                triggerEl.disabled = true;
+                triggerEl.innerHTML = '<span class="spinner-border spinner-border-sm" style="width: 0.8em; height: 0.8em;"></span>';
+            }
+
+            fetch(`/admin/questions/${encodeURIComponent(questionId)}/assets/${encodeURIComponent(assetId)}/rerender-thumb`, {
+                method: 'POST',
+                headers: {'X-Requested-With': 'XMLHttpRequest'},
+            })
+                .then(r => r.json().then(j => ({ok: r.ok, status: r.status, body: j})))
+                .then(({ok, status, body}) => {
+                    if (!ok || !body.success) {
+                        // Re-enable the button so the user can retry.
+                        if (triggerEl) {
+                            triggerEl.disabled = false;
+                            triggerEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+                        }
+                        alert('Re-render failed: ' + (body.error || ('HTTP ' + status)));
+                        return;
+                    }
+                    // Reset the container to a "rendering..." placeholder
+                    // and start polling for the new PNG.
+                    if (container) {
+                        container.innerHTML =
+                            '<div class="text-muted small fst-italic">' +
+                              '<i class="bi bi-hourglass-split"></i> Re-rendering preview...' +
+                            '</div>';
+                        container.setAttribute('data-doc-pending-id', assetId);
+                        if (filename) container.setAttribute('data-doc-pending-filename', filename);
+                        if (downloadUrl) container.setAttribute('data-doc-pending-downloadurl', downloadUrl);
+                        // Drop the dedup marker so the poller re-engages.
+                        container.removeAttribute('data-doc-poller-active');
+                        if (window.oqbPollDocThumbnails) {
+                            window.oqbPollDocThumbnails(container.parentNode || container);
+                        }
+                    }
+                })
+                .catch(err => {
+                    if (triggerEl) {
+                        triggerEl.disabled = false;
+                        triggerEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+                    }
+                    alert('Re-render request failed: ' + err.message);
+                });
+        };
 
         function _oqbPollOneThumb(el) {
             if (!el || !el.dataset) return;
@@ -665,6 +760,7 @@
             const thumbUrl = '/dashboard/api/doc_thumbnail/' + encodeURIComponent(assetId) + '.png';
             const filename = el.dataset.docPendingFilename || '';
             const downloadUrl = el.dataset.docPendingDownloadurl || '';
+            const questionId = el.dataset.docPendingQuestionId || '';
 
             let attempts = 0;
             const tick = () => {
@@ -684,10 +780,11 @@
                     if (!document.body.contains(el)) return;
                     // Swap content in place. The element keeps its outer
                     // classes/styles so the surrounding layout doesn't shift.
-                    el.innerHTML = _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl);
+                    el.innerHTML = _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId);
                     el.classList.remove('alert', 'alert-secondary', 'alert-warning', 'py-2', 'd-flex', 'align-items-center', 'gap-2');
                     // Drop the data-* attributes so re-scans skip this node.
                     delete el.dataset.docPendingId;
+                    delete el.dataset.docPendingQuestionId;
                     delete el.dataset.docPollerActive;
                 };
                 probe.onerror = () => {

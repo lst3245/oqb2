@@ -108,6 +108,9 @@
                     <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" style="display:none" onclick="bulkDeleteSelected()">
                         <i class="bi bi-trash"></i> Delete Selected (<span id="selCountBadge">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-warning text-dark" id="bulkGenImgBtn" style="display:none" onclick="openBatchImgModal()" title="Generate IMG from DOC/MD source for the selected questions">
+                        <i class="bi bi-image"></i> Generate IMG (<span id="selCountBadgeImg">0</span>)
+                    </button>
                     <div class="dropdown d-inline-block">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> Options
@@ -469,6 +472,147 @@
 <!-- Toast container -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- ===================== Batch IMG Generation Modal ===================== -->
+<div class="modal fade" id="batchImgModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-image"></i> Generate IMG from DOC/MD source</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="batchImgCloseBtn"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small">
+                    <i class="bi bi-info-circle"></i>
+                    For each selected question, this finds the best DOC/MD source asset and renders it to PNG via Microsoft Word.
+                    Existing IMG assets in the same slot can be replaced (see <em>Overwrite</em> below).
+                </div>
+
+                <div id="batchImgOptions">
+                    <p class="mb-2"><strong>Selected questions:</strong> <span id="batchImgCount" class="badge bg-secondary">0</span></p>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Asset types</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgType_QUE" checked>
+                                <label class="form-check-label" for="batchImgType_QUE">QUE (questions)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgType_ANS">
+                                <label class="form-check-label" for="batchImgType_ANS">ANS (answers)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgType_SOL">
+                                <label class="form-check-label" for="batchImgType_SOL">SOL (solutions)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Languages</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgLang_EN" checked>
+                                <label class="form-check-label" for="batchImgLang_EN">EN</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgLang_CH" checked>
+                                <label class="form-check-label" for="batchImgLang_CH">CH</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgLang_BI" checked>
+                                <label class="form-check-label" for="batchImgLang_BI">BI</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Source formats (in priority order)</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgSrc_DOC" checked>
+                                <label class="form-check-label" for="batchImgSrc_DOC">DOC (.docx) — preferred</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchImgSrc_MD" checked>
+                                <label class="form-check-label" for="batchImgSrc_MD">MD (.md) — fallback</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Multi-page output</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="batchImgStitch" id="batchImgStitch1" value="1" checked>
+                                <label class="form-check-label" for="batchImgStitch1">
+                                    Stitch into <strong>one tall PNG</strong> (single-part IMG)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="batchImgStitch" id="batchImgStitch0" value="0">
+                                <label class="form-check-label" for="batchImgStitch0">
+                                    One PNG per page (multi-part IMG)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="batchImgWidth">Render width (px)</label>
+                            <input type="number" class="form-control form-control-sm" id="batchImgWidth"
+                                   min="200" max="4000" step="50">
+                            <small class="text-muted">Defaults to System Settings.</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Transparency</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="batchImgTransparent">
+                                <label class="form-check-label" for="batchImgTransparent">Transparent BG</label>
+                            </div>
+                            <small class="text-muted">Defaults to System Settings.</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Overwrite existing IMG</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="batchImgOverwrite" checked>
+                                <label class="form-check-label" for="batchImgOverwrite">Replace</label>
+                            </div>
+                            <small class="text-muted">When off, slots that already have an IMG are skipped.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+
+                <!-- Console output (shown while streaming) -->
+                <div id="batchImgConsoleWrap" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <small class="text-muted" id="batchImgProgressLabel">Starting...</small>
+                        <small id="batchImgStatus" class="badge bg-secondary">Idle</small>
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
+                        <div id="batchImgProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%;"></div>
+                    </div>
+                    <div id="batchImgLog" class="log-console" style="max-height: 260px; overflow-y: auto; font-size: 0.8rem; background: #1e1e1e; color: #ddd; padding: 0.5rem; font-family: monospace; border-radius: 4px;"></div>
+                    <div id="batchImgSummary" class="mt-2 d-none">
+                        <div class="row text-center small" id="batchImgSummaryStats"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="batchImgCancelBtn">Close</button>
+                <button class="btn btn-outline-danger d-none" id="batchImgStopBtn" onclick="stopBatchImg()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+                <button class="btn btn-warning text-dark" id="batchImgRunBtn" onclick="runBatchImg()">
+                    <i class="bi bi-play-fill"></i> Generate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -677,6 +821,10 @@ function updateSelectionUI() {
     const count = selectedQIds.size;
     document.getElementById('selCountBadge').textContent = count;
     document.getElementById('bulkDeleteBtn').style.display = count > 0 ? '' : 'none';
+    const genBtn = document.getElementById('bulkGenImgBtn');
+    const genBadge = document.getElementById('selCountBadgeImg');
+    if (genBtn) genBtn.style.display = count > 0 ? '' : 'none';
+    if (genBadge) genBadge.textContent = count;
     // Update select-all checkbox
     const all = document.querySelectorAll('.q-checkbox');
     const checked = document.querySelectorAll('.q-checkbox:checked');
@@ -755,6 +903,185 @@ function executeBulkDelete() {
         })
         .catch(err => showToast('Error: ' + err.message, 'danger'))
         .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i> Delete'; });
+}
+
+// ===================== BATCH IMG GENERATION =====================
+let batchImgEventSource = null;
+let batchImgRunning = false;
+
+function openBatchImgModal() {
+    if (selectedQIds.size === 0) return;
+    // Reset UI state.
+    document.getElementById('batchImgCount').textContent = selectedQIds.size;
+    document.getElementById('batchImgConsoleWrap').classList.add('d-none');
+    document.getElementById('batchImgLog').innerHTML = '';
+    document.getElementById('batchImgSummary').classList.add('d-none');
+    document.getElementById('batchImgProgressBar').style.width = '0%';
+    document.getElementById('batchImgRunBtn').classList.remove('d-none');
+    document.getElementById('batchImgRunBtn').disabled = false;
+    document.getElementById('batchImgStopBtn').classList.add('d-none');
+    document.getElementById('batchImgOptions').classList.remove('opacity-50');
+
+    // Pre-fill width / transparent from system settings so the user sees
+    // the current defaults; the SSE endpoint will use the same fallbacks
+    // when these inputs are blank.
+    fetch('{{ url_for("admin.settings_data") }}')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data) return;
+            const reg = data.registry || {};
+            const widthEl = document.getElementById('batchImgWidth');
+            const widthDefault = reg['BATCH_IMG_DEFAULT_WIDTH']?.value || reg['DOC_THUMBNAIL_WIDTH']?.value || 1500;
+            widthEl.value = widthDefault;
+            document.getElementById('batchImgTransparent').checked = !!(reg['THUMBNAIL_TRANSPARENT']?.value);
+            const stitchDefault = !!(reg['BATCH_IMG_DEFAULT_STITCH']?.value);
+            document.getElementById('batchImgStitch1').checked = stitchDefault !== false;
+            document.getElementById('batchImgStitch0').checked = !stitchDefault && stitchDefault !== null;
+            if (stitchDefault === false) {
+                document.getElementById('batchImgStitch0').checked = true;
+            } else {
+                document.getElementById('batchImgStitch1').checked = true;
+            }
+        })
+        .catch(() => { /* Use HTML defaults if /settings/data is unreachable */ });
+
+    new bootstrap.Modal(document.getElementById('batchImgModal')).show();
+}
+
+function _appendBatchImgLog(message, type) {
+    const logEl = document.getElementById('batchImgLog');
+    const timestamp = new Date().toLocaleTimeString();
+    const colour = ({
+        info: '#9bb6c9', success: '#5cd35c', skip: '#cccc66', warning: '#cccc66',
+        error: '#ff6b6b', done: '#92e1c5'
+    })[type] || '#ddd';
+    const span = document.createElement('span');
+    span.style.color = colour;
+    span.style.display = 'block';
+    span.textContent = `[${timestamp}] ${message}`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runBatchImg() {
+    if (batchImgRunning || selectedQIds.size === 0) return;
+
+    // Collect option values.
+    const types = ['QUE', 'ANS', 'SOL'].filter(t => document.getElementById('batchImgType_' + t).checked);
+    if (types.length === 0) {
+        showToast('Pick at least one asset type (QUE / ANS / SOL).', 'warning');
+        return;
+    }
+    const langs = ['EN', 'CH', 'BI'].filter(l => document.getElementById('batchImgLang_' + l).checked);
+    if (langs.length === 0) {
+        showToast('Pick at least one language.', 'warning');
+        return;
+    }
+    const sources = ['DOC', 'MD'].filter(s => document.getElementById('batchImgSrc_' + s).checked);
+    if (sources.length === 0) {
+        showToast('Pick at least one source format (DOC / MD).', 'warning');
+        return;
+    }
+    const stitch = document.querySelector('input[name="batchImgStitch"]:checked').value;
+    const overwrite = document.getElementById('batchImgOverwrite').checked ? '1' : '0';
+    const widthVal = document.getElementById('batchImgWidth').value;
+    const transparent = document.getElementById('batchImgTransparent').checked ? '1' : '0';
+
+    const params = new URLSearchParams();
+    params.set('question_ids', Array.from(selectedQIds).join(','));
+    params.set('types', types.join(','));
+    params.set('langs', langs.join(','));
+    params.set('sources', sources.join(','));
+    params.set('stitch', stitch);
+    params.set('overwrite', overwrite);
+    if (widthVal) params.set('width', widthVal);
+    params.set('transparent', transparent);
+
+    batchImgRunning = true;
+    document.getElementById('batchImgRunBtn').classList.add('d-none');
+    document.getElementById('batchImgStopBtn').classList.remove('d-none');
+    document.getElementById('batchImgCancelBtn').textContent = 'Hide';
+    document.getElementById('batchImgOptions').classList.add('opacity-50');
+    document.getElementById('batchImgConsoleWrap').classList.remove('d-none');
+    document.getElementById('batchImgStatus').textContent = 'Running...';
+    document.getElementById('batchImgStatus').className = 'badge bg-success';
+    document.getElementById('batchImgProgressBar').className = 'progress-bar progress-bar-striped progress-bar-animated';
+    document.getElementById('batchImgSummary').classList.add('d-none');
+
+    _appendBatchImgLog(`Starting batch generation (${selectedQIds.size} question(s))...`, 'info');
+
+    const url = '{{ url_for("admin.batch_generate_images") }}?' + params.toString();
+    batchImgEventSource = new EventSource(url);
+
+    batchImgEventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            _appendBatchImgLog(event.message, event.type);
+
+            if (typeof event.current === 'number' && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                document.getElementById('batchImgProgressBar').style.width = pct + '%';
+                document.getElementById('batchImgProgressLabel').textContent =
+                    `${event.current} / ${event.total}`;
+            }
+
+            if (event.type === 'done') {
+                finishBatchImg(event);
+            }
+        } catch (err) {
+            _appendBatchImgLog('Error parsing event: ' + err.message, 'error');
+        }
+    };
+
+    batchImgEventSource.onerror = function() {
+        if (batchImgRunning) {
+            _appendBatchImgLog('Connection closed.', 'info');
+            finishBatchImg(null);
+        }
+    };
+}
+
+function finishBatchImg(event) {
+    if (batchImgEventSource) {
+        batchImgEventSource.close();
+        batchImgEventSource = null;
+    }
+    batchImgRunning = false;
+    document.getElementById('batchImgRunBtn').classList.remove('d-none');
+    document.getElementById('batchImgRunBtn').disabled = false;
+    document.getElementById('batchImgStopBtn').classList.add('d-none');
+    document.getElementById('batchImgCancelBtn').textContent = 'Close';
+    document.getElementById('batchImgOptions').classList.remove('opacity-50');
+    document.getElementById('batchImgProgressBar').classList.remove('progress-bar-animated');
+    document.getElementById('batchImgStatus').textContent = 'Complete';
+    document.getElementById('batchImgStatus').className = 'badge bg-primary';
+
+    if (event && event.stats) {
+        const s = event.stats;
+        document.getElementById('batchImgSummaryStats').innerHTML = `
+            <div class="col"><div class="fs-5 fw-bold text-success">${s.rendered}</div><small class="text-muted">Rendered</small></div>
+            <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped_no_src}</div><small class="text-muted">No source</small></div>
+            <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped_has_img}</div><small class="text-muted">IMG exists</small></div>
+            <div class="col"><div class="fs-5 fw-bold text-danger">${s.failed}</div><small class="text-muted">Failed</small></div>
+        `;
+        document.getElementById('batchImgSummary').classList.remove('d-none');
+    }
+
+    // Refresh the question list so freshly-rendered IMG previews appear.
+    if (event && event.stats && event.stats.rendered > 0) {
+        loadQuestions();
+    }
+}
+
+function stopBatchImg() {
+    if (batchImgEventSource) {
+        batchImgEventSource.close();
+        batchImgEventSource = null;
+    }
+    _appendBatchImgLog('Stopped by user. In-flight Word session may still be running on the server.', 'warning');
+    finishBatchImg(null);
+    document.getElementById('batchImgStatus').textContent = 'Stopped';
+    document.getElementById('batchImgStatus').className = 'badge bg-warning text-dark';
 }
 
 // ==================== SHARED TAG EDITOR FUNCTIONS ====================

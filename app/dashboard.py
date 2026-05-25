@@ -793,6 +793,7 @@ def get_question_preview(question_id, asset_type):
             'format': 'DOC',
             'language': language,
             'asset_id': asset.id,
+            'question_id': asset.question_id,
             'thumbnail_url': url_for('dashboard.doc_thumbnail', asset_id=asset.id),
             'download_url': download_url,
             'filename': filename,
@@ -802,6 +803,7 @@ def get_question_preview(question_id, asset_type):
         'format': 'DOC',
         'language': language,
         'asset_id': asset.id,
+        'question_id': asset.question_id,
         'url': download_url,
         'filename': filename,
     })
