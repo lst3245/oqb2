@@ -187,25 +187,11 @@
                         </button>
                         {% endif %}
                         {% if question.subject in admin_subjects %}
+                        {# Opens the shared question Edit modal (Tags / Assets / Details tabs).
+                           Modal self-fetches the full question record via /admin/questions/<id>/details. #}
                         <button type="button" class="btn btn-sm btn-outline-warning"
-                                onclick='editQuestion({{ question.id }}, {
-                                    "qid": "{{ question.qid }}",
-                                    "subject": "{{ question.subject }}",
-                                    "level": {{ question.level if question.level is not none else "null" }},
-                                    "q_type": {{ ("\"" + question.q_type + "\"") if question.q_type else "null" }},
-                                    "section": {{ ("\"" + question.section + "\"") if question.section else "null" }},
-                                    "description": {{ ("\"" + (question.description | replace('"', '\\"') | replace('\n', '\\n')) + "\"") if question.description else "null" }},
-                                    "correct_percentage": {{ question.correct_percentage if question.correct_percentage is not none else "null" }},
-                                    "major_topic_id": {{ question.major_topic_id if question.major_topic_id else "null" }},
-                                    "major_subtopic_id": {{ question.major_subtopic_id if question.major_subtopic_id else "null" }},
-                                    "minor_topic_ids": {{ question.minor_topic_ids | default([]) | tojson }},
-                                    "subtopic_ids": {{ question.subtopic_ids | default([]) | tojson }},
-                                    "chapter_id": {{ question.chapter_id if question.chapter_id else "null" }},
-                                    "subchapter_id": {{ question.subchapter_id if question.subchapter_id else "null" }},
-                                    "answer": {{ ("\"" + (question.answer | replace("\\", "\\\\") | replace('"', '\\"') | replace('\n', '\\n') | replace('\r', '\\r')) + "\"") if question.answer else "null" }},
-                                    "comment": {{ ("\"" + (question.comment | replace("\\", "\\\\") | replace('"', '\\"') | replace('\n', '\\n') | replace('\r', '\\r')) + "\"") if question.comment else "null" }}
-                                })'>
-                            <i class="bi bi-pencil"></i> Edit Tags
+                                onclick="openEditModal({{ question.id }})">
+                            <i class="bi bi-pencil"></i> Edit
                         </button>
                         {% endif %}
                     </div>

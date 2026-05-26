@@ -4,6 +4,18 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### Unified question Edit modal (dashboard + admin)
+
+- The dashboard's per-card **Edit Tags** button is renamed to **Edit** and now opens the same 3-tab modal the admin Question Management page uses — no more two flavours of "edit" for the same question. Tabs are reordered to **Tags → Assets → Details** (Tags is the default tab; previously the admin modal opened on Details).
+- The shared modal is mounted via two new partials, included once per page:
+  - [`templates/partials/edit_question_modal.html`](templates/partials/edit_question_modal.html) — markup for `#editQuestionModal` (Tags / Assets / Details tabs), sibling `#renameConfirmModal` and `#mdEditorModal`, `#toastContainer`, and edit-modal-scoped CSS (asset cards, drop zones, fullsize overlay, `.modal-xxl` breakpoints).
+  - [`templates/partials/edit_question_modal_js.html`](templates/partials/edit_question_modal_js.html) — `openEditModal`, `saveQuestionTags`, `renameQuestion`/`executeRename`, asset upload / delete / reorder, the inline Markdown editor flow, the global Ctrl+V paste handler, plus an idempotent `showToast`. Self-includes [`partials/tag_editor_js.html`](templates/partials/tag_editor_js.html) so the host page must NOT include it separately.
+- Refresh wiring is now contract-based: each host page assigns `window.oqbAfterQuestionEdit` (admin → `loadQuestions`, dashboard → `refreshCurrentPage`) and the modal calls it after a successful save / rename / asset change.
+- The per-card button onclick is now just `openEditModal({{ question.id }})` — the giant inline JSON blob that used to embed every question field per card is gone. The modal self-fetches via `GET /admin/questions/<id>/details`.
+- The admin Add-question 3-step wizard (Details → Assets → Tags) is intentionally unchanged: it still borrows `#editForm` out of the Tags tab into Step 3 because step 1 must create the question record before assets/tags can attach to it.
+
 ### ✨ New Features
 
 #### Admin → System Settings (DB-backed, hot-reload)

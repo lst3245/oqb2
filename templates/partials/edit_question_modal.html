@@ -1,0 +1,201 @@
+{#
+   Shared Question Edit Modal partial.
+
+   Used by both the dashboard (templates/dashboard.html) and the admin
+   Question Management page (templates/admin_questions.html). Include this
+   ONCE per page, then also include partials/edit_question_modal_js.html
+   inside the page's extra_js block.
+
+   After including the JS partial, each page should wire its own refresh
+   callback (called after a successful save / rename / asset change):
+
+       window.oqbAfterQuestionEdit = loadQuestions;       // admin
+       window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
+
+   The partial provides:
+     #editQuestionModal    — 3 tabs: Tags / Assets / Details
+     #renameConfirmModal   — sibling modal driven by the Details tab
+     #mdEditorModal        — sibling modal driven by the Assets tab
+     #toastContainer       — used by all edit-modal flows
+     CSS for asset cards, drop zones, fullsize overlay, modal-xxl, toast
+     {% include 'partials/md_editor.html' %} — EasyMDE factory (idempotent)
+
+   Requires partials/tag_editor_form.html (rendered inside the Tags tab) and
+   partials/tag_editor_js.html (loaded by the JS partial — do not include
+   tag_editor_js.html separately on the host page).
+#}
+
+<style>
+/* Asset preview - full width, stacked vertically */
+.asset-preview-img { width: 100%; display: block; cursor: pointer; border: 1px solid #dee2e6; border-radius: 0 0 4px 4px; background: #fff; }
+.asset-preview-img:hover { border-color: #0d6efd; box-shadow: 0 2px 8px rgba(13,110,253,.2); }
+
+/* Drop zone */
+.drop-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 1.5rem; text-align: center; color: #6c757d; transition: all .2s; cursor: pointer; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: #0d6efd; background: #f0f7ff; color: #0d6efd; }
+.drop-zone.paste-target { border-color: #198754; background: #f0fff4; color: #198754; }
+
+/* Asset part card - stacked full width, controls as toolbar */
+.asset-part-card { display: block; margin-bottom: 0.5rem; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; }
+.asset-part-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+.asset-part-toolbar .part-label { font-size: 0.8rem; font-weight: 600; color: #495057; }
+.asset-part-toolbar .part-actions { display: flex; gap: 3px; }
+.asset-part-toolbar .part-actions .btn { padding: 2px 7px; font-size: 0.75rem; }
+
+/* Asset section header - clickable for paste target */
+.asset-section { border: 2px solid transparent; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; transition: border-color .2s; }
+.asset-section.paste-active { border-color: #198754; }
+.asset-section .section-header { cursor: pointer; }
+.asset-section .section-header:hover .paste-hint { opacity: 1; }
+
+/* Format sub-groups (Images / Markdown / Word) within each asset-section */
+.asset-format-group { padding: 0.5rem 0.6rem; border: 1px dashed #e5e7eb; border-radius: 6px; background: #fbfbfc; }
+.asset-format-group + .asset-format-group { margin-top: 0.5rem; }
+.asset-format-group .format-group-label { display: flex; align-items: center; gap: 0.25rem; font-weight: 600; color: #495057; }
+.asset-format-group.asset-format-img { border-color: #cfe2ff; background: #f7fbff; }
+.asset-format-group.asset-format-md  { border-color: #d1f5e0; background: #f7fff9; }
+.asset-format-group.asset-format-doc { border-color: #ffe5b4; background: #fffaf3; }
+
+/* Full-size image overlay - white bg behind image for transparency */
+.fullsize-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.fullsize-overlay img { max-width: 95%; max-height: 95%; object-fit: contain; background: #fff; border-radius: 4px; padding: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
+
+/* Toast */
+.toast-container { position: fixed; top: 80px; right: 20px; z-index: 10000; }
+
+/* Wider modals for desktop */
+@media (min-width: 1200px) {
+    .modal-dialog.modal-xxl { max-width: 90vw; }
+}
+@media (min-width: 992px) and (max-width: 1199px) {
+    .modal-dialog.modal-xxl { max-width: 85vw; }
+}
+</style>
+
+<!-- ======================== EDIT QUESTION MODAL ======================== -->
+<div class="modal fade" id="editQuestionModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xxl modal-fullscreen-md-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Edit Question: <span id="editQidTitle"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Tabs (order: Tags, Assets, Details) -->
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabTags">Tags</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAssets">Assets</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDetails">Details</a></li>
+                </ul>
+                <div class="tab-content pt-3">
+                    <!-- Tags Tab -->
+                    <div class="tab-pane show active" id="tabTags">
+                        <form id="editForm">
+                            {% include 'partials/tag_editor_form.html' %}
+                            <div class="mt-3 text-end">
+                                <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">
+                                    <i class="bi bi-check-lg"></i> Save Tags
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Assets Tab -->
+                    <div class="tab-pane" id="tabAssets">
+                        <ul class="nav nav-pills mb-3" id="langTabs" role="tablist">
+                            <li class="nav-item"><a class="nav-link active" data-bs-toggle="pill" href="#langEN" onclick="switchAssetLang('EN')">EN</a></li>
+                            <li class="nav-item"><a class="nav-link" data-bs-toggle="pill" href="#langCH" onclick="switchAssetLang('CH')">CH</a></li>
+                            <li class="nav-item"><a class="nav-link" data-bs-toggle="pill" href="#langBI" onclick="switchAssetLang('BI')">BI</a></li>
+                        </ul>
+                        <div class="tab-content">
+                            <div class="tab-pane active" id="langEN"></div>
+                            <div class="tab-pane" id="langCH"></div>
+                            <div class="tab-pane" id="langBI"></div>
+                        </div>
+                    </div>
+
+                    <!-- Details Tab -->
+                    <div class="tab-pane" id="tabDetails">
+                        <input type="hidden" id="editQId">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold">Question ID</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="editQidInput" placeholder="e.g. MATC_DSE_2024_P1_Q5">
+                                    <button class="btn btn-warning" type="button" id="renameBtn" onclick="renameQuestion()">
+                                        <i class="bi bi-arrow-repeat"></i> Rename
+                                    </button>
+                                </div>
+                                <small class="text-muted">Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO</small>
+                                <div id="renameStatus" class="mt-2"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Created</label>
+                                <input type="text" class="form-control-plaintext" id="editCreatedAt" readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rename confirmation modal -->
+<div class="modal fade" id="renameConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Confirm Rename</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Rename question from <strong id="renameOldQid"></strong> to <strong id="renameNewQid"></strong>?</p>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="renameFilesCheck" checked>
+                    <label class="form-check-label" for="renameFilesCheck">
+                        Also rename and move physical asset files on disk
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-warning" onclick="executeRename()">Confirm Rename</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== MARKDOWN EDITOR MODAL ======================== -->
+{% include 'partials/md_editor.html' %}
+<div class="modal fade" id="mdEditorModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-fullscreen-md-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-markdown"></i>
+                    <span id="mdEditorModalTitle">Markdown Editor</span>
+                </h5>
+                <div class="ms-auto d-flex gap-2 align-items-center">
+                    <small id="mdEditorModalStatus" class="text-muted">Loading...</small>
+                    <a id="mdEditorModalFullscreenLink" href="#" target="_blank" class="btn btn-sm btn-outline-secondary" title="Open in fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <textarea id="mdEditorModalTextarea"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="mdEditorModalSaveBtn">
+                    <i class="bi bi-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>

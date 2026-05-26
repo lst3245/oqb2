@@ -531,28 +531,11 @@
 </div>
 {% endif %}
 
-<!-- Edit Tags Modal (Admin Only) -->
+<!-- Shared Question Edit modal (admin only — same modal used by the admin
+     Question Management page). Provides #editQuestionModal (Tags / Assets /
+     Details tabs), #renameConfirmModal, #mdEditorModal, #toastContainer. -->
 {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-fullscreen-md-down">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="editModalLabel">Edit Question Tags</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="editForm">
-                    <input type="hidden" id="editQuestionId">
-                    {% include 'partials/tag_editor_form.html' %}
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">Save</button>
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'partials/edit_question_modal.html' %}
 
 <!-- Batch Edit Modal (Admin Only) -->
 <div class="modal fade" id="batchEditModal" tabindex="-1">
@@ -3791,12 +3774,14 @@ function openViewerMode() {
 }
 
 {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
-// Admin-only functions for editing tags and deletion
-let editModal;
+// Admin-only functions for editing tags and deletion.
+// The shared question Edit modal (#editQuestionModal + helpers) is mounted
+// via partials/edit_question_modal.html and partials/edit_question_modal_js.html
+// further below. openEditModal(questionId) is the entry point used by each
+// question card's Edit button.
 let batchEditModal;
 
 document.addEventListener('DOMContentLoaded', function() {
-    editModal = new bootstrap.Modal(document.getElementById('editModal'));
     batchEditModal = new bootstrap.Modal(document.getElementById('batchEditModal'));
 });
 
@@ -4436,50 +4421,16 @@ function executeBatchEdit() {
     });
 }
 
-// ==================== SHARED TAG EDITOR FUNCTIONS ====================
-{% include 'partials/tag_editor_js.html' %}
+// ==================== SHARED QUESTION EDIT MODAL ====================
+// Provides openEditModal, saveQuestionTags, renameQuestion + asset/MD
+// management for the per-card "Edit" button. Also pulls in the shared tag
+// editor JS (partials/tag_editor_js.html), so we do NOT include it again
+// elsewhere on this page.
+{% include 'partials/edit_question_modal_js.html' %}
 
-function editQuestion(questionId, questionData) {
-    document.getElementById('editQuestionId').value = questionId;
-    document.getElementById('editModalLabel').textContent = `Edit ${questionData.qid}`;
-    window.currentQuestionData = questionData;
-
-    // Use shared populateTagForm to fill in all tag fields
-    populateTagForm(questionData);
-
-    editModal.show();
-}
-
-function saveQuestionTags() {
-    const questionId = document.getElementById('editQuestionId').value;
-    const formData = new FormData(document.getElementById('editForm'));
-
-    fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('0', questionId), {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => {
-        if (!r.ok) {
-            return r.json().then(err => {
-                throw new Error(err.error || 'Error updating question');
-            });
-        }
-        return r.json();
-    })
-    .then(data => {
-        if (data.success) {
-            editModal.hide();
-            // Refresh the current page to show updated data (preserve current page)
-            refreshCurrentPage();
-        } else {
-            throw new Error(data.error || 'Error updating question');
-        }
-    })
-    .catch(err => {
-        console.error('Error:', err);
-        alert(err.message || 'Error updating question');
-    });
-}
+// After a successful save / rename / asset change, refresh the question
+// list so the card reflects the new state.
+window.oqbAfterQuestionEdit = refreshCurrentPage;
 
 // Helper function to refresh current page (preserving page number)
 function refreshCurrentPage() {

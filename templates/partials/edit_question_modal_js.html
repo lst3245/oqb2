@@ -1,0 +1,773 @@
+{#
+   Shared Question Edit Modal — JavaScript.
+
+   Pair partial for partials/edit_question_modal.html. Include this ONCE per
+   page, inside the page's <script> block (typically extra_js).
+
+   Each host page should set its refresh callback after include:
+
+       window.oqbAfterQuestionEdit = loadQuestions;       // admin
+       window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
+
+   This partial brings its own tag editor JS (partials/tag_editor_js.html) —
+   do NOT include tag_editor_js.html separately on the host page or
+   populateTagForm / loadTopicsForEditForm will be re-declared.
+#}
+
+// ==================== SHARED TAG EDITOR FUNCTIONS ====================
+{% include 'partials/tag_editor_js.html' %}
+
+// ==================== TOAST (idempotent — only define if missing) ====================
+if (typeof window.showToast !== 'function') {
+    window.showToast = function(message, type) {
+        type = type || 'success';
+        const id = 'toast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const bgClass = type === 'success' ? 'bg-success'
+            : type === 'danger' ? 'bg-danger'
+            : type === 'warning' ? 'bg-warning text-dark'
+            : 'bg-info';
+        const html = `<div id="${id}" class="toast align-items-center text-white ${bgClass} border-0" role="alert">
+            <div class="d-flex"><div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`;
+        const container = document.getElementById('toastContainer');
+        if (!container) { console.log('[toast]', message); return; }
+        container.insertAdjacentHTML('beforeend', html);
+        const el = document.getElementById(id);
+        const t = new bootstrap.Toast(el, {delay: 4000});
+        t.show();
+        el.addEventListener('hidden.bs.toast', () => el.remove());
+    };
+}
+// Local alias used throughout this partial.
+const showToast = window.showToast;
+
+// ==================== STATE ====================
+let editQuestionData = null;     // current question being edited
+let currentAssetLang = 'EN';
+let allTopicsCache = window.allTopicsCache || {};        // subjectId -> topics[]
+let allChaptersCache = window.allChaptersCache || {};    // subjectId -> chapters[]
+window.allTopicsCache = allTopicsCache;
+window.allChaptersCache = allChaptersCache;
+
+// Active paste targets (lang + atype + ctx). 'add' ctx is only used by
+// admin_questions.html's Add wizard, but we keep the variable here so the
+// shared paste listener can reference it without ReferenceError.
+let activePasteTarget = { lang: 'EN', atype: 'QUE', ctx: 'edit' };
+window.addActivePasteTarget = window.addActivePasteTarget || { lang: 'EN', atype: 'QUE', ctx: 'add' };
+
+// ==================== EDIT MODAL ====================
+function openEditModal(questionId) {
+    editQuestionData = null;
+    currentAssetLang = 'EN';
+
+    // Reset tabs to first (Tags is now the default tab)
+    document.querySelector('#editQuestionModal .nav-link.active')?.classList.remove('active');
+    document.querySelector('#editQuestionModal .tab-pane.active')?.classList.remove('show', 'active');
+    document.querySelector('#editQuestionModal [href="#tabTags"]').classList.add('active');
+    document.getElementById('tabTags').classList.add('show', 'active');
+    // Reset lang pills
+    document.querySelectorAll('#langTabs .nav-link').forEach(l => l.classList.remove('active'));
+    document.querySelector('#langTabs [href="#langEN"]').classList.add('active');
+    document.querySelectorAll('#tabAssets .tab-pane').forEach(p => { p.classList.remove('show','active'); p.innerHTML = ''; });
+    document.getElementById('langEN').classList.add('show','active');
+
+    document.getElementById('renameStatus').innerHTML = '';
+
+    // Load question details
+    fetch(`{{ url_for('admin.question_details', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            editQuestionData = data;
+            document.getElementById('editQId').value = data.id;
+            document.getElementById('editQidTitle').textContent = data.qid;
+            document.getElementById('editQidInput').value = data.qid;
+            document.getElementById('editCreatedAt').value = data.created_at;
+
+            // Use shared populateTagForm to fill in tag fields
+            populateTagForm(data);
+
+            // Load assets (deferred — Assets tab is hidden until user clicks)
+            loadAssetsForEdit(data.id);
+
+            new bootstrap.Modal(document.getElementById('editQuestionModal')).show();
+        })
+        .catch(err => showToast('Error loading question: ' + err.message, 'danger'));
+}
+
+// ==================== TAG FORM HELPERS (caching for add-question flow) ====================
+function fetchTopicsForSubject(subjectId) {
+    if (allTopicsCache[subjectId]) {
+        return Promise.resolve(allTopicsCache[subjectId]);
+    }
+    return fetch(`{{ url_for('dashboard.get_topics', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+        .then(r => r.json())
+        .then(topics => {
+            allTopicsCache[subjectId] = topics;
+            return topics;
+        });
+}
+
+function fetchChaptersForSubject(subjectId) {
+    if (allChaptersCache[subjectId]) {
+        return Promise.resolve(allChaptersCache[subjectId]);
+    }
+    return fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+        .then(r => r.json())
+        .then(chapters => {
+            allChaptersCache[subjectId] = chapters;
+            return chapters;
+        });
+}
+
+function saveQuestionTags() {
+    const qId = document.getElementById('editQId').value;
+    const formData = new FormData(document.getElementById('editForm'));
+
+    fetch(`{{ url_for('admin.update_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => {
+        if (!r.ok) {
+            return r.json().then(err => { throw new Error(err.error || 'Error updating question'); });
+        }
+        return r.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showToast('Tags saved successfully');
+            if (typeof window.oqbAfterQuestionEdit === 'function') {
+                window.oqbAfterQuestionEdit();
+            }
+        } else {
+            throw new Error(data.error || 'Error saving tags');
+        }
+    })
+    .catch(err => showToast(err.message || 'Error saving tags', 'danger'));
+}
+
+// ==================== RENAME ====================
+let pendingRenameNewQid = '';
+
+function renameQuestion() {
+    const newQid = document.getElementById('editQidInput').value.trim();
+    const oldQid = editQuestionData.qid;
+    if (!newQid) return;
+    if (newQid === oldQid) { showToast('QID unchanged', 'info'); return; }
+
+    pendingRenameNewQid = newQid;
+    document.getElementById('renameOldQid').textContent = oldQid;
+    document.getElementById('renameNewQid').textContent = newQid;
+    document.getElementById('renameFilesCheck').checked = true;
+    new bootstrap.Modal(document.getElementById('renameConfirmModal')).show();
+}
+
+function executeRename() {
+    const qId = editQuestionData.id;
+    const renameFiles = document.getElementById('renameFilesCheck').checked;
+
+    fetch(`{{ url_for('admin.rename_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ new_qid: pendingRenameNewQid, confirm_rename_files: renameFiles })
+    })
+    .then(r => r.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal')).hide();
+        if (data.success) {
+            showToast(data.message);
+            editQuestionData.qid = data.new_qid;
+            document.getElementById('editQidTitle').textContent = data.new_qid;
+            document.getElementById('renameStatus').innerHTML = `<div class="alert alert-success py-1">${data.message}</div>`;
+            loadAssetsForEdit(qId);
+            if (typeof window.oqbAfterQuestionEdit === 'function') {
+                window.oqbAfterQuestionEdit();
+            }
+        } else {
+            document.getElementById('renameStatus').innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
+        }
+    })
+    .catch(err => {
+        bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal'))?.hide();
+        document.getElementById('renameStatus').innerHTML = `<div class="alert alert-danger py-1">Error: ${err.message}</div>`;
+    });
+}
+
+// ==================== ASSET MANAGEMENT ====================
+function switchAssetLang(lang) {
+    currentAssetLang = lang;
+    // Reset paste target to QUE for the new language (edit modal)
+    setActivePasteTarget(lang, 'QUE', 'edit');
+}
+
+function loadAssetsForEdit(questionId) {
+    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            ['EN', 'CH', 'BI'].forEach(lang => {
+                const container = document.getElementById('lang' + lang);
+                container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {}, 'edit');
+            });
+        })
+        .catch(err => showToast('Error loading assets: ' + err.message, 'danger'));
+}
+
+// ctx = 'edit' or 'add' to avoid duplicate IDs when both modals exist in the DOM
+function renderAssetSections(questionId, lang, langAssets, ctx) {
+    ctx = ctx || 'edit';
+    let html = '';
+    ['QUE', 'ANS', 'SOL'].forEach((atype, sectionIdx) => {
+        const allParts = langAssets[atype] || [];
+        const imgs = allParts.filter(p => p.file_format === 'IMG')
+                             .sort((a, b) => a.part_number - b.part_number);
+        const md   = allParts.find(p => p.file_format === 'MD') || null;
+        const doc  = allParts.find(p => p.file_format === 'DOC') || null;
+        const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
+        const isDefault = sectionIdx === 0; // QUE is default paste target
+        const fullscreenMdNewUrl = `/admin/questions/${questionId}/assets/md/new?language=${lang}&asset_type=${atype}`;
+
+        html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="${ctx}_assetSection_${lang}_${atype}"
+                      onclick="setActivePasteTarget('${lang}', '${atype}', '${ctx}')">
+            <div class="d-flex justify-content-between align-items-center mb-2 section-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-collection"></i> ${label} (${lang})
+                    <span class="paste-hint badge bg-success bg-opacity-75 ms-2" style="font-size:0.65rem; opacity:${isDefault ? '1' : '0'}; transition: opacity .2s">
+                        <i class="bi bi-clipboard"></i> Ctrl+V image target
+                    </span>
+                </h6>
+                <span class="text-muted small">
+                    <i class="bi bi-images"></i> ${imgs.length}
+                    &middot; <i class="bi bi-markdown"></i> ${md ? '1' : '0'}
+                    &middot; <i class="bi bi-file-word"></i> ${doc ? '1' : '0'}
+                </span>
+            </div>
+
+            <!-- ===== IMAGES (multi-part) ===== -->
+            <div class="asset-format-group asset-format-img mb-3">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
+                </div>
+                <div id="${ctx}_assetParts_${lang}_${atype}">`;
+
+        if (imgs.length === 0) {
+            html += '<div class="text-muted fst-italic small p-2">No images</div>';
+        } else {
+            imgs.forEach((p, idx) => {
+                const fname = p.file_path.split('/').pop();
+                html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label">Part ${p.part_number} <small class="text-muted fw-normal ms-1">${fname}</small></span>
+                        <div class="part-actions">
+                            ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
+                            ${idx < imgs.length - 1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">
+                </div>`;
+            });
+        }
+
+        html += `</div>
+                <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_${atype}"
+                     ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
+                     ondragleave="this.classList.remove('drag-over')"
+                     ondrop="handleAssetDrop(event, ${questionId}, '${lang}', '${atype}')"
+                     onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', '${atype}', '${ctx}')">
+                    <i class="bi bi-cloud-upload"></i> Drop images here, click to browse, or Ctrl+V to paste
+                </div>
+                <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_${atype}" accept="image/*"
+                       multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">
+            </div>
+
+            <!-- ===== MARKDOWN (single) ===== -->
+            <div class="asset-format-group asset-format-md mb-3">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-markdown"></i> Markdown <span class="badge bg-secondary ms-1">${md ? '1' : '0'} / 1</span>
+                </div>`;
+        if (md) {
+            const mdFname = md.file_path.split('/').pop();
+            const mdFsUrl = `/admin/questions/${questionId}/assets/${md.id}/md/edit`;
+            html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label"><i class="bi bi-file-earmark-text"></i> <small class="text-muted fw-normal ms-1">${mdFname}</small></span>
+                        <div class="part-actions">
+                            <button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})"><i class="bi bi-pencil-square"></i></button>
+                            <a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${mdFsUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-lang="${lang}"
+                         style="max-height:160px; cursor:pointer;"
+                         onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})">
+                        <div class="text-muted small fst-italic">Rendering...</div>
+                    </div>
+                </div>`;
+        } else {
+            html += `<div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')">
+                        <i class="bi bi-markdown"></i> New Markdown (inline)
+                    </button>
+                    <a class="btn btn-sm btn-outline-secondary" target="_blank" href="${fullscreenMdNewUrl}" onclick="event.stopPropagation()">
+                        <i class="bi bi-arrows-fullscreen"></i> Fullscreen editor
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="event.stopPropagation(); triggerSingleFileUpload(${questionId}, '${lang}', '${atype}', '${ctx}', 'md')">
+                        <i class="bi bi-upload"></i> Upload .md file
+                    </button>
+                </div>
+                <input type="file" class="d-none" id="${ctx}_mdInput_${lang}_${atype}" accept=".md,.markdown"
+                       onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">`;
+        }
+        html += `</div>
+
+            <!-- ===== WORD DOCUMENT (single) ===== -->
+            <div class="asset-format-group asset-format-doc">
+                <div class="format-group-label small text-muted mb-1">
+                    <i class="bi bi-file-word"></i> Word document <span class="badge bg-secondary ms-1">${doc ? '1' : '0'} / 1</span>
+                </div>`;
+        if (doc) {
+            const docFname = doc.file_path.split('/').pop();
+            const docUrl = `/dashboard/files/${doc.file_path}`;
+            html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label"><i class="bi bi-file-earmark-word"></i> <small class="text-muted fw-normal ms-1">${docFname}</small></span>
+                        <div class="part-actions">
+                            <a class="btn btn-sm btn-outline-primary" title="Download" target="_blank" href="${docUrl}" onclick="event.stopPropagation()"><i class="bi bi-download"></i></a>
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${doc.id},'${docFname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="border-0 p-3 text-center" style="height:80px; display:flex; align-items:center; justify-content:center; background:#fff;">
+                        <div><i class="bi bi-file-earmark-word fs-1 text-primary"></i> <small class="ms-2">${docFname}</small></div>
+                    </div>
+                </div>`;
+        } else {
+            html += `<button class="btn btn-sm btn-outline-primary" type="button" onclick="event.stopPropagation(); triggerSingleFileUpload(${questionId}, '${lang}', '${atype}', '${ctx}', 'doc')">
+                    <i class="bi bi-upload"></i> Upload .doc / .docx file
+                </button>
+                <input type="file" class="d-none" id="${ctx}_docInput_${lang}_${atype}" accept=".doc,.docx"
+                       onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', '${atype}')">`;
+        }
+        html += `</div>
+        </div>`;
+    });
+    setTimeout(() => window.oqbLoadMarkdownPreviewCards && window.oqbLoadMarkdownPreviewCards(), 0);
+    return html;
+}
+
+// Trigger a single-file picker for MD or DOC slots (separate from the
+// multi-file image drop-zone).
+function triggerSingleFileUpload(questionId, lang, atype, ctx, kind) {
+    ctx = ctx || 'edit';
+    const inputId = `${ctx}_${kind}Input_${lang}_${atype}`;
+    const el = document.getElementById(inputId);
+    if (el) el.click();
+}
+
+function setActivePasteTarget(lang, atype, ctx) {
+    ctx = ctx || 'edit';
+    if (ctx === 'add') {
+        window.addActivePasteTarget = { lang, atype, ctx: 'add' };
+    } else {
+        activePasteTarget = { lang, atype, ctx: 'edit' };
+    }
+    // Update visual indicators — only within the currently visible modal
+    const visibleModal = document.querySelector('.modal.show .modal-body') || document;
+    visibleModal.querySelectorAll('.asset-section').forEach(el => {
+        el.classList.remove('paste-active');
+        const hint = el.querySelector('.paste-hint');
+        if (hint) hint.style.opacity = '0';
+    });
+    const activeSection = document.getElementById(`${ctx}_assetSection_${lang}_${atype}`);
+    if (activeSection) {
+        activeSection.classList.add('paste-active');
+        const hint = activeSection.querySelector('.paste-hint');
+        if (hint) hint.style.opacity = '1';
+    }
+}
+
+function triggerAssetUpload(questionId, lang, atype, ctx) {
+    ctx = ctx || 'edit';
+    document.getElementById(`${ctx}_fileInput_${lang}_${atype}`).click();
+}
+
+function handleAssetDrop(event, questionId, lang, atype) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    const files = event.dataTransfer.files;
+    if (files.length > 0) uploadAssetFiles(questionId, lang, atype, files);
+}
+
+function handleAssetFileSelect(event, questionId, lang, atype) {
+    const files = event.target.files;
+    if (files.length > 0) uploadAssetFiles(questionId, lang, atype, files);
+    event.target.value = ''; // reset
+}
+
+function refreshAssetsView(questionId) {
+    // Determine if we're in the add modal or edit modal and refresh accordingly.
+    // The add modal only exists on the admin Question Management page.
+    const addModal = document.getElementById('addQuestionModal');
+    if (addModal && addModal.classList.contains('show')
+        && typeof addCreatedQuestionId !== 'undefined' && addCreatedQuestionId === questionId) {
+        // Add modal flow — reload the currently visible language tab
+        const activeBtn = document.querySelector('#addAssetUploadArea .btn-group .btn.active');
+        const lang = activeBtn ? activeBtn.textContent.trim() : 'EN';
+        const area = document.getElementById('addAssetUploadArea');
+        fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+            .then(r => r.json())
+            .then(data => {
+                const langAssets = data.assets[lang] || {};
+                const newHtml = renderAssetSections(questionId, lang, langAssets, 'add');
+                while (area.children.length > 1) area.removeChild(area.lastChild);
+                area.insertAdjacentHTML('beforeend', newHtml);
+            });
+    } else {
+        loadAssetsForEdit(questionId);
+    }
+}
+
+function uploadAssetFiles(questionId, lang, atype, files) {
+    const formData = new FormData();
+    formData.append('language', lang);
+    formData.append('asset_type', atype);
+    for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
+
+    fetch(`{{ url_for('admin.upload_question_asset', question_id=0) }}`.replace('/0/', `/${questionId}/`), {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            if (data.uploaded_count > 0) {
+                showToast(`Uploaded ${data.uploaded_count} asset(s)`);
+            }
+            if (Array.isArray(data.errors) && data.errors.length > 0) {
+                showToast(data.errors.join('\n'), 'warning');
+            } else if (data.uploaded_count === 0) {
+                showToast('No files uploaded', 'warning');
+            }
+            refreshAssetsView(questionId);
+        } else {
+            showToast(data.error || 'Upload failed', 'danger');
+        }
+    })
+    .catch(err => showToast('Upload error: ' + err.message, 'danger'));
+}
+
+function deleteAssetPart(questionId, assetId, filename) {
+    if (!confirm(`Delete asset "${filename || 'this part'}"?\n\nThis will remove the file from BOTH the database AND the disk.`)) return;
+    fetch(`{{ url_for('admin.delete_question_asset', question_id=0, asset_id=0) }}`.replace('/0/assets/0', `/${questionId}/assets/${assetId}`), {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ delete_from_disk: true })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast(data.message);
+            refreshAssetsView(questionId);
+        } else {
+            showToast(data.error || 'Error', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
+}
+
+// ============== Markdown editor modal (inline edit + inline create) ==============
+//
+// openMdEditorModal(questionId, assetId)                 -> EDIT existing MD asset
+// openMdEditorModal(questionId, null, lang, asset_type)  -> CREATE new MD asset
+let mdEditorModalInstance = null;
+let mdEditorModalEditor = null;
+let mdEditorModalState = null;   // { questionId, assetId, lang, atype, isCreate, lastMtime, dirty }
+
+function openMdEditorModal(questionId, assetId, lang, atype) {
+    const isCreate = !assetId;
+    const language = lang || 'EN';
+    const assetType = atype || 'QUE';
+
+    mdEditorModalState = {
+        questionId, assetId, isCreate,
+        lang: language, atype: assetType,
+        lastMtime: null,
+        dirty: false,
+    };
+
+    const modalEl = document.getElementById('mdEditorModal');
+    const titleEl = document.getElementById('mdEditorModalTitle');
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    const textarea = document.getElementById('mdEditorModalTextarea');
+    const saveBtn = document.getElementById('mdEditorModalSaveBtn');
+    const fsLink = document.getElementById('mdEditorModalFullscreenLink');
+
+    titleEl.textContent = isCreate
+        ? `New Markdown (${assetType}/${language})`
+        : `Edit Markdown (${assetType}/${language})`;
+    statusEl.textContent = 'Loading...';
+    statusEl.className = 'text-muted';
+
+    fsLink.href = isCreate
+        ? `/admin/questions/${questionId}/assets/md/new?language=${language}&asset_type=${assetType}`
+        : `/admin/questions/${questionId}/assets/${assetId}/md/edit`;
+
+    if (mdEditorModalEditor) {
+        try { mdEditorModalEditor.destroy(); } catch (e) {}
+        mdEditorModalEditor = null;
+    }
+    textarea.value = '';
+
+    if (!mdEditorModalInstance) {
+        mdEditorModalInstance = new bootstrap.Modal(modalEl);
+    }
+    modalEl.addEventListener('shown.bs.modal', initOnce, { once: true });
+    mdEditorModalInstance.show();
+
+    function initOnce() {
+        function buildEditor(initialContent) {
+            mdEditorModalEditor = window.oqbCreateMdEditor(textarea, {
+                initialContent: initialContent || '',
+                maxSize: {{ md_max_size_bytes if md_max_size_bytes is defined else 5242880 }},
+                maxHeight: '55vh',
+                onChange: function() {
+                    if (!mdEditorModalState.dirty) {
+                        mdEditorModalState.dirty = true;
+                        statusEl.textContent = 'Unsaved changes';
+                        statusEl.className = 'text-warning';
+                    }
+                },
+            });
+            setTimeout(() => {
+                if (mdEditorModalEditor && mdEditorModalEditor.easymde) {
+                    mdEditorModalEditor.easymde.codemirror.refresh();
+                }
+            }, 50);
+        }
+
+        if (isCreate) {
+            buildEditor('');
+            statusEl.textContent = 'New file. Start typing.';
+            statusEl.className = 'text-muted';
+        } else {
+            fetch(`/admin/questions/${questionId}/assets/${assetId}/md/content`)
+                .then(r => r.json().then(d => ({status: r.status, data: d})))
+                .then(({status, data}) => {
+                    if (status !== 200) {
+                        statusEl.textContent = 'Error: ' + (data.error || 'load failed');
+                        statusEl.className = 'text-danger';
+                        return;
+                    }
+                    mdEditorModalState.lastMtime = data.mtime_ns;
+                    buildEditor(data.content);
+                    statusEl.textContent = 'Loaded.';
+                    statusEl.className = 'text-muted';
+                })
+                .catch(err => {
+                    statusEl.textContent = 'Error: ' + err.message;
+                    statusEl.className = 'text-danger';
+                });
+        }
+    }
+
+    saveBtn.onclick = () => doSaveMdEditorModal(false);
+}
+
+function doSaveMdEditorModal(force) {
+    const s = mdEditorModalState;
+    if (!s || !mdEditorModalEditor) return;
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    const saveBtn = document.getElementById('mdEditorModalSaveBtn');
+    const content = mdEditorModalEditor.getValue();
+    const sizeBytes = mdEditorModalEditor.getBytes();
+    const maxBytes = mdEditorModalEditor.getMaxBytes();
+    if (sizeBytes > maxBytes) {
+        statusEl.textContent = `Content too large (${sizeBytes} > ${maxBytes} bytes)`;
+        statusEl.className = 'text-danger';
+        return;
+    }
+
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'text-muted';
+    saveBtn.disabled = true;
+
+    let url, body;
+    if (s.isCreate) {
+        url = `/admin/questions/${s.questionId}/assets/md/create`;
+        body = JSON.stringify({ language: s.lang, asset_type: s.atype, content: content });
+    } else {
+        url = `/admin/questions/${s.questionId}/assets/${s.assetId}/md/save`;
+        body = JSON.stringify({
+            content: content,
+            expected_mtime_ns: s.lastMtime,
+            force: !!force,
+        });
+    }
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+    })
+        .then(r => r.json().then(d => ({status: r.status, data: d})))
+        .then(({status, data}) => {
+            saveBtn.disabled = false;
+            if (status === 409 && !s.isCreate) {
+                if (confirm('File changed on disk since you opened it. Overwrite with your changes?')) {
+                    doSaveMdEditorModal(true);
+                } else {
+                    statusEl.textContent = 'Save cancelled (file changed)';
+                    statusEl.className = 'text-danger';
+                }
+                return;
+            }
+            if (data.success) {
+                s.dirty = false;
+                s.lastMtime = data.mtime_ns;
+                statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString();
+                statusEl.className = 'text-success';
+                refreshAssetsView(s.questionId);
+                if (s.isCreate && data.asset_id) {
+                    s.isCreate = false;
+                    s.assetId = data.asset_id;
+                    const fsLink = document.getElementById('mdEditorModalFullscreenLink');
+                    fsLink.href = `/admin/questions/${s.questionId}/assets/${data.asset_id}/md/edit`;
+                    document.getElementById('mdEditorModalTitle').textContent =
+                        `Edit Markdown (${s.atype}/${s.lang})`;
+                }
+            } else {
+                statusEl.textContent = 'Error: ' + (data.error || 'save failed');
+                statusEl.className = 'text-danger';
+            }
+        })
+        .catch(err => {
+            saveBtn.disabled = false;
+            statusEl.textContent = 'Error: ' + err.message;
+            statusEl.className = 'text-danger';
+        });
+}
+
+// Warn before closing modal with unsaved changes.
+document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('mdEditorModal');
+    if (!modalEl) return;
+    modalEl.addEventListener('hide.bs.modal', function(e) {
+        if (mdEditorModalState && mdEditorModalState.dirty) {
+            if (!confirm('Discard unsaved changes?')) {
+                e.preventDefault();
+            }
+        }
+    });
+    modalEl.addEventListener('hidden.bs.modal', function() {
+        if (mdEditorModalEditor) {
+            try { mdEditorModalEditor.destroy(); } catch (e) {}
+            mdEditorModalEditor = null;
+        }
+        mdEditorModalState = null;
+    });
+});
+
+function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
+    // Reorder applies only to IMG parts (MD/DOC are single-slot).
+    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            const parts = ((data.assets[lang] || {})[atype] || [])
+                .filter(p => p.file_format === 'IMG')
+                .sort((a, b) => a.part_number - b.part_number);
+            const ids = parts.map(p => p.id);
+            const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+            if (swapIdx < 0 || swapIdx >= ids.length) return;
+            [ids[currentIdx], ids[swapIdx]] = [ids[swapIdx], ids[currentIdx]];
+
+            return fetch(`{{ url_for('admin.reorder_question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ language: lang, asset_type: atype, asset_ids: ids })
+            });
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const msg = data.files_renamed > 0 ? `Reordered (${data.files_renamed} file(s) renamed)` : 'Reordered';
+                showToast(msg);
+                if (data.warnings && data.warnings.length > 0) {
+                    showToast('Warnings: ' + data.warnings.join('; '), 'warning');
+                }
+                refreshAssetsView(questionId);
+            } else {
+                showToast(data.error || 'Reorder failed', 'danger');
+            }
+        })
+        .catch(err => showToast('Error reordering: ' + err.message, 'danger'));
+}
+
+function showFullSize(url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'fullsize-overlay';
+    const img = document.createElement('img');
+    img.src = url;
+    img.onerror = () => {
+        overlay.innerHTML = '<div class="text-white text-center"><i class="bi bi-exclamation-triangle fs-1"></i><br>Image not found</div>';
+    };
+    overlay.appendChild(img);
+    overlay.onclick = (e) => { e.stopPropagation(); overlay.remove(); };
+    const onEsc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+    document.addEventListener('keydown', onEsc);
+    document.body.appendChild(overlay);
+}
+
+// Helper to extract image files from clipboard
+function extractImageFiles(clipboardData) {
+    const files = [];
+    for (let i = 0; i < clipboardData.items.length; i++) {
+        if (clipboardData.items[i].type.startsWith('image/')) {
+            const blob = clipboardData.items[i].getAsFile();
+            const ext = clipboardData.items[i].type.split('/')[1] || 'png';
+            files.push(new File([blob], `pasted_image.${ext}`, { type: clipboardData.items[i].type }));
+        }
+    }
+    return files;
+}
+
+// Ctrl+V paste support — uses tracked activePasteTarget for section
+document.addEventListener('paste', function(e) {
+    // If the focused element is inside the Markdown editor, OR the MD editor
+    // modal is currently visible, defer to the editor's own paste handler.
+    const mdModal = document.getElementById('mdEditorModal');
+    if (mdModal && mdModal.classList.contains('show')) return;
+    const tgt = e.target;
+    if (tgt && (tgt.closest && tgt.closest('.EasyMDEContainer, .CodeMirror'))) return;
+
+    // Handle paste in edit modal
+    const editModal = document.getElementById('editQuestionModal');
+    if (editModal && editModal.classList.contains('show') && editQuestionData) {
+        const activeTab = document.querySelector('#editQuestionModal .tab-pane.active');
+        if (!activeTab || activeTab.id !== 'tabAssets') return;
+
+        const files = extractImageFiles(e.clipboardData);
+        if (files.length > 0) {
+            const activeLangTab = document.querySelector('#langTabs .nav-link.active');
+            const lang = activeLangTab ? activeLangTab.getAttribute('href').replace('#lang', '') : activePasteTarget.lang;
+            const atype = activePasteTarget.atype;
+            uploadAssetFiles(editQuestionData.id, lang, atype, files);
+            showToast(`Pasted to ${atype} (${lang})`, 'info');
+            e.preventDefault();
+        }
+        return;
+    }
+
+    // Handle paste in add modal (admin Question Management page only)
+    const addModal = document.getElementById('addQuestionModal');
+    if (addModal && addModal.classList.contains('show')
+        && typeof addCreatedQuestionId !== 'undefined' && addCreatedQuestionId) {
+        const files = extractImageFiles(e.clipboardData);
+        if (files.length > 0) {
+            const apt = window.addActivePasteTarget || { lang: 'EN', atype: 'QUE' };
+            const lang = apt.lang || 'EN';
+            const atype = apt.atype || 'QUE';
+            uploadAssetFiles(addCreatedQuestionId, lang, atype, files);
+            showToast(`Pasted to ${atype} (${lang})`, 'info');
+            e.preventDefault();
+        }
+    }
+});

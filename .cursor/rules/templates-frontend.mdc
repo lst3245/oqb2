@@ -23,8 +23,11 @@ The server detects `HX-Request` header and returns only the `partials/question_l
 | File | Used by |
 |---|---|
 | `partials/question_list.html` | Dashboard (HTMX target), admin questions list |
-| `partials/tag_editor_form.html` | Admin question edit modal (Tags tab), admin questions add modal (Step 3) |
-| `partials/tag_editor_js.html` | Same as above — JS is in a separate partial for cleanliness |
+| `partials/edit_question_modal.html` | Dashboard + admin `Question Management` — shared 3-tab Edit modal markup + `#renameConfirmModal` + `#mdEditorModal` + `#toastContainer` + edit-modal-scoped CSS |
+| `partials/edit_question_modal_js.html` | Same hosts — bundles the entire Edit-modal JS (open / save / rename / asset upload / MD editor / paste handler) AND pulls in `partials/tag_editor_js.html`, so do NOT include `tag_editor_js.html` separately on the host |
+| `partials/tag_editor_form.html` | Tags tab of the shared Edit modal (above), admin Add-question wizard Step 3 (borrowed via JS DOM move) |
+| `partials/tag_editor_js.html` | Loaded transitively by `edit_question_modal_js.html`. Do not include separately. |
+| `partials/md_editor.html` | Loaded transitively by `edit_question_modal.html` (idempotent); also used by the fullscreen `admin_md_editor.html` |
 
 ## Multi-Select Dropdowns (custom, not native `<select multiple>`)
 Topics, subtopics, chapters, years all use a custom dropdown pattern:
@@ -74,11 +77,22 @@ The base template defines a set of global helpers that every preview / asset int
 
 **`viewer.html` does NOT extend `base.html`** — it has its own minimal copies of `oqbTypesetMath` and `oqbRenderMarkdownInto`. When adding a new shared helper, decide whether the viewer needs it; if so, duplicate it inline. The rerender button is intentionally NOT exposed in the viewer because forking that helper there would add too much code for the use case.
 
-## Admin Question Modal Tabs
-`admin_questions.html` uses a static Bootstrap tabbed modal with three tabs:
-1. **Details** — level, q_type, section, description, correct_pct, answer, comment
-2. **Assets** — upload/delete/reorder; shows existing assets with type/language badges
-3. **Tags** — dynamically borrows the shared tag editor form via JS DOM manipulation
+## Question Edit Modal Tabs (shared)
+The `#editQuestionModal` markup lives in `partials/edit_question_modal.html` and is mounted by BOTH `dashboard.html` (admin-gated) and `admin_questions.html`. Tab order is fixed at:
+1. **Tags** (default active) — borrows `partials/tag_editor_form.html`; the admin Add-question wizard temporarily relocates this `<form id="editForm">` into its Step 3 area via `borrowTagFormForAdd()` / `returnTagFormToEditModal()`.
+2. **Assets** — upload / delete / reorder per language (EN / CH / BI) and per asset type (QUE / ANS / SOL). Supports IMG (multi-part), MD (single-slot, inline editor via `#mdEditorModal`), DOC (single-slot upload + download).
+3. **Details** — QID rename (via `#renameConfirmModal`) + read-only `created_at`.
+
+`openEditModal(questionId)` is the entry point — it fetches `GET /admin/questions/<id>/details` and `GET /admin/questions/<id>/assets`, populates the tag form via the shared `populateTagForm`, and shows the modal.
+
+**Refresh callback contract**: the modal's save / rename / asset flows call `window.oqbAfterQuestionEdit?.()` after a successful mutation. Each host page wires its own implementation immediately after the include:
+
+```js
+window.oqbAfterQuestionEdit = loadQuestions;       // admin questions page
+window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
+```
+
+The admin **Add Question** modal keeps its own Details → Assets → Tags 3-step wizard (Step 1 must create the question record before assets/tags can attach to it) — only the Edit modal is unified across pages.
 
 ## Drag-to-Reorder
 Sort criteria (dashboard + generate page) and the generator's Selected Questions list use **SortableJS** (loaded from CDN in `base.html`). HTML5 native drag-and-drop is **not** used — it does not work on touch devices.
