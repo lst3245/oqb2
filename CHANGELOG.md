@@ -16,7 +16,22 @@ All notable changes to the Online Question Bank System are documented in this fi
 - The per-card button onclick is now just `openEditModal({{ question.id }})` — the giant inline JSON blob that used to embed every question field per card is gone. The modal self-fetches via `GET /admin/questions/<id>/details`.
 - The admin Add-question 3-step wizard (Details → Assets → Tags) is intentionally unchanged: it still borrows `#editForm` out of the Tags tab into Step 3 because step 1 must create the question record before assets/tags can attach to it.
 
+#### Question Edit modal — UX follow-ups
+
+- **Click-outside / Esc now closes the modal.** Dropped the `data-bs-backdrop="static"` that the admin-only modal carried — there's no unsaved-state guard at the modal level (tag saves are explicit, asset mutations are instant, rename has its own confirm). The inline `#mdEditorModal` keeps `backdrop="static"` because it still has its own dirty-state prompt.
+- **Ctrl+V paste target survives the post-upload rerender.** Previously, selecting ANS or SOL as the paste target → pasting → the upload completed → the asset list re-rendered → the visual indicator silently snapped back to QUE (the HTML default). The JS variable still pointed at SOL, but the user couldn't tell. `loadAssetsForEdit` and the add-modal branch of `refreshAssetsView` now re-apply the stored `activePasteTarget` (resp. `addActivePasteTarget`) immediately after each rerender so the highlight stays on the user's chosen section.
+- **Compact image-preview mode (default ON).** New form-switch in the Assets tab — "Compact previews" — toggles between a responsive thumbnail grid (`grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))`, 140 px image height with `object-fit: contain`) and the previous full-width vertically-stacked layout. The preference is persisted in `localStorage['oqb_assetThumbsCompact']` and applied via a `<body>.asset-thumbs-compact` class so the admin Add-question wizard's asset area inherits the same setting automatically. Implementation: `oqbInitThumbCompact()` in [`templates/partials/edit_question_modal_js.html`](templates/partials/edit_question_modal_js.html) and the CSS rules + form-switch markup in [`templates/partials/edit_question_modal.html`](templates/partials/edit_question_modal.html).
+
 ### ✨ New Features
+
+#### Batch delete assets (admin Question Management)
+
+- The **Delete Selected** button in Admin → Question Management now opens a single two-tab modal:
+  - **Whole questions** (default tab) — original behaviour: drop the selected Question rows and cascade-delete their assets. The existing "Also delete asset files from disk" checkbox lives here.
+  - **Specific assets** (NEW) — pick any combination of **Format** (IMG / MD / DOC) × **Language** (EN / CH / BI) × **Asset type** (QUE / ANS / SOL) and only matching asset rows are removed. The questions themselves are kept. All three axes start **deselected by default** so nothing is removed by accident; each axis must have at least one box ticked before the Delete button enables. A "Also delete the underlying files from disk" switch sits at the bottom (on by default, mirroring the single-asset delete in the Edit modal).
+- Shared confirm gate: ≤ 10 selected → an "I understand" checkbox; **> 10 selected → must type `DELETE`** (the user-requested double-confirm threshold). Switching tabs invalidates the confirm so the user always re-agrees to the action they're actually performing. `BULK_DELETE_TYPED_THRESHOLD` is the named constant if you ever want to tune the cutoff.
+- New backend route `POST /admin/questions/batch_delete_assets` in [`app/admin.py`](app/admin.py). Form params: `question_ids` (repeated), `formats`, `langs`, `atypes` (each repeated; rejects requests with any axis empty), `delete_files` (`true`/`false`, default `true`). Implementation is an AND of three `IN(...)` filters, intersected with the caller's admin-subjects scope. Each removed asset triggers the same DOC-thumbnail lifecycle hooks as the single-asset delete route (`doc_thumbnails.on_doc_asset_deleted` / `on_img_asset_deleted`) so cached PNGs stay consistent. MD render-cache is invalidated per asset via `md_render.invalidate`.
+- Frontend lives in [`templates/admin_questions.html`](templates/admin_questions.html) — see `bulkDeleteSelected`, `_execBulkDeleteAssets`, and `_execBulkDeleteQuestions` for the dispatch.
 
 #### Admin → System Settings (DB-backed, hot-reload)
 

@@ -63,7 +63,7 @@
                     <button class="btn btn-sm btn-success" onclick="showAddModal()">
                         <i class="bi bi-plus-lg"></i> Add Question
                     </button>
-                    <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" style="display:none" onclick="bulkDeleteSelected()">
+                    <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" style="display:none" onclick="bulkDeleteSelected()" title="Delete the selected questions, or just some of their assets">
                         <i class="bi bi-trash"></i> Delete Selected (<span id="selCountBadge">0</span>)
                     </button>
                     <button class="btn btn-sm btn-warning text-dark" id="bulkGenImgBtn" style="display:none" onclick="openBatchImgModal()" title="Generate IMG from DOC/MD source for the selected questions">
@@ -259,30 +259,127 @@
     </div>
 </div>
 
-<!-- Delete confirmation modal -->
+<!-- ===================== Batch Delete Modal (questions OR assets) ===================== -->
+{# Two-tab modal. Tab 1 ("Whole questions") is the original behaviour — delete the
+   selected Question rows (and optionally their files). Tab 2 ("Specific assets")
+   is the new batch-delete-assets flow: pick any combination of format × lang ×
+   atype and only those rows on the selected questions are removed. The questions
+   themselves are kept.
+
+   Both tabs share one confirm gate:
+     * ≤ 10 selected → an "I understand" checkbox.
+     * > 10 selected → must type DELETE.
+   `>10` deliberately matches the user's "double-confirm when more than 10" ask.
+#}
 <div class="modal fade" id="bulkDeleteModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Delete Questions</h5>
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Batch delete</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-danger">
-                    <strong>Warning!</strong> You are about to delete <span id="bulkDeleteCount" class="fw-bold">0</span> question(s) from the database.
+                <p class="mb-2"><strong>Selected questions:</strong>
+                    <span id="bulkDeleteCount" class="badge bg-secondary">0</span>
+                </p>
+
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#bdTabQuestions" type="button" onclick="onBulkDeleteTabChange()">
+                            <i class="bi bi-trash"></i> Whole questions
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bdTabAssets" type="button" onclick="onBulkDeleteTabChange()">
+                            <i class="bi bi-file-earmark-x"></i> Specific assets
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- ===== Tab 1: delete whole questions (original behaviour) ===== -->
+                    <div class="tab-pane fade show active" id="bdTabQuestions">
+                        <div class="alert alert-danger py-2 small mb-2">
+                            <strong>Warning!</strong> The selected question rows (and all their assets via cascade) will be removed from the database.
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="bulkDeleteFiles" onchange="toggleDeleteFilesWarning()">
+                            <label class="form-check-label" for="bulkDeleteFiles">
+                                Also delete asset files from disk
+                            </label>
+                        </div>
+                        <div class="alert alert-warning py-2 mt-2 mb-0 d-none" id="deleteFilesWarning">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <strong>Caution:</strong> This will permanently remove the image/document files from the server filesystem. This cannot be undone!
+                        </div>
+                    </div>
+
+                    <!-- ===== Tab 2: delete specific assets only (NEW) ===== -->
+                    <div class="tab-pane fade" id="bdTabAssets">
+                        <div class="alert alert-info py-2 small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            Pick any combination of <strong>Format × Language × Asset type</strong>. Only matching asset rows are deleted — the questions themselves are kept. All boxes start unchecked so nothing is removed by accident.
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Formats</label>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-fmt" type="checkbox" id="bdFmt_IMG" value="IMG" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdFmt_IMG">IMG</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-fmt" type="checkbox" id="bdFmt_MD" value="MD" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdFmt_MD">MD</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-fmt" type="checkbox" id="bdFmt_DOC" value="DOC" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdFmt_DOC">DOC</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Languages</label>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_EN" value="EN" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdLang_EN">EN</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_CH" value="CH" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdLang_CH">CH (Chinese)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_BI" value="BI" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdLang_BI">BI (Bilingual)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Asset types</label>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-type" type="checkbox" id="bdType_QUE" value="QUE" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdType_QUE">QUE (Question)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-type" type="checkbox" id="bdType_ANS" value="ANS" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdType_ANS">ANS (Answer)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input bd-asset-type" type="checkbox" id="bdType_SOL" value="SOL" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdType_SOL">SOL (Solution)</label>
+                                </div>
+                            </div>
+                        </div>
+                        <hr class="my-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="bdAssetDeleteFiles" checked>
+                            <label class="form-check-label" for="bdAssetDeleteFiles">
+                                Also delete the underlying files from disk
+                            </label>
+                            <div class="form-text">On by default (matches single-asset delete in the Edit modal). Turn off to keep the files but only remove the DB rows.</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="bulkDeleteFiles" onchange="toggleDeleteFilesWarning()">
-                    <label class="form-check-label" for="bulkDeleteFiles">
-                        Also delete asset files from disk
-                    </label>
-                </div>
-                <div class="alert alert-warning py-2 d-none" id="deleteFilesWarning">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                    <strong>Caution:</strong> This will permanently remove the image/document files from the server filesystem. This cannot be undone!
-                </div>
+
                 <hr>
-                <!-- For single question: checkbox confirm. For multiple: type DELETE -->
+                <!-- Shared confirm gate. >10 selected → must type DELETE. -->
                 <div id="bulkDeleteSingleConfirm">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="bulkDeleteConfirmCheck" onchange="updateBulkDeleteBtn()">
@@ -290,8 +387,10 @@
                     </div>
                 </div>
                 <div id="bulkDeleteMultiConfirm" class="d-none">
-                    <label class="form-label fw-bold text-danger">Type <code>DELETE</code> to confirm:</label>
-                    <input type="text" class="form-control" id="bulkDeleteTypeConfirm" 
+                    <label class="form-label fw-bold text-danger mb-1">
+                        More than 10 questions selected. Type <code>DELETE</code> to confirm:
+                    </label>
+                    <input type="text" class="form-control" id="bulkDeleteTypeConfirm"
                            placeholder="Type DELETE here" autocomplete="off"
                            oninput="updateBulkDeleteBtn()">
                 </div>
@@ -666,25 +765,51 @@ function updateSelectionUI() {
 }
 
 // ===================== BULK DELETE =====================
+// Threshold above which the user must type DELETE (rather than just tick a box).
+// Matches the user's "double-confirm when more than 10 questions" requirement.
+const BULK_DELETE_TYPED_THRESHOLD = 10;
+
+function getActiveBulkDeleteMode() {
+    // 'questions' (Tab 1 — delete the Question rows) or 'assets' (Tab 2 — delete only matching asset rows)
+    return document.querySelector('#bdTabAssets').classList.contains('active') ? 'assets' : 'questions';
+}
+
 function toggleDeleteFilesWarning() {
     const checked = document.getElementById('bulkDeleteFiles').checked;
     document.getElementById('deleteFilesWarning').classList.toggle('d-none', !checked);
-    // Reset confirm when toggling this, force re-confirmation
+    // Force re-confirmation whenever the "delete files" toggle changes.
     document.getElementById('bulkDeleteConfirmCheck').checked = false;
     document.getElementById('bulkDeleteTypeConfirm').value = '';
     document.getElementById('bulkDeleteExecBtn').disabled = true;
+}
+
+function onBulkDeleteTabChange() {
+    // Switching tabs invalidates the confirm — force the user to re-confirm,
+    // since they're now agreeing to a different destructive action.
+    document.getElementById('bulkDeleteConfirmCheck').checked = false;
+    document.getElementById('bulkDeleteTypeConfirm').value = '';
+    updateBulkDeleteBtn();
 }
 
 function bulkDeleteSelected() {
     if (selectedQIds.size === 0) return;
     const count = selectedQIds.size;
     document.getElementById('bulkDeleteCount').textContent = count;
+
+    // Reset Tab 1 state.
     document.getElementById('bulkDeleteFiles').checked = false;
     document.getElementById('deleteFilesWarning').classList.add('d-none');
-    document.getElementById('bulkDeleteExecBtn').disabled = true;
 
-    // Show checkbox for single question, type DELETE for multiple
-    if (count > 1) {
+    // Reset Tab 2 state — default deselect-all so the user opts in to each axis.
+    document.querySelectorAll('.bd-asset-fmt, .bd-asset-lang, .bd-asset-type').forEach(cb => cb.checked = false);
+    document.getElementById('bdAssetDeleteFiles').checked = true;
+
+    // Always start on Tab 1 ("Whole questions") for safety / parity with previous behaviour.
+    const tabQ = document.querySelector('[data-bs-target="#bdTabQuestions"]');
+    if (tabQ) bootstrap.Tab.getOrCreateInstance(tabQ).show();
+
+    // Pick the right confirm gate.
+    if (count > BULK_DELETE_TYPED_THRESHOLD) {
         document.getElementById('bulkDeleteSingleConfirm').classList.add('d-none');
         document.getElementById('bulkDeleteMultiConfirm').classList.remove('d-none');
         document.getElementById('bulkDeleteTypeConfirm').value = '';
@@ -693,21 +818,41 @@ function bulkDeleteSelected() {
         document.getElementById('bulkDeleteMultiConfirm').classList.add('d-none');
         document.getElementById('bulkDeleteConfirmCheck').checked = false;
     }
+    document.getElementById('bulkDeleteExecBtn').disabled = true;
+
     new bootstrap.Modal(document.getElementById('bulkDeleteModal')).show();
 }
 
 function updateBulkDeleteBtn() {
     const count = selectedQIds.size;
-    let confirmed = false;
-    if (count > 1) {
+    const mode = getActiveBulkDeleteMode();
+
+    // Confirm-gate check.
+    let confirmed;
+    if (count > BULK_DELETE_TYPED_THRESHOLD) {
         confirmed = document.getElementById('bulkDeleteTypeConfirm').value.trim() === 'DELETE';
     } else {
         confirmed = document.getElementById('bulkDeleteConfirmCheck').checked;
     }
-    document.getElementById('bulkDeleteExecBtn').disabled = !confirmed;
+
+    // Per-mode validity check.
+    let modeValid = true;
+    if (mode === 'assets') {
+        const fmts = document.querySelectorAll('.bd-asset-fmt:checked').length;
+        const langs = document.querySelectorAll('.bd-asset-lang:checked').length;
+        const types = document.querySelectorAll('.bd-asset-type:checked').length;
+        modeValid = fmts > 0 && langs > 0 && types > 0;
+    }
+
+    document.getElementById('bulkDeleteExecBtn').disabled = !(confirmed && modeValid);
 }
 
 function executeBulkDelete() {
+    const mode = getActiveBulkDeleteMode();
+    return mode === 'assets' ? _execBulkDeleteAssets() : _execBulkDeleteQuestions();
+}
+
+function _execBulkDeleteQuestions() {
     const ids = Array.from(selectedQIds);
     const deleteFiles = document.getElementById('bulkDeleteFiles').checked;
     const formData = new FormData();
@@ -729,6 +874,40 @@ function executeBulkDelete() {
                 loadQuestions();
             } else {
                 showToast(data.error || 'Error deleting', 'danger');
+            }
+        })
+        .catch(err => showToast('Error: ' + err.message, 'danger'))
+        .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i> Delete'; });
+}
+
+function _execBulkDeleteAssets() {
+    const ids = Array.from(selectedQIds);
+    const formats = Array.from(document.querySelectorAll('.bd-asset-fmt:checked')).map(cb => cb.value);
+    const langs = Array.from(document.querySelectorAll('.bd-asset-lang:checked')).map(cb => cb.value);
+    const atypes = Array.from(document.querySelectorAll('.bd-asset-type:checked')).map(cb => cb.value);
+    const deleteFiles = document.getElementById('bdAssetDeleteFiles').checked;
+
+    const formData = new FormData();
+    ids.forEach(id => formData.append('question_ids', id));
+    formats.forEach(f => formData.append('formats', f));
+    langs.forEach(l => formData.append('langs', l));
+    atypes.forEach(t => formData.append('atypes', t));
+    formData.append('delete_files', deleteFiles ? 'true' : 'false');
+
+    const btn = document.getElementById('bulkDeleteExecBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+
+    fetch('{{ url_for("admin.batch_delete_assets") }}', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('bulkDeleteModal')).hide();
+                showToast(data.message || `Deleted ${data.deleted_count} asset(s)`);
+                // Question rows still exist — refresh the table so the Assets column updates.
+                loadQuestions();
+            } else {
+                showToast(data.error || 'Error deleting assets', 'danger');
             }
         })
         .catch(err => showToast('Error: ' + err.message, 'danger'))

@@ -55,10 +55,42 @@ window.allChaptersCache = allChaptersCache;
 let activePasteTarget = { lang: 'EN', atype: 'QUE', ctx: 'edit' };
 window.addActivePasteTarget = window.addActivePasteTarget || { lang: 'EN', atype: 'QUE', ctx: 'add' };
 
+// ==================== ASSET PREVIEW SIZE TOGGLE ====================
+// Controls `<body>.asset-thumbs-compact`. When ON (default), IMG parts render as a
+// small thumbnail grid; when OFF, current full-width vertically-stacked behaviour.
+// Persisted in localStorage so the choice survives page reloads, and applied via
+// <body> class so both the edit modal AND the admin Add-question wizard inherit it.
+const OQB_THUMB_COMPACT_KEY = 'oqb_assetThumbsCompact';
+function oqbIsThumbsCompact() {
+    const raw = localStorage.getItem(OQB_THUMB_COMPACT_KEY);
+    return raw === null ? true : raw === '1';
+}
+function oqbApplyThumbCompact(compact) {
+    document.body.classList.toggle('asset-thumbs-compact', !!compact);
+    const cb = document.getElementById('editAssetCompactToggle');
+    if (cb) cb.checked = !!compact;
+}
+function oqbInitThumbCompact() {
+    oqbApplyThumbCompact(oqbIsThumbsCompact());
+    const cb = document.getElementById('editAssetCompactToggle');
+    if (cb && !cb.dataset.oqbBound) {
+        cb.dataset.oqbBound = '1';
+        cb.addEventListener('change', function() {
+            localStorage.setItem(OQB_THUMB_COMPACT_KEY, cb.checked ? '1' : '0');
+            oqbApplyThumbCompact(cb.checked);
+        });
+    }
+}
+document.addEventListener('DOMContentLoaded', oqbInitThumbCompact);
+// Idempotently re-apply on first script run (in case DOMContentLoaded already fired,
+// e.g. when this partial loads later than the body parse).
+oqbInitThumbCompact();
+
 // ==================== EDIT MODAL ====================
 function openEditModal(questionId) {
     editQuestionData = null;
     currentAssetLang = 'EN';
+    oqbInitThumbCompact();
 
     // Reset tabs to first (Tags is now the default tab)
     document.querySelector('#editQuestionModal .nav-link.active')?.classList.remove('active');
@@ -208,6 +240,9 @@ function loadAssetsForEdit(questionId) {
                 const container = document.getElementById('lang' + lang);
                 container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {}, 'edit');
             });
+            // Re-render always paints QUE as the visual default. Override it so the user's
+            // chosen paste target (e.g. SOL) survives an upload → refresh round-trip.
+            setActivePasteTarget(activePasteTarget.lang, activePasteTarget.atype, 'edit');
         })
         .catch(err => showToast('Error loading assets: ' + err.message, 'danger'));
 }
@@ -247,7 +282,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
                 </div>
-                <div id="${ctx}_assetParts_${lang}_${atype}">`;
+                <div id="${ctx}_assetParts_${lang}_${atype}" class="oqb-img-parts">`;
 
         if (imgs.length === 0) {
             html += '<div class="text-muted fst-italic small p-2">No images</div>';
@@ -420,6 +455,9 @@ function refreshAssetsView(questionId) {
                 const newHtml = renderAssetSections(questionId, lang, langAssets, 'add');
                 while (area.children.length > 1) area.removeChild(area.lastChild);
                 area.insertAdjacentHTML('beforeend', newHtml);
+                // Preserve the user's chosen paste target across the upload-triggered rerender.
+                const apt = window.addActivePasteTarget || { lang, atype: 'QUE' };
+                setActivePasteTarget(apt.lang || lang, apt.atype || 'QUE', 'add');
             });
     } else {
         loadAssetsForEdit(questionId);

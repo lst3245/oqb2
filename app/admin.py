@@ -601,6 +601,149 @@ def delete_questions():
             'error': str(e)
         }), 500
 
+
+@admin_bp.route('/questions/batch_delete_assets', methods=['POST'])
+@login_required
+@admin_required
+def batch_delete_assets():
+    """Batch-delete a filtered subset of assets for the selected questions.
+
+    Filters are applied as an AND of three independent IN(...) clauses:
+        file_format IN formats   (any non-empty subset of IMG/MD/DOC)
+        language    IN langs     (any non-empty subset of EN/CH/BI)
+        asset_type  IN atypes    (any non-empty subset of QUE/ANS/SOL)
+
+    The selected-question scope is further intersected with the caller's
+    admin subjects so a subject-admin can't accidentally touch questions
+    in a subject they don't own.
+
+    Each removed asset also triggers the same DOC-thumbnail lifecycle hooks
+    as the single-asset delete route so cached PNGs stay consistent.
+    """
+    try:
+        question_ids = request.form.getlist('question_ids')
+        formats = [f for f in request.form.getlist('formats') if f in ('IMG', 'MD', 'DOC')]
+        langs = [l for l in request.form.getlist('langs') if l in ('EN', 'CH', 'BI')]
+        atypes = [t for t in request.form.getlist('atypes') if t in ('QUE', 'ANS', 'SOL')]
+        delete_files = request.form.get('delete_files', 'true') == 'true'
+
+        if not question_ids:
+            return jsonify({'success': False, 'error': 'No questions selected'}), 400
+        if not formats:
+            return jsonify({'success': False, 'error': 'Pick at least one format (IMG / MD / DOC)'}), 400
+        if not langs:
+            return jsonify({'success': False, 'error': 'Pick at least one language (EN / CH / BI)'}), 400
+        if not atypes:
+            return jsonify({'success': False, 'error': 'Pick at least one asset type (QUE / ANS / SOL)'}), 400
+
+        question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
+        if not question_ids:
+            return jsonify({'success': False, 'error': 'Invalid question IDs'}), 400
+
+        # Restrict to questions whose subject the caller can admin.
+        admin_subjects = [s.id for s in get_user_admin_subjects()]
+        accessible_qids = [
+            q.id for q in Question.query
+                .filter(Question.id.in_(question_ids))
+                .filter(Question.subject.in_(admin_subjects))
+                .all()
+        ]
+        if not accessible_qids:
+            return jsonify({'success': False, 'error': 'No accessible questions in selection'}), 403
+
+        assets = (
+            QuestionAsset.query
+            .filter(QuestionAsset.question_id.in_(accessible_qids))
+            .filter(QuestionAsset.file_format.in_(formats))
+            .filter(QuestionAsset.language.in_(langs))
+            .filter(QuestionAsset.asset_type.in_(atypes))
+            .all()
+        )
+
+        if not assets:
+            return jsonify({
+                'success': True,
+                'deleted_count': 0,
+                'files_deleted': 0,
+                'questions_touched': 0,
+                'message': 'No matching assets found',
+            })
+
+        source_path = current_app.config['SOURCE_PATH']
+        files_deleted = 0
+        files_missing = 0
+        deleted_count = 0
+        touched_qids = set()
+
+        # Snapshot the per-asset metadata we need for the thumbnail-lifecycle hooks,
+        # because we lose the rows after db.session.delete + commit.
+        doc_asset_ids_deleted: list[int] = []
+        img_slots_deleted: list[tuple[int, str, str]] = []  # (question_id, asset_type, language)
+
+        for asset in assets:
+            touched_qids.add(asset.question_id)
+
+            if delete_files:
+                full_path = os.path.join(source_path, asset.file_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                        files_deleted += 1
+                    except OSError:
+                        # Continue with DB delete even if filesystem remove fails.
+                        pass
+                else:
+                    files_missing += 1
+
+            if asset.file_format == 'MD':
+                md_render.invalidate(asset.id)
+            elif asset.file_format == 'DOC':
+                doc_asset_ids_deleted.append(asset.id)
+            elif asset.file_format == 'IMG':
+                img_slots_deleted.append((asset.question_id, asset.asset_type, asset.language))
+
+            db.session.delete(asset)
+            deleted_count += 1
+
+        db.session.commit()
+
+        # Post-commit thumbnail lifecycle (mirrors delete_question_asset).
+        from app import doc_thumbnails
+        for asset_id in doc_asset_ids_deleted:
+            doc_thumbnails.on_doc_asset_deleted(asset_id)
+        if img_slots_deleted:
+            class _Stub:
+                pass
+            for qid, atype, lang in img_slots_deleted:
+                stub = _Stub()
+                stub.file_format = 'IMG'
+                stub.question_id = qid
+                stub.asset_type = atype
+                stub.language = lang
+                doc_thumbnails.on_img_asset_deleted(stub)
+
+        msg = f'Deleted {deleted_count} asset(s) across {len(touched_qids)} question(s)'
+        if delete_files:
+            msg += f' ({files_deleted} file(s) removed from disk'
+            if files_missing:
+                msg += f', {files_missing} already missing'
+            msg += ')'
+        else:
+            msg += ' (files on disk left intact)'
+
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'files_deleted': files_deleted,
+            'files_missing': files_missing,
+            'questions_touched': len(touched_qids),
+            'message': msg,
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== Batch Question Update ====================
 
 @admin_bp.route('/questions/batch-update', methods=['POST'])
