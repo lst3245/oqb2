@@ -40,16 +40,20 @@ Topics, subtopics, chapters, years all use a custom dropdown pattern:
 When adding a new multi-select filter, follow the same pattern for consistency.
 
 ## SSE (Server-Sent Events)
-Used for ingestion and health sync progress streams.
+Used for ingestion, health sync, batch IMG generation, and batch MCQ ANS assignment. All streaming endpoints follow the same event shape:
+
 ```javascript
-const es = new EventSource('/admin/ingestion/start?subject=MATC');
-es.addEventListener('message', e => {
-    const data = JSON.parse(e.data);
-    appendLog(data.message, data.type);
-    if (data.type === 'done') es.close();
-});
+const es = new EventSource('/admin/questions/batch-mcq-ans?' + params);
+es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    // ev.type: 'info' | 'success' | 'skip' | 'error' | 'done'
+    // ev.message: human-readable string
+    // ev.current / ev.total: optional progress counters
+    appendLog(ev.message, ev.type);
+    if (ev.type === 'done') es.close();
+};
 ```
-The server yields `data: {...}\n\n` using Flask `Response` with `mimetype='text/event-stream'`.
+The server yields `data: {...}\n\n` using Flask `Response(generate(), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})`.
 
 nginx must have `proxy_buffering off` for SSE to work through a reverse proxy.
 
@@ -93,6 +97,9 @@ window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
 ```
 
 The admin **Add Question** modal keeps its own Details → Assets → Tags 3-step wizard (Step 1 must create the question record before assets/tags can attach to it) — only the Edit modal is unified across pages.
+
+**localStorage keys used by the Edit modal:**
+- `oqb_assetThumbsCompact` — `'1'` | `'0'`: compact vs full-width asset preview mode. Applied as a `<body>.asset-thumbs-compact` class via `oqbInitThumbCompact()` in `edit_question_modal_js.html`.
 
 ## Drag-to-Reorder
 Sort criteria (dashboard + generate page) and the generator's Selected Questions list use **SortableJS** (loaded from CDN in `base.html`). HTML5 native drag-and-drop is **not** used — it does not work on touch devices.
