@@ -35,7 +35,9 @@ User (username, password_hash, is_super_admin)
 UserSubjectPermission (user_id, subject_id, role)  — role: 'viewer'|'user'|'admin'
 SavedFilter (user_id, name, filter_data JSON, is_starred, is_shared)
 SavedGenerationProfile (user_id, name, options_data JSON, is_starred, is_shared, created_at, updated_at)
-GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, ...)
+FileSection (user_id, name, sort_order, sort_field, sort_direction, page_size, collapsed, is_default)
+GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, section_id, manual_position, ...)
+FileShare (file_id?, section_id?, shared_by_user_id, shared_with_user_id)  — XOR(file_id, section_id)
 SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 ```
 
@@ -71,6 +73,14 @@ SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 `pending` → `generating` → `completed` | `failed`
 
 Stale `pending`/`generating` records are reset to `failed` on app startup (in `create_app()`).
+
+## My Files Sections & Sharing
+- `FileSection` is the per-user folder model for the My Files page. Each user has exactly one row with `is_default=True` (the "Latest" inbox) — auto-created lazily via `_get_or_create_default_section` in `app/user.py` on first /user/files load and whenever the generator creates a new `GeneratedFile`.
+- `GeneratedFile.section_id` is nullable + ON DELETE SET NULL. New files always land in the owner's default section. Section deletion moves contained files back to default; nothing is ever orphaned.
+- `FileShare` records a per-target-user share. Exactly one of (`file_id`, `section_id`) is non-NULL (DB CHECK constraint). Sharing a section transitively shares every file in it (resolution at query time, not materialised).
+- Visibility helper: `_user_can_view_file(gf, user)` returns True if user owns the file, is super-admin, OR has any `FileShare` row matching `(file_id=gf OR section_id=gf.section_id)`.
+- Mutation helper: `_user_owns_file(gf, user)` — only the owner / super-admin can move / rename / delete. Sharing controls (toggle / list) are super-admin-only.
+- See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the full API + frontend layout.
 
 ## SystemSetting (DB-backed runtime config)
 Key/value table that overrides `.env` / `Config` bootstrap defaults at runtime. The full registry of tunables (type/label/help/validator) lives in `app/settings.py`. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) for the precedence rules, hot-reload semantics, and "adding a new tunable" guide.

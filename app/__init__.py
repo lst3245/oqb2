@@ -78,6 +78,42 @@ def create_app():
         except Exception:
             pass  # broken DB connection / pre-init; settings will fall back to .env
 
+    # Auto-create the My Files sections + shares tables and patch
+    # generated_files with the new columns. Same idempotent upgrade pattern
+    # as the system_settings block above — missing prerequisites are
+    # tolerated so a fresh deploy is still bootstrapped by init_db.py.
+    with app.app_context():
+        try:
+            from app.models import FileSection, FileShare
+            FileSection.__table__.create(db.engine, checkfirst=True)
+            FileShare.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            pass
+
+        # Add section_id / manual_position to generated_files if absent
+        # (MariaDB / MySQL syntax — INFORMATION_SCHEMA lookup keeps this
+        # idempotent and avoids needing Alembic for a single column add).
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                existing = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generated_files'"
+                ))}
+                if 'section_id' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE generated_files ADD COLUMN section_id INT NULL, "
+                        "ADD INDEX ix_generated_files_section_id (section_id), "
+                        "ADD CONSTRAINT fk_generated_files_section "
+                        "FOREIGN KEY (section_id) REFERENCES file_sections(id) ON DELETE SET NULL"
+                    ))
+                if 'manual_position' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE generated_files ADD COLUMN manual_position INT NOT NULL DEFAULT 0"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

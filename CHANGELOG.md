@@ -4,6 +4,56 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ New Features
+
+#### My Files — sections, drag-to-move, sharing, ZIP download
+
+The My Files page is now organised around **user-owned sections** (folders) instead of a flat list. Each user has at minimum a default `Latest` section (auto-created on first visit, undeleteable, where every newly generated file lands) and may create any number of named sections beside it.
+
+- **Drag-and-drop file move**: each file row has a grip handle (SortableJS, `group: 'oqb-files'`). Drop into another section's body → the row is `POST /user/files/<id>/move`d to that section. Same-section reorder fires `POST /user/files/reorder` and switches the section's sort mode to `manual`.
+- **Section vertical reorder**: drag the grip on a section header (`group: 'oqb-sections'`) → `POST /user/sections/reorder`. The default `Latest` section is always pinned to the top regardless of where it lands in the input list.
+- **Per-section sort**: dropdown picks one of `created_at`, `name`, `completed_at`, `question_count`, `manual` × `asc/desc`. Stored on `FileSection.sort_field/sort_direction`, applied server-side.
+- **Per-section pagination**: each section has its own `page_size` (5 / 10 / 25 / 50 / 100) and page-state. Independent navigation per section — no global "page" coupling.
+- **Collapse / expand**: state persists to the server via `FileSection.collapsed` so the layout sticks across browsers.
+- **Inline rename** (double-click): both section names and file display names. Backed by `PATCH /user/sections/<id>` and `POST /user/files/<id>/rename`. Default section name is locked; shared rows are read-only.
+- **Super-admin per-user sharing**: any super-admin can share a single file (kebab → Share with users…) or a whole section (section actions → Share section…) to any subset of users. The recipient sees a read-only row in a virtual **Shared with me** section, badged with the sharer's username. Owner keeps full control; recipient can download but not move/rename/delete. Sharing a section transitively shares every file in it (including files added later).
+- **Multi-select bulk bar** (sticky-top): once any checkbox is ticked, a top bar exposes **Download ZIP** (`POST /user/files/bulk-download` streams a `application/zip`), **Move to section** dropdown (`POST /user/files/bulk-move`), **Share to users…** (admin), and **Delete**. Selection accumulates across sections; `Ctrl/Cmd+A` selects every visible row; `Delete` key triggers bulk delete.
+- **Live search**: top-right input filters all loaded rows by name (client-side, with `<mark>` highlight of the match).
+- **File size badge**: every completed row shows `os.path.getsize` next to its extension chip.
+- **Auto-refresh polling**: only re-fetches sections that contain a `.status-generating` row, every 5 s — much lighter than the previous full-page reload.
+- **"Show all users" toggle (super-admin)**: when enabled, `GET /user/sections?show_all=1` returns every user's sections (own first, then by `user_id`), and `GET /user/files/list?show_all=1` includes files owned by any user inside the resolved section. Foreign sections are rendered with a blue `@username` owner pill in the header so the admin always knows whose folder they are viewing. The Move-to dropdown automatically includes every visible section as a target, letting admins reorganise other users' files in place. The virtual "Shared with me" entry is omitted in `show_all` mode (the admin already sees the source files directly).
+- **No-text-select while dragging**: SortableJS `onStart` / `onEnd` hooks toggle a `body.oqb-dragging` class that applies `user-select: none !important` globally for the duration of any drag. Cursor switches to `grabbing`. Prevents the highlight-while-dragging annoyance reported during initial rollout.
+- **Cleaner page header**: the My Files top bar is now split into two rows — title + (super-admin) "Show all users" toggle + Refresh on top; a dedicated toolbar card below containing the search input (left, flex-grows) and the **New section** button (right). Replaces the prior single-row layout where everything bunched together and wrapped awkwardly on narrow widths.
+
+#### API
+
+| Route | Method | Description |
+|---|---|---|
+| `/user/sections?show_all=` | GET | List user's own sections + the virtual "Shared with me" entry if any shares exist. Super-admin with `show_all=1` returns every user's sections (own first, then by user_id) with `owner_username` populated on foreign rows |
+| `/user/sections` | POST | Create a new section |
+| `/user/sections/<id>` | PATCH | Update name / sort / page_size / collapsed |
+| `/user/sections/<id>` | DELETE | Delete; contained files auto-move to default |
+| `/user/sections/reorder` | POST | `{ids:[...]}` |
+| `/user/files/list?section_id=&page=&show_all=` | GET | Paginated single-section listing; `section_id=-1` for shared |
+| `/user/files/<id>/move` | POST | `{section_id}` |
+| `/user/files/bulk-move` | POST | `{ids, section_id}` |
+| `/user/files/<id>/rename` | POST | `{display_name}` |
+| `/user/files/reorder` | POST | `{section_id, ids:[]}` (sets `manual_position` + switches sort to `manual`) |
+| `/user/files/bulk-download` | POST | `{ids:[]}` → streams ZIP (`my-files-<ts>.zip`) |
+| `/user/shares?file_id=` or `?section_id=` | GET | Super admin: list current target users + available picker |
+| `/user/shares` | POST | Super admin: `{file_id?\|section_id?, user_ids:[]}` upsert |
+| `/user/shares/<id>` | DELETE | Super admin: revoke one row |
+| `/user/shares/users` | GET | Super admin: full user list for picker |
+
+`GET /user/files/list` (the legacy "flat list" form) was repurposed to require `section_id`; the dashboard / generator UI calls it through the new section-aware flow.
+
+### 🗄️ Database Changes
+
+- New table `file_sections` (`id`, `user_id` FK, `name`, `sort_order`, `sort_field`, `sort_direction`, `page_size`, `collapsed`, `is_default`, `created_at`, `updated_at`; unique `(user_id, name)`).
+- New table `file_shares` (`id`, `file_id` FK nullable, `section_id` FK nullable, `shared_by_user_id` FK, `shared_with_user_id` FK, `created_at`; CHECK exactly-one-of-file-or-section; unique `(file_id, shared_with_user_id)` and `(section_id, shared_with_user_id)`; ON DELETE CASCADE from both parents).
+- `generated_files` adds `section_id` (FK to `file_sections`, ON DELETE SET NULL, indexed) and `manual_position` (int, default 0). New files default to the owner's `Latest` section via `_get_or_create_default_section`.
+- `create_app()` performs an idempotent upgrade — creates the two new tables with `checkfirst=True` and `ALTER TABLE`s the new columns onto `generated_files` if absent, so existing deployments don't need to re-run `init_db.py`.
+
 ### ✨ Enhanced Features
 
 #### Admin panel UI cleanup

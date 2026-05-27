@@ -283,10 +283,26 @@ Enter a name (without extension). A timestamp is appended automatically. Leave b
 
 Navigate to **My Files** (top navigation).
 
-The table shows all your generated documents with their status:
-- **Pending / Generating** — being created in the background (auto-refreshes every 5 seconds)
+Generated files are organised into **sections** (folders). Every account starts with a built-in **Latest** section where new files automatically land — you can drag files out into your own sections to keep things tidy.
+
+Each section row shows its file count, sort, page size, and a status:
+- **Pending / Generating** — being created in the background (only those sections auto-refresh, every 5 seconds)
 - **Completed** — ready to download
-- **Failed** — generation failed (hover the status for an error message)
+- **Failed** — hover the status for an error message
+
+### Sections (folders)
+- **New section** button (top-right) — create a section with any name.
+- **Drag the grip** at the left of a section header to reorder sections vertically (Latest is always first).
+- **Three-dot menu** on the section header → **Rename**, **Share section…** (super admin), **Delete**. Deleting a section moves its files back to **Latest** — nothing is destroyed.
+- **Collapse** with the chevron next to the name; the open/closed state is remembered server-side.
+- **Sort dropdown** in the header switches the sort order: Created, Name, Completed, Question count, or **Manual order** (drag files into the order you want).
+- **Per-page dropdown** chooses 5 / 10 / 25 / 50 / 100. Each section paginates independently.
+
+### Drag-and-drop files
+Every file row has a grip handle. Drag a file onto another section's body to move it; drag within the same section to set a manual order (the section's sort is then set to "Manual"). Shared-with-me rows are read-only and cannot be dragged.
+
+### Inline rename
+Double-click any section name (except Latest) or file name to rename in place. Press Enter to save or Esc to cancel.
 
 ### Actions Per File
 
@@ -295,12 +311,23 @@ The table shows all your generated documents with their status:
 | Download | Download the `.docx`, `.pdf` or `.zip` file |
 | Re-generate | Go back to the generation page with all the same settings pre-filled |
 | Re-filter | Restore the original dashboard filter that was used for this file |
+| Share (super admin) | Pick users who should see this file in their **Shared with me** section |
 | Delete | Remove the file and its database record |
 
-### Bulk Delete
-Tick the checkbox column to select multiple files, then click **Delete Selected**.
+### Bulk operations
+Select files (checkbox per row, **Ctrl/Cmd+A** to select all, **Delete** key to bulk-delete). A sticky bar appears at the top of the page:
+- **Download ZIP** — packages every selected file into a single `.zip` and downloads it.
+- **Move to** — drop the selection into any of your sections.
+- **Share to users…** (super admin only) — share every selected file with the chosen users.
+- **Delete** — remove the selection.
 
-> Super admins can toggle "Show all users" to see and manage everyone's files.
+### Shared with me
+If a super admin shares any file or section to you, an extra **Shared with me** section appears at the bottom of your page. The rows are read-only — you can download them, but cannot drag, rename, or delete. The sharer's username is shown next to each row.
+
+### Search
+The top-right **Filter by name** box live-filters every loaded row and highlights matches.
+
+> Super admins can toggle **Show all users** to see and manage everyone's files.
 
 ---
 

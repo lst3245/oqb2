@@ -281,15 +281,43 @@ Unique constraint: `(question_id, asset_type, language, file_format, part_number
 |---|---|---|
 | `id` | INT PK | |
 | `user_id` | INT FK → users | |
-| `display_name` | VARCHAR(200) | User-chosen name |
+| `display_name` | VARCHAR(200) | User-chosen name (renameable via `/user/files/<id>/rename`) |
 | `filename` | VARCHAR(300) | Actual filename on disk (in OUTPUT_PATH) |
 | `status` | VARCHAR(20) | `pending` → `generating` → `completed` \| `failed` |
 | `error_message` | TEXT | Set on failure |
 | `filter_data` | TEXT | JSON — dashboard filter used |
 | `generation_options` | TEXT | JSON — all generation options |
 | `question_count` | INT | |
+| `section_id` | INT FK → file_sections, ON DELETE SET NULL | Section the file currently lives in (defaults to user's "Latest") |
+| `manual_position` | INT | Index within the section when its `sort_field='manual'` |
 | `created_at` | DATETIME | |
 | `completed_at` | DATETIME | |
+
+#### `file_sections`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `user_id` | INT FK → users | Owner |
+| `name` | VARCHAR(120) | Unique per user |
+| `sort_order` | INT | Vertical order; default section pinned to 0 |
+| `sort_field` | VARCHAR(20) | `name` \| `created_at` \| `completed_at` \| `question_count` \| `manual` |
+| `sort_direction` | VARCHAR(4) | `asc` \| `desc` |
+| `page_size` | INT | One of 5 / 10 / 25 / 50 / 100 |
+| `collapsed` | BOOL | UI collapse state, persisted |
+| `is_default` | BOOL, indexed | Exactly one per user; auto-created lazily; undeleteable + unrenameable |
+| `created_at`, `updated_at` | DATETIME | |
+
+#### `file_shares`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `file_id` | INT FK → generated_files ON DELETE CASCADE, nullable | XOR with section_id (CHECK) |
+| `section_id` | INT FK → file_sections ON DELETE CASCADE, nullable | XOR with file_id |
+| `shared_by_user_id` | INT FK → users | The sharer (always a super admin) |
+| `shared_with_user_id` | INT FK → users, indexed | Target user |
+| `created_at` | DATETIME | |
+
+Constraints: `((file_id IS NOT NULL) + (section_id IS NOT NULL)) = 1`; unique on `(file_id, shared_with_user_id)` and `(section_id, shared_with_user_id)`.
 
 ---
 
@@ -408,11 +436,25 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | `/gen-profiles/<id>/star` | POST | Toggle starred status (owner / super admin) |
 | `/gen-profiles/<id>/share` | POST | Toggle shared status (**super admin only**) |
 | `/files` | GET | My Files page |
-| `/files/list` | GET | JSON list of generated files |
-| `/files/<id>/filter` | GET | Get saved filter data from a file |
-| `/files/<id>/generation_options` | GET | Get saved generation options from a file |
+| `/files/list?section_id=&page=&show_all=` | GET | Paginated single-section file list (`section_id=-1` returns the "Shared with me" virtual section) |
+| `/files/<id>/filter` | GET | Get saved filter data from a file (any user with read access) |
+| `/files/<id>/generation_options` | GET | Get saved generation options (any user with read access) |
+| `/files/<id>/move` | POST | `{section_id}` — move a single file (owner / super admin) |
+| `/files/bulk-move` | POST | `{ids, section_id}` |
+| `/files/<id>/rename` | POST | `{display_name}` — rename DB row only |
+| `/files/reorder` | POST | `{section_id, ids:[]}` — manual ordering; flips section sort to 'manual' |
 | `/files/<id>` | DELETE | Delete file (DB + disk) |
 | `/files/bulk-delete` | POST | Delete multiple files (DB + disk) |
+| `/files/bulk-download` | POST | `{ids: []}` → streams a `application/zip` (`my-files-<ts>.zip`); non-completed and missing files are skipped |
+| `/sections` | GET | List own + shared sections; includes `file_count` per row and virtual `id=-1` for Shared-with-me |
+| `/sections` | POST | `{name}` — create section |
+| `/sections/<id>` | PATCH | Partial: `{name?, sort_field?, sort_direction?, page_size?, collapsed?}` |
+| `/sections/<id>` | DELETE | Delete; contained files auto-move to default |
+| `/sections/reorder` | POST | `{ids:[]}` |
+| `/shares?file_id=` or `?section_id=` | GET | Super admin: current target users + picker list |
+| `/shares` | POST | Super admin: `{file_id?\|section_id?, user_ids:[]}` upsert |
+| `/shares/<id>` | DELETE | Super admin: revoke one row |
+| `/shares/users` | GET | Super admin: all users for the picker |
 
 ---
 

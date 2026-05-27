@@ -3,7 +3,12 @@ Database initialization script
 Creates all tables and inserts default data
 """
 from app import create_app, db
-from app.models import User, Subject, Topic, Subtopic, SavedFilter, SavedGenerationProfile, SavedQuestionSet, GeneratedFile, SystemSetting
+from app.models import (
+    User, Subject, Topic, Subtopic,
+    SavedFilter, SavedGenerationProfile, SavedQuestionSet,
+    GeneratedFile, FileSection, FileShare,
+    SystemSetting,
+)
 
 def init_database():
     """Initialize database with schema and default data"""

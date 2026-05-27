@@ -8,191 +8,1064 @@
     .file-row td { vertical-align: middle; }
     .bulk-bar { display: none; }
     .bulk-bar.show { display: flex; }
+
+    /* Sticky bulk bar */
+    .bulk-bar {
+        position: sticky;
+        top: 56px;
+        z-index: 1020;
+        background: var(--bs-body-bg, #fff);
+        border: 1px solid var(--bs-border-color, #dee2e6);
+        border-radius: .5rem;
+        padding: .5rem .75rem;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        margin-bottom: 1rem;
+    }
+
+    .section-card { margin-bottom: 1rem; }
+    .section-card .card-header {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+        padding: .5rem .75rem;
+    }
+    .section-card .section-drag-handle {
+        cursor: grab;
+        color: var(--bs-secondary-color, #6c757d);
+        padding: .25rem;
+    }
+    .section-card.is-default .section-drag-handle,
+    .section-card.is-shared .section-drag-handle { visibility: hidden; }
+    .section-card .section-name {
+        font-weight: 600;
+        font-size: 1.05rem;
+        cursor: pointer;
+    }
+    .section-card .section-name[contenteditable="true"] {
+        outline: 2px solid var(--bs-primary, #0d6efd);
+        border-radius: .25rem;
+        padding: 0 .25rem;
+        cursor: text;
+    }
+    .section-card .file-count-badge { font-size: .75rem; }
+    .section-card .section-controls {
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+        margin-left: auto;
+        flex-wrap: wrap;
+    }
+    .section-card .section-controls .form-select-sm { width: auto; }
+
+    /* Drop target highlight */
+    .section-files-tbody.drag-over {
+        outline: 2px dashed var(--bs-primary, #0d6efd);
+        outline-offset: -2px;
+        background: rgba(13,110,253,0.04);
+    }
+    .section-files-tbody {
+        min-height: 60px;
+    }
+    .section-files-tbody:empty + .empty-row td,
+    .section-empty {
+        color: var(--bs-secondary-color, #6c757d);
+        font-style: italic;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    /* SortableJS classes */
+    .sortable-ghost { opacity: .35; }
+    .sortable-chosen { background: rgba(13,110,253,0.08); }
+    .sortable-drag { box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
+
+    .drag-handle {
+        cursor: grab;
+        color: var(--bs-secondary-color, #6c757d);
+        touch-action: none;
+    }
+    .drag-handle:active { cursor: grabbing; }
+
+    .file-row.is-read-only { background-color: rgba(108,117,125,0.06); }
+    .file-row.is-read-only .drag-handle { visibility: hidden; }
+
+    .file-name-display {
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .file-name-display[contenteditable="true"] {
+        outline: 2px solid var(--bs-primary, #0d6efd);
+        border-radius: .25rem;
+        padding: 0 .25rem;
+        cursor: text;
+    }
+
+    .pagination-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: .5rem .75rem;
+        border-top: 1px solid var(--bs-border-color, #dee2e6);
+        background: rgba(0,0,0,0.015);
+        font-size: .85rem;
+    }
+    .pagination-bar .page-info { color: var(--bs-secondary-color, #6c757d); }
+    .pagination-bar .btn-group .btn { min-width: 2.2rem; }
+
+    .shared-badge {
+        background-color: #cff4fc;
+        color: #055160;
+        font-size: .7rem;
+        padding: .15rem .4rem;
+        border-radius: .25rem;
+        font-weight: 600;
+    }
+
+    .search-bar { min-width: 240px; max-width: 360px; flex: 1 1 240px; }
+
+    /* Suppress text selection while dragging files / sections so the user
+       doesn't accidentally highlight everything in their path. */
+    body.oqb-dragging,
+    body.oqb-dragging * {
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+        cursor: grabbing !important;
+    }
+
+    /* Owner pill shown next to a section name in "Show all users" view. */
+    .owner-pill {
+        background-color: #e7f5ff;
+        color: #084298;
+        font-size: .7rem;
+        padding: .15rem .45rem;
+        border-radius: .25rem;
+        font-weight: 600;
+        margin-left: .5rem;
+    }
+
+    /* Header toolbar layout */
+    .page-toolbar {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+    .page-toolbar .toolbar-spacer { flex: 1 1 auto; }
+
+    /* Subtle highlight when name contains a search match */
+    mark.oqb-search-hit { background: #fff3cd; padding: 0 1px; border-radius: 2px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2><i class="bi bi-file-earmark-word"></i> My Generated Files</h2>
-        <div class="d-flex align-items-center gap-3">
+<div class="container-xl mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-folder2-open"></i> My Generated Files</h2>
+        <div class="d-flex align-items-center gap-2">
             {% if current_user.is_super_admin %}
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadFiles()">
-                <label class="form-check-label" for="showAllToggle">Show all users</label>
+            <div class="form-check form-switch mb-0 me-2" title="Show every user's sections and files">
+                <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="reloadAll()">
+                <label class="form-check-label small" for="showAllToggle">Show all users</label>
             </div>
             {% endif %}
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadFiles()" title="Refresh">
-                <i class="bi bi-arrow-clockwise"></i>
+            <button class="btn btn-sm btn-outline-secondary" onclick="reloadAll()" title="Refresh">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
             </button>
         </div>
     </div>
 
-    <!-- Bulk action bar -->
-    <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
-        <span id="selectedCount" class="text-muted small">0 selected</span>
-        <button class="btn btn-sm btn-danger" onclick="bulkDelete()">
-            <i class="bi bi-trash"></i> Delete Selected
-        </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
+    <div class="card mb-3">
+        <div class="card-body py-2 page-toolbar">
+            <div class="input-group input-group-sm search-bar">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" id="searchInput" class="form-control"
+                       placeholder="Filter files by name…" oninput="onSearch()">
+                <button class="btn btn-outline-secondary" type="button"
+                        onclick="clearSearch()" title="Clear filter">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <button class="btn btn-sm btn-primary" onclick="openCreateSectionPrompt()">
+                <i class="bi bi-folder-plus"></i> New section
+            </button>
+        </div>
     </div>
 
-    <div id="filesContainer">
+    <!-- Sticky bulk action bar -->
+    <div id="bulkBar" class="bulk-bar align-items-center gap-2">
+        <span id="selectedCount" class="text-muted small fw-semibold">0 selected</span>
+        <button class="btn btn-sm btn-success" onclick="bulkDownloadZip()" title="Download as ZIP">
+            <i class="bi bi-file-zip"></i> Download ZIP
+        </button>
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-folder-symlink"></i> Move to
+            </button>
+            <ul id="bulkMoveMenu" class="dropdown-menu">
+                <li><span class="dropdown-item text-muted small">Loading…</span></li>
+            </ul>
+        </div>
+        {% if current_user.is_super_admin %}
+        <button class="btn btn-sm btn-outline-info" onclick="openShareModalForSelection()">
+            <i class="bi bi-share"></i> Share to users…
+        </button>
+        {% endif %}
+        <button class="btn btn-sm btn-outline-danger" onclick="bulkDelete()">
+            <i class="bi bi-trash"></i> Delete
+        </button>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">Clear</button>
+    </div>
+
+    <div id="sectionsContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading files...</p>
+            <p class="mt-2 text-muted">Loading sections…</p>
         </div>
     </div>
 </div>
+
+<!-- Share-to-users modal (super admin only) -->
+{% if current_user.is_super_admin %}
+<div class="modal fade" id="shareModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-share"></i> Share with users</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="shareModalTarget">…</p>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" id="shareUserSearch" class="form-control" placeholder="Filter users…" oninput="filterShareUsers()">
+                </div>
+                <div id="shareUserList" class="border rounded p-2" style="max-height: 320px; overflow-y: auto;">
+                    <div class="text-center text-muted small py-3">Loading users…</div>
+                </div>
+                <div class="form-text mt-2">Selected users see the file/section as read-only rows in their My Files.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveShareModal()" id="shareSaveBtn">
+                    <i class="bi bi-check2"></i> Save shares
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// ============================================================================
+// My Files — section-based layout with drag-to-move, per-section paging/sort,
+// per-user file sharing (admin), ZIP download, inline rename, and search.
+// All endpoints live on the /user/ blueprint (app/user.py).
+// ============================================================================
+
+const IS_SUPER_ADMIN = {{ 'true' if current_user.is_super_admin else 'false' }};
+const SHARED_SECTION_ID = -1;
+
+// In-memory state for each section visible on the page.
+// section_id -> { meta, page, files, total, pages, page_size }
+const sectionState = new Map();
+
+// Map id -> { id, name } for "Move to" dropdown options (own sections only).
+let movableSections = [];
+
 let autoRefreshInterval = null;
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadFiles();
+    loadSections();
     autoRefreshInterval = setInterval(() => {
         const hasGenerating = document.querySelector('.status-generating');
-        if (hasGenerating) loadFiles();
+        if (hasGenerating) refreshGeneratingSections();
     }, 5000);
+
+    document.addEventListener('keydown', onGlobalKeydown);
 });
 
-function loadFiles() {
+function onGlobalKeydown(e) {
+    // Ctrl/Cmd+A inside the page: select every file row
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' &&
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+        e.preventDefault();
+        selectAllRows();
+        return;
+    }
+    // Delete deletes selection (no confirm-skip; safety check still inside bulkDelete)
+    if (e.key === 'Delete' && getSelectedIds().length > 0 &&
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) &&
+        document.activeElement?.contentEditable !== 'true') {
+        e.preventDefault();
+        bulkDelete();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sections list + container rendering
+// ---------------------------------------------------------------------------
+
+function loadSections() {
     const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
-    
-    fetch(`{{ url_for('user.files_list') }}?show_all=${showAll}`)
+    const params = new URLSearchParams({ show_all: showAll });
+    return fetch(`{{ url_for('user.sections_list') }}?${params.toString()}`)
         .then(r => r.json())
-        .then(files => {
-            const container = document.getElementById('filesContainer');
-            
-            if (files.length === 0) {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> No generated files yet. 
-                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>, 
-                        select questions, and click Generate to create documents.
-                    </div>`;
-                updateBulkBar();
-                return;
-            }
-            
-            const showUsername = showAll === '1';
-            
-            let html = `
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
-                            <th>Name</th>
-                            <th>Status</th>
-                            <th>Questions</th>
-                            ${showUsername ? '<th>User</th>' : ''}
-                            <th>Created</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-            
-            files.forEach(f => {
-                let statusBadge = '';
-                let statusClass = '';
-                switch (f.status) {
-                    case 'pending':
-                        statusBadge = '<span class="badge bg-warning text-dark status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Pending</span>';
-                        statusClass = 'status-generating';
-                        break;
-                    case 'generating':
-                        statusBadge = '<span class="badge bg-info status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Generating</span>';
-                        statusClass = 'status-generating';
-                        break;
-                    case 'completed':
-                        statusBadge = '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> Ready</span>';
-                        break;
-                    case 'failed':
-                        statusBadge = `<span class="badge bg-danger status-badge" title="${escapeHtml(f.error_message || '')}"><i class="bi bi-x-circle"></i> Failed</span>`;
-                        break;
-                }
-                
-                const downloadBaseUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${f.id}`);
-                const downloadBtn = f.status === 'completed' 
-                    ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="Download"><i class="bi bi-download"></i></a>`
-                    : `<button class="btn btn-sm btn-success" disabled title="Not ready"><i class="bi bi-download"></i></button>`;
-                
-                const filterBtn = f.has_filter
-                    ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="Reuse filter"><i class="bi bi-funnel"></i></a>`
-                    : '';
-                
-                const regenBtn = f.has_generation_options
-                    ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
-                    : '';
-
-                // File extension badge — colour-coded so PDF stands out vs DOCX vs ZIP.
-                const extLabel = (f.file_ext || '').toLowerCase();
-                const extColour = (
-                    extLabel === 'pdf' ? 'bg-danger' :
-                    extLabel === 'zip' ? 'bg-warning text-dark' :
-                    'bg-primary'
-                );
-                const extBadge = extLabel
-                    ? `<span class="badge ${extColour} ms-2" style="font-size:0.7rem;">.${escapeHtml(extLabel)}</span>`
-                    : '';
-
-                // Preferred-format icon — shows which asset format had highest
-                // priority in this generation (first entry of format_priority).
-                // IMG = image, MD = markdown, DOC = Word document.
-                const fp = (f.format_priority_top || 'IMG').toUpperCase();
-                const fpMeta = {
-                    'IMG': {icon: 'bi-image', colour: 'text-success', label: 'Image-priority'},
-                    'MD':  {icon: 'bi-markdown', colour: 'text-info', label: 'Markdown-priority'},
-                    'DOC': {icon: 'bi-file-earmark-word', colour: 'text-primary', label: 'Word-document-priority'},
-                }[fp] || {icon: 'bi-question', colour: 'text-muted', label: fp};
-                const fpIcon = `<i class="bi ${fpMeta.icon} ${fpMeta.colour} ms-2" title="${fpMeta.label} (priority: ${escapeHtml(fp)})"></i>`;
-
-                html += `
-                        <tr class="file-row ${statusClass}">
-                            <td><input type="checkbox" class="form-check-input row-check" value="${f.id}" onchange="updateBulkBar()"></td>
-                            <td>
-                                <strong>${escapeHtml(f.display_name)}</strong>
-                                ${extBadge}
-                                ${fpIcon}
-                            </td>
-                            <td>${statusBadge}</td>
-                            <td><span class="badge bg-secondary">${f.question_count}</span></td>
-                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(f.username || '')}</span></td>` : ''}
-                            <td><small class="text-muted">${formatLocalTime(f.created_at)}</small></td>
-                            <td class="text-end">
-                                <div class="btn-group btn-group-sm">
-                                    ${downloadBtn}
-                                    ${regenBtn}
-                                    ${filterBtn}
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="Delete">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>`;
-            });
-            
-            html += `
-                    </tbody>
-                </table>
-            </div>`;
-            
-            container.innerHTML = html;
-            updateBulkBar();
-            
+        .then(sections => {
+            renderSections(sections);
+            // Build the Move-to dropdown — in show_all mode every section
+            // is an admissible target; otherwise only the current user's
+            // own non-shared sections.
+            movableSections = sections.filter(s => !s.is_shared_in && s.id !== SHARED_SECTION_ID);
+            renderBulkMoveMenu();
+            // Pre-fetch each section's first page in parallel
+            return Promise.all(sections.map(s => loadSection(s.id)));
         })
         .catch(err => {
-            document.getElementById('filesContainer').innerHTML = `
-                <div class="alert alert-danger">Error loading files: ${err.message}</div>`;
+            document.getElementById('sectionsContainer').innerHTML =
+                `<div class="alert alert-danger">Failed to load sections: ${escapeHtml(err.message)}</div>`;
         });
 }
 
-function toggleAll(master) {
-    document.querySelectorAll('.row-check').forEach(cb => cb.checked = master.checked);
+function renderSections(sections) {
+    const container = document.getElementById('sectionsContainer');
+    if (sections.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No sections yet. Generate some files from the
+                <a href="{{ url_for('dashboard.index') }}">Dashboard</a> first.
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = sections.map(renderSectionCard).join('');
+
+    // Wire SortableJS for cross-section file dragging
+    sections.forEach(s => initSectionFileSortable(s.id, s.is_shared_in));
+    // Sortable for section reordering
+    initSectionReorderSortable();
+}
+
+function renderSectionCard(s) {
+    const sectionKey = `section-${s.id}`;
+    const collapsedAttr = s.collapsed ? '' : 'show';
+    const isShared = !!s.is_shared_in;
+    const isDefault = !!s.is_default;
+    const classList = ['card', 'section-card'];
+    if (isDefault) classList.push('is-default');
+    if (isShared) classList.push('is-shared');
+
+    const sortDropdown = isShared ? '' : `
+        <select class="form-select form-select-sm" onchange="onSortChange(${s.id}, this.value)" title="Sort">
+            ${renderSortOption('created_at', 'desc', s)}
+            ${renderSortOption('created_at', 'asc', s)}
+            ${renderSortOption('name', 'asc', s)}
+            ${renderSortOption('name', 'desc', s)}
+            ${renderSortOption('completed_at', 'desc', s)}
+            ${renderSortOption('question_count', 'desc', s)}
+            ${renderSortOption('manual', 'asc', s)}
+        </select>`;
+    const pageSizeDropdown = `
+        <select class="form-select form-select-sm" onchange="onPageSizeChange(${s.id}, this.value)" title="Per page">
+            ${[5,10,25,50,100].map(n => `
+                <option value="${n}" ${s.page_size === n ? 'selected' : ''}>${n} / page</option>
+            `).join('')}
+        </select>`;
+
+    const headerActions = isShared ? '' : `
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-expanded="false" title="Section actions">
+                <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                ${isDefault ? '' : `
+                    <li><a class="dropdown-item" href="#" onclick="enableSectionRename(${s.id}); return false;">
+                        <i class="bi bi-pencil"></i> Rename
+                    </a></li>`}
+                ${IS_SUPER_ADMIN && !isDefault ? `
+                    <li><a class="dropdown-item" href="#" onclick="openShareModalForSection(${s.id}); return false;">
+                        <i class="bi bi-share"></i> Share section…
+                    </a></li>` : ''}
+                ${isDefault ? '' : `
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteSection(${s.id}); return false;">
+                        <i class="bi bi-trash"></i> Delete section
+                    </a></li>`}
+            </ul>
+        </div>`;
+
+    const sharedBadge = isShared
+        ? `<span class="badge bg-info text-dark ms-2"><i class="bi bi-share"></i> Shared with me</span>`
+        : (isDefault ? `<span class="badge bg-secondary ms-2">Latest</span>` : '');
+
+    // "Show all users" view: tag every section that isn't the current
+    // user's own with a small owner pill so the admin can see whose
+    // folder they're looking at.
+    const ownerPill = s.owner_username
+        ? `<span class="owner-pill" title="Owner">@${escapeHtml(s.owner_username)}</span>`
+        : '';
+
+    return `
+    <div class="card section-card ${classList.join(' ')}" data-section-id="${s.id}">
+        <div class="card-header">
+            <span class="section-drag-handle" title="Drag to reorder section">
+                <i class="bi bi-grip-vertical"></i>
+            </span>
+            <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#${sectionKey}-body"
+                    aria-expanded="${!s.collapsed}"
+                    onclick="onSectionToggleCollapse(${s.id})">
+                <i class="bi bi-caret-down-fill"></i>
+            </button>
+            <span class="section-name" id="${sectionKey}-name"
+                  ondblclick="${isShared || isDefault ? '' : `enableSectionRename(${s.id})`}"
+                  title="${isShared || isDefault ? '' : 'Double-click to rename'}">${escapeHtml(s.name)}</span>
+            ${ownerPill}
+            ${sharedBadge}
+            <span class="badge bg-light text-dark file-count-badge ms-1" id="${sectionKey}-count">
+                <span data-count>${s.file_count}</span> files
+            </span>
+            <div class="section-controls">
+                ${sortDropdown}
+                ${pageSizeDropdown}
+                ${headerActions}
+            </div>
+        </div>
+        <div id="${sectionKey}-body" class="collapse ${collapsedAttr}">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:2rem"></th>
+                            <th style="width:2.5rem"><input type="checkbox" class="form-check-input section-select-all"
+                                onchange="toggleAllInSection(${s.id}, this.checked)"></th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Questions</th>
+                            <th>Created</th>
+                            ${isShared ? '<th>Shared by</th>' : ''}
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="section-files-tbody" data-section-id="${s.id}" id="${sectionKey}-tbody">
+                        <tr><td colspan="${isShared ? 8 : 7}" class="text-center text-muted py-3">
+                            <span class="spinner-border spinner-border-sm"></span> Loading…
+                        </td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination-bar" id="${sectionKey}-pagination">
+                <span class="page-info" id="${sectionKey}-pageinfo">—</span>
+                <div class="btn-group btn-group-sm" id="${sectionKey}-pagebuttons"></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderSortOption(field, dir, s) {
+    const labels = {
+        'created_at|desc': 'Created (newest)',
+        'created_at|asc':  'Created (oldest)',
+        'name|asc':        'Name (A→Z)',
+        'name|desc':       'Name (Z→A)',
+        'completed_at|desc': 'Completed (newest)',
+        'question_count|desc': 'Question count',
+        'manual|asc':      'Manual order',
+    };
+    const key = `${field}|${dir}`;
+    const sel = (s.sort_field === field && s.sort_direction === dir) ? 'selected' : '';
+    return `<option value="${key}" ${sel}>${labels[key]}</option>`;
+}
+
+// ---------------------------------------------------------------------------
+// One-section paged file load + render
+// ---------------------------------------------------------------------------
+
+function loadSection(sectionId, page = 1) {
+    const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
+    const params = new URLSearchParams({ section_id: sectionId, page, show_all: showAll });
+    if (sectionId === SHARED_SECTION_ID) {
+        const cur = sectionState.get(sectionId);
+        const ps = cur?.page_size || 10;
+        params.set('page_size', ps);
+    }
+    return fetch(`{{ url_for('user.files_list') }}?${params.toString()}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                renderSectionError(sectionId, data.error);
+                return;
+            }
+            sectionState.set(sectionId, {
+                page: data.page, pages: data.pages, total: data.total,
+                page_size: data.page_size, files: data.files,
+            });
+            renderSectionRows(sectionId);
+            renderSectionPagination(sectionId);
+            updateSectionCount(sectionId, data.total);
+            applySearchHighlight();
+        })
+        .catch(err => renderSectionError(sectionId, err.message));
+}
+
+function renderSectionError(sectionId, msg) {
+    const tbody = document.getElementById(`section-${sectionId}-tbody`);
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-danger small">${escapeHtml(msg)}</td></tr>`;
+    }
+}
+
+function renderSectionRows(sectionId) {
+    const state = sectionState.get(sectionId);
+    const tbody = document.getElementById(`section-${sectionId}-tbody`);
+    if (!tbody || !state) return;
+
+    const isShared = sectionId === SHARED_SECTION_ID;
+    if (state.files.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row"><td colspan="${isShared ? 8 : 7}" class="section-empty">
+                ${isShared ? 'No files have been shared with you yet.'
+                           : 'No files in this section yet. Drag files here or use Move to…'}
+            </td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = state.files.map(f => renderFileRow(f, isShared)).join('');
+}
+
+function renderFileRow(f, isSharedView) {
+    let statusBadge = '';
+    let statusClass = '';
+    switch (f.status) {
+        case 'pending':
+            statusBadge = '<span class="badge bg-warning text-dark status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Pending</span>';
+            statusClass = 'status-generating';
+            break;
+        case 'generating':
+            statusBadge = '<span class="badge bg-info status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Generating</span>';
+            statusClass = 'status-generating';
+            break;
+        case 'completed':
+            statusBadge = '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> Ready</span>';
+            break;
+        case 'failed':
+            statusBadge = `<span class="badge bg-danger status-badge" title="${escapeHtml(f.error_message || '')}"><i class="bi bi-x-circle"></i> Failed</span>`;
+            break;
+    }
+
+    const downloadBaseUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${f.id}`);
+    const downloadBtn = f.status === 'completed'
+        ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="Download"><i class="bi bi-download"></i></a>`
+        : `<button class="btn btn-sm btn-success" disabled title="Not ready"><i class="bi bi-download"></i></button>`;
+
+    const ownerActions = f.is_read_only ? '' : `
+        ${f.has_generation_options
+            ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
+            : ''}
+        ${f.has_filter
+            ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="Reuse filter"><i class="bi bi-funnel"></i></a>`
+            : ''}
+        ${IS_SUPER_ADMIN
+            ? `<button class="btn btn-sm btn-outline-info" onclick="openShareModalForFile(${f.id})" title="Share with users"><i class="bi bi-share"></i></button>`
+            : ''}
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="Delete"><i class="bi bi-trash"></i></button>`;
+
+    const extLabel = (f.file_ext || '').toLowerCase();
+    const extColour = (
+        extLabel === 'pdf' ? 'bg-danger' :
+        extLabel === 'zip' ? 'bg-warning text-dark' :
+        'bg-primary'
+    );
+    const extBadge = extLabel
+        ? `<span class="badge ${extColour} ms-2" style="font-size:0.7rem;">.${escapeHtml(extLabel)}</span>`
+        : '';
+
+    const fp = (f.format_priority_top || 'IMG').toUpperCase();
+    const fpMeta = {
+        'IMG': {icon: 'bi-image', colour: 'text-success', label: 'Image-priority'},
+        'MD':  {icon: 'bi-markdown', colour: 'text-info', label: 'Markdown-priority'},
+        'DOC': {icon: 'bi-file-earmark-word', colour: 'text-primary', label: 'Word-document-priority'},
+    }[fp] || {icon: 'bi-question', colour: 'text-muted', label: fp};
+    const fpIcon = `<i class="bi ${fpMeta.icon} ${fpMeta.colour} ms-2" title="${fpMeta.label} (priority: ${escapeHtml(fp)})"></i>`;
+
+    const sizeStr = (f.size_bytes != null) ? humanFileSize(f.size_bytes) : '';
+    const sizeBadge = sizeStr ? `<span class="text-muted small ms-2">${sizeStr}</span>` : '';
+
+    const sharedByBadge = (isSharedView && f.shared_by)
+        ? `<td><span class="shared-badge"><i class="bi bi-person"></i> ${escapeHtml(f.shared_by)}</span></td>`
+        : (isSharedView ? '<td>—</td>' : '');
+
+    const readonlyAttr = f.is_read_only ? 'data-readonly="1"' : '';
+    const rowClass = `file-row ${statusClass} ${f.is_read_only ? 'is-read-only' : ''}`;
+
+    const renameAttr = f.is_read_only ? '' : `ondblclick="enableFileRename(${f.id})"`;
+
+    return `
+        <tr class="${rowClass}" data-file-id="${f.id}" ${readonlyAttr}>
+            <td><span class="drag-handle"><i class="bi bi-grip-vertical"></i></span></td>
+            <td><input type="checkbox" class="form-check-input row-check" value="${f.id}" onchange="updateBulkBar()"></td>
+            <td>
+                <span class="file-name-display" id="file-name-${f.id}" ${renameAttr}
+                      title="${f.is_read_only ? '' : 'Double-click to rename'}"
+                      data-name="${escapeHtmlAttr(f.display_name)}">${escapeHtml(f.display_name)}</span>
+                ${extBadge}
+                ${fpIcon}
+                ${sizeBadge}
+            </td>
+            <td>${statusBadge}</td>
+            <td><span class="badge bg-secondary">${f.question_count}</span></td>
+            <td><small class="text-muted">${formatLocalTime(f.created_at)}</small></td>
+            ${sharedByBadge}
+            <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                    ${downloadBtn}
+                    ${ownerActions}
+                </div>
+            </td>
+        </tr>`;
+}
+
+function renderSectionPagination(sectionId) {
+    const state = sectionState.get(sectionId);
+    const info = document.getElementById(`section-${sectionId}-pageinfo`);
+    const buttons = document.getElementById(`section-${sectionId}-pagebuttons`);
+    if (!info || !buttons || !state) return;
+
+    if (state.total === 0) {
+        info.textContent = '';
+        buttons.innerHTML = '';
+        return;
+    }
+
+    const start = (state.page - 1) * state.page_size + 1;
+    const end = Math.min(state.total, state.page * state.page_size);
+    info.textContent = `${start}–${end} of ${state.total}`;
+
+    if (state.pages <= 1) {
+        buttons.innerHTML = '';
+        return;
+    }
+
+    const btn = (label, page, disabled, active) => `
+        <button class="btn ${active ? 'btn-primary' : 'btn-outline-secondary'}" ${disabled ? 'disabled' : ''}
+                onclick="loadSection(${sectionId}, ${page})">${label}</button>`;
+
+    let html = btn('<i class="bi bi-chevron-left"></i>', state.page - 1, state.page <= 1, false);
+    const maxBtns = 7;
+    let from = Math.max(1, state.page - 3);
+    let to = Math.min(state.pages, from + maxBtns - 1);
+    from = Math.max(1, Math.min(from, to - maxBtns + 1));
+    if (from > 1) html += btn('1', 1, false, false) + (from > 2 ? '<span class="px-2 text-muted">…</span>' : '');
+    for (let p = from; p <= to; p++) {
+        html += btn(String(p), p, false, p === state.page);
+    }
+    if (to < state.pages) html += (to < state.pages - 1 ? '<span class="px-2 text-muted">…</span>' : '') + btn(String(state.pages), state.pages, false, false);
+    html += btn('<i class="bi bi-chevron-right"></i>', state.page + 1, state.page >= state.pages, false);
+    buttons.innerHTML = html;
+}
+
+function updateSectionCount(sectionId, total) {
+    const el = document.querySelector(`#section-${sectionId}-count [data-count]`);
+    if (el) el.textContent = total;
+}
+
+function refreshGeneratingSections() {
+    const ids = new Set();
+    document.querySelectorAll('.status-generating').forEach(el => {
+        const tbody = el.closest('tbody.section-files-tbody');
+        if (tbody) ids.add(parseInt(tbody.dataset.sectionId));
+    });
+    ids.forEach(id => {
+        const state = sectionState.get(id);
+        loadSection(id, state ? state.page : 1);
+    });
+}
+
+function reloadAll() {
+    document.getElementById('sectionsContainer').innerHTML =
+        `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+    sectionState.clear();
+    loadSections();
+}
+
+// ---------------------------------------------------------------------------
+// Section header controls
+// ---------------------------------------------------------------------------
+
+function openCreateSectionPrompt() {
+    const name = (prompt('New section name:') || '').trim();
+    if (!name) return;
+    fetch(`{{ url_for('user.sections_create') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name}),
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, body: d})))
+    .then(({ok, body}) => {
+        if (!ok) return showToast(body.error || 'Could not create section', 'danger');
+        showToast('Section created', 'success');
+        reloadAll();
+    })
+    .catch(err => showToast(err.message, 'danger'));
+}
+
+function enableSectionRename(sectionId) {
+    const el = document.getElementById(`section-${sectionId}-name`);
+    if (!el) return;
+    el.setAttribute('contenteditable', 'true');
+    el.focus();
+    document.execCommand('selectAll', false, null);
+    const original = el.textContent;
+    const commit = () => {
+        el.removeAttribute('contenteditable');
+        const newName = el.textContent.trim();
+        if (!newName || newName === original) { el.textContent = original; return; }
+        fetch(`{{ url_for('user.sections_update', section_id=0) }}`.replace('/0', `/${sectionId}`), {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: newName}),
+        }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+          .then(({ok, body}) => {
+              if (!ok) { showToast(body.error || 'Rename failed', 'danger'); el.textContent = original; }
+              else showToast('Renamed', 'success');
+          });
+    };
+    el.onblur = commit;
+    el.onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+        if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+    };
+}
+
+function deleteSection(sectionId) {
+    if (!confirm('Delete this section? Its files will be moved back to the Latest section.')) return;
+    fetch(`{{ url_for('user.sections_delete', section_id=0) }}`.replace('/0', `/${sectionId}`), {
+        method: 'DELETE',
+    }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+      .then(({ok, body}) => {
+          if (!ok) return showToast(body.error || 'Delete failed', 'danger');
+          showToast('Section deleted', 'success');
+          reloadAll();
+      });
+}
+
+function onSortChange(sectionId, value) {
+    const [field, direction] = value.split('|');
+    fetch(`{{ url_for('user.sections_update', section_id=0) }}`.replace('/0', `/${sectionId}`), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sort_field: field, sort_direction: direction}),
+    }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+      .then(({ok, body}) => {
+          if (!ok) return showToast(body.error || 'Sort change failed', 'danger');
+          loadSection(sectionId, 1);
+      });
+}
+
+function onPageSizeChange(sectionId, value) {
+    const ps = parseInt(value);
+    if (sectionId === SHARED_SECTION_ID) {
+        // Shared section has no server-side per-user page_size — keep it in JS state only
+        const cur = sectionState.get(sectionId) || {};
+        cur.page_size = ps;
+        sectionState.set(sectionId, cur);
+        loadSection(sectionId, 1);
+        return;
+    }
+    fetch(`{{ url_for('user.sections_update', section_id=0) }}`.replace('/0', `/${sectionId}`), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({page_size: ps}),
+    }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+      .then(({ok, body}) => {
+          if (!ok) return showToast(body.error || 'Page size update failed', 'danger');
+          loadSection(sectionId, 1);
+      });
+}
+
+function onSectionToggleCollapse(sectionId) {
+    // Bootstrap's collapse handler fires the open/close; we just persist the new state.
+    setTimeout(() => {
+        const body = document.getElementById(`section-${sectionId}-body`);
+        if (!body || sectionId === SHARED_SECTION_ID) return;
+        const collapsed = !body.classList.contains('show');
+        fetch(`{{ url_for('user.sections_update', section_id=0) }}`.replace('/0', `/${sectionId}`), {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({collapsed}),
+        });
+    }, 350);
+}
+
+// ---------------------------------------------------------------------------
+// SortableJS wiring (file rows + section cards)
+// ---------------------------------------------------------------------------
+
+function initSectionFileSortable(sectionId, isShared) {
+    const tbody = document.getElementById(`section-${sectionId}-tbody`);
+    if (!tbody || tbody._sortableInstance) return;
+
+    tbody._sortableInstance = Sortable.create(tbody, {
+        group: {
+            name: 'oqb-files',
+            // Shared-with-me rows are not draggable IN or OUT.
+            put: isShared ? false : true,
+            pull: isShared ? false : true,
+        },
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        forceFallback: true,
+        fallbackTolerance: 4,
+        delay: 100,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
+        filter: '[data-readonly="1"]',
+        // preventOnFilter:false so native clicks on buttons/inputs inside
+        // filtered rows still work (e.g. download button on shared rows).
+        preventOnFilter: false,
+        onStart() {
+            // Suppress text selection while a drag is in progress.
+            document.body.classList.add('oqb-dragging');
+            if (window.getSelection) window.getSelection().removeAllRanges();
+        },
+        onAdd(evt) {
+            // Cross-section drop — move file via API
+            const fileId = parseInt(evt.item.dataset.fileId);
+            const targetSectionId = parseInt(evt.to.dataset.sectionId);
+            moveFileToSection(fileId, targetSectionId, evt.from.dataset.sectionId);
+        },
+        onUpdate(evt) {
+            // Same-section reorder — set manual order
+            if (sectionId === SHARED_SECTION_ID) return;
+            const ids = Array.from(evt.to.querySelectorAll('tr[data-file-id]'))
+                .map(tr => parseInt(tr.dataset.fileId));
+            fetch(`{{ url_for('user.files_reorder') }}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({section_id: sectionId, ids}),
+            }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+              .then(({ok, body}) => {
+                  if (!ok) { showToast(body.error || 'Reorder failed', 'danger'); return; }
+                  showToast('Order saved', 'success');
+                  // Refresh section so sort dropdown reflects "manual"
+                  loadSection(sectionId, 1).then(loadSections);
+              });
+        },
+        onEnd() {
+            document.body.classList.remove('oqb-dragging');
+        },
+    });
+}
+
+function initSectionReorderSortable() {
+    const container = document.getElementById('sectionsContainer');
+    if (!container || container._sortableInstance) return;
+    container._sortableInstance = Sortable.create(container, {
+        group: 'oqb-sections',
+        handle: '.section-drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        forceFallback: true,
+        fallbackTolerance: 4,
+        delay: 100,
+        delayOnTouchOnly: true,
+        filter: '.is-default, .is-shared',
+        // preventOnFilter:false — otherwise SortableJS calls preventDefault()
+        // on every mouse event inside the Latest / Shared-with-me cards,
+        // which kills the native <select> dropdowns in their headers.
+        // The .section-drag-handle is still hidden on those cards via CSS
+        // so dragging is impossible anyway.
+        preventOnFilter: false,
+        onStart() {
+            document.body.classList.add('oqb-dragging');
+            if (window.getSelection) window.getSelection().removeAllRanges();
+        },
+        onEnd() {
+            document.body.classList.remove('oqb-dragging');
+            const ids = Array.from(container.querySelectorAll('.section-card'))
+                .map(el => parseInt(el.dataset.sectionId))
+                .filter(id => !isNaN(id) && id !== SHARED_SECTION_ID);
+            fetch(`{{ url_for('user.sections_reorder') }}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids}),
+            });
+        },
+    });
+}
+
+function moveFileToSection(fileId, targetSectionId, sourceSectionId) {
+    fetch(`{{ url_for('user.files_move', file_id=0) }}`.replace('/0', `/${fileId}`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({section_id: targetSectionId}),
+    }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+      .then(({ok, body}) => {
+          if (!ok) {
+              showToast(body.error || 'Move failed', 'danger');
+              // Revert by reloading both sections
+              loadSection(parseInt(sourceSectionId), 1);
+              loadSection(targetSectionId, 1);
+              return;
+          }
+          showToast('Moved', 'success');
+          // Refresh both source + target so counts and pagination stay accurate
+          loadSection(parseInt(sourceSectionId), 1);
+          loadSection(targetSectionId, 1);
+      });
+}
+
+function bulkMoveSelected(sectionId) {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    fetch(`{{ url_for('user.files_bulk_move') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids, section_id: sectionId}),
+    }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+      .then(({ok, body}) => {
+          if (!ok) return showToast(body.error || 'Move failed', 'danger');
+          showToast(`Moved ${body.moved} file(s)`, 'success');
+          clearSelection();
+          loadSections();  // refresh all (counts changed everywhere)
+      });
+}
+
+// ---------------------------------------------------------------------------
+// File-level actions (rename, delete, bulk download)
+// ---------------------------------------------------------------------------
+
+function enableFileRename(fileId) {
+    const el = document.getElementById(`file-name-${fileId}`);
+    if (!el) return;
+    const tr = el.closest('tr[data-file-id]');
+    if (tr?.dataset.readonly === '1') return;
+    const original = el.dataset.name || el.textContent;
+    // Strip any <mark> highlight wrappers so the user edits the plain name
+    el.textContent = original;
+    el.setAttribute('contenteditable', 'true');
+    el.focus();
+    document.execCommand('selectAll', false, null);
+    const commit = () => {
+        el.removeAttribute('contenteditable');
+        const newName = el.textContent.trim();
+        if (!newName || newName === original) { el.textContent = original; return; }
+        fetch(`{{ url_for('user.files_rename', file_id=0) }}`.replace('/0', `/${fileId}`), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({display_name: newName}),
+        }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
+          .then(({ok, body}) => {
+              if (!ok) { showToast(body.error || 'Rename failed', 'danger'); el.textContent = original; }
+              else { showToast('Renamed', 'success'); el.dataset.name = newName; }
+          });
+    };
+    el.onblur = commit;
+    el.onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+        if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+    };
+}
+
+function deleteFile(id) {
+    if (!confirm('Delete this generated file? This cannot be undone.')) return;
+    fetch(`{{ url_for('user.files_delete', file_id=0) }}`.replace('/0', `/${id}`), {
+        method: 'DELETE'
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, body: d})))
+    .then(({ok, body}) => {
+        if (!ok) return showToast(body.error || 'Delete failed', 'danger');
+        // Refresh the containing section
+        const tr = document.querySelector(`tr[data-file-id="${id}"]`);
+        const sectionId = tr ? parseInt(tr.closest('tbody').dataset.sectionId) : null;
+        if (sectionId != null) loadSection(sectionId, sectionState.get(sectionId)?.page || 1);
+        else reloadAll();
+        showToast('Deleted', 'success');
+    });
+}
+
+function bulkDelete() {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected file(s)? This cannot be undone.`)) return;
+    fetch(`{{ url_for('user.files_bulk_delete') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids}),
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, body: d})))
+    .then(({ok, body}) => {
+        if (!ok) return showToast(body.error || 'Delete failed', 'danger');
+        showToast(`Deleted ${body.deleted} file(s)`, 'success');
+        clearSelection();
+        loadSections();
+    });
+}
+
+function bulkDownloadZip() {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    showToast(`Building ZIP for ${ids.length} file(s)…`, 'info');
+    fetch(`{{ url_for('user.files_bulk_download') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids}),
+    })
+    .then(async r => {
+        if (!r.ok) {
+            let msg = 'Download failed';
+            try { const j = await r.json(); msg = j.error || msg; } catch (_) {}
+            throw new Error(msg);
+        }
+        const blob = await r.blob();
+        const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `my-files-${ts}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        showToast('ZIP downloaded', 'success');
+    })
+    .catch(err => showToast(err.message, 'danger'));
+}
+
+// ---------------------------------------------------------------------------
+// Selection / bulk-bar plumbing
+// ---------------------------------------------------------------------------
+
+function toggleAllInSection(sectionId, checked) {
+    const tbody = document.getElementById(`section-${sectionId}-tbody`);
+    if (!tbody) return;
+    tbody.querySelectorAll('.row-check').forEach(cb => cb.checked = checked);
     updateBulkBar();
+}
+
+function selectAllRows() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = true);
+    document.querySelectorAll('.section-select-all').forEach(cb => cb.checked = true);
+    updateBulkBar();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.section-select-all').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+    updateBulkBar();
+}
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.row-check:checked'))
+        .map(cb => parseInt(cb.value));
 }
 
 function updateBulkBar() {
@@ -201,66 +1074,234 @@ function updateBulkBar() {
     const countEl = document.getElementById('selectedCount');
     if (checked.length > 0) {
         bar.classList.add('show');
-        countEl.textContent = checked.length + ' selected';
+        countEl.textContent = `${checked.length} selected`;
     } else {
         bar.classList.remove('show');
     }
-    // Sync "select all" checkbox
-    const all = document.querySelectorAll('.row-check');
-    const selectAll = document.getElementById('selectAll');
-    if (selectAll) {
-        selectAll.checked = all.length > 0 && checked.length === all.length;
-        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    // Sync per-section "select all" checkbox state
+    document.querySelectorAll('tbody.section-files-tbody').forEach(tbody => {
+        const all = tbody.querySelectorAll('.row-check');
+        const some = tbody.querySelectorAll('.row-check:checked');
+        const masterId = tbody.id.replace('-tbody', '');
+        const master = document.querySelector(`#${masterId.replace(/section-/, 'section-')} .section-select-all`)
+            || tbody.closest('.section-card')?.querySelector('.section-select-all');
+        if (!master) return;
+        master.checked = all.length > 0 && some.length === all.length;
+        master.indeterminate = some.length > 0 && some.length < all.length;
+    });
+}
+
+function renderBulkMoveMenu() {
+    const ul = document.getElementById('bulkMoveMenu');
+    if (!ul) return;
+    if (movableSections.length === 0) {
+        ul.innerHTML = '<li><span class="dropdown-item text-muted small">No sections available</span></li>';
+        return;
     }
+    ul.innerHTML = movableSections.map(s => `
+        <li><a class="dropdown-item" href="#" onclick="bulkMoveSelected(${s.id}); return false;">
+            ${escapeHtml(s.name)}${s.is_default ? ' (Latest)' : ''}
+        </a></li>
+    `).join('');
 }
 
-function clearSelection() {
-    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
-    const selectAll = document.getElementById('selectAll');
-    if (selectAll) selectAll.checked = false;
-    updateBulkBar();
+// ---------------------------------------------------------------------------
+// Share modal (super admin only)
+// ---------------------------------------------------------------------------
+
+let shareModalContext = null;  // {kind: 'file'|'section'|'bulk', id?, ids?, label}
+let shareUsers = [];          // all users from /user/shares/users
+let shareInitialSelection = new Set();
+
+function openShareModalForFile(fileId, displayName) {
+    if (!IS_SUPER_ADMIN) return;
+    // Display name is optional — look it up from the row's DOM if not passed.
+    // (Avoids embedding strings in onclick attributes, which breaks on quotes.)
+    if (!displayName) {
+        const tr = document.querySelector(`tr[data-file-id="${fileId}"]`);
+        const nameEl = tr?.querySelector('.file-name-display');
+        displayName = nameEl?.dataset?.name || nameEl?.textContent || `file ${fileId}`;
+    }
+    shareModalContext = {kind: 'file', id: fileId, label: `file "${displayName}"`};
+    openShareModalCommon();
 }
 
-function getSelectedIds() {
-    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => parseInt(cb.value));
+function openShareModalForSection(sectionId) {
+    if (!IS_SUPER_ADMIN) return;
+    const name = document.getElementById(`section-${sectionId}-name`)?.textContent || `section ${sectionId}`;
+    shareModalContext = {kind: 'section', id: sectionId, label: `section "${name}"`};
+    openShareModalCommon();
 }
 
-function bulkDelete() {
+function openShareModalForSelection() {
+    if (!IS_SUPER_ADMIN) return;
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected file(s)? This cannot be undone.`)) return;
-
-    fetch(`{{ url_for('user.files_bulk_delete') }}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: ids})
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            loadFiles();
-        } else {
-            alert(data.error || 'Error deleting files');
-        }
-    })
-    .catch(err => alert('Error: ' + err.message));
+    if (ids.length === 1) {
+        const tr = document.querySelector(`tr[data-file-id="${ids[0]}"]`);
+        const name = tr?.querySelector('.file-name-display')?.textContent || `file ${ids[0]}`;
+        return openShareModalForFile(ids[0], name);
+    }
+    shareModalContext = {kind: 'bulk', ids, label: `${ids.length} selected files`};
+    openShareModalCommon();
 }
 
-function deleteFile(id) {
-    if (!confirm('Delete this generated file? This cannot be undone.')) return;
-    
-    fetch(`{{ url_for('user.files_delete', file_id=0) }}`.replace('/0', `/${id}`), {
-        method: 'DELETE'
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            loadFiles();
+function openShareModalCommon() {
+    document.getElementById('shareModalTarget').textContent = `Share ${shareModalContext.label} with…`;
+    const list = document.getElementById('shareUserList');
+    list.innerHTML = '<div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm"></span> Loading…</div>';
+    const modal = new bootstrap.Modal(document.getElementById('shareModal'));
+    modal.show();
+
+    // Always fetch the freshest user list
+    fetch(`{{ url_for('user.shares_users') }}`)
+        .then(r => r.json())
+        .then(users => {
+            shareUsers = users;
+            // For single file/section, pre-select existing shares
+            if (shareModalContext.kind === 'file' || shareModalContext.kind === 'section') {
+                const params = new URLSearchParams();
+                params.set(shareModalContext.kind === 'file' ? 'file_id' : 'section_id', shareModalContext.id);
+                return fetch(`{{ url_for('user.shares_get') }}?${params}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        shareInitialSelection = new Set((data.shares || []).map(s => s.user_id));
+                        renderShareUserList();
+                    });
+            }
+            shareInitialSelection = new Set();
+            renderShareUserList();
+        })
+        .catch(err => {
+            list.innerHTML = `<div class="text-danger small">Failed to load users: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+function renderShareUserList() {
+    const list = document.getElementById('shareUserList');
+    const filter = (document.getElementById('shareUserSearch')?.value || '').toLowerCase();
+    const users = shareUsers.filter(u => u.username.toLowerCase().includes(filter));
+    if (users.length === 0) {
+        list.innerHTML = '<div class="text-muted small py-2">No users match.</div>';
+        return;
+    }
+    list.innerHTML = users.map(u => `
+        <div class="form-check">
+            <input class="form-check-input share-user-check" type="checkbox" id="share-user-${u.id}"
+                   value="${u.id}" ${shareInitialSelection.has(u.id) ? 'checked' : ''}>
+            <label class="form-check-label" for="share-user-${u.id}">
+                ${escapeHtml(u.username)}
+                ${u.is_super_admin ? '<span class="badge bg-warning text-dark ms-1">admin</span>' : ''}
+            </label>
+        </div>
+    `).join('');
+}
+
+function filterShareUsers() { renderShareUserList(); }
+
+function saveShareModal() {
+    const btn = document.getElementById('shareSaveBtn');
+    btn.disabled = true;
+    const userIds = Array.from(document.querySelectorAll('.share-user-check:checked'))
+        .map(cb => parseInt(cb.value));
+
+    const ctx = shareModalContext;
+    const requests = [];
+    if (ctx.kind === 'file') {
+        requests.push(postShare({file_id: ctx.id, user_ids: userIds}));
+    } else if (ctx.kind === 'section') {
+        requests.push(postShare({section_id: ctx.id, user_ids: userIds}));
+    } else if (ctx.kind === 'bulk') {
+        ctx.ids.forEach(fid => requests.push(postShare({file_id: fid, user_ids: userIds})));
+    }
+
+    Promise.all(requests)
+        .then(results => {
+            const failed = results.filter(r => !r.ok);
+            if (failed.length > 0) {
+                showToast(`Saved with ${failed.length} error(s)`, 'warning');
+            } else {
+                showToast('Shares updated', 'success');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('shareModal')).hide();
+            clearSelection();
+        })
+        .catch(err => showToast(err.message, 'danger'))
+        .finally(() => { btn.disabled = false; });
+}
+
+function postShare(body) {
+    return fetch(`{{ url_for('user.shares_set') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    }).then(async r => ({ok: r.ok, body: r.ok ? await r.json() : await r.json().catch(() => ({}))}));
+}
+
+// ---------------------------------------------------------------------------
+// Search (client-side, across loaded sections only)
+// ---------------------------------------------------------------------------
+
+let searchTimer = null;
+function onSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(applySearchHighlight, 100);
+}
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    applySearchHighlight();
+}
+function applySearchHighlight() {
+    const q = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+    document.querySelectorAll('tr[data-file-id]').forEach(tr => {
+        const nameEl = tr.querySelector('.file-name-display');
+        if (!nameEl) return;
+        const name = (nameEl.dataset.name || nameEl.textContent || '').toLowerCase();
+        if (!q || name.includes(q)) {
+            tr.style.display = '';
+            const orig = nameEl.dataset.name || nameEl.textContent;
+            if (q) {
+                const idx = name.indexOf(q);
+                const before = escapeHtml(orig.slice(0, idx));
+                const match  = escapeHtml(orig.slice(idx, idx + q.length));
+                const after  = escapeHtml(orig.slice(idx + q.length));
+                nameEl.innerHTML = `${before}<mark class="oqb-search-hit">${match}</mark>${after}`;
+            } else {
+                nameEl.textContent = orig;
+            }
         } else {
-            alert(data.error || 'Error deleting file');
+            tr.style.display = 'none';
         }
-    })
-    .catch(err => alert('Error: ' + err.message));
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Toasts + helpers
+// ---------------------------------------------------------------------------
+
+function showToast(message, type) {
+    let toastEl = document.getElementById('myFilesToast');
+    if (!toastEl) {
+        toastEl = document.createElement('div');
+        toastEl.id = 'myFilesToast';
+        toastEl.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;min-width:260px;max-width:400px;';
+        document.body.appendChild(toastEl);
+    }
+    const colors = {success: 'bg-success', danger: 'bg-danger', info: 'bg-info', warning: 'bg-warning text-dark'};
+    const cls = colors[type] || 'bg-secondary';
+    const id = 'toast-' + Date.now();
+    const div = document.createElement('div');
+    div.className = `toast show align-items-center text-white ${cls} border-0 mb-2`;
+    div.id = id;
+    div.role = 'alert';
+    div.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">${escapeHtml(message)}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                    onclick="document.getElementById('${id}')?.remove()"></button>
+        </div>`;
+    toastEl.appendChild(div);
+    setTimeout(() => document.getElementById(id)?.remove(), 4000);
 }
 
 function formatLocalTime(utcStr) {
@@ -270,11 +1311,23 @@ function formatLocalTime(utcStr) {
     return d.toLocaleString(undefined, {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 
+function humanFileSize(bytes) {
+    if (bytes == null) return '';
+    if (bytes < 1024) return bytes + ' B';
+    const units = ['KB', 'MB', 'GB'];
+    let i = -1;
+    do { bytes /= 1024; i++; } while (bytes >= 1024 && i < units.length - 1);
+    return bytes.toFixed(bytes < 10 ? 1 : 0) + ' ' + units[i];
+}
+
 function escapeHtml(text) {
-    if (!text) return '';
+    if (text == null) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
+}
+function escapeHtmlAttr(text) {
+    return escapeHtml(text).replace(/"/g, '&quot;');
 }
 </script>
 {% endblock %}

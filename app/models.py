@@ -325,10 +325,85 @@ class SavedQuestionSet(db.Model):
         return f'<SavedQuestionSet {self.subject}/{self.name}>'
 
 
+class FileSection(db.Model):
+    """User-owned folder/section that groups generated files in My Files.
+
+    Each user has at least one row with `is_default=True` (the auto-created
+    "Latest" inbox) that cannot be deleted or renamed; new files always land
+    there until the user explicitly moves them. Sections beyond the default
+    are user-created and freely renameable / deletable; deleting a section
+    moves its files back to the default.
+
+    Sort behaviour for files inside the section is server-applied per
+    `sort_field` + `sort_direction`; `manual` means use each file's
+    `GeneratedFile.manual_position`.
+    """
+    __tablename__ = 'file_sections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    sort_field = db.Column(db.String(20), default='created_at', nullable=False)  # name | created_at | completed_at | question_count | manual
+    sort_direction = db.Column(db.String(4), default='desc', nullable=False)  # asc | desc
+    page_size = db.Column(db.Integer, default=10, nullable=False)
+    collapsed = db.Column(db.Boolean, default=False, nullable=False)
+    is_default = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'name', name='uq_section_user_name'),
+    )
+
+    user = db.relationship('User', backref=db.backref('file_sections', lazy='dynamic', cascade='all, delete-orphan'))
+
+    def __repr__(self):
+        return f'<FileSection u={self.user_id} {self.name!r}{" [default]" if self.is_default else ""}>'
+
+
+class FileShare(db.Model):
+    """Per-target-user share of either a single GeneratedFile or a whole
+    FileSection. Recipients see read-only rows in My Files; ownership stays
+    with the sharer and the shared rows cannot be moved/renamed/deleted by
+    the recipient.
+
+    Exactly one of (file_id, section_id) is non-NULL — enforced by a CHECK
+    constraint. Sharing a section transitively shares every file currently
+    or later assigned to it (resolution happens at query time).
+    """
+    __tablename__ = 'file_shares'
+
+    id = db.Column(db.Integer, primary_key=True)
+    file_id = db.Column(db.Integer, db.ForeignKey('generated_files.id', ondelete='CASCADE'), nullable=True, index=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('file_sections.id', ondelete='CASCADE'), nullable=True, index=True)
+    shared_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    shared_with_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            '((file_id IS NOT NULL) + (section_id IS NOT NULL)) = 1',
+            name='ck_share_xor',
+        ),
+        db.UniqueConstraint('file_id', 'shared_with_user_id', name='uq_file_share_target'),
+        db.UniqueConstraint('section_id', 'shared_with_user_id', name='uq_section_share_target'),
+    )
+
+    file = db.relationship('GeneratedFile', backref=db.backref('shares', lazy='dynamic', cascade='all, delete-orphan'))
+    section = db.relationship('FileSection', backref=db.backref('shares', lazy='dynamic', cascade='all, delete-orphan'))
+    shared_by = db.relationship('User', foreign_keys=[shared_by_user_id])
+    shared_with = db.relationship('User', foreign_keys=[shared_with_user_id])
+
+    def __repr__(self):
+        kind = f'file={self.file_id}' if self.file_id else f'section={self.section_id}'
+        return f'<FileShare {kind} -> u={self.shared_with_user_id}>'
+
+
 class GeneratedFile(db.Model):
     """Tracks background-generated Word documents"""
     __tablename__ = 'generated_files'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     display_name = db.Column(db.String(200), nullable=False)   # User-chosen display name
@@ -338,11 +413,14 @@ class GeneratedFile(db.Model):
     filter_data = db.Column(db.Text, nullable=True)             # JSON - saved filter state from dashboard
     generation_options = db.Column(db.Text, nullable=True)      # JSON - answer_mode, spacing, etc.
     question_count = db.Column(db.Integer, default=0)
+    section_id = db.Column(db.Integer, db.ForeignKey('file_sections.id', ondelete='SET NULL'), nullable=True, index=True)
+    manual_position = db.Column(db.Integer, default=0, nullable=False)  # used when section.sort_field == 'manual'
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     completed_at = db.Column(db.DateTime, nullable=True)
-    
+
     user = db.relationship('User', backref=db.backref('generated_files', lazy='dynamic'))
-    
+    section = db.relationship('FileSection', foreign_keys=[section_id], backref=db.backref('files', lazy='dynamic'))
+
     def __repr__(self):
         return f'<GeneratedFile {self.display_name} ({self.status})>'
 

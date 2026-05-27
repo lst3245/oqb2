@@ -428,6 +428,12 @@ def create_document():
         filename += file_ext
     
     # Create GeneratedFile record
+    # Lazy-resolve the user's default ("Latest") section so newly generated
+    # files have a home from the get-go. Avoids a circular import by
+    # routing through app.user's helper.
+    from app.user import _get_or_create_default_section
+    default_section = _get_or_create_default_section(current_user.id)
+
     gen_file = GeneratedFile(
         user_id=current_user.id,
         display_name=display_name,
@@ -436,6 +442,7 @@ def create_document():
         filter_data=filter_data if filter_data else None,
         generation_options=json.dumps(generation_options),
         question_count=len(question_ids),
+        section_id=default_section.id,
     )
     db.session.add(gen_file)
     db.session.commit()

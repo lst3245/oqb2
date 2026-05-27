@@ -68,9 +68,13 @@ python run.py
 - Regenerate previous documents with saved options
 
 ### My Files & Saved Profiles
-- **My Files** (`/user/files`) — list, download, re-generate, and delete past generated documents
-  - Auto-refreshes when a generation is in progress
-  - Super admin can view all users' files
+- **My Files** (`/user/files`) — section-organised library of generated documents
+  - Drag-and-drop files between custom sections (folders)
+  - Per-section sort + pagination + collapse, remembered per user
+  - Inline rename for files and sections
+  - Multi-select bulk **Download ZIP**, move, share, or delete
+  - Auto-refreshes only the sections that contain in-progress generations
+  - Super-admin can share any file or section to selected users (read-only "Shared with me" view for the recipient)
 - **Search Profiles** (`/user/profiles`) — save and restore named filter configurations
   - Load a profile on the dashboard to instantly restore a complex filter set
 - **Question Sets** (`/user/sets`) — per-subject named lists of questions (built from a selection)
