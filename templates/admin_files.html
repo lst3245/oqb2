@@ -56,7 +56,11 @@
 
     /* Context actions column */
     .row-actions { white-space: nowrap; }
-    .row-actions .btn { padding: 0.15rem 0.4rem; font-size: 0.75rem; }
+    .row-actions .btn { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
+
+    /* Clipboard badge */
+    #clipboardActions .badge { font-size: 0.78rem; }
+    tr.clipboard-cut { opacity: 0.5; }
 </style>
 {% endblock %}
 
@@ -78,13 +82,27 @@
     <!-- Toolbar -->
     <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
         <!-- Selection actions -->
-        <div id="selectionActions" class="d-none">
+        <div id="selectionActions" class="d-none d-flex align-items-center gap-1 flex-wrap">
             <span id="selectionCount" class="badge bg-primary me-1">0 selected</span>
+            <button class="btn btn-sm btn-outline-secondary toolbar-btn" onclick="copySelected()">
+                <i class="bi bi-clipboard"></i> Copy
+            </button>
             <button class="btn btn-sm btn-outline-danger toolbar-btn" onclick="batchDelete()">
-                <i class="bi bi-trash"></i> Delete Selected
+                <i class="bi bi-trash"></i> Delete
             </button>
             <button class="btn btn-sm btn-outline-secondary toolbar-btn" onclick="clearSelection()">
                 <i class="bi bi-x-circle"></i> Clear
+            </button>
+        </div>
+
+        <!-- Clipboard actions (shown when clipboard is non-empty) -->
+        <div id="clipboardActions" class="d-none d-flex align-items-center gap-1">
+            <span id="clipboardCount" class="badge bg-info text-dark me-1">0 copied</span>
+            <button class="btn btn-sm btn-info toolbar-btn" onclick="pasteFromClipboard()">
+                <i class="bi bi-clipboard-check"></i> Paste here
+            </button>
+            <button class="btn btn-sm btn-outline-secondary toolbar-btn" onclick="clearClipboard()">
+                <i class="bi bi-x-circle"></i> Clear clipboard
             </button>
         </div>
 
@@ -257,7 +275,7 @@
 
 <!-- Single Delete Confirmation Modal -->
 <div class="modal fade" id="singleDeleteModal" tabindex="-1">
-    <div class="modal-dialog modal-sm">
+    <div class="modal-dialog">
         <div class="modal-content border-danger">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title"><i class="bi bi-trash"></i> Delete</h5>
@@ -271,10 +289,18 @@
                     <i class="bi bi-exclamation-triangle"></i> This cannot be undone.
                     <span id="singleDeleteDirWarning" class="d-none"><br>All contents inside the folder will also be deleted.</span>
                 </div>
+                <!-- Shown only for folder deletes -->
+                <div id="singleDeleteConfirmBox" class="d-none mt-2">
+                    <label class="form-label fw-bold text-danger small">Type <code>DELETE</code> to confirm:</label>
+                    <input type="text" class="form-control" id="singleDeleteConfirm"
+                           placeholder="Type DELETE here" autocomplete="off"
+                           onkeydown="if(event.key==='Enter') doSingleDelete()"
+                           oninput="document.getElementById('btnSingleDelete').disabled = this.value !== 'DELETE'">
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger btn-sm" onclick="doSingleDelete()">
+                <button type="button" class="btn btn-danger btn-sm" id="btnSingleDelete" onclick="doSingleDelete()">
                     <i class="bi bi-trash"></i> Delete
                 </button>
             </div>
@@ -290,6 +316,7 @@ let currentPath = '';
 let selectedItems = new Set();  // Set of relative paths
 let pendingUploadFiles = [];
 let allItems = [];  // Current directory items
+let clipboard = [];  // Array of relative paths pending paste
 
 // ==================== URL helpers ====================
 const URLS = {
@@ -299,6 +326,7 @@ const URLS = {
     rename:   '{{ url_for("admin.files_rename") }}',
     delete:   '{{ url_for("admin.files_delete") }}',
     mkdir:    '{{ url_for("admin.files_mkdir") }}',
+    copy:     '{{ url_for("admin.files_copy") }}',
 };
 
 // ==================== Navigation ====================
@@ -453,6 +481,10 @@ function renderFileTable(items) {
         if (!item.is_dir) {
             actions += `<a href="${URLS.download}?path=${encodeURIComponent(itemPath)}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
         }
+        actions += `<button class="btn btn-outline-secondary btn-sm" title="Copy to clipboard" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
+        if (!item.is_dir) {
+            actions += `<button class="btn btn-outline-secondary btn-sm" title="Duplicate" onclick="duplicateItem('${escapeJs(itemPath)}')"><i class="bi bi-copy"></i></button> `;
+        }
         actions += `<button class="btn btn-outline-warning btn-sm" title="Rename" onclick="showRenameModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}')"><i class="bi bi-pencil"></i></button> `;
         actions += `<button class="btn btn-outline-danger btn-sm" title="Delete" onclick="showSingleDeleteModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}', ${item.is_dir})"><i class="bi bi-trash"></i></button>`;
 
@@ -540,6 +572,7 @@ function updateSelectionUI() {
     } else {
         actions.classList.add('d-none');
     }
+    updateClipboardUI();
 }
 
 // ==================== Upload ====================
@@ -743,17 +776,42 @@ function doNewFolder() {
 function showSingleDeleteModal(path, name, isDir) {
     document.getElementById('singleDeletePath').value = path;
     document.getElementById('singleDeleteName').textContent = name;
+
     const dirWarning = document.getElementById('singleDeleteDirWarning');
+    const confirmBox = document.getElementById('singleDeleteConfirmBox');
+    const confirmInput = document.getElementById('singleDeleteConfirm');
+    const deleteBtn = document.getElementById('btnSingleDelete');
+
     if (isDir) {
         dirWarning.classList.remove('d-none');
+        confirmBox.classList.remove('d-none');
+        confirmInput.value = '';
+        deleteBtn.disabled = true;
     } else {
         dirWarning.classList.add('d-none');
+        confirmBox.classList.add('d-none');
+        deleteBtn.disabled = false;
     }
+
     new bootstrap.Modal(document.getElementById('singleDeleteModal')).show();
+    if (isDir) {
+        setTimeout(() => confirmInput.focus(), 300);
+    }
 }
 
 function doSingleDelete() {
     const path = document.getElementById('singleDeletePath').value;
+    const confirmBox = document.getElementById('singleDeleteConfirmBox');
+
+    // If the confirm box is visible this is a folder delete — enforce the typed confirmation
+    if (!confirmBox.classList.contains('d-none')) {
+        const val = document.getElementById('singleDeleteConfirm').value;
+        if (val !== 'DELETE') return;
+    }
+
+    const btn = document.getElementById('btnSingleDelete');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting…';
 
     fetch(URLS.delete, {
         method: 'POST',
@@ -763,12 +821,17 @@ function doSingleDelete() {
     .then(r => r.json())
     .then(data => {
         bootstrap.Modal.getInstance(document.getElementById('singleDeleteModal')).hide();
+        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
         if (data.errors && data.errors.length > 0) {
-            alert('Delete errors: ' + data.errors.join('; '));
+            showToast('Delete errors: ' + data.errors.join('; '), 'danger');
         }
         refreshListing();
     })
-    .catch(err => alert('Delete failed: ' + err.message));
+    .catch(err => {
+        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        btn.disabled = false;
+        showToast('Delete failed: ' + err.message, 'danger');
+    });
 }
 
 // Batch delete
@@ -827,6 +890,110 @@ function doBatchDelete() {
         btn.disabled = false;
         alert('Batch delete failed: ' + err.message);
     });
+}
+
+// ==================== Clipboard / Copy / Paste / Duplicate ====================
+
+function copyToClipboard(path) {
+    if (!clipboard.includes(path)) clipboard.push(path);
+    updateClipboardUI();
+    showToast(`Copied to clipboard.`, 'info');
+}
+
+function copySelected() {
+    if (selectedItems.size === 0) return;
+    selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
+    updateClipboardUI();
+    showToast(`${selectedItems.size} item(s) copied to clipboard.`, 'info');
+}
+
+function clearClipboard() {
+    clipboard = [];
+    updateClipboardUI();
+}
+
+function updateClipboardUI() {
+    const actions = document.getElementById('clipboardActions');
+    const countEl = document.getElementById('clipboardCount');
+    if (clipboard.length > 0) {
+        actions.classList.remove('d-none');
+        countEl.textContent = clipboard.length + ' copied';
+    } else {
+        actions.classList.add('d-none');
+    }
+}
+
+function pasteFromClipboard() {
+    if (clipboard.length === 0) return;
+    const btn = document.querySelector('#clipboardActions button.btn-info');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Pasting…';
+
+    fetch(URLS.copy, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sources: clipboard, dest_dir: currentPath})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+        if (data.errors && data.errors.length > 0) {
+            showToast('Paste errors: ' + data.errors.join('; '), 'danger');
+        } else {
+            showToast(data.message || 'Pasted successfully.', 'success');
+        }
+        refreshListing();
+    })
+    .catch(err => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+        showToast('Paste failed: ' + err.message, 'danger');
+    });
+}
+
+function duplicateItem(path) {
+    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    fetch(URLS.copy, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sources: [path], dest_dir: parentDir})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.errors && data.errors.length > 0) {
+            showToast('Duplicate failed: ' + data.errors.join('; '), 'danger');
+        } else {
+            const newName = (data.copied && data.copied[0]) ? data.copied[0].new_name : '';
+            showToast(newName ? `Duplicated as "${newName}".` : 'Duplicated.', 'success');
+        }
+        refreshListing();
+    })
+    .catch(err => showToast('Duplicate failed: ' + err.message, 'danger'));
+}
+
+function showToast(message, type) {
+    // Reuse or create a simple fixed-position toast
+    let toastEl = document.getElementById('fileBrowserToast');
+    if (!toastEl) {
+        toastEl = document.createElement('div');
+        toastEl.id = 'fileBrowserToast';
+        toastEl.style.cssText = 'position:fixed;bottom:1.5rem;end:1.5rem;right:1.5rem;z-index:9999;min-width:260px;max-width:400px;';
+        document.body.appendChild(toastEl);
+    }
+    const colors = {success: 'bg-success', danger: 'bg-danger', info: 'bg-info', warning: 'bg-warning text-dark'};
+    const cls = colors[type] || 'bg-secondary';
+    toastEl.innerHTML = `
+        <div class="toast show align-items-center text-white ${cls} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${escapeHtml(message)}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        onclick="this.closest('.toast').remove()"></button>
+            </div>
+        </div>`;
+    clearTimeout(toastEl._timer);
+    toastEl._timer = setTimeout(() => { if (toastEl) toastEl.innerHTML = ''; }, 4000);
 }
 
 // ==================== Refresh ====================

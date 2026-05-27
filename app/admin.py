@@ -3554,3 +3554,81 @@ def files_mkdir():
         return jsonify({'success': True, 'name': dir_name})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _unique_copy_name(dest_dir, name):
+    """Return a filename that does not yet exist inside dest_dir.
+
+    Tries: <name>, <stem>_copy<ext>, <stem>_copy2<ext>, … until a free slot is found.
+    Works for both files (with extensions) and directories (no extension).
+    """
+    if not os.path.exists(os.path.join(dest_dir, name)):
+        return name
+    base, ext = os.path.splitext(name)
+    candidate = f'{base}_copy{ext}'
+    if not os.path.exists(os.path.join(dest_dir, candidate)):
+        return candidate
+    n = 2
+    while True:
+        candidate = f'{base}_copy{n}{ext}'
+        if not os.path.exists(os.path.join(dest_dir, candidate)):
+            return candidate
+        n += 1
+
+
+@admin_bp.route('/files/copy', methods=['POST'])
+@login_required
+@super_admin_required
+def files_copy():
+    """Copy one or more files/directories into a destination directory."""
+    source_path = _resolve_source_path()
+    data = request.get_json()
+    sources = data.get('sources', [])
+    dest_dir = data.get('dest_dir', '').strip('/')
+
+    if not sources:
+        return jsonify({'error': 'No sources specified'}), 400
+
+    dest_full = _safe_join(source_path, dest_dir) if dest_dir else source_path
+    if not dest_full or not os.path.isdir(dest_full):
+        return jsonify({'error': 'Destination directory not found or access denied'}), 404
+
+    copied = []
+    errors = []
+    for rel_path in sources:
+        rel_path = rel_path.strip('/')
+        if not rel_path:
+            errors.append('Cannot copy root directory')
+            continue
+
+        src_full = _safe_join(source_path, rel_path)
+        if not src_full or not os.path.exists(src_full):
+            errors.append(f'{rel_path}: not found')
+            continue
+
+        # Prevent copying a directory into itself or a subdirectory of itself
+        if os.path.isdir(src_full):
+            src_abs = os.path.normcase(os.path.abspath(src_full))
+            dest_abs = os.path.normcase(os.path.abspath(dest_full))
+            if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
+                errors.append(f'{rel_path}: cannot copy a folder into itself')
+                continue
+
+        dest_name = _unique_copy_name(dest_full, os.path.basename(src_full))
+        dest_item = os.path.join(dest_full, dest_name)
+
+        try:
+            if os.path.isdir(src_full):
+                shutil.copytree(src_full, dest_item)
+            else:
+                shutil.copy2(src_full, dest_item)
+            copied.append({'original': rel_path, 'new_name': dest_name})
+        except Exception as e:
+            errors.append(f'{rel_path}: {str(e)}')
+
+    return jsonify({
+        'success': True,
+        'copied': copied,
+        'errors': errors,
+        'message': f'Copied {len(copied)} item(s)' + (f', {len(errors)} error(s)' if errors else ''),
+    })

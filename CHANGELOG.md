@@ -9,8 +9,15 @@ All notable changes to the Online Question Bank System are documented in this fi
 #### Admin panel UI cleanup
 
 - **System Settings added to Admin navbar dropdown** — the link was previously only reachable via the Admin Panel index card; it is now listed in the Super Admin section of the navbar dropdown for faster access.
-- **Admin Panel index reorganised** — cards are now grouped under three labelled sections: *Content Management* (Question Management, Topics, Chapters), *Operations* (Ingestion, Export/Import, Tag Questions), and *Super Admin* (Database Health, Manage Users, File Browser, System Settings). Each section uses a uniform `row g-3` grid with `h-100` cards so items align and never stick together regardless of screen width.
+- **Admin Panel index reorganised** — cards are now grouped under three labelled sections: *Content Management* (Question Management, Topics, Chapters), *Operations* (Ingestion, Export/Import), and *Super Admin* (Database Health, Manage Users, File Browser, System Settings). The redundant "Tag Questions" card (which merely linked to the Dashboard) has been removed. Each section uses a uniform `row g-3` grid with `h-100` cards so items align and never stick together regardless of screen width.
 - **"Back to Admin" button added to all sub-pages** — previously only Question Management and System Settings had a back button. The button is now present on Manage Topics, Manage Chapters, Manage Users, File Browser, Question Ingestion, Export/Import, and Database Health.
+
+#### File Browser — copy, paste, and duplicate
+
+- **Copy to clipboard** — each row now has a clipboard button that adds the file or folder to an in-page clipboard. The selection toolbar also exposes a "Copy" button to batch-add all selected items.
+- **Paste here** — a "Paste here" toolbar button appears whenever the clipboard is non-empty. It copies every clipboard item into the current directory. Name conflicts are resolved automatically (`_copy`, `_copy2`, … suffixes).
+- **Duplicate** — each row has a duplicate button (bi-copy icon) that immediately creates a same-directory copy with an auto-generated `_copy` suffix.
+- **Backend** — new `POST /admin/files/copy` route (`files_copy`) handles both single-file `shutil.copy2` and recursive `shutil.copytree`. Prevents copying a folder into itself or one of its own subdirectories.
 
 #### Unified question Edit modal (dashboard + admin)
 
