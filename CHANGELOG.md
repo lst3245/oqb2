@@ -12,6 +12,18 @@ All notable changes to the Online Question Bank System are documented in this fi
 - **Admin Panel index reorganised** — cards are now grouped under three labelled sections: *Content Management* (Question Management, Topics, Chapters), *Operations* (Ingestion, Export/Import), and *Super Admin* (Database Health, Manage Users, File Browser, System Settings). The redundant "Tag Questions" card (which merely linked to the Dashboard) has been removed. Each section uses a uniform `row g-3` grid with `h-100` cards so items align and never stick together regardless of screen width.
 - **"Back to Admin" button added to all sub-pages** — previously only Question Management and System Settings had a back button. The button is now present on Manage Topics, Manage Chapters, Manage Users, File Browser, Question Ingestion, Export/Import, and Database Health.
 
+#### Batch Set MCQ ANS images (admin Question Management)
+
+A new **Set MCQ ANS** batch button appears in the Question Management toolbar whenever questions are selected. It opens a modal that:
+- Reads the `answer` tag (A / B / C / D) of each selected question.
+- Copies the matching letter PNG from `resources/mcq_answer_img/` (A.png, B.png, C.png, D.png) into the canonical `ANS` slot on disk, creating any missing sub-directories automatically.
+- Upserts the `QuestionAsset` DB record (creates if absent, updates `file_path` if existing).
+- Streams live SSE progress — colour-coded log lines, a progress bar, and a final summary (Set / Skipped / Errors).
+
+Options in the modal: language selection (EN / CH / BI, default EN) and an overwrite toggle (replace existing IMG ANS assets, on by default). Questions with `q_type ≠ MC` or a blank / non-A-D answer are silently skipped and counted in *Skipped*.
+
+Backend: `GET /admin/questions/batch-mcq-ans` (SSE, subject-admin permission).
+
 #### File Browser — copy, paste, and duplicate
 
 - **Copy to clipboard** — each row now has a clipboard button that adds the file or folder to an in-page clipboard. The selection toolbar also exposes a "Copy" button to batch-add all selected items.

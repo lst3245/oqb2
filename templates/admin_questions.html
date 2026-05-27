@@ -69,6 +69,9 @@
                     <button class="btn btn-sm btn-warning text-dark" id="bulkGenImgBtn" style="display:none" onclick="openBatchImgModal()" title="Generate IMG from DOC/MD source for the selected questions">
                         <i class="bi bi-image"></i> Generate IMG (<span id="selCountBadgeImg">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-info text-dark" id="bulkMcqAnsBtn" style="display:none" onclick="openBatchMcqAnsModal()" title="Set MCQ ANS images from answer tag (A/B/C/D)">
+                        <i class="bi bi-check-circle"></i> Set MCQ ANS (<span id="selCountBadgeMcq">0</span>)
+                    </button>
                     <div class="dropdown d-inline-block">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> Options
@@ -557,6 +560,85 @@
     </div>
 </div>
 
+<!-- ===================== Batch MCQ ANS Modal ===================== -->
+<div class="modal fade" id="batchMcqAnsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-dark">
+                <h5 class="modal-title"><i class="bi bi-check-circle"></i> Set MCQ ANS Images</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="batchMcqAnsCloseBtn"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    For each selected MC question, looks up the <strong>Answer</strong> tag (A / B / C / D) and copies
+                    the matching PNG from <code>resources/mcq_answer_img/</code> into the ANS slot.
+                    Questions with no answer tag or a non-MC type are skipped.
+                </div>
+
+                <div id="batchMcqAnsOptions">
+                    <p class="mb-3"><strong>Selected questions:</strong> <span id="batchMcqAnsCount" class="badge bg-secondary">0</span></p>
+
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Languages</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_EN" checked>
+                                <label class="form-check-label" for="batchMcqAnsLang_EN">EN</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_CH">
+                                <label class="form-check-label" for="batchMcqAnsLang_CH">CH</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_BI">
+                                <label class="form-check-label" for="batchMcqAnsLang_BI">BI</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Overwrite existing ANS IMG</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="batchMcqAnsOverwrite" checked>
+                                <label class="form-check-label" for="batchMcqAnsOverwrite">Replace if already exists</label>
+                            </div>
+                            <small class="text-muted">When off, questions that already have an IMG ANS asset are skipped.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+
+                <!-- Console output (shown while running) -->
+                <div id="batchMcqAnsConsoleWrap" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <small class="text-muted" id="batchMcqAnsProgressLabel">Starting…</small>
+                        <small id="batchMcqAnsStatus" class="badge bg-secondary">Idle</small>
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
+                        <div id="batchMcqAnsProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%;"></div>
+                    </div>
+                    <div id="batchMcqAnsLog"
+                         style="max-height: 260px; overflow-y: auto; font-size: 0.8rem; background: #1e1e1e;
+                                color: #ddd; padding: 0.5rem; font-family: monospace; border-radius: 4px;"></div>
+                    <div id="batchMcqAnsSummary" class="mt-2 d-none">
+                        <div class="row text-center small" id="batchMcqAnsSummaryStats"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="batchMcqAnsCancelBtn">Close</button>
+                <button class="btn btn-outline-danger d-none" id="batchMcqAnsStopBtn" onclick="stopBatchMcqAns()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+                <button class="btn btn-info text-dark" id="batchMcqAnsRunBtn" onclick="runBatchMcqAns()">
+                    <i class="bi bi-play-fill"></i> Set ANS Images
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -754,6 +836,10 @@ function updateSelectionUI() {
     const genBadge = document.getElementById('selCountBadgeImg');
     if (genBtn) genBtn.style.display = count > 0 ? '' : 'none';
     if (genBadge) genBadge.textContent = count;
+    const mcqBtn = document.getElementById('bulkMcqAnsBtn');
+    const mcqBadge = document.getElementById('selCountBadgeMcq');
+    if (mcqBtn) mcqBtn.style.display = count > 0 ? '' : 'none';
+    if (mcqBadge) mcqBadge.textContent = count;
     // Update select-all checkbox
     const all = document.querySelectorAll('.q-checkbox');
     const checked = document.querySelectorAll('.q-checkbox:checked');
@@ -1368,6 +1454,144 @@ function _dropPinnedOnUserAction() {
     if (pinnedQids.length === 0) return;
     pinnedQids = [];
     document.getElementById('qidsFilterBanner').classList.add('d-none');
+}
+
+// ==================== BATCH MCQ ANS ====================
+
+let batchMcqAnsEventSource = null;
+let batchMcqAnsRunning = false;
+
+function openBatchMcqAnsModal() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('batchMcqAnsCount').textContent = selectedQIds.size;
+    document.getElementById('batchMcqAnsConsoleWrap').classList.add('d-none');
+    document.getElementById('batchMcqAnsLog').innerHTML = '';
+    document.getElementById('batchMcqAnsSummary').classList.add('d-none');
+    document.getElementById('batchMcqAnsProgressBar').style.width = '0%';
+    document.getElementById('batchMcqAnsRunBtn').classList.remove('d-none');
+    document.getElementById('batchMcqAnsRunBtn').disabled = false;
+    document.getElementById('batchMcqAnsStopBtn').classList.add('d-none');
+    document.getElementById('batchMcqAnsCancelBtn').textContent = 'Close';
+    document.getElementById('batchMcqAnsOptions').classList.remove('opacity-50');
+    new bootstrap.Modal(document.getElementById('batchMcqAnsModal')).show();
+}
+
+function _appendMcqAnsLog(message, type) {
+    const logEl = document.getElementById('batchMcqAnsLog');
+    const ts = new Date().toLocaleTimeString();
+    const colours = {
+        info: '#9bb6c9', success: '#5cd35c', skip: '#cccc66',
+        warning: '#cccc66', error: '#ff6b6b', done: '#92e1c5'
+    };
+    const span = document.createElement('span');
+    span.style.color = colours[type] || '#ddd';
+    span.style.display = 'block';
+    span.textContent = `[${ts}] ${message}`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runBatchMcqAns() {
+    if (batchMcqAnsRunning || selectedQIds.size === 0) return;
+
+    const langs = ['EN', 'CH', 'BI'].filter(l => document.getElementById('batchMcqAnsLang_' + l).checked);
+    if (langs.length === 0) { showToast('Pick at least one language.', 'warning'); return; }
+
+    const overwrite = document.getElementById('batchMcqAnsOverwrite').checked ? '1' : '0';
+    const params = new URLSearchParams({
+        question_ids: Array.from(selectedQIds).join(','),
+        langs: langs.join(','),
+        overwrite,
+    });
+
+    batchMcqAnsRunning = true;
+    document.getElementById('batchMcqAnsRunBtn').classList.add('d-none');
+    document.getElementById('batchMcqAnsStopBtn').classList.remove('d-none');
+    document.getElementById('batchMcqAnsCancelBtn').textContent = 'Hide';
+    document.getElementById('batchMcqAnsOptions').classList.add('opacity-50');
+    document.getElementById('batchMcqAnsConsoleWrap').classList.remove('d-none');
+    document.getElementById('batchMcqAnsStatus').textContent = 'Running…';
+    document.getElementById('batchMcqAnsStatus').className = 'badge bg-success';
+    document.getElementById('batchMcqAnsProgressBar').className =
+        'progress-bar progress-bar-striped progress-bar-animated';
+    document.getElementById('batchMcqAnsSummary').classList.add('d-none');
+
+    _appendMcqAnsLog(`Starting for ${selectedQIds.size} question(s)…`, 'info');
+
+    batchMcqAnsEventSource = new EventSource(
+        '{{ url_for("admin.batch_mcq_ans") }}?' + params.toString()
+    );
+
+    batchMcqAnsEventSource.onmessage = function(e) {
+        try {
+            const ev = JSON.parse(e.data);
+            _appendMcqAnsLog(ev.message, ev.type);
+
+            if (typeof ev.current === 'number' && ev.total > 0) {
+                const pct = Math.round((ev.current / ev.total) * 100);
+                document.getElementById('batchMcqAnsProgressBar').style.width = pct + '%';
+                document.getElementById('batchMcqAnsProgressLabel').textContent =
+                    `${ev.current} / ${ev.total}`;
+            }
+
+            if (ev.type === 'done') {
+                batchMcqAnsEventSource.close();
+                batchMcqAnsEventSource = null;
+                batchMcqAnsRunning = false;
+                document.getElementById('batchMcqAnsRunBtn').classList.remove('d-none');
+                document.getElementById('batchMcqAnsRunBtn').disabled = false;
+                document.getElementById('batchMcqAnsStopBtn').classList.add('d-none');
+                document.getElementById('batchMcqAnsCancelBtn').textContent = 'Close';
+                document.getElementById('batchMcqAnsOptions').classList.remove('opacity-50');
+                document.getElementById('batchMcqAnsProgressBar').classList.remove(
+                    'progress-bar-animated');
+                document.getElementById('batchMcqAnsStatus').textContent = 'Complete';
+                document.getElementById('batchMcqAnsStatus').className = 'badge bg-primary';
+
+                if (typeof ev.success === 'number') {
+                    document.getElementById('batchMcqAnsSummaryStats').innerHTML = `
+                        <div class="col-4"><div class="fs-5 fw-bold text-success">${ev.success}</div><small class="text-muted">Set</small></div>
+                        <div class="col-4"><div class="fs-5 fw-bold text-warning">${ev.skipped}</div><small class="text-muted">Skipped</small></div>
+                        <div class="col-4"><div class="fs-5 fw-bold text-danger">${ev.errors}</div><small class="text-muted">Errors</small></div>
+                    `;
+                    document.getElementById('batchMcqAnsSummary').classList.remove('d-none');
+                }
+
+                if (ev.success > 0) loadQuestions();
+            }
+        } catch(err) {
+            _appendMcqAnsLog('Parse error: ' + err.message, 'error');
+        }
+    };
+
+    batchMcqAnsEventSource.onerror = function() {
+        if (!batchMcqAnsRunning) return;
+        batchMcqAnsEventSource.close();
+        batchMcqAnsEventSource = null;
+        batchMcqAnsRunning = false;
+        document.getElementById('batchMcqAnsRunBtn').classList.remove('d-none');
+        document.getElementById('batchMcqAnsStopBtn').classList.add('d-none');
+        document.getElementById('batchMcqAnsCancelBtn').textContent = 'Close';
+        document.getElementById('batchMcqAnsStatus').textContent = 'Error';
+        document.getElementById('batchMcqAnsStatus').className = 'badge bg-danger';
+        _appendMcqAnsLog('SSE connection error.', 'error');
+    };
+}
+
+function stopBatchMcqAns() {
+    if (batchMcqAnsEventSource) {
+        batchMcqAnsEventSource.close();
+        batchMcqAnsEventSource = null;
+    }
+    batchMcqAnsRunning = false;
+    document.getElementById('batchMcqAnsRunBtn').classList.remove('d-none');
+    document.getElementById('batchMcqAnsRunBtn').disabled = false;
+    document.getElementById('batchMcqAnsStopBtn').classList.add('d-none');
+    document.getElementById('batchMcqAnsCancelBtn').textContent = 'Close';
+    document.getElementById('batchMcqAnsStatus').textContent = 'Stopped';
+    document.getElementById('batchMcqAnsStatus').className = 'badge bg-warning text-dark';
+    document.getElementById('batchMcqAnsOptions').classList.remove('opacity-50');
+    _appendMcqAnsLog('Stopped by user.', 'warning');
 }
 
 // ===================== INIT =====================

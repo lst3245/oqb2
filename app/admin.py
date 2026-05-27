@@ -3205,6 +3205,157 @@ def batch_generate_images():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@admin_bp.route('/questions/batch-mcq-ans')
+@login_required
+@admin_required
+def batch_mcq_ans():
+    """
+    SSE stream: assign MCQ ANS images for selected questions from the bundled
+    resources/mcq_answer_img/ pool.
+
+    Reads ``question.answer`` (one of A / B / C / D), copies the matching PNG
+    into the canonical ANS slot on disk, and upserts the QuestionAsset row.
+    Questions whose ``q_type`` is not ``'MC'`` or whose ``answer`` is not a
+    single letter A–D are silently skipped.
+
+    Query params:
+      * ``question_ids`` (csv, required)
+      * ``langs``        (csv, default ``EN``) — EN / CH / BI
+      * ``overwrite``    (``1``|``0``, default ``0``) — replace existing IMG ANS
+    """
+    raw_qids = request.args.get('question_ids', '').strip()
+    if not raw_qids:
+        return jsonify({'error': 'question_ids is required'}), 400
+    try:
+        question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
+    except ValueError:
+        return jsonify({'error': 'question_ids must be integers'}), 400
+    if not question_ids:
+        return jsonify({'error': 'question_ids is empty'}), 400
+
+    raw_langs = request.args.get('langs', 'EN').strip()
+    langs = sorted({s.strip().upper() for s in raw_langs.split(',') if s.strip()} & {'EN', 'CH', 'BI'})
+    if not langs:
+        return jsonify({'error': 'langs must include at least one of EN / CH / BI'}), 400
+
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    if not qs:
+        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+
+    app = current_app._get_current_object()
+
+    def generate():
+        with app.app_context():
+            source_path = app.config['SOURCE_PATH']
+            # resources/mcq_answer_img/ lives one level above the app package
+            resources_dir = os.path.normpath(
+                os.path.join(os.path.dirname(app.root_path), 'resources', 'mcq_answer_img')
+            )
+            valid_answers = {'A', 'B', 'C', 'D'}
+            total_slots = len(qs) * len(langs)
+            done_count = 0
+            n_success = 0
+            n_skipped = 0
+            n_error = 0
+
+            yield (
+                f"data: {json.dumps({'type': 'info', 'message': f'Processing {len(qs)} question(s) × {len(langs)} language(s) = {total_slots} slot(s). overwrite={overwrite}.'})}\n\n"
+            )
+
+            for q in qs:
+                # Must be an MC question
+                if q.q_type != 'MC':
+                    n_skipped += len(langs)
+                    done_count += len(langs)
+                    yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid}: q_type={q.q_type!r} (not MC) — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
+                    continue
+
+                # answer must be A/B/C/D
+                answer = (q.answer or '').strip().upper()
+                if answer not in valid_answers:
+                    n_skipped += len(langs)
+                    done_count += len(langs)
+                    yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid}: answer={answer!r} is not A/B/C/D — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
+                    continue
+
+                # Locate source image
+                src_img = os.path.join(resources_dir, f'{answer}.png')
+                if not os.path.isfile(src_img):
+                    n_error += len(langs)
+                    done_count += len(langs)
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid}: {answer}.png not found in resources/mcq_answer_img/ — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
+                    continue
+
+                for lang in langs:
+                    done_count += 1
+
+                    # Build canonical relative path (mirrors _build_asset_file_path)
+                    filename = f'{q.qid}_{lang}_ANS.png'
+                    if q.source in ('DSE', 'CE', 'AL'):
+                        folder = f'{q.subject}/PP/{q.source}/{q.year}/{q.paper}'
+                    else:
+                        detail = _extract_qb_detail(q.qid)
+                        folder = f'{q.subject}/QB/{detail}'
+                    rel_path = f'{folder}/{filename}'
+
+                    # Check for an existing IMG ANS asset at part 1
+                    existing = QuestionAsset.query.filter_by(
+                        question_id=q.id,
+                        asset_type='ANS',
+                        language=lang,
+                        file_format='IMG',
+                        part_number=1,
+                    ).first()
+
+                    if existing and not overwrite:
+                        n_skipped += 1
+                        yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid} [{lang}]: IMG ANS already exists (overwrite=off) — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
+                        continue
+
+                    # Copy image onto disk
+                    try:
+                        dest_full = os.path.normpath(os.path.join(source_path, *rel_path.split('/')))
+                        os.makedirs(os.path.dirname(dest_full), exist_ok=True)
+                        shutil.copy2(src_img, dest_full)
+                    except Exception as exc:
+                        n_error += 1
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{lang}]: file copy failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
+                        continue
+
+                    # Upsert DB record
+                    try:
+                        if existing:
+                            existing.file_path = rel_path
+                        else:
+                            db.session.add(QuestionAsset(
+                                question_id=q.id,
+                                asset_type='ANS',
+                                language=lang,
+                                file_format='IMG',
+                                part_number=1,
+                                file_path=rel_path,
+                            ))
+                        db.session.commit()
+                        n_success += 1
+                        yield f"data: {json.dumps({'type': 'success', 'message': f'{q.qid} [{lang}]: ANS set to {answer}.png → {rel_path}', 'current': done_count, 'total': total_slots})}\n\n"
+                    except Exception as exc:
+                        db.session.rollback()
+                        n_error += 1
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{lang}]: DB update failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
+
+            yield (
+                f"data: {json.dumps({'type': 'done', 'message': f'Done. {n_success} set, {n_skipped} skipped, {n_error} error(s).', 'success': n_success, 'skipped': n_skipped, 'errors': n_error, 'current': total_slots, 'total': total_slots})}\n\n"
+            )
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 # ==================== System Settings (Super Admin Only) ====================
 #
 # DB-backed runtime tunables. The full registry lives in `app/settings.py`;
