@@ -282,6 +282,11 @@ let movableSections = [];
 
 let autoRefreshInterval = null;
 
+// Active search query (trimmed). Forwarded to /files/list as `q` so search
+// hits matches across every page of every section, not just rows already
+// rendered. Empty string == no search.
+let currentSearch = '';
+
 document.addEventListener('DOMContentLoaded', function() {
     loadSections();
     autoRefreshInterval = setInterval(() => {
@@ -491,6 +496,7 @@ function renderSortOption(field, dir, s) {
 function loadSection(sectionId, page = 1) {
     const showAll = document.getElementById('showAllToggle')?.checked ? '1' : '0';
     const params = new URLSearchParams({ section_id: sectionId, page, show_all: showAll });
+    if (currentSearch) params.set('q', currentSearch);
     if (sectionId === SHARED_SECTION_ID) {
         const cur = sectionState.get(sectionId);
         const ps = cur?.page_size || 10;
@@ -529,10 +535,17 @@ function renderSectionRows(sectionId) {
 
     const isShared = sectionId === SHARED_SECTION_ID;
     if (state.files.length === 0) {
+        let emptyMsg;
+        if (currentSearch) {
+            emptyMsg = `No files match "${escapeHtml(currentSearch)}" in this section.`;
+        } else if (isShared) {
+            emptyMsg = 'No files have been shared with you yet.';
+        } else {
+            emptyMsg = 'No files in this section yet. Drag files here or use Move to…';
+        }
         tbody.innerHTML = `
             <tr class="empty-row"><td colspan="${isShared ? 8 : 7}" class="section-empty">
-                ${isShared ? 'No files have been shared with you yet.'
-                           : 'No files in this section yet. Drag files here or use Move to…'}
+                ${emptyMsg}
             </td></tr>`;
         return;
     }
@@ -1239,39 +1252,58 @@ function postShare(body) {
 }
 
 // ---------------------------------------------------------------------------
-// Search (client-side, across loaded sections only)
+// Search (server-side; spans every page of every visible section)
 // ---------------------------------------------------------------------------
 
 let searchTimer = null;
 function onSearch() {
+    const raw = (document.getElementById('searchInput')?.value || '').trim();
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(applySearchHighlight, 100);
+    // Debounce so we don't fire on every keystroke. Empty query reverts
+    // immediately so users see all files again as soon as they clear.
+    const delay = raw === '' ? 0 : 250;
+    searchTimer = setTimeout(() => runSearch(raw), delay);
 }
 function clearSearch() {
-    document.getElementById('searchInput').value = '';
-    applySearchHighlight();
+    const el = document.getElementById('searchInput');
+    if (el) el.value = '';
+    runSearch('');
+}
+function runSearch(q) {
+    // Only reload if the active query actually changed — avoids churn from
+    // duplicate input events.
+    if (q === currentSearch) {
+        applySearchHighlight();
+        return;
+    }
+    currentSearch = q;
+    // Reload every section back to page 1 with (or without) the new
+    // filter applied server-side. file_count badge picks up the
+    // post-filter total from each response.
+    const ids = Array.from(sectionState.keys());
+    Promise.all(ids.map(id => loadSection(id, 1)));
 }
 function applySearchHighlight() {
-    const q = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+    const q = currentSearch.toLowerCase();
     document.querySelectorAll('tr[data-file-id]').forEach(tr => {
         const nameEl = tr.querySelector('.file-name-display');
         if (!nameEl) return;
-        const name = (nameEl.dataset.name || nameEl.textContent || '').toLowerCase();
-        if (!q || name.includes(q)) {
-            tr.style.display = '';
-            const orig = nameEl.dataset.name || nameEl.textContent;
-            if (q) {
-                const idx = name.indexOf(q);
-                const before = escapeHtml(orig.slice(0, idx));
-                const match  = escapeHtml(orig.slice(idx, idx + q.length));
-                const after  = escapeHtml(orig.slice(idx + q.length));
-                nameEl.innerHTML = `${before}<mark class="oqb-search-hit">${match}</mark>${after}`;
-            } else {
-                nameEl.textContent = orig;
-            }
-        } else {
-            tr.style.display = 'none';
+        const orig = nameEl.dataset.name || nameEl.textContent;
+        if (!q) {
+            nameEl.textContent = orig;
+            return;
         }
+        const idx = orig.toLowerCase().indexOf(q);
+        if (idx < 0) {
+            // The row matched on filename (not display_name) — leave the
+            // name intact, no in-text highlight to add.
+            nameEl.textContent = orig;
+            return;
+        }
+        const before = escapeHtml(orig.slice(0, idx));
+        const match  = escapeHtml(orig.slice(idx, idx + q.length));
+        const after  = escapeHtml(orig.slice(idx + q.length));
+        nameEl.innerHTML = `${before}<mark class="oqb-search-hit">${match}</mark>${after}`;
     });
 }
 

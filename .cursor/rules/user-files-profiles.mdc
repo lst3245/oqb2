@@ -91,7 +91,7 @@ Section-organised view of every `GeneratedFile`. Each user owns one default ("La
 ### API (files)
 | Route | Method | Description |
 |---|---|---|
-| `/user/files/list?section_id=&page=&show_all=` | GET | Paginated single-section listing. `section_id=-1` returns shared-with-me. `show_all=1` for super admin includes other owners. Response: `{section_id, page, page_size, total, pages, files:[...]}` |
+| `/user/files/list?section_id=&page=&show_all=&q=` | GET | Paginated single-section listing. `section_id=-1` returns shared-with-me. `show_all=1` for super admin includes other owners. Optional `q` is a case-insensitive substring filter against `display_name` and `filename` (applied before sort+paginate) used by the page-level search box so matches span every page of the section. Response: `{section_id, page, page_size, total, pages, files:[...]}` |
 | `/user/files/<id>/filter` | GET | Get saved filter_data for "Re-filter" button |
 | `/user/files/<id>/generation_options` | GET | Get saved generation_options + display_name for re-generate |
 | `/user/files/<id>/move` | POST | `{section_id}` — owner or super admin; target must be a section owned by the file's owner |
@@ -130,5 +130,6 @@ The My Files page polls every **5 seconds**, but only re-fetches sections that a
 - **Drag uses `preventOnFilter: false`** on BOTH sortables — otherwise SortableJS would call `event.preventDefault()` on every mouse event inside filtered cards (Latest, Shared-with-me), killing native `<select>` dropdowns and dropdown-toggle buttons inside their headers. The `.section-drag-handle` is hidden via CSS on those cards so dragging is impossible anyway.
 - **`onStart`/`onEnd` add/remove `body.oqb-dragging`** which applies global `user-select: none !important` for the duration of the drag, suppressing accidental text highlighting.
 - **"Show all users" toggle**: the page header has a `#showAllToggle` checkbox (super-admin only). `reloadAll()` passes `show_all=1` to both `/user/sections` and every `/user/files/list` call. Foreign sections render a blue `@username` owner pill in their header (via `s.owner_username`); the Move-to dropdown then includes every visible section as a destination so admins can reorganise other users' files in place.
-- Polling, bulk bar, and search highlighting are all client-side; no HTMX involvement.
+- **Search is server-side**. The top-bar input updates a module-level `currentSearch` and (debounced 250 ms) triggers `loadSection(id, 1)` for every loaded section with `q=<query>` appended. Section file-count badges automatically pick up the post-filter `total`; the empty-state message switches to `No files match "<query>"`. Highlighting of the match inside the rendered row is still client-side (`<mark class="oqb-search-hit">`).
+- Polling, bulk bar, and toast UX are all client-side; no HTMX involvement.
 - **Header layout**: title row (with super-admin "Show all users" switch + Refresh on the right) sits above a separate `.card` toolbar containing the search input (left, `flex: 1 1 240px`) and **New section** button (right). The two-row split keeps the page from wrapping awkwardly at narrow widths.

@@ -1169,6 +1169,10 @@ def files_list():
     Query params:
       - section_id (required): the FileSection.id OR -1 for "Shared with me"
       - page (int, default 1)
+      - q (optional): case-insensitive substring filter applied to both
+        `display_name` and `filename`. Used by the page-level search box
+        so a query finds matches across every page of the section, not
+        just the currently-rendered rows.
       - show_all (super-admin): include any other user's files in their
         own sections — used by the admin "Show all users" toggle and only
         meaningful for own (non-shared) sections.
@@ -1185,7 +1189,18 @@ def files_list():
         page = 1
 
     show_all = request.args.get('show_all', '0') == '1' and current_user.is_super_admin
+    search_q = (request.args.get('q') or '').strip()
     output_path = current_app.config['OUTPUT_PATH']
+
+    def _apply_name_filter(query):
+        """ILIKE filter on display_name OR filename. No-op when q is empty."""
+        if not search_q:
+            return query
+        pattern = f"%{search_q}%"
+        return query.filter(or_(
+            GeneratedFile.display_name.ilike(pattern),
+            GeneratedFile.filename.ilike(pattern),
+        ))
 
     # --- Virtual "Shared with me" section ---
     if section_id == _SHARED_SECTION_ID:
@@ -1204,6 +1219,7 @@ def files_list():
             page_size = 10
 
         q = GeneratedFile.query.filter(GeneratedFile.id.in_(shared_ids))
+        q = _apply_name_filter(q)
         q = _apply_file_sort(q, 'created_at', 'desc')
         total = q.count()
         files = q.limit(page_size).offset((page - 1) * page_size).all()
@@ -1254,6 +1270,7 @@ def files_list():
     if not show_all:
         base = base.filter(GeneratedFile.user_id == section.user_id)
 
+    base = _apply_name_filter(base)
     base = _apply_file_sort(base, section.sort_field, section.sort_direction)
     total = base.count()
     page_size = section.page_size or 10
