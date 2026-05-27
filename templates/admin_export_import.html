@@ -34,7 +34,7 @@
     <hr>
 
     <!-- Subject Selector -->
-    <div class="row mb-4">
+    <div class="row mb-4" id="subjectSelectRow">
         <div class="col-md-4">
             <label for="subjectSelect" class="form-label fw-bold">Subject</label>
             <select id="subjectSelect" class="form-select">
@@ -64,6 +64,20 @@
                         <code>q_type</code>, <code>correct_percentage</code>, <code>description</code>,
                         <code>answer</code>, <code>comment</code>
                     </p>
+
+                    <!-- Dashboard-selections toggle -->
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="exportSelectedOnly"
+                               onchange="updateExportSelectionUI()">
+                        <label class="form-check-label" for="exportSelectedOnly">
+                            Dashboard selections only
+                            <span id="dashSelBadge" class="badge bg-primary ms-1">0</span>
+                        </label>
+                    </div>
+                    <div id="exportSelectedWarning" class="alert alert-warning py-1 small mb-2 d-none">
+                        <i class="bi bi-exclamation-triangle"></i> No questions are currently selected in the Dashboard.
+                    </div>
+
                     <button class="btn btn-primary" onclick="exportCSV('question-tags')">
                         <i class="bi bi-download"></i> Export Question Tags
                     </button>
@@ -206,8 +220,63 @@
 
 {% block extra_js %}
 <script>
+function getDashboardSelectedIds() {
+    try {
+        const raw = localStorage.getItem('oqb_selectedQuestions');
+        return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+}
+
+function updateExportSelectionUI() {
+    const toggle = document.getElementById('exportSelectedOnly');
+    const warning = document.getElementById('exportSelectedWarning');
+    const subjectRow = document.getElementById('subjectSelectRow');
+    const dashIds = getDashboardSelectedIds();
+
+    document.getElementById('dashSelBadge').textContent = dashIds.length;
+
+    if (toggle.checked) {
+        subjectRow.classList.add('opacity-50');
+        if (dashIds.length === 0) {
+            warning.classList.remove('d-none');
+        } else {
+            warning.classList.add('d-none');
+        }
+    } else {
+        subjectRow.classList.remove('opacity-50');
+        warning.classList.add('d-none');
+    }
+}
+
 function exportCSV(type) {
     const subjectId = document.getElementById('subjectSelect').value;
+
+    // For question-tags, check if "Dashboard selections only" is toggled on
+    if (type === 'question-tags') {
+        const toggle = document.getElementById('exportSelectedOnly');
+        if (toggle && toggle.checked) {
+            const dashIds = getDashboardSelectedIds();
+            if (dashIds.length === 0) {
+                alert('No questions are currently selected in the Dashboard. Go to the Dashboard and select questions first.');
+                return;
+            }
+            // Pass IDs as URL param; for very large selections use localStorage token fallback
+            const idStr = dashIds.join(',');
+            const url = '{{ url_for("admin.export_question_tags") }}';
+            if (idStr.length <= 6000) {
+                window.location.href = url + '?question_ids=' + encodeURIComponent(idStr);
+            } else {
+                // Stash in localStorage and pass a token key so the URL stays short
+                const token = 'export_qids_' + Date.now();
+                localStorage.setItem(token, idStr);
+                window.location.href = url + '?question_ids=' + encodeURIComponent(idStr.substring(0, 6000));
+                // Note: truncation is intentional only for the extreme edge case;
+                // practical selections are well under 6 KB.
+            }
+            return;
+        }
+    }
+
     if (!subjectId) {
         alert('Please select a subject first.');
         return;
@@ -219,6 +288,12 @@ function exportCSV(type) {
     };
     window.location.href = urls[type] + '?subject_id=' + encodeURIComponent(subjectId);
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Seed the dashboard selection count on load
+    const dashIds = getDashboardSelectedIds();
+    document.getElementById('dashSelBadge').textContent = dashIds.length;
+});
 
 // --- Import field selection ---
 

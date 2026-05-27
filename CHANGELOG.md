@@ -12,6 +12,17 @@ All notable changes to the Online Question Bank System are documented in this fi
 - **Admin Panel index reorganised** — cards are now grouped under three labelled sections: *Content Management* (Question Management, Topics, Chapters), *Operations* (Ingestion, Export/Import), and *Super Admin* (Database Health, Manage Users, File Browser, System Settings). The redundant "Tag Questions" card (which merely linked to the Dashboard) has been removed. Each section uses a uniform `row g-3` grid with `h-100` cards so items align and never stick together regardless of screen width.
 - **"Back to Admin" button added to all sub-pages** — previously only Question Management and System Settings had a back button. The button is now present on Manage Topics, Manage Chapters, Manage Users, File Browser, Question Ingestion, Export/Import, and Database Health.
 
+#### Export Question Tags — Dashboard selections only
+
+The Question Tags export section on the Export / Import page now has a **"Dashboard selections only"** toggle switch (identical in concept to the toggle in Question Management). When enabled:
+- Shows a live count badge of how many questions are currently selected in the Dashboard (`localStorage['oqb_selectedQuestions']`).
+- The export downloads only those selected questions instead of the full subject, producing `question_tags_selected_N.csv`.
+- The subject selector is greyed out (not needed) and a warning is shown if the selection is empty.
+
+When the toggle is off, the page behaves exactly as before (subject-scoped full export).
+
+Backend: `GET /admin/export/question-tags` now accepts an optional `question_ids` (csv of DB IDs) parameter in addition to `subject_id`. When `question_ids` is supplied the export skips the subject filter and scopes only to questions the caller has admin access to.
+
 #### Batch Set MCQ ANS images (admin Question Management)
 
 A new **Set MCQ ANS** batch button appears in the Question Management toolbar whenever questions are selected. It opens a modal that:

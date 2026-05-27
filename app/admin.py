@@ -2091,24 +2091,50 @@ def export_import():
 @login_required
 @admin_required
 def export_question_tags():
-    """Export question tags as CSV (using nominal QID and string names)"""
-    subject_id = request.args.get('subject_id')
-    if not subject_id:
-        flash('Please select a subject.', 'warning')
-        return redirect(url_for('admin.export_import'))
+    """Export question tags as CSV (using nominal QID and string names).
 
-    # Verify access
-    subjects = get_user_admin_subjects()
-    subject_ids = [s.id for s in subjects]
-    if subject_id not in subject_ids:
-        flash('Access denied for this subject.', 'danger')
-        return redirect(url_for('admin.export_import'))
-
+    Two modes:
+    * ``question_ids`` (optional, csv of DB IDs) — export only those specific
+      questions (filtered to subjects the caller can admin).  ``subject_id`` is
+      ignored in this mode.
+    * ``subject_id`` — original mode: export all questions for the subject.
+    """
     from natsort import natsorted
-    questions = natsorted(
-        Question.query.filter_by(subject=subject_id).all(),
-        key=lambda q: q.qid
-    )
+
+    admin_subjects = get_user_admin_subjects()
+    admin_subject_ids = [s.id for s in admin_subjects]
+
+    raw_qids = request.args.get('question_ids', '').strip()
+    if raw_qids:
+        # Selection-based export — no subject filter required
+        try:
+            db_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
+        except ValueError:
+            flash('Invalid question_ids parameter.', 'danger')
+            return redirect(url_for('admin.export_import'))
+
+        qs = Question.query.filter(Question.id.in_(db_ids)).all()
+        if not current_user.is_super_admin:
+            qs = [q for q in qs if q.subject in admin_subject_ids]
+
+        questions = natsorted(qs, key=lambda q: q.qid)
+        filename = f'question_tags_selected_{len(questions)}.csv'
+    else:
+        # Subject-based export (original behaviour)
+        subject_id = request.args.get('subject_id')
+        if not subject_id:
+            flash('Please select a subject.', 'warning')
+            return redirect(url_for('admin.export_import'))
+
+        if subject_id not in admin_subject_ids:
+            flash('Access denied for this subject.', 'danger')
+            return redirect(url_for('admin.export_import'))
+
+        questions = natsorted(
+            Question.query.filter_by(subject=subject_id).all(),
+            key=lambda q: q.qid
+        )
+        filename = f'question_tags_{subject_id}.csv'
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -2121,34 +2147,27 @@ def export_question_tags():
     ])
 
     for q in questions:
-        major_topic_name = q.major_topic.name if q.major_topic else ''
-        major_subtopic_name = q.major_subtopic.name if q.major_subtopic else ''
-        minor_topics_str = '; '.join(t.name for t in q.minor_topics) if q.minor_topics else ''
-        subtopics_str = '; '.join(s.name for s in q.subtopics) if q.subtopics else ''
-        chapter_name = q.chapter.name if q.chapter else ''
-        subchapter_name = q.subchapter.name if q.subchapter else ''
-
         writer.writerow([
             q.qid,
             q.subject,
-            major_topic_name,
-            major_subtopic_name,
-            minor_topics_str,
-            subtopics_str,
-            chapter_name,
-            subchapter_name,
+            q.major_topic.name if q.major_topic else '',
+            q.major_subtopic.name if q.major_subtopic else '',
+            '; '.join(t.name for t in q.minor_topics) if q.minor_topics else '',
+            '; '.join(s.name for s in q.subtopics) if q.subtopics else '',
+            q.chapter.name if q.chapter else '',
+            q.subchapter.name if q.subchapter else '',
             q.section or '',
             q.level if q.level is not None else '',
             q.q_type or '',
             q.correct_percentage if q.correct_percentage is not None else '',
             q.description or '',
             q.answer or '',
-            q.comment or ''
+            q.comment or '',
         ])
 
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    response.headers['Content-Disposition'] = f'attachment; filename=question_tags_{subject_id}.csv'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     return response
 
 
