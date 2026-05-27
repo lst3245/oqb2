@@ -6,131 +6,129 @@
 <div class="container mt-4">
     <h2><i class="bi bi-gear"></i> Admin Panel</h2>
     <hr>
-    
-    <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card border-primary">
+
+    <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
+        <i class="bi bi-collection"></i> Content Management
+    </h6>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="card h-100 border-primary">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-journal-text"></i> Question Management</h5>
-                    <p class="card-text">Add, edit, delete questions. Manage question assets, rename QIDs, and batch operations.</p>
-                    <a href="{{ url_for('admin.questions_page') }}" class="btn btn-primary">
+                    <p class="card-text">Add, edit, delete questions. Manage assets, rename QIDs, and batch operations.</p>
+                    <a href="{{ url_for('admin.questions_page') }}" class="btn btn-primary btn-sm">
                         <i class="bi bi-arrow-right"></i> Manage Questions
                     </a>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-6">
-            <div class="card">
+        <div class="col-md-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-tags"></i> Manage Topics</h5>
                     <p class="card-text">Add, edit, or remove topics and subtopics for each subject.</p>
-                    <a href="{{ url_for('admin.topics') }}" class="btn btn-primary">
+                    <a href="{{ url_for('admin.topics') }}" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-arrow-right"></i> Go to Topics
                     </a>
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card">
+        <div class="col-md-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-book"></i> Manage Chapters</h5>
                     <p class="card-text">Add, edit, or remove chapters and subchapters for organizing questions by textbook structure.</p>
-                    <a href="{{ url_for('admin.chapters') }}" class="btn btn-primary">
+                    <a href="{{ url_for('admin.chapters') }}" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-arrow-right"></i> Go to Chapters
                     </a>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-pencil-square"></i> Tag Questions</h5>
-                    <p class="card-text">Browse and tag questions with topics, levels, and other metadata. Use the Dashboard with filters and click "Edit" on any question to open the Tags / Assets / Details modal.</p>
-                    <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
-                        <i class="bi bi-arrow-right"></i> Go to Dashboard
-                    </a>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-arrow-left-right"></i> Export / Import</h5>
-                    <p class="card-text">Export and import question tags, topics/subtopics, and chapters/subchapters as portable CSV files.</p>
-                    <a href="{{ url_for('admin.export_import') }}" class="btn btn-primary">
-                        <i class="bi bi-arrow-right"></i> Go to Export / Import
-                    </a>
-                </div>
-            </div>
-        </div>
     </div>
-    
-    <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card border-success">
+
+    <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
+        <i class="bi bi-tools"></i> Operations
+    </h6>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="card h-100 border-success">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-cloud-upload"></i> Question Ingestion</h5>
                     <p class="card-text">Scan the source folder and import question files into the database. View live progress and logs.</p>
-                    <a href="{{ url_for('admin.ingestion') }}" class="btn btn-success">
+                    <a href="{{ url_for('admin.ingestion') }}" class="btn btn-success btn-sm">
                         <i class="bi bi-arrow-right"></i> Go to Ingestion
                     </a>
                 </div>
             </div>
         </div>
-        
-        {% if current_user.is_super_admin %}
-        <div class="col-md-6">
-            <div class="card border-danger">
+        <div class="col-md-4">
+            <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-heart-pulse"></i> Database Health <span class="badge bg-danger">Super Admin</span></h5>
-                    <p class="card-text">Check database statistics, detect anomalies, and clean up orphaned records.</p>
-                    <a href="{{ url_for('admin.health') }}" class="btn btn-danger">
+                    <h5 class="card-title"><i class="bi bi-arrow-left-right"></i> Export / Import</h5>
+                    <p class="card-text">Export and import question tags, topics/subtopics, and chapters/subchapters as portable CSV files.</p>
+                    <a href="{{ url_for('admin.export_import') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-right"></i> Go to Export / Import
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-pencil-square"></i> Tag Questions</h5>
+                    <p class="card-text">Browse and tag questions with topics, levels, and other metadata. Use the Dashboard with filters and click "Edit" on any question.</p>
+                    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-arrow-right"></i> Go to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if current_user.is_super_admin %}
+    <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
+        <i class="bi bi-shield-lock"></i> Super Admin
+    </h6>
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-heart-pulse"></i> Database Health</h5>
+                    <p class="card-text">Check DB statistics, detect anomalies, and clean up orphaned records.</p>
+                    <a href="{{ url_for('admin.health') }}" class="btn btn-danger btn-sm">
                         <i class="bi bi-arrow-right"></i> Database Health
                     </a>
                 </div>
             </div>
         </div>
-        {% endif %}
-    </div>
-    
-    {% if current_user.is_super_admin %}
-    <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card border-danger">
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-people"></i> Manage Users <span class="badge bg-danger">Super Admin</span></h5>
+                    <h5 class="card-title"><i class="bi bi-people"></i> Manage Users</h5>
                     <p class="card-text">Create and manage user accounts, set permissions for each subject.</p>
-                    <a href="{{ url_for('admin.users') }}" class="btn btn-danger">
+                    <a href="{{ url_for('admin.users') }}" class="btn btn-danger btn-sm">
                         <i class="bi bi-arrow-right"></i> Manage Users
                     </a>
                 </div>
             </div>
         </div>
-        <div class="col-md-6">
-            <div class="card border-danger">
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-folder2-open"></i> File Browser <span class="badge bg-danger">Super Admin</span></h5>
+                    <h5 class="card-title"><i class="bi bi-folder2-open"></i> File Browser</h5>
                     <p class="card-text">Browse, upload, download, rename, and delete files in the source directory.</p>
-                    <a href="{{ url_for('admin.files') }}" class="btn btn-danger">
+                    <a href="{{ url_for('admin.files') }}" class="btn btn-danger btn-sm">
                         <i class="bi bi-arrow-right"></i> File Browser
                     </a>
                 </div>
             </div>
         </div>
-    </div>
-    <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card border-danger">
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-sliders"></i> System Settings <span class="badge bg-danger">Super Admin</span></h5>
-                    <p class="card-text">Tune runtime preferences — thumbnail width / transparency, Word COM timeouts, dashboard page size, and more. Changes apply immediately, no server restart.</p>
-                    <a href="{{ url_for('admin.settings_page') }}" class="btn btn-danger">
+                    <h5 class="card-title"><i class="bi bi-sliders"></i> System Settings</h5>
+                    <p class="card-text">Tune runtime preferences — thumbnail width, Word COM timeouts, dashboard page size, and more. Changes apply immediately.</p>
+                    <a href="{{ url_for('admin.settings_page') }}" class="btn btn-danger btn-sm">
                         <i class="bi bi-arrow-right"></i> System Settings
                     </a>
                 </div>

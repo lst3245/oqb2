@@ -33,8 +33,13 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2><i class="bi bi-cloud-upload"></i> Question Ingestion</h2>
-    <p class="text-muted">Scan the source folder and import question files into the database. Only subjects you have admin access to are shown.</p>
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h2 class="mb-0"><i class="bi bi-cloud-upload"></i> Question Ingestion</h2>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+    <p class="text-muted mt-1">Scan the source folder and import question files into the database. Only subjects you have admin access to are shown.</p>
     <hr>
 
     <!-- Controls Row -->

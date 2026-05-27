@@ -6,6 +6,12 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+#### Admin panel UI cleanup
+
+- **System Settings added to Admin navbar dropdown** — the link was previously only reachable via the Admin Panel index card; it is now listed in the Super Admin section of the navbar dropdown for faster access.
+- **Admin Panel index reorganised** — cards are now grouped under three labelled sections: *Content Management* (Question Management, Topics, Chapters), *Operations* (Ingestion, Export/Import, Tag Questions), and *Super Admin* (Database Health, Manage Users, File Browser, System Settings). Each section uses a uniform `row g-3` grid with `h-100` cards so items align and never stick together regardless of screen width.
+- **"Back to Admin" button added to all sub-pages** — previously only Question Management and System Settings had a back button. The button is now present on Manage Topics, Manage Chapters, Manage Users, File Browser, Question Ingestion, Export/Import, and Database Health.
+
 #### Unified question Edit modal (dashboard + admin)
 
 - The dashboard's per-card **Edit Tags** button is renamed to **Edit** and now opens the same 3-tab modal the admin Question Management page uses — no more two flavours of "edit" for the same question. Tabs are reordered to **Tags → Assets → Details** (Tags is the default tab; previously the admin modal opened on Details).
