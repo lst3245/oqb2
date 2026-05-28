@@ -225,11 +225,13 @@ The viewer automatically falls back to ANS if SOL is not available and vice vers
 - **Text First** — uses the Answer Text field; falls back to the ANS image
 
 #### Output Format
-Choose **Word (.docx)** (default) or **PDF (.pdf)**.
+Generation always produces **Word (.docx)** — there is no longer a DOCX/PDF radio on this page.
 
-- **DOCX** is the default and works on any server.
-- **PDF** uses Microsoft Word on the server to export the final document. Equations, MathType objects, and embedded objects are preserved with full fidelity. Slightly slower than DOCX.
-- Combined with **Split to ZIP** (below), PDF output produces a `.zip` containing one PDF per group.
+If you also want a PDF version you have two equivalent options:
+- **On the Generate page**: once the green "Document <name> is ready!" banner appears, click the red **Get PDF** button right next to **Download**. The button shows a spinner while Word builds the PDF on the server, downloads it, then flips into a solid red **Download PDF** link so any subsequent clicks are instant.
+- **On the My Files page**: click the red PDF button beside the green Download button on the row. Same flow, same caching.
+
+Either way, the first click builds the PDF using Microsoft Word on the server (equations, MathType objects, and embedded objects are preserved with full fidelity) and the result is cached on disk. Deleting the row also removes its cached PDF. For split jobs the PDF button produces a `.zip` of `.pdf` files (one per group) with the same structure as the source ZIP.
 
 #### Format Priority
 When a question has both an image (IMG), a Markdown (MD), and a Word document (DOC) for the same slot, this widget controls which format wins. Drag the chips to reorder. Default is `IMG → MD → DOC`.
@@ -269,7 +271,7 @@ Inserts a centred bold heading whenever the selected field changes as you go thr
 #### Split to ZIP
 Tick one or more fields under "Split documents by". Instead of one `.docx`, the output is a `.zip` containing one file per group.
 - Example: tick "Topic" → one file per topic
-- Combined with **PDF** output format → `.zip` of `.pdf` files instead of `.docx`.
+- To get the PDF version of a split job, use the **PDF** button beside Download in My Files — it builds a `.zip` of `.pdf` files mirroring the source structure.
 
 #### Denote Cross-Topic
 Appends `[Cross Topic: X, Y]` to the info line when a question has minor topics in addition to its primary topic.
@@ -308,11 +310,12 @@ Double-click any section name (except Latest) or file name to rename in place. P
 
 | Button | Action |
 |---|---|
-| Download | Download the `.docx`, `.pdf` or `.zip` file |
+| Download (green) | Download the source `.docx` (or `.zip`) file |
+| PDF (red) | Download a PDF version of the file. First click for a row builds it on the server (Word converts your DOCX → PDF; for split ZIPs, every inner DOCX is converted and re-zipped); subsequent clicks on the same row are instant — the PDF is cached on disk and the button turns solid red. Hidden for legacy rows where the source is already a PDF |
 | Re-generate | Go back to the generation page with all the same settings pre-filled |
 | Re-filter | Restore the original dashboard filter that was used for this file |
 | Share (super admin) | Pick users who should see this file in their **Shared with me** section |
-| Delete | Remove the file and its database record |
+| Delete | Remove the file, its cached PDF (if any), and the database record |
 
 ### Bulk operations
 Select files (checkbox per row, **Ctrl/Cmd+A** to select all, **Delete** key to bulk-delete). A sticky bar appears at the top of the page:
@@ -325,7 +328,7 @@ Select files (checkbox per row, **Ctrl/Cmd+A** to select all, **Delete** key to 
 If a super admin shares any file or section to you, an extra **Shared with me** section appears at the bottom of your page. The rows are read-only — you can download them, but cannot drag, rename, or delete. The sharer's username is shown next to each row.
 
 ### Search
-The top-right **Filter by name** box live-filters every loaded row and highlights matches.
+The top-bar **Filter files by name** box filters across **every page of every section** (server-side) and highlights matches inline. Section file-count badges automatically reflect the post-filter total.
 
 > Super admins can toggle **Show all users** to see and manage everyone's files.
 

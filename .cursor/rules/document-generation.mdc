@@ -9,11 +9,16 @@ alwaysApply: false
 ## Flow Overview
 1. User selects questions on dashboard → POSTs to `GET /generate/` (question_ids in form)
 2. User configures options on `generate.html` → POSTs to `POST /generate/create`
-3. `create_document()` creates a `GeneratedFile` DB record (status=`pending`), spawns a **background thread**
-4. Background thread builds the master `.docx` via python-docx (markers for DOC asset slots)
-5. If any DOC markers were emitted OR PDF output was requested → open the docx in **Word COM** (`app/word_com.word_session`), replace markers with `Selection.InsertFile`, and optionally `ExportAsFixedFormat` to PDF. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the full Word pipeline.
-6. Frontend polls `GET /generate/status/<id>` until status is `completed` or `failed`
-7. User downloads via `GET /generate/download/<id>` (mimetype: `.docx` / `.pdf` / `.zip`)
+3. `create_document()` creates a `GeneratedFile` DB record (status=`pending`), spawns a **background thread**. The output is **always DOCX** (or a `.zip` of `.docx` for split jobs); the historical `output_format=PDF` choice is no longer accepted from the form.
+4. Background thread builds the master `.docx` via python-docx (markers for DOC asset slots).
+5. If any DOC markers were emitted → open the docx in **Word COM** (`app/word_com.word_session`) and replace markers with `Selection.InsertFile`. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the full Word pipeline. PDF is **not** produced at this stage anymore.
+6. Frontend polls `GET /generate/status/<id>` until status is `completed` or `failed`.
+7. User downloads the docx/zip via `GET /generate/download/<id>` (mimetype `.docx`/`.zip`).
+8. **Optional PDF (lazy)** — both the **Generate-page success banner** ("Get PDF" button beside the Download / My Files links) and the **My Files row** (red PDF button beside Download) hit `GET /generate/pdf/<id>`, which:
+   - Computes the sibling filename (`<stem>.pdf` for `.docx`, `<stem>.pdf.zip` for `.zip`).
+   - If it already exists on disk, sends it directly.
+   - Else opens a Word session and runs `word_com.export_to_pdf` once per inner doc, caches the result, then sends it. Subsequent clicks are instant downloads.
+   - On row deletion, both the source and the cached PDF sibling are removed.
 
 ## Answer Modes
 | Mode | Behaviour |
@@ -40,7 +45,7 @@ Smart logic: if the previous question already added a page break, skip the `befo
 | `answer_mode` | string | `QUE_ONLY` |
 | `preferred_language` | `EN`\|`CH` | `EN` |
 | `answer_preference` | `image_first`\|`text_first` | `image_first` |
-| `output_format` | `DOCX`\|`PDF` | `DOCX` — PDF requires Word COM (Windows) |
+| `output_format` | `DOCX` | always `DOCX` at generation time. PDF is built lazily from My Files via `GET /generate/pdf/<id>` (see Flow step 8). Old saved presets that still carry `PDF` here are silently ignored on load |
 | `show_qid` | bool | — |
 | `show_qid_answer` | bool | — |
 | `show_correct_pct` | bool | — format: `QID [75%]` |
@@ -56,10 +61,10 @@ Smart logic: if the previous question already added a page break, skip the `befo
 | `format_priority` | string | comma list, default `IMG,MD,DOC` |
 
 ## Output Format
-- `DOCX` (default): final output is a `.docx` (or `.zip` of `.docx` when split). No Word COM step needed unless DOC source assets are present.
-- `PDF`: the same post-save Word COM session that handles DOC merges also calls `Document.ExportAsFixedFormat(wdExportFormatPDF=17)` on the resulting master. Equations, MathType OLE objects, and fonts are preserved natively.
-- Split + PDF: one PDF per group, zipped (`*.zip (PDFs)` in the UI badge).
-- Filename extension is set in `create_document()` based on `any_split` and `output_format` and round-trips through `gen_file.filename`.
+- **Generation always produces DOCX.** `create_document()` no longer reads `output_format` from the form (the radio block in `generate.html` was removed); it pins `output_format = 'DOCX'` before spawning the worker.
+- Final output is therefore a `.docx` (single doc) or a `.zip` of `.docx` (split job). Word COM is only opened when DOC source assets are present (for `Selection.InsertFile` merging); a pure-image / pure-MD job stays in python-docx land entirely.
+- **PDF is opt-in via My Files.** `GET /generate/pdf/<id>` lazily converts the DOCX (or each DOCX inside the ZIP) to PDF using the same `word_com.export_to_pdf()` helper that the old generation path used, caches the sibling on disk, and serves it. See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the row-button UX.
+- Sibling layout on disk: `myname_20260528_001500.docx` ↔ `myname_20260528_001500.pdf`, `myname_20260528_001500.zip` ↔ `myname_20260528_001500.pdf.zip`. The helper `_pdf_sibling_filename()` in `app/generator.py` encapsulates this mapping; passing a `.pdf` (or any other extension) returns `None`, which the UI uses to hide the PDF button.
 
 ## Split to ZIP
 If any `split_fields` are enabled, output is a `.zip` file containing one `.docx` per group.
@@ -86,7 +91,7 @@ For `ANS` with `answer_preference='image_first'`: use image if available, fall b
 - `MD`  → `_append_md_via_pandoc()` calls `pandoc <md> -o tmp.docx --from=markdown+tex_math_dollars --to=docx` then `docxcompose.Composer(doc).append(fragment)`. Requires `PANDOC_PATH` (default: `pandoc` on `PATH`); errors fall through to an italic placeholder. Math comes through as native Word equations (OMML).
 - `DOC` → emits a unique marker paragraph (`__OQB_DOC_INSERT_<uuid>__`) and pushes `{marker: abs_path}` into the `doc_insertions` dict that `create_word_document` returns. The post-save Word COM step finds each marker and replaces it via `Selection.InsertFile` of a section-property-stripped copy of the source. Falls back to the legacy italic placeholder when Word COM isn't available. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc).
 
-`create_word_document(...)` now returns `(doc, doc_insertions)` instead of just `doc`. The caller (`_generate_in_background`) saves the docx to a temp path first when either `doc_insertions` is non-empty or `output_format == 'PDF'`, opens a single Word session via `app/word_com.word_session`, performs the merge + export, then moves the final artifact into `OUTPUT_PATH/<filename>`.
+`create_word_document(...)` returns `(doc, doc_insertions)` instead of just `doc`. The caller (`_generate_in_background`) saves the docx to a temp path first when `doc_insertions` is non-empty, opens a single Word session via `app/word_com.word_session`, performs the merge, then moves the final artifact into `OUTPUT_PATH/<filename>`. The `output_format` parameter to `_generate_in_background` is now always `'DOCX'` so the PDF-export branch never fires at generation time — that path now lives in the lazy `/generate/pdf/<id>` route instead.
 
 ## Viewer / Presentation Mode
 Route: `POST /generate/viewer` → `viewer.html`  

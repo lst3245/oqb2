@@ -363,14 +363,12 @@ def create_document():
     answer_preference = request.form.get('answer_preference', 'image_first')
     format_priority = _parse_format_priority(request.form.get('format_priority', ''))
 
-    # Output format: DOCX (default) or PDF. PDF requires Word COM on the server.
-    output_format = (request.form.get('output_format') or 'DOCX').upper()
-    if output_format not in ('DOCX', 'PDF'):
-        output_format = 'DOCX'
-    if output_format == 'PDF' and not word_com.IS_AVAILABLE:
-        return jsonify({
-            'error': 'PDF output requires Microsoft Word + pywin32 on the server, which is not available.'
-        }), 400
+    # Output format is always DOCX at generation time. Users opt in to PDF
+    # on demand from My Files via `GET /generate/<id>/pdf` (which lazily
+    # builds the sibling PDF / PDF-zip and caches it on disk). This keeps
+    # the generation step format-agnostic and avoids holding the Word COM
+    # lock during interactive generation when no PDF was actually wanted.
+    output_format = 'DOCX'
 
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
@@ -788,6 +786,158 @@ def download_file(file_id):
         download_name=gen_file.filename,
         mimetype=mimetype
     )
+
+
+# ===========================================================================
+# Lazy PDF generation — build a PDF (or ZIP-of-PDFs) sibling on demand from
+# the existing DOCX artefact. Generation is synchronous and serialised by
+# the Word COM lock. The sibling is cached on disk so repeat clicks become
+# instant downloads.
+# ===========================================================================
+
+def _pdf_sibling_filename(filename: str) -> str | None:
+    """Map a GeneratedFile.filename → the on-disk filename of its PDF sibling.
+
+    `*.docx`  → `*.pdf`
+    `*.zip`   → `*.pdf.zip`   (contains the same group structure, but each
+                                inner `.docx` is replaced with its `.pdf`)
+    anything else → `None` (no PDF concept; e.g. an already-PDF row)
+    """
+    if not filename:
+        return None
+    lower = filename.lower()
+    stem, ext = os.path.splitext(filename)
+    if lower.endswith('.docx'):
+        return stem + '.pdf'
+    if lower.endswith('.zip'):
+        return stem + '.pdf.zip'
+    return None
+
+
+def _pdf_sibling_exists(output_path: str, gen_file) -> bool:
+    sib = _pdf_sibling_filename(gen_file.filename)
+    if not sib:
+        return False
+    return os.path.exists(os.path.join(output_path, sib))
+
+
+def _build_pdf_from_docx(app, src_docx_path: str, dst_pdf_path: str) -> None:
+    """Convert one DOCX to PDF using the shared Word session. Caller already
+    owns the COM lock; this is just the per-file step.
+    """
+    if not word_com.IS_AVAILABLE:
+        raise RuntimeError(
+            'PDF generation requires Microsoft Word + pywin32 on the server, '
+            'which is not available.'
+        )
+    lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+    with word_com.word_session(lock_timeout=lock_timeout) as word:
+        word_com.export_to_pdf(word, src_docx_path, dst_pdf_path)
+
+
+def _build_pdf_zip_from_docx_zip(app, src_zip_path: str, dst_zip_path: str) -> None:
+    """Convert a ZIP-of-DOCX into a ZIP-of-PDF with matching internal names.
+
+    Holds the Word lock for the whole batch so we open Word exactly once
+    per request. Non-`.docx` entries inside the source ZIP are copied
+    through unchanged (useful for the rare "<group>.txt" extras).
+    """
+    if not word_com.IS_AVAILABLE:
+        raise RuntimeError(
+            'PDF generation requires Microsoft Word + pywin32 on the server, '
+            'which is not available.'
+        )
+    lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_entries = []  # list of (arcname, abs_path)
+        with zipfile.ZipFile(src_zip_path, 'r') as src_zf:
+            src_zf.extractall(tmpdir)
+            names = src_zf.namelist()
+
+        with word_com.word_session(lock_timeout=lock_timeout) as word:
+            for arcname in names:
+                abs_in = os.path.join(tmpdir, arcname)
+                if not os.path.isfile(abs_in):
+                    continue
+                if arcname.lower().endswith('.docx'):
+                    pdf_arc = os.path.splitext(arcname)[0] + '.pdf'
+                    abs_out = os.path.join(tmpdir, pdf_arc)
+                    word_com.export_to_pdf(word, abs_in, abs_out)
+                    out_entries.append((pdf_arc, abs_out))
+                else:
+                    out_entries.append((arcname, abs_in))
+
+        with zipfile.ZipFile(dst_zip_path, 'w', zipfile.ZIP_DEFLATED) as out_zf:
+            for arcname, abs_path in out_entries:
+                out_zf.write(abs_path, arcname)
+
+
+@generator_bp.route('/pdf/<int:file_id>')
+@login_required
+def download_pdf(file_id):
+    """Serve the PDF version of a completed GeneratedFile.
+
+    If the PDF sibling already exists on disk it is sent directly.
+    Otherwise it is built on the fly (DOCX → PDF, or ZIP-of-DOCX →
+    ZIP-of-PDF) using Microsoft Word COM, cached next to the source
+    file, and then sent. The whole thing is synchronous — long jobs
+    will hold the request open until Word finishes.
+
+    Permission: any user who can view the file
+    (owner / super-admin / shared-with).
+    """
+    from app.user import _user_can_view_file  # avoid circular import
+
+    gen_file = GeneratedFile.query.get_or_404(file_id)
+
+    # All error paths return JSON so that the fetch-driven frontend
+    # (`buildAndDownloadPdf` in my_files.html) can surface them via toast.
+    # Successful response is a binary `send_file`.
+    if not _user_can_view_file(gen_file, current_user):
+        return jsonify({'error': 'Access denied'}), 403
+
+    if gen_file.status != 'completed':
+        return jsonify({'error': 'File is not ready yet — wait for generation to finish.'}), 409
+
+    sibling_filename = _pdf_sibling_filename(gen_file.filename)
+    if sibling_filename is None:
+        return jsonify({'error': 'This file is not convertible to PDF (already a PDF or unsupported type).'}), 400
+
+    output_path = current_app.config['OUTPUT_PATH']
+    src_path = os.path.join(output_path, gen_file.filename)
+    pdf_path = os.path.join(output_path, sibling_filename)
+
+    if not os.path.exists(src_path):
+        return jsonify({'error': 'Source file not found on disk.'}), 404
+
+    if not os.path.exists(pdf_path):
+        if not word_com.IS_AVAILABLE:
+            return jsonify({
+                'error': 'PDF generation requires Microsoft Word + pywin32 on the server, '
+                         'which is not available.'
+            }), 503
+        try:
+            app = current_app._get_current_object()
+            if gen_file.filename.lower().endswith('.zip'):
+                _build_pdf_zip_from_docx_zip(app, src_path, pdf_path)
+            else:
+                _build_pdf_from_docx(app, src_path, pdf_path)
+        except Exception as e:
+            logger.exception('PDF build failed for gen_file_id=%s', gen_file.id)
+            return jsonify({'error': f'PDF generation failed: {e}'}), 500
+
+    # Pretty download name preserves the display_name + correct extension.
+    pretty_ext = '.pdf.zip' if gen_file.filename.lower().endswith('.zip') else '.pdf'
+    download_name = (gen_file.display_name or 'document') + pretty_ext
+    mimetype = 'application/zip' if pretty_ext == '.pdf.zip' else 'application/pdf'
+    return send_file(
+        pdf_path,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype=mimetype,
+    )
+
 
 def get_question_spacing_config(question, spacing_config):
     """

@@ -578,6 +578,26 @@ function renderFileRow(f, isSharedView) {
         ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="Download"><i class="bi bi-download"></i></a>`
         : `<button class="btn btn-sm btn-success" disabled title="Not ready"><i class="bi bi-download"></i></button>`;
 
+    // PDF button — separate from the main Download. Lazily builds the
+    // sibling PDF (or PDF-zip) via /generate/pdf/<id> on first click and
+    // caches it on disk for subsequent ones. Only shown for completed
+    // rows where the source is a .docx or .zip (the same shapes the
+    // backend can convert).
+    const pdfBaseUrl = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${f.id}`);
+    let pdfBtn = '';
+    if (f.status === 'completed' && f.pdf_supported) {
+        if (f.pdf_available) {
+            pdfBtn = `<a href="${pdfBaseUrl}" class="btn btn-sm btn-danger" title="Download PDF"><i class="bi bi-file-earmark-pdf"></i></a>`;
+        } else {
+            pdfBtn = `<button class="btn btn-sm btn-outline-danger" onclick="buildAndDownloadPdf(${f.id}, this)" title="Build PDF and download"><i class="bi bi-file-earmark-pdf"></i></button>`;
+        }
+    } else if (f.status === 'completed' && !f.pdf_supported) {
+        // e.g. the row already IS a PDF — no extra button needed.
+        pdfBtn = '';
+    } else {
+        pdfBtn = `<button class="btn btn-sm btn-outline-danger" disabled title="Not ready"><i class="bi bi-file-earmark-pdf"></i></button>`;
+    }
+
     const ownerActions = f.is_read_only ? '' : `
         ${f.has_generation_options
             ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
@@ -639,6 +659,7 @@ function renderFileRow(f, isSharedView) {
             <td class="text-end">
                 <div class="btn-group btn-group-sm">
                     ${downloadBtn}
+                    ${pdfBtn}
                     ${ownerActions}
                 </div>
             </td>
@@ -1305,6 +1326,77 @@ function applySearchHighlight() {
         const after  = escapeHtml(orig.slice(idx + q.length));
         nameEl.innerHTML = `${before}<mark class="oqb-search-hit">${match}</mark>${after}`;
     });
+}
+
+// ---------------------------------------------------------------------------
+// Lazy PDF build + download
+// ---------------------------------------------------------------------------
+
+// First click on a row's PDF button when the sibling PDF doesn't exist yet:
+// hit /generate/pdf/<id>, which synchronously runs Word COM and streams
+// the bytes back. We show a spinner on the button for the duration so the
+// user knows something is happening (Word can take 5–60 s for big jobs).
+// On success the bytes are saved as a blob-download and the section is
+// reloaded so the button flips to its "already-built" link variant.
+function buildAndDownloadPdf(fileId, btnEl) {
+    if (!btnEl) return;
+    if (btnEl.dataset.busy === '1') return; // double-click guard
+    btnEl.dataset.busy = '1';
+    const originalHtml = btnEl.innerHTML;
+    btnEl.disabled = true;
+    btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btnEl.title = 'Building PDF…';
+
+    const url = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
+    fetch(url, { credentials: 'same-origin' })
+        .then(async resp => {
+            if (!resp.ok) {
+                // Try to surface server-side JSON error message
+                let msg = `PDF build failed (HTTP ${resp.status})`;
+                try {
+                    const ct = resp.headers.get('content-type') || '';
+                    if (ct.includes('application/json')) {
+                        const j = await resp.json();
+                        if (j && j.error) msg = j.error;
+                    }
+                } catch (_) { /* ignore */ }
+                throw new Error(msg);
+            }
+            // Pull the filename out of Content-Disposition if present so
+            // the saved file matches what the server picked.
+            let downloadName = 'document.pdf';
+            const cd = resp.headers.get('content-disposition') || '';
+            const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+            if (m) downloadName = decodeURIComponent(m[1]);
+            const blob = await resp.blob();
+            // Trigger a save dialog
+            const a = document.createElement('a');
+            const blobUrl = URL.createObjectURL(blob);
+            a.href = blobUrl;
+            a.download = downloadName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            showToast('PDF ready — download started.', 'success');
+            // Refresh the section so the button flips to the cached-link
+            // variant for subsequent clicks.
+            const tr = document.querySelector(`tr[data-file-id="${fileId}"]`);
+            const sectionId = tr ? parseInt(tr.closest('tbody.section-files-tbody')?.dataset?.sectionId) : null;
+            if (sectionId) {
+                const state = sectionState.get(sectionId);
+                loadSection(sectionId, state ? state.page : 1);
+            }
+        })
+        .catch(err => {
+            showToast(err.message || 'PDF build failed', 'danger');
+        })
+        .finally(() => {
+            btnEl.disabled = false;
+            btnEl.dataset.busy = '0';
+            btnEl.innerHTML = originalHtml;
+            btnEl.title = 'Build PDF and download';
+        });
 }
 
 // ---------------------------------------------------------------------------

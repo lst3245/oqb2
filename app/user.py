@@ -183,6 +183,21 @@ def _serialise_file_row(gf, *, show_username=False, shared_by=None, is_read_only
         except OSError:
             size_bytes = None
 
+    # PDF-button state, computed from disk (no DB column). `pdf_supported`
+    # is True for any .docx / .zip source — i.e. anything that can be
+    # converted via the lazy /generate/pdf/<id> route. `pdf_available`
+    # indicates the sibling PDF (or PDF-zip) is already cached on disk
+    # so a click downloads instantly without rebuilding.
+    pdf_supported = False
+    pdf_available = False
+    if gf.filename and gf.status == 'completed':
+        from app.generator import _pdf_sibling_filename  # avoid module-cycle
+        sibling = _pdf_sibling_filename(gf.filename)
+        if sibling:
+            pdf_supported = True
+            if output_path:
+                pdf_available = os.path.exists(os.path.join(output_path, sibling))
+
     return {
         'id': gf.id,
         'display_name': gf.display_name,
@@ -195,6 +210,8 @@ def _serialise_file_row(gf, *, show_username=False, shared_by=None, is_read_only
         'has_generation_options': bool(gf.generation_options),
         'format_priority_top': format_priority_top,
         'output_format': output_format,
+        'pdf_supported': pdf_supported,
+        'pdf_available': pdf_available,
         'username': gf.user.username if (show_username or shared_by) else None,
         'shared_by': shared_by,
         'is_read_only': bool(is_read_only),
@@ -1446,22 +1463,33 @@ def files_reorder():
     return jsonify({'success': True})
 
 
+def _remove_file_and_pdf_sibling(output_path, gen_file):
+    """Best-effort cleanup of a GeneratedFile's on-disk artefacts: the
+    main file plus any cached PDF sibling produced by /generate/pdf/<id>.
+    Errors are swallowed — the row is going away regardless.
+    """
+    from app.generator import _pdf_sibling_filename  # avoid module-cycle
+    for name in (gen_file.filename, _pdf_sibling_filename(gen_file.filename)):
+        if not name:
+            continue
+        p = os.path.join(output_path, name)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 @user_bp.route('/files/<int:file_id>', methods=['DELETE'])
 @login_required
 def files_delete(file_id):
-    """API: delete a generated file (DB record + file on disk)"""
+    """API: delete a generated file (DB record + main file + any PDF sibling)."""
     gen_file = GeneratedFile.query.get_or_404(file_id)
 
     if not _user_owns_file(gen_file, current_user):
         return jsonify({'error': 'Access denied'}), 403
 
-    output_path = current_app.config['OUTPUT_PATH']
-    file_path = os.path.join(output_path, gen_file.filename)
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass  # File may already be gone
+    _remove_file_and_pdf_sibling(current_app.config['OUTPUT_PATH'], gen_file)
 
     db.session.delete(gen_file)
     db.session.commit()
@@ -1472,7 +1500,7 @@ def files_delete(file_id):
 @user_bp.route('/files/bulk-delete', methods=['POST'])
 @login_required
 def files_bulk_delete():
-    """API: delete multiple generated files (DB records + files on disk)"""
+    """API: delete multiple generated files (DB records + on-disk artefacts)."""
     data = request.get_json()
     ids = data.get('ids', []) if data else []
     if not ids:
@@ -1486,12 +1514,7 @@ def files_bulk_delete():
             continue
         if not _user_owns_file(gen_file, current_user):
             continue
-        file_path = os.path.join(output_path, gen_file.filename)
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except OSError:
-                pass
+        _remove_file_and_pdf_sibling(output_path, gen_file)
         db.session.delete(gen_file)
         deleted += 1
 

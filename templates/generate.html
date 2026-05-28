@@ -63,30 +63,13 @@
                             </div>
                         </div>
 
-                        <!-- Output Format -->
-                        <div class="mb-3">
-                            <label class="form-label d-flex align-items-center gap-2">
-                                <strong>Output Format</strong>
-                            </label>
-                            <div class="btn-group w-100" role="group" aria-label="Output format">
-                                <input type="radio" class="btn-check" name="output_format" id="outputFormatDocx" value="DOCX" checked
-                                       onchange="onOutputFormatChange()">
-                                <label class="btn btn-outline-primary" for="outputFormatDocx">
-                                    <i class="bi bi-file-earmark-word"></i> Word (.docx)
-                                </label>
-
-                                <input type="radio" class="btn-check" name="output_format" id="outputFormatPdf" value="PDF"
-                                       onchange="onOutputFormatChange()">
-                                <label class="btn btn-outline-primary" for="outputFormatPdf">
-                                    <i class="bi bi-file-earmark-pdf"></i> PDF (.pdf)
-                                </label>
-                            </div>
-                            <small id="outputFormatHint" class="text-muted d-block mt-2" style="display:none !important;">
-                                <i class="bi bi-info-circle"></i>
-                                PDF generation uses Microsoft Word on the server. Equations, MathType objects,
-                                and fonts are preserved. Slightly slower than DOCX.
-                            </small>
-                        </div>
+                        <!--
+                            Output format selection is intentionally not exposed here.
+                            Generation always produces a `.docx` (or a `.zip` of `.docx`
+                            for split jobs). Users can lazily build a PDF version of
+                            any completed file from the **My Files** page via the
+                            red PDF button next to Download (see /generate/<id>/pdf).
+                        -->
 
                         <hr>
                         
@@ -723,16 +706,8 @@ function restoreGenerationOptions(opts) {
         }
     }
 
-    // Output format (DOCX | PDF)
-    if (opts.output_format) {
-        const value = String(opts.output_format).toUpperCase();
-        const target = value === 'PDF' ? 'outputFormatPdf' : 'outputFormatDocx';
-        const radio = document.getElementById(target);
-        if (radio) {
-            radio.checked = true;
-            onOutputFormatChange();
-        }
-    }
+    // output_format on stored presets is now obsolete — generation always
+    // produces DOCX. Old presets are silently ignored.
     
     // Show QID checkbox
     if (opts.show_qid !== undefined) {
@@ -1014,7 +989,6 @@ document.addEventListener('DOMContentLoaded', renderFormatPriorityChips);
 
 function getCurrentGenerationOptions() {
     const sortConfigStr = document.getElementById('sortConfigInput')?.value || '';
-    const outputFormat = (document.querySelector('input[name="output_format"]:checked')?.value) || 'DOCX';
     return {
         sort_mode: getInputValue('sort_mode'),
         sort_config: sortConfigStr,
@@ -1022,7 +996,6 @@ function getCurrentGenerationOptions() {
         preferred_language: document.getElementById('preferredLanguage')?.value || 'EN',
         answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
         format_priority: readFormatPriority().join(','),
-        output_format: outputFormat,
         show_qid: getCheckedValue('showQid'),
         show_qid_answer: getCheckedValue('showQidAnswer'),
         show_correct_pct: getCheckedValue('showCorrectPct'),
@@ -1197,32 +1170,21 @@ function saveGenProfile() {
     });
 }
 
-// Show/hide the "Show QID for answers" option based on answer mode
+// File extension label next to the display-name input. Generation always
+// produces DOCX (or a ZIP of DOCXs for split jobs); PDF output is a
+// separate, lazy operation triggered from the My Files page, so this
+// label only needs to switch between .docx and .zip.
 function updateFileExtLabel() {
     const anySplit = document.getElementById('splitTopic').checked ||
                      document.getElementById('splitSubtopic').checked ||
                      document.getElementById('splitChapter').checked ||
                      document.getElementById('splitSubchapter').checked;
-    const pdfMode = document.getElementById('outputFormatPdf') &&
-                    document.getElementById('outputFormatPdf').checked;
-    let label;
-    if (anySplit) {
-        label = pdfMode ? '.zip (PDFs)' : '.zip';
-    } else {
-        label = pdfMode ? '.pdf' : '.docx';
-    }
-    document.getElementById('fileExtLabel').textContent = label;
+    document.getElementById('fileExtLabel').textContent = anySplit ? '.zip' : '.docx';
 }
 
-function onOutputFormatChange() {
-    const pdf = document.getElementById('outputFormatPdf');
-    const hint = document.getElementById('outputFormatHint');
-    if (hint) {
-        // Set display: block / none via inline style, overriding the d-block default
-        hint.style.display = (pdf && pdf.checked) ? 'block' : 'none';
-    }
-    updateFileExtLabel();
-}
+// Kept as a no-op so legacy callers in restoreGenerationOptions() don't
+// throw if the saved preset still carries an `output_format` field.
+function onOutputFormatChange() { updateFileExtLabel(); }
 
 function updateAnswerQidVisibility() {
     const answerMode = document.getElementById('answerMode').value;
@@ -1511,13 +1473,25 @@ function startPolling(fileId) {
                     pollingInterval = null;
                     const downloadUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${fileId}`);
                     const filesUrl = `{{ url_for('user.files') }}`;
+                    // PDF button is shown for docx / zip outputs (i.e. anything
+                    // we know how to lazily convert). Server-side filename is
+                    // authoritative here — it's already either .docx or .zip
+                    // since the generator no longer accepts PDF directly.
+                    const isPdfConvertible = /\.(docx|zip)$/i.test(data.filename || '');
+                    const pdfBtnHtml = isPdfConvertible ? `
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                id="generateBannerPdfBtn"
+                                onclick="buildPdfFromBanner(${fileId}, this)">
+                            <i class="bi bi-file-earmark-pdf"></i> Get PDF
+                        </button>` : '';
                     showStatusBanner('success', `
                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                             <span><i class="bi bi-check-circle"></i> Document <strong>${escapeHtml(data.display_name)}</strong> is ready!</span>
-                            <div class="d-flex gap-2">
+                            <div class="d-flex gap-2 flex-wrap">
                                 <a href="${downloadUrl}" class="btn btn-sm btn-success">
                                     <i class="bi bi-download"></i> Download
                                 </a>
+                                ${pdfBtnHtml}
                                 <a href="${filesUrl}" class="btn btn-sm btn-outline-primary">
                                     <i class="bi bi-folder2-open"></i> My Files
                                 </a>
@@ -1548,6 +1522,64 @@ function showStatusBanner(type, html) {
     banner.innerHTML = html;
     // Scroll to very top of page so banner is visible below the sticky navbar
     window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// Lazy PDF build from the "document ready" banner. Mirrors the My Files
+// row-button flow: GET /generate/pdf/<id> runs Word COM synchronously to
+// build the sibling .pdf (or .pdf.zip), streams it back, and we save it
+// via a blob URL. On success the button flips into a green "PDF ready"
+// state so a subsequent click is instant.
+function buildPdfFromBanner(fileId, btnEl) {
+    if (!btnEl || btnEl.dataset.busy === '1') return;
+    btnEl.dataset.busy = '1';
+    const originalHtml = btnEl.innerHTML;
+    btnEl.disabled = true;
+    btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Building PDF…';
+
+    const url = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
+    fetch(url, { credentials: 'same-origin' })
+        .then(async resp => {
+            if (!resp.ok) {
+                let msg = `PDF build failed (HTTP ${resp.status})`;
+                try {
+                    const ct = resp.headers.get('content-type') || '';
+                    if (ct.includes('application/json')) {
+                        const j = await resp.json();
+                        if (j && j.error) msg = j.error;
+                    }
+                } catch (_) { /* ignore */ }
+                throw new Error(msg);
+            }
+            let downloadName = 'document.pdf';
+            const cd = resp.headers.get('content-disposition') || '';
+            const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+            if (m) downloadName = decodeURIComponent(m[1]);
+            const blob = await resp.blob();
+            const a = document.createElement('a');
+            const blobUrl = URL.createObjectURL(blob);
+            a.href = blobUrl;
+            a.download = downloadName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            // Flip the button into a "cached" state: solid red link that
+            // downloads instantly next time (the server has the file).
+            const parent = btnEl.parentNode;
+            if (parent) {
+                const link = document.createElement('a');
+                link.href = url;
+                link.className = 'btn btn-sm btn-danger';
+                link.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> Download PDF';
+                parent.replaceChild(link, btnEl);
+            }
+        })
+        .catch(err => {
+            btnEl.dataset.busy = '0';
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            alert(err.message || 'PDF build failed');
+        });
 }
 
 function escapeHtml(text) {

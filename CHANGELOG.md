@@ -6,6 +6,26 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Lazy on-demand PDF (My Files)
+
+Generation no longer asks the user to pick **DOCX vs PDF** up-front. Every generated file is now a `.docx` (or a `.zip` of `.docx` for split jobs), and a PDF version is only built when the user actually wants one — via a new red **PDF button** beside the green Download button on every row in *My Files*.
+
+- **Form simplified**: the radio block previously labelled *Output Format* has been removed from `templates/generate.html`. The file-ext label next to the display-name input now only flips between `.docx` and `.zip` (depending on whether any split-by field is selected). Old saved generation presets that still carry an `output_format` key are silently ignored on load.
+- **Backend pin**: `POST /generate/create` ignores any client-supplied `output_format` and always treats it as `'DOCX'`. The background worker `_generate_in_background` is therefore never asked to build a PDF at creation time; the Word COM lock is only acquired now when DOC source assets need merging, never just for PDF export.
+- **New route `GET /generate/pdf/<file_id>`**: serves the PDF version of a completed file.
+  - For a `.docx` source → returns/builds a `<stem>.pdf` sibling next to the docx.
+  - For a `.zip` source (split job) → returns/builds a `<stem>.pdf.zip` sibling that contains the same group structure but with each inner `.docx` converted to `.pdf`.
+  - Build path uses `word_com.word_session()` for COM serialisation and `word_com.export_to_pdf()` per file (MathType / fonts preserved). Generation is synchronous — the request blocks until Word finishes — and the result is cached on disk so subsequent clicks are instant downloads.
+  - Errors return JSON with appropriate status codes (403, 409, 404, 503, 500) so the fetch-driven frontend can surface them via toast.
+- **My Files row UI**:
+  - When `pdf_available=true` (sibling already on disk) → solid red `bi-file-earmark-pdf` link that downloads instantly.
+  - When `pdf_available=false` (source is `.docx`/`.zip`, sibling not yet built) → outlined red button that, on click, shows a spinner, fetches the endpoint, saves the streamed bytes via a blob URL + `<a download>`, then reloads the section so the button flips to the cached-link variant.
+  - Hidden when the source file is already a PDF or otherwise non-convertible. Disabled when the row's status is still `pending`/`generating`.
+  - Double-click guard (`data-busy="1"`) prevents repeat clicks during a build.
+- **Serialised on `_serialise_file_row`**: two new booleans — `pdf_supported` (source is `.docx`/`.zip`) and `pdf_available` (sibling exists on disk).
+- **Cleanup on delete**: single + bulk delete now also remove the cached PDF/PDF-zip sibling so disk doesn't fill up with orphan PDFs after row removal.
+- **"Get PDF" button on the Generate-page success banner**: when generation completes, the green "Document <name> is ready!" banner now includes a red **Get PDF** button alongside the existing **Download** and **My Files** links. Clicking it runs the same `/generate/pdf/<id>` flow (synchronous build via Word COM, blob download) and then mutates itself into a solid-red **Download PDF** link so subsequent clicks fetch the cached file instantly — users no longer need to bounce to My Files to grab the PDF version of what they just generated. Hidden when the produced filename isn't `.docx`/`.zip` (no current path produces other formats, but the regex guards against future ones).
+
 #### My Files — sections, drag-to-move, sharing, ZIP download
 
 The My Files page is now organised around **user-owned sections** (folders) instead of a flat list. Each user has at minimum a default `Latest` section (auto-created on first visit, undeleteable, where every newly generated file lands) and may create any number of named sections beside it.
