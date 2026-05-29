@@ -27,7 +27,7 @@ from collections import OrderedDict
 logger = logging.getLogger(__name__)
 from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
-from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS
+from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups, GROUPING_FIELDS
 from app import word_com
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
@@ -61,6 +61,13 @@ def index():
                     session['sort_config'] = json.loads(sort_config_str)
                 except json.JSONDecodeError:
                     pass
+            # Manual block ordering carried from the dashboard (optional)
+            sort_group_order_str = request.form.get('sort_group_order')
+            if sort_group_order_str:
+                try:
+                    session['sort_group_order'] = json.loads(sort_group_order_str)
+                except (json.JSONDecodeError, TypeError):
+                    session['sort_group_order'] = None
     else:
         question_ids = request.args.getlist('question_ids')
         if not question_ids:
@@ -102,6 +109,17 @@ def index():
                         session['sort_config'] = json.loads(saved_sort) if isinstance(saved_sort, str) else saved_sort
                     except (json.JSONDecodeError, TypeError):
                         pass
+                # Load manual block ordering
+                saved_group_order = generation_options.get('sort_group_order')
+                if saved_group_order:
+                    try:
+                        session['sort_group_order'] = (json.loads(saved_group_order)
+                                                       if isinstance(saved_group_order, str)
+                                                       else saved_group_order)
+                    except (json.JSONDecodeError, TypeError):
+                        session['sort_group_order'] = None
+                else:
+                    session['sort_group_order'] = None
                 # Get display name for pre-filling
                 if gen_file.display_name:
                     regen_display_name = re.sub(r'_\d{8}_\d{6}$', '', gen_file.display_name)
@@ -118,6 +136,8 @@ def index():
     
     # Get sort config from session (from dashboard)
     sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
+    # Get manual block ordering from session (from dashboard / regen), if any
+    sort_group_order = session.get('sort_group_order')
     
     # Get available sort fields for the UI
     sort_fields = [{"value": key, "label": info["label"]} for key, info in SORT_FIELDS.items()]
@@ -126,6 +146,7 @@ def index():
                           questions=questions,
                           question_ids=question_ids,
                           sort_config=sort_config,
+                          sort_group_order=sort_group_order,
                           sort_fields=sort_fields,
                           filter_data=filter_data,
                           generation_options=generation_options,
@@ -174,8 +195,18 @@ def viewer():
     questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
     questions_list = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
     
+    # Optional manual block ordering (carried from dashboard via form or session)
+    sgo_str = request.form.get('sort_group_order') or request.args.get('sort_group_order')
+    if sgo_str:
+        try:
+            sort_group_order = json.loads(sgo_str)
+        except (json.JSONDecodeError, TypeError):
+            sort_group_order = session.get('sort_group_order')
+    else:
+        sort_group_order = session.get('sort_group_order')
+
     # Apply sort if custom sort mode
-    questions_list = apply_multi_sort(questions_list, sort_config)
+    questions_list = apply_multi_sort(questions_list, sort_config, group_order=sort_group_order)
     
     # Prepare question data with assets
     questions_data = []
@@ -302,6 +333,45 @@ def get_viewer_asset(question_id, asset_type):
 
     return jsonify(result)
 
+@generator_bp.route('/api/sort-groups', methods=['POST'])
+@login_required
+def get_sort_groups():
+    """
+    Enumerate the grouping-blocks (Topic / Subtopic / Chapter / Subchapter
+    combinations) present in the current generation selection, so the frontend
+    can present them for manual drag-reordering.
+
+    Accepts ``question_ids`` (repeated form field) + ``group_fields`` (JSON array
+    or comma list). Returns ``{group_fields, blocks: [{key, labels, count}]}`` in
+    default natural-name order.
+    """
+    _require_generate_permission()
+
+    gf_raw = request.form.get('group_fields') or request.args.get('group_fields') or ''
+    group_fields = []
+    if gf_raw:
+        try:
+            parsed = json.loads(gf_raw)
+            if isinstance(parsed, list):
+                group_fields = [f for f in parsed if f in GROUPING_FIELDS]
+        except (json.JSONDecodeError, TypeError):
+            group_fields = [f.strip() for f in gf_raw.split(',') if f.strip() in GROUPING_FIELDS]
+    if not group_fields:
+        return jsonify({'group_fields': [], 'blocks': []})
+
+    question_ids = request.form.getlist('question_ids')
+    if not question_ids:
+        return jsonify({'group_fields': group_fields, 'blocks': []})
+
+    questions = Question.query.filter(Question.id.in_(question_ids)).all()
+    # Scope to subjects the user can access
+    if not current_user.is_super_admin:
+        questions = [q for q in questions if current_user.has_subject_access(q.subject)]
+
+    blocks = enumerate_sort_groups(questions, group_fields)
+    return jsonify({'group_fields': group_fields, 'blocks': blocks})
+
+
 @generator_bp.route('/create', methods=['POST'])
 @login_required
 def create_document():
@@ -312,6 +382,7 @@ def create_document():
     question_ids = request.form.getlist('question_ids')
     sort_mode = request.form.get('sort_mode', 'custom')
     sort_config_str = request.form.get('sort_config', '')
+    sort_group_order_str = request.form.get('sort_group_order', '')
     answer_mode = request.form.get('answer_mode', 'QUE_ONLY')
     display_name = request.form.get('display_name', '').strip()
     filter_data = request.form.get('filter_data', '')
@@ -386,6 +457,7 @@ def create_document():
     generation_options = {
         'sort_mode': sort_mode,
         'sort_config': sort_config_str,
+        'sort_group_order': sort_group_order_str,
         'answer_mode': answer_mode,
         'mc_before_mode': mc_before_mode, 'mc_before_lines': mc_before_lines,
         'mc_after_mode': mc_after_mode, 'mc_after_lines': mc_after_lines,
@@ -468,7 +540,7 @@ def create_document():
               show_seq_no, seq_start, show_page_no, keep_together,
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
-              format_priority, output_format)
+              format_priority, output_format, sort_group_order_str)
     )
     thread.daemon = True
     thread.start()
@@ -482,7 +554,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             show_seq_no, seq_start, show_page_no, keep_together,
                             apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename,
-                            format_priority=None, output_format='DOCX'):
+                            format_priority=None, output_format='DOCX',
+                            sort_group_order_str=''):
     """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     output_format = (output_format or 'DOCX').upper()
@@ -512,8 +585,13 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     sort_config = json.loads(sort_config_str) if sort_config_str else [{"field": "qid", "direction": "asc"}]
                 except json.JSONDecodeError:
                     sort_config = [{"field": "qid", "direction": "asc"}]
+                # Optional manual block ordering (Topic/Subtopic/Chapter/Subchapter)
+                try:
+                    sort_group_order = json.loads(sort_group_order_str) if sort_group_order_str else None
+                except (json.JSONDecodeError, TypeError):
+                    sort_group_order = None
                 questions = list(questions_dict.values())
-                questions = apply_multi_sort(questions, sort_config)
+                questions = apply_multi_sort(questions, sort_config, group_order=sort_group_order)
             
             any_split = split_fields and any(split_fields.values())
             output_path = app.config['OUTPUT_PATH']

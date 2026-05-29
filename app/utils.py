@@ -207,13 +207,137 @@ SORT_FIELDS = {
     }
 }
 
-def apply_multi_sort(items, sort_config):
+# ==================== Manual Block Reordering ====================
+#
+# A subset of the sort fields can be "grouped" — when one or more of these
+# appear in a sort_config, the distinct combinations of their values form
+# blocks that the user can drag into a custom flat order (see
+# `enumerate_sort_groups` + `apply_multi_sort(..., group_order=...)`).
+#
+# Block keys are tuples of integer IDs (0 = NULL / untagged) so a rename of a
+# topic/subtopic/chapter/subchapter never invalidates a saved manual order.
+
+GROUPING_FIELDS = ['topic', 'subtopic', 'chapter', 'subchapter']
+
+# Integer-id accessors for each grouping field (0 when untagged).
+GROUP_ID_KEYS = {
+    'topic': lambda q: q.major_topic_id or 0,
+    'subtopic': lambda q: q.major_subtopic_id or 0,
+    'chapter': lambda q: q.chapter_id or 0,
+    'subchapter': lambda q: q.subchapter_id or 0,
+}
+
+# Human-readable name accessors (None when untagged).
+GROUP_NAME_KEYS = {
+    'topic': lambda q: q.major_topic.name if q.major_topic else None,
+    'subtopic': lambda q: q.major_subtopic.name if q.major_subtopic else None,
+    'chapter': lambda q: q.chapter.name if q.chapter else None,
+    'subchapter': lambda q: q.subchapter.name if q.subchapter else None,
+}
+
+GROUP_NONE_LABELS = {
+    'topic': '(No topic)',
+    'subtopic': '(No subtopic)',
+    'chapter': '(No chapter)',
+    'subchapter': '(No subchapter)',
+}
+
+
+def grouping_fields_in_config(sort_config):
+    """Return the grouping fields present in a sort_config, in priority order."""
+    if not sort_config:
+        return []
+    return [c.get('field') for c in sort_config if c.get('field') in GROUPING_FIELDS]
+
+
+def enumerate_sort_groups(questions, group_fields):
+    """
+    Enumerate the distinct grouping-blocks present in `questions`.
+
+    Args:
+        questions: list of Question objects
+        group_fields: ordered list of grouping field names (subset of GROUPING_FIELDS)
+
+    Returns:
+        Ordered list of dicts (default natural-name order):
+        [{"key": [int, ...], "labels": {field: name}, "count": int}, ...]
+    """
+    group_fields = [f for f in (group_fields or []) if f in GROUPING_FIELDS]
+    if not group_fields or not questions:
+        return []
+
+    nat_key = natsort_keygen()
+    blocks = {}
+
+    for q in questions:
+        key_tuple = tuple(int(GROUP_ID_KEYS[f](q)) for f in group_fields)
+        block = blocks.get(key_tuple)
+        if block is None:
+            labels = {}
+            sort_components = []
+            for f in group_fields:
+                name = GROUP_NAME_KEYS[f](q)
+                labels[f] = name if name is not None else GROUP_NONE_LABELS[f]
+                # None sorts last; non-None sorts by natural key.
+                sort_components.append((1, ()) if name is None else (0, nat_key(name)))
+            block = {
+                'key': list(key_tuple),
+                'labels': labels,
+                'count': 0,
+                '_sort': sort_components,
+            }
+            blocks[key_tuple] = block
+        block['count'] += 1
+
+    ordered = sorted(blocks.values(), key=lambda b: b['_sort'])
+    for b in ordered:
+        b.pop('_sort', None)
+    return ordered
+
+
+def _build_manual_block_index(group_order, group_fields):
+    """
+    Build a {block_key_tuple: position} index from a stored group_order, but
+    only when it was built for exactly the grouping fields currently in effect.
+
+    Returns (index_dict, sentinel_pos) or (None, 0) when no valid manual order.
+    """
+    if not group_order or not isinstance(group_order, dict):
+        return None, 0
+    go_fields = [f for f in (group_order.get('fields') or []) if f in GROUPING_FIELDS]
+    go_order = group_order.get('order') or []
+    # Stale guard: the manual order only applies if it was built for the exact
+    # set + order of grouping fields currently active.
+    if go_fields != group_fields or not go_order:
+        return None, 0
+
+    index = {}
+    for pos, block_key in enumerate(go_order):
+        try:
+            t = tuple(int(x) for x in block_key)
+        except (TypeError, ValueError):
+            continue
+        if t not in index:
+            index[t] = pos
+    if not index:
+        return None, 0
+    # Unlisted blocks sort after every listed one.
+    return index, len(go_order)
+
+
+def apply_multi_sort(items, sort_config, group_order=None):
     """
     Apply multi-level sorting based on sort configuration.
     
     Args:
         items: List of Question objects to sort
         sort_config: List of dicts like [{"field": "qid", "direction": "asc"}, ...]
+        group_order: Optional manual block ordering, shaped as
+            {"fields": ["topic", "subtopic"], "order": [[12, 45], [13, 0], ...]}.
+            When provided AND its `fields` match the grouping fields present in
+            `sort_config`, questions are first ordered by their block's manual
+            position; within a block they keep sorting by the remaining fields.
+            Unlisted blocks fall back to natural-name order at the end.
     
     Returns:
         Sorted list of items
@@ -223,10 +347,21 @@ def apply_multi_sort(items, sort_config):
     
     # Create a natural sort key generator for qid-like fields
     nat_key = natsort_keygen()
+
+    # Resolve optional manual block ordering.
+    group_fields = grouping_fields_in_config(sort_config)
+    manual_index, manual_sentinel = _build_manual_block_index(group_order, group_fields)
     
     def make_sort_key(item):
         """Generate a tuple key for multi-level sorting"""
         keys = []
+        # Manual block position takes top priority when active. The grouping
+        # fields remain in the per-config loop below as a stable natural-name
+        # fallback (constant within a listed block; orders unlisted blocks).
+        if manual_index is not None:
+            block_tuple = tuple(int(GROUP_ID_KEYS[f](item)) for f in group_fields)
+            pos = manual_index.get(block_tuple, manual_sentinel)
+            keys.append((pos, False))
         for config in sort_config:
             field = config.get('field', 'qid')
             direction = config.get('direction', 'asc')

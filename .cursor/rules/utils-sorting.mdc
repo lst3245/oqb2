@@ -33,7 +33,7 @@ Current fields: `qid`, `year`, `level`, `topic`, `subtopic`, `source`, `section`
 
 `correct_percentage` uses a `(0, value)` / `(1, 0)` tuple so NULLs always sort last regardless of direction.
 
-### apply_multi_sort(items, sort_config)
+### apply_multi_sort(items, sort_config, group_order=None)
 - `items`: list of `Question` objects
 - `sort_config`: `[{"field": "qid", "direction": "asc"}, ...]`
 - Sorting is **Python-side** to support natural sort and proper NULL handling
@@ -41,6 +41,16 @@ Current fields: `qid`, `year`, `level`, `topic`, `subtopic`, `source`, `section`
 - Uses `cmp_to_key` to handle multi-level comparison with direction per level
 
 **Do not move this to SQL ORDER BY** without careful consideration of these requirements.
+
+### Manual block ordering (`group_order`)
+When the sort contains any **grouping field** (`topic`, `subtopic`, `chapter`, `subchapter`), the distinct combinations of their values form *blocks* the user can drag into a custom flat order.
+
+- `group_order` shape: `{"fields": ["topic","subtopic"], "order": [[12,45],[13,0],...]}`.
+- Block keys are tuples of **integer IDs** (`0` = untagged) so renames never invalidate a saved order. Accessors live in `GROUP_ID_KEYS` (id) / `GROUP_NAME_KEYS` (label) / `GROUP_NONE_LABELS`.
+- **Stale guard**: `group_order` is honoured only when `group_order['fields'] == grouping_fields_in_config(sort_config)`; otherwise it's ignored (helper `_build_manual_block_index`). When active, a manual block-position component is **prepended** to the multi-sort key; the grouping fields remain in the per-config loop as a stable natural-name fallback (constant within a listed block; orders unlisted blocks at the end via a sentinel).
+- `enumerate_sort_groups(questions, group_fields)` → ordered `[{"key":[ids], "labels":{field:name}, "count":int}]` in default natural-name order. Powers `POST /dashboard/api/sort-groups` and `POST /generate/api/sort-groups`.
+- `grouping_fields_in_config(sort_config)` → grouping fields present, in priority order. `GROUPING_FIELDS` = `['topic','subtopic','chapter','subchapter']`.
+- Frontend stores the order as `sort_group_order` (JSON) — persisted in `SavedFilter.filter_data`, `SavedGenerationProfile.options_data`, and `GeneratedFile` blobs (no migration).
 
 ### Adding a New Sort Field
 ```python

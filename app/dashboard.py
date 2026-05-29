@@ -6,13 +6,174 @@ from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
-from app.utils import natural_sort, apply_multi_sort, get_user_accessible_subjects
+from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
+                       enumerate_sort_groups, GROUPING_FIELDS)
 from app import md_render
 import os
 import re
 import json
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
+
+
+def _build_filtered_query(params):
+    """
+    Build the question query from a normalized filter-params dict (same shape as
+    ``session['filter_params']`` plus ``qid_strict``). Returns a SQLAlchemy query
+    (before ``.all()``). Shared by ``filter_questions`` and the sort-groups API so
+    both see the exact same result set.
+    """
+    subject = params.get('subject')
+    source_type = params.get('source_type')
+    years = params.get('years') or []
+    section = params.get('section')
+    topics = params.get('topics') or []
+    topic_mode = params.get('topic_mode') or 'OR'
+    subtopics = params.get('subtopics') or []
+    subtopic_mode = params.get('subtopic_mode') or 'OR'
+    is_crosstopic = params.get('is_crosstopic')
+    is_crosssubtopic = params.get('is_crosssubtopic')
+    chapters = params.get('chapters') or []
+    subchapters = params.get('subchapters') or []
+    levels = params.get('levels') or []
+    q_type = params.get('q_type')
+    qid_search = params.get('qid_search')
+    qid_strict = params.get('qid_strict')
+    qid_list = params.get('qids') or []
+    id_list = params.get('ids') or []
+
+    query = Question.query
+
+    # Explicit QID list - if provided, filter by exact QID matches and ignore all other filters.
+    if qid_list:
+        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
+        query = query.filter(
+            Question.qid.in_(qid_list),
+            Question.subject.in_(accessible_subjects)
+        )
+        subject = source_type = section = q_type = qid_search = None
+        years = topics = subtopics = chapters = subchapters = levels = []
+    # Explicit DB id list - same override semantics as `qids` but keyed on Question.id.
+    elif id_list:
+        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
+        query = query.filter(
+            Question.id.in_(id_list),
+            Question.subject.in_(accessible_subjects)
+        )
+        subject = source_type = section = q_type = qid_search = None
+        years = topics = subtopics = chapters = subchapters = levels = []
+    # Direct QID search - if provided, search by QID directly
+    elif qid_search and qid_search.strip():
+        if qid_strict:
+            qid_pattern = qid_search.strip()
+            if '*' in qid_pattern or '%' in qid_pattern:
+                qid_pattern = qid_pattern.replace('*', '%')
+                query = query.filter(Question.qid.ilike(qid_pattern))
+            else:
+                query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
+        else:
+            raw = qid_search.strip().upper()
+            tokens = re.split(r'[^A-Z0-9]+', raw)
+            tokens = [t for t in tokens if t]
+            if tokens:
+                qid_pattern = '%' + '%'.join(tokens) + '%'
+                query = query.filter(Question.qid.ilike(qid_pattern))
+
+    # Filter by subject
+    if subject:
+        query = query.filter(Question.subject == subject)
+
+    # Filter by source type
+    if source_type:
+        if source_type in ['DSE', 'CE', 'AL']:
+            query = query.filter(Question.source == source_type)
+        elif source_type == 'QB':
+            query = query.filter(Question.source == 'QB')
+
+    # Filter by years (for PP only)
+    if years:
+        year_ints = [int(y) for y in years if str(y).isdigit()]
+        if year_ints:
+            query = query.filter(Question.year.in_(year_ints))
+
+    # Filter by section
+    if section and section != 'all':
+        query = query.filter(Question.section == section)
+
+    # Filter by topics
+    if topics:
+        topic_ids = [int(t) for t in topics if str(t).isdigit()]
+        if topic_ids:
+            if topic_mode == 'AND' and len(topic_ids) > 1:
+                for tid in topic_ids:
+                    query = query.filter(
+                        or_(
+                            Question.major_topic_id == tid,
+                            Question.minor_topics.any(Topic.id == tid)
+                        )
+                    )
+            else:
+                if is_crosstopic:
+                    query = query.filter(
+                        or_(
+                            Question.major_topic_id.in_(topic_ids),
+                            Question.minor_topics.any(Topic.id.in_(topic_ids))
+                        )
+                    )
+                else:
+                    query = query.filter(Question.major_topic_id.in_(topic_ids))
+
+    # Filter by subtopics
+    if subtopics:
+        subtopic_ids = [int(s) for s in subtopics if str(s).isdigit()]
+        if subtopic_ids:
+            if subtopic_mode == 'AND' and len(subtopic_ids) > 1:
+                for sid in subtopic_ids:
+                    query = query.filter(
+                        or_(
+                            Question.major_subtopic_id == sid,
+                            Question.subtopics.any(Subtopic.id == sid)
+                        )
+                    )
+            else:
+                if is_crosssubtopic:
+                    query = query.filter(
+                        or_(
+                            Question.major_subtopic_id.in_(subtopic_ids),
+                            Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
+                        )
+                    )
+                else:
+                    query = query.filter(Question.major_subtopic_id.in_(subtopic_ids))
+
+    # Filter by chapters
+    if chapters:
+        chapter_ids = [int(c) for c in chapters if str(c).isdigit()]
+        if chapter_ids:
+            query = query.filter(Question.chapter_id.in_(chapter_ids))
+
+    # Filter by subchapters
+    if subchapters:
+        subchapter_ids = [int(sc) for sc in subchapters if str(sc).isdigit()]
+        if subchapter_ids:
+            query = query.filter(Question.subchapter_id.in_(subchapter_ids))
+
+    # Filter by levels
+    if levels:
+        level_ints = [int(l) for l in levels if str(l).isdigit()]
+        include_null = 'null' in levels
+        if level_ints and include_null:
+            query = query.filter(or_(Question.level.in_(level_ints), Question.level.is_(None)))
+        elif level_ints:
+            query = query.filter(Question.level.in_(level_ints))
+        elif include_null:
+            query = query.filter(Question.level.is_(None))
+
+    # Filter by question type
+    if q_type and q_type != 'all':
+        query = query.filter(Question.q_type == q_type)
+
+    return query
 
 @dashboard_bp.route('/')
 @login_required
@@ -101,7 +262,18 @@ def filter_questions():
             sort_config = [{"field": "qid", "direction": "asc"}]
     else:
         sort_config = [{"field": "qid", "direction": "asc"}]
-    
+
+    # Optional manual block ordering (drives Topic/Subtopic/Chapter/Subchapter
+    # block drag-reorder). Kept separate from sort_config; ignored by
+    # apply_multi_sort unless its `fields` match the active grouping fields.
+    sort_group_order_str = request.args.get('sort_group_order') or request.form.get('sort_group_order')
+    sort_group_order = None
+    if sort_group_order_str:
+        try:
+            sort_group_order = json.loads(sort_group_order_str)
+        except (json.JSONDecodeError, TypeError):
+            sort_group_order = None
+
     # Store in session for pagination
     session['filter_params'] = {
         'subject': subject,
@@ -124,190 +296,16 @@ def filter_questions():
         'ids': id_list,
     }
     session['sort_config'] = sort_config
-    
-    # Build query
-    query = Question.query
+    session['sort_group_order'] = sort_group_order
 
-    # Explicit QID list - if provided, filter by exact QID matches and ignore all other filters.
-    # This is used by the admin DB-health "view anomaly" buttons to jump to a specific set
-    # without losing visibility behind subject/source/topic filters. Access is still scoped
-    # to subjects the user has permission to view.
-    if qid_list:
-        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
-        query = query.filter(
-            Question.qid.in_(qid_list),
-            Question.subject.in_(accessible_subjects)
-        )
-        # Null out other filter variables so the remaining filter blocks become no-ops
-        subject = None
-        source_type = None
-        years = []
-        section = None
-        topics = []
-        subtopics = []
-        chapters = []
-        subchapters = []
-        levels = []
-        q_type = None
-        qid_search = None
-    # Explicit DB id list - same override semantics as `qids` but keyed on Question.id.
-    # Drives the "Show Selected Only" toggle: the frontend submits the user's full
-    # `selectedQuestions` set so all selections paginate cleanly, regardless of the
-    # sidebar filter. Subject access is still enforced.
-    elif id_list:
-        accessible_subjects = [s.id for s in get_user_accessible_subjects()]
-        query = query.filter(
-            Question.id.in_(id_list),
-            Question.subject.in_(accessible_subjects)
-        )
-        subject = None
-        source_type = None
-        years = []
-        section = None
-        topics = []
-        subtopics = []
-        chapters = []
-        subchapters = []
-        levels = []
-        q_type = None
-        qid_search = None
-    # Direct QID search - if provided, search by QID directly
-    elif qid_search and qid_search.strip():
-        if qid_strict:
-            # Strict mode: user controls the pattern with * as wildcard
-            qid_pattern = qid_search.strip()
-            if '*' in qid_pattern or '%' in qid_pattern:
-                qid_pattern = qid_pattern.replace('*', '%')
-                query = query.filter(Question.qid.ilike(qid_pattern))
-            else:
-                query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
-        else:
-            # Loose mode: normalize input — keep only alphanumeric chars as tokens,
-            # then match any QID that contains all tokens in order (case-insensitive).
-            # e.g. "2025 q1" → LIKE '%2025%Q1%'
-            raw = qid_search.strip().upper()
-            tokens = re.split(r'[^A-Z0-9]+', raw)
-            tokens = [t for t in tokens if t]
-            if tokens:
-                # Build a single LIKE pattern: %TOKEN1%TOKEN2%...%
-                qid_pattern = '%' + '%'.join(tokens) + '%'
-                query = query.filter(Question.qid.ilike(qid_pattern))
+    # Build query (shared with the sort-groups API via _build_filtered_query)
+    query = _build_filtered_query(session['filter_params'])
 
-    # Filter by subject
-    if subject:
-        query = query.filter(Question.subject == subject)
-    
-    # Filter by source type
-    if source_type:
-        if source_type in ['DSE', 'CE', 'AL']:
-            query = query.filter(Question.source == source_type)
-        elif source_type == 'QB':
-            query = query.filter(Question.source == 'QB')
-    
-    # Filter by years (for PP only)
-    if years:
-        year_ints = [int(y) for y in years if y.isdigit()]
-        if year_ints:
-            query = query.filter(Question.year.in_(year_ints))
-    
-    # Filter by section
-    if section and section != 'all':
-        query = query.filter(Question.section == section)
-    
-    # Filter by topics
-    if topics:
-        topic_ids = [int(t) for t in topics if t.isdigit()]
-        if topic_ids:
-            if topic_mode == 'AND' and len(topic_ids) > 1:
-                # AND mode: question must have ALL selected topics
-                # This only makes sense when checking both major and minor topics
-                # (since a question can only have one major topic)
-                # For each topic, the question must have it as major OR as one of its minor topics
-                for tid in topic_ids:
-                    query = query.filter(
-                        or_(
-                            Question.major_topic_id == tid,
-                            Question.minor_topics.any(Topic.id == tid)
-                        )
-                    )
-            else:
-                # OR mode (default): question matches ANY of the selected topics
-                if is_crosstopic:
-                    # Include questions with selected topics as major OR minor
-                    query = query.filter(
-                        or_(
-                            Question.major_topic_id.in_(topic_ids),
-                            Question.minor_topics.any(Topic.id.in_(topic_ids))
-                        )
-                    )
-                else:
-                    # Only major topic
-                    query = query.filter(Question.major_topic_id.in_(topic_ids))
-    
-    # Filter by subtopics
-    if subtopics:
-        subtopic_ids = [int(s) for s in subtopics if s.isdigit()]
-        if subtopic_ids:
-            if subtopic_mode == 'AND' and len(subtopic_ids) > 1:
-                # AND mode: question must have ALL selected subtopics
-                # For each subtopic, the question must have it as major OR as one of its M2M subtopics
-                for sid in subtopic_ids:
-                    query = query.filter(
-                        or_(
-                            Question.major_subtopic_id == sid,
-                            Question.subtopics.any(Subtopic.id == sid)
-                        )
-                    )
-            else:
-                # OR mode (default): question matches ANY of the selected subtopics
-                if is_crosssubtopic:
-                    # Include questions with selected subtopics as major OR M2M
-                    query = query.filter(
-                        or_(
-                            Question.major_subtopic_id.in_(subtopic_ids),
-                            Question.subtopics.any(Subtopic.id.in_(subtopic_ids))
-                        )
-                    )
-                else:
-                    # Only major subtopic
-                    query = query.filter(Question.major_subtopic_id.in_(subtopic_ids))
-    
-    # Filter by chapters
-    if chapters:
-        chapter_ids = [int(c) for c in chapters if c.isdigit()]
-        if chapter_ids:
-            query = query.filter(Question.chapter_id.in_(chapter_ids))
-    
-    # Filter by subchapters
-    if subchapters:
-        subchapter_ids = [int(sc) for sc in subchapters if sc.isdigit()]
-        if subchapter_ids:
-            query = query.filter(Question.subchapter_id.in_(subchapter_ids))
-    
-    # Filter by levels
-    if levels:
-        level_ints = [int(l) for l in levels if l.isdigit()]
-        include_null = 'null' in levels
-        
-        if level_ints and include_null:
-            # Include both specific levels and NULL
-            query = query.filter(or_(Question.level.in_(level_ints), Question.level.is_(None)))
-        elif level_ints:
-            # Only specific levels
-            query = query.filter(Question.level.in_(level_ints))
-        elif include_null:
-            # Only NULL levels
-            query = query.filter(Question.level.is_(None))
-    
-    # Filter by question type
-    if q_type and q_type != 'all':
-        query = query.filter(Question.q_type == q_type)
-    
     # Get all matching questions for sorting
     all_questions = query.all()
     
-    # Apply multi-level sorting
-    sorted_questions = apply_multi_sort(all_questions, sort_config)
+    # Apply multi-level sorting (with optional manual block ordering)
+    sorted_questions = apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)
     
     # Paginate
     per_page = page_size if page_size else current_app.config.get('QUESTIONS_PER_PAGE', 20)
@@ -468,6 +466,77 @@ def filter_questions():
                          all_question_ids=all_question_ids,
                          sort_config=sort_config,
                          admin_subjects=admin_subjects)
+
+@dashboard_bp.route('/api/sort-groups', methods=['POST'])
+@login_required
+def get_sort_groups():
+    """
+    Enumerate the grouping-blocks (Topic / Subtopic / Chapter / Subchapter
+    combinations) for the current filter, so the frontend can present them for
+    manual drag-reordering.
+
+    Accepts the same filter fields as ``/filter`` plus ``group_fields`` (JSON
+    array or comma list). Returns ``{group_fields, blocks: [{key, labels, count}]}``
+    in default natural-name order.
+    """
+    # Parse requested grouping fields
+    gf_raw = request.form.get('group_fields') or request.args.get('group_fields') or ''
+    group_fields = []
+    if gf_raw:
+        try:
+            parsed = json.loads(gf_raw)
+            if isinstance(parsed, list):
+                group_fields = [f for f in parsed if f in GROUPING_FIELDS]
+        except (json.JSONDecodeError, TypeError):
+            group_fields = [f.strip() for f in gf_raw.split(',') if f.strip() in GROUPING_FIELDS]
+    if not group_fields:
+        return jsonify({'group_fields': [], 'blocks': []})
+
+    # Subject access check (mirrors filter_questions)
+    subject = request.form.get('subject') or request.args.get('subject')
+    if subject and not current_user.has_subject_access(subject):
+        return jsonify({'error': 'Access denied to this subject'}), 403
+
+    # Build normalized filter params (same shape _build_filtered_query expects)
+    qids_raw = request.form.get('qids') or request.args.get('qids')
+    qid_list = [q.strip() for q in qids_raw.split(',') if q.strip()] if qids_raw else []
+    ids_raw = request.form.get('ids') or request.args.get('ids')
+    id_list = []
+    if ids_raw:
+        for tok in ids_raw.split(','):
+            tok = tok.strip()
+            if tok:
+                try:
+                    id_list.append(int(tok))
+                except ValueError:
+                    continue
+
+    params = {
+        'subject': subject,
+        'source_type': request.form.get('source_type') or request.args.get('source_type'),
+        'years': request.form.getlist('years') or request.args.getlist('years'),
+        'section': request.form.get('section') or request.args.get('section'),
+        'topics': request.form.getlist('topics') or request.args.getlist('topics'),
+        'topic_mode': request.form.get('topic_mode') or request.args.get('topic_mode') or 'OR',
+        'subtopics': request.form.getlist('subtopics') or request.args.getlist('subtopics'),
+        'subtopic_mode': request.form.get('subtopic_mode') or request.args.get('subtopic_mode') or 'OR',
+        'is_crosstopic': request.form.get('is_crosstopic') or request.args.get('is_crosstopic'),
+        'is_crosssubtopic': request.form.get('is_crosssubtopic') or request.args.get('is_crosssubtopic'),
+        'chapters': request.form.getlist('chapters') or request.args.getlist('chapters'),
+        'subchapters': request.form.getlist('subchapters') or request.args.getlist('subchapters'),
+        'levels': request.form.getlist('levels') or request.args.getlist('levels'),
+        'q_type': request.form.get('q_type') or request.args.get('q_type'),
+        'qid_search': request.form.get('qid_search') or request.args.get('qid_search'),
+        'qid_strict': (request.form.get('qid_strict') or request.args.get('qid_strict')) in ('on', 'true', '1', True),
+        'qids': qid_list,
+        'ids': id_list,
+    }
+
+    query = _build_filtered_query(params)
+    questions = query.all()
+    blocks = enumerate_sort_groups(questions, group_fields)
+    return jsonify({'group_fields': group_fields, 'blocks': blocks})
+
 
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required

@@ -6,6 +6,16 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Manual block reordering (Topic / Subtopic / Chapter / Subchapter)
+
+When the sort includes any grouping field (Topic, Subtopic, Chapter, or Subchapter), a new **Reorder blocks** button appears in the dashboard **Sort By** panel and on the Generate page's **Auto Sort** panel. It opens a modal listing every distinct block (e.g. `Algebra › AAAA`, with a question-count badge) that the user can drag into a **free, flat custom order** — blocks may move anywhere, even across topics. Within each block, questions keep sorting by the remaining lower-priority fields (e.g. Level).
+
+- **Backend engine** (`app/utils.py`): `apply_multi_sort(items, sort_config, group_order=None)` gains an optional `group_order` arg shaped `{"fields": ["topic","subtopic"], "order": [[12,45],[13,0],...]}`. Block keys are tuples of **integer IDs** (`0` = untagged) so renaming a topic/subtopic never invalidates a saved order. New helper `enumerate_sort_groups(questions, group_fields)` returns the blocks in default natural-name order; new `grouping_fields_in_config()` + `GROUPING_FIELDS` are exported.
+- **Stale guard**: a stored order only applies when its `fields` exactly match the grouping fields currently in the sort. Otherwise it is ignored (and the UI clears it). Blocks present in the data but missing from a saved order fall back to natural-name order at the end; saved-but-absent blocks are skipped.
+- **New endpoints**: `POST /dashboard/api/sort-groups` (current filter + `group_fields` → blocks) and `POST /generate/api/sort-groups` (selected `question_ids` + `group_fields` → blocks). The dashboard filter logic was extracted into a reusable `_build_filtered_query(params)` helper so both the filter route and the sort-groups API see the identical result set.
+- **Persistence + restore**: the order rides along as `sort_group_order` inside the existing JSON blobs — `SavedFilter.filter_data` (search profiles), `SavedGenerationProfile.options_data` (generation presets), and `GeneratedFile.filter_data` / `generation_options`. It is restored on saved-profile load, My Files **Re-filter**, and **Regenerate**. No DB migration required.
+- **UI/UX**: SortableJS-backed drag list (mouse + touch), an `Apply` that re-runs the search/updates the form, a `Reset to default`, and a `custom` badge + hint when an order is active. On the Generate page the control only shows in **Auto Sort** mode (Manual Sort uses raw selection order). Split-to-ZIP jobs automatically inherit the manual block order because `_split_questions_into_groups()` groups the already-sorted list by first appearance.
+
 #### Lazy on-demand PDF (My Files)
 
 Generation no longer asks the user to pick **DOCX vs PDF** up-front. Every generated file is now a `.docx` (or a `.zip` of `.docx` for split jobs), and a PDF version is only built when the user actually wants one — via a new red **PDF button** beside the green Download button on every row in *My Files*.

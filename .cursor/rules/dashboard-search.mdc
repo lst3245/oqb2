@@ -34,6 +34,7 @@ Core route: `POST /dashboard/filter` in `app/dashboard.py` → `filter_questions
 | `page_size` | int | 10, 20, 50, or 100 (default 20) |
 | `preview_language` | `EN`\|`CH` | Asset language preference for card previews |
 | `sort_config` | JSON string | Array of `{field, direction}` objects |
+| `sort_group_order` | JSON string | Optional manual block ordering `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter. Passed to `apply_multi_sort(..., group_order=)`. Ignored unless `fields` match the grouping fields in `sort_config` |
 
 ## Topic/Subtopic AND Logic
 In AND mode, each selected topic must appear as **major OR any minor topic** (since a question can only have one major topic). The filter loops and applies one `.filter()` call per topic ID.
@@ -52,6 +53,9 @@ Available sort fields defined in `SORT_FIELDS` dict in `utils.py`:
 **Important**: Sorting is done **in Python** after fetching all results from DB (not via SQL ORDER BY). This is intentional to support natural sort (Q1, Q2, Q10 not Q1, Q10, Q2) and multi-field sorting with null-handling. Do not move sorting to SQLAlchemy without careful consideration.
 
 Pagination is also done in Python (slice after sort).
+
+### Manual block reordering
+When `sort_config` contains a grouping field (`topic`/`subtopic`/`chapter`/`subchapter`), the **Reorder blocks** button in the Sort By panel opens a modal that `POST`s the current filter form + `group_fields` to `POST /dashboard/api/sort-groups` and renders the returned blocks (SortableJS). The chosen order is stored in hidden `#sortGroupOrderInput` (and `localStorage[oqb_sortGroupOrder]`), included in `getCurrentFilterValues()` as `sort_group_order`, and re-submitted. Stale orders are auto-cleared client-side when the grouping fields change. The shared query builder is `_build_filtered_query(params)` (used by both `filter_questions` and the sort-groups API). See `apply_multi_sort(..., group_order=)` + `enumerate_sort_groups` in `utils-sorting.mdc`.
 
 ## Session Storage
 - `session['filter_params']` — current filter state

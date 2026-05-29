@@ -42,6 +42,9 @@ Smart logic: if the previous question already added a page break, skip the `befo
 ## Generation Options (stored as JSON in GeneratedFile.generation_options)
 | Option | Type | Default |
 |---|---|---|
+| `sort_mode` | `custom`\|`selection` | `custom` (Auto Sort). `selection` = raw Selected-Questions order |
+| `sort_config` | JSON string | multi-level `[{field,direction}]` (Auto Sort only) |
+| `sort_group_order` | JSON string | optional manual block order `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter (Auto Sort only). Threaded into `apply_multi_sort(..., group_order=)` in `_generate_in_background`; ignored unless `fields` match the grouping fields in `sort_config` |
 | `answer_mode` | string | `QUE_ONLY` |
 | `preferred_language` | `EN`\|`CH` | `EN` |
 | `answer_preference` | `image_first`\|`text_first` | `image_first` |
@@ -69,6 +72,10 @@ Smart logic: if the previous question already added a page break, skip the `befo
 ## Split to ZIP
 If any `split_fields` are enabled, output is a `.zip` file containing one `.docx` per group.
 Groups are built by `_split_questions_into_groups()`. Group labels become filenames (sanitised).
+Because it groups the **already-sorted** question list by first appearance, split ordering automatically inherits any manual block order (`sort_group_order`) — no extra wiring needed.
+
+## Manual block reordering (Auto Sort)
+When `sort_config` contains a grouping field (`topic`/`subtopic`/`chapter`/`subchapter`), the Auto-sort panel shows a **Reorder blocks** button. It `POST`s the selected `question_ids` + `group_fields` to `POST /generate/api/sort-groups` (returns blocks via `enumerate_sort_groups`) and renders a SortableJS drag list. The chosen order is stored in hidden `#sortGroupOrderInput`, included in `getCurrentGenerationOptions()` as `sort_group_order`, persisted in `GeneratedFile.generation_options` + `SavedGenerationProfile.options_data`, and restored by `restoreGenerationOptions()` (regen + preset load). The dashboard also forwards its `sort_group_order` to the Generate page via `submitQuestionIds()`, and it rides inside `filter_data` for My Files re-filter. The control is hidden in **Manual Sort** mode. See `apply_multi_sort(..., group_order=)` in `utils-sorting.mdc`.
 
 ## Custom Word Styles
 Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:

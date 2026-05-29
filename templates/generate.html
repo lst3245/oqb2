@@ -50,6 +50,7 @@
                         {% endfor %}
                         </div>
                         <input type="hidden" name="sort_config" id="sortConfigInput" value='{{ sort_config | tojson }}'>
+                        <input type="hidden" name="sort_group_order" id="sortGroupOrderInput" value='{{ (sort_group_order | tojson) if sort_group_order else "" }}'>
                         <input type="hidden" name="sort_mode" id="sortModeInput" value="custom">
                         <input type="hidden" name="filter_data" value='{{ filter_data if filter_data else "" }}'>
                         
@@ -102,6 +103,14 @@
                                 </div>
                                 <div id="sortCriteria" class="sort-criteria-container">
                                     <!-- Sort criteria items will be added here dynamically -->
+                                </div>
+                                <!-- Manual block reordering (shown only when a grouping field is in the sort) -->
+                                <div id="reorderBlocksWrap" class="mt-2" style="display:none;">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="openReorderBlocksModal()">
+                                        <i class="bi bi-grip-horizontal"></i> Reorder blocks
+                                        <span id="reorderBlocksActive" class="badge bg-success ms-1" style="display:none;">custom</span>
+                                    </button>
+                                    <small id="reorderBlocksHint" class="text-muted d-block mt-1"></small>
                                 </div>
                             </div>
 
@@ -503,6 +512,37 @@
         </div>
     </div>
 </div>
+
+<!-- Reorder Blocks Modal (manual Topic/Subtopic/Chapter/Subchapter ordering) -->
+<div class="modal fade" id="reorderBlocksModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-grip-horizontal"></i> Reorder Blocks</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">
+                    Drag whole blocks into the order you want. Questions inside each block keep
+                    sorting by the remaining sort fields.
+                </p>
+                <div id="reorderBlocksStatus" class="small text-muted mb-2"></div>
+                <div id="reorderBlocksList" class="reorder-blocks-list">
+                    <!-- Block rows injected here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary me-auto" onclick="resetReorderBlocks()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="applyReorderBlocks()">
+                    <i class="bi bi-check-lg"></i> Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -529,6 +569,49 @@ const SORT_FIELDS = {
 
 let sortConfig = {{ sort_config | tojson | safe }};
 let sortMode = 'custom';
+
+// ── Manual block ordering ──────────────────────────────────────────────────
+// Optional custom ordering of Topic/Subtopic/Chapter/Subchapter blocks.
+// Shape: { fields: ['topic','subtopic'], order: [[12,45],[13,0],...] } or null.
+const GROUPING_SORT_FIELDS = ['topic', 'subtopic', 'chapter', 'subchapter'];
+let sortGroupOrder = {% if sort_group_order %}{{ sort_group_order | tojson | safe }}{% else %}null{% endif %};
+
+function groupingFieldsInConfig() {
+    return sortConfig.map(c => c.field).filter(f => GROUPING_SORT_FIELDS.includes(f));
+}
+
+function _arraysEqual(a, b) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function writeSortGroupOrderInput() {
+    const inp = document.getElementById('sortGroupOrderInput');
+    if (inp) inp.value = sortGroupOrder ? JSON.stringify(sortGroupOrder) : '';
+}
+
+function updateReorderBlocksUI() {
+    const wrap = document.getElementById('reorderBlocksWrap');
+    const badge = document.getElementById('reorderBlocksActive');
+    const hint = document.getElementById('reorderBlocksHint');
+    const gfields = groupingFieldsInConfig();
+
+    if (gfields.length === 0) {
+        if (sortGroupOrder) { sortGroupOrder = null; }
+    } else if (sortGroupOrder && !_arraysEqual(sortGroupOrder.fields, gfields)) {
+        sortGroupOrder = null;
+        if (hint) hint.textContent = 'Block order was reset because the sort fields changed.';
+    }
+
+    // Only relevant in Auto Sort mode (Manual Sort uses raw selection order).
+    const showWrap = gfields.length > 0 && sortMode === 'custom';
+    if (wrap) wrap.style.display = showWrap ? 'block' : 'none';
+
+    const active = !!(sortGroupOrder && Array.isArray(sortGroupOrder.order) && sortGroupOrder.order.length);
+    if (badge) badge.style.display = active ? 'inline-block' : 'none';
+    if (hint && active) hint.textContent = 'Custom block order active (' + sortGroupOrder.order.length + ' blocks).';
+
+    writeSortGroupOrderInput();
+}
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -798,6 +881,22 @@ function restoreGenerationOptions(opts) {
             // ignore parse errors
         }
     }
+
+    // Manual block ordering (restore alongside sort config)
+    if (opts.sort_group_order !== undefined) {
+        const raw = opts.sort_group_order;
+        if (raw) {
+            try {
+                const go = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                sortGroupOrder = (go && Array.isArray(go.fields) && Array.isArray(go.order)) ? go : null;
+            } catch (e) {
+                sortGroupOrder = null;
+            }
+        } else {
+            sortGroupOrder = null;
+        }
+        updateReorderBlocksUI();
+    }
     
     // Sequential question number checkbox
     if (opts.show_seq_no !== undefined) {
@@ -992,6 +1091,7 @@ function getCurrentGenerationOptions() {
     return {
         sort_mode: getInputValue('sort_mode'),
         sort_config: sortConfigStr,
+        sort_group_order: document.getElementById('sortGroupOrderInput')?.value || '',
         answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
         preferred_language: document.getElementById('preferredLanguage')?.value || 'EN',
         answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
@@ -1304,6 +1404,132 @@ function toggleSortDirection(index) {
 
 function updateSortConfigInput() {
     document.getElementById('sortConfigInput').value = JSON.stringify(sortConfig);
+    updateReorderBlocksUI();
+}
+
+// ── Reorder Blocks modal ────────────────────────────────────────────────────
+let reorderBlocksData = [];    // [{key:[ids], labels:{field:name}, count}]
+let reorderBlocksFields = [];  // grouping fields the modal was opened for
+
+function _escapeHtmlAttr(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function _applyStoredOrderToBlocks(blocks, order) {
+    const keyStr = b => JSON.stringify((b.key || []).map(Number));
+    const posMap = new Map();
+    (order || []).forEach((k, i) => posMap.set(JSON.stringify((k || []).map(Number)), i));
+    const sentinel = (order || []).length;
+    return blocks.slice().sort((a, b) => {
+        const pa = posMap.has(keyStr(a)) ? posMap.get(keyStr(a)) : sentinel;
+        const pb = posMap.has(keyStr(b)) ? posMap.get(keyStr(b)) : sentinel;
+        return pa - pb;
+    });
+}
+
+async function openReorderBlocksModal() {
+    const gfields = groupingFieldsInConfig();
+    if (!gfields.length) return;
+    reorderBlocksFields = gfields.slice();
+
+    const listEl = document.getElementById('reorderBlocksList');
+    const statusEl = document.getElementById('reorderBlocksStatus');
+    if (listEl) listEl.innerHTML = '';
+    if (statusEl) statusEl.textContent = 'Loading blocks…';
+
+    const modalEl = document.getElementById('reorderBlocksModal');
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // Build request: all selected question_ids + grouping fields.
+    const formData = new FormData();
+    document.querySelectorAll('#questionIdsContainer input[name="question_ids"]').forEach(inp => {
+        formData.append('question_ids', inp.value);
+    });
+    formData.set('group_fields', JSON.stringify(gfields));
+
+    try {
+        const resp = await fetch(`{{ url_for('generator.get_sort_groups') }}`, {
+            method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        let blocks = (data && data.blocks) || [];
+        if (sortGroupOrder && _arraysEqual(sortGroupOrder.fields, gfields)) {
+            blocks = _applyStoredOrderToBlocks(blocks, sortGroupOrder.order);
+        }
+        reorderBlocksData = blocks;
+        renderReorderBlocks();
+        if (statusEl) {
+            statusEl.textContent = blocks.length
+                ? (blocks.length + ' block' + (blocks.length === 1 ? '' : 's') + ' — drag to reorder')
+                : 'No blocks in the current selection.';
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Failed to load blocks.';
+        console.error('Reorder blocks load failed:', e);
+    }
+}
+
+function renderReorderBlocks() {
+    const listEl = document.getElementById('reorderBlocksList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    reorderBlocksData.forEach((b, idx) => {
+        const item = document.createElement('div');
+        item.className = 'reorder-block-item';
+        item.dataset.index = idx;
+        const labelText = reorderBlocksFields.map(f => (b.labels && b.labels[f]) || '?').join(' › ');
+        const esc = _escapeHtmlAttr(labelText);
+        item.innerHTML = `
+            <span class="drag-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+            <span class="reorder-block-label" title="${esc}">${esc}</span>
+            <span class="reorder-block-count badge bg-secondary">${b.count}</span>
+        `;
+        listEl.appendChild(item);
+    });
+    initReorderBlocksSortable();
+}
+
+function initReorderBlocksSortable() {
+    const listEl = document.getElementById('reorderBlocksList');
+    if (!listEl || typeof Sortable === 'undefined') return;
+    if (listEl._sortableInstance) return;
+    listEl._sortableInstance = Sortable.create(listEl, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        forceFallback: true,
+        fallbackTolerance: 4,
+        delay: 100,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
+        onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            const [moved] = reorderBlocksData.splice(evt.oldIndex, 1);
+            reorderBlocksData.splice(evt.newIndex, 0, moved);
+            renderReorderBlocks();
+        }
+    });
+}
+
+function applyReorderBlocks() {
+    sortGroupOrder = {
+        fields: reorderBlocksFields.slice(),
+        order: reorderBlocksData.map(b => (b.key || []).map(Number))
+    };
+    updateReorderBlocksUI();
+    bootstrap.Modal.getInstance(document.getElementById('reorderBlocksModal'))?.hide();
+}
+
+function resetReorderBlocks() {
+    sortGroupOrder = null;
+    updateReorderBlocksUI();
+    const hint = document.getElementById('reorderBlocksHint');
+    if (hint) hint.textContent = 'Block order reset to default.';
+    bootstrap.Modal.getInstance(document.getElementById('reorderBlocksModal'))?.hide();
 }
 
 // Update the visible panels / hint when the sort mode changes.
@@ -1315,6 +1541,8 @@ function applySortModeUI(mode) {
     const isCustom = (mode === 'custom');
     document.getElementById('customSortPanel').style.display = isCustom ? 'block' : 'none';
     document.getElementById('selectionOrderInfo').style.display = isCustom ? 'none' : 'block';
+    // Manual block ordering only applies in Auto Sort mode
+    updateReorderBlocksUI();
 }
 
 // Question list drag-and-drop. Works in either mode — if the user drags here
@@ -1611,6 +1839,36 @@ function escapeHtml(text) {
     line-height: 1.3;
     /* prevent the button tap from being treated as a drag-start */
     touch-action: manipulation;
+}
+/* Reorder-blocks modal list */
+.reorder-blocks-list .reorder-block-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .4rem .6rem;
+    border: 1px solid #dee2e6;
+    border-radius: .375rem;
+    margin-bottom: .35rem;
+    background: #fff;
+    /* Prevent text highlighting while dragging a block */
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+.reorder-blocks-list .reorder-block-item .drag-handle {
+    cursor: grab;
+    color: #adb5bd;
+    touch-action: none;
+}
+.reorder-blocks-list .reorder-block-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.reorder-blocks-list .reorder-block-count {
+    flex-shrink: 0;
 }
 </style>
 {% endblock %}
