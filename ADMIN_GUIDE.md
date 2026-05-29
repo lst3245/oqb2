@@ -106,6 +106,13 @@ To add additional subjects, insert rows directly into the `subjects` table:
 INSERT INTO subjects (id, name) VALUES ('PHY', 'Physics');
 ```
 
+### Upgrading an existing database (Versions refactor)
+The asset **language** column was renamed to **version** and the enum widened to include `ENO`/`CHO`. Existing deployments auto-upgrade on first startup (an idempotent `INFORMATION_SCHEMA` check in `app/__init__.py` runs `ALTER TABLE question_assets CHANGE COLUMN language version ENUM('EN','CH','BI','ENO','CHO')`). To run it manually instead — e.g. on a DB copy first — use the idempotent standalone script:
+```bash
+python migrate_versions.py
+```
+It is safe to run repeatedly; it renames `language`→`version` (carrying the `uq_asset_identity` unique index over), or widens an existing `version` enum, or does nothing if already up to date.
+
 ---
 
 ## 4. Starting the Application
@@ -198,7 +205,7 @@ Rules:
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
 - **Batch Update** — choose which fields to update (level, type, section, topics, correct %) and set their values. Only ticked fields are changed.
 - **Batch Delete** — permanently removes questions and their assets from DB and disk. Requires typing `DELETE` to confirm.
-- **Generate IMG from DOC/MD** — bulk-renders the DOC/MD source assets of the selected questions into PNG IMG assets via Microsoft Word. Modal options: asset types (QUE/ANS/SOL), languages, source format preference (DOC > MD), one tall PNG per slot **or** one PNG per source page, overwrite existing IMG, render width (px), transparent background. Streams progress live; refresh-free.
+- **Generate IMG from DOC/MD** — bulk-renders the DOC/MD source assets of the selected questions into PNG IMG assets via Microsoft Word. Modal options: asset types (QUE/ANS/SOL), versions (EN/CH/BI/ENO/CHO), source format preference (DOC > MD), one tall PNG per slot **or** one PNG per source page, overwrite existing IMG, render width (px), transparent background. Streams progress live; refresh-free.
 
   **Use cases:**
   - Convert a question library authored in Word to flat images (e.g. for export to a system that can't read DOCX).
@@ -218,12 +225,12 @@ Edit → Details tab → change QID field. This renames all associated files on 
 
 ### Asset Management
 Edit → Assets tab:
-- **Upload**: select file, choose type (QUE/ANS/SOL), language (EN/CH/BI), and part number. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`).
+- **Upload**: select file, choose type (QUE/ANS/SOL), version (EN/CH/BI/ENO/CHO), and part number. The Assets tab has one tab per version. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`).
 - **Delete**: removes from DB and disk
 - **Reorder**: drag to change part_number order (for multi-image questions)
 
 ### Markdown assets
-Markdown assets are **self-contained**: LaTeX math goes inside `$...$` (inline) or `$$...$$` (display), and images are embedded as `data:image/...;base64,...` URIs (not separate files). Each (QUE/ANS/SOL × EN/CH/BI) slot can hold **at most one** `.md` asset (single-part only).
+Markdown assets are **self-contained**: LaTeX math goes inside `$...$` (inline) or `$$...$$` (display), and images are embedded as `data:image/...;base64,...` URIs (not separate files). Each (QUE/ANS/SOL × version) slot can hold **at most one** `.md` asset (single-part only).
 
 The Edit Question modal exposes two editors per slot:
 - **Inline modal** — click **Edit** on an MD asset card (pencil icon), or **New Markdown (inline)** in an empty slot. EasyMDE toolbar, live KaTeX preview, paste-image-as-base64, optimistic concurrency (Ctrl/Cmd+S to save).
@@ -300,11 +307,13 @@ SOURCE_PATH/
 
 ### Filename Convention
 ```
-SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
+SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
 MATC_DSE_2024_P1_Q5_EN_QUE.png
 MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← multi-image part 2
 MATC_DSE_2024_P1_Q5_EN_QUE.md      ← Markdown (no _PART; single-part only)
+MATC_DSE_2024_P1_Q5_ENO_QUE.png    ← ENO = official public-exam scan
 ```
+`VERSION` ∈ `EN` / `CH` / `BI` / `ENO` (English Official) / `CHO` (Chinese Official).
 
 ### Running Ingestion
 

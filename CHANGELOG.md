@@ -6,6 +6,20 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### "Versions" replace "Languages" — EN / CH / BI / ENO / CHO with drag-to-reorder priority
+
+The per-asset **language** concept (EN / CH / BI) has been generalised into **Versions**, and two new official-scan versions were added: **ENO** (English Official) and **CHO** (Chinese Official) — screen-captured / low-quality scans of the published public-exam paper. The canonical list is now `EN, CH, BI, ENO, CHO` (defined once in `app/utils.VERSIONS`), which is also the default priority order (ENO/CHO last). Labels: `English`, `Chinese`, `Bilingual`, `English (Official)`, `Chinese (Official)`.
+
+- **Single source of truth** (`app/utils.py`): new `VERSIONS`, `VERSION_LABELS`, `DEFAULT_VERSION_PRIORITY`, and `parse_version_priority(raw, legacy_preferred=None)` (dedupes, keeps only known codes, appends any missing in default order). Injected into every template as `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` via a context processor, and exposed to JS as `window.OQB_*` globals.
+- **Drag-to-reorder priority widget** replaces the old two-option *Preferred / Preview Language* dropdowns on all three surfaces — the **dashboard** View menu, **present mode** (viewer), and the **Generate** page. Reorder versions (SortableJS drag or up/down buttons); top wins. Backed by a single comma-separated `version_priority` request param. Shared helper lives in `templates/partials/_version_priority_widget_js.html`.
+- **Generalised asset selection**: assets are now picked by sorting on `(format_rank, version_rank, part_number)` where `version_rank = version_priority.index(asset.version)`. This replaces the old hardcoded *preferred → BI → other* rule in both document generation (`app/generator.py`) and the dashboard/viewer preview resolvers (`app/dashboard.py`).
+- **Admin parity**: the edit-question modal renders one tab per version (EN/CH/BI/ENO/CHO), and Batch Delete, Batch IMG generation, Batch MCQ ANS, and the Add-question wizard all expose every version. Ingestion parses the new `_ENO_` / `_CHO_` filename tokens (e.g. `MATC_DSE_2024_P1_Q5_ENO_QUE.png`).
+- **Backward compatible**: old `preferred_language` / `preview_language` / `?lang=` request params, `localStorage.oqb_previewLanguage`, and saved generation/filter profiles are still read and converted to the new ordered list (`[preferred, 'BI'] + remaining defaults`) — no profile rewrite or data loss.
+
+### 🗄️ Database Changes
+
+- **`question_assets.language` → `version`**, enum widened from `ENUM('EN','CH','BI')` to `ENUM('EN','CH','BI','ENO','CHO')`. Run `python migrate_versions.py` (idempotent `CHANGE COLUMN`, auto-carries the `uq_asset_identity` unique index to the renamed column). Existing deployments also auto-upgrade on startup via an idempotent INFORMATION_SCHEMA check in `app/__init__.py`, so the manual script is a safety net rather than a hard requirement.
+
 #### Manual block reordering (Topic / Subtopic / Chapter / Subchapter)
 
 When the sort includes any grouping field (Topic, Subtopic, Chapter, or Subchapter), a new **Reorder blocks** button appears in the dashboard **Sort By** panel and on the Generate page's **Auto Sort** panel. It opens a modal listing every distinct block (e.g. `Algebra › AAAA`, with a question-count badge) that the user can drag into a **free, flat custom order** — blocks may move anywhere, even across topics. Within each block, questions keep sorting by the remaining lower-priority fields (e.g. Level).

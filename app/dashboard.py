@@ -7,7 +7,8 @@ from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
-                       enumerate_sort_groups, GROUPING_FIELDS)
+                       enumerate_sort_groups, GROUPING_FIELDS,
+                       parse_version_priority, VERSIONS, DEFAULT_VERSION_PRIORITY)
 from app import md_render
 import os
 import re
@@ -240,7 +241,13 @@ def filter_questions():
                 continue
     page = int(request.args.get('page', 1))
     page_size = request.args.get('page_size') or request.form.get('page_size')
-    preview_language = request.args.get('preview_language') or request.form.get('preview_language') or 'EN'
+    # Ordered version priority (highest first). Accepts the new
+    # `version_priority` comma list; falls back to the legacy single-value
+    # `preview_language` for older clients / saved state.
+    version_priority = parse_version_priority(
+        request.args.get('version_priority') or request.form.get('version_priority'),
+        legacy_preferred=(request.args.get('preview_language') or request.form.get('preview_language')),
+    )
     
     # Handle page size - default to config value or 20
     try:
@@ -317,48 +324,40 @@ def filter_questions():
     total_pages = (total + per_page - 1) // per_page
     
     # Prepare question data with assets
-    # Build language ordering: preferred > BI > other
-    if preview_language == 'CH':
-        lang_order = case(
-            (QuestionAsset.language == 'CH', 1),
-            (QuestionAsset.language == 'BI', 2),
-            (QuestionAsset.language == 'EN', 3),
-            else_=4
-        )
-    else:  # EN (default)
-        lang_order = case(
-            (QuestionAsset.language == 'EN', 1),
-            (QuestionAsset.language == 'BI', 2),
-            (QuestionAsset.language == 'CH', 3),
-            else_=4
-        )
+    # Build version ordering from the priority list (highest priority first).
+    version_order = case(
+        *[(QuestionAsset.version == v, i) for i, v in enumerate(version_priority)],
+        else_=len(version_priority),
+    )
     
     question_data = []
     for q in questions:
-        # Get all QUE assets with language preference ordering, ordered by part_number
+        # Get all QUE assets with version preference ordering, ordered by part_number
         que_assets = QuestionAsset.query.filter_by(
             question_id=q.id,
             asset_type='QUE'
         ).filter(
-            QuestionAsset.language.in_(['EN', 'CH', 'BI'])
+            QuestionAsset.version.in_(VERSIONS)
         ).order_by(
-            lang_order,  # Preferred > BI > Other
+            version_order,  # By version priority
             QuestionAsset.part_number  # Then by part number
         ).all()
 
-        # Pick the best language group: take the language of the first result
-        # then filter to only that language so all parts share the same language.
-        # Within that language pick the best format (IMG > MD > DOC) so the
+        # Pick the best version group: take the version of the first result
+        # then filter to only that version so all parts share the same version.
+        # Within that version pick the best format (IMG > MD > DOC) so the
         # dashboard card knows which preview mode to render.
         que_asset_ids = []
         preview_mode = None  # 'image' | 'html' | 'thumbnail' | 'download' | None
         preview_format = None  # 'IMG' | 'MD' | 'DOC'
+        preview_version = None  # the resolved winning version code
         preview_doc_asset_id = None  # set when preview_mode in ('thumbnail', 'download')
         preview_doc_filename = None
         preview_doc_file_path = None
         if que_assets:
-            best_lang = que_assets[0].language
-            same_lang = [a for a in que_assets if a.language == best_lang]
+            best_lang = que_assets[0].version
+            preview_version = best_lang
+            same_lang = [a for a in que_assets if a.version == best_lang]
             # IMG=0, MD=1, DOC=2 (mirror dashboard._PREVIEW_FORMAT_ORDER)
             fmt_rank = {'IMG': 0, 'MD': 1, 'DOC': 2}
             same_lang.sort(key=lambda a: (fmt_rank.get(a.file_format, 99),
@@ -427,6 +426,7 @@ def filter_questions():
             'que_asset_ids': que_asset_ids,
             'preview_mode': preview_mode,
             'preview_format': preview_format,
+            'preview_version': preview_version,
             'preview_doc_asset_id': preview_doc_asset_id,
             'preview_doc_filename': preview_doc_filename,
             'preview_doc_file_path': preview_doc_file_path,
@@ -697,7 +697,7 @@ def get_asset(asset_id):
         'id': asset.id,
         'type': asset.asset_type,
         'format': asset.file_format,
-        'language': asset.language,
+        'version': asset.version,
         'url': file_url
     })
 
@@ -722,16 +722,16 @@ def get_question_asset(question_id, asset_type):
         question_id=question_id,
         asset_type=asset_type
     ).order_by(
-        QuestionAsset.language.desc(),  # Prefer EN
+        QuestionAsset.version.desc(),  # Prefer EN
         QuestionAsset.part_number
     ).all()
     
     if not assets:
         return jsonify({'error': 'Asset not found'}), 404
     
-    # Pick the best language group (language of first result after ordering)
-    best_lang = assets[0].language
-    selected = [a for a in assets if a.language == best_lang]
+    # Pick the best version group (version of first result after ordering)
+    best_ver = assets[0].version
+    selected = [a for a in assets if a.version == best_ver]
     
     parts = []
     for asset in selected:
@@ -739,7 +739,7 @@ def get_question_asset(question_id, asset_type):
             'id': asset.id,
             'type': asset.asset_type,
             'format': asset.file_format,
-            'language': asset.language,
+            'version': asset.version,
             'part_number': asset.part_number,
             'url': f"/dashboard/files/{asset.file_path}"
         })
@@ -750,7 +750,7 @@ def get_question_asset(question_id, asset_type):
         'id': parts[0]['id'],
         'type': parts[0]['type'],
         'format': parts[0]['format'],
-        'language': parts[0]['language'],
+        'version': parts[0]['version'],
         'url': parts[0]['url']
     })
 
@@ -761,13 +761,13 @@ def get_question_asset(question_id, asset_type):
 _PREVIEW_FORMAT_ORDER = {'IMG': 0, 'MD': 1, 'DOC': 2}
 
 
-def _resolve_preview_assets(question_id, asset_type, language_pref):
+def _resolve_preview_assets(question_id, asset_type, version_priority):
     """
     Pick the best asset group for a question's asset_type.
 
-    Order: language preference (preferred -> BI -> other), then format
-    (IMG > MD > DOC). All parts in the winning (language, format) group are
-    returned in part_number order.
+    Order: version priority (the ordered list, highest priority first), then
+    format (IMG > MD > DOC). All parts in the winning (version, format) group
+    are returned in part_number order.
     """
     assets = QuestionAsset.query.filter_by(
         question_id=question_id, asset_type=asset_type
@@ -775,22 +775,20 @@ def _resolve_preview_assets(question_id, asset_type, language_pref):
     if not assets:
         return None, None, []
 
-    def lang_rank(a):
-        if a.language == language_pref:
-            return 0
-        if a.language == 'BI':
-            return 1
-        return 2
+    ver_rank_map = {v: i for i, v in enumerate(version_priority)}
+
+    def ver_rank(a):
+        return ver_rank_map.get(a.version, len(version_priority))
 
     def fmt_rank(a):
         return _PREVIEW_FORMAT_ORDER.get(a.file_format, 99)
 
-    assets.sort(key=lambda a: (lang_rank(a), fmt_rank(a), a.part_number))
+    assets.sort(key=lambda a: (ver_rank(a), fmt_rank(a), a.part_number))
     best = assets[0]
     selected = [a for a in assets
-                if a.language == best.language and a.file_format == best.file_format]
+                if a.version == best.version and a.file_format == best.file_format]
     selected.sort(key=lambda a: a.part_number)
-    return best.language, best.file_format, selected
+    return best.version, best.file_format, selected
 
 
 @dashboard_bp.route('/api/question/<int:question_id>/preview/<asset_type>')
@@ -799,26 +797,30 @@ def get_question_preview(question_id, asset_type):
     """
     Unified preview resolver. Returns one of four shapes:
 
-      {mode: 'image',     format: 'IMG', language, parts: [{url, part_number, id}]}
-      {mode: 'html',      format: 'MD',  language, html, asset_id, url}
-      {mode: 'thumbnail', format: 'DOC', language, thumbnail_url, download_url, filename, asset_id}
-      {mode: 'download',  format: 'DOC', language, url, filename, asset_id}
+      {mode: 'image',     format: 'IMG', version, parts: [{url, part_number, id}]}
+      {mode: 'html',      format: 'MD',  version, html, asset_id, url}
+      {mode: 'thumbnail', format: 'DOC', version, thumbnail_url, download_url, filename, asset_id}
+      {mode: 'download',  format: 'DOC', version, url, filename, asset_id}
 
     DOC assets prefer 'thumbnail' mode when a cached PNG exists on disk (the
     server-rendered first page); 'download' is the fallback when the
     thumbnail isn't ready yet or Word COM is unavailable.
+
+    Accepts `?version_priority=EN,CH,BI,ENO,CHO` (ordered, highest first).
+    Legacy `?lang=EN` is still honoured as a fallback preferred version.
 
     Plus `{error: ...}` with 404 when no matching asset exists.
     """
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'Invalid asset_type'}), 400
 
-    lang_pref = (request.args.get('lang') or 'EN').upper()
-    if lang_pref not in ('EN', 'CH', 'BI'):
-        lang_pref = 'EN'
+    version_priority = parse_version_priority(
+        request.args.get('version_priority'),
+        legacy_preferred=request.args.get('lang'),
+    )
 
-    language, file_format, selected = _resolve_preview_assets(
-        question_id, asset_type, lang_pref
+    version, file_format, selected = _resolve_preview_assets(
+        question_id, asset_type, version_priority
     )
     if not selected:
         return jsonify({'error': 'Asset not found'}), 404
@@ -829,7 +831,7 @@ def get_question_preview(question_id, asset_type):
         return jsonify({
             'mode': 'image',
             'format': 'IMG',
-            'language': language,
+            'version': version,
             'parts': [{
                 'id': a.id,
                 'part_number': a.part_number,
@@ -844,7 +846,7 @@ def get_question_preview(question_id, asset_type):
         return jsonify({
             'mode': 'html',
             'format': 'MD',
-            'language': language,
+            'version': version,
             'asset_id': asset.id,
             'html': html,
             'url': f"/dashboard/files/{asset.file_path}",
@@ -860,7 +862,7 @@ def get_question_preview(question_id, asset_type):
         return jsonify({
             'mode': 'thumbnail',
             'format': 'DOC',
-            'language': language,
+            'version': version,
             'asset_id': asset.id,
             'question_id': asset.question_id,
             'thumbnail_url': url_for('dashboard.doc_thumbnail', asset_id=asset.id),
@@ -870,7 +872,7 @@ def get_question_preview(question_id, asset_type):
     return jsonify({
         'mode': 'download',
         'format': 'DOC',
-        'language': language,
+        'version': version,
         'asset_id': asset.id,
         'question_id': asset.question_id,
         'url': download_url,

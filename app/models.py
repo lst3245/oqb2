@@ -245,17 +245,19 @@ class QuestionAsset(db.Model):
     question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False, index=True)
     asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', name='asset_type_enum'), nullable=False)
     file_format = db.Column(db.Enum('IMG', 'DOC', 'MD', name='file_format_enum'), nullable=False)
-    language = db.Column(db.Enum('EN', 'CH', 'BI', name='language_enum'), nullable=False)
+    # Version of the asset (formerly "language"). EN/CH/BI plus the official
+    # public-exam scans ENO/CHO. See app/utils.VERSIONS.
+    version = db.Column(db.Enum('EN', 'CH', 'BI', 'ENO', 'CHO', name='version_enum'), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)  # Relative path (always forward-slash separated)
     part_number = db.Column(db.Integer, nullable=False, default=1)  # For multi-image questions (1, 2, 3...)
     
     __table_args__ = (
-        db.UniqueConstraint('question_id', 'asset_type', 'language', 'file_format', 'part_number',
+        db.UniqueConstraint('question_id', 'asset_type', 'version', 'file_format', 'part_number',
                             name='uq_asset_identity'),
     )
     
     def __repr__(self):
-        return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.language}) part {self.part_number}>'
+        return f'<QuestionAsset {self.question_id} - {self.asset_type} ({self.version}) part {self.part_number}>'
 
 
 class SavedFilter(db.Model):

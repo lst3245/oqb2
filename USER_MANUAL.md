@@ -81,7 +81,7 @@ Use the radio buttons: **DSE**, **CE**, **AL**, or **QB**. DSE/CE/AL are past pa
 | **Level** | 1, 2, 3, or "Not Assigned". Multi-select. |
 | **Question Type** | MC (Multiple Choice), CQ (Conventional), or All. |
 | **QID Search** | Search directly by question ID. See below. |
-| **Preview Language** | Chooses whether to show English or Chinese images on the question cards. |
+| **Version Priority** | A drag-to-reorder list (EN / CH / BI / ENO / CHO; ENO/CHO are official public-exam scans). The card preview shows the highest-priority version available for each question. Drag (or use the up/down arrows) to reorder; the top wins. Your order is remembered in the browser. |
 
 **Step 4 — Click Search**  
 The results panel updates (without a full page reload, powered by HTMX).
@@ -186,7 +186,7 @@ The viewer lets you review questions one by one in a large, clean layout — use
 
 - **← / →** arrow buttons (or keyboard arrow keys) to navigate between questions
 - **QUE / ANS / SOL** toggle buttons to switch what is shown
-- **Language** toggle (EN / CH) to switch the displayed language
+- **Version Priority** drag-to-reorder list (EN / CH / BI / ENO / CHO) in the settings panel — the viewer shows the highest-priority version available
 - Keyboard shortcut: `Q` = question, `A` = answer, `S` = solution
 
 The viewer automatically falls back to ANS if SOL is not available and vice versa.
@@ -238,8 +238,8 @@ When a question has both an image (IMG), a Markdown (MD), and a Word document (D
 
 - For Word-document-heavy questions where MathType / embedded objects matter, move **DOC** to the top.
 
-#### Language
-Choose **English First** or **Chinese First**. Falls back to Bilingual, then the other language.
+#### Version Priority
+A drag-to-reorder list of all versions: **EN** (English), **CH** (Chinese), **BI** (Bilingual), **ENO** (English Official), **CHO** (Chinese Official). For each question, generation uses the highest-priority version available (then the best format within it). Drag — or use the up/down arrows — to reorder; the top wins. ENO/CHO (low-quality official public-exam scans) sit last by default.
 
 #### Spacing
 Set separately for MC and CQ questions:
@@ -373,7 +373,7 @@ Super admins can mark any profile as **Shared** so it appears in every user's dr
 
 ## 9. Saved Generation Presets
 
-Generation presets are reusable templates of the **generation options** (answer mode, spacing, info/section/split fields, language, sort, etc.). They are independent of any specific question selection — load a preset to instantly restore all the options without changing which questions are selected.
+Generation presets are reusable templates of the **generation options** (answer mode, spacing, info/section/split fields, version priority, sort, etc.). They are independent of any specific question selection — load a preset to instantly restore all the options without changing which questions are selected.
 
 Navigate to **My Stuff → Generation Presets** to view and manage your presets.
 
@@ -480,7 +480,7 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 | Images not loading | SOURCE_PATH misconfigured, or file missing | Check with your administrator |
 | Generation "Failed" | File permission issue, missing asset file | Check the error message; contact administrator |
 | QID search returns wrong results | Using wrong mode | Try toggling Strict mode on/off |
-| Viewer shows wrong language | Language toggle | Use the EN/CH toggle in the viewer toolbar |
+| Viewer shows wrong version | Version priority order | Reorder the Version Priority list in the viewer settings panel so your preferred version is on top |
 | Profile doesn't restore correctly | Subject may have changed | Re-apply filters manually and save a new profile |
 
 ---

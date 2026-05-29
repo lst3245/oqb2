@@ -6,7 +6,7 @@ alwaysApply: false
 
 # DOC Source Format
 
-`QuestionAsset.file_format='DOC'` is the high-fidelity format for question content authored in Microsoft Word — MathType OLE objects, embedded images, drawings, native tables, custom fonts. Single-slot only (one `.docx` per `(question × asset_type × language)`).
+`QuestionAsset.file_format='DOC'` is the high-fidelity format for question content authored in Microsoft Word — MathType OLE objects, embedded images, drawings, native tables, custom fonts. Single-slot only (one `.docx` per `(question × asset_type × version)`).
 
 ## End-to-end pipeline
 
@@ -41,7 +41,7 @@ alwaysApply: false
 
 ## Locked decisions
 
-1. **Single-slot**: one DOC per (question, asset_type, language). Multi-part `_2.docx` is not supported. Upload rejects a second DOC into the same slot.
+1. **Single-slot**: one DOC per (question, asset_type, version). Multi-part `_2.docx` is not supported. Upload rejects a second DOC into the same slot.
 2. **Filename**: `<QID>_<LANG>_<ATYPE>.docx` (no `_PART` suffix).
 3. **Merging engine**: Microsoft Word COM via `pywin32`. NOT docxcompose. The reason is MathType OLE fidelity — XML splicing libraries can corrupt OLE references. `Selection.InsertFile` is what Word itself uses when a user does Insert > Text from File, so the merged output looks identical to opening the source by hand.
 4. **Section properties are stripped** from each source DOCX before insertion (`sanitize_docx_for_insertion()`). The master document's A4 + narrow margins + page numbers always win — source files with their own page setup will not leak into the merged output.
@@ -206,7 +206,7 @@ No untrusted content is ever passed to Word. The threat model is similar to the 
 2. **DO NOT** call `merge_doc_into_master` from inside another generation job's Word session — the lock is non-reentrant; you'll deadlock.
 3. **DO NOT** import `pywin32` at the top of any module that needs to run on Linux/macOS — it's gated behind `sys.platform == 'win32'` inside `app/word_com.py` only. You CAN safely `from app import word_com` anywhere; the wrapper raises `WordComUnavailable` from its entry points on non-Windows.
 4. **DO NOT** key thumbnails by `file_path` — use `asset_id`. Question renames update `file_path` but keep `asset_id`, so the cached PNG survives correctly.
-5. **DO NOT** add raw cross-language thumbnail logic — the slot check uses `(question_id, asset_type, language)` to mirror how the preview resolver picks its winner. EN-DOC and CH-IMG can coexist; we only suppress thumbnails when an IMG wins the SAME slot.
+5. **DO NOT** add raw cross-version thumbnail logic — the slot check uses `(question_id, asset_type, version)` to mirror how the preview resolver picks its winner. EN-DOC and CH-IMG can coexist; we only suppress thumbnails when an IMG wins the SAME slot.
 6. **DO NOT** add long `Cache-Control: max-age=...` to the thumbnail endpoint — the rerender button relies on `no-cache, must-revalidate` so the browser revalidates against the file's mtime/ETag. With a long max-age, rerendered thumbnails appear stale until cache expires.
 7. **DO** wait for `db.session.commit()` BEFORE calling any `on_*_asset_*` lifecycle helper. The helpers query the DB and need the new row visible.
 8. **DO** treat `word_com.IS_AVAILABLE` as the single source of truth. The DOC branch in `add_question_content_to_doc`, the thumbnail scheduler, and `_run_word_postprocess_*` all gate on it.

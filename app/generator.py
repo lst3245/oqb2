@@ -27,7 +27,8 @@ from collections import OrderedDict
 logger = logging.getLogger(__name__)
 from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
-from app.utils import natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups, GROUPING_FIELDS
+from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups,
+                       GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY)
 from app import word_com
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
@@ -241,10 +242,18 @@ def viewer():
 @generator_bp.route('/api/viewer_asset/<int:question_id>/<asset_type>')
 @login_required
 def get_viewer_asset(question_id, asset_type):
-    """Get asset URLs for viewer mode with language preference.
+    """Get asset URLs for viewer mode with version preference.
     Returns an array of parts for multi-image questions.
+
+    Accepts `?version_priority=EN,CH,BI,ENO,CHO` (ordered, highest first).
+    The legacy `?lang=EN` param is still honoured as a fallback preferred
+    version when no explicit priority list is supplied.
     """
-    preferred_language = request.args.get('lang', 'EN')
+    version_priority = parse_version_priority(
+        request.args.get('version_priority'),
+        legacy_preferred=request.args.get('lang'),
+    )
+    _VER_RANK = {v: i for i, v in enumerate(version_priority)}
     
     # Get all assets for this question and type
     assets = QuestionAsset.query.filter_by(
@@ -266,25 +275,20 @@ def get_viewer_asset(question_id, asset_type):
     if not assets:
         return jsonify({'error': 'Asset not found', 'asset_type': asset_type}), 404
     
-    # Sort by language preference and format. Priority: IMG > MD > DOC.
-    def lang_order(asset):
-        if asset.language == preferred_language:
-            return 0
-        elif asset.language == 'BI':
-            return 1
-        else:
-            return 2
+    # Sort by version preference and format. Priority: IMG > MD > DOC.
+    def version_order(asset):
+        return _VER_RANK.get(asset.version, len(version_priority))
 
     _FMT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
     def format_order(asset):
         return _FMT_RANK.get(asset.file_format, 99)
 
-    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), version_order(a), a.part_number))
 
-    # Pick the best language+format group, then return all parts for that group
+    # Pick the best version+format group, then return all parts for that group
     best = sorted_assets[0]
     selected = [a for a in sorted_assets
-                if a.file_format == best.file_format and a.language == best.language]
+                if a.file_format == best.file_format and a.version == best.version]
     # Ensure ordered by part_number
     selected.sort(key=lambda a: a.part_number)
 
@@ -294,7 +298,7 @@ def get_viewer_asset(question_id, asset_type):
             'id': a.id,
             'type': a.asset_type,
             'format': a.file_format,
-            'language': a.language,
+            'version': a.version,
             'part_number': a.part_number,
             'url': f"/dashboard/files/{a.file_path}"
         })
@@ -306,7 +310,7 @@ def get_viewer_asset(question_id, asset_type):
         'question_id': question_id,
         'type': parts[0]['type'],
         'format': parts[0]['format'],
-        'language': parts[0]['language'],
+        'version': parts[0]['version'],
         'url': parts[0]['url'],
         'asset_type': asset_type,
     }
@@ -430,7 +434,13 @@ def create_document():
         'subchapter': request.form.get('split_subchapter') == 'on',
     }
     
-    preferred_language = request.form.get('preferred_language', 'EN')
+    # Version priority is an ordered list (highest priority first). Accepts the
+    # new `version_priority` field and falls back to the legacy single-value
+    # `preferred_language` for older clients / saved presets.
+    version_priority = parse_version_priority(
+        request.form.get('version_priority'),
+        legacy_preferred=request.form.get('preferred_language'),
+    )
     answer_preference = request.form.get('answer_preference', 'image_first')
     format_priority = _parse_format_priority(request.form.get('format_priority', ''))
 
@@ -471,7 +481,7 @@ def create_document():
         'denote_cross_topic': denote_cross_topic,
         'info_fields': info_fields, 'section_fields': section_fields,
         'split_fields': split_fields,
-        'preferred_language': preferred_language,
+        'version_priority': ','.join(version_priority),
         'answer_preference': answer_preference,
         'format_priority': ','.join(format_priority),
         'output_format': output_format,
@@ -536,7 +546,7 @@ def create_document():
         target=_generate_in_background,
         args=(app, gen_file_id, question_ids, sort_mode, sort_config_str,
               answer_mode, spacing_config, show_qid, show_qid_answer,
-              preferred_language, show_correct_pct, answer_preference,
+              version_priority, show_correct_pct, answer_preference,
               show_seq_no, seq_start, show_page_no, keep_together,
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
@@ -550,7 +560,7 @@ def create_document():
 
 def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_config_str,
                             answer_mode, spacing_config, show_qid, show_qid_answer,
-                            preferred_language, show_correct_pct, answer_preference,
+                            version_priority, show_correct_pct, answer_preference,
                             show_seq_no, seq_start, show_page_no, keep_together,
                             apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename,
@@ -622,7 +632,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     for group_label, group_questions in groups.items():
                         doc, group_insertions = create_word_document(
                             group_questions, answer_mode, spacing_config,
-                            show_qid, show_qid_answer, preferred_language,
+                            show_qid, show_qid_answer, version_priority,
                             show_correct_pct, answer_preference,
                             show_seq_no, seq_start, show_page_no, keep_together,
                             info_fields, section_fields,
@@ -667,7 +677,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                 # Single document
                 doc, doc_insertions = create_word_document(
                     questions, answer_mode, spacing_config,
-                    show_qid, show_qid_answer, preferred_language,
+                    show_qid, show_qid_answer, version_priority,
                     show_correct_pct, answer_preference,
                     show_seq_no, seq_start, show_page_no, keep_together,
                     info_fields, section_fields,
@@ -1359,7 +1369,7 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         Composer(master_doc).append(fragment)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None):
     """
     Create Word document with questions.
 
@@ -1380,7 +1390,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines
         show_qid: Show question ID for questions
         show_qid_answer: Show question ID for answers/solutions
-        preferred_language: 'EN' or 'CH' - order: preferred > BI > other
+        version_priority: ordered list of version codes (highest priority first),
+            e.g. ['EN','CH','BI','ENO','CHO']. None => DEFAULT_VERSION_PRIORITY.
         show_correct_pct: Show correct percentage with question ID (format: "QID [X%]")
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
         show_seq_no: Show sequential question number (1. 2. 3. ...)
@@ -1401,6 +1412,14 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     """
     if not format_priority:
         format_priority = list(_DEFAULT_FORMAT_PRIORITY)
+    # Normalise version_priority into a full ordered list (accepts list, comma
+    # string, or None).
+    if isinstance(version_priority, str):
+        version_priority = parse_version_priority(version_priority)
+    elif version_priority:
+        version_priority = parse_version_priority(','.join(version_priority))
+    else:
+        version_priority = list(DEFAULT_VERSION_PRIORITY)
     if info_fields is None:
         info_fields = {}
     if section_fields is None:
@@ -1465,7 +1484,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all answers - always start on new page
@@ -1478,7 +1497,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
@@ -1492,7 +1511,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
         
         # Then add all solutions - always start on new page
@@ -1505,7 +1524,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, version_priority, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
@@ -1519,25 +1538,26 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, preferred_language, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
             
             # Add answer/solution if requested (no extra spacing between Q and A/S)
             if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, preferred_language, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
             elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, preferred_language, show_correct_pct, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
+                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, version_priority, show_correct_pct, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
             
             last_had_page_break = add_after_spacing(doc, spacing)
     
     return doc, doc_insertions
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, preferred_language='EN', show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None, doc_insertions=None):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, version_priority=None, show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None, doc_insertions=None):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
     
     Args:
-        preferred_language: 'EN' or 'CH' - order: preferred > BI > other
+        version_priority: ordered list of version codes (highest priority first);
+            None => DEFAULT_VERSION_PRIORITY. Picks the best (format, version) group.
         show_correct_pct: Show correct percentage (format: "QID [X%]" or just "[X%]" if no QID)
                           Only shown for QUE type, not for ANS or SOL
         answer_preference: 'image_first' or 'text_first' - for ANS content, prefer image or text
@@ -1556,6 +1576,14 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     """
     if info_fields is None:
         info_fields = {}
+    # Normalise version_priority into a full ordered list (accepts list / comma
+    # string / None) so direct callers and create_word_document both work.
+    if isinstance(version_priority, str):
+        version_priority = parse_version_priority(version_priority)
+    elif version_priority:
+        version_priority = parse_version_priority(','.join(version_priority))
+    else:
+        version_priority = list(DEFAULT_VERSION_PRIORITY)
     
     # Build heading: "{seq_no}. {QID} [{pct}%]" — each part optional
     has_seq = seq_no is not None
@@ -1656,15 +1684,11 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         run.italic = True
         return
     
-    # Sort assets by language preference and format
-    # Language order: preferred > BI > other
-    def lang_order(asset):
-        if asset.language == preferred_language:
-            return 0
-        elif asset.language == 'BI':
-            return 1
-        else:
-            return 2
+    # Sort assets by version preference and format.
+    # Version order: caller-supplied priority list (highest priority first).
+    _VER_RANK = {v: i for i, v in enumerate(version_priority)}
+    def version_order(asset):
+        return _VER_RANK.get(asset.version, len(version_priority))
 
     # Format order: caller-supplied priority (default IMG > MD > DOC).
     _fp = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
@@ -1672,8 +1696,8 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
     def format_order(asset):
         return _FMT_RANK.get(asset.file_format, 99)
 
-    # Sort by format first (per priority), then by language, then by part_number
-    sorted_assets = sorted(assets, key=lambda a: (format_order(a), lang_order(a), a.part_number))
+    # Sort by format first (per priority), then by version, then by part_number
+    sorted_assets = sorted(assets, key=lambda a: (format_order(a), version_order(a), a.part_number))
 
     if not sorted_assets:
         # No asset found, add placeholder
@@ -1682,10 +1706,10 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         run.italic = True
         return
 
-    # Pick the best language+format group, then include all parts for that group
+    # Pick the best version+format group, then include all parts for that group
     best = sorted_assets[0]
     selected_assets = [a for a in sorted_assets
-                       if a.file_format == best.file_format and a.language == best.language]
+                       if a.file_format == best.file_format and a.version == best.version]
     selected_assets.sort(key=lambda a: a.part_number)
 
     # Add all selected assets to the document

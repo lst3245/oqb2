@@ -235,10 +235,10 @@ Many-to-many via association tables:
 | `question_id` | INT FK → questions | Cascade delete |
 | `asset_type` | ENUM | `QUE`, `ANS`, `SOL` |
 | `file_format` | ENUM | `IMG`, `DOC`, `MD` (MD is single-part only) |
-| `language` | ENUM | `EN`, `CH`, `BI` |
+| `version` | ENUM | `EN`, `CH`, `BI`, `ENO`, `CHO` (formerly `language`; ENO/CHO = official public-exam scans). See `app/utils.VERSIONS` |
 | `file_path` | VARCHAR(500) | Relative to SOURCE_PATH, always forward slashes |
 | `part_number` | INT | ≥ 1; for multi-image questions |
-Unique constraint: `(question_id, asset_type, language, file_format, part_number)`
+Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
 
 #### `saved_filters`
 | Column | Type | Notes |
@@ -376,7 +376,7 @@ user.get_admin_subjects()             # [subject_id, ...]
 | `/api/asset/<asset_id>` | GET | Asset info |
 | `/api/asset_preview/<asset_id>` | GET | Serve asset file for preview |
 | `/api/question/<id>/assets/<type>` | GET | All asset parts for a question + type (legacy; image-centric) |
-| `/api/question/<id>/preview/<type>?lang=EN` | GET | **Unified preview resolver** for IMG / MD / DOC. Returns `{mode, format, language, ...}` |
+| `/api/question/<id>/preview/<type>?version_priority=EN,CH,BI,ENO,CHO` | GET | **Unified preview resolver** for IMG / MD / DOC (legacy `?lang=EN` accepted). Returns `{mode, format, version, ...}` |
 | `/files/<path>` | GET | Serve source asset file (authenticated) |
 
 **Key notes on `filter_questions()`:**
@@ -473,8 +473,8 @@ GET  /dashboard/api/sections/<subject_id>/<source>
 GET  /dashboard/api/asset/<asset_id>
 GET  /dashboard/api/asset_preview/<asset_id>
 GET  /dashboard/api/question/<id>/assets/<type>
-GET  /dashboard/api/question/<id>/preview/<type>?lang=EN
-     → {mode: 'image'|'html'|'download', format, language, parts/html/url, ...}
+GET  /dashboard/api/question/<id>/preview/<type>?version_priority=EN,CH,BI,ENO,CHO  (legacy ?lang=EN accepted)
+     → {mode: 'image'|'html'|'download', format, version, parts/html/url, ...}
 ```
 
 ### Generation API
@@ -482,8 +482,8 @@ GET  /dashboard/api/question/<id>/preview/<type>?lang=EN
 POST /generate/create           → {id, status, filename}
 GET  /generate/status/<id>      → {id, status, error_message, display_name, filename}
 GET  /generate/download/<id>    → file download
-GET  /generate/api/viewer_asset/<question_id>/<type>?lang=EN
-     → {parts: [{id, type, format, language, part_number, url}], id, type, format, language, url}
+GET  /generate/api/viewer_asset/<question_id>/<type>?version_priority=EN,CH,BI,ENO,CHO  (legacy ?lang=EN accepted)
+     → {parts: [{id, type, format, version, part_number, url}], id, type, format, version, url}
 ```
 
 ### Admin API (selected)
@@ -513,9 +513,10 @@ See `app/ingestor.py` and `.cursor/rules/file-ingestion.mdc` for full details.
 
 ### Filename Patterns
 ```
-PP:  SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
-QB:  SUBJ_QB_DETAIL_QNO_LANG_TYPE[_PART].EXT
+PP:  SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
+QB:  SUBJ_QB_DETAIL_QNO_VERSION_TYPE[_PART].EXT
 ```
+`VERSION` ∈ `EN` / `CH` / `BI` / `ENO` / `CHO` (regex lists `ENO|CHO` before `EN|CH`).
 
 ### Folder Structure
 ```

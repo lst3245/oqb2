@@ -1048,13 +1048,11 @@
         </div>
         
         <div class="settings-section">
-            <h4>Language</h4>
-            <div class="btn-group btn-group-setting w-100" role="group">
-                <input type="radio" class="btn-check" name="langPref" id="langEN" checked onchange="setLanguage('EN')">
-                <label class="btn btn-outline-primary" for="langEN">English First</label>
-                <input type="radio" class="btn-check" name="langPref" id="langCH" onchange="setLanguage('CH')">
-                <label class="btn btn-outline-primary" for="langCH">Chinese First</label>
-            </div>
+            <h4>Version Priority</h4>
+            <div id="versionPriorityWidget"></div>
+            <input type="hidden" id="versionPriorityInput"
+                   value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
+            <small class="text-muted d-block mt-2">Drag to reorder · top wins</small>
         </div>
         
         <div class="settings-section">
@@ -1236,6 +1234,18 @@
     
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- SortableJS (drag-to-reorder version priority widget) -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+    <!-- Canonical version list (viewer.html does not extend base.html) -->
+    <script>
+        window.OQB_VERSIONS = {{ OQB_VERSIONS | tojson }};
+        window.OQB_VERSION_LABELS = {{ OQB_VERSION_LABELS | tojson }};
+        window.OQB_DEFAULT_VERSION_PRIORITY = {{ OQB_DEFAULT_VERSION_PRIORITY | tojson }};
+    </script>
+    <!-- Shared Version Priority drag-to-reorder widget helper -->
+    {% include 'partials/_version_priority_widget_js.html' %}
     
     <script>
         // ---- Shared Markdown render helpers (mirror of the ones in base.html) ----
@@ -1272,7 +1282,8 @@
         let ansZoom = 100;
         let layout = 'side-by-side';
         let answerPreference = 'SOL';  // 'SOL' or 'ANS'
-        let preferredLanguage = 'EN';
+        // Ordered version priority as a comma list (highest priority first).
+        let preferredLanguage = (window.OQB_DEFAULT_VERSION_PRIORITY || ['EN','CH','BI','ENO','CHO']).join(',');
         let showAnswerText = false;
         let showComment = false;
         
@@ -1298,6 +1309,15 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             initDividerDrag();
+            // Version priority drag widget — seed from the hidden input default.
+            versionPriorityWidget = window.oqbInitVersionPriorityWidget({
+                container: 'versionPriorityWidget',
+                hiddenInput: 'versionPriorityInput',
+                initial: preferredLanguage,
+                onChange: setVersionPriority,
+            });
+            // Keep the working variable in sync with the normalised order.
+            if (versionPriorityWidget) preferredLanguage = versionPriorityWidget.get().join(',');
             // Detect mobile first (this will set layout and calculate base width)
             detectMobileLayout();
             // If not mobile, calculate base width for default side-by-side layout
@@ -1392,7 +1412,7 @@
             `;
             
             try {
-                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${type}?lang=${preferredLanguage}`);
+                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${type}?version_priority=${encodeURIComponent(preferredLanguage)}`);
                 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -1491,7 +1511,7 @@
             
             try {
                 // The API already handles fallback
-                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${primaryType}?lang=${preferredLanguage}`);
+                const response = await fetch(`/generate/api/viewer_asset/${questionId}/${primaryType}?version_priority=${encodeURIComponent(preferredLanguage)}`);
                 
                 if (!response.ok) {
                     throw new Error('Not found');
@@ -1731,11 +1751,11 @@
             }
         }
         
-        // Language preference
-        function setLanguage(lang) {
-            preferredLanguage = lang;
-            
-            // Reload current question
+        // Version priority drag widget (reorder => reload current question).
+        let versionPriorityWidget = null;
+        function setVersionPriority(order) {
+            preferredLanguage = (order && order.length) ? order.join(',') : preferredLanguage;
+            // Reload current question with the new priority
             if (questionsData.length > 0) {
                 loadQuestion(currentIndex);
             }

@@ -48,6 +48,18 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(generator_bp)
     app.register_blueprint(user_bp)
+
+    # Expose the canonical asset-version list to every template (including
+    # viewer.html, which does not extend base.html). Templates build their
+    # version UIs from these instead of re-hardcoding EN/CH/BI/ENO/CHO.
+    @app.context_processor
+    def _inject_versions():
+        from app.utils import VERSIONS, VERSION_LABELS, DEFAULT_VERSION_PRIORITY
+        return {
+            'OQB_VERSIONS': VERSIONS,
+            'OQB_VERSION_LABELS': VERSION_LABELS,
+            'OQB_DEFAULT_VERSION_PRIORITY': DEFAULT_VERSION_PRIORITY,
+        }
     
     # Create output directory if it doesn't exist
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
@@ -113,6 +125,38 @@ def create_app():
                     ))
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
+        # Rename question_assets.language -> version and widen the enum to
+        # include ENO / CHO. Same idempotent INFORMATION_SCHEMA pattern as
+        # above so existing deployments upgrade without running
+        # migrate_versions.py by hand. CHANGE COLUMN carries the unique index
+        # over to the new column name automatically.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                row = conn.execute(text(
+                    "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_assets' "
+                    "AND COLUMN_NAME = 'language'"
+                )).first()
+                if row is not None:
+                    conn.execute(text(
+                        "ALTER TABLE question_assets CHANGE COLUMN language version "
+                        "ENUM('EN','CH','BI','ENO','CHO') NOT NULL"
+                    ))
+                else:
+                    vrow = conn.execute(text(
+                        "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_assets' "
+                        "AND COLUMN_NAME = 'version'"
+                    )).first()
+                    if vrow is not None and "'ENO'" not in (vrow[0] or '').upper():
+                        conn.execute(text(
+                            "ALTER TABLE question_assets MODIFY COLUMN version "
+                            "ENUM('EN','CH','BI','ENO','CHO') NOT NULL"
+                        ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; migrate_versions.py covers it
 
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing

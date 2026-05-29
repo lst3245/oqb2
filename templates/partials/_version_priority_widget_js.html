@@ -1,0 +1,110 @@
+<!--
+  Shared "Version Priority" drag-to-reorder widget helper.
+
+  Included by base.html (so every base-extending page gets it) and by
+  viewer.html (which does NOT extend base.html). Defines:
+    * window.oqbNormalizeVersionPriority(list) -> full ordered list
+    * window.oqbInitVersionPriorityWidget({container, hiddenInput, initial, onChange})
+
+  Requires SortableJS (window.Sortable) for drag; up/down buttons work
+  without it. Reads window.OQB_VERSIONS / window.OQB_VERSION_LABELS.
+  Guarded so including it twice is a no-op.
+-->
+<script>
+    if (!window.oqbInitVersionPriorityWidget) {
+        window.oqbNormalizeVersionPriority = function(list) {
+            const valid = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+            const out = [];
+            (Array.isArray(list) ? list : String(list || '').split(','))
+                .forEach(v => {
+                    v = String(v).trim().toUpperCase();
+                    if (valid.includes(v) && !out.includes(v)) out.push(v);
+                });
+            valid.forEach(v => { if (!out.includes(v)) out.push(v); });
+            return out;
+        };
+
+        window.oqbInitVersionPriorityWidget = function(opts) {
+            opts = opts || {};
+            const container = (typeof opts.container === 'string')
+                ? document.getElementById(opts.container) : opts.container;
+            const hidden = (typeof opts.hiddenInput === 'string')
+                ? document.getElementById(opts.hiddenInput) : opts.hiddenInput;
+            if (!container) return null;
+            const labels = window.OQB_VERSION_LABELS || {};
+            let order = window.oqbNormalizeVersionPriority(
+                opts.initial || (hidden && hidden.value ? hidden.value : null)
+            );
+
+            function sync(fireChange) {
+                if (hidden) hidden.value = order.join(',');
+                if (fireChange && typeof opts.onChange === 'function') opts.onChange(order.slice());
+            }
+            function move(idx, dir) {
+                const j = idx + (dir === 'up' ? -1 : 1);
+                if (j < 0 || j >= order.length) return;
+                [order[idx], order[j]] = [order[j], order[idx]];
+                render();
+                sync(true);
+            }
+            function render() {
+                container.innerHTML = '';
+                order.forEach((v, i) => {
+                    const item = document.createElement('div');
+                    item.className = 'oqb-version-item badge bg-light text-dark border ' +
+                        'd-flex align-items-center gap-1 py-1 px-2 mb-1';
+                    item.dataset.version = v;
+                    item.style.cursor = 'grab';
+                    item.style.fontWeight = '500';
+                    item.innerHTML =
+                        '<i class="bi bi-grip-vertical text-muted"></i>' +
+                        '<span class="text-muted oqb-vp-num">' + (i + 1) + '.</span>' +
+                        '<span class="flex-grow-1 text-start">' + (labels[v] || v) +
+                          ' <span class="text-muted small">(' + v + ')</span></span>';
+                    const up = document.createElement('button');
+                    up.type = 'button';
+                    up.className = 'btn btn-sm p-0 ' + (i === 0 ? 'text-muted' : 'text-primary');
+                    up.title = 'Move up';
+                    up.style.lineHeight = '1';
+                    if (i === 0) up.disabled = true;
+                    up.innerHTML = '<i class="bi bi-caret-up-fill"></i>';
+                    up.addEventListener('click', () => move(i, 'up'));
+                    const down = document.createElement('button');
+                    down.type = 'button';
+                    down.className = 'btn btn-sm p-0 ' + (i === order.length - 1 ? 'text-muted' : 'text-primary');
+                    down.title = 'Move down';
+                    down.style.lineHeight = '1';
+                    if (i === order.length - 1) down.disabled = true;
+                    down.innerHTML = '<i class="bi bi-caret-down-fill"></i>';
+                    down.addEventListener('click', () => move(i, 'down'));
+                    item.appendChild(up);
+                    item.appendChild(down);
+                    container.appendChild(item);
+                });
+            }
+            render();
+            sync(false);
+            if (window.Sortable) {
+                new window.Sortable(container, {
+                    animation: 150,
+                    handle: '.oqb-version-item',
+                    draggable: '.oqb-version-item',
+                    onEnd: function() {
+                        order = Array.from(container.querySelectorAll('.oqb-version-item'))
+                            .map(el => el.dataset.version);
+                        render();
+                        sync(true);
+                    }
+                });
+            }
+            return {
+                get: () => order.slice(),
+                set: (list, fireChange) => {
+                    order = window.oqbNormalizeVersionPriority(list);
+                    render();
+                    sync(!!fireChange);
+                }
+            };
+        };
+    }
+</script>

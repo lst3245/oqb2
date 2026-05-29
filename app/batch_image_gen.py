@@ -1,7 +1,7 @@
 """
 Batch image generation from DOC / MD source assets.
 
-Renders each selected (question × asset_type × language × source-format)
+Renders each selected (question × asset_type × version × source-format)
 slot to one or more PNGs using the same Word COM pipeline as DOC thumbnails,
 then replaces the existing IMG assets for that slot. Supports two output
 modes: stitch every source page into one tall PNG, or one PNG per page
@@ -207,7 +207,7 @@ def stitch_vertically(images: list, transparent: bool = False) -> 'Image.Image':
 # DB / disk replacement
 # ---------------------------------------------------------------------------
 
-def _build_img_rel_path(question: Question, asset_type: str, language: str,
+def _build_img_rel_path(question: Question, asset_type: str, version: str,
                         part_number: int) -> str:
     """Construct the canonical relative file path for an IMG asset.
 
@@ -218,7 +218,7 @@ def _build_img_rel_path(question: Question, asset_type: str, language: str,
     from app.admin import _extract_qb_detail
 
     part_suffix = f'_{part_number}' if part_number > 1 else ''
-    filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.png"
+    filename = f"{question.qid}_{version}_{asset_type}{part_suffix}.png"
 
     if question.source in ('DSE', 'CE', 'AL'):
         folder = '/'.join([question.subject, 'PP', question.source,
@@ -230,10 +230,10 @@ def _build_img_rel_path(question: Question, asset_type: str, language: str,
     return f"{folder}/{filename}"
 
 
-def replace_img_assets(question: Question, asset_type: str, language: str,
+def replace_img_assets(question: Question, asset_type: str, version: str,
                        pages: list, stitch: bool, source_path: str) -> dict:
     """
-    Atomically replace every IMG asset for `(question, asset_type, language)`
+    Atomically replace every IMG asset for `(question, asset_type, version)`
     with the freshly-rendered `pages` (a list of PIL Images).
 
     Strategy:
@@ -262,7 +262,7 @@ def replace_img_assets(question: Question, asset_type: str, language: str,
 
     # Step 1: write temp files alongside their final destinations.
     rel_paths = [
-        _build_img_rel_path(question, asset_type, language, i + 1)
+        _build_img_rel_path(question, asset_type, version, i + 1)
         for i in range(len(out_images))
     ]
     abs_paths = [os.path.join(source_path, *rp.split('/')) for rp in rel_paths]
@@ -277,7 +277,7 @@ def replace_img_assets(question: Question, asset_type: str, language: str,
         existing = QuestionAsset.query.filter_by(
             question_id=question.id,
             asset_type=asset_type,
-            language=language,
+            version=version,
             file_format='IMG',
         ).all()
         deleted_count = 0
@@ -310,7 +310,7 @@ def replace_img_assets(question: Question, asset_type: str, language: str,
                 question_id=question.id,
                 asset_type=asset_type,
                 file_format='IMG',
-                language=language,
+                version=version,
                 file_path=rel_path,
                 part_number=part_number,
             )
@@ -348,11 +348,11 @@ def replace_img_assets(question: Question, asset_type: str, language: str,
 # Source-asset lookup
 # ---------------------------------------------------------------------------
 
-def find_best_source(question: Question, asset_type: str, language: str,
+def find_best_source(question: Question, asset_type: str, version: str,
                      allow_doc: bool, allow_md: bool) -> QuestionAsset | None:
     """
     Return the preferred source asset to render for the slot
-    `(question, asset_type, language)`. Preference: DOC > MD (matches the
+    `(question, asset_type, version)`. Preference: DOC > MD (matches the
     fidelity ranking — DOC preserves MathType, MD goes through pandoc).
 
     Returns None when no usable source exists.
@@ -360,23 +360,23 @@ def find_best_source(question: Question, asset_type: str, language: str,
     if allow_doc:
         doc = QuestionAsset.query.filter_by(
             question_id=question.id, asset_type=asset_type,
-            language=language, file_format='DOC',
+            version=version, file_format='DOC',
         ).first()
         if doc:
             return doc
     if allow_md:
         md = QuestionAsset.query.filter_by(
             question_id=question.id, asset_type=asset_type,
-            language=language, file_format='MD',
+            version=version, file_format='MD',
         ).first()
         if md:
             return md
     return None
 
 
-def slot_has_img(question_id: int, asset_type: str, language: str) -> bool:
+def slot_has_img(question_id: int, asset_type: str, version: str) -> bool:
     """True when at least one IMG asset already exists for the slot."""
     return QuestionAsset.query.filter_by(
         question_id=question_id, asset_type=asset_type,
-        language=language, file_format='IMG',
+        version=version, file_format='IMG',
     ).first() is not None

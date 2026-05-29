@@ -41,7 +41,7 @@ python run.py
 - **Multi-level sorting** — drag to set priority (e.g. Topic → Level → Year)
 - Natural sort (Q1, Q2, Q10 — not Q1, Q10, Q2)
 - Configurable page size (10 / 20 / 50 / 100)
-- Language preference for previews (English / Chinese first)
+- **Version priority** for previews — drag-to-reorder EN / CH / BI / ENO / CHO (top wins)
 - Question cards with image / Markdown / Word preview (Markdown rendered inline with KaTeX math), answer/solution modals, comment display
 - Select questions individually, by page, or all results
 - **Save and restore filter profiles** (named search presets)
@@ -50,7 +50,7 @@ python run.py
 - Generate **Word (`.docx`) or PDF (`.pdf`)** documents from selected questions (PDF via Microsoft Word + `ExportAsFixedFormat`)
 - **5 answer modes**: Questions Only, Q+Answer, Q+Solution, All Qs then Answers, All Qs then Solutions
 - Answer content preference: image-first or text-first fallback
-- Preferred language: English or Chinese (falls back to Bilingual → Other)
+- **Version priority**: drag-to-reorder EN / CH / BI / ENO / CHO (ENO/CHO = official public-exam scans); assets picked by `(format, version)` rank
 - **Native DOCX source merging** via Microsoft Word COM — MathType OLE objects, embedded images, drawings, custom fonts, and native tables come through unchanged. Source page setup is stripped so the master doc's layout always wins.
 - **Reorderable format priority** (IMG / MD / DOC) when a question has multiple representations for the same slot
 - Separate **MC and CQ spacing** — before/after: N lines or new page
@@ -64,7 +64,7 @@ python run.py
 - Denote cross-topic questions with `[Cross Topic: X, Y]` annotation
 - Custom Word styles (OQB Section Heading, OQB Question ID, OQB Question Info, OQB Body Text)
 - **Background generation** — non-blocking; progress tracked in database
-- **Viewer / Presentation Mode** — slide-style question review with language and ANS/SOL toggle (DOC assets show a server-rendered first-page thumbnail)
+- **Viewer / Presentation Mode** — slide-style question review with version-priority and ANS/SOL toggle (DOC assets show a server-rendered first-page thumbnail)
 - Regenerate previous documents with saved options
 
 ### My Files & Saved Profiles
@@ -135,14 +135,15 @@ oqb2/
 
 ### Past Paper
 ```
-SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
+SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
 MATC_DSE_2024_P1_Q5_EN_QUE.png
 MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← part 2 of a multi-image question
+MATC_DSE_2024_P1_Q5_ENO_QUE.png    ← official public-exam scan
 ```
 
 ### Question Bank
 ```
-SUBJ_QB_DETAIL_QNO_LANG_TYPE[_PART].EXT
+SUBJ_QB_DETAIL_QNO_VERSION_TYPE[_PART].EXT
 MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 ```
 
@@ -150,7 +151,7 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 |---|---|
 | SUBJ | `MATC`, `MAT1`, `MAT2`, `ICT`, … |
 | SOURCE | `DSE`, `CE`, `AL` |
-| LANG | `EN` (English), `CH` (Chinese), `BI` (Bilingual) |
+| VERSION | `EN` (English), `CH` (Chinese), `BI` (Bilingual), `ENO` (English Official), `CHO` (Chinese Official) |
 | TYPE | `QUE` (Question), `ANS` (Answer), `SOL` (Solution) |
 | PART | Optional integer ≥ 2 for multi-image questions |
 | EXT | `png`, `jpg`, `jpeg`, `gif`, `bmp`, `doc`, `docx`, `md`, `markdown` |

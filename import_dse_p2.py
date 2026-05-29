@@ -38,7 +38,7 @@ SOURCE_ROOT = Path(r"Q:\Source") / "MATC" / "PP" / "DSE"
 SUBJECT = "MATC"
 SOURCE = "DSE"
 PAPER = "P2"
-LANGUAGE = "EN"  # Default language
+VERSION = "EN"  # Default version (formerly "language")
 
 
 def read_csv_data():
@@ -144,7 +144,7 @@ def copy_and_rename_files(que_files, answers):
         
         # Copy QUE file with new naming convention
         # Format: MATC_DSE_2025_P2_Q5_EN_QUE.png
-        que_target_name = f"{SUBJECT}_{SOURCE}_{year}_{PAPER}_{qno_str}_{LANGUAGE}_QUE.png"
+        que_target_name = f"{SUBJECT}_{SOURCE}_{year}_{PAPER}_{qno_str}_{VERSION}_QUE.png"
         que_target_path = target_dir / que_target_name
         
         try:
@@ -161,7 +161,7 @@ def copy_and_rename_files(que_files, answers):
             if answer_letter in LETTER_IMAGES:
                 letter_img = LETTER_IMAGES[answer_letter]
                 if letter_img.exists():
-                    ans_target_name = f"{SUBJECT}_{SOURCE}_{year}_{PAPER}_{qno_str}_{LANGUAGE}_ANS.png"
+                    ans_target_name = f"{SUBJECT}_{SOURCE}_{year}_{PAPER}_{qno_str}_{VERSION}_ANS.png"
                     ans_target_path = target_dir / ans_target_name
                     
                     try:

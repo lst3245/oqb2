@@ -236,8 +236,9 @@ function loadAssetsForEdit(questionId) {
     fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
         .then(r => r.json())
         .then(data => {
-            ['EN', 'CH', 'BI'].forEach(lang => {
+            (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).forEach(lang => {
                 const container = document.getElementById('lang' + lang);
+                if (!container) return;
                 container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {}, 'edit');
             });
             // Re-render always paints QUE as the visual default. Override it so the user's
@@ -259,7 +260,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
         const doc  = allParts.find(p => p.file_format === 'DOC') || null;
         const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
         const isDefault = sectionIdx === 0; // QUE is default paste target
-        const fullscreenMdNewUrl = `/admin/questions/${questionId}/assets/md/new?language=${lang}&asset_type=${atype}`;
+        const fullscreenMdNewUrl = `/admin/questions/${questionId}/assets/md/new?version=${lang}&asset_type=${atype}`;
 
         html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="${ctx}_assetSection_${lang}_${atype}"
                       onclick="setActivePasteTarget('${lang}', '${atype}', '${ctx}')">
@@ -332,7 +333,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
-                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-lang="${lang}"
+                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-version="${lang}"
                          style="max-height:160px; cursor:pointer;"
                          onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})">
                         <div class="text-muted small fst-italic">Rendering...</div>
@@ -466,7 +467,7 @@ function refreshAssetsView(questionId) {
 
 function uploadAssetFiles(questionId, lang, atype, files) {
     const formData = new FormData();
-    formData.append('language', lang);
+    formData.append('version', lang);
     formData.append('asset_type', atype);
     for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
 
@@ -631,7 +632,7 @@ function doSaveMdEditorModal(force) {
     let url, body;
     if (s.isCreate) {
         url = `/admin/questions/${s.questionId}/assets/md/create`;
-        body = JSON.stringify({ language: s.lang, asset_type: s.atype, content: content });
+        body = JSON.stringify({ version: s.lang, asset_type: s.atype, content: content });
     } else {
         url = `/admin/questions/${s.questionId}/assets/${s.assetId}/md/save`;
         body = JSON.stringify({
@@ -720,7 +721,7 @@ function moveAssetPart(questionId, lang, atype, currentIdx, direction) {
             return fetch(`{{ url_for('admin.reorder_question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`), {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ language: lang, asset_type: atype, asset_ids: ids })
+                body: JSON.stringify({ version: lang, asset_type: atype, asset_ids: ids })
             });
         })
         .then(r => r.json())

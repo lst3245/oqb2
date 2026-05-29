@@ -39,8 +39,9 @@
                     <form id="filterForm" hx-post="{{ url_for('dashboard.filter_questions') }}" 
                           hx-target="#questionList" hx-indicator="#loading">
                         
-                        <!-- Hidden field for preview language preference -->
-                        <input type="hidden" name="preview_language" id="previewLanguageInput" value="EN">
+                        <!-- Hidden field for version priority preference (comma list) -->
+                        <input type="hidden" name="version_priority" id="versionPriorityInput"
+                               value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
                         
                         <!-- Subject -->
                         <div class="mb-3">
@@ -427,7 +428,7 @@
                                     id="viewSettingsBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                                 <i class="bi bi-eye"></i> <span class="btn-text">View</span>
                             </button>
-                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px;">
+                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px; max-height: 80vh; max-height: 80dvh; overflow-y: auto; overflow-x: hidden;">
                                 <!-- Show Selected Only -->
                                 <div class="dropdown-header">Display Filter</div>
                                 <div class="form-check form-switch mb-2" style="padding-left: 2.5em;">
@@ -480,13 +481,10 @@
                                     <label class="form-check-label" for="viewSubchapter">Subchapter</label>
                                 </div>
                                 <div class="dropdown-divider"></div>
-                                <div class="dropdown-header">Preview Language</div>
-                                <div class="px-1">
-                                    <select class="form-select form-select-sm" id="previewLanguage" onchange="onPreviewLanguageChange()">
-                                        <option value="EN" selected>English First</option>
-                                        <option value="CH">Chinese First</option>
-                                    </select>
-                                    <small class="text-muted d-block mt-1">Order: Preferred → Bilingual → Other</small>
+                                <div class="dropdown-header">Version Priority</div>
+                                <div class="px-2 pb-1" onclick="event.stopPropagation();">
+                                    <div id="versionPriorityWidget"></div>
+                                    <small class="text-muted d-block mt-1">Drag to reorder · top wins</small>
                                 </div>
                             </div>
                         </div>
@@ -1162,7 +1160,8 @@ const STORAGE_KEYS = {
     SORT_CONFIG: 'oqb_sortConfig',
     SORT_GROUP_ORDER: 'oqb_sortGroupOrder',
     VIEW_SETTINGS: 'oqb_viewSettings',
-    PREVIEW_LANGUAGE: 'oqb_previewLanguage',
+    PREVIEW_LANGUAGE: 'oqb_previewLanguage',  // legacy (single value EN/CH) — read for fallback
+    VERSION_PRIORITY: 'oqb_versionPriority',  // comma list, highest priority first
     PAGE_SIZE: 'oqb_pageSize',
     SHOW_SELECTED_ONLY: 'oqb_showSelectedOnly',
     SHOW_HIDDEN_SUBTOPICS: 'oqb_showHiddenSubtopics',
@@ -1224,50 +1223,44 @@ function initViewSettings() {
         checkbox.addEventListener('change', onViewSettingChange);
     });
     
-    // Load saved preview language or use default (EN)
-    const savedLanguage = localStorage.getItem(STORAGE_KEYS.PREVIEW_LANGUAGE) || 'EN';
-    const langSelect = document.getElementById('previewLanguage');
-    if (langSelect) {
-        langSelect.value = savedLanguage;
+    // Initialise the version-priority drag widget. Seed from the new
+    // localStorage key, falling back to the legacy single-value
+    // preview-language key (EN/CH) for users upgrading from the old UI.
+    let initialPriority = localStorage.getItem(STORAGE_KEYS.VERSION_PRIORITY);
+    if (!initialPriority) {
+        const legacy = localStorage.getItem(STORAGE_KEYS.PREVIEW_LANGUAGE);
+        // Legacy 'CH' => CH first; anything else => default order.
+        initialPriority = (legacy === 'CH') ? 'CH,BI,EN,ENO,CHO' : '';
     }
-    // Also update hidden input
-    updatePreviewLanguageInput();
+    versionPriorityWidget = window.oqbInitVersionPriorityWidget({
+        container: 'versionPriorityWidget',
+        hiddenInput: 'versionPriorityInput',
+        initial: initialPriority,
+        onChange: onVersionPriorityChange,
+    });
     
     // Apply initial visibility
     applyViewSettings();
 }
 
-// Handle preview language change
-function onPreviewLanguageChange() {
-    const langSelect = document.getElementById('previewLanguage');
-    const newLanguage = langSelect.value;
-    
-    // Save to localStorage
-    localStorage.setItem(STORAGE_KEYS.PREVIEW_LANGUAGE, newLanguage);
-    
-    // Update hidden input for form submission
-    updatePreviewLanguageInput();
-    
-    // Re-apply filters to refresh questions with new language preference
+// Drag widget reference (set in initViewSettings).
+let versionPriorityWidget = null;
+
+// Handle version-priority reorder: persist + refresh the question list.
+function onVersionPriorityChange(order) {
+    localStorage.setItem(STORAGE_KEYS.VERSION_PRIORITY, order.join(','));
+    // hidden input already kept in sync by the widget
     const filterForm = document.getElementById('filterForm');
     if (filterForm) {
         htmx.trigger(filterForm, 'submit');
     }
 }
 
-// Update hidden preview language input
-function updatePreviewLanguageInput() {
-    const langSelect = document.getElementById('previewLanguage');
-    const hiddenInput = document.getElementById('previewLanguageInput');
-    if (langSelect && hiddenInput) {
-        hiddenInput.value = langSelect.value;
-    }
-}
-
-// Get current preview language preference
-function getPreviewLanguage() {
-    const langSelect = document.getElementById('previewLanguage');
-    return langSelect ? langSelect.value : 'EN';
+// Get current version priority (comma list).
+function getVersionPriority() {
+    if (versionPriorityWidget) return versionPriorityWidget.get().join(',');
+    return document.getElementById('versionPriorityInput')?.value
+        || (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
 }
 
 function onViewSettingChange() {
@@ -3762,8 +3755,9 @@ function previewAsset(questionId, assetType) {
 
     modal.show();
 
-    const lang = (typeof getPreviewLanguage === 'function') ? getPreviewLanguage() : 'EN';
-    fetch(`/dashboard/api/question/${questionId}/preview/${assetType}?lang=${encodeURIComponent(lang)}`)
+    const vp = (typeof getVersionPriority === 'function') ? getVersionPriority()
+        : (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
+    fetch(`/dashboard/api/question/${questionId}/preview/${assetType}?version_priority=${encodeURIComponent(vp)}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {

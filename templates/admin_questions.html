@@ -321,7 +321,7 @@
                     <div class="tab-pane fade" id="bdTabAssets">
                         <div class="alert alert-info py-2 small mb-3">
                             <i class="bi bi-info-circle"></i>
-                            Pick any combination of <strong>Format × Language × Asset type</strong>. Only matching asset rows are deleted — the questions themselves are kept. All boxes start unchecked so nothing is removed by accident.
+                            Pick any combination of <strong>Format × Version × Asset type</strong>. Only matching asset rows are deleted — the questions themselves are kept. All boxes start unchecked so nothing is removed by accident.
                         </div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -340,19 +340,13 @@
                                 </div>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label fw-bold">Languages</label>
+                                <label class="form-label fw-bold">Versions</label>
+                                {% for v in OQB_VERSIONS %}
                                 <div class="form-check">
-                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_EN" value="EN" onchange="updateBulkDeleteBtn()">
-                                    <label class="form-check-label" for="bdLang_EN">EN</label>
+                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_{{ v }}" value="{{ v }}" onchange="updateBulkDeleteBtn()">
+                                    <label class="form-check-label" for="bdLang_{{ v }}">{{ v }} ({{ OQB_VERSION_LABELS[v] }})</label>
                                 </div>
-                                <div class="form-check">
-                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_CH" value="CH" onchange="updateBulkDeleteBtn()">
-                                    <label class="form-check-label" for="bdLang_CH">CH (Chinese)</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input bd-asset-lang" type="checkbox" id="bdLang_BI" value="BI" onchange="updateBulkDeleteBtn()">
-                                    <label class="form-check-label" for="bdLang_BI">BI (Bilingual)</label>
-                                </div>
+                                {% endfor %}
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label fw-bold">Asset types</label>
@@ -443,19 +437,13 @@
                             </div>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">Languages</label>
+                            <label class="form-label fw-bold">Versions</label>
+                            {% for v in OQB_VERSIONS %}
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchImgLang_EN" checked>
-                                <label class="form-check-label" for="batchImgLang_EN">EN</label>
+                                <input class="form-check-input" type="checkbox" id="batchImgLang_{{ v }}"{% if v in ['EN', 'CH', 'BI'] %} checked{% endif %}>
+                                <label class="form-check-label" for="batchImgLang_{{ v }}">{{ v }}</label>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchImgLang_CH" checked>
-                                <label class="form-check-label" for="batchImgLang_CH">CH</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchImgLang_BI" checked>
-                                <label class="form-check-label" for="batchImgLang_BI">BI</label>
-                            </div>
+                            {% endfor %}
                         </div>
                     </div>
 
@@ -581,19 +569,13 @@
 
                     <div class="row g-3">
                         <div class="col-sm-6">
-                            <label class="form-label fw-bold">Languages</label>
+                            <label class="form-label fw-bold">Versions</label>
+                            {% for v in OQB_VERSIONS %}
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_EN" checked>
-                                <label class="form-check-label" for="batchMcqAnsLang_EN">EN</label>
+                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                                <label class="form-check-label" for="batchMcqAnsLang_{{ v }}">{{ v }}</label>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_CH">
-                                <label class="form-check-label" for="batchMcqAnsLang_CH">CH</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="batchMcqAnsLang_BI">
-                                <label class="form-check-label" for="batchMcqAnsLang_BI">BI</label>
-                            </div>
+                            {% endfor %}
                         </div>
                         <div class="col-sm-6">
                             <label class="form-label fw-bold">Overwrite existing ANS IMG</label>
@@ -976,7 +958,7 @@ function _execBulkDeleteAssets() {
     const formData = new FormData();
     ids.forEach(id => formData.append('question_ids', id));
     formats.forEach(f => formData.append('formats', f));
-    langs.forEach(l => formData.append('langs', l));
+    langs.forEach(l => formData.append('versions', l));
     atypes.forEach(t => formData.append('atypes', t));
     formData.append('delete_files', deleteFiles ? 'true' : 'false');
 
@@ -1068,9 +1050,9 @@ function runBatchImg() {
         showToast('Pick at least one asset type (QUE / ANS / SOL).', 'warning');
         return;
     }
-    const langs = ['EN', 'CH', 'BI'].filter(l => document.getElementById('batchImgLang_' + l).checked);
+    const langs = (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).filter(l => document.getElementById('batchImgLang_' + l)?.checked);
     if (langs.length === 0) {
-        showToast('Pick at least one language.', 'warning');
+        showToast('Pick at least one version.', 'warning');
         return;
     }
     const sources = ['DOC', 'MD'].filter(s => document.getElementById('batchImgSrc_' + s).checked);
@@ -1087,7 +1069,7 @@ function runBatchImg() {
     const params = new URLSearchParams();
     params.set('question_ids', Array.from(selectedQIds).join(','));
     params.set('types', types.join(','));
-    params.set('langs', langs.join(','));
+    params.set('versions', langs.join(','));
     params.set('sources', sources.join(','));
     params.set('stitch', stitch);
     params.set('overwrite', overwrite);
@@ -1249,15 +1231,14 @@ function goToAddStep(step) {
         // Render upload area for the newly created question
         const area = document.getElementById('addAssetUploadArea');
         area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {}, 'add');
-        // Also add language selector
+        // Also add version selector
+        const verBtns = (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).map((v, i) =>
+            `<button class="btn btn-outline-primary${i === 0 ? ' active' : ''}" onclick="reloadAddAssets('${v}', this)">${v}</button>`
+        ).join('');
         area.insertAdjacentHTML('afterbegin', `
             <div class="mb-3">
-                <label class="form-label">Upload language:</label>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary active" onclick="reloadAddAssets('EN', this)">EN</button>
-                    <button class="btn btn-outline-primary" onclick="reloadAddAssets('CH', this)">CH</button>
-                    <button class="btn btn-outline-primary" onclick="reloadAddAssets('BI', this)">BI</button>
-                </div>
+                <label class="form-label">Upload version:</label>
+                <div class="btn-group btn-group-sm">${verBtns}</div>
             </div>
         `);
     }
@@ -1311,7 +1292,7 @@ function reloadAddAssets(lang, btn) {
     addActivePasteTarget = { lang, atype: 'QUE', ctx: 'add' };
     // Remove existing sections and re-render
     const area = document.getElementById('addAssetUploadArea');
-    // Keep the language selector (first child)
+    // Keep the version selector (first child)
     const langSelector = area.querySelector('.mb-3');
     area.innerHTML = '';
     if (langSelector) area.appendChild(langSelector);
@@ -1494,13 +1475,13 @@ function _appendMcqAnsLog(message, type) {
 function runBatchMcqAns() {
     if (batchMcqAnsRunning || selectedQIds.size === 0) return;
 
-    const langs = ['EN', 'CH', 'BI'].filter(l => document.getElementById('batchMcqAnsLang_' + l).checked);
-    if (langs.length === 0) { showToast('Pick at least one language.', 'warning'); return; }
+    const langs = (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).filter(l => document.getElementById('batchMcqAnsLang_' + l)?.checked);
+    if (langs.length === 0) { showToast('Pick at least one version.', 'warning'); return; }
 
     const overwrite = document.getElementById('batchMcqAnsOverwrite').checked ? '1' : '0';
     const params = new URLSearchParams({
         question_ids: Array.from(selectedQIds).join(','),
-        langs: langs.join(','),
+        versions: langs.join(','),
         overwrite,
     });
 

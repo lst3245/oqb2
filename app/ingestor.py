@@ -15,14 +15,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Regex patterns for parsing filenames
+# The version token (formerly "lang") accepts EN/CH/BI plus the official
+# public-exam scans ENO/CHO. Longer tokens are listed first in the alternation
+# so `ENO` isn't shadowed by a partial `EN` match.
 # PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png  or  MATC_DSE_2025_P2_Q5_EN_QUE_2.png (multi-part)
 PP_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_(?P<qno>Q\d+)_(?P<version>ENO|CHO|EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 # QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png  or  ..._QUE_2.png (multi-part)
 QB_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_(?P<qno>Q\d+)_(?P<lang>EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_(?P<qno>Q\d+)_(?P<version>ENO|CHO|EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 def parse_filename(filename):
@@ -184,7 +187,7 @@ def upsert_asset(question, parsed, file_path, source_path):
         thumbnail rendering on first import).
     """
     asset_type = parsed['type']  # QUE, ANS, SOL
-    language = parsed['lang']  # EN, CH, BI
+    version = parsed['version']  # EN, CH, BI, ENO, CHO
     file_format = determine_file_format(parsed['ext'])
     part_number = parsed.get('part', 1)
     
@@ -207,7 +210,7 @@ def upsert_asset(question, parsed, file_path, source_path):
     asset = QuestionAsset.query.filter_by(
         question_id=question.id,
         asset_type=asset_type,
-        language=language,
+        version=version,
         file_format=file_format,
         part_number=part_number
     ).first()
@@ -223,7 +226,7 @@ def upsert_asset(question, parsed, file_path, source_path):
             question_id=question.id,
             asset_type=asset_type,
             file_format=file_format,
-            language=language,
+            version=version,
             file_path=rel_path,
             part_number=part_number
         )
@@ -575,7 +578,7 @@ def scan_directory_stream(source_path, base_path=None):
                 
                 # Check if asset already exists
                 asset_type = parsed['type']
-                language = parsed['lang']
+                version = parsed['version']
                 file_format = determine_file_format(parsed['ext'])
                 part_number = parsed.get('part', 1)
                 existing_asset = None
@@ -583,7 +586,7 @@ def scan_directory_stream(source_path, base_path=None):
                     existing_asset = QuestionAsset.query.filter_by(
                         question_id=question.id,
                         asset_type=asset_type,
-                        language=language,
+                        version=version,
                         file_format=file_format,
                         part_number=part_number
                     ).first()
@@ -615,7 +618,7 @@ def scan_directory_stream(source_path, base_path=None):
                 action = 'Updated' if existing_q else 'Created'
                 yield {
                     'type': 'success',
-                    'message': f'{action}: {qid} [{parsed["type"]}_{parsed["lang"]}]',
+                    'message': f'{action}: {qid} [{parsed["type"]}_{parsed["version"]}]',
                     'current': current,
                     'total': total_files
                 }
@@ -851,21 +854,21 @@ def get_database_stats(source_path=None):
     dup_qids = db.session.query(Question.qid, func.count(Question.id)).group_by(Question.qid).having(func.count(Question.id) > 1).all()
     stats['duplicate_qids'] = [{'qid': qid, 'count': count} for qid, count in dup_qids]
     
-    # Duplicate asset check — same (question_id, asset_type, language, file_format, part_number) > 1
+    # Duplicate asset check — same (question_id, asset_type, version, file_format, part_number) > 1
     dup_assets = db.session.query(
         QuestionAsset.question_id, QuestionAsset.asset_type,
-        QuestionAsset.language, QuestionAsset.file_format,
+        QuestionAsset.version, QuestionAsset.file_format,
         QuestionAsset.part_number, func.count(QuestionAsset.id).label('cnt')
     ).group_by(
         QuestionAsset.question_id, QuestionAsset.asset_type,
-        QuestionAsset.language, QuestionAsset.file_format,
+        QuestionAsset.version, QuestionAsset.file_format,
         QuestionAsset.part_number
     ).having(func.count(QuestionAsset.id) > 1).all()
     dup_asset_details = []
     for row in dup_assets:
         q = Question.query.get(row.question_id)
         dup_asset_details.append(
-            f"{q.qid if q else '?'}:{row.asset_type}_{row.language}_P{row.part_number} (×{row.cnt})"
+            f"{q.qid if q else '?'}:{row.asset_type}_{row.version}_P{row.part_number} (×{row.cnt})"
         )
     stats['duplicate_assets'] = len(dup_assets)
     stats['duplicate_assets_list'] = dup_asset_details[:LIST_CAP]

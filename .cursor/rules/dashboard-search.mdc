@@ -32,7 +32,7 @@ Core route: `POST /dashboard/filter` in `app/dashboard.py` → `filter_questions
 | `ids` | string | Comma-separated explicit DB-id list (`Question.id`). **Overrides all other filters** (subject access still enforced). Powers the **Show Selected Only** toggle: the frontend writes `selectedQuestions` into hidden `#idsInput` and submits the filter form so the user paginates through their FULL selection regardless of the sidebar filter. Mutually exclusive with `qids` (qids wins if both set). |
 | `page` | int | Page number (default 1) |
 | `page_size` | int | 10, 20, 50, or 100 (default 20) |
-| `preview_language` | `EN`\|`CH` | Asset language preference for card previews |
+| `version_priority` | comma string | Ordered version preference for card previews (e.g. `EN,CH,BI,ENO,CHO`); top wins. Legacy `preview_language` (`EN`/`CH`) still accepted and converted via `parse_version_priority()` |
 | `sort_config` | JSON string | Array of `{field, direction}` objects |
 | `sort_group_order` | JSON string | Optional manual block ordering `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter. Passed to `apply_multi_sort(..., group_order=)`. Ignored unless `fields` match the grouping fields in `sort_config` |
 
@@ -75,8 +75,8 @@ Full page requests → return complete `dashboard.html`.
 - `GET /dashboard/api/sections/<subject_id>/<source>` — available sections
 - `GET /dashboard/api/asset/<asset_id>` — asset info
 - `GET /dashboard/api/question/<id>/assets/<type>` — all parts for a question's asset type (legacy; image-centric)
-- `GET /dashboard/api/question/<id>/preview/<type>?lang=EN` — **unified preview resolver**. Returns `{mode: 'image'|'html'|'download', format, language, parts/html/url, ...}`. Format priority: **IMG > MD > DOC**. Used by dashboard cards (lazy fetch for HTML/download), the preview modal (`previewAsset()`), and the in-browser MD render helpers in `templates/base.html`.
+- `GET /dashboard/api/question/<id>/preview/<type>?version_priority=EN,CH,BI,ENO,CHO` — **unified preview resolver** (legacy `?lang=EN` still accepted). Returns `{mode: 'image'|'html'|'download', format, version, parts/html/url, ...}`. Format priority: **IMG > MD > DOC**. Used by dashboard cards (lazy fetch for HTML/download), the preview modal (`previewAsset()`), and the in-browser MD render helpers in `templates/base.html`.
 - `GET /dashboard/files/<path>` — serve raw asset file from SOURCE_PATH
 
-## Asset Language Selection (Preview)
-Best language group is selected: preferred (`EN`/`CH`) → `BI` → other. Within that language, best format wins (IMG > MD > DOC). All `part_number` parts for the chosen (language, format) are returned together.
+## Asset Version Selection (Preview)
+Assets are sorted by `(format_rank, version_rank, part_number)` where `version_rank = version_priority.index(asset.version)` and `version_priority` comes from the drag-to-reorder widget (default `EN,CH,BI,ENO,CHO`). The best `(format, version)` group wins (format priority IMG > MD > DOC), and all `part_number` parts for that group are returned together. The View-menu widget persists to `localStorage[oqb_versionPriority]` and re-triggers the HTMX filter on change.

@@ -148,14 +148,15 @@
                             <small class="text-muted">Choose whether to prefer the ANS image or the Answer Text field</small>
                         </div>
                         
-                        <!-- Preferred Language -->
+                        <!-- Version Priority -->
                         <div class="mb-3">
-                            <label class="form-label">Preferred Language</label>
-                            <select class="form-select" name="preferred_language" id="preferredLanguage">
-                                <option value="EN" selected>English First</option>
-                                <option value="CH">Chinese First</option>
-                            </select>
-                            <small class="text-muted">Order: Preferred → Bilingual → Other</small>
+                            <label class="form-label d-flex align-items-center gap-2">
+                                <span>Version Priority</span>
+                                <span class="text-muted small fw-normal">drag to reorder · top wins</span>
+                            </label>
+                            <div id="versionPriorityWidget"></div>
+                            <input type="hidden" name="version_priority" id="versionPriority"
+                                   value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
                         </div>
 
                         <!-- Format Priority -->
@@ -774,10 +775,16 @@ function restoreGenerationOptions(opts) {
         if (el) el.value = opts.answer_preference;
     }
     
-    // Preferred language
-    if (opts.preferred_language) {
-        const el = document.getElementById('preferredLanguage');
-        if (el) el.value = opts.preferred_language;
+    // Version priority (comma list). Falls back to the legacy single-value
+    // preferred_language ("EN"/"CH") for older saved presets.
+    {
+        const vp = opts.version_priority || opts.preferred_language;
+        if (vp && versionPriorityWidget) {
+            versionPriorityWidget.set(vp);
+        } else if (vp) {
+            const el = document.getElementById('versionPriority');
+            if (el) el.value = window.oqbNormalizeVersionPriority(vp).join(',');
+        }
     }
 
     // Format priority (comma-separated list, e.g. "IMG,MD,DOC")
@@ -1086,6 +1093,24 @@ function renderFormatPriorityChips() {
 // Initial render on page load.
 document.addEventListener('DOMContentLoaded', renderFormatPriorityChips);
 
+// ===================== Version Priority drag widget =====================
+// Reorderable list of versions (EN/CH/BI/ENO/CHO). Highest priority on top.
+// Backed by the hidden #versionPriority input. Helper lives in base.html.
+let versionPriorityWidget = null;
+function readVersionPriority() {
+    if (versionPriorityWidget) return versionPriorityWidget.get();
+    return window.oqbNormalizeVersionPriority(
+        document.getElementById('versionPriority')?.value || ''
+    );
+}
+document.addEventListener('DOMContentLoaded', function() {
+    versionPriorityWidget = window.oqbInitVersionPriorityWidget({
+        container: 'versionPriorityWidget',
+        hiddenInput: 'versionPriority',
+        initial: document.getElementById('versionPriority')?.value || '',
+    });
+});
+
 function getCurrentGenerationOptions() {
     const sortConfigStr = document.getElementById('sortConfigInput')?.value || '';
     return {
@@ -1093,7 +1118,7 @@ function getCurrentGenerationOptions() {
         sort_config: sortConfigStr,
         sort_group_order: document.getElementById('sortGroupOrderInput')?.value || '',
         answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
-        preferred_language: document.getElementById('preferredLanguage')?.value || 'EN',
+        version_priority: readVersionPriority().join(','),
         answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
         format_priority: readFormatPriority().join(','),
         show_qid: getCheckedValue('showQid'),
@@ -1602,7 +1627,7 @@ function updateQuestionOrder() {
 
 // ============== QUICK PREVIEW ==============
 function previewQuestion(questionId, qid) {
-    const lang = document.getElementById('preferredLanguage')?.value || 'EN';
+    const vp = readVersionPriority().join(',');
     const modalEl = document.getElementById('genPreviewModal');
     const modalBody = document.getElementById('genPreviewModalBody');
     const modalLabel = document.getElementById('genPreviewModalLabel');
@@ -1612,7 +1637,7 @@ function previewQuestion(questionId, qid) {
 
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
 
-    fetch(`/generate/api/viewer_asset/${questionId}/QUE?lang=${encodeURIComponent(lang)}`)
+    fetch(`/generate/api/viewer_asset/${questionId}/QUE?version_priority=${encodeURIComponent(vp)}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {

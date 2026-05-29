@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Markdown Source Format (MD)
 
-`QuestionAsset.file_format='MD'` is the third source format alongside `IMG` and `DOC`. MD files are **self-contained**: LaTeX math via `$...$` / `$$...$$` and images embedded as `data:image/...;base64,...` URIs. **Single-slot only** — one `.md` per (question × asset_type × language); no `_PART` suffix, no part_number > 1.
+`QuestionAsset.file_format='MD'` is the third source format alongside `IMG` and `DOC`. MD files are **self-contained**: LaTeX math via `$...$` / `$$...$$` and images embedded as `data:image/...;base64,...` URIs. **Single-slot only** — one `.md` per (question × asset_type × version); no `_PART` suffix, no part_number > 1.
 
 ## End-to-end pipeline
 
@@ -43,8 +43,8 @@ alwaysApply: false
 ## Locked decisions
 
 1. **Self-contained MD**: no sidecar image files. Images MUST be base64 data URIs in the markdown source.
-2. **Single-slot**: one MD per (question, asset_type, language). Multi-part is rejected at ingest (`upsert_asset`) and upload (`upload_question_asset`).
-3. **Filename**: `<QID>_<LANG>_<ATYPE>.md` (no `_PART` suffix).
+2. **Single-slot**: one MD per (question, asset_type, version). Multi-part is rejected at ingest (`upsert_asset`) and upload (`upload_question_asset`).
+3. **Filename**: `<QID>_<VERSION>_<ATYPE>.md` (no `_PART` suffix). `VERSION` ∈ `EN/CH/BI/ENO/CHO`.
 4. **Default format priority**: `IMG > MD > DOC` — but **user-configurable** at generation time via the Format Priority widget on the Generate page. Stored as `format_priority` comma list in `generation_options`.
 5. **No server-side KaTeX**: math is left as `$...$` / `$$...$$` in HTML; the **client** (KaTeX auto-render) typesets it. The live editor's preview path runs `katex.renderToString()` client-side before marked because marked splits blank-line-separated `$$` into multiple `<p>` (breaks auto-render). Server render relies on dollarmath_plugin re-emitting delimiters.
 6. **Editor stack**: EasyMDE + marked + KaTeX + FontAwesome 4.7 (pinned), all via CDN.
@@ -79,9 +79,9 @@ All require `@admin_required` + `_require_md_admin(question)` (subject-admin che
 |---|---|---|
 | GET  | `/admin/questions/<qid>/assets/<aid>/md/content` | raw MD text + `mtime_ns` |
 | POST | `/admin/questions/<qid>/assets/<aid>/md/save`    | overwrite file; body `{content, expected_mtime_ns?, force?}`; **409 on optimistic conflict** |
-| POST | `/admin/questions/<qid>/assets/md/create`        | new MD asset; body `{language, asset_type, content}`; **409 if slot already has MD** |
+| POST | `/admin/questions/<qid>/assets/md/create`        | new MD asset; body `{version, asset_type, content}` (legacy `language` accepted); **409 if slot already has MD** |
 | GET  | `/admin/questions/<qid>/assets/<aid>/md/edit`    | fullscreen editor page |
-| GET  | `/admin/questions/<qid>/assets/md/new?language=&asset_type=` | fullscreen editor in create mode |
+| GET  | `/admin/questions/<qid>/assets/md/new?version=&asset_type=` | fullscreen editor in create mode (legacy `language=` accepted) |
 
 Optimistic concurrency:
 - `save` reads `expected_mtime_ns` from body; if disk mtime differs (and `force=False`), returns 409 with the current mtime. Editor prompts user to discard or force-overwrite.
@@ -122,7 +122,7 @@ The MD pipeline is independent of the DOC pipeline. DOC source files go through 
 2. **DO NOT** drop `data` from `_BLEACH_PROTOCOLS` — base64 images will silently disappear. The narrow gate is in `_attr_allowed`, not the protocol list.
 3. **DO NOT** call `easymde.toTextArea()` while the editor is in fullscreen mode without first calling `toggleFullScreen()` — the container has been reparented to `<body>` and the textarea would end up there too.
 4. **DO NOT** use `easymde.maxHeight` option in modal contexts — it collapses the side-by-side preview to ~77px. Bound heights with CSS instead.
-5. **DO NOT** assume `data-preview-lang` defaults work — the `oqbLoadMarkdownPreviewCards` reads it, and admin cards explicitly set it per (lang × atype) slot.
+5. **DO NOT** assume `data-preview-version` defaults work — `oqbLoadMarkdownPreviewCards` reads `data-preview-version` (falling back to legacy `data-preview-lang`), and admin cards explicitly set it per (version × atype) slot.
 6. **DO** invalidate `md_render` cache on every disk write to MD files (save, delete). The mtime check is the safety net but eager invalidation gives more deterministic behaviour, especially across processes.
 7. **DO** keep `viewer.html` helpers (`oqbTypesetMath`, `oqbRenderMarkdownInto`) in sync with `base.html` — viewer.html does NOT extend base.html.
 8. **DO** keep the reorder endpoint and frontend `moveAssetPart` IMG-only — MD and DOC are single-slot.

@@ -8,6 +8,57 @@ from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
 
+# ==================== Asset Versions ====================
+#
+# `QuestionAsset.version` replaces the old "language" concept. The canonical
+# list below is ALSO the default priority order (highest priority first). The
+# ENO / CHO versions are official public-exam scans and therefore sit last by
+# default. This is the single source of truth — import it from here rather
+# than re-hardcoding the codes anywhere else.
+
+VERSIONS = ['EN', 'CH', 'BI', 'ENO', 'CHO']
+
+VERSION_LABELS = {
+    'EN': 'English',
+    'CH': 'Chinese',
+    'BI': 'Bilingual',
+    'ENO': 'English (Official)',
+    'CHO': 'Chinese (Official)',
+}
+
+# Default priority order = canonical list order.
+DEFAULT_VERSION_PRIORITY = list(VERSIONS)
+
+
+def parse_version_priority(raw, legacy_preferred=None):
+    """Parse a comma-separated `version_priority` value into a complete ordered
+    list of every known version (highest priority first).
+
+    - Keeps only known version codes, de-duplicated, in the supplied order.
+    - Appends any versions still missing in `DEFAULT_VERSION_PRIORITY` order so
+      the result always contains all of `VERSIONS`.
+    - When `raw` is empty/None but `legacy_preferred` is supplied (an old
+      `preferred_language` / `preview_language` value such as 'EN' or 'CH'),
+      seeds the list with the legacy "preferred -> BI -> other" semantics:
+      `[preferred, 'BI']` followed by the remaining defaults.
+    """
+    valid = set(VERSIONS)
+    parts = [p.strip().upper() for p in (raw or '').split(',') if p.strip()]
+    out = []
+    for p in parts:
+        if p in valid and p not in out:
+            out.append(p)
+    if not out and legacy_preferred:
+        pref = str(legacy_preferred).strip().upper()
+        for p in (pref, 'BI'):
+            if p in valid and p not in out:
+                out.append(p)
+    for p in DEFAULT_VERSION_PRIORITY:
+        if p not in out:
+            out.append(p)
+    return out
+
+
 # ==================== Permission Decorators ====================
 
 def admin_required(f):

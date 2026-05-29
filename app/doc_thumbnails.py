@@ -3,7 +3,7 @@ DOC asset thumbnails — server-rendered first-page PNG, cached to disk.
 
 Lifecycle (mirrors the user's requested behaviour):
   * Generated **only** for a DOC asset whose `(question_id, asset_type,
-    language)` slot has no IMG asset. The IMG resolver wins automatically
+    version)` slot has no IMG asset. The IMG resolver wins automatically
     via the existing format-priority logic; the thumbnail is only useful
     when DOC is the visible representative.
   * Stored at  `<DOC_THUMBNAIL_PATH>/<asset_id>.png`. Keyed by asset_id so
@@ -60,11 +60,11 @@ def delete_thumbnail(asset_id: int, base_dir: str | None = None) -> bool:
     return False
 
 
-def _slot_has_img(question_id: int, asset_type: str, language: str) -> bool:
+def _slot_has_img(question_id: int, asset_type: str, version: str) -> bool:
     return QuestionAsset.query.filter_by(
         question_id=question_id,
         asset_type=asset_type,
-        language=language,
+        version=version,
         file_format='IMG',
     ).first() is not None
 
@@ -88,7 +88,7 @@ def render_doc_thumbnail_sync(app, asset_id: int) -> bool:
         if not asset or asset.file_format != 'DOC':
             return False
 
-        if _slot_has_img(asset.question_id, asset.asset_type, asset.language):
+        if _slot_has_img(asset.question_id, asset.asset_type, asset.version):
             # IMG took the slot — delete any stale thumbnail.
             delete_thumbnail(asset_id)
             return False
@@ -255,7 +255,7 @@ def on_doc_asset_created(asset: QuestionAsset) -> None:
     """A DOC asset was just created/saved. Render thumbnail if no IMG wins the slot."""
     if asset is None or asset.file_format != 'DOC':
         return
-    if _slot_has_img(asset.question_id, asset.asset_type, asset.language):
+    if _slot_has_img(asset.question_id, asset.asset_type, asset.version):
         return
     schedule_thumbnail(asset.id)
 
@@ -271,7 +271,7 @@ def on_img_asset_created(asset: QuestionAsset) -> None:
     docs_in_slot = QuestionAsset.query.filter_by(
         question_id=asset.question_id,
         asset_type=asset.asset_type,
-        language=asset.language,
+        version=asset.version,
         file_format='DOC',
     ).all()
     for d in docs_in_slot:
@@ -290,12 +290,12 @@ def on_img_asset_deleted(asset: QuestionAsset) -> None:
     """
     if asset is None or asset.file_format != 'IMG':
         return
-    if _slot_has_img(asset.question_id, asset.asset_type, asset.language):
+    if _slot_has_img(asset.question_id, asset.asset_type, asset.version):
         return
     docs_in_slot = QuestionAsset.query.filter_by(
         question_id=asset.question_id,
         asset_type=asset.asset_type,
-        language=asset.language,
+        version=asset.version,
         file_format='DOC',
     ).all()
     for d in docs_in_slot:

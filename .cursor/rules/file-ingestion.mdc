@@ -25,20 +25,21 @@ SOURCE_PATH/
 ## Filename Patterns (Regex)
 **Past Paper (PP):**
 ```
-SUBJ_SOURCE_YEAR_PAPER_QNO_LANG_TYPE[_PART].EXT
+SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
 MATC_DSE_2025_P2_Q5_EN_QUE.png
 MATC_DSE_2025_P2_Q5_EN_QUE_2.png   ← part 2 of multi-image
+MATC_DSE_2025_P2_Q5_ENO_QUE.png    ← official public-exam scan
 ```
 
 **Question Bank (QB):**
 ```
-SUBJ_QB_DETAIL_QNO_LANG_TYPE[_PART].EXT
+SUBJ_QB_DETAIL_QNO_VERSION_TYPE[_PART].EXT
 MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 ```
 
 - `SUBJ`: subject ID (e.g. `MATC`, `MAT1`)
 - `SOURCE`: `DSE`, `CE`, `AL`, `QB`
-- `LANG`: `EN`, `CH`, `BI`
+- `VERSION` (formerly `LANG`): `EN`, `CH`, `BI`, `ENO`, `CHO`. The regex alternation lists `ENO|CHO` **before** `EN|CH` so the longer official tokens aren't shadowed. Parsed into `parsed['version']`.
 - `TYPE`: `QUE`, `ANS`, `SOL`
 - `PART`: optional integer (default 1)
 - `EXT`: `png`, `jpg`, `jpeg`, `gif`, `bmp` (→ IMG) or `doc`, `docx` (→ DOC) or `md`, `markdown` (→ MD)

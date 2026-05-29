@@ -76,6 +76,8 @@ The base template defines a set of global helpers that every preview / asset int
 | `window.oqbRerenderThumb(qid, aid, btn)` | POSTs to `/admin/questions/<qid>/assets/<aid>/rerender-thumb`, then re-arms the placeholder for the poller. Admin-only — gated on `window.OQB_IS_ADMIN`. |
 | `_oqbBuildThumbHtml(url, filename, dl, aid, qid)` | Builds the inner HTML for a DOC thumbnail (image + filename + download + admin rerender button). Used by both the live poller swap and `oqbLoadMarkdownPreviewCards`. |
 | `window.OQB_IS_ADMIN` | Boolean emitted by Jinja in `base.html` — true when the user has any subject-admin or super-admin role. Used to gate admin-only UI like the per-preview rerender button. |
+| `window.OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` | Canonical asset-version list / labels / default priority, emitted from Jinja (sourced from `app/utils.VERSIONS` via a context processor). Build version UIs data-driven from these. |
+| `window.oqbInitVersionPriorityWidget({container, hiddenInput, initial, onChange})` / `oqbNormalizeVersionPriority(list)` | Reusable drag-to-reorder Version Priority widget (SortableJS + up/down buttons), backed by a hidden `version_priority` comma input. Defined in `partials/_version_priority_widget_js.html`, included by `base.html` AND `viewer.html`. Wired into the dashboard View menu, present mode, and the Generate page. |
 
 `oqbLoadMarkdownPreviewCards` and `oqbPollDocThumbnails` auto-run on `DOMContentLoaded` AND on every `htmx:afterSwap` event, so HTMX-driven dashboard refreshes pick up new placeholders without bespoke wiring.
 
@@ -84,7 +86,7 @@ The base template defines a set of global helpers that every preview / asset int
 ## Question Edit Modal Tabs (shared)
 The `#editQuestionModal` markup lives in `partials/edit_question_modal.html` and is mounted by BOTH `dashboard.html` (admin-gated) and `admin_questions.html`. Tab order is fixed at:
 1. **Tags** (default active) — borrows `partials/tag_editor_form.html`; the admin Add-question wizard temporarily relocates this `<form id="editForm">` into its Step 3 area via `borrowTagFormForAdd()` / `returnTagFormToEditModal()`.
-2. **Assets** — upload / delete / reorder per language (EN / CH / BI) and per asset type (QUE / ANS / SOL). Supports IMG (multi-part), MD (single-slot, inline editor via `#mdEditorModal`), DOC (single-slot upload + download).
+2. **Assets** — one tab per **version** (EN / CH / BI / ENO / CHO, rendered from a Jinja loop over `OQB_VERSIONS`) × asset type (QUE / ANS / SOL); upload / delete / reorder. Supports IMG (multi-part), MD (single-slot, inline editor via `#mdEditorModal`), DOC (single-slot upload + download). Upload/create/reorder requests send the `version` field.
 3. **Details** — QID rename (via `#renameConfirmModal`) + read-only `created_at`.
 
 `openEditModal(questionId)` is the entry point — it fetches `GET /admin/questions/<id>/details` and `GET /admin/questions/<id>/assets`, populates the tag form via the shared `populateTagForm`, and shows the modal.

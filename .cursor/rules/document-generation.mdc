@@ -46,7 +46,7 @@ Smart logic: if the previous question already added a page break, skip the `befo
 | `sort_config` | JSON string | multi-level `[{field,direction}]` (Auto Sort only) |
 | `sort_group_order` | JSON string | optional manual block order `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter (Auto Sort only). Threaded into `apply_multi_sort(..., group_order=)` in `_generate_in_background`; ignored unless `fields` match the grouping fields in `sort_config` |
 | `answer_mode` | string | `QUE_ONLY` |
-| `preferred_language` | `EN`\|`CH` | `EN` |
+| `version_priority` | comma string | `EN,CH,BI,ENO,CHO` — ordered version preference; top wins. Legacy `preferred_language` (`EN`/`CH`) still read on load and converted via `parse_version_priority()` |
 | `answer_preference` | `image_first`\|`text_first` | `image_first` |
 | `output_format` | `DOCX` | always `DOCX` at generation time. PDF is built lazily from My Files via `GET /generate/pdf/<id>` (see Flow step 8). Old saved presets that still carry `PDF` here are silently ignored on load |
 | `show_qid` | bool | — |
@@ -85,9 +85,11 @@ Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:
 - `OQB Body Text` — 11pt (text answers, placeholders)
 
 ## Asset Selection Logic
-Language: preferred (`EN`/`CH`) → `BI` → other  
-Format: defaults to **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`), but **user-configurable per generation** via the **Format Priority** widget on the Generate page. Stored in `generation_options.format_priority` as a comma-separated list (e.g. `MD,IMG,DOC`), parsed by `_parse_format_priority()`, threaded through `_generate_in_background → create_word_document → add_question_content_to_doc(format_priority=...)`.  
-All parts sharing the best (format, language) group are included in order of `part_number`.
+Assets are sorted by `(format_rank, version_rank, part_number)`:
+- **Version**: ordered by the **Version Priority** drag-to-reorder widget on the Generate page (default `EN,CH,BI,ENO,CHO`). `version_rank = version_priority.index(asset.version)`. Stored in `generation_options.version_priority` (comma list), parsed/normalised by `parse_version_priority()` (in `app/utils.py`), threaded through `_generate_in_background → create_word_document → add_question_content_to_doc(version_priority=...)`. Legacy `preferred_language` is converted to a list on load.
+- **Format**: defaults to **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`), but **user-configurable per generation** via the **Format Priority** widget. Stored in `generation_options.format_priority` (e.g. `MD,IMG,DOC`), parsed by `_parse_format_priority()`.
+
+All parts sharing the best `(format, version)` group are included in order of `part_number`.
 
 For `ANS` with `answer_preference='text_first'`: use `question.answer` text if available, fall back to image.  
 For `ANS` with `answer_preference='image_first'`: use image if available, fall back to `question.answer` text.
@@ -103,7 +105,7 @@ For `ANS` with `answer_preference='image_first'`: use image if available, fall b
 ## Viewer / Presentation Mode
 Route: `POST /generate/viewer` → `viewer.html`  
 Separate page for slide-style question review (not Word generation).  
-Asset API: `GET /generate/api/viewer_asset/<question_id>/<asset_type>?lang=EN`  
+Asset API: `GET /generate/api/viewer_asset/<question_id>/<asset_type>?version_priority=EN,CH,BI,ENO,CHO` (legacy `?lang=EN` still accepted). Present mode exposes the same drag-to-reorder Version Priority widget.  
 Also supports ANS ↔ SOL fallback if one type is missing.
 
 ## Regeneration

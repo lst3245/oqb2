@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
-from app.utils import admin_required, super_admin_required, get_user_admin_subjects
+from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS
 from app import md_render
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -610,7 +610,7 @@ def batch_delete_assets():
 
     Filters are applied as an AND of three independent IN(...) clauses:
         file_format IN formats   (any non-empty subset of IMG/MD/DOC)
-        language    IN langs     (any non-empty subset of EN/CH/BI)
+        version     IN versions  (any non-empty subset of EN/CH/BI/ENO/CHO)
         asset_type  IN atypes    (any non-empty subset of QUE/ANS/SOL)
 
     The selected-question scope is further intersected with the caller's
@@ -623,7 +623,9 @@ def batch_delete_assets():
     try:
         question_ids = request.form.getlist('question_ids')
         formats = [f for f in request.form.getlist('formats') if f in ('IMG', 'MD', 'DOC')]
-        langs = [l for l in request.form.getlist('langs') if l in ('EN', 'CH', 'BI')]
+        # Accept both the new `versions` param and the legacy `langs` param.
+        _raw_versions = request.form.getlist('versions') or request.form.getlist('langs')
+        versions = [v for v in _raw_versions if v in VERSIONS]
         atypes = [t for t in request.form.getlist('atypes') if t in ('QUE', 'ANS', 'SOL')]
         delete_files = request.form.get('delete_files', 'true') == 'true'
 
@@ -631,8 +633,8 @@ def batch_delete_assets():
             return jsonify({'success': False, 'error': 'No questions selected'}), 400
         if not formats:
             return jsonify({'success': False, 'error': 'Pick at least one format (IMG / MD / DOC)'}), 400
-        if not langs:
-            return jsonify({'success': False, 'error': 'Pick at least one language (EN / CH / BI)'}), 400
+        if not versions:
+            return jsonify({'success': False, 'error': 'Pick at least one version (' + ' / '.join(VERSIONS) + ')'}), 400
         if not atypes:
             return jsonify({'success': False, 'error': 'Pick at least one asset type (QUE / ANS / SOL)'}), 400
 
@@ -655,7 +657,7 @@ def batch_delete_assets():
             QuestionAsset.query
             .filter(QuestionAsset.question_id.in_(accessible_qids))
             .filter(QuestionAsset.file_format.in_(formats))
-            .filter(QuestionAsset.language.in_(langs))
+            .filter(QuestionAsset.version.in_(versions))
             .filter(QuestionAsset.asset_type.in_(atypes))
             .all()
         )
@@ -678,7 +680,7 @@ def batch_delete_assets():
         # Snapshot the per-asset metadata we need for the thumbnail-lifecycle hooks,
         # because we lose the rows after db.session.delete + commit.
         doc_asset_ids_deleted: list[int] = []
-        img_slots_deleted: list[tuple[int, str, str]] = []  # (question_id, asset_type, language)
+        img_slots_deleted: list[tuple[int, str, str]] = []  # (question_id, asset_type, version)
 
         for asset in assets:
             touched_qids.add(asset.question_id)
@@ -700,7 +702,7 @@ def batch_delete_assets():
             elif asset.file_format == 'DOC':
                 doc_asset_ids_deleted.append(asset.id)
             elif asset.file_format == 'IMG':
-                img_slots_deleted.append((asset.question_id, asset.asset_type, asset.language))
+                img_slots_deleted.append((asset.question_id, asset.asset_type, asset.version))
 
             db.session.delete(asset)
             deleted_count += 1
@@ -714,12 +716,12 @@ def batch_delete_assets():
         if img_slots_deleted:
             class _Stub:
                 pass
-            for qid, atype, lang in img_slots_deleted:
+            for qid, atype, ver in img_slots_deleted:
                 stub = _Stub()
                 stub.file_format = 'IMG'
                 stub.question_id = qid
                 stub.asset_type = atype
-                stub.language = lang
+                stub.version = ver
                 doc_thumbnails.on_img_asset_deleted(stub)
 
         msg = f'Deleted {deleted_count} asset(s) across {len(touched_qids)} question(s)'
@@ -934,13 +936,13 @@ def _build_asset_file_path(question, asset):
     part_suffix = f'_{asset.part_number}' if asset.part_number > 1 else ''
     
     if question.source in ('DSE', 'CE', 'AL'):
-        filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
+        filename = f"{question.qid}_{asset.version}_{asset.asset_type}{part_suffix}.{ext}"
         folder = '/'.join([question.subject, 'PP', question.source,
                            str(question.year), question.paper])
     else:
         # QB
         detail = _extract_qb_detail(question.qid)
-        filename = f"{question.qid}_{asset.language}_{asset.asset_type}{part_suffix}.{ext}"
+        filename = f"{question.qid}_{asset.version}_{asset.asset_type}{part_suffix}.{ext}"
         folder = '/'.join([question.subject, 'QB', detail])
     
     return f"{folder}/{filename}"
@@ -1121,21 +1123,21 @@ def question_details(question_id):
 @login_required
 @admin_required
 def question_assets(question_id):
-    """API: get all assets for a question, grouped by language and type"""
+    """API: get all assets for a question, grouped by version and type"""
     question = Question.query.get_or_404(question_id)
     assets = QuestionAsset.query.filter_by(question_id=question_id).order_by(
-        QuestionAsset.language, QuestionAsset.asset_type, QuestionAsset.part_number
+        QuestionAsset.version, QuestionAsset.asset_type, QuestionAsset.part_number
     ).all()
 
     result = {}
     for a in assets:
-        lang = a.language
+        ver = a.version
         atype = a.asset_type
-        if lang not in result:
-            result[lang] = {}
-        if atype not in result[lang]:
-            result[lang][atype] = []
-        result[lang][atype].append({
+        if ver not in result:
+            result[ver] = {}
+        if atype not in result[ver]:
+            result[ver][atype] = []
+        result[ver][atype].append({
             'id': a.id,
             'part_number': a.part_number,
             'file_format': a.file_format,
@@ -1240,11 +1242,11 @@ def upload_question_asset(question_id):
     if question.subject not in admin_subjects:
         return jsonify({'error': 'Access denied'}), 403
 
-    language = request.form.get('language', 'EN')
+    version = request.form.get('version') or request.form.get('language', 'EN')
     asset_type = request.form.get('asset_type', 'QUE')
     
-    if language not in ('EN', 'CH', 'BI'):
-        return jsonify({'error': 'Invalid language'}), 400
+    if version not in VERSIONS:
+        return jsonify({'error': 'Invalid version'}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'Invalid asset type'}), 400
 
@@ -1259,7 +1261,7 @@ def upload_question_asset(question_id):
     # MD and DOC are always part_number=1 (single-slot), so they must not
     # consume an image part index.
     last_img_part = QuestionAsset.query.filter_by(
-        question_id=question_id, language=language,
+        question_id=question_id, version=version,
         asset_type=asset_type, file_format='IMG'
     ).order_by(QuestionAsset.part_number.desc()).first()
     next_img_part = (last_img_part.part_number + 1) if last_img_part else 1
@@ -1286,12 +1288,12 @@ def upload_question_asset(question_id):
         if file_format == 'MD':
             # MD is single-slot: reject if an MD asset already exists.
             existing_md = QuestionAsset.query.filter_by(
-                question_id=question_id, language=language,
+                question_id=question_id, version=version,
                 asset_type=asset_type, file_format='MD'
             ).first()
             if existing_md:
                 errors.append(
-                    f'{f.filename}: a Markdown asset already exists for {asset_type}/{language}. '
+                    f'{f.filename}: a Markdown asset already exists for {asset_type}/{version}. '
                     f'Edit or delete it first.'
                 )
                 continue
@@ -1305,27 +1307,27 @@ def upload_question_asset(question_id):
                 continue
             # Normalise extension to .md for consistency.
             ext = 'md'
-            filename = f"{question.qid}_{language}_{asset_type}.{ext}"
+            filename = f"{question.qid}_{version}_{asset_type}.{ext}"
             part_to_use = 1
 
         elif file_format == 'DOC':
-            # DOC is single-slot too: only one Word document per (lang, atype).
+            # DOC is single-slot too: only one Word document per (version, atype).
             existing_doc = QuestionAsset.query.filter_by(
-                question_id=question_id, language=language,
+                question_id=question_id, version=version,
                 asset_type=asset_type, file_format='DOC'
             ).first()
             if existing_doc:
                 errors.append(
-                    f'{f.filename}: a Word document already exists for {asset_type}/{language}. '
+                    f'{f.filename}: a Word document already exists for {asset_type}/{version}. '
                     f'Delete it first to replace.'
                 )
                 continue
-            filename = f"{question.qid}_{language}_{asset_type}.{ext}"
+            filename = f"{question.qid}_{version}_{asset_type}.{ext}"
             part_to_use = 1
 
         else:  # IMG — multi-part allowed
             part_suffix = f'_{next_img_part}' if next_img_part > 1 else ''
-            filename = f"{question.qid}_{language}_{asset_type}{part_suffix}.{ext}"
+            filename = f"{question.qid}_{version}_{asset_type}{part_suffix}.{ext}"
             part_to_use = next_img_part
 
         if question.source in ('DSE', 'CE', 'AL'):
@@ -1349,7 +1351,7 @@ def upload_question_asset(question_id):
             question_id=question_id,
             asset_type=asset_type,
             file_format=file_format,
-            language=language,
+            version=version,
             file_path=rel_path,
             part_number=part_to_use
         )
@@ -1445,7 +1447,7 @@ def get_md_asset_content(question_id, asset_id):
     return jsonify({
         'asset_id': asset.id,
         'qid': question.qid,
-        'language': asset.language,
+        'version': asset.version,
         'asset_type': asset.asset_type,
         'file_path': asset.file_path,
         'mtime_ns': mtime_ns,
@@ -1522,7 +1524,7 @@ def save_md_asset_content(question_id, asset_id):
 @login_required
 @admin_required
 def create_md_asset(question_id):
-    """Create a new MD asset for (question, language, asset_type) from editor content.
+    """Create a new MD asset for (question, version, asset_type) from editor content.
 
     Rejects if an MD asset already exists in that slot (MD is single-part).
     """
@@ -1532,12 +1534,12 @@ def create_md_asset(question_id):
         return denial
 
     data = request.get_json(silent=True) or {}
-    language = data.get('language', 'EN')
+    version = data.get('version') or data.get('language', 'EN')
     asset_type = data.get('asset_type', 'QUE')
     content = data.get('content', '')
 
-    if language not in ('EN', 'CH', 'BI'):
-        return jsonify({'error': 'Invalid language'}), 400
+    if version not in VERSIONS:
+        return jsonify({'error': 'Invalid version'}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'Invalid asset_type'}), 400
     if not isinstance(content, str):
@@ -1551,17 +1553,17 @@ def create_md_asset(question_id):
         }), 413
 
     existing = QuestionAsset.query.filter_by(
-        question_id=question_id, language=language,
+        question_id=question_id, version=version,
         asset_type=asset_type, file_format='MD'
     ).first()
     if existing:
         return jsonify({
-            'error': f'A Markdown asset already exists for {asset_type}/{language}. '
+            'error': f'A Markdown asset already exists for {asset_type}/{version}. '
                      f'Edit or delete it first.',
             'existing_asset_id': existing.id,
         }), 409
 
-    filename = f"{question.qid}_{language}_{asset_type}.md"
+    filename = f"{question.qid}_{version}_{asset_type}.md"
     if question.source in ('DSE', 'CE', 'AL'):
         folder = '/'.join([question.subject, 'PP', question.source,
                            str(question.year), question.paper])
@@ -1584,7 +1586,7 @@ def create_md_asset(question_id):
         question_id=question_id,
         asset_type=asset_type,
         file_format='MD',
-        language=language,
+        version=version,
         file_path=rel_path,
         part_number=1,
     )
@@ -1629,17 +1631,17 @@ def edit_md_asset_page(question_id, asset_id):
 def new_md_asset_page(question_id):
     """Fullscreen Markdown editor in create mode.
 
-    Query params: language=EN|CH|BI, asset_type=QUE|ANS|SOL.
+    Query params: version=EN|CH|BI|ENO|CHO (legacy: language), asset_type=QUE|ANS|SOL.
     """
     question = Question.query.get_or_404(question_id)
     denial = _require_md_admin(question)
     if denial:
         return denial
 
-    language = request.args.get('language', 'EN')
+    version = request.args.get('version') or request.args.get('language', 'EN')
     asset_type = request.args.get('asset_type', 'QUE')
-    if language not in ('EN', 'CH', 'BI'):
-        language = 'EN'
+    if version not in VERSIONS:
+        version = 'EN'
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         asset_type = 'QUE'
 
@@ -1647,7 +1649,7 @@ def new_md_asset_page(question_id):
         'admin_md_editor.html',
         question=question,
         asset=None,
-        create_language=language,
+        create_version=version,
         create_asset_type=asset_type,
         md_max=current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
     )
@@ -1687,7 +1689,7 @@ def delete_question_asset(question_id, asset_id):
     deleted_asset_id = asset.id
     deleted_question_id = asset.question_id
     deleted_asset_type = asset.asset_type
-    deleted_language = asset.language
+    deleted_version = asset.version
 
     db.session.delete(asset)
     db.session.commit()
@@ -1707,7 +1709,7 @@ def delete_question_asset(question_id, asset_id):
         stub.file_format = 'IMG'
         stub.question_id = deleted_question_id
         stub.asset_type = deleted_asset_type
-        stub.language = deleted_language
+        stub.version = deleted_version
         doc_thumbnails.on_img_asset_deleted(stub)
 
     msg = 'Asset deleted from database'
@@ -1723,13 +1725,13 @@ def delete_question_asset(question_id, asset_id):
 @login_required
 @admin_required
 def reorder_question_assets(question_id):
-    """Reorder asset parts for a given language and type, renaming files on disk"""
+    """Reorder asset parts for a given version and type, renaming files on disk"""
     data = request.get_json()
-    language = data.get('language')
+    version = data.get('version') or data.get('language')
     asset_type = data.get('asset_type')
     asset_ids = data.get('asset_ids', [])  # ordered list of asset IDs
 
-    if not language or not asset_type or not asset_ids:
+    if not version or not asset_type or not asset_ids:
         return jsonify({'error': 'Missing required fields'}), 400
 
     question = Question.query.get_or_404(question_id)
@@ -1744,7 +1746,7 @@ def reorder_question_assets(question_id):
     for idx, aid in enumerate(asset_ids, start=1):
         asset = QuestionAsset.query.filter_by(
             id=aid, question_id=question_id,
-            language=language, asset_type=asset_type
+            version=version, asset_type=asset_type
         ).first()
         if not asset:
             continue
@@ -2879,7 +2881,7 @@ def doc_thumbnail_backfill():
                     # invisible to the resolver anyway).
                     other_img = QuestionAsset.query.filter_by(
                         question_id=a.question_id, asset_type=a.asset_type,
-                        language=a.language, file_format='IMG'
+                        version=a.version, file_format='IMG'
                     ).first()
                     if other_img:
                         skipped_img += 1
@@ -3016,7 +3018,7 @@ def batch_generate_images():
     Query params:
       * `question_ids` (comma list, required) — DB ids of Question rows.
       * `types`        (comma list, default `QUE`) — any of QUE / ANS / SOL.
-      * `langs`        (comma list, default `EN,CH,BI`) — restrict languages.
+      * `versions`     (comma list, default all; legacy alias `langs`) — restrict versions.
       * `sources`      (comma list, default `DOC,MD`) — source formats.
       * `stitch`       (`1`|`0`, default 1) — stitch multi-page output into
                        one tall PNG vs. one PNG per source page.
@@ -3058,7 +3060,12 @@ def batch_generate_images():
         return {s.strip().upper() for s in raw.split(',') if s.strip()}
 
     types = _csv_set('types', ['QUE']) & {'QUE', 'ANS', 'SOL'}
-    langs = _csv_set('langs', ['EN', 'CH', 'BI']) & {'EN', 'CH', 'BI'}
+    # Accept the new `versions` param, falling back to the legacy `langs`.
+    _ver_raw = request.args.get('versions', '').strip() or request.args.get('langs', '').strip()
+    if _ver_raw:
+        versions = {s.strip().upper() for s in _ver_raw.split(',') if s.strip()} & set(VERSIONS)
+    else:
+        versions = set(VERSIONS)
     sources = _csv_set('sources', ['DOC', 'MD']) & {'DOC', 'MD'}
 
     if not types:
@@ -3107,13 +3114,13 @@ def batch_generate_images():
             lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
 
             # Build the work list before opening Word so we know the total
-            # for progress reporting up front. Each slot is a 4-tuple
-            # (question, asset_type, language, allow_sources).
+            # for progress reporting up front. Each slot is a tuple
+            # (question, asset_type, version).
             work = []
             for question in qs:
                 for atype in types:
-                    for lang in langs:
-                        work.append((question, atype, lang))
+                    for ver in versions:
+                        work.append((question, atype, ver))
             total = len(work)
 
             yield f"data: {json.dumps({'type': 'info', 'message': f'Scanning {len(qs)} question(s) — {total} slots to consider...'})}\n\n"
@@ -3126,13 +3133,13 @@ def batch_generate_images():
 
             try:
                 with word_com.word_session(lock_timeout=lock_timeout) as word_app:
-                    for question, atype, lang in work:
+                    for question, atype, ver in work:
                         current += 1
-                        slot_label = f'{question.qid} / {atype} / {lang}'
+                        slot_label = f'{question.qid} / {atype} / {ver}'
 
                         # 1. Find a usable source.
                         src_asset = batch_image_gen.find_best_source(
-                            question, atype, lang,
+                            question, atype, ver,
                             allow_doc=('DOC' in sources),
                             allow_md=('MD' in sources),
                         )
@@ -3143,7 +3150,7 @@ def batch_generate_images():
 
                         # 2. Honor overwrite=0.
                         if not overwrite and batch_image_gen.slot_has_img(
-                            question.id, atype, lang
+                            question.id, atype, ver
                         ):
                             skipped_has_img += 1
                             yield f"data: {json.dumps({'type': 'skip', 'message': f'{slot_label} — IMG exists (overwrite off)', 'current': current, 'total': total})}\n\n"
@@ -3181,7 +3188,7 @@ def batch_generate_images():
                         # 4. Persist (delete existing IMG + write new files + DB rows).
                         try:
                             summary = batch_image_gen.replace_img_assets(
-                                question, atype, lang, pages, stitch, source_path,
+                                question, atype, ver, pages, stitch, source_path,
                             )
                         except Exception as e:
                             failed += 1
@@ -3239,7 +3246,7 @@ def batch_mcq_ans():
 
     Query params:
       * ``question_ids`` (csv, required)
-      * ``langs``        (csv, default ``EN``) — EN / CH / BI
+      * ``versions``     (csv, default ``EN``; legacy alias ``langs``) — any of EN/CH/BI/ENO/CHO
       * ``overwrite``    (``1``|``0``, default ``0``) — replace existing IMG ANS
     """
     raw_qids = request.args.get('question_ids', '').strip()
@@ -3252,10 +3259,11 @@ def batch_mcq_ans():
     if not question_ids:
         return jsonify({'error': 'question_ids is empty'}), 400
 
-    raw_langs = request.args.get('langs', 'EN').strip()
-    langs = sorted({s.strip().upper() for s in raw_langs.split(',') if s.strip()} & {'EN', 'CH', 'BI'})
-    if not langs:
-        return jsonify({'error': 'langs must include at least one of EN / CH / BI'}), 400
+    raw_versions = (request.args.get('versions', '').strip()
+                    or request.args.get('langs', '').strip() or 'EN')
+    versions = sorted({s.strip().upper() for s in raw_versions.split(',') if s.strip()} & set(VERSIONS))
+    if not versions:
+        return jsonify({'error': 'versions must include at least one of ' + ' / '.join(VERSIONS)}), 400
 
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
 
@@ -3276,45 +3284,45 @@ def batch_mcq_ans():
                 os.path.join(os.path.dirname(app.root_path), 'resources', 'mcq_answer_img')
             )
             valid_answers = {'A', 'B', 'C', 'D'}
-            total_slots = len(qs) * len(langs)
+            total_slots = len(qs) * len(versions)
             done_count = 0
             n_success = 0
             n_skipped = 0
             n_error = 0
 
             yield (
-                f"data: {json.dumps({'type': 'info', 'message': f'Processing {len(qs)} question(s) × {len(langs)} language(s) = {total_slots} slot(s). overwrite={overwrite}.'})}\n\n"
+                f"data: {json.dumps({'type': 'info', 'message': f'Processing {len(qs)} question(s) × {len(versions)} version(s) = {total_slots} slot(s). overwrite={overwrite}.'})}\n\n"
             )
 
             for q in qs:
                 # Must be an MC question
                 if q.q_type != 'MC':
-                    n_skipped += len(langs)
-                    done_count += len(langs)
+                    n_skipped += len(versions)
+                    done_count += len(versions)
                     yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid}: q_type={q.q_type!r} (not MC) — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
                     continue
 
                 # answer must be A/B/C/D
                 answer = (q.answer or '').strip().upper()
                 if answer not in valid_answers:
-                    n_skipped += len(langs)
-                    done_count += len(langs)
+                    n_skipped += len(versions)
+                    done_count += len(versions)
                     yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid}: answer={answer!r} is not A/B/C/D — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
                     continue
 
                 # Locate source image
                 src_img = os.path.join(resources_dir, f'{answer}.png')
                 if not os.path.isfile(src_img):
-                    n_error += len(langs)
-                    done_count += len(langs)
+                    n_error += len(versions)
+                    done_count += len(versions)
                     yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid}: {answer}.png not found in resources/mcq_answer_img/ — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
                     continue
 
-                for lang in langs:
+                for ver in versions:
                     done_count += 1
 
                     # Build canonical relative path (mirrors _build_asset_file_path)
-                    filename = f'{q.qid}_{lang}_ANS.png'
+                    filename = f'{q.qid}_{ver}_ANS.png'
                     if q.source in ('DSE', 'CE', 'AL'):
                         folder = f'{q.subject}/PP/{q.source}/{q.year}/{q.paper}'
                     else:
@@ -3326,14 +3334,14 @@ def batch_mcq_ans():
                     existing = QuestionAsset.query.filter_by(
                         question_id=q.id,
                         asset_type='ANS',
-                        language=lang,
+                        version=ver,
                         file_format='IMG',
                         part_number=1,
                     ).first()
 
                     if existing and not overwrite:
                         n_skipped += 1
-                        yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid} [{lang}]: IMG ANS already exists (overwrite=off) — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
+                        yield f"data: {json.dumps({'type': 'skip', 'message': f'{q.qid} [{ver}]: IMG ANS already exists (overwrite=off) — skipped.', 'current': done_count, 'total': total_slots})}\n\n"
                         continue
 
                     # Copy image onto disk
@@ -3343,7 +3351,7 @@ def batch_mcq_ans():
                         shutil.copy2(src_img, dest_full)
                     except Exception as exc:
                         n_error += 1
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{lang}]: file copy failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{ver}]: file copy failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
                         continue
 
                     # Upsert DB record
@@ -3354,18 +3362,18 @@ def batch_mcq_ans():
                             db.session.add(QuestionAsset(
                                 question_id=q.id,
                                 asset_type='ANS',
-                                language=lang,
+                                version=ver,
                                 file_format='IMG',
                                 part_number=1,
                                 file_path=rel_path,
                             ))
                         db.session.commit()
                         n_success += 1
-                        yield f"data: {json.dumps({'type': 'success', 'message': f'{q.qid} [{lang}]: ANS set to {answer}.png → {rel_path}', 'current': done_count, 'total': total_slots})}\n\n"
+                        yield f"data: {json.dumps({'type': 'success', 'message': f'{q.qid} [{ver}]: ANS set to {answer}.png → {rel_path}', 'current': done_count, 'total': total_slots})}\n\n"
                     except Exception as exc:
                         db.session.rollback()
                         n_error += 1
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{lang}]: DB update failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'{q.qid} [{ver}]: DB update failed: {exc}', 'current': done_count, 'total': total_slots})}\n\n"
 
             yield (
                 f"data: {json.dumps({'type': 'done', 'message': f'Done. {n_success} set, {n_skipped} skipped, {n_error} error(s).', 'success': n_success, 'skipped': n_skipped, 'errors': n_error, 'current': total_slots, 'total': total_slots})}\n\n"

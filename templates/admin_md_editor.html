@@ -49,12 +49,12 @@
         <div class="meta">
             {% if asset %}
                 <span class="badge bg-secondary">{{ asset.asset_type }}</span>
-                <span class="badge bg-info">{{ asset.language }}</span>
+                <span class="badge bg-info">{{ asset.version }}</span>
                 <code class="ms-2">{{ asset.file_path }}</code>
             {% else %}
                 <span class="badge bg-success">CREATE</span>
                 <span class="badge bg-secondary">{{ create_asset_type }}</span>
-                <span class="badge bg-info">{{ create_language }}</span>
+                <span class="badge bg-info">{{ create_version }}</span>
             {% endif %}
         </div>
         <div class="ms-auto d-flex gap-2">
@@ -84,7 +84,7 @@
     {% if asset %}
     const assetId   = {{ asset.id }};
     {% endif %}
-    const createLanguage = {{ (create_language or 'EN') | tojson if not asset else 'null' }};
+    const createVersion = {{ (create_version or 'EN') | tojson if not asset else 'null' }};
     const createAssetType = {{ (create_asset_type or 'QUE') | tojson if not asset else 'null' }};
     const mdMax     = {{ md_max }};
 
@@ -165,7 +165,7 @@
         if (isCreate) {
             url = `/admin/questions/${qid}/assets/md/create`;
             body = JSON.stringify({
-                language: createLanguage,
+                version: createVersion,
                 asset_type: createAssetType,
                 content: content,
             });

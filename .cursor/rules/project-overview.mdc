@@ -49,7 +49,7 @@ Decorators in `app/utils.py`: `@admin_required`, `@super_admin_required`, `@subj
 - Question bank: `SUBJ_QB_DETAIL_QNO` → e.g. `MATC_QB_MATHSMART2024_Q1`
 
 ## Asset Files
-Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG, multi-part), Word docs (DOC, single-slot), or Markdown (MD, single-slot), with types QUE/ANS/SOL and languages EN/CH/BI.
+Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG, multi-part), Word docs (DOC, single-slot), or Markdown (MD, single-slot), with types QUE/ANS/SOL and **versions** EN/CH/BI/ENO/CHO (ENO/CHO = official public-exam scans; formerly called "languages"). Canonical list + labels + default priority live in `app/utils.VERSIONS`; viewing/generation order is set via a drag-to-reorder Version Priority widget.
 
 **Static resources** (not in SOURCE_PATH) live in `resources/` at the repo root:
 - `resources/mcq_answer_img/A.png`, `B.png`, `C.png`, `D.png` — source PNGs used by the **Set MCQ ANS** batch operation to populate the ANS slot for MC questions.

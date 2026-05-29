@@ -27,7 +27,7 @@ Question (qid, subject, source, year, paper, section, qno, q_type, level, ...)
   ├── subchapter_id → Subchapter
   └── assets → [QuestionAsset]
 
-QuestionAsset (question_id, asset_type, file_format, language, file_path, part_number)
+QuestionAsset (question_id, asset_type, file_format, version, file_path, part_number)
 
 User (username, password_hash, is_super_admin)
   └── subject_permissions → [UserSubjectPermission]
@@ -56,10 +56,10 @@ SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 ## QuestionAsset Constraints
 - `asset_type`: `QUE`, `ANS`, `SOL`
 - `file_format`: `IMG`, `DOC`, `MD`
-  - `MD` is single-part only (one `.md` = one whole asset, self-contained with LaTeX math + base64 images). Ingest skips any `.md` with `part_number > 1`; upload rejects a second MD for the same `(question, asset_type, language)` slot.
-- `language`: `EN`, `CH`, `BI`
+  - `MD` is single-part only (one `.md` = one whole asset, self-contained with LaTeX math + base64 images). Ingest skips any `.md` with `part_number > 1`; upload rejects a second MD for the same `(question, asset_type, version)` slot.
+- `version` (formerly `language`): `EN`, `CH`, `BI`, `ENO` (English Official), `CHO` (Chinese Official). Canonical list + labels + default priority live in `app/utils.VERSIONS`. ENO/CHO are official public-exam scans, last in default priority.
 - `part_number`: int starting at 1 (for multi-image questions; always 1 for MD)
-- Unique constraint: `(question_id, asset_type, language, file_format, part_number)`
+- Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
 - `file_path` stored as forward-slash relative path from `SOURCE_PATH`
 
 ## Permission Checks (User model methods)
