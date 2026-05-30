@@ -62,6 +62,17 @@
             </div>
         </div>
         <div class="col-md-4">
+            <div class="card h-100 border-warning">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-filetype-pdf"></i> PDF Batch Import</h5>
+                    <p class="card-text">Upload question/solution PDFs and use a vision LLM to detect, crop, and save each question as an image asset.</p>
+                    <a href="{{ url_for('admin.pdf_import_page') }}" class="btn btn-warning btn-sm">
+                        <i class="bi bi-arrow-right"></i> Go to PDF Import
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-arrow-left-right"></i> Export / Import</h5>

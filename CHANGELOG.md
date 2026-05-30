@@ -6,6 +6,19 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### PDF Batch Import — auto-detect & crop questions from exam PDFs (Admin)
+
+A new **PDF Batch Import** tool in the Admin Panel Operations section (after Question Ingestion) turns whole exam PDFs into per-question image assets, replacing the manual screenshot-and-upload workflow:
+
+- **Upload** a question PDF and/or a solution PDF for one paper, type the paper name (e.g. `MATC_DSE_2012_P1`), and pick a version (EN / CH / BI / ENO / CHO). The server rasterises every page to a high-resolution PNG (PyMuPDF).
+- **Vision-LLM detection**: each page is sent **one image at a time** to a configured vision endpoint (e.g. a local `qwen3vl`), which returns a tight bounding box + the printed question number for every question. Processing per page keeps each call within a small local model's context window. The **QUE** prompt crops tight to the question and excludes blank answering space + outer margins; the **SOL** prompt keeps the full solution including right-hand marking/side-notes.
+- **Two modes**: *Automatic* (detect → crop → save in one run, fix any mistakes afterwards in the edit-question modal) and *Review* (a lightweight per-page editor overlays the proposed boxes on each page with crop-preview thumbnails; you can delete a wrong box, correct a question number, or **Re-run** a single page through the model before importing).
+- **Crop & save**: each box is cropped from the high-res page (small pad + white-margin trim) and saved as an `IMG` `QuestionAsset`, creating the `Question` if needed (`q_type` auto-set as usual). A question that **spans two pages** (same number on consecutive pages) is saved as a **multi-part** image. `Overwrite existing images` is off by default (slots that already have an image are skipped).
+- **Live console + real Stop**: detection and import both stream a Server-Sent-Events log with a progress bar and a genuine server-side cancel (checked between pages/questions). Subject-admins may run it on their own subjects; gated by the `AI_TOOLS_ENABLED` setting and requires a vision-capable LLM endpoint.
+- **Tunable**: `PDF_IMPORT_RASTER_WIDTH` (page raster width, default 1700 px) added to System Settings; the image actually sent to the LLM is downscaled separately via `LLM_IMAGE_MAX_DIM`.
+- **Coordinate handling** (so detected boxes land on the right place): the detection prompt now pins an explicit **0–1000 integer grid, origin top-left, `[x1,y1,x2,y2]` (x-first)** with a worked example. The parser auto-detects the number range (0–1 / 0–1000 / 0–1024 / raw pixels, normalised against the downscaled size the model actually saw) and a new **`PDF_IMPORT_COORD_ORDER`** setting (`xyxy` default, or `yxyx`) handles models that emit the vertical coordinate first (Gemma / Gemini / PaliGemma family). A per-run **Debug** toggle logs each page's verbatim model reply to the console (and into a collapsible under each review page) so coordinate conventions can be confirmed at a glance.
+- New module `app/pdf_import.py` (staging, rasterise, detect, crop, commit) reuses `app/batch_image_gen.py` for the atomic disk+DB write and DOC-thumbnail lifecycle. New routes under `/admin/pdf-import/*` (page, `stage`, `page/<token>/<kind>/<n>.png`, `detect` SSE, `redo-page`, `plan`, `commit` SSE, `cancel`, `discard`). Uploaded PDFs + rendered pages are staged under `OUTPUT_PATH/.pdf_import/<token>/` and auto-purged after a few hours / on Discard. See [.cursor/rules/pdf-import.mdc](.cursor/rules/pdf-import.mdc).
+
 #### Explain — AI tutor chat (dashboard)
 
 A new **Explain** button on every dashboard question card (between the view buttons and Edit) opens an AI tutor chat:

@@ -179,6 +179,172 @@ def parse_figure_boxes(text: str):
     return []
 
 
+# ==================== PDF batch import (question region detection) ====================
+
+# Shared tail describing the STRICT JSON contract for both QUE and SOL prompts.
+#
+# Coordinate convention: an explicit 0-1000 integer grid with the ORIGIN at the
+# TOP-LEFT and x BEFORE y, plus a worked numeric example. Vision models disagree
+# wildly on box conventions (0..1 vs 0..1000 vs raw pixels; x-first vs y-first),
+# so we pin one convention here and parse defensively in parse_question_boxes.
+# Models that ignore this and answer y-first (Gemma/Gemini family) are handled
+# by the PDF_IMPORT_COORD_ORDER='yxyx' setting.
+_PDF_BOX_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom reading order, of objects of the form\n"
+    '{"qno": <integer printed question number>, "box": [x1, y1, x2, y2], '
+    '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
+    "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
+    "of the page. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
+    "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
+    "the BOTTOM edge). The box is [x1, y1, x2, y2] where (x1,y1) is its "
+    "TOP-LEFT corner and (x2,y2) its BOTTOM-RIGHT corner, so always x1 < x2 "
+    "and y1 < y2. Example: a question that fills the TOP THIRD of the page "
+    "across almost the full width is "
+    '{"qno": 1, "box": [40, 70, 960, 330], "continues_prev": false, '
+    '"continues_next": false} — note the small y values because it is near the '
+    "TOP. \"qno\" is the PRINTED question number you can read on the page (an "
+    "integer; for a part like \"5\" use 5). Set \"continues_prev\" to true when "
+    "the topmost region is the tail of a question that began on the previous "
+    "page, and \"continues_next\" to true when the bottom region is cut off and "
+    "continues on the next page. If the page has no question content, return []."
+)
+
+PDF_QUE_BOX_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE exam papers. "
+    "You are given ONE rasterised page of a QUESTION paper. Locate the tight "
+    "bounding box around each individual exam QUESTION on the page.\n"
+    "- The box must enclose the full question text together with any figures, "
+    "diagrams, graphs, tables, and multiple-choice options that belong to it.\n"
+    "- EXCLUDE the blank answering/working space (white space or ruled lines "
+    "left for the candidate's answer), running headers/footers, page numbers, "
+    "and the outer page margins. Crop tightly to the printed question content "
+    "only.\n"
+    "- Each numbered question is one box. Do NOT split a question into its "
+    "sub-parts (a), (b), (c) — keep the whole numbered question together.\n"
+    "- The page is a single column; questions are stacked vertically.\n\n"
+    + _PDF_BOX_JSON_CONTRACT
+)
+
+PDF_SOL_BOX_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE exam papers. "
+    "You are given ONE rasterised page of a SOLUTION / marking-scheme "
+    "document. Locate the tight bounding box around each individual "
+    "SOLUTION on the page.\n"
+    "- The box must enclose the COMPLETE solution: every worked step, plus any "
+    "supplementary notes, marking annotations, comments, or remarks printed to "
+    "the RIGHT-HAND SIDE of the working. Do not cut those off.\n"
+    "- Only EXCLUDE running headers/footers, page numbers, and the outer page "
+    "margins.\n"
+    "- Each numbered question's solution is one box. Keep all sub-parts of one "
+    "numbered question together.\n"
+    "- The page is a single column of solutions stacked vertically (side notes "
+    "do not count as a second column).\n\n"
+    + _PDF_BOX_JSON_CONTRACT
+)
+
+
+def build_pdf_box_user_text(asset_type: str) -> str:
+    """User-turn instruction accompanying a single page image."""
+    what = 'questions' if asset_type == 'QUE' else 'solutions'
+    return (
+        f"List the bounding boxes of every {what} on this page as STRICT JSON. "
+        f"Use integer coordinates on a 0-1000 grid in the order [x1, y1, x2, y2] "
+        f"= [left, top, right, bottom], measured from the top-left corner. "
+        f"Include the printed question number for each. Return [] if the page "
+        f"has no {what}."
+    )
+
+
+def _normalize_box(coords, img_w=None, img_h=None, coord_order='xyxy'):
+    """Normalise a raw 4-tuple model box to fractional ``[x1,y1,x2,y2]`` in
+    0..1, handling axis order and the common number ranges.
+
+    ``coord_order``:
+      * ``'xyxy'`` (default) — ``[x1, y1, x2, y2]`` (Qwen, most models).
+      * ``'yxyx'`` — ``[y1, x1, y2, x2]`` (Gemma / Gemini / PaliGemma family);
+        re-ordered to x-first here.
+
+    Range detection (after axis re-ordering):
+      * max <= 1   → already fractional (0..1).
+      * max <= 1024 → normalised 0..1000/0..1024 integers → divide by 1000.
+      * else        → raw pixels → divide by the supplied image dims (the
+        downscaled size the model actually saw) when known, else by the max.
+    """
+    if (coord_order or 'xyxy').lower() == 'yxyx':
+        # [y1, x1, y2, x2] -> [x1, y1, x2, y2]
+        coords = [coords[1], coords[0], coords[3], coords[2]]
+    mx = max((abs(v) for v in coords), default=0.0)
+    if mx <= 1.0:
+        pass  # already fractional
+    elif mx <= 1024.0:
+        coords = [v / 1000.0 for v in coords]
+    elif img_w and img_h:
+        coords = [coords[0] / img_w, coords[1] / img_h,
+                  coords[2] / img_w, coords[3] / img_h]
+    else:
+        coords = [v / mx for v in coords]
+    return [min(max(v, 0.0), 1.0) for v in coords]
+
+
+def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
+    """Parse the page-detection model output into a list of
+    ``{qno, box:[x1,y1,x2,y2], continues_prev, continues_next}``.
+
+    Tolerant of code fences and surrounding prose (mirrors
+    ``parse_figure_boxes``). Coordinates are normalised + clamped to 0..1 via
+    :func:`_normalize_box` (honouring ``coord_order`` and ``img_w``/``img_h``).
+    ``qno`` is coerced to an int when possible, else ``None``. Returns ``[]``
+    on total failure.
+    """
+    if not text:
+        return []
+    candidates = [text.strip()]
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+    arr = re.search(r'\[.*\]', text, re.DOTALL)
+    if arr:
+        candidates.append(arr.group(0))
+
+    for c in candidates:
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            data = data.get('questions') or data.get('boxes') or data.get('regions') or []
+        if not isinstance(data, list):
+            continue
+        out = []
+        for it in data:
+            if not isinstance(it, dict):
+                continue
+            box = it.get('box') or it.get('bbox') or it.get('bounding_box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                coords = [float(v) for v in box]
+            except (ValueError, TypeError):
+                continue
+            x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
+
+            qno_raw = it.get('qno', it.get('question_number', it.get('number')))
+            qno = None
+            if qno_raw is not None:
+                mqn = re.search(r'\d+', str(qno_raw))
+                if mqn:
+                    qno = int(mqn.group(0))
+
+            out.append({
+                'qno': qno,
+                'box': [x1, y1, x2, y2],
+                'continues_prev': bool(it.get('continues_prev', False)),
+                'continues_next': bool(it.get('continues_next', False)),
+            })
+        return out
+    return []
+
+
 def strip_md_fences(text: str) -> str:
     """Remove a single wrapping ```...``` fence if the model added one
     around the whole answer despite instructions."""

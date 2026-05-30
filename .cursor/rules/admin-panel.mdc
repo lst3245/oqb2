@@ -92,6 +92,9 @@ All exports are CSV. Imports are idempotent (upsert logic).
   - `subject` param scans only `SOURCE_PATH/<subject>/` subfolder; omit to scan all
   - Uses `scan_directory_stream()` from `app/ingestor.py`
 
+### PDF Batch Import (`/admin/pdf-import`)
+Rasterise uploaded DSE question/solution PDFs, ask a vision LLM for a tight bounding box + printed question number per question per page, then crop + create `QUE`/`SOL` IMG assets. PP only; gated on `AI_TOOLS_ENABLED` + a vision endpoint; subject-admin scoped. Backed by `app/pdf_import.py` (reuses `app/batch_image_gen.replace_img_assets`). Routes: `pdf_import_page`, `stage` (multipart upload+rasterise), `page/<token>/<kind>/<int:page>.png` (staged page PNG), `detect` (SSE), `redo-page` (POST), `plan` (POST, save edited plan), `commit` (SSE), `cancel` (POST), `discard` (POST). Two modes — Automatic (detect→commit) and Review (lightweight per-page box editor: delete/renumber/re-run, no manual drawing). Spanning questions → multi-part IMG. Tunable `PDF_IMPORT_RASTER_WIDTH`. See [pdf-import.mdc](mdc:.cursor/rules/pdf-import.mdc).
+
 ### Database Health (`/admin/health`) — super admin only
 - `GET /admin/health/stats` — fast DB-only stats (counts, untagged, no-asset questions, duplicates, path mismatches)
 - `GET /admin/health/untracked` — files on disk not in DB

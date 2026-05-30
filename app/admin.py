@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
 from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
-from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS
+from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS, VERSION_LABELS
 from app import md_render
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -2866,6 +2866,368 @@ def ingestion_start():
     
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== PDF Batch Import (Admin) ====================
+#
+# Rasterise uploaded DSE question/solution PDFs, ask a vision LLM for a tight
+# bounding box per question per page, then crop + create Question/QuestionAsset
+# rows. Two modes (automatic, auto-then-review) share one detect->commit
+# pipeline. Backed by app/pdf_import.py; reuses app/batch_image_gen.py for the
+# atomic asset write. See .cursor/rules/pdf-import.mdc.
+
+def _pdf_vision_endpoints():
+    """Enabled, vision-capable LLM endpoints, in display order."""
+    from app.models import LLMConfig
+    return (LLMConfig.query
+            .filter_by(enabled=True, supports_vision=True)
+            .order_by(LLMConfig.sort_order, LLMConfig.name).all())
+
+
+def _pdf_sse_error(message):
+    """Return an SSE Response that emits a single error + done (so the
+    EventSource client surfaces the failure and stops cleanly)."""
+    def gen():
+        yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+    return Response(gen(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+def _pdf_load_token_meta(token):
+    """Load a staging token's meta.json and enforce admin access to its
+    subject. Returns ``(meta, error_message)``."""
+    from app import pdf_import
+    try:
+        meta = pdf_import.load_meta(token)
+    except (ValueError, OSError):
+        return None, 'Staging session not found or expired. Please re-upload.'
+    subject = meta.get('subject')
+    if not current_user.is_super_admin:
+        admin_ids = [s.id for s in get_user_admin_subjects()]
+        if subject not in admin_ids:
+            return None, f'You do not have admin access to subject {subject}.'
+    return meta, None
+
+
+@admin_bp.route('/pdf-import')
+@login_required
+@admin_required
+def pdf_import_page():
+    """PDF Batch Import management page."""
+    subjects = get_user_admin_subjects()
+    endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name}
+                 for c in _pdf_vision_endpoints()]
+    return render_template(
+        'admin_pdf_import.html',
+        subjects=subjects,
+        versions=VERSIONS,
+        version_labels=VERSION_LABELS,
+        endpoints=endpoints,
+        ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
+        raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
+    )
+
+
+@admin_bp.route('/pdf-import/stage', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_stage():
+    """Upload + rasterise the QUE/SOL PDFs for a paper. Returns the staging
+    token and per-kind page lists."""
+    from app import pdf_import
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+
+    paper = request.form.get('paper', '')
+    meta, err = pdf_import.parse_paper_prefix(paper)
+    if err:
+        return jsonify({'error': err}), 400
+
+    subject = meta['subject']
+    if not Subject.query.get(subject):
+        return jsonify({'error': f'Subject {subject} does not exist.'}), 400
+    if not current_user.is_super_admin:
+        admin_ids = [s.id for s in get_user_admin_subjects()]
+        if subject not in admin_ids:
+            return jsonify({'error': f'You do not have admin access to subject {subject}.'}), 403
+
+    version = (request.form.get('version') or '').strip().upper()
+    if version not in VERSIONS:
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    meta['version'] = version
+
+    que_file = request.files.get('que_pdf')
+    sol_file = request.files.get('sol_pdf')
+
+    def _is_pdf(fs):
+        return fs is not None and fs.filename and fs.filename.lower().endswith('.pdf')
+
+    has_que = _is_pdf(que_file)
+    has_sol = _is_pdf(sol_file)
+    if not has_que and not has_sol:
+        return jsonify({'error': 'Upload at least one PDF (a question PDF and/or a solution PDF).'}), 400
+
+    raster_width = int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700))
+    try:
+        token, saved_meta = pdf_import.stage(
+            que_file if has_que else None,
+            sol_file if has_sol else None,
+            meta, raster_width)
+    except Exception as e:
+        current_app.logger.exception('PDF import staging failed')
+        return jsonify({'error': f'Could not process PDF: {e}'}), 500
+
+    def _pages(kind):
+        info = saved_meta.get(kind)
+        if not info:
+            return []
+        return [{'index': p['index'], 'width': p['width'], 'height': p['height']}
+                for p in info['pages']]
+
+    return jsonify({
+        'token': token,
+        'subject': subject, 'source': meta['source'],
+        'year': meta['year'], 'paper': meta['paper'], 'version': version,
+        'que': {'filename': (que_file.filename if has_que else None), 'pages': _pages('que')},
+        'sol': {'filename': (sol_file.filename if has_sol else None), 'pages': _pages('sol')},
+    })
+
+
+@admin_bp.route('/pdf-import/page/<token>/<kind>/<int:page>.png')
+@login_required
+@admin_required
+def pdf_import_page_image(token, kind, page):
+    """Serve a staged page PNG for the review overlay."""
+    from app import pdf_import
+    if kind not in ('que', 'sol'):
+        return abort(404)
+    _meta, err = _pdf_load_token_meta(token)
+    if err:
+        return abort(404)
+    try:
+        path = pdf_import.page_png_path(token, kind, page)
+    except ValueError:
+        return abort(404)
+    if not os.path.isfile(path):
+        return abort(404)
+    resp = send_file(path, mimetype='image/png', conditional=True)
+    resp.headers['Cache-Control'] = 'private, max-age=600'
+    return resp
+
+
+@admin_bp.route('/pdf-import/detect')
+@login_required
+@admin_required
+def pdf_import_detect():
+    """SSE: detect question regions on every staged page (QUE then SOL)."""
+    from app import pdf_import
+    from app.models import LLMConfig
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return _pdf_sse_error('AI features are disabled.')
+
+    token = request.args.get('token', '')
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return _pdf_sse_error(err)
+
+    try:
+        endpoint_id = int(request.args.get('endpoint_id', '0'))
+    except (ValueError, TypeError):
+        endpoint_id = 0
+    cfg = LLMConfig.query.get(endpoint_id)
+    if cfg is None or not cfg.enabled:
+        return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+    if not cfg.supports_vision:
+        return _pdf_sse_error('The selected endpoint is not vision-capable.')
+
+    debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+
+    def generate():
+        with app.app_context():
+            yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
+            try:
+                from app.models import LLMConfig as _Cfg
+                live_cfg = _Cfg.query.get(endpoint_id)
+                image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+                for ev in pdf_import.iter_detect(app, cancel, token, live_cfg,
+                                                 image_max_dim, debug=debug):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except Exception as e:
+                current_app.logger.exception('PDF import detect stream aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/pdf-import/redo-page', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_redo_page():
+    """Re-run detection for a single page (review mode). Returns fresh boxes."""
+    from app import pdf_import
+    from app.models import LLMConfig
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    kind = (data.get('kind') or '').strip()
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 404
+    if kind not in ('que', 'sol') or not meta.get(kind):
+        return jsonify({'error': 'invalid kind'}), 400
+    try:
+        index = int(data.get('index'))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'invalid page index'}), 400
+
+    cfg = LLMConfig.query.get(data.get('endpoint_id') or 0)
+    if cfg is None or not cfg.enabled or not cfg.supports_vision:
+        return jsonify({'error': 'Selected LLM endpoint is unavailable or not vision-capable.'}), 400
+
+    image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+    debug = bool(data.get('debug'))
+    try:
+        boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index, image_max_dim)
+    except Exception as e:
+        current_app.logger.exception('PDF import redo-page failed')
+        return jsonify({'error': f'Detection failed: {e}'}), 502
+    out = {'boxes': boxes}
+    if debug:
+        current_app.logger.info('pdf-import raw redo (%s page %s):\n%s', kind, index + 1, raw)
+        out['raw'] = (raw or '')[:6000]
+    return jsonify(out)
+
+
+@admin_bp.route('/pdf-import/plan', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_save_plan():
+    """Persist the (edited) plan before commit. Body: {token, plan:{que,sol}}."""
+    from app import pdf_import
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    _meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 404
+
+    raw = data.get('plan') or {}
+    clean = {'que': [], 'sol': []}
+    for kind in ('que', 'sol'):
+        for item in (raw.get(kind) or []):
+            if not isinstance(item, dict):
+                continue
+            box = item.get('box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                box = [float(v) for v in box]
+                page = int(item.get('page', 0))
+            except (ValueError, TypeError):
+                continue
+            qno_raw = item.get('qno')
+            qno = None
+            if qno_raw is not None and str(qno_raw).strip() != '':
+                m = re.search(r'\d+', str(qno_raw))
+                if m:
+                    qno = int(m.group(0))
+            clean[kind].append({'page': page, 'qno': qno, 'box': box})
+    try:
+        pdf_import.save_plan(token, clean)
+    except (ValueError, OSError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'success': True,
+                    'counts': {'que': len(clean['que']), 'sol': len(clean['sol'])}})
+
+
+@admin_bp.route('/pdf-import/commit')
+@login_required
+@admin_required
+def pdf_import_commit():
+    """SSE: crop every question region in plan.json and create the
+    Question / QuestionAsset rows."""
+    from app import pdf_import
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return _pdf_sse_error('AI features are disabled.')
+
+    token = request.args.get('token', '')
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return _pdf_sse_error(err)
+
+    version = (request.args.get('version') or meta.get('version') or '').strip().upper()
+    if version not in VERSIONS:
+        return _pdf_sse_error('version must be one of ' + '/'.join(VERSIONS))
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+
+    def generate():
+        with app.app_context():
+            yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
+            try:
+                plan = pdf_import.load_plan(token)
+                source_path = app.config['SOURCE_PATH']
+                for ev in pdf_import.iter_commit(app, cancel, token, plan,
+                                                 version, overwrite, source_path):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except Exception as e:
+                current_app.logger.exception('PDF import commit stream aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/pdf-import/cancel', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_cancel():
+    """Signal a running detect/commit job to stop."""
+    from app import pdf_import
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get('job_id') or '').strip()
+    if not job_id:
+        return jsonify({'error': 'job_id is required'}), 400
+    known = pdf_import.cancel_job(job_id)
+    return jsonify({'success': True, 'known': known})
+
+
+@admin_bp.route('/pdf-import/discard', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_discard():
+    """Delete a staging dir (its uploaded PDFs + rendered page PNGs)."""
+    from app import pdf_import
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    _meta, err = _pdf_load_token_meta(token)
+    if err:
+        # Already gone / inaccessible — treat as success for idempotency.
+        return jsonify({'success': True, 'removed': False})
+    try:
+        removed = pdf_import.discard(token)
+    except ValueError:
+        return jsonify({'success': True, 'removed': False})
+    return jsonify({'success': True, 'removed': removed})
 
 
 # ==================== Database Health (Super Admin) ====================

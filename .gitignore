@@ -48,6 +48,10 @@ output/*.pdf
 output/.doc_thumbnails/
 # Catch-all in case the user reconfigures DOC_THUMBNAIL_PATH or output paths.
 .doc_thumbnails/
+# PDF Batch Import staging (uploaded PDFs + rasterised page PNGs, under OUTPUT_PATH).
+output/.pdf_import/
+# Catch-all in case OUTPUT_PATH is reconfigured.
+.pdf_import/
 ingest_errors.log
 
 # Database

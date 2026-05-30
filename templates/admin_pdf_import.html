@@ -1,0 +1,749 @@
+{% extends "base.html" %}
+
+{% block title %}PDF Batch Import - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .log-console {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.82rem;
+        padding: 1rem;
+        border-radius: 6px;
+        height: 320px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.5;
+    }
+    .log-console .log-info { color: #569cd6; }
+    .log-console .log-success { color: #6a9955; }
+    .log-console .log-skip { color: #ce9178; }
+    .log-console .log-warning { color: #d7ba7d; }
+    .log-console .log-error { color: #f44747; }
+    .log-console .log-done { color: #dcdcaa; font-weight: bold; }
+    .log-console .log-job { color: #808080; }
+
+    .pdf-page-wrap {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        border: 1px solid #dee2e6;
+        background: #fff;
+        line-height: 0;
+    }
+    .pdf-page-img { max-width: 100%; height: auto; display: block; }
+    .pdf-overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+    }
+    .pdf-box {
+        position: absolute;
+        border: 2px solid #d63384;
+        background: rgba(214, 51, 132, 0.10);
+        box-sizing: border-box;
+        pointer-events: auto;
+        cursor: pointer;
+    }
+    .pdf-box.kind-sol { border-color: #0d6efd; background: rgba(13, 110, 253, 0.10); }
+    .pdf-box.selected { outline: 3px solid #ffc107; outline-offset: 1px; }
+    .pdf-box-label {
+        position: absolute;
+        top: -2px; left: -2px;
+        background: #d63384;
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0 5px;
+        line-height: 1.4;
+        white-space: nowrap;
+    }
+    .pdf-box.kind-sol .pdf-box-label { background: #0d6efd; }
+
+    .pdf-box-list .box-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .pdf-box-list .box-row canvas {
+        border: 1px solid #dee2e6;
+        background: #fff;
+        max-height: 70px;
+        width: auto;
+    }
+    .pdf-box-list .qno-input { width: 5.5rem; }
+    .page-card { margin-bottom: 1rem; }
+    .page-card .card-header { font-size: 0.9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4" style="max-width: 1280px;">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h2 class="mb-0"><i class="bi bi-filetype-pdf"></i> PDF Batch Import</h2>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+    <p class="text-muted mt-1">Upload a question and/or solution PDF, let a vision model detect each question region, then crop and save them as image assets. Only subjects you have admin access to are allowed.</p>
+    <hr>
+
+    {% if not ai_enabled %}
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> AI Tools are disabled. Enable them in <a href="{{ url_for('admin.settings_page') }}">System Settings</a> to use PDF Import.</div>
+    {% elif not endpoints %}
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> No vision-capable LLM endpoint is configured. Add one under <a href="{{ url_for('admin.llm_endpoints_page') }}">Admin &rarr; LLM Endpoints</a> first.</div>
+    {% endif %}
+
+    <!-- ===== Step 1: Setup ===== -->
+    <div class="card mb-3" id="setupCard">
+        <div class="card-header bg-light"><i class="bi bi-1-circle"></i> Setup</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="paperInput" class="form-label fw-bold">Paper name</label>
+                    <input type="text" id="paperInput" class="form-control" placeholder="MATC_DSE_2012_P1" autocomplete="off">
+                    <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages.</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="versionSelect" class="form-label fw-bold">Version</label>
+                    <select id="versionSelect" class="form-select">
+                        {% for v in versions %}
+                        <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>{{ version_labels.get(v, v) }} ({{ v }})</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Applied to both question and solution images created in this run.</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
+                    <select id="endpointSelect" class="form-select">
+                        {% for e in endpoints %}
+                        <option value="{{ e.id }}">{{ e.name }} ({{ e.model_name }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label for="quePdf" class="form-label fw-bold">Question PDF <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
+                </div>
+                <div class="col-md-4">
+                    <label for="solPdf" class="form-label fw-bold">Solution PDF <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="file" id="solPdf" class="form-control" accept="application/pdf,.pdf">
+                </div>
+                <div class="col-md-4 d-flex flex-column justify-content-end">
+                    <div class="mb-2">
+                        <span class="fw-bold me-2">Mode:</span>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="mode" id="modeReview" value="review" checked>
+                            <label class="form-check-label" for="modeReview">Review</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="mode" id="modeAuto" value="auto">
+                            <label class="form-check-label" for="modeAuto">Automatic</label>
+                        </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="overwriteChk">
+                        <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="debugChk">
+                        <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
+                            <i class="bi bi-bug"></i> Debug: show raw model output
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3 d-flex gap-2">
+                <button id="btnStart" class="btn btn-warning" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
+                    <i class="bi bi-play-fill"></i> Start
+                </button>
+                <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
+                <button id="btnReset" class="btn btn-outline-secondary d-none"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Progress + Log ===== -->
+    <div id="progressSection" class="mb-2 d-none">
+        <div class="d-flex justify-content-between mb-1">
+            <small id="progressLabel" class="text-muted">Working...</small>
+            <small id="progressCount" class="text-muted">0 / 0</small>
+        </div>
+        <div class="progress" style="height: 20px;">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" style="width: 0%;">0%</div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-terminal"></i> Log</span>
+            <span id="logStatus" class="badge bg-secondary">Idle</span>
+        </div>
+        <div id="logConsole" class="log-console">Welcome to PDF Batch Import.
+Fill in the setup above and click "Start".
+</div>
+    </div>
+
+    <!-- ===== Step 2: Review ===== -->
+    <div class="card mb-3 d-none" id="reviewCard">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-2-circle"></i> Review detected regions</span>
+            <span id="reviewSummary" class="text-muted small"></span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Each coloured box is one detected question. Fix the question number or delete a wrong box. Use "Re-run page" if a page came out badly. When you're happy, click <strong>Import</strong>.
+                <span class="badge" style="background:#d63384;">QUE</span>
+                <span class="badge bg-primary">SOL</span>
+            </p>
+            <div id="reviewBody"></div>
+            <div class="d-flex gap-2 mt-3">
+                <button id="btnCommit" class="btn btn-success"><i class="bi bi-check2-circle"></i> Import to database</button>
+                <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Summary ===== -->
+    <div id="summaryPanel" class="card mt-3 d-none">
+        <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> Import Summary</div>
+        <div class="card-body">
+            <div class="row text-center" id="summaryStats"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const IMPORT_BASE = "{{ url_for('admin.pdf_import_page') }}";  // /admin/pdf-import
+
+// ----- DOM refs -----
+const paperInput = document.getElementById('paperInput');
+const versionSelect = document.getElementById('versionSelect');
+const endpointSelect = document.getElementById('endpointSelect');
+const quePdf = document.getElementById('quePdf');
+const solPdf = document.getElementById('solPdf');
+const overwriteChk = document.getElementById('overwriteChk');
+const debugChk = document.getElementById('debugChk');
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const btnReset = document.getElementById('btnReset');
+const btnCommit = document.getElementById('btnCommit');
+const btnDiscard = document.getElementById('btnDiscard');
+const logConsole = document.getElementById('logConsole');
+const logStatus = document.getElementById('logStatus');
+const progressSection = document.getElementById('progressSection');
+const progressBar = document.getElementById('progressBar');
+const progressLabel = document.getElementById('progressLabel');
+const progressCount = document.getElementById('progressCount');
+const reviewCard = document.getElementById('reviewCard');
+const reviewBody = document.getElementById('reviewBody');
+const reviewSummary = document.getElementById('reviewSummary');
+const summaryPanel = document.getElementById('summaryPanel');
+
+// ----- State -----
+let staging = null;        // {token, version, que:{pages}, sol:{pages}}
+let plan = { que: [], sol: [] };  // each item: {page, qno, box:[x1,y1,x2,y2], _uid}
+let rawByPage = { que: {}, sol: {} };  // debug: verbatim model reply per page index
+let mode = 'review';
+let eventSource = null;
+let currentJobId = null;
+let running = false;
+let uidCounter = 0;
+function nextUid() { return 'b' + (++uidCounter); }
+
+function pageImgUrl(token, kind, index) {
+    return `${IMPORT_BASE}/page/${token}/${kind}/${index}.png`;
+}
+
+// ----- Logging -----
+function appendLog(message, type) {
+    const span = document.createElement('span');
+    span.className = 'log-' + (type || 'info');
+    span.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n`;
+    logConsole.appendChild(span);
+    logConsole.scrollTop = logConsole.scrollHeight;
+}
+function logRaw(kind, idx, raw) {
+    // Debug helper: dump the model's verbatim reply for one page into the
+    // console so the raw bounding-box numbers are visible.
+    const span = document.createElement('span');
+    span.className = 'log-job';
+    span.textContent = `    └ raw ${kind.toUpperCase()} p${idx + 1}: ${(raw || '(empty)').trim()}\n`;
+    logConsole.appendChild(span);
+    logConsole.scrollTop = logConsole.scrollHeight;
+}
+function setStatus(text, cls) {
+    logStatus.textContent = text;
+    logStatus.className = 'badge ' + cls;
+}
+function updateProgress(ev) {
+    if (ev.current !== undefined && ev.total && ev.total > 0) {
+        const pct = Math.round((ev.current / ev.total) * 100);
+        progressBar.style.width = pct + '%';
+        progressBar.textContent = pct + '%';
+        progressCount.textContent = `${ev.current} / ${ev.total}`;
+    }
+}
+function showProgress(label) {
+    progressSection.classList.remove('d-none');
+    progressLabel.textContent = label || 'Working...';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    progressCount.textContent = '0 / 0';
+}
+
+// ----- Start -----
+btnStart.addEventListener('click', startRun);
+btnStop.addEventListener('click', stopRun);
+btnReset.addEventListener('click', resetAll);
+btnCommit.addEventListener('click', startCommit);
+btnDiscard.addEventListener('click', discardRun);
+
+function setRunning(on) {
+    running = on;
+    btnStart.classList.toggle('d-none', on);
+    btnStop.classList.toggle('d-none', !on);
+    [paperInput, versionSelect, endpointSelect, quePdf, solPdf, overwriteChk, debugChk,
+     document.getElementById('modeReview'), document.getElementById('modeAuto')]
+        .forEach(el => { el.disabled = on; });
+    btnCommit.disabled = on;
+    btnDiscard.disabled = on;
+}
+
+async function startRun() {
+    const paper = paperInput.value.trim();
+    if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
+    if (!quePdf.files.length && !solPdf.files.length) {
+        alert('Choose a question PDF and/or a solution PDF.'); return;
+    }
+    mode = document.querySelector('input[name="mode"]:checked').value;
+
+    // Reset any previous run UI
+    reviewCard.classList.add('d-none');
+    summaryPanel.classList.add('d-none');
+    reviewBody.innerHTML = '';
+    plan = { que: [], sol: [] };
+    rawByPage = { que: {}, sol: {} };
+
+    setRunning(true);
+    setStatus('Uploading', 'bg-info');
+    appendLog(`Uploading PDF(s) for ${paper}...`, 'info');
+
+    const fd = new FormData();
+    fd.append('paper', paper);
+    fd.append('version', versionSelect.value);
+    if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
+    if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
+
+    let data;
+    try {
+        const r = await fetch(`${IMPORT_BASE}/stage`, { method: 'POST', body: fd });
+        data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    } catch (err) {
+        appendLog('Upload failed: ' + err.message, 'error');
+        setStatus('Error', 'bg-danger');
+        setRunning(false);
+        return;
+    }
+
+    staging = data;
+    const qn = (data.que.pages || []).length;
+    const sn = (data.sol.pages || []).length;
+    appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s). Token ${data.token.slice(0, 8)}.`, 'success');
+
+    startDetect();
+}
+
+// ----- Detect (SSE) -----
+function startDetect() {
+    setStatus('Detecting', 'bg-success');
+    showProgress('Detecting question regions...');
+    appendLog('Starting question detection (one page at a time)...', 'info');
+
+    const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
+        + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
+        + (debugChk.checked ? '&debug=1' : '');
+    eventSource = new EventSource(url);
+
+    eventSource.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+
+        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8), 'job'); return; }
+        if (ev.message) appendLog(ev.message, ev.type);
+        updateProgress(ev);
+
+        if (ev.page) {
+            // Accumulate detected boxes for this page.
+            const kind = ev.page.kind;
+            const idx = ev.page.index;
+            plan[kind] = plan[kind].filter(it => it.page !== idx);
+            (ev.page.boxes || []).forEach(b => {
+                plan[kind].push({ page: idx, qno: b.qno, box: b.box, _uid: nextUid() });
+            });
+            if (ev.page.raw !== undefined) {
+                rawByPage[kind][idx] = ev.page.raw;
+                logRaw(kind, idx, ev.page.raw);
+            }
+        }
+
+        if (ev.type === 'done') {
+            closeStream();
+            finishDetect();
+        }
+    };
+    eventSource.onerror = () => {
+        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishDetect(); }
+    };
+}
+
+function finishDetect() {
+    progressBar.classList.remove('progress-bar-animated');
+    setRunning(false);
+    const total = plan.que.length + plan.sol.length;
+    if (mode === 'auto') {
+        if (total === 0) {
+            setStatus('No regions', 'bg-warning text-dark');
+            appendLog('No question regions detected — nothing to import.', 'warning');
+            btnReset.classList.remove('d-none');
+            return;
+        }
+        appendLog('Automatic mode: importing detected regions...', 'info');
+        startCommit();   // server reads the plan it just saved
+    } else {
+        setStatus('Review', 'bg-primary');
+        renderReview();
+        reviewCard.classList.remove('d-none');
+        btnReset.classList.remove('d-none');
+        reviewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// ----- Review rendering -----
+function renderReview() {
+    reviewBody.innerHTML = '';
+    let qCount = plan.que.length, sCount = plan.sol.length;
+    reviewSummary.textContent = `${qCount} question region(s), ${sCount} solution region(s)`;
+
+    ['que', 'sol'].forEach(kind => {
+        const info = staging[kind];
+        if (!info || !info.pages || !info.pages.length) return;
+        const header = document.createElement('h6');
+        header.className = 'mt-2 mb-2 fw-bold';
+        header.textContent = kind === 'que' ? 'Question pages' : 'Solution pages';
+        reviewBody.appendChild(header);
+        info.pages.forEach(p => reviewBody.appendChild(buildPageCard(kind, p.index)));
+    });
+}
+
+function buildPageCard(kind, pageIndex) {
+    const card = document.createElement('div');
+    card.className = 'card page-card';
+    card.dataset.kind = kind;
+    card.dataset.page = pageIndex;
+    card.innerHTML = `
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-file-earmark-image"></i> ${kind.toUpperCase()} — page ${pageIndex + 1}</span>
+            <button class="btn btn-sm btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run page</button>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-lg-7">
+                    <div class="pdf-page-wrap">
+                        <img class="pdf-page-img" src="${pageImgUrl(staging.token, kind, pageIndex)}" alt="page ${pageIndex + 1}">
+                        <div class="pdf-overlay"></div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="pdf-box-list"></div>
+                    <div class="text-muted small box-empty d-none">No regions on this page.</div>
+                </div>
+            </div>
+            <details class="pdf-raw mt-2 d-none">
+                <summary class="small text-muted"><i class="bi bi-bug"></i> Raw model output</summary>
+                <pre class="pdf-raw-content small mt-1 mb-0" style="white-space:pre-wrap;word-break:break-all;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;padding:.5rem;max-height:200px;overflow:auto;"></pre>
+            </details>
+        </div>`;
+
+    const img = card.querySelector('.pdf-page-img');
+    img.addEventListener('load', () => redrawPreviews(card));
+    card.querySelector('.btn-rerun').addEventListener('click', () => rerunPage(card, kind, pageIndex));
+
+    // Render existing boxes for this page.
+    plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
+    toggleEmpty(card);
+
+    // Debug: show the verbatim model reply captured during detection.
+    const raw = rawByPage[kind] && rawByPage[kind][pageIndex];
+    if (raw !== undefined) {
+        card.querySelector('.pdf-raw-content').textContent = raw || '(empty)';
+        card.querySelector('.pdf-raw').classList.remove('d-none');
+    }
+    return card;
+}
+
+function addBoxDom(card, kind, item) {
+    const overlay = card.querySelector('.pdf-overlay');
+    const list = card.querySelector('.pdf-box-list');
+    const img = card.querySelector('.pdf-page-img');
+    const [x1, y1, x2, y2] = item.box;
+
+    // Overlay rectangle
+    const boxEl = document.createElement('div');
+    boxEl.className = 'pdf-box ' + (kind === 'sol' ? 'kind-sol' : 'kind-que');
+    boxEl.id = 'box-' + item._uid;
+    boxEl.style.left = (x1 * 100) + '%';
+    boxEl.style.top = (y1 * 100) + '%';
+    boxEl.style.width = ((x2 - x1) * 100) + '%';
+    boxEl.style.height = ((y2 - y1) * 100) + '%';
+    const lbl = document.createElement('span');
+    lbl.className = 'pdf-box-label';
+    lbl.id = 'lbl-' + item._uid;
+    lbl.textContent = 'Q' + (item.qno ?? '?');
+    boxEl.appendChild(lbl);
+    overlay.appendChild(boxEl);
+
+    // List row
+    const row = document.createElement('div');
+    row.className = 'box-row';
+    row.id = 'row-' + item._uid;
+    const canvas = document.createElement('canvas');
+    const qInput = document.createElement('input');
+    qInput.type = 'number';
+    qInput.min = '1';
+    qInput.className = 'form-control form-control-sm qno-input';
+    qInput.value = (item.qno ?? '');
+    qInput.placeholder = 'Q#';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm btn-outline-danger';
+    delBtn.innerHTML = '<i class="bi bi-trash"></i>';
+
+    const qLabel = document.createElement('span');
+    qLabel.className = 'small text-muted';
+    qLabel.textContent = 'Q';
+
+    row.appendChild(canvas);
+    row.appendChild(qLabel);
+    row.appendChild(qInput);
+    row.appendChild(delBtn);
+    list.appendChild(row);
+
+    // Interactions
+    const selectThis = () => {
+        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
+        boxEl.classList.add('selected');
+    };
+    boxEl.addEventListener('click', selectThis);
+    row.addEventListener('mouseenter', selectThis);
+
+    qInput.addEventListener('change', () => {
+        const v = parseInt(qInput.value, 10);
+        item.qno = Number.isFinite(v) ? v : null;
+        lbl.textContent = 'Q' + (item.qno ?? '?');
+    });
+    delBtn.addEventListener('click', () => {
+        plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
+        boxEl.remove();
+        row.remove();
+        toggleEmpty(card);
+        updateReviewSummary();
+    });
+
+    drawPreview(canvas, img, item.box);
+}
+
+function toggleEmpty(card) {
+    const has = card.querySelectorAll('.box-row').length > 0;
+    card.querySelector('.box-empty').classList.toggle('d-none', has);
+}
+function updateReviewSummary() {
+    reviewSummary.textContent = `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
+}
+
+function redrawPreviews(card) {
+    const img = card.querySelector('.pdf-page-img');
+    const kind = card.dataset.kind;
+    const pageIndex = parseInt(card.dataset.page, 10);
+    plan[kind].filter(it => it.page === pageIndex).forEach(it => {
+        const row = document.getElementById('row-' + it._uid);
+        if (row) drawPreview(row.querySelector('canvas'), img, it.box);
+    });
+}
+
+function drawPreview(canvas, img, box) {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    const sx = box[0] * nw, sy = box[1] * nh;
+    const sw = Math.max(1, (box[2] - box[0]) * nw), sh = Math.max(1, (box[3] - box[1]) * nh);
+    const thumbW = 130;
+    const scale = thumbW / sw;
+    canvas.width = thumbW;
+    canvas.height = Math.max(10, Math.round(sh * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    try { ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height); } catch (e) {}
+}
+
+async function rerunPage(card, kind, pageIndex) {
+    const btn = card.querySelector('.btn-rerun');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Re-running';
+    try {
+        const r = await fetch(`${IMPORT_BASE}/redo-page`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: staging.token, kind, index: pageIndex,
+                                   endpoint_id: endpointSelect.value, debug: debugChk.checked })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        // Replace this page's boxes.
+        plan[kind].filter(it => it.page === pageIndex).forEach(it => {
+            document.getElementById('box-' + it._uid)?.remove();
+            document.getElementById('row-' + it._uid)?.remove();
+        });
+        plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
+        (data.boxes || []).forEach(b => {
+            const item = { page: pageIndex, qno: b.qno, box: b.box, _uid: nextUid() };
+            plan[kind].push(item);
+            addBoxDom(card, kind, item);
+        });
+        toggleEmpty(card);
+        updateReviewSummary();
+        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s).`, 'success');
+        if (data.raw !== undefined) {
+            rawByPage[kind][pageIndex] = data.raw;
+            logRaw(kind, pageIndex, data.raw);
+            const rawEl = card.querySelector('.pdf-raw-content');
+            if (rawEl) rawEl.textContent = data.raw || '(empty)';
+            card.querySelector('.pdf-raw')?.classList.remove('d-none');
+        }
+    } catch (err) {
+        appendLog('Re-run failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-run page';
+    }
+}
+
+// ----- Commit (SSE) -----
+async function startCommit() {
+    if (!staging) return;
+
+    // In review mode, persist the (edited) plan first. In auto mode the
+    // server already saved the detected plan, so commit reads it directly.
+    if (mode === 'review') {
+        const payload = {
+            token: staging.token,
+            plan: {
+                que: plan.que.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
+                sol: plan.sol.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
+            }
+        };
+        const missing = [...plan.que, ...plan.sol].filter(it => it.qno == null).length;
+        if (missing > 0 && !confirm(`${missing} region(s) have no question number and will be skipped. Continue?`)) return;
+        try {
+            const r = await fetch(`${IMPORT_BASE}/plan`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        } catch (err) {
+            appendLog('Could not save plan: ' + err.message, 'error');
+            return;
+        }
+    }
+
+    setRunning(true);
+    setStatus('Importing', 'bg-success');
+    showProgress('Importing question images...');
+    summaryPanel.classList.add('d-none');
+    appendLog('Cropping and saving images...', 'info');
+
+    const url = `${IMPORT_BASE}/commit?token=${encodeURIComponent(staging.token)}`
+        + `&version=${encodeURIComponent(staging.version)}`
+        + `&overwrite=${overwriteChk.checked ? '1' : '0'}`;
+    eventSource = new EventSource(url);
+
+    eventSource.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+        if (ev.type === 'job') { currentJobId = ev.job_id; return; }
+        if (ev.message) appendLog(ev.message, ev.type);
+        updateProgress(ev);
+        if (ev.type === 'done') { closeStream(); finishCommit(ev); }
+    };
+    eventSource.onerror = () => {
+        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishCommit(null); }
+    };
+}
+
+function finishCommit(ev) {
+    progressBar.classList.remove('progress-bar-animated');
+    setRunning(false);
+    setStatus('Done', 'bg-primary');
+    btnReset.classList.remove('d-none');
+    if (ev && ev.stats) {
+        const s = ev.stats;
+        document.getElementById('summaryStats').innerHTML = `
+            <div class="col"><div class="fs-3 fw-bold text-success">${s.assets_written}</div><small class="text-muted">Images saved</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-primary">${s.questions_created}</div><small class="text-muted">New questions</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">Skipped</small></div>
+            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">Errors</small></div>`;
+        summaryPanel.classList.remove('d-none');
+        progressBar.classList.add(s.errors > 0 ? 'bg-warning' : 'bg-success');
+    }
+}
+
+// ----- Stop / reset / discard -----
+function closeStream() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+}
+function stopRun() {
+    if (currentJobId) {
+        fetch(`${IMPORT_BASE}/cancel`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: currentJobId })
+        }).catch(() => {});
+        appendLog('Stop requested — finishing current item...', 'warning');
+    } else {
+        closeStream();
+        setRunning(false);
+        setStatus('Stopped', 'bg-warning text-dark');
+    }
+}
+function resetAll() {
+    closeStream();
+    staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
+    reviewCard.classList.add('d-none');
+    summaryPanel.classList.add('d-none');
+    progressSection.classList.add('d-none');
+    reviewBody.innerHTML = '';
+    btnReset.classList.add('d-none');
+    quePdf.value = ''; solPdf.value = '';
+    setRunning(false);
+    setStatus('Idle', 'bg-secondary');
+    appendLog('Ready for a new import.', 'info');
+}
+function discardRun() {
+    if (!staging) { resetAll(); return; }
+    if (!confirm('Discard the uploaded PDFs and detected regions? Nothing will be saved to the database.')) return;
+    fetch(`${IMPORT_BASE}/discard`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: staging.token })
+    }).catch(() => {}).finally(() => { appendLog('Discarded staging data.', 'warning'); resetAll(); });
+}
+</script>
+{% endblock %}

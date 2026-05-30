@@ -110,6 +110,19 @@ def _range_validator(low: int | float | None = None,
     return _check
 
 
+def _choice_validator(*choices: str):
+    """Build a validator that restricts a string to a fixed set (case-
+    insensitive). The stored value is whatever the admin typed; consumers
+    are expected to ``.strip().lower()`` it."""
+    allowed = {c.lower() for c in choices}
+
+    def _check(v):
+        if str(v).strip().lower() not in allowed:
+            raise ValueError('must be one of: ' + ', '.join(choices))
+        return v
+    return _check
+
+
 # ---------------------------------------------------------------------------
 # REGISTRY of tunables
 # ---------------------------------------------------------------------------
@@ -233,6 +246,20 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Max image dimension sent to LLM (px)',
         help='Images are downscaled so their longest edge is at most this many pixels before being base64-encoded and sent to the model. Lower = cheaper/faster but less legible; 1600 is a good balance for exam scans.',
         min=256, max=4096,
+    )),
+
+    # PDF Batch Import
+    ('PDF_IMPORT_RASTER_WIDTH', _spec(
+        'PDF_IMPORT_RASTER_WIDTH', 'int', group='PDF Import',
+        label='PDF page raster width (px)',
+        help='Width that uploaded PDF pages are rasterised to. Per-question crops are cut from these high-res page images (the copy sent to the LLM is downscaled separately to "Max image dimension sent to LLM"). Higher = sharper crops but larger temp files; 1700 suits A4 exam papers.',
+        min=600, max=4000,
+    )),
+    ('PDF_IMPORT_COORD_ORDER', _spec(
+        'PDF_IMPORT_COORD_ORDER', 'string', group='PDF Import',
+        label='Bounding-box coordinate order',
+        help='Axis order the vision model uses for detected boxes. "xyxy" = [x1,y1,x2,y2] (Qwen and most models). "yxyx" = [y1,x1,y2,x2] (Gemma / Gemini / PaliGemma family — they put the vertical coordinate first). If detected boxes are shifted or rotated relative to the real questions, flip this. The number range (0–1, 0–1000, or pixels) is auto-detected; only the axis order needs setting.',
+        validator=_choice_validator('xyxy', 'yxyx'),
     )),
 ])
 

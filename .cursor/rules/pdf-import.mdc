@@ -1,0 +1,75 @@
+---
+description: PDF Batch Import — rasterise exam PDFs, vision-LLM question detection, crop + create QUE/SOL image assets
+globs: app/pdf_import.py,templates/admin_pdf_import.html
+alwaysApply: false
+---
+
+# PDF Batch Import (Admin)
+
+Turn uploaded DSE question/solution PDFs into per-question cropped `IMG` assets. Admin Operations tool (after Question Ingestion). Backed by [app/pdf_import.py](mdc:app/pdf_import.py); reuses [app/batch_image_gen.py](mdc:app/batch_image_gen.py) for the atomic disk+DB write.
+
+## Flow
+
+```
+stage (upload + rasterise) -> detect (SSE, vision LLM per page) -> [review] -> commit (SSE, crop + create rows)
+```
+
+- **Automatic mode**: detect SSE writes `plan.json`; on `done` the browser opens commit directly (reads `plan.json`).
+- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin delete a box, edit a question number, or re-run a page. On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
+
+One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` — within its context window). Spanning questions = same `qno` on consecutive pages → grouped into a **multi-part** IMG asset (`replace_img_assets(..., stitch=False)`).
+
+## Files map
+
+| Concern | File(s) |
+|---|---|
+| Staging, rasterise, detect, crop, commit, `_PDF_CANCEL` registry | [app/pdf_import.py](mdc:app/pdf_import.py) |
+| Box prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_QUE_BOX_SYSTEM`, `PDF_SOL_BOX_SYSTEM`, `build_pdf_box_user_text`, `parse_question_boxes` |
+| Routes (page, stage, page image, detect, redo-page, plan, commit, cancel, discard) | [app/admin.py](mdc:app/admin.py) `pdf_import_*` |
+| Atomic IMG write + path + thumbnail lifecycle | [app/batch_image_gen.py](mdc:app/batch_image_gen.py) `replace_img_assets`, `slot_has_img` |
+| LLM transport / image prep | [app/llm_client.py](mdc:app/llm_client.py) `prepare_image`, `chat` |
+| UI | [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) |
+| Tunable | [app/settings.py](mdc:app/settings.py) / [app/config.py](mdc:app/config.py) `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_COORD_ORDER` |
+
+## Routes (all `@admin_required`, gated on `AI_TOOLS_ENABLED`)
+
+- `GET  /admin/pdf-import` — page (`pdf_import_page`).
+- `POST /admin/pdf-import/stage` — multipart: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only), `version`, `que_pdf`, `sol_pdf` (≥1). Validates prefix + subject admin access. Rasterises pages. Returns `{token, que:{pages}, sol:{pages}}`.
+- `GET  /admin/pdf-import/page/<token>/<kind>/<int:page>.png` — serve a staged page PNG (kind = `que`|`sol`).
+- `GET  /admin/pdf-import/detect?token=&endpoint_id=&debug=` — SSE: per-page detection (QUE then SOL); accumulates `plan.json`. `debug=1` attaches `raw` (verbatim model reply) to each page event.
+- `POST /admin/pdf-import/redo-page` — body `{token, kind, index, endpoint_id, debug?}`; re-detect one page → `{boxes, raw?}`.
+- `POST /admin/pdf-import/plan` — body `{token, plan:{que,sol}}`; sanitises + overwrites `plan.json`.
+- `GET  /admin/pdf-import/commit?token=&version=&overwrite=` — SSE: crop + create rows from `plan.json`.
+- `POST /admin/pdf-import/cancel` — body `{job_id}` (from the `job` SSE event).
+- `POST /admin/pdf-import/discard` — delete the staging dir.
+
+## SSE contract
+
+Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; carries `job_id`) / `info` / `success` / `skip` / `error` / `done`. `detect` page events carry `page:{kind,index,boxes}`; `done` carries `stats` + `plan`. `commit` `done` carries `stats:{questions_created, assets_written, skipped, errors}`. Cancellation mirrors `app/ai_tools`: per-job `threading.Event` in `_PDF_CANCEL`, checked between pages/questions.
+
+## Box detection
+
+`detect_page(config, png, atype, image_max_dim)` downscales the page via `llm_client.prepare_image`, calls `chat` with the atype-specific system prompt, and returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`. QUE prompt = tight box excluding answer space + margins; SOL prompt = full solution incl. right-hand notes.
+
+**Coordinate convention is the #1 failure mode.** The prompt (`_PDF_BOX_JSON_CONTRACT`) pins an explicit **0–1000 integer grid, origin top-left, `[x1,y1,x2,y2]` (x-first)** with a worked example. `parse_question_boxes(text, img_w, img_h, coord_order)` (via `_normalize_box`) tolerates fences/prose and:
+- **Axis order**: `coord_order='xyxy'` (default, Qwen/most) or `'yxyx'` (Gemma/Gemini/PaliGemma — vertical coord first), from setting `PDF_IMPORT_COORD_ORDER`. This is the only genuinely ambiguous part, hence a setting.
+- **Range** (auto): `max≤1`→fractional; `max≤1024`→`/1000`; else raw pixels→divide by the **downscaled** dims the model saw (`_sent_image_size`, replicates `prepare_image`'s long-edge downscale to `LLM_IMAGE_MAX_DIM`), else `/max`.
+
+**Debug**: `detect?...&debug=1` (and `redo-page` body `debug:true`) make `iter_detect`/the route log each page's verbatim reply and attach `raw` to the page event; the UI's **Debug** checkbox shows it in the console + a per-page collapsible. Use it to confirm the model's number range / axis order before flipping `PDF_IMPORT_COORD_ORDER`.
+
+## Commit
+
+`_group_plan(plan)` groups boxes by `(kind, qno)`, ordered by (page, top-Y). For each group: find-or-create `Question` (QID `{subj}_{source}_{year}_{paper}_Q{qno}`, `q_type` via `ingestor.determine_question_type`); skip if `slot_has_img` and not `overwrite`; else `crop_page` each part (small pad + white-trim) and `replace_img_assets(question, atype, version, imgs, stitch=False, source_path)` (atomic; fires DOC-thumbnail lifecycle). Boxes with `qno is None` are skipped.
+
+## Staging
+
+`OUTPUT_PATH/.pdf_import/<token>/` holds `meta.json` (subject/source/year/paper/version + page dims), `plan.json`, and `que/`/`sol/` (`source.pdf` + `page_NNNN.png`). `cleanup_old()` (called on each `stage`) purges dirs older than ~6 h; Discard removes one immediately. Token is validated (`^[0-9a-f]{8,40}$`) before any filesystem join.
+
+## Gotchas / invariants
+
+1. Whole feature gated on `AI_TOOLS_ENABLED` + a vision-capable `LLMConfig` (detect/commit return an SSE error event otherwise).
+2. Subject-admins only — the parsed prefix's subject is intersected with `get_user_admin_subjects()` in every route via `_pdf_load_token_meta`.
+3. **PP only** (`DSE`/`CE`/`AL`); QB is out of scope. `section`/`level` left null (tagged later, like ingestion).
+4. The LLM sees the **downscaled** page (`LLM_IMAGE_MAX_DIM`); crops are cut from the **high-res** page (`PDF_IMPORT_RASTER_WIDTH`). Boxes are fractional → resolution-independent.
+5. `replace_img_assets` deletes existing IMG rows for the slot first — that IS the overwrite path. The skip-existing branch guards it with `slot_has_img` when `overwrite` is off.
+6. Dev server must run threaded for the long SSE streams (already the case for the other batch ops).

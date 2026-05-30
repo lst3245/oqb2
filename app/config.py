@@ -77,3 +77,14 @@ class Config:
     LLM_IMAGE_MAX_DIM = int(os.getenv('LLM_IMAGE_MAX_DIM', '1600'))
     # Master on/off switch for the AI Tools admin feature.
     AI_TOOLS_ENABLED = os.getenv('AI_TOOLS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+    # PDF Batch Import — width (px) to rasterise uploaded PDF pages to. The
+    # high-res page PNGs are what per-question crops are cut from (the image
+    # sent to the LLM is downscaled separately to LLM_IMAGE_MAX_DIM), so a
+    # larger value yields sharper crops at the cost of disk/CPU.
+    PDF_IMPORT_RASTER_WIDTH = int(os.getenv('PDF_IMPORT_RASTER_WIDTH', '1700'))
+    # PDF Batch Import — how the vision model orders bounding-box coordinates.
+    # 'xyxy' = [x1,y1,x2,y2] (Qwen and most models); 'yxyx' = [y1,x1,y2,x2]
+    # (Gemma / Gemini / PaliGemma family). Range (0..1 vs 0..1000 vs pixels) is
+    # auto-detected; only the axis ORDER is ambiguous, so it's configurable.
+    PDF_IMPORT_COORD_ORDER = os.getenv('PDF_IMPORT_COORD_ORDER', 'xyxy').strip().lower()
