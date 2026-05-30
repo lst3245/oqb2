@@ -45,10 +45,42 @@
         background: rgba(214, 51, 132, 0.10);
         box-sizing: border-box;
         pointer-events: auto;
-        cursor: pointer;
+        cursor: move;
+        touch-action: none;
     }
     .pdf-box.kind-sol { border-color: #0d6efd; background: rgba(13, 110, 253, 0.10); }
-    .pdf-box.selected { outline: 3px solid #ffc107; outline-offset: 1px; }
+    .pdf-box.selected { outline: 3px solid #ffc107; outline-offset: 1px; z-index: 3; }
+
+    /* Resize handles (8) — only meaningfully visible/active on hover/selected. */
+    .pdf-handle {
+        position: absolute;
+        width: 11px; height: 11px;
+        background: #fff;
+        border: 1px solid #333;
+        box-sizing: border-box;
+        z-index: 5;
+        touch-action: none;
+    }
+    .pdf-handle.h-nw { left: -6px;  top: -6px;    cursor: nwse-resize; }
+    .pdf-handle.h-n  { left: 50%;   top: -6px;    transform: translateX(-50%); cursor: ns-resize; }
+    .pdf-handle.h-ne { right: -6px; top: -6px;    cursor: nesw-resize; }
+    .pdf-handle.h-e  { right: -6px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+    .pdf-handle.h-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+    .pdf-handle.h-s  { left: 50%;   bottom: -6px; transform: translateX(-50%); cursor: ns-resize; }
+    .pdf-handle.h-sw { left: -6px;  bottom: -6px; cursor: nesw-resize; }
+    .pdf-handle.h-w  { left: -6px;  top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+
+    /* Add-box (draw) mode: overlay captures the drag; boxes step aside. */
+    .pdf-page-wrap.adding { cursor: crosshair; }
+    .pdf-page-wrap.adding .pdf-overlay { pointer-events: auto; }
+    .pdf-page-wrap.adding .pdf-box { pointer-events: none; }
+    .pdf-box-draft {
+        position: absolute;
+        border: 2px dashed #198754;
+        background: rgba(25, 135, 84, 0.12);
+        box-sizing: border-box;
+        pointer-events: none;
+    }
     .pdf-box-label {
         position: absolute;
         top: -2px; left: -2px;
@@ -198,7 +230,7 @@ Fill in the setup above and click "Start".
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Each coloured box is one detected question. Fix the question number or delete a wrong box. Use "Re-run page" if a page came out badly. When you're happy, click <strong>Import</strong>.
+            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, fix the question number, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one. Use <strong>Re-run page</strong> if a page came out badly. When you're happy, click <strong>Import</strong>.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
             </p>
@@ -454,7 +486,10 @@ function buildPageCard(kind, pageIndex) {
     card.innerHTML = `
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-file-earmark-image"></i> ${kind.toUpperCase()} — page ${pageIndex + 1}</span>
-            <button class="btn btn-sm btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run page</button>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-success btn-add"><i class="bi bi-plus-square"></i> Add box</button>
+                <button class="btn btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run page</button>
+            </div>
         </div>
         <div class="card-body">
             <div class="row g-3">
@@ -478,6 +513,12 @@ function buildPageCard(kind, pageIndex) {
     const img = card.querySelector('.pdf-page-img');
     img.addEventListener('load', () => redrawPreviews(card));
     card.querySelector('.btn-rerun').addEventListener('click', () => rerunPage(card, kind, pageIndex));
+    card.querySelector('.btn-add').addEventListener('click', () => {
+        const wrap = card.querySelector('.pdf-page-wrap');
+        setAddMode(card, !wrap.classList.contains('adding'));
+    });
+    // Draw a brand-new box by dragging on the page while in Add mode.
+    card.querySelector('.pdf-overlay').addEventListener('pointerdown', (e) => startDraw(e, card, kind, pageIndex));
 
     // Render existing boxes for this page.
     plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
@@ -492,28 +533,55 @@ function buildPageCard(kind, pageIndex) {
     return card;
 }
 
+function clamp01(v) { return Math.min(1, Math.max(0, v)); }
+
+function applyBoxStyle(el, box) {
+    const [x1, y1, x2, y2] = box;
+    el.style.left = (x1 * 100) + '%';
+    el.style.top = (y1 * 100) + '%';
+    el.style.width = ((x2 - x1) * 100) + '%';
+    el.style.height = ((y2 - y1) * 100) + '%';
+}
+
 function addBoxDom(card, kind, item) {
     const overlay = card.querySelector('.pdf-overlay');
     const list = card.querySelector('.pdf-box-list');
     const img = card.querySelector('.pdf-page-img');
-    const [x1, y1, x2, y2] = item.box;
 
-    // Overlay rectangle
+    // Overlay rectangle (draggable to move, with 8 resize handles).
     const boxEl = document.createElement('div');
     boxEl.className = 'pdf-box ' + (kind === 'sol' ? 'kind-sol' : 'kind-que');
     boxEl.id = 'box-' + item._uid;
-    boxEl.style.left = (x1 * 100) + '%';
-    boxEl.style.top = (y1 * 100) + '%';
-    boxEl.style.width = ((x2 - x1) * 100) + '%';
-    boxEl.style.height = ((y2 - y1) * 100) + '%';
+    applyBoxStyle(boxEl, item.box);
+
     const lbl = document.createElement('span');
     lbl.className = 'pdf-box-label';
     lbl.id = 'lbl-' + item._uid;
     lbl.textContent = 'Q' + (item.qno ?? '?');
     boxEl.appendChild(lbl);
+
+    const selectThis = () => {
+        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
+        boxEl.classList.add('selected');
+    };
+
+    ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(dir => {
+        const h = document.createElement('div');
+        h.className = 'pdf-handle h-' + dir;
+        h.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            selectThis();
+            startDrag(e, 'resize', { item, kind, card, overlay, boxEl, dir });
+        });
+        boxEl.appendChild(h);
+    });
+    boxEl.addEventListener('pointerdown', (e) => {
+        selectThis();
+        startDrag(e, 'move', { item, kind, card, overlay, boxEl });
+    });
     overlay.appendChild(boxEl);
 
-    // List row
+    // List row (thumbnail + question-number input + delete)
     const row = document.createElement('div');
     row.className = 'box-row';
     row.id = 'row-' + item._uid;
@@ -538,14 +606,7 @@ function addBoxDom(card, kind, item) {
     row.appendChild(delBtn);
     list.appendChild(row);
 
-    // Interactions
-    const selectThis = () => {
-        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
-        boxEl.classList.add('selected');
-    };
-    boxEl.addEventListener('click', selectThis);
     row.addEventListener('mouseenter', selectThis);
-
     qInput.addEventListener('change', () => {
         const v = parseInt(qInput.value, 10);
         item.qno = Number.isFinite(v) ? v : null;
@@ -560,6 +621,133 @@ function addBoxDom(card, kind, item) {
     });
 
     drawPreview(canvas, img, item.box);
+}
+
+// ----- Box drag/resize/draw (review fine-tuning) -----
+let activeDrag = null;
+
+function fracFromEvent(overlay, e) {
+    const rect = overlay.getBoundingClientRect();
+    return {
+        x: clamp01((e.clientX - rect.left) / Math.max(1, rect.width)),
+        y: clamp01((e.clientY - rect.top) / Math.max(1, rect.height)),
+    };
+}
+
+function startDrag(e, type, ctx) {
+    e.preventDefault();
+    const f = fracFromEvent(ctx.overlay, e);
+    activeDrag = Object.assign({ type }, ctx, {
+        startFx: f.x, startFy: f.y,
+        startBox: ctx.item ? ctx.item.box.slice() : null,
+    });
+    document.body.style.userSelect = 'none';
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragEnd, { once: true });
+}
+
+function startDraw(e, card, kind, pageIndex) {
+    const wrap = card.querySelector('.pdf-page-wrap');
+    if (!wrap.classList.contains('adding')) return;  // only while Add mode is on
+    e.preventDefault();
+    const overlay = card.querySelector('.pdf-overlay');
+    const f = fracFromEvent(overlay, e);
+    const draftEl = document.createElement('div');
+    draftEl.className = 'pdf-box-draft';
+    applyBoxStyle(draftEl, [f.x, f.y, f.x, f.y]);
+    overlay.appendChild(draftEl);
+    activeDrag = { type: 'draw', card, kind, pageIndex, overlay, draftEl,
+                   startFx: f.x, startFy: f.y, curX: f.x, curY: f.y };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragEnd, { once: true });
+}
+
+function onDragMove(e) {
+    const d = activeDrag;
+    if (!d) return;
+    const f = fracFromEvent(d.overlay, e);
+
+    if (d.type === 'draw') {
+        d.curX = f.x; d.curY = f.y;
+        applyBoxStyle(d.draftEl, [Math.min(d.startFx, f.x), Math.min(d.startFy, f.y),
+                                 Math.max(d.startFx, f.x), Math.max(d.startFy, f.y)]);
+        return;
+    }
+    if (d.type === 'move') {
+        let [x1, y1, x2, y2] = d.startBox;
+        const w = x2 - x1, h = y2 - y1;
+        let nx1 = Math.min(Math.max(0, x1 + (f.x - d.startFx)), 1 - w);
+        let ny1 = Math.min(Math.max(0, y1 + (f.y - d.startFy)), 1 - h);
+        d.item.box = [nx1, ny1, nx1 + w, ny1 + h];
+    } else if (d.type === 'resize') {
+        let [x1, y1, x2, y2] = d.startBox;
+        if (d.dir.includes('w')) x1 = f.x;
+        if (d.dir.includes('e')) x2 = f.x;
+        if (d.dir.includes('n')) y1 = f.y;
+        if (d.dir.includes('s')) y2 = f.y;
+        d.item.box = [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+    }
+    applyBoxStyle(d.boxEl, d.item.box);
+}
+
+function onDragEnd() {
+    document.removeEventListener('pointermove', onDragMove);
+    document.body.style.userSelect = '';
+    const d = activeDrag;
+    activeDrag = null;
+    if (!d) return;
+
+    if (d.type === 'draw') { finishDraw(d); return; }
+    // Move/resize: persist the live edit by refreshing the crop thumbnail.
+    const row = document.getElementById('row-' + d.item._uid);
+    if (row) drawPreview(row.querySelector('canvas'), d.card.querySelector('.pdf-page-img'), d.item.box);
+}
+
+function finishDraw(d) {
+    if (d.draftEl) d.draftEl.remove();
+    setAddMode(d.card, false);
+    const box = [Math.min(d.startFx, d.curX), Math.min(d.startFy, d.curY),
+                 Math.max(d.startFx, d.curX), Math.max(d.startFy, d.curY)];
+    if ((box[2] - box[0]) < 0.012 || (box[3] - box[1]) < 0.012) {
+        appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning');
+        return;
+    }
+    const item = { page: d.pageIndex, qno: guessNextQno(d.kind), box, _uid: nextUid() };
+    plan[d.kind].push(item);
+    addBoxDom(d.card, d.kind, item);
+    toggleEmpty(d.card);
+    updateReviewSummary();
+    const row = document.getElementById('row-' + item._uid);
+    if (row) { const inp = row.querySelector('.qno-input'); inp.focus(); inp.select(); }
+    document.getElementById('box-' + item._uid)?.classList.add('selected');
+}
+
+function guessNextQno(kind) {
+    const nums = plan[kind].map(it => it.qno).filter(n => Number.isFinite(n));
+    return nums.length ? Math.max(...nums) + 1 : 1;
+}
+
+function setAddMode(card, on) {
+    if (on) {
+        // Only one page in draw mode at a time.
+        document.querySelectorAll('.pdf-page-wrap.adding').forEach(w => {
+            w.classList.remove('adding');
+            const c = w.closest('.page-card');
+            if (c && c !== card) setAddButton(c, false);
+        });
+    }
+    card.querySelector('.pdf-page-wrap').classList.toggle('adding', on);
+    setAddButton(card, on);
+}
+
+function setAddButton(card, on) {
+    const btn = card.querySelector('.btn-add');
+    if (!btn) return;
+    btn.classList.toggle('btn-success', on);
+    btn.classList.toggle('btn-outline-success', !on);
+    btn.innerHTML = on ? '<i class="bi bi-x-lg"></i> Cancel'
+                       : '<i class="bi bi-plus-square"></i> Add box';
 }
 
 function toggleEmpty(card) {

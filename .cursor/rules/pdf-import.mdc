@@ -15,7 +15,7 @@ stage (upload + rasterise) -> detect (SSE, vision LLM per page) -> [review] -> c
 ```
 
 - **Automatic mode**: detect SSE writes `plan.json`; on `done` the browser opens commit directly (reads `plan.json`).
-- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin delete a box, edit a question number, or re-run a page. On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
+- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin **drag a box to move, drag handles to resize, Add box (draw on the page), edit qno, delete, or re-run a page**. Boxes are edited in place on the in-memory `plan[kind]` items (`{page,qno,box,_uid}`); the live drag/draw system is in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`startDrag`/`onDragMove`/`startDraw`/`finishDraw`/`applyBoxStyle`, pointer-events toggled via `.pdf-page-wrap.adding`). On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
 
 One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` — within its context window). Spanning questions = same `qno` on consecutive pages → grouped into a **multi-part** IMG asset (`replace_img_assets(..., stitch=False)`).
 
@@ -49,7 +49,7 @@ Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; c
 
 ## Box detection
 
-`detect_page(config, png, atype, image_max_dim)` downscales the page via `llm_client.prepare_image`, calls `chat` with the atype-specific system prompt, and returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`. QUE prompt = tight box excluding answer space + margins; SOL prompt = full solution incl. right-hand notes.
+`detect_page(config, png, atype, image_max_dim)` downscales the page via `llm_client.prepare_image`, calls `chat` with the atype-specific system prompt, and returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`. QUE prompt = tight box excluding answer space + margins **but keeping the marks annotation** (e.g. `(4 marks)`) even when slightly below/right; SOL prompt = full solution incl. right-hand notes.
 
 **Coordinate convention is the #1 failure mode.** The prompt (`_PDF_BOX_JSON_CONTRACT`) pins an explicit **0–1000 integer grid, origin top-left, `[x1,y1,x2,y2]` (x-first)** with a worked example. `parse_question_boxes(text, img_w, img_h, coord_order)` (via `_normalize_box`) tolerates fences/prose and:
 - **Axis order**: `coord_order='xyxy'` (default, Qwen/most) or `'yxyx'` (Gemma/Gemini/PaliGemma — vertical coord first), from setting `PDF_IMPORT_COORD_ORDER`. This is the only genuinely ambiguous part, hence a setting.
