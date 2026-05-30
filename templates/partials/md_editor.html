@@ -175,10 +175,11 @@
 
         // 2) Inline math: $...$. Must not match across newlines, and must not
         //    accidentally catch the leftover currency-style "$5" usage (closing
-        //    `$` followed by a digit is rejected). Inner whitespace IS allowed
-        //    so LLM-style `$ D $` renders the same as `$D$` — the content is
-        //    captured trimmed (must contain at least one non-space char). This
-        //    mirrors the server-side dollarmath (`allow_space=True`) pipeline.
+        //    `$` followed by a digit is rejected). Inner whitespace IS tolerated
+        //    so legacy `$ D $` still previews — but the content is captured
+        //    trimmed, matching how the server tightens `$ D $` -> `$D$` before
+        //    pandoc/docx (ai_prompts.normalize_inline_math). So this preview is
+        //    faithful to the generated Word output, not just the dashboard.
         text = text.replace(/(?<![\\$])\$[ \t]*([^\n$]*?[^\s$])[ \t]*\$(?!\d)/g, function(_m, formula) {
             try {
                 return katex.renderToString(formula, {

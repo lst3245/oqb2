@@ -353,7 +353,7 @@ def generate_md_slot(question, asset_type, source_version, target_version, *,
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
 
-    md = ai_prompts.strip_md_fences(text)
+    md = ai_prompts.normalize_inline_math(ai_prompts.strip_md_fences(text))
     if not md.strip():
         hint = _empty_reply_hint(info)
         logger.warning('Empty MD reply for %s; finish_reason=%s raw=%s',

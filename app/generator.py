@@ -30,6 +30,7 @@ from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups,
                        GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY)
 from app import word_com
+from app import ai_prompts
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
@@ -1244,6 +1245,11 @@ def _preprocess_md_for_pandoc(src):
        so `$$\\n\\nformula\\n\\n$$` becomes three separate <p> elements and the
        math never renders. The live editor doesn't care (we KaTeX-render the
        blocks ourselves), but pandoc does, so we squash the blank lines here.
+    2. Tighten padded inline math (`$ x $` -> `$x$`). `tex_math_dollars` only
+       treats `$...$` as math when there's no space right inside the dollars,
+       so spaced delimiters would otherwise render as literal text in the
+       .docx even though the live preview shows them as math. This fixes both
+       legacy/AI-generated files in place at generation time.
     """
     def _collapse_blank_lines(match):
         inner = match.group(1)
@@ -1251,7 +1257,8 @@ def _preprocess_md_for_pandoc(src):
         # a single newline so the math content is one contiguous paragraph.
         inner = re.sub(r'\n[ \t]*\n+', '\n', inner)
         return '$$' + inner + '$$'
-    return _MD_DISPLAY_MATH_RE.sub(_collapse_blank_lines, src)
+    src = _MD_DISPLAY_MATH_RE.sub(_collapse_blank_lines, src)
+    return ai_prompts.normalize_inline_math(src)
 
 
 def _resolve_pandoc_binary():

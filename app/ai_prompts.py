@@ -47,7 +47,9 @@ MD_SYSTEM = (
     "self-contained GitHub-Flavored Markdown. Rules:\n"
     "- Transcribe the content faithfully and completely. Do NOT solve, answer, "
     "or add commentary.\n"
-    "- Write inline math as $...$ and display math as $$...$$ (LaTeX).\n"
+    "- Write inline math as $...$ and display math as $$...$$ (LaTeX). Put NO "
+    "space immediately inside the inline dollar signs: write $x+1$, NEVER "
+    "$ x+1 $. Spaced delimiters do not render.\n"
     "- Preserve question/part numbering, lists, tables, and option labels "
     "(A/B/C/D) as Markdown structure.\n"
     "- Keep the original language (English and/or Chinese) exactly.\n"
@@ -160,6 +162,27 @@ def strip_md_fences(text: str) -> str:
     if m:
         return m.group(1).strip()
     return s
+
+
+# Tighten padded inline math delimiters: "$ x $" -> "$x$".
+#
+# Pandoc's `tex_math_dollars` extension (the .docx path) and standard
+# dollar-math only recognise inline math when the opening "$" is NOT followed
+# by whitespace and the closing "$" is NOT preceded by whitespace. LLMs often
+# emit "$ x $" anyway, which then renders as literal text in the generated
+# Word doc. We strip that inner padding so the same content renders in the
+# editor preview, the dashboard, AND the .docx. Display math ($$...$$),
+# escaped "\$", and currency ("$5") are left untouched.
+_INLINE_MATH_PAD_RE = re.compile(r'(?<![\\$])\$[ \t]*([^\n$]*?[^\s$])[ \t]*\$(?!\d)')
+
+
+def normalize_inline_math(text: str) -> str:
+    """Return ``text`` with the inner padding of inline ``$ ... $`` math
+    removed so it parses everywhere. Safe to call on any Markdown (no-op when
+    there is no padded inline math)."""
+    if not text or '$' not in text:
+        return text
+    return _INLINE_MATH_PAD_RE.sub(lambda m: '$' + m.group(1) + '$', text)
 
 
 # ==================== Robust JSON extraction ====================
