@@ -158,6 +158,37 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend; migrate_versions.py covers it
 
+        # AI Tools: create the llm_configs table and add the per-asset check
+        # columns (check_state / check_result / checked_at) if absent. Same
+        # idempotent pattern so existing deployments upgrade automatically.
+        try:
+            from app.models import LLMConfig
+            LLMConfig.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            pass
+
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                existing = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_assets'"
+                ))}
+                if 'check_state' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE question_assets ADD COLUMN check_state VARCHAR(20) NULL"
+                    ))
+                if 'check_result' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE question_assets ADD COLUMN check_result TEXT NULL"
+                    ))
+                if 'checked_at' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE question_assets ADD COLUMN checked_at DATETIME NULL"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

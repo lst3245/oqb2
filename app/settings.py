@@ -221,6 +221,19 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Stitch multi-page sources by default',
         help='When ON, the modal defaults to stitching all source pages vertically into one tall PNG. When OFF, it defaults to producing one PNG per source page (multi-part IMG).',
     )),
+
+    # AI Tools
+    ('AI_TOOLS_ENABLED', _spec(
+        'AI_TOOLS_ENABLED', 'bool', group='AI Tools',
+        label='Enable AI Tools',
+        help='Master switch for the admin AI Tools (image proofreading + Markdown generation). When OFF, the AI Tools button and endpoints are disabled. Configure LLM endpoints on the dedicated LLM Endpoints page.',
+    )),
+    ('LLM_IMAGE_MAX_DIM', _spec(
+        'LLM_IMAGE_MAX_DIM', 'int', group='AI Tools',
+        label='Max image dimension sent to LLM (px)',
+        help='Images are downscaled so their longest edge is at most this many pixels before being base64-encoded and sent to the model. Lower = cheaper/faster but less legible; 1600 is a good balance for exam scans.',
+        min=256, max=4096,
+    )),
 ])
 
 

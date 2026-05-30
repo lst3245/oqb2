@@ -6,6 +6,18 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### AI Tools — LLM image proofreading + Markdown generation (Admin)
+
+A new **AI Tools** bulk action on the Question Management page calls an OpenAI-compatible LLM (local or cloud) over the selected questions to:
+
+- **Check images (proofread)** — compare a *typed* version's images (e.g. EN) against an *official* scan (e.g. ENO) and record discrepancies. The result is stored per asset (`check_state` = `ok` / `issues` / `error`, plus the issue list, model, reference version, and timestamp) and surfaced as a colour-coded badge on each slot in the edit-question modal (green OK / red N-issues with the list in a tooltip / amber parse error).
+- **Generate Markdown** — transcribe a source version's images (typed or official) into a self-contained Markdown asset for a target version, with math as LaTeX (`$...$` / `$$...$$`). Optionally embeds the original image(s) as a base64 figure fallback so diagrams are never lost. Honours the existing `MD_MAX_SIZE_BYTES` cap and invalidates the MD render cache.
+
+- **Endpoints** (super-admin): a dedicated **Admin → LLM Endpoints** page (`/admin/llm-endpoints`, also linked from System Settings and the Admin navbar) manages named OpenAI-compatible endpoints — `base_url`, model, provider, vision toggle, token/temperature/timeout, and a **Test** connectivity ping. Works with cloud (OpenAI, OpenRouter) and local servers (Ollama, LM Studio, vLLM); a vision-capable model is required for image operations.
+- **API keys (hybrid)**: a per-endpoint key entered in the UI is stored **encrypted at rest** (`cryptography.Fernet`, secret derived from `LLM_KEY_SECRET` or `SECRET_KEY`); leave it blank to fall back to the `.env` `LLM_API_KEY`. Plaintext keys are never returned to the browser.
+- **Live console + real Stop**: both operations stream a Server-Sent-Events log (per-slot OK / skip / issue / error) with a progress bar. **Stop** is a genuine server-side cancel (checked between questions) so you stop burning tokens, not just a client disconnect. Subject-admins may run it on their own subjects; the whole feature is gated by the `AI_TOOLS_ENABLED` setting.
+- **Tunables**: `AI_TOOLS_ENABLED` (bool) and `LLM_IMAGE_MAX_DIM` (image downscale long-edge, default 1600 px) added to System Settings.
+
 #### "Versions" replace "Languages" — EN / CH / BI / ENO / CHO with drag-to-reorder priority
 
 The per-asset **language** concept (EN / CH / BI) has been generalised into **Versions**, and two new official-scan versions were added: **ENO** (English Official) and **CHO** (Chinese Official) — screen-captured / low-quality scans of the published public-exam paper. The canonical list is now `EN, CH, BI, ENO, CHO` (defined once in `app/utils.VERSIONS`), which is also the default priority order (ENO/CHO last). Labels: `English`, `Chinese`, `Bilingual`, `English (Official)`, `Chinese (Official)`.
@@ -19,6 +31,8 @@ The per-asset **language** concept (EN / CH / BI) has been generalised into **Ve
 ### 🗄️ Database Changes
 
 - **`question_assets.language` → `version`**, enum widened from `ENUM('EN','CH','BI')` to `ENUM('EN','CH','BI','ENO','CHO')`. Run `python migrate_versions.py` (idempotent `CHANGE COLUMN`, auto-carries the `uq_asset_identity` unique index to the renamed column). Existing deployments also auto-upgrade on startup via an idempotent INFORMATION_SCHEMA check in `app/__init__.py`, so the manual script is a safety net rather than a hard requirement.
+- **AI Tools**: three new nullable columns on `question_assets` — `check_state` `VARCHAR(20)`, `check_result` `TEXT` (JSON), `checked_at` `DATETIME` — plus a new **`llm_configs`** table (named LLM endpoints, encrypted keys). Both are created/added automatically on app startup via the same idempotent INFORMATION_SCHEMA pattern — no manual migration needed.
+- New `.env` keys: `LLM_API_KEY` (global fallback API key) and `LLM_KEY_SECRET` (optional Fernet secret for encrypting UI-entered endpoint keys; falls back to `SECRET_KEY`). New dependency: `requests`.
 
 #### Manual block reordering (Topic / Subtopic / Chapter / Subchapter)
 

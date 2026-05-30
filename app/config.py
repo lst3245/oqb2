@@ -64,3 +64,16 @@ class Config:
     # Batch IMG generation defaults — runtime-tunable via System Settings.
     BATCH_IMG_DEFAULT_WIDTH = int(os.getenv('BATCH_IMG_DEFAULT_WIDTH', '1500'))
     BATCH_IMG_DEFAULT_STITCH = os.getenv('BATCH_IMG_DEFAULT_STITCH', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+    # AI Tools (LLM proofreading / markdown generation).
+    # Global fallback API key used when a configured endpoint has no key of
+    # its own (hybrid model — see app/llm_client.py). Stays in .env only.
+    LLM_API_KEY = os.getenv('LLM_API_KEY', '')
+    # Optional dedicated secret for encrypting UI-entered endpoint keys at
+    # rest (Fernet). When blank, a key is derived from SECRET_KEY instead.
+    LLM_KEY_SECRET = os.getenv('LLM_KEY_SECRET', '')
+    # Long edge (px) to downscale images to before sending to the LLM —
+    # runtime-tunable via System Settings.
+    LLM_IMAGE_MAX_DIM = int(os.getenv('LLM_IMAGE_MAX_DIM', '1600'))
+    # Master on/off switch for the AI Tools admin feature.
+    AI_TOOLS_ENABLED = os.getenv('AI_TOOLS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')

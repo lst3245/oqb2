@@ -14,3 +14,16 @@ FLASK_DEBUG=1
 # Application Settings
 SOURCE_PATH=D:/Online Question Bank/oqb2/Source
 OUTPUT_PATH=D:/Online Question Bank/oqb2/output
+
+# AI Tools (LLM proofreading + Markdown generation) — optional
+# Global fallback API key used when a configured endpoint has no key of its own.
+LLM_API_KEY=
+# Optional dedicated secret for encrypting UI-entered endpoint API keys at rest
+# (Fernet). When blank, the key is derived from SECRET_KEY instead.
+# NOTE: rotating this (or SECRET_KEY when this is blank) invalidates previously
+# stored endpoint keys — you'll need to re-enter them.
+LLM_KEY_SECRET=
+# Master on/off switch and image-downscale long-edge (px). These are also
+# editable at runtime via Admin -> System Settings.
+AI_TOOLS_ENABLED=1
+LLM_IMAGE_MAX_DIM=1600

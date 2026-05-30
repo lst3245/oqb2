@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+
+{% block title %}LLM Endpoints - Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .endpoint-card .meta { font-size: 0.8rem; color: #6c757d; }
+    .endpoint-card code { font-size: 0.8rem; }
+    .key-badge { font-size: 0.7rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-robot"></i> LLM Endpoints</h2>
+        <div>
+            <a href="{{ url_for('admin.settings_page') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-sliders"></i> System Settings
+            </a>
+            <button class="btn btn-sm btn-success" onclick="openEndpointModal()">
+                <i class="bi bi-plus-lg"></i> Add Endpoint
+            </button>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i>
+        These OpenAI-compatible endpoints power the <strong>AI Tools</strong> feature (image proofreading and Markdown generation) on the Question Management page.
+        Local servers (Ollama, LM Studio, vLLM) and cloud providers (OpenAI, OpenRouter) all work; point <code>base_url</code> at the API root that exposes <code>/chat/completions</code> (e.g. <code>https://api.openai.com/v1</code> or <code>http://localhost:11434/v1</code>).
+        API keys are stored <strong>encrypted</strong>; leave the key blank to fall back to the <code>LLM_API_KEY</code> in <code>.env</code>.
+        Image operations require a <strong>vision-capable</strong> model.
+    </div>
+
+    <div id="endpointsContainer">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading endpoints...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal fade" id="endpointModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="endpointModalTitle">Add Endpoint</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="epId">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="epName" placeholder="e.g. Local Qwen-VL">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Model name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="epModel" placeholder="e.g. gpt-4o or qwen2.5-vl">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Base URL <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="epBaseUrl" placeholder="https://api.openai.com/v1">
+                        <div class="form-text">API root that exposes <code>/chat/completions</code>. Do not include the <code>/chat/completions</code> suffix.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">API key</label>
+                        <input type="password" class="form-control" id="epApiKey" autocomplete="new-password"
+                               placeholder="(leave blank to use .env LLM_API_KEY)">
+                        <div class="form-text" id="epKeyState"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">.env fallback variable</label>
+                        <input type="text" class="form-control" id="epApiKeyEnv" placeholder="LLM_API_KEY">
+                        <div class="form-text">Name of the environment variable to read when no key is stored.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Provider</label>
+                        <input type="text" class="form-control" id="epProvider" value="openai">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Max output tokens</label>
+                        <input type="number" class="form-control" id="epMaxTokens" value="4096" min="1">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Temperature</label>
+                        <input type="number" class="form-control" id="epTemperature" value="0" step="0.1" min="0" max="2">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Timeout (seconds)</label>
+                        <input type="number" class="form-control" id="epTimeout" value="120" min="5">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Sort order</label>
+                        <input type="number" class="form-control" id="epSortOrder" value="0">
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end gap-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="epVision" checked>
+                            <label class="form-check-label" for="epVision">Vision</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="epEnabled" checked>
+                            <label class="form-check-label" for="epEnabled">Enabled</label>
+                        </div>
+                    </div>
+                </div>
+                <div id="epClearKeyWrap" class="form-check mt-3 d-none">
+                    <input class="form-check-input" type="checkbox" id="epClearKey">
+                    <label class="form-check-label" for="epClearKey">Remove the stored key (fall back to .env)</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="epSaveBtn" onclick="saveEndpoint()">
+                    <i class="bi bi-floppy"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let endpoints = [];
+let epModal = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    epModal = new bootstrap.Modal(document.getElementById('endpointModal'));
+    loadEndpoints();
+});
+
+function loadEndpoints() {
+    fetch('{{ url_for("admin.llm_endpoints_data") }}')
+        .then(r => r.json())
+        .then(data => {
+            endpoints = data.endpoints || [];
+            renderEndpoints();
+        })
+        .catch(err => {
+            document.getElementById('endpointsContainer').innerHTML =
+                `<div class="alert alert-danger">Failed to load: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+function renderEndpoints() {
+    const c = document.getElementById('endpointsContainer');
+    if (endpoints.length === 0) {
+        c.innerHTML = `<div class="alert alert-warning">No endpoints configured yet. Click <strong>Add Endpoint</strong> to create one.</div>`;
+        return;
+    }
+    c.innerHTML = endpoints.map(ep => {
+        const keyBadge = ep.has_stored_key
+            ? '<span class="badge bg-success key-badge">stored key</span>'
+            : (ep.key_resolves
+                ? '<span class="badge bg-secondary key-badge">.env key</span>'
+                : '<span class="badge bg-warning text-dark key-badge">no key</span>');
+        const visionBadge = ep.supports_vision
+            ? '<span class="badge bg-info text-dark">vision</span>'
+            : '<span class="badge bg-light text-dark border">text-only</span>';
+        const enabledBadge = ep.enabled
+            ? '<span class="badge bg-success">enabled</span>'
+            : '<span class="badge bg-secondary">disabled</span>';
+        return `
+        <div class="card mb-2 endpoint-card">
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <strong>${escapeHtml(ep.name)}</strong>
+                        ${enabledBadge} ${visionBadge} ${keyBadge}
+                        <div class="meta mt-1">
+                            <code>${escapeHtml(ep.model_name)}</code> @ <code>${escapeHtml(ep.base_url)}</code>
+                            &middot; provider: ${escapeHtml(ep.provider)}
+                            &middot; max_tokens: ${ep.max_output_tokens}
+                            &middot; temp: ${ep.temperature}
+                            &middot; timeout: ${ep.timeout_seconds}s
+                        </div>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-info" onclick="testEndpoint(${ep.id}, this)" title="Test connectivity"><i class="bi bi-plug"></i> Test</button>
+                        <button class="btn btn-outline-primary" onclick="openEndpointModal(${ep.id})"><i class="bi bi-pencil"></i> Edit</button>
+                        <button class="btn btn-outline-danger" onclick="deleteEndpoint(${ep.id})"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+                <div class="mt-1 small" id="testResult_${ep.id}"></div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openEndpointModal(id) {
+    const ep = id ? endpoints.find(e => e.id === id) : null;
+    document.getElementById('endpointModalTitle').textContent = ep ? 'Edit Endpoint' : 'Add Endpoint';
+    document.getElementById('epId').value = ep ? ep.id : '';
+    document.getElementById('epName').value = ep ? ep.name : '';
+    document.getElementById('epModel').value = ep ? ep.model_name : '';
+    document.getElementById('epBaseUrl').value = ep ? ep.base_url : '';
+    document.getElementById('epApiKey').value = '';
+    document.getElementById('epApiKeyEnv').value = ep ? ep.api_key_env : '';
+    document.getElementById('epProvider').value = ep ? ep.provider : 'openai';
+    document.getElementById('epMaxTokens').value = ep ? ep.max_output_tokens : 4096;
+    document.getElementById('epTemperature').value = ep ? ep.temperature : 0;
+    document.getElementById('epTimeout').value = ep ? ep.timeout_seconds : 120;
+    document.getElementById('epSortOrder').value = ep ? ep.sort_order : 0;
+    document.getElementById('epVision').checked = ep ? ep.supports_vision : true;
+    document.getElementById('epEnabled').checked = ep ? ep.enabled : true;
+
+    const clearWrap = document.getElementById('epClearKeyWrap');
+    const keyState = document.getElementById('epKeyState');
+    document.getElementById('epClearKey').checked = false;
+    if (ep && ep.has_stored_key) {
+        clearWrap.classList.remove('d-none');
+        keyState.textContent = 'A key is stored. Leave blank to keep it; type to replace it.';
+    } else {
+        clearWrap.classList.add('d-none');
+        keyState.textContent = ep ? 'No stored key (using .env fallback).' : '';
+    }
+    epModal.show();
+}
+
+function saveEndpoint() {
+    const id = document.getElementById('epId').value;
+    const payload = {
+        id: id ? parseInt(id, 10) : null,
+        name: document.getElementById('epName').value.trim(),
+        model_name: document.getElementById('epModel').value.trim(),
+        base_url: document.getElementById('epBaseUrl').value.trim(),
+        api_key: document.getElementById('epApiKey').value,
+        api_key_env: document.getElementById('epApiKeyEnv').value.trim(),
+        provider: document.getElementById('epProvider').value.trim() || 'openai',
+        max_output_tokens: parseInt(document.getElementById('epMaxTokens').value, 10),
+        temperature: parseFloat(document.getElementById('epTemperature').value),
+        timeout_seconds: parseInt(document.getElementById('epTimeout').value, 10),
+        sort_order: parseInt(document.getElementById('epSortOrder').value, 10) || 0,
+        supports_vision: document.getElementById('epVision').checked,
+        enabled: document.getElementById('epEnabled').checked,
+        clear_key: document.getElementById('epClearKey').checked,
+    };
+    if (!payload.name || !payload.base_url || !payload.model_name) {
+        showToast('Name, base URL and model name are required.', 'warning');
+        return;
+    }
+    const btn = document.getElementById('epSaveBtn');
+    btn.disabled = true;
+    fetch('{{ url_for("admin.llm_endpoints_save") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    })
+        .then(r => r.json().then(d => ({ok: r.ok, d})))
+        .then(({ok, d}) => {
+            if (!ok || d.error) { showToast(d.error || 'Save failed', 'danger'); return; }
+            epModal.hide();
+            loadEndpoints();
+            showToast('Endpoint saved.', 'success');
+        })
+        .catch(err => showToast('Network error: ' + err.message, 'danger'))
+        .finally(() => { btn.disabled = false; });
+}
+
+function deleteEndpoint(id) {
+    const ep = endpoints.find(e => e.id === id);
+    if (!confirm(`Delete endpoint "${ep ? ep.name : id}"?`)) return;
+    fetch(`{{ url_for("admin.llm_endpoints_delete", cid=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { showToast(d.error, 'danger'); return; }
+            loadEndpoints();
+            showToast('Endpoint deleted.', 'success');
+        })
+        .catch(err => showToast('Network error: ' + err.message, 'danger'));
+}
+
+function testEndpoint(id, btn) {
+    const out = document.getElementById('testResult_' + id);
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    out.innerHTML = '<span class="text-muted">Testing…</span>';
+    fetch(`{{ url_for("admin.llm_endpoints_test", cid=0) }}`.replace('/0/', `/${id}/`), {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+        .then(r => r.json())
+        .then(d => {
+            out.innerHTML = d.success
+                ? `<span class="text-success"><i class="bi bi-check-circle"></i> OK: ${escapeHtml(d.message)}</span>`
+                : `<span class="text-danger"><i class="bi bi-x-circle"></i> ${escapeHtml(d.message)}</span>`;
+        })
+        .catch(err => { out.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`; })
+        .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
+}
+
+function showToast(msg, level) {
+    const div = document.createElement('div');
+    div.className = `alert alert-${level} position-fixed`;
+    div.style.cssText = 'top: 70px; right: 20px; z-index: 9999; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+    div.textContent = msg;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

@@ -81,12 +81,19 @@ FLASK_DEBUG=1          # Set to 0 in production
 # Paths
 SOURCE_PATH=Q:\Source              # Where question image/doc files live
 OUTPUT_PATH=C:\oqb2\output         # Where generated .docx files are saved
+
+# AI Tools (optional — proofreading + Markdown generation)
+LLM_API_KEY=                       # Global fallback LLM API key (per-endpoint keys override it)
+LLM_KEY_SECRET=                    # Optional Fernet secret for encrypting UI-entered endpoint keys (else SECRET_KEY)
+AI_TOOLS_ENABLED=1                 # Master on/off (also editable in System Settings)
+LLM_IMAGE_MAX_DIM=1600             # Image downscale long-edge in px (also in System Settings)
 ```
 
 **Important**:
 - `SOURCE_PATH` must be readable by the Python process. On Windows, this can be a network share (e.g. `Q:\Source`).
 - `OUTPUT_PATH` must be writable. It is created automatically if it doesn't exist.
 - Never commit `.env` to version control.
+- AI Tools keys are optional — leave them blank if you don't use the feature. Rotating `LLM_KEY_SECRET` (or `SECRET_KEY` when it's blank) invalidates any endpoint API keys stored encrypted in the DB.
 
 ---
 
@@ -213,6 +220,12 @@ Select multiple questions (checkboxes or "Select All"), then use the toolbar:
   - Bake the current rendering of an MD question (with pandoc-converted equations) into a plain PNG snapshot.
 
   **Notes:** Requires Microsoft Word on the server (same path as DOC thumbnails / PDF output). Word is run once per question with the global lock serialising other Word jobs — a 100-question batch takes 2–5 minutes. The output PNG preserves MathType OLE objects, embedded images, and native tables because the path is Word → PDF → PyMuPDF rasterisation. Resolution defaults to the **System Settings → Batch IMG Generation → Default render width** value (default 1500 px).
+
+- **AI Tools** — runs a configured LLM (local or cloud) over the selected questions. Two operations:
+  - **Check images (proofread):** pick the *typed* version to check (e.g. EN) and the *official* reference version (e.g. ENO), plus the asset types (QUE/ANS/SOL). For each slot the typed and official images are sent to a vision LLM, which reports discrepancies (typos, wrong numbers, altered math, swapped options). The result is recorded on each asset and shown as a badge in the edit-question modal: green **OK**, red **N issue(s)** (hover for the list), or amber **check error**. Tick *Re-check* to redo slots already checked.
+  - **Generate Markdown:** pick the *source* image version (typed or official) and the *target* version, plus asset types. The LLM transcribes the image(s) into a Markdown asset (math as LaTeX). *Embed original image(s)* appends the source picture as a base64 figure fallback for diagrams; *Overwrite* replaces an existing target MD.
+
+  A live console streams per-slot results with a progress bar, and **Stop** is a genuine server-side cancel (it stops after the current item, so no more LLM calls fire). Subject-admins can run this on their own subjects. The button only appears when AI Tools are enabled (System Settings → AI Tools). **Endpoints must be configured first** — see [§12 System Settings → LLM Endpoints](#12-system-settings-super-admin). A vision-capable model is required for both operations.
 
 ### Creating a Question Manually
 Click **Add Question** → 3-step wizard:
@@ -423,6 +436,17 @@ A DB-backed page for runtime tunables. Changes apply immediately to the running 
 | Word COM | `WORD_COM_TIMEOUT`, `WORD_COM_LOCK_TIMEOUT` | Per-job watchdog / global-lock wait. |
 | Thumbnails | `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX` | Apply to new renders only — after changing, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply to existing cache. |
 | Batch IMG Generation | `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` | Pre-fill the **Generate IMG** modal in Question Management. |
+| AI Tools | `AI_TOOLS_ENABLED`, `LLM_IMAGE_MAX_DIM` | Master on/off switch and the long-edge (px) that images are downscaled to before being sent to the LLM. |
+
+### LLM Endpoints (AI Tools)
+
+The **AI Tools** feature (proofreading + Markdown generation in Question Management) needs at least one configured LLM endpoint. Open **Admin → LLM Endpoints** (linked from the System Settings header and the Admin navbar; super-admin only).
+
+- Click **Add Endpoint** and fill in: **Name**, **Model name**, **Base URL** (the API root that exposes `/chat/completions` — e.g. `https://api.openai.com/v1` or `http://localhost:11434/v1`; do **not** include `/chat/completions`), **API key** (optional — blank uses the `.env` `LLM_API_KEY`), provider, max output tokens, temperature, timeout, and the **Vision** toggle.
+- **Vision is required** for both AI Tools operations. Local models must be vision-capable (e.g. Qwen-VL, Llava, Llama-Vision).
+- API keys entered here are **encrypted at rest** (Fernet). The plaintext is never shown again — leave the key field blank when editing to keep the stored key, type a new value to replace it, or tick **Remove the stored key** to fall back to `.env`.
+- Use the **Test** button to send a tiny ping and confirm connectivity / auth / model name.
+- Cloud (OpenAI, OpenRouter) and local (Ollama, LM Studio, vLLM) endpoints all work, as do Anthropic/Gemini behind an OpenAI-compatible proxy.
 
 ### Settings that stay in `.env`
 
@@ -432,6 +456,7 @@ Secrets and infrastructure paths are intentionally NOT exposed here:
 - DB credentials (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`)
 - `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
 - `PANDOC_PATH`
+- `LLM_API_KEY` (global fallback LLM key), `LLM_KEY_SECRET` (Fernet secret for encrypting endpoint keys — rotating it invalidates stored keys)
 
 Edit these in `.env` and restart the server.
 

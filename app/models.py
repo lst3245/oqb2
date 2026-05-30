@@ -250,7 +250,16 @@ class QuestionAsset(db.Model):
     version = db.Column(db.Enum('EN', 'CH', 'BI', 'ENO', 'CHO', name='version_enum'), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)  # Relative path (always forward-slash separated)
     part_number = db.Column(db.Integer, nullable=False, default=1)  # For multi-image questions (1, 2, 3...)
-    
+
+    # AI Tools proofreading state (see app/ai_tools.py). Set when a typed
+    # version is checked against an official scan via an LLM.
+    #   check_state: None (never checked) / 'checking' / 'ok' / 'issues' / 'error'
+    #   check_result: JSON blob {status, issues[], raw, model, ref_version, checked_by}
+    #   checked_at: UTC timestamp of the last check
+    check_state = db.Column(db.String(20), nullable=True)
+    check_result = db.Column(db.Text, nullable=True)
+    checked_at = db.Column(db.DateTime, nullable=True)
+
     __table_args__ = (
         db.UniqueConstraint('question_id', 'asset_type', 'version', 'file_format', 'part_number',
                             name='uq_asset_identity'),
@@ -450,3 +459,42 @@ class SystemSetting(db.Model):
 
     def __repr__(self):
         return f'<SystemSetting {self.key}={self.value!r}>'
+
+
+class LLMConfig(db.Model):
+    """A configured LLM endpoint for the AI Tools feature.
+
+    All endpoints speak the OpenAI-compatible Chat Completions protocol
+    (``POST {base_url}/chat/completions``) so a single client adapter in
+    ``app/llm_client.py`` serves both local servers (Ollama, LM Studio,
+    vLLM, ...) and cloud providers (OpenAI, OpenRouter, ...).
+
+    API-key handling is hybrid: ``api_key_enc`` holds an optional
+    Fernet-encrypted key entered through the admin UI; when empty the
+    client falls back to ``os.getenv(api_key_env or 'LLM_API_KEY')`` from
+    the ``.env`` file. The plaintext key is NEVER stored or returned to
+    the browser.
+    """
+    __tablename__ = 'llm_configs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    base_url = db.Column(db.String(500), nullable=False)
+    model_name = db.Column(db.String(200), nullable=False)
+    provider = db.Column(db.String(40), nullable=False, default='openai')
+    # Fernet ciphertext of the API key (optional; blank => use .env fallback).
+    api_key_enc = db.Column(db.Text, nullable=True)
+    # Name of the .env var to read when no per-endpoint key is stored.
+    api_key_env = db.Column(db.String(80), nullable=True)
+    supports_vision = db.Column(db.Boolean, nullable=False, default=True)
+    max_output_tokens = db.Column(db.Integer, nullable=False, default=4096)
+    temperature = db.Column(db.Float, nullable=False, default=0.0)
+    timeout_seconds = db.Column(db.Integer, nullable=False, default=120)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f'<LLMConfig {self.name} ({self.model_name})>'

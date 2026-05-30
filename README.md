@@ -89,6 +89,8 @@ python run.py
   - Create questions manually, rename QID, upload/delete/reorder assets
   - **Markdown live editor** (modal + fullscreen) for `.md` assets: EasyMDE editor, live KaTeX preview, base64 image insert, optimistic concurrency
   - Batch update (level, type, section, topic/subtopic, correct %) and batch delete
+  - **AI Tools** — call an OpenAI-compatible LLM (local or cloud) to proofread typed images against official scans (per-asset check state + issue badges) or transcribe images into Markdown (LaTeX math); live SSE log with a real server-side Stop
+- **LLM Endpoints** (`/admin/llm-endpoints`) — super admin only; manage named LLM endpoints (encrypted keys, vision toggle, test ping) for AI Tools
 - **User Management** (`/admin/users`) — super admin only; per-subject permission assignment
 - **Export / Import** (`/admin/export-import`) — CSV round-trip for question tags, topics, chapters
 - **Ingestion** (`/admin/ingestion`) — scan SOURCE_PATH and import files into DB; live streaming log
@@ -115,6 +117,9 @@ oqb2/
 │   ├── generator.py       # Word doc generation + viewer (generator_bp)
 │   ├── user.py            # My Files + Saved Profiles (user_bp)
 │   ├── ingestor.py        # File scanner, sync, health stats
+│   ├── llm_client.py      # OpenAI-compatible LLM client + Fernet key crypto (AI Tools)
+│   ├── ai_prompts.py      # AI Tools prompts + output parsing
+│   ├── ai_tools.py        # AI Tools SSE generators + cancellation
 │   ├── config.py          # Config class reading from .env
 │   └── utils.py           # Permission decorators, sort helpers
 ├── templates/             # Jinja2 HTML templates

@@ -958,6 +958,7 @@ def questions_page():
         'admin_questions.html',
         subjects=subjects,
         md_max_size_bytes=current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
+        ai_tools_enabled=current_app.config.get('AI_TOOLS_ENABLED', True),
     )
 
 
@@ -1137,12 +1138,21 @@ def question_assets(question_id):
             result[ver] = {}
         if atype not in result[ver]:
             result[ver][atype] = []
+        check_result = None
+        if a.check_result:
+            try:
+                check_result = json.loads(a.check_result)
+            except (ValueError, TypeError):
+                check_result = {'status': a.check_state, 'raw': a.check_result}
         result[ver][atype].append({
             'id': a.id,
             'part_number': a.part_number,
             'file_format': a.file_format,
             'file_path': a.file_path,
             'preview_url': url_for('dashboard.get_asset_preview', asset_id=a.id),
+            'check_state': a.check_state,
+            'check_result': check_result,
+            'checked_at': a.checked_at.isoformat() if a.checked_at else None,
         })
 
     return jsonify({'assets': result, 'qid': question.qid})
@@ -3383,6 +3393,210 @@ def batch_mcq_ans():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+# ==================== AI Tools (LLM image checking / MD generation) ====================
+#
+# Batch operations that call a configured LLM endpoint per question slot and
+# stream a live SSE log. Mirrors the batch_generate_images pattern: gather
+# work in request context, then stream inside a pushed app context. A
+# job_id-based cancel flag (app/ai_tools._AI_CANCEL) allows a real
+# server-side Stop. Subject-admins may run it on their own subjects.
+
+def _ai_tools_guard():
+    """Shared pre-flight for AI Tools routes. Returns (error_response, code)
+    on failure, else None."""
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+    return None
+
+
+def _ai_parse_qs():
+    """Parse + permission-scope question_ids. Returns (qs, error, code)."""
+    raw_qids = request.args.get('question_ids', '').strip()
+    if not raw_qids:
+        return None, jsonify({'error': 'question_ids is required'}), 400
+    try:
+        question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
+    except ValueError:
+        return None, jsonify({'error': 'question_ids must be integers'}), 400
+    if not question_ids:
+        return None, jsonify({'error': 'question_ids resolved to empty list'}), 400
+
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    if not qs:
+        return None, jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+    return qs, None, None
+
+
+def _ai_load_endpoint():
+    """Load + validate the requested LLM endpoint. Returns (cfg, error, code)."""
+    from app.models import LLMConfig
+    raw = request.args.get('endpoint_id', '').strip()
+    if not raw:
+        return None, jsonify({'error': 'endpoint_id is required'}), 400
+    try:
+        cfg = LLMConfig.query.get(int(raw))
+    except ValueError:
+        return None, jsonify({'error': 'endpoint_id must be an integer'}), 400
+    if not cfg or not cfg.enabled:
+        return None, jsonify({'error': 'Endpoint not found or disabled'}), 404
+    if not cfg.supports_vision:
+        return None, jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable; image operations require a vision model.'}), 400
+    return cfg, None, None
+
+
+def _ai_csv_versions(name):
+    raw = request.args.get(name, '').strip().upper()
+    return raw if raw in set(VERSIONS) else None
+
+
+def _ai_atypes():
+    raw = request.args.get('atypes', '').strip()
+    if not raw:
+        return {'QUE'}
+    return {s.strip().upper() for s in raw.split(',') if s.strip()} & {'QUE', 'ANS', 'SOL'}
+
+
+@admin_bp.route('/questions/ai/endpoints')
+@login_required
+@admin_required
+def ai_endpoints():
+    """List enabled LLM endpoints for the AI Tools modal dropdown (admins)."""
+    from app.models import LLMConfig
+    rows = (LLMConfig.query.filter_by(enabled=True)
+            .order_by(LLMConfig.sort_order, LLMConfig.name).all())
+    return jsonify({'endpoints': [
+        {'id': c.id, 'name': c.name, 'model_name': c.model_name,
+         'supports_vision': bool(c.supports_vision)}
+        for c in rows
+    ]})
+
+
+@admin_bp.route('/questions/ai/cancel', methods=['POST'])
+@login_required
+@admin_required
+def ai_cancel():
+    """Signal a running AI Tools job to stop."""
+    from app import ai_tools
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get('job_id') or '').strip()
+    if not job_id:
+        return jsonify({'error': 'job_id is required'}), 400
+    known = ai_tools.cancel_job(job_id)
+    return jsonify({'success': True, 'known': known})
+
+
+def _ai_stream(work_iter_factory):
+    """Wrap an ai_tools generator factory into an SSE Response: emit a
+    `job` event with the job_id, stream the events, and clean up the job."""
+    from app import ai_tools
+    app = current_app._get_current_object()
+    job_id, cancel = ai_tools.new_job()
+
+    def generate():
+        with app.app_context():
+            yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
+            try:
+                for ev in work_iter_factory(app, cancel):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except Exception as e:  # pragma: no cover
+                current_app.logger.exception('AI Tools stream aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            finally:
+                ai_tools.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/questions/ai/check')
+@login_required
+@admin_required
+def ai_check():
+    """SSE: proofread typed-version images against an official reference.
+
+    Query params: question_ids (csv), endpoint_id, typed_version, ref_version,
+    atypes (csv of QUE/ANS/SOL), recheck (1/0).
+    """
+    guard = _ai_tools_guard()
+    if guard:
+        return guard
+    qs, err, code = _ai_parse_qs()
+    if err:
+        return err, code
+    cfg, err, code = _ai_load_endpoint()
+    if err:
+        return err, code
+
+    typed_version = _ai_csv_versions('typed_version')
+    ref_version = _ai_csv_versions('ref_version')
+    if not typed_version or not ref_version:
+        return jsonify({'error': 'typed_version and ref_version must each be one of ' + '/'.join(VERSIONS)}), 400
+    if typed_version == ref_version:
+        return jsonify({'error': 'typed_version and ref_version must differ'}), 400
+    atypes = _ai_atypes()
+    if not atypes:
+        return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
+    recheck = request.args.get('recheck', '0') in ('1', 'true', 'yes')
+
+    def factory(app, cancel):
+        from app import ai_tools
+        image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        source_path = app.config['SOURCE_PATH']
+        from app.models import LLMConfig
+        live_cfg = LLMConfig.query.get(cfg.id)
+        return ai_tools.iter_check(qs, typed_version, ref_version, atypes,
+                                   recheck, live_cfg, image_max_dim, source_path, cancel)
+
+    return _ai_stream(factory)
+
+
+@admin_bp.route('/questions/ai/generate-md')
+@login_required
+@admin_required
+def ai_generate_md():
+    """SSE: transcribe source-version images into Markdown assets.
+
+    Query params: question_ids (csv), endpoint_id, source_version,
+    target_version, atypes (csv), overwrite (1/0), embed_image (1/0).
+    """
+    guard = _ai_tools_guard()
+    if guard:
+        return guard
+    qs, err, code = _ai_parse_qs()
+    if err:
+        return err, code
+    cfg, err, code = _ai_load_endpoint()
+    if err:
+        return err, code
+
+    source_version = _ai_csv_versions('source_version')
+    target_version = _ai_csv_versions('target_version')
+    if not source_version or not target_version:
+        return jsonify({'error': 'source_version and target_version must each be one of ' + '/'.join(VERSIONS)}), 400
+    atypes = _ai_atypes()
+    if not atypes:
+        return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    embed_image = request.args.get('embed_image', '1') in ('1', 'true', 'yes')
+
+    def factory(app, cancel):
+        from app import ai_tools
+        image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        md_max_bytes = int(app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024))
+        source_path = app.config['SOURCE_PATH']
+        from app.models import LLMConfig
+        live_cfg = LLMConfig.query.get(cfg.id)
+        return ai_tools.iter_generate_md(qs, source_version, target_version, atypes,
+                                         overwrite, embed_image, live_cfg, image_max_dim,
+                                         md_max_bytes, source_path, cancel)
+
+    return _ai_stream(factory)
+
+
 # ==================== System Settings (Super Admin Only) ====================
 #
 # DB-backed runtime tunables. The full registry lives in `app/settings.py`;
@@ -3467,6 +3681,156 @@ def settings_reset(key):
         return jsonify({'error': str(e)}), 500
 
     return jsonify({'key': key, 'value': default, 'has_override': False})
+
+
+# ==================== LLM Endpoints (AI Tools, Super Admin Only) ====================
+#
+# CRUD for the named OpenAI-compatible endpoints used by the AI Tools
+# feature. Plaintext API keys are NEVER returned to the browser — the data
+# endpoint reports only whether a key is stored / falls back to .env.
+
+def _serialize_llm_config(c, *, include_secret=False):
+    """JSON-friendly LLMConfig. The API key is masked unless explicitly
+    requested (never exposed via HTTP)."""
+    from app.llm_client import resolve_api_key
+    has_stored = bool(c.api_key_enc)
+    # Whether a usable key resolves at all (stored or via .env fallback).
+    try:
+        resolves = bool(resolve_api_key(c))
+    except Exception:
+        resolves = has_stored
+    data = {
+        'id': c.id,
+        'name': c.name,
+        'base_url': c.base_url,
+        'model_name': c.model_name,
+        'provider': c.provider,
+        'api_key_env': c.api_key_env or '',
+        'has_stored_key': has_stored,
+        'key_resolves': resolves,
+        'supports_vision': bool(c.supports_vision),
+        'max_output_tokens': c.max_output_tokens,
+        'temperature': c.temperature,
+        'timeout_seconds': c.timeout_seconds,
+        'enabled': bool(c.enabled),
+        'sort_order': c.sort_order,
+    }
+    return data
+
+
+@admin_bp.route('/llm-endpoints')
+@login_required
+@super_admin_required
+def llm_endpoints_page():
+    """Render the LLM endpoint management page (AI Tools config)."""
+    return render_template('admin_llm_endpoints.html')
+
+
+@admin_bp.route('/llm-endpoints/data')
+@login_required
+@super_admin_required
+def llm_endpoints_data():
+    """List all configured endpoints (keys masked)."""
+    from app.models import LLMConfig
+    rows = LLMConfig.query.order_by(LLMConfig.sort_order, LLMConfig.name).all()
+    return jsonify({'endpoints': [_serialize_llm_config(c) for c in rows]})
+
+
+@admin_bp.route('/llm-endpoints/save', methods=['POST'])
+@login_required
+@super_admin_required
+def llm_endpoints_save():
+    """Create or update an endpoint. Body JSON includes an optional
+    `api_key` (blank = keep existing; `clear_key:true` = remove stored key,
+    fall back to .env)."""
+    from app.models import LLMConfig
+    from app.llm_client import encrypt_key
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    base_url = (data.get('base_url') or '').strip()
+    model_name = (data.get('model_name') or '').strip()
+    if not name or not base_url or not model_name:
+        return jsonify({'error': 'name, base_url and model_name are required'}), 400
+
+    cid = data.get('id')
+    if cid:
+        cfg = LLMConfig.query.get(cid)
+        if not cfg:
+            return jsonify({'error': 'Endpoint not found'}), 404
+    else:
+        cfg = None
+
+    # Unique-name guard. Run this BEFORE adding any new row to the session so
+    # the query's autoflush doesn't try to INSERT a half-built (name=NULL) row.
+    clash = LLMConfig.query.filter(LLMConfig.name == name)
+    if cid:
+        clash = clash.filter(LLMConfig.id != cid)
+    if clash.first():
+        return jsonify({'error': f'An endpoint named "{name}" already exists'}), 409
+
+    if cfg is None:
+        cfg = LLMConfig()
+        db.session.add(cfg)
+
+    cfg.name = name
+    cfg.base_url = base_url
+    cfg.model_name = model_name
+    cfg.provider = (data.get('provider') or 'openai').strip() or 'openai'
+    cfg.api_key_env = (data.get('api_key_env') or '').strip() or None
+    cfg.supports_vision = bool(data.get('supports_vision', True))
+
+    def _int(v, default):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _float(v, default):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    cfg.max_output_tokens = max(1, _int(data.get('max_output_tokens'), 4096))
+    cfg.temperature = _float(data.get('temperature'), 0.0)
+    cfg.timeout_seconds = max(5, _int(data.get('timeout_seconds'), 120))
+    cfg.enabled = bool(data.get('enabled', True))
+    cfg.sort_order = _int(data.get('sort_order'), 0)
+
+    # Key handling: explicit clear, or set-if-provided, else keep existing.
+    if data.get('clear_key'):
+        cfg.api_key_enc = None
+    else:
+        new_key = (data.get('api_key') or '').strip()
+        if new_key:
+            cfg.api_key_enc = encrypt_key(new_key)
+
+    db.session.commit()
+    return jsonify({'success': True, 'endpoint': _serialize_llm_config(cfg)})
+
+
+@admin_bp.route('/llm-endpoints/<int:cid>/delete', methods=['POST'])
+@login_required
+@super_admin_required
+def llm_endpoints_delete(cid):
+    from app.models import LLMConfig
+    cfg = LLMConfig.query.get_or_404(cid)
+    db.session.delete(cfg)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@admin_bp.route('/llm-endpoints/<int:cid>/test', methods=['POST'])
+@login_required
+@super_admin_required
+def llm_endpoints_test(cid):
+    """Send a trivial prompt to validate connectivity / auth / model."""
+    from app.models import LLMConfig
+    from app.llm_client import test_endpoint
+    cfg = LLMConfig.query.get_or_404(cid)
+    ok, message = test_endpoint(cfg)
+    return jsonify({'success': ok, 'message': message})
 
 
 # ==================== File Browser (Super Admin Only) ====================

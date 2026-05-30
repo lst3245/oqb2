@@ -56,6 +56,10 @@ Editor frontend lives in `templates/partials/md_editor.html` (EasyMDE + marked +
 - `GET /admin/questions/batch-generate-images` — **SSE stream** that renders DOC/MD source assets into IMG PNGs in bulk. Query params: `question_ids` (csv), `types` (QUE/ANS/SOL), `versions` (EN/CH/BI/ENO/CHO; legacy `langs` accepted), `sources` (DOC/MD), `stitch` (1/0), `overwrite` (1/0), `width`, `transparent`. UI lives in the **Generate IMG** bulk button on `templates/admin_questions.html`. Backed by `app/batch_image_gen.py` (`render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`). Word COM serialised through the same global lock as DOC thumbnails / docx generation.
 - `GET /admin/questions/batch-mcq-ans` — **SSE stream** that assigns MCQ answer images. For each selected question, reads `question.answer` (must be `A`/`B`/`C`/`D`) and `q_type` (must be `MC`), then copies the matching PNG from `resources/mcq_answer_img/{A|B|C|D}.png` into the canonical ANS slot on disk and upserts the `QuestionAsset` row. Query params: `question_ids` (csv), `versions` (csv, default `EN`; legacy `langs` accepted), `overwrite` (1/0, default `0`). Subject-admin permission. UI: **Set MCQ ANS** bulk button on `admin_questions.html`.
 
+### AI Tools (LLM proofreading / Markdown generation)
+- `GET /admin/questions/ai/check` and `GET /admin/questions/ai/generate-md` — **SSE streams** that call a configured LLM endpoint per question slot, with a real server-side Stop (`POST /admin/questions/ai/cancel` + `job_id`). `GET /admin/questions/ai/endpoints` lists enabled endpoints for the modal. Subject-admin scoped; gated on `AI_TOOLS_ENABLED`. UI: **AI Tools** bulk button + `aiToolsModal` on `admin_questions.html`. Check results land on `QuestionAsset.check_state/check_result/checked_at`. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
+- **LLM Endpoints** (`/admin/llm-endpoints`, super-admin) — CRUD for `LLMConfig` rows: `llm_endpoints_page`, `llm_endpoints_data` (keys masked), `llm_endpoints_save` (encrypts a newly entered key; blank keeps existing; `clear_key` removes it), `llm_endpoints_<id>_delete`, `llm_endpoints_<id>_test` (connectivity ping). UI `templates/admin_llm_endpoints.html`, linked from System Settings + Admin navbar.
+
 The `Delete Selected` button on `admin_questions.html` opens a single two-tab modal — **Whole questions** (POSTs to `delete_questions`) and **Specific assets** (POSTs to `batch_delete_assets`). The shared confirm gate uses an "I understand" checkbox at ≤ 10 selected questions and requires typing `DELETE` above that threshold (`BULK_DELETE_TYPED_THRESHOLD = 10`). Switching tabs invalidates the confirm to force re-confirmation. The assets tab starts with **all checkboxes deselected** so nothing gets removed by accident.
 - `POST /admin/questions/<qid>/assets/<aid>/rerender-thumb` — force a re-render of a single DOC asset thumbnail. Subject-admin only. Drives the per-preview "Re-render" button in dashboard cards / preview modal / inline preview helper. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the frontend flow.
 
@@ -66,7 +70,7 @@ DB-backed runtime tunables that override `.env` / `Config` defaults without a re
 - `POST /admin/settings/save` — body `{key: value, ...}`; per-key validation; partial saves succeed.
 - `POST /admin/settings/reset/<key>` — drop DB override, restore bootstrap default.
 
-The registry covers Dashboard / Markdown / Word COM / Thumbnails / Batch IMG groups. Secrets (DB creds, `SECRET_KEY`, paths, `PANDOC_PATH`, `DOC_THUMBNAIL_PATH`) stay `.env`-only.
+The registry covers Dashboard / Markdown / Word COM / Thumbnails / Batch IMG / AI Tools groups. Secrets (DB creds, `SECRET_KEY`, paths, `PANDOC_PATH`, `DOC_THUMBNAIL_PATH`, `LLM_API_KEY`, `LLM_KEY_SECRET`) stay `.env`-only.
 
 ### User Management (`/admin/users`) — super admin only
 - Add/edit/delete users

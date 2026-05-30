@@ -72,6 +72,11 @@
                     <button class="btn btn-sm btn-info text-dark" id="bulkMcqAnsBtn" style="display:none" onclick="openBatchMcqAnsModal()" title="Set MCQ ANS images from answer tag (A/B/C/D)">
                         <i class="bi bi-check-circle"></i> Set MCQ ANS (<span id="selCountBadgeMcq">0</span>)
                     </button>
+                    {% if ai_tools_enabled %}
+                    <button class="btn btn-sm btn-primary" id="bulkAiToolsBtn" style="display:none" onclick="openAiToolsModal()" title="Run AI proofreading or Markdown generation on the selected questions">
+                        <i class="bi bi-robot"></i> AI Tools (<span id="selCountBadgeAi">0</span>)
+                    </button>
+                    {% endif %}
                     <div class="dropdown d-inline-block">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> Options
@@ -548,6 +553,154 @@
     </div>
 </div>
 
+<!-- ===================== AI Tools Modal ===================== -->
+<div class="modal fade" id="aiToolsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-robot"></i> AI Tools</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" id="aiToolsCloseBtn"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small">
+                    <i class="bi bi-info-circle"></i>
+                    Run an LLM over the selected questions. <strong>Check images</strong> proofreads a typed version
+                    against an official scan and records the result on each asset. <strong>Generate Markdown</strong>
+                    transcribes images (with LaTeX) into a Markdown asset. A vision-capable endpoint is required.
+                </div>
+
+                <div id="aiToolsOptions">
+                    <p class="mb-2"><strong>Selected questions:</strong> <span id="aiToolsCount" class="badge bg-secondary">0</span></p>
+
+                    <div class="row g-3">
+                        <div class="col-md-7">
+                            <label class="form-label fw-bold" for="aiEndpointSelect">LLM endpoint</label>
+                            <select class="form-select form-select-sm" id="aiEndpointSelect">
+                                <option value="">Loading…</option>
+                            </select>
+                            <small class="text-muted">Manage endpoints in <em>Admin → LLM Endpoints</em> (super-admin).</small>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">Operation</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="aiOp" id="aiOpCheck" value="check" checked onchange="aiToolsToggleOp()">
+                                <label class="form-check-label" for="aiOpCheck">Check images (proofread)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="aiOp" id="aiOpMd" value="md" onchange="aiToolsToggleOp()">
+                                <label class="form-check-label" for="aiOpMd">Generate Markdown</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Asset types</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="aiType_QUE" checked>
+                                <label class="form-check-label" for="aiType_QUE">QUE</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="aiType_ANS">
+                                <label class="form-check-label" for="aiType_ANS">ANS</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="aiType_SOL">
+                                <label class="form-check-label" for="aiType_SOL">SOL</label>
+                            </div>
+                        </div>
+
+                        <!-- Check panel -->
+                        <div class="col-md-8" id="aiCheckPanel">
+                            <div class="row g-3">
+                                <div class="col-sm-6">
+                                    <label class="form-label fw-bold" for="aiTypedVersion">Typed version (to check)</label>
+                                    <select class="form-select form-select-sm" id="aiTypedVersion">
+                                        {% for v in OQB_VERSIONS %}
+                                        <option value="{{ v }}"{% if v == 'EN' %} selected{% endif %}>{{ v }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label fw-bold" for="aiRefVersion">Reference version (official)</label>
+                                    <select class="form-select form-select-sm" id="aiRefVersion">
+                                        {% for v in OQB_VERSIONS %}
+                                        <option value="{{ v }}"{% if v == 'ENO' %} selected{% endif %}>{{ v }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" id="aiRecheck">
+                                <label class="form-check-label" for="aiRecheck">Re-check slots already checked</label>
+                            </div>
+                        </div>
+
+                        <!-- Markdown panel -->
+                        <div class="col-md-8 d-none" id="aiMdPanel">
+                            <div class="row g-3">
+                                <div class="col-sm-6">
+                                    <label class="form-label fw-bold" for="aiSourceVersion">Source version (image)</label>
+                                    <select class="form-select form-select-sm" id="aiSourceVersion">
+                                        {% for v in OQB_VERSIONS %}
+                                        <option value="{{ v }}"{% if v == 'EN' %} selected{% endif %}>{{ v }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label fw-bold" for="aiTargetVersion">Target version (MD)</label>
+                                    <select class="form-select form-select-sm" id="aiTargetVersion">
+                                        {% for v in OQB_VERSIONS %}
+                                        <option value="{{ v }}"{% if v == 'EN' %} selected{% endif %}>{{ v }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" id="aiEmbedImage" checked>
+                                <label class="form-check-label" for="aiEmbedImage">Embed original image(s) in the Markdown (figure fallback)</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="aiMdOverwrite">
+                                <label class="form-check-label" for="aiMdOverwrite">Overwrite existing target MD</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+
+                <!-- Console output (shown while streaming) -->
+                <div id="aiToolsConsoleWrap" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <small class="text-muted" id="aiToolsProgressLabel">Starting...</small>
+                        <small id="aiToolsStatus" class="badge bg-secondary">Idle</small>
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
+                        <div id="aiToolsProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%;"></div>
+                    </div>
+                    <div id="aiToolsLog" class="log-console" style="max-height: 260px; overflow-y: auto; font-size: 0.8rem; background: #1e1e1e; color: #ddd; padding: 0.5rem; font-family: monospace; border-radius: 4px;"></div>
+                    <div id="aiToolsSummary" class="mt-2 d-none">
+                        <div class="row text-center small" id="aiToolsSummaryStats"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="aiToolsCancelBtn">Close</button>
+                <button class="btn btn-outline-danger d-none" id="aiToolsStopBtn" onclick="stopAiTools()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+                <button class="btn btn-primary" id="aiToolsRunBtn" onclick="runAiTools()">
+                    <i class="bi bi-play-fill"></i> Run
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ===================== Batch MCQ ANS Modal ===================== -->
 <div class="modal fade" id="batchMcqAnsModal" tabindex="-1">
     <div class="modal-dialog">
@@ -822,6 +975,10 @@ function updateSelectionUI() {
     const mcqBadge = document.getElementById('selCountBadgeMcq');
     if (mcqBtn) mcqBtn.style.display = count > 0 ? '' : 'none';
     if (mcqBadge) mcqBadge.textContent = count;
+    const aiBtn = document.getElementById('bulkAiToolsBtn');
+    const aiBadge = document.getElementById('selCountBadgeAi');
+    if (aiBtn) aiBtn.style.display = count > 0 ? '' : 'none';
+    if (aiBadge) aiBadge.textContent = count;
     // Update select-all checkbox
     const all = document.querySelectorAll('.q-checkbox');
     const checked = document.querySelectorAll('.q-checkbox:checked');
@@ -1162,6 +1319,235 @@ function stopBatchImg() {
     finishBatchImg(null);
     document.getElementById('batchImgStatus').textContent = 'Stopped';
     document.getElementById('batchImgStatus').className = 'badge bg-warning text-dark';
+}
+
+// ===================== AI TOOLS =====================
+let aiToolsEventSource = null;
+let aiToolsRunning = false;
+let aiToolsJobId = null;
+let aiToolsOp = 'check';
+
+function aiToolsToggleOp() {
+    const op = document.querySelector('input[name="aiOp"]:checked').value;
+    document.getElementById('aiCheckPanel').classList.toggle('d-none', op !== 'check');
+    document.getElementById('aiMdPanel').classList.toggle('d-none', op !== 'md');
+}
+
+function openAiToolsModal() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('aiToolsCount').textContent = selectedQIds.size;
+    document.getElementById('aiToolsConsoleWrap').classList.add('d-none');
+    document.getElementById('aiToolsLog').innerHTML = '';
+    document.getElementById('aiToolsSummary').classList.add('d-none');
+    document.getElementById('aiToolsProgressBar').style.width = '0%';
+    document.getElementById('aiToolsRunBtn').classList.remove('d-none');
+    document.getElementById('aiToolsRunBtn').disabled = false;
+    document.getElementById('aiToolsStopBtn').classList.add('d-none');
+    document.getElementById('aiToolsOptions').classList.remove('opacity-50');
+    document.getElementById('aiToolsCancelBtn').textContent = 'Close';
+    aiToolsToggleOp();
+
+    // Populate the endpoint dropdown (enabled, vision-capable hint).
+    const sel = document.getElementById('aiEndpointSelect');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    fetch('{{ url_for("admin.ai_endpoints") }}')
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (eps.length === 0) {
+                sel.innerHTML = '<option value="">No endpoints configured</option>';
+                return;
+            }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${escapeHtmlAi(ep.name)} — ${escapeHtmlAi(ep.model_name)}${vis}</option>`;
+            }).join('');
+            // Select the first vision-capable endpoint.
+            const firstVision = eps.find(ep => ep.supports_vision);
+            if (firstVision) sel.value = firstVision.id;
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    new bootstrap.Modal(document.getElementById('aiToolsModal')).show();
+}
+
+function escapeHtmlAi(s) {
+    if (s === null || s === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+
+function _appendAiLog(message, type) {
+    const logEl = document.getElementById('aiToolsLog');
+    const timestamp = new Date().toLocaleTimeString();
+    const colour = ({
+        info: '#9bb6c9', success: '#5cd35c', skip: '#cccc66', warning: '#cccc66',
+        error: '#ff6b6b', done: '#92e1c5', job: '#9bb6c9'
+    })[type] || '#ddd';
+    const span = document.createElement('span');
+    span.style.color = colour;
+    span.style.display = 'block';
+    span.textContent = `[${timestamp}] ${message}`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runAiTools() {
+    if (aiToolsRunning || selectedQIds.size === 0) return;
+
+    const endpointId = document.getElementById('aiEndpointSelect').value;
+    if (!endpointId) {
+        showToast('Select an LLM endpoint first.', 'warning');
+        return;
+    }
+    const atypes = ['QUE', 'ANS', 'SOL'].filter(t => document.getElementById('aiType_' + t).checked);
+    if (atypes.length === 0) {
+        showToast('Pick at least one asset type (QUE / ANS / SOL).', 'warning');
+        return;
+    }
+
+    aiToolsOp = document.querySelector('input[name="aiOp"]:checked').value;
+    const params = new URLSearchParams();
+    params.set('question_ids', Array.from(selectedQIds).join(','));
+    params.set('endpoint_id', endpointId);
+    params.set('atypes', atypes.join(','));
+
+    let endpointUrl;
+    if (aiToolsOp === 'check') {
+        const typed = document.getElementById('aiTypedVersion').value;
+        const ref = document.getElementById('aiRefVersion').value;
+        if (typed === ref) {
+            showToast('Typed and reference versions must differ.', 'warning');
+            return;
+        }
+        params.set('typed_version', typed);
+        params.set('ref_version', ref);
+        params.set('recheck', document.getElementById('aiRecheck').checked ? '1' : '0');
+        endpointUrl = '{{ url_for("admin.ai_check") }}';
+    } else {
+        const source = document.getElementById('aiSourceVersion').value;
+        const target = document.getElementById('aiTargetVersion').value;
+        params.set('source_version', source);
+        params.set('target_version', target);
+        params.set('embed_image', document.getElementById('aiEmbedImage').checked ? '1' : '0');
+        params.set('overwrite', document.getElementById('aiMdOverwrite').checked ? '1' : '0');
+        endpointUrl = '{{ url_for("admin.ai_generate_md") }}';
+    }
+
+    aiToolsRunning = true;
+    aiToolsJobId = null;
+    document.getElementById('aiToolsRunBtn').classList.add('d-none');
+    document.getElementById('aiToolsStopBtn').classList.remove('d-none');
+    document.getElementById('aiToolsCancelBtn').textContent = 'Hide';
+    document.getElementById('aiToolsOptions').classList.add('opacity-50');
+    document.getElementById('aiToolsConsoleWrap').classList.remove('d-none');
+    document.getElementById('aiToolsStatus').textContent = 'Running...';
+    document.getElementById('aiToolsStatus').className = 'badge bg-success';
+    document.getElementById('aiToolsProgressBar').className = 'progress-bar progress-bar-striped progress-bar-animated';
+    document.getElementById('aiToolsSummary').classList.add('d-none');
+
+    _appendAiLog(`Starting ${aiToolsOp === 'check' ? 'image check' : 'Markdown generation'} (${selectedQIds.size} question(s))...`, 'info');
+
+    const url = endpointUrl + '?' + params.toString();
+    aiToolsEventSource = new EventSource(url);
+
+    aiToolsEventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            if (event.type === 'job') {
+                aiToolsJobId = event.job_id;
+                return;
+            }
+            _appendAiLog(event.message, event.type);
+            if (typeof event.current === 'number' && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                document.getElementById('aiToolsProgressBar').style.width = pct + '%';
+                document.getElementById('aiToolsProgressLabel').textContent =
+                    `${event.current} / ${event.total}`;
+            }
+            if (event.type === 'done') {
+                finishAiTools(event);
+            }
+        } catch (err) {
+            _appendAiLog('Error parsing event: ' + err.message, 'error');
+        }
+    };
+
+    aiToolsEventSource.onerror = function() {
+        if (aiToolsRunning) {
+            _appendAiLog('Connection closed.', 'info');
+            finishAiTools(null);
+        }
+    };
+}
+
+function finishAiTools(event) {
+    if (aiToolsEventSource) {
+        aiToolsEventSource.close();
+        aiToolsEventSource = null;
+    }
+    aiToolsRunning = false;
+    document.getElementById('aiToolsRunBtn').classList.remove('d-none');
+    document.getElementById('aiToolsRunBtn').disabled = false;
+    document.getElementById('aiToolsStopBtn').classList.add('d-none');
+    document.getElementById('aiToolsCancelBtn').textContent = 'Close';
+    document.getElementById('aiToolsOptions').classList.remove('opacity-50');
+    document.getElementById('aiToolsProgressBar').classList.remove('progress-bar-animated');
+    const statusEl = document.getElementById('aiToolsStatus');
+    if (statusEl.textContent !== 'Stopped') {
+        statusEl.textContent = 'Complete';
+        statusEl.className = 'badge bg-primary';
+    }
+
+    if (event && event.stats) {
+        const s = event.stats;
+        let html;
+        if (aiToolsOp === 'check') {
+            html = `
+                <div class="col"><div class="fs-5 fw-bold text-success">${s.ok ?? 0}</div><small class="text-muted">OK</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-warning">${s.issues ?? 0}</div><small class="text-muted">Issues</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
+        } else {
+            html = `
+                <div class="col"><div class="fs-5 fw-bold text-success">${s.created ?? 0}</div><small class="text-muted">Created/updated</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
+        }
+        document.getElementById('aiToolsSummaryStats').innerHTML = html;
+        document.getElementById('aiToolsSummary').classList.remove('d-none');
+    }
+
+    // Refresh the list so freshly-generated MD previews appear.
+    if (aiToolsOp === 'md' && event && event.stats && (event.stats.created || 0) > 0) {
+        loadQuestions();
+    }
+}
+
+function stopAiTools() {
+    // Real server-side stop: tell the server to break the loop after the
+    // current item, then keep the stream open so the final 'done' arrives.
+    const statusEl = document.getElementById('aiToolsStatus');
+    statusEl.textContent = 'Stopping...';
+    statusEl.className = 'badge bg-warning text-dark';
+    _appendAiLog('Stop requested — finishing the current item…', 'warning');
+    document.getElementById('aiToolsStopBtn').disabled = true;
+    if (aiToolsJobId) {
+        fetch('{{ url_for("admin.ai_cancel") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({job_id: aiToolsJobId}),
+        }).catch(() => {}).finally(() => {
+            document.getElementById('aiToolsStopBtn').disabled = false;
+            statusEl.textContent = 'Stopped';
+        });
+    } else {
+        // No job_id yet — fall back to closing the stream client-side.
+        if (aiToolsEventSource) { aiToolsEventSource.close(); aiToolsEventSource = null; }
+        statusEl.textContent = 'Stopped';
+        finishAiTools(null);
+    }
 }
 
 // ==================== SHARED EDIT QUESTION MODAL ====================

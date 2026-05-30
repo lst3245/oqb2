@@ -27,7 +27,11 @@ Question (qid, subject, source, year, paper, section, qno, q_type, level, ...)
   ├── subchapter_id → Subchapter
   └── assets → [QuestionAsset]
 
-QuestionAsset (question_id, asset_type, file_format, version, file_path, part_number)
+QuestionAsset (question_id, asset_type, file_format, version, file_path, part_number,
+               check_state, check_result, checked_at)   -- last 3 = AI Tools proofreading
+
+LLMConfig (id, name unique, base_url, model_name, provider, api_key_enc, api_key_env,
+           supports_vision, max_output_tokens, temperature, timeout_seconds, enabled, sort_order)
 
 User (username, password_hash, is_super_admin)
   └── subject_permissions → [UserSubjectPermission]
@@ -61,6 +65,13 @@ SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 - `part_number`: int starting at 1 (for multi-image questions; always 1 for MD)
 - Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
 - `file_path` stored as forward-slash relative path from `SOURCE_PATH`
+- AI Tools proofreading (nullable): `check_state` (None / `checking` / `ok` / `issues` / `error`), `check_result` (JSON `{status, issues[], raw, model, ref_version, checked_by}`), `checked_at` (UTC). Set by `app/ai_tools.iter_check` when a typed version is checked against an official scan. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
+
+## LLMConfig (AI Tools endpoints)
+- Table `llm_configs`. One row per configured OpenAI-compatible LLM endpoint (local or cloud). Managed via the super-admin **Admin → LLM Endpoints** page.
+- `api_key_enc` holds a Fernet-encrypted key (optional); when blank the client falls back to `os.getenv(api_key_env or 'LLM_API_KEY')`. Plaintext keys are never returned to the browser.
+- `supports_vision` gates the image operations (both AI Tools ops require vision).
+- Auto-created on app startup if missing. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
 ## Permission Checks (User model methods)
 - `user.has_subject_access(subject_id)` — any access (viewer/user/admin)

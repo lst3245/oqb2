@@ -1,0 +1,70 @@
+---
+description: AI Tools admin feature — LLM endpoints, image proofreading + Markdown generation, SSE contract, check-state semantics
+globs: app/ai_tools.py,app/llm_client.py,app/ai_prompts.py,templates/admin_llm_endpoints.html
+alwaysApply: false
+---
+
+# AI Tools (LLM proofreading + Markdown generation)
+
+Admin batch feature that calls an OpenAI-compatible LLM over the selected questions to (a) **proofread** a typed version's images against an official scan, or (b) **transcribe** images into a Markdown asset. Runs stream a live SSE log with a real server-side Stop.
+
+## Files map
+
+| Concern | File(s) |
+|---|---|
+| LLM transport (chat + vision + Fernet keys) | [app/llm_client.py](mdc:app/llm_client.py) |
+| Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) |
+| SSE generators + cancel registry | [app/ai_tools.py](mdc:app/ai_tools.py) |
+| Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`) |
+| Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |
+| Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` |
+| SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_cancel`, `ai_endpoints` |
+| Endpoint management UI | [templates/admin_llm_endpoints.html](mdc:templates/admin_llm_endpoints.html) |
+| AI Tools modal + console | [templates/admin_questions.html](mdc:templates/admin_questions.html) `aiToolsModal` |
+| Per-slot check badge | [templates/partials/edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `renderCheckBadge` |
+| Tunables (`AI_TOOLS_ENABLED`, `LLM_IMAGE_MAX_DIM`) | [app/settings.py](mdc:app/settings.py) REGISTRY group "AI Tools" |
+| `.env` secrets | `LLM_API_KEY`, `LLM_KEY_SECRET` (see [app/config.py](mdc:app/config.py)) |
+
+## Transport (single adapter)
+
+All endpoints speak `POST {base_url}/chat/completions` (OpenAI shape). Images go in as base64 `image_url` content blocks. `base_url` must be the API root that exposes `/chat/completions` (e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1`). Local servers (Ollama, LM Studio, vLLM) and cloud (OpenAI, OpenRouter) all work; Anthropic/Gemini via an OpenAI-compat proxy.
+
+- `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, raw}`; raises `LLMError`. `_extract_message_text` tolerates content-as-blocks, reasoning-only replies, and completion-style `text`; a 200 body carrying an `error` is raised as `LLMError`.
+- `llm_client.prepare_image(abs_path, max_dim)` → downscaled JPEG `(b64, mime)` for sending.
+- `llm_client.read_image_data_uri(abs_path)` → ORIGINAL bytes data-URI (used to embed source figures into generated MD).
+- `resolve_api_key(config)`: decrypt `api_key_enc` (Fernet) → else `os.getenv(api_key_env or 'LLM_API_KEY')`.
+
+## API-key storage (hybrid)
+
+Per-endpoint key entered in the UI is stored **Fernet-encrypted** in `LLMConfig.api_key_enc`; blank ⇒ fall back to `.env`. The Fernet key derives from `LLM_KEY_SECRET` (else `SECRET_KEY`) via SHA-256 → urlsafe-b64. **Rotating that secret invalidates stored ciphertexts** (re-enter keys). Plaintext keys are NEVER serialised to the browser — the data route reports only `has_stored_key` / `key_resolves`.
+
+## SSE contract
+
+Routes mirror `batch_generate_images`: gather work in request context, stream inside a pushed `app.app_context()`. Both ops are GET (EventSource) + `text/event-stream`.
+
+- `GET /admin/questions/ai/check` — params `question_ids`, `endpoint_id`, `typed_version`, `ref_version`, `atypes` (csv QUE/ANS/SOL), `recheck` (1/0).
+- `GET /admin/questions/ai/generate-md` — params `question_ids`, `endpoint_id`, `source_version`, `target_version`, `atypes`, `overwrite` (1/0), `embed_image` (1/0).
+- `POST /admin/questions/ai/cancel` — body `{job_id}`.
+- `GET /admin/questions/ai/endpoints` — enabled endpoints for the modal dropdown (subject-admin OK).
+
+Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; carries `job_id`) / `info` / `skip` / `success` / `error` / `done`. The `done` event carries `stats` (`{ok, issues, skipped, errors}` for check; `{created, skipped, errors}` for MD).
+
+## Cancellation (real server-side Stop)
+
+`app/ai_tools._AI_CANCEL: {job_id: threading.Event}`. Each generator checks the flag **between questions** and emits a final `done`. The frontend Stop posts the `job_id` (captured from the `job` event) and keeps the stream open so the final `done` arrives. Single-process assumption (same caveat as the settings hot-reload): the cancel POST must reach the worker running the stream.
+
+## Check-state semantics
+
+`iter_check` loads all IMG parts of the typed slot + reference slot; skips (with event) if either missing, or if already checked and `recheck` is off. Sends reference images first, then typed; parses strict JSON via `ai_prompts.parse_check_result`. Writes the SAME `check_state`/`check_result`/`checked_at` to every typed IMG part. States: `ok` (faithful), `issues` (discrepancies listed), `error` (unparseable reply — raw stored). The edit-modal slot header renders a green OK / red N-issues (tooltip = issue list) / amber error badge.
+
+## MD generation
+
+`iter_generate_md` loads the source slot's IMG parts → LLM → `strip_md_fences`. If `embed_image`, appends each ORIGINAL source image as a base64 `![...]` figure (diagram fallback). Skips+logs if the result exceeds `MD_MAX_SIZE_BYTES`. Writes to the canonical MD path (`_md_rel_path`, mirrors `admin.create_md_asset`), upserts the target `QuestionAsset`, and calls `md_render.invalidate(asset.id)`.
+
+## Gotchas / invariants
+
+1. Whole feature gated on `AI_TOOLS_ENABLED`; image ops require `supports_vision`.
+2. Subject-admins may run on their own subjects only — `question_ids` is intersected with `get_user_admin_subjects()` (same as the batch ops). Endpoint CRUD is super-admin only.
+3. LLM JSON is unreliable — `parse_check_result` extracts fenced/bare JSON defensively and returns `None` on total failure (caller stores raw + `check_state='error'`).
+4. Images are downscaled to `LLM_IMAGE_MAX_DIM` (long edge) before sending; embedded MD figures use the original bytes.
+5. The dev server must run threaded for the long SSE streams (already the case for the other batch ops).

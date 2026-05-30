@@ -90,6 +90,9 @@ oqb2/
 │   ├── generator.py       # generator_bp: create_word_document(), viewer, background thread
 │   ├── user.py            # user_bp: SavedFilter + SavedGenerationProfile + SavedQuestionSet CRUD, GeneratedFile list/delete
 │   ├── ingestor.py        # File scanning, DB sync, health stats, streaming generators
+│   ├── llm_client.py      # OpenAI-compatible LLM client + Fernet key crypto + image prep (AI Tools)
+│   ├── ai_prompts.py      # AI Tools prompts + robust JSON/MD output parsing
+│   ├── ai_tools.py        # AI Tools SSE generators (iter_check / iter_generate_md) + cancel registry
 │   ├── config.py          # Config class (reads .env via python-dotenv)
 │   └── utils.py           # Permission decorators, apply_multi_sort(), SORT_FIELDS
 ├── templates/
@@ -133,6 +136,10 @@ oqb2/
 | `OUTPUT_PATH` | `../output` (relative to project root) | Where generated docs are saved |
 | `QUESTIONS_PER_PAGE` | `20` | Default page size (hardcoded, not in .env) |
 | `SQLALCHEMY_ENGINE_OPTIONS` | pool_pre_ping=True, recycle=300 | Connection pool health |
+| `LLM_API_KEY` | `` | AI Tools global fallback API key (per-endpoint keys override) |
+| `LLM_KEY_SECRET` | `` | Fernet secret for encrypting UI-entered endpoint keys (else `SECRET_KEY`) |
+| `AI_TOOLS_ENABLED` | `1` | Master switch for AI Tools (also runtime-tunable) |
+| `LLM_IMAGE_MAX_DIM` | `1600` | Long-edge px for image downscale before LLM send (also runtime-tunable) |
 
 ---
 
@@ -238,7 +245,28 @@ Many-to-many via association tables:
 | `version` | ENUM | `EN`, `CH`, `BI`, `ENO`, `CHO` (formerly `language`; ENO/CHO = official public-exam scans). See `app/utils.VERSIONS` |
 | `file_path` | VARCHAR(500) | Relative to SOURCE_PATH, always forward slashes |
 | `part_number` | INT | ≥ 1; for multi-image questions |
+| `check_state` | VARCHAR(20) NULL | AI Tools proofreading state: `ok` / `issues` / `error` / `checking` / NULL |
+| `check_result` | TEXT NULL | JSON `{status, issues[], raw, model, ref_version, checked_by}` |
+| `checked_at` | DATETIME NULL | UTC time of the last AI check |
 Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
+
+#### `llm_configs` (AI Tools endpoints)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `name` | VARCHAR(120) UNIQUE | Display name |
+| `base_url` | VARCHAR(500) | OpenAI-compatible API root exposing `/chat/completions` |
+| `model_name` | VARCHAR(200) | Model identifier passed in the request |
+| `provider` | VARCHAR(40) | Free text, default `openai` |
+| `api_key_enc` | TEXT NULL | Fernet-encrypted API key (blank ⇒ fall back to `.env` `LLM_API_KEY`) |
+| `api_key_env` | VARCHAR(80) NULL | Name of the `.env` var to read when no key stored |
+| `supports_vision` | BOOLEAN | Gates the image operations |
+| `max_output_tokens` | INT | |
+| `temperature` | FLOAT | |
+| `timeout_seconds` | INT | Per-request HTTP timeout |
+| `enabled` | BOOLEAN | Hidden from the AI Tools dropdown when false |
+| `sort_order` | INT | |
+| `created_at` / `updated_at` | DATETIME | |
 
 #### `saved_filters`
 | Column | Type | Notes |
@@ -498,12 +526,28 @@ GET  /admin/health/stats                    → stats dict
 GET  /admin/health/untracked                → [{file_path, qid, filename}]
 GET  /admin/health/sync?dry_run=1           → SSE stream of progress events
 GET  /admin/ingestion/start?subject=MATC    → SSE stream of progress events
+
+# AI Tools (gated on AI_TOOLS_ENABLED; subject-admin scoped)
+GET  /admin/questions/ai/endpoints          → {endpoints: [{id, name, model_name, supports_vision}]}
+GET  /admin/questions/ai/check?question_ids=&endpoint_id=&typed_version=&ref_version=&atypes=&recheck=
+     → SSE stream (job/info/skip/success/error/done); writes check_state/check_result/checked_at
+GET  /admin/questions/ai/generate-md?question_ids=&endpoint_id=&source_version=&target_version=&atypes=&overwrite=&embed_image=
+     → SSE stream; writes/upserts target MD QuestionAsset
+POST /admin/questions/ai/cancel             → {success, known}  (body {job_id})
+
+# LLM endpoints CRUD (super-admin)
+GET  /admin/llm-endpoints                   → page
+GET  /admin/llm-endpoints/data              → {endpoints: [...]}  (keys masked)
+POST /admin/llm-endpoints/save              → {success, endpoint}
+POST /admin/llm-endpoints/<id>/delete       → {success}
+POST /admin/llm-endpoints/<id>/test         → {success, message}
 ```
 
-**SSE event format** (ingestion and sync streams):
+**SSE event format** (ingestion, sync, batch IMG/MCQ, and AI Tools streams):
 ```json
 {"type": "info|success|skip|error|progress|done|warning", "message": "...", "current": 5, "total": 100}
 ```
+AI Tools streams additionally emit a first `{"type": "job", "job_id": "..."}` event (used by `POST /ai/cancel`) and a final `done` event carrying `stats` (`{ok, issues, skipped, errors}` for check; `{created, skipped, errors}` for MD).
 
 ---
 

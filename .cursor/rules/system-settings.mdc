@@ -54,6 +54,10 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | Thumbnails | `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | bool | False | Cap left/right crop at `min(left_white, right_white)` so asymmetric content preserves its A4-relative position |
 | Batch IMG | `BATCH_IMG_DEFAULT_WIDTH` | int | 1500 | Pre-fills the bulk IMG-gen modal |
 | Batch IMG | `BATCH_IMG_DEFAULT_STITCH` | bool | True | Stitch multi-page sources by default |
+| AI Tools | `AI_TOOLS_ENABLED` | bool | True | Master switch for the AI Tools admin feature |
+| AI Tools | `LLM_IMAGE_MAX_DIM` | int 256–4096 | 1600 | Long-edge downscale (px) before images are sent to the LLM |
+
+> AI Tools LLM **endpoints** are NOT registry scalars — they live in their own `llm_configs` table managed via the dedicated **Admin → LLM Endpoints** page (super-admin). See [.cursor/rules/ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
 ## Lifecycle
 
@@ -75,6 +79,7 @@ Secrets and infrastructure paths are NOT exposed via the Settings UI:
 - DB credentials: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
 - Filesystem roots: `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
 - External binaries: `PANDOC_PATH`
+- AI Tools secrets: `LLM_API_KEY` (global fallback key), `LLM_KEY_SECRET` (Fernet secret for encrypting UI-entered endpoint keys; falls back to `SECRET_KEY` when blank)
 
 Anything that needs a process restart to take effect (e.g. SQLAlchemy engine options, pre-fork Flask config) also stays in `.env`.
 

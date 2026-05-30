@@ -249,6 +249,38 @@ function loadAssetsForEdit(questionId) {
 }
 
 // ctx = 'edit' or 'add' to avoid duplicate IDs when both modals exist in the DOM
+// AI Tools proofreading badge for an asset slot. Reads check_state /
+// check_result (set by app/ai_tools.iter_check) off the slot's IMG parts.
+function _aiEscapeAttr(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderCheckBadge(parts) {
+    const checked = (parts || []).find(p => p.check_state);
+    if (!checked) return '';
+    const st = checked.check_state;
+    const res = checked.check_result || {};
+    const when = checked.checked_at ? new Date(checked.checked_at).toLocaleString() : '';
+    const ref = res.ref_version ? ` vs ${res.ref_version}` : '';
+    if (st === 'ok') {
+        return `<span class="badge bg-success ms-2" title="Proofread OK${ref}${when ? ' · ' + when : ''}"><i class="bi bi-check-circle"></i> OK</span>`;
+    }
+    if (st === 'issues') {
+        const issues = res.issues || [];
+        const tip = issues.map((it, i) => `${i + 1}. [${it.severity || 'minor'}] ${it.location ? it.location + ': ' : ''}${it.description || ''}`).join('\n') || 'Issues found';
+        return `<span class="badge bg-danger ms-2" style="cursor:help" title="${_aiEscapeAttr(tip + (when ? '\n(' + when + ')' : ''))}"><i class="bi bi-exclamation-triangle"></i> ${issues.length} issue(s)</span>`;
+    }
+    if (st === 'error') {
+        return `<span class="badge bg-warning text-dark ms-2" style="cursor:help" title="${_aiEscapeAttr(String(res.raw || 'Check error').slice(0, 600))}"><i class="bi bi-question-circle"></i> check error</span>`;
+    }
+    if (st === 'checking') {
+        return `<span class="badge bg-info text-dark ms-2"><i class="bi bi-hourglass-split"></i> checking</span>`;
+    }
+    return '';
+}
+
 function renderAssetSections(questionId, lang, langAssets, ctx) {
     ctx = ctx || 'edit';
     let html = '';
@@ -267,6 +299,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
             <div class="d-flex justify-content-between align-items-center mb-2 section-header">
                 <h6 class="mb-0">
                     <i class="bi bi-collection"></i> ${label} (${lang})
+                    ${renderCheckBadge(imgs)}
                     <span class="paste-hint badge bg-success bg-opacity-75 ms-2" style="font-size:0.65rem; opacity:${isDefault ? '1' : '0'}; transition: opacity .2s">
                         <i class="bi bi-clipboard"></i> Ctrl+V image target
                     </span>
