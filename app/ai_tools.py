@@ -252,11 +252,163 @@ def iter_check(qs, typed_version, ref_version, asset_types, recheck,
 
 # ==================== Markdown generation ====================
 
+def _box_is_useful(box):
+    """A fractional box is worth cropping only if it's a real sub-region —
+    not degenerate and not (almost) the whole page."""
+    if not (isinstance(box, (list, tuple)) and len(box) == 4):
+        return False
+    x1, y1, x2, y2 = box
+    w, h = abs(x2 - x1), abs(y2 - y1)
+    area = w * h
+    return w > 0.03 and h > 0.03 and 0.01 < area < 0.92
+
+
+def _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path):
+    """Replace each ``[FIGURE: ...]`` placeholder in ``md`` with an embedded
+    image. When there is a single source image we ask the model to localise
+    the figures and embed a cropped region; otherwise (or on any failure) we
+    embed the whole source image. Returns the rewritten markdown.
+
+    Pure-text questions have no placeholder and are returned unchanged — no
+    image is embedded.
+    """
+    captions = ai_prompts.figure_captions(md)
+    if not captions:
+        return md  # no figure => markdown only
+
+    # Try to localise figures for cropping (single-image slots only — mapping
+    # boxes across multiple source parts is unreliable).
+    boxes = []
+    if len(src_assets) == 1:
+        try:
+            btext, _info = llm_client.chat(config, ai_prompts.FIGURE_BOX_SYSTEM,
+                                           ai_prompts.FIGURE_BOX_USER, imgs)
+            boxes = ai_prompts.parse_figure_boxes(btext)
+        except llm_client.LLMError:
+            boxes = []
+        except Exception:
+            logger.exception('figure-box pass failed')
+            boxes = []
+
+    counter = {'i': 0}
+
+    def _replace(m):
+        i = counter['i']
+        counter['i'] += 1
+        caption = (m.group(1) or '').strip() or 'figure'
+        data_uri = None
+        # Crop when we have a usable box for this figure (single-image slot).
+        if len(src_assets) == 1 and i < len(boxes) and _box_is_useful(boxes[i].get('box')):
+            try:
+                data_uri = llm_client.crop_image_data_uri(
+                    _abs(source_path, src_assets[0].file_path), boxes[i]['box'])
+            except Exception:
+                data_uri = None
+        # Fallback: embed the whole source part (matched by index when multi-part).
+        if data_uri is None:
+            part = src_assets[i] if i < len(src_assets) else src_assets[-1]
+            try:
+                data_uri = llm_client.read_image_data_uri(_abs(source_path, part.file_path))
+            except Exception:
+                logger.warning('Could not embed figure image')
+                return m.group(0)  # leave the placeholder text in place
+        return f'\n\n![{caption}]({data_uri})\n\n'
+
+    return ai_prompts.FIGURE_RE.sub(_replace, md)
+
+
+def generate_md_slot(question, asset_type, source_version, target_version, *,
+                     embed_image, overwrite, config, image_max_dim,
+                     md_max_bytes, source_path):
+    """Generate (and persist) a Markdown asset for one (question, asset_type,
+    target_version) slot from the source-version images.
+
+    Returns a result dict ``{status, message, asset_id?}`` where ``status`` is
+    one of ``created`` / ``updated`` / ``skip`` / ``error``. Shared by the SSE
+    batch generator and the per-slot admin endpoint.
+    """
+    label = f'{question.qid} / {asset_type} / {source_version} -> {target_version} MD'
+
+    src_assets = _slot_img_parts(question.id, asset_type, source_version)
+    if not src_assets:
+        return {'status': 'skip', 'message': f'{label} — no {source_version} source IMG'}
+
+    existing = (QuestionAsset.query
+                .filter_by(question_id=question.id, asset_type=asset_type,
+                           version=target_version, file_format='MD')
+                .first())
+    if existing and not overwrite:
+        return {'status': 'skip', 'message': f'{label} — MD exists (overwrite off)'}
+
+    try:
+        imgs = [llm_client.prepare_image(_abs(source_path, a.file_path), image_max_dim)
+                for a in src_assets]
+    except Exception as e:
+        logger.exception('Image prep failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — image load failed: {e}'}
+
+    user_text = ai_prompts.build_md_user_text(source_version, asset_type)
+    try:
+        text, info = llm_client.chat(config, ai_prompts.MD_SYSTEM, user_text, imgs)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+
+    md = ai_prompts.strip_md_fences(text)
+    if not md.strip():
+        hint = _empty_reply_hint(info)
+        logger.warning('Empty MD reply for %s; finish_reason=%s raw=%s',
+                       label, (info or {}).get('finish_reason'),
+                       str((info or {}).get('raw'))[:1000])
+        return {'status': 'error', 'message': f'{label} — model returned empty Markdown{hint}'}
+
+    # Smart figures: embed only when a real diagram was detected; crop if we can.
+    if embed_image:
+        try:
+            md = _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path)
+        except Exception:
+            logger.exception('figure embedding failed for %s', label)
+
+    payload = md.encode('utf-8')
+    if len(payload) > md_max_bytes:
+        return {'status': 'skip',
+                'message': f'{label} — generated MD {len(payload)} bytes exceeds limit '
+                           f'{md_max_bytes} (try turning off figure embedding)'}
+
+    try:
+        rel_path = _md_rel_path(question, target_version, asset_type)
+        abs_path = _abs(source_path, rel_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, 'wb') as f:
+            f.write(payload)
+
+        if existing:
+            existing.file_path = rel_path
+            asset = existing
+        else:
+            asset = QuestionAsset(
+                question_id=question.id, asset_type=asset_type,
+                file_format='MD', version=target_version,
+                file_path=rel_path, part_number=1,
+            )
+            db.session.add(asset)
+        db.session.commit()
+        md_render.invalidate(asset.id)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('MD write failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — write failed: {e}'}
+
+    verb = 'updated' if existing else 'created'
+    return {'status': 'updated' if existing else 'created',
+            'message': f'{label} — {verb} MD ({len(payload)} bytes)',
+            'asset_id': asset.id}
+
+
 def iter_generate_md(qs, source_version, target_version, asset_types, overwrite,
                      embed_image, config, image_max_dim, md_max_bytes,
                      source_path, cancel):
     """Transcribe each source IMG slot into a Markdown asset for the target
-    slot. Yields event dicts; writes the .md file + upserts the asset row."""
+    slot. Yields event dicts; delegates each slot to ``generate_md_slot``."""
     work = [(q, atype) for q in qs for atype in asset_types]
     total = len(work)
     yield {'type': 'info',
@@ -271,108 +423,23 @@ def iter_generate_md(qs, source_version, target_version, asset_types, overwrite,
                    'current': current, 'total': total}
             break
         current += 1
-        label = f'{question.qid} / {atype} / {source_version} -> {target_version} MD'
-
-        src_assets = _slot_img_parts(question.id, atype, source_version)
-        if not src_assets:
+        res = generate_md_slot(
+            question, atype, source_version, target_version,
+            embed_image=embed_image, overwrite=overwrite, config=config,
+            image_max_dim=image_max_dim, md_max_bytes=md_max_bytes,
+            source_path=source_path,
+        )
+        status = res['status']
+        if status in ('created', 'updated'):
+            created += 1
+            ev_type = 'success'
+        elif status == 'skip':
             skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — no {source_version} source IMG',
-                   'current': current, 'total': total}
-            continue
-
-        existing = (QuestionAsset.query
-                    .filter_by(question_id=question.id, asset_type=atype,
-                               version=target_version, file_format='MD')
-                    .first())
-        if existing and not overwrite:
-            skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — MD exists (overwrite off)',
-                   'current': current, 'total': total}
-            continue
-
-        try:
-            imgs = [llm_client.prepare_image(_abs(source_path, a.file_path), image_max_dim)
-                    for a in src_assets]
-        except Exception as e:
+            ev_type = 'skip'
+        else:
             errors += 1
-            logger.exception('Image prep failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — image load failed: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        user_text = ai_prompts.build_md_user_text(source_version, atype)
-        try:
-            text, info = llm_client.chat(config, ai_prompts.MD_SYSTEM, user_text, imgs)
-        except llm_client.LLMError as e:
-            errors += 1
-            yield {'type': 'error', 'message': f'{label} — LLM error: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        md = ai_prompts.strip_md_fences(text)
-        if not md.strip():
-            errors += 1
-            hint = _empty_reply_hint(info)
-            logger.warning('Empty MD reply for %s; finish_reason=%s raw=%s',
-                           label, (info or {}).get('finish_reason'),
-                           str((info or {}).get('raw'))[:1000])
-            yield {'type': 'error', 'message': f'{label} — model returned empty Markdown{hint}',
-                   'current': current, 'total': total}
-            continue
-
-        # Embed original source image(s) as a figure fallback so diagrams
-        # are never lost in transcription.
-        if embed_image:
-            parts = [md, '\n\n---\n', f'*Source image(s) — {source_version}:*\n']
-            for i, a in enumerate(src_assets, 1):
-                try:
-                    uri = llm_client.read_image_data_uri(_abs(source_path, a.file_path))
-                    parts.append(f'\n![{atype} {source_version} part {i}]({uri})\n')
-                except Exception:
-                    logger.warning('Could not embed source image for %s part %s', label, i)
-            md = ''.join(parts)
-
-        payload = md.encode('utf-8')
-        if len(payload) > md_max_bytes:
-            skipped += 1
-            yield {'type': 'skip',
-                   'message': f'{label} — generated MD {len(payload)} bytes exceeds limit '
-                              f'{md_max_bytes} (try without embedding the image)',
-                   'current': current, 'total': total}
-            continue
-
-        # Write file + upsert asset row.
-        try:
-            rel_path = _md_rel_path(question, target_version, atype)
-            abs_path = _abs(source_path, rel_path)
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-            with open(abs_path, 'wb') as f:
-                f.write(payload)
-
-            if existing:
-                existing.file_path = rel_path
-                asset = existing
-            else:
-                asset = QuestionAsset(
-                    question_id=question.id, asset_type=atype,
-                    file_format='MD', version=target_version,
-                    file_path=rel_path, part_number=1,
-                )
-                db.session.add(asset)
-            db.session.commit()
-            md_render.invalidate(asset.id)
-        except Exception as e:
-            db.session.rollback()
-            errors += 1
-            logger.exception('MD write failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — write failed: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        created += 1
-        verb = 'updated' if existing else 'created'
-        yield {'type': 'success',
-               'message': f'{label} — {verb} MD ({len(payload)} bytes)',
+            ev_type = 'error'
+        yield {'type': ev_type, 'message': res['message'],
                'current': current, 'total': total}
 
     if not cancel.is_set():

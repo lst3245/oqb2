@@ -119,6 +119,53 @@ def read_image_data_uri(abs_path: str) -> str:
     return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
+def _flatten_white(im):
+    """Composite an alpha-bearing image onto white and return RGB (see
+    prepare_image for why)."""
+    from PIL import Image
+    if im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info):
+        rgba = im.convert('RGBA')
+        bg = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
+        bg.alpha_composite(rgba)
+        return bg.convert('RGB')
+    if im.mode != 'RGB':
+        return im.convert('RGB')
+    return im
+
+
+def crop_image_data_uri(abs_path: str, box, pad: float = 0.02,
+                        max_dim: int = 1400) -> str:
+    """Crop ``abs_path`` to the fractional ``box`` ``[x1,y1,x2,y2]`` (0..1,
+    top-left origin), pad slightly, downscale, and return a PNG data URI.
+
+    Raises ``ValueError`` for a degenerate box so the caller can fall back to
+    embedding the whole image.
+    """
+    from PIL import Image
+    x1, y1, x2, y2 = box
+    x1, x2 = sorted((x1, x2))
+    y1, y2 = sorted((y1, y2))
+    x1 = max(0.0, x1 - pad); y1 = max(0.0, y1 - pad)
+    x2 = min(1.0, x2 + pad); y2 = min(1.0, y2 + pad)
+    with Image.open(abs_path) as im:
+        im.load()
+        im = _flatten_white(im)
+        w, h = im.size
+        left, top = int(x1 * w), int(y1 * h)
+        right, bottom = int(x2 * w), int(y2 * h)
+        if right - left < 4 or bottom - top < 4:
+            raise ValueError('degenerate crop box')
+        crop = im.crop((left, top, right, bottom))
+        cw, ch = crop.size
+        longest = max(cw, ch)
+        if max_dim and longest > max_dim:
+            scale = max_dim / float(longest)
+            crop = crop.resize((max(1, int(cw * scale)), max(1, int(ch * scale))))
+        buf = io.BytesIO()
+        crop.save(buf, format='PNG')
+    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('ascii')}"
+
+
 # ==================== Chat completion ====================
 
 def chat(config, system: str, user_text: str, images=None):

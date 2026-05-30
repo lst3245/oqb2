@@ -174,10 +174,12 @@
         });
 
         // 2) Inline math: $...$. Must not match across newlines, and must not
-        //    accidentally catch the leftover currency-style "$ 5" usage. We
-        //    require non-whitespace immediately after the opening `$` and
-        //    non-whitespace immediately before the closing `$`.
-        text = text.replace(/(?<![\\$])\$(\S(?:[^$\n]*\S)?)\$(?!\d)/g, function(_m, formula) {
+        //    accidentally catch the leftover currency-style "$5" usage (closing
+        //    `$` followed by a digit is rejected). Inner whitespace IS allowed
+        //    so LLM-style `$ D $` renders the same as `$D$` — the content is
+        //    captured trimmed (must contain at least one non-space char). This
+        //    mirrors the server-side dollarmath (`allow_space=True`) pipeline.
+        text = text.replace(/(?<![\\$])\$[ \t]*([^\n$]*?[^\s$])[ \t]*\$(?!\d)/g, function(_m, formula) {
             try {
                 return katex.renderToString(formula, {
                     displayMode: false, throwOnError: false, output: 'html',

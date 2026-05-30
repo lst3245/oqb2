@@ -761,17 +761,24 @@ def get_question_asset(question_id, asset_type):
 _PREVIEW_FORMAT_ORDER = {'IMG': 0, 'MD': 1, 'DOC': 2}
 
 
-def _resolve_preview_assets(question_id, asset_type, version_priority):
+def _resolve_preview_assets(question_id, asset_type, version_priority,
+                            force_format=None):
     """
     Pick the best asset group for a question's asset_type.
 
     Order: version priority (the ordered list, highest priority first), then
     format (IMG > MD > DOC). All parts in the winning (version, format) group
     are returned in part_number order.
+
+    ``force_format`` (IMG/MD/DOC) restricts the candidates to that format only
+    — used by the edit-question modal's per-slot MD preview card so it renders
+    the MD even when a higher-priority IMG exists for the same slot.
     """
     assets = QuestionAsset.query.filter_by(
         question_id=question_id, asset_type=asset_type
     ).all()
+    if force_format:
+        assets = [a for a in assets if a.file_format == force_format]
     if not assets:
         return None, None, []
 
@@ -819,8 +826,12 @@ def get_question_preview(question_id, asset_type):
         legacy_preferred=request.args.get('lang'),
     )
 
+    force_format = (request.args.get('format') or '').strip().upper() or None
+    if force_format and force_format not in ('IMG', 'MD', 'DOC'):
+        force_format = None
+
     version, file_format, selected = _resolve_preview_assets(
-        question_id, asset_type, version_priority
+        question_id, asset_type, version_priority, force_format=force_format
     )
     if not selected:
         return jsonify({'error': 'Asset not found'}), 404

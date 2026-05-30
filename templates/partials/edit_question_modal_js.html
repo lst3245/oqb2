@@ -281,6 +281,110 @@ function renderCheckBadge(parts) {
     return '';
 }
 
+// Prominent + EDITABLE proofread status bar for an image slot. Shown inside
+// the IMG group whenever the slot has image parts (so an admin can also mark
+// an unchecked slot). Reads check_state/check_result off the IMG parts.
+function renderCheckStatusBar(questionId, lang, atype, imgs) {
+    if (!window.OQB_AI_TOOLS_ENABLED || !imgs || imgs.length === 0) return '';
+    const checked = imgs.find(p => p.check_state) || null;
+    const st = checked ? checked.check_state : null;
+    const res = (checked && checked.check_result) || {};
+    const when = (checked && checked.checked_at) ? new Date(checked.checked_at).toLocaleString() : '';
+    const who = res.checked_by === 'manual' ? 'manual' : (res.model ? `AI: ${res.model}` : (res.checked_by || ''));
+    const ref = res.ref_version ? `vs ${res.ref_version}` : '';
+
+    const META = {
+        ok:    { cls: 'success', icon: 'bi-check-circle-fill',      label: 'Proofread OK' },
+        issues:{ cls: 'danger',  icon: 'bi-exclamation-triangle-fill', label: 'Issues found' },
+        error: { cls: 'warning', icon: 'bi-question-circle-fill',   label: 'Check error' },
+        checking:{ cls: 'info',  icon: 'bi-hourglass-split',        label: 'Checking…' },
+    };
+    const meta = META[st] || { cls: 'secondary', icon: 'bi-shield', label: 'Not proofread' };
+
+    // Body: issue list / raw error / meta line.
+    let body = '';
+    if (st === 'issues') {
+        const issues = res.issues || [];
+        body = `<ul class="mb-0 mt-1 ps-3 small">` + (issues.length
+            ? issues.map(it => `<li><span class="badge bg-${it.severity === 'critical' ? 'dark' : it.severity === 'major' ? 'danger' : 'secondary'} me-1">${_aiEscapeAttr(it.severity || 'minor')}</span>${it.location ? '<strong>' + _aiEscapeAttr(it.location) + ':</strong> ' : ''}${_aiEscapeAttr(it.description || '')}</li>`).join('')
+            : '<li>Marked as having issues.</li>') + `</ul>`;
+    } else if (st === 'error') {
+        body = `<div class="small mt-1 text-truncate" style="max-width:100%;">${_aiEscapeAttr(String(res.raw || 'Unparseable check reply').slice(0, 300))}</div>`;
+    } else if (st === 'ok' && res.note) {
+        body = `<div class="small mt-1">${_aiEscapeAttr(res.note)}</div>`;
+    }
+    const metaLine = (st && (when || who || ref))
+        ? `<div class="small text-muted mt-1">${[ref, who, when].filter(Boolean).map(_aiEscapeAttr).join(' · ')}</div>`
+        : '';
+
+    // Action buttons (always allow re-marking / clearing).
+    const baseCall = `setSlotCheckState(${questionId}, '${lang}', '${atype}',`;
+    const btns = `
+        <div class="btn-group btn-group-sm flex-shrink-0 ms-2" role="group">
+            <button type="button" class="btn btn-outline-success" title="Mark as correct"
+                    onclick="event.stopPropagation(); ${baseCall} 'ok')"><i class="bi bi-check-lg"></i></button>
+            <button type="button" class="btn btn-outline-danger" title="Mark as having an issue (add a note)"
+                    onclick="event.stopPropagation(); ${baseCall} 'issues')"><i class="bi bi-flag"></i></button>
+            <button type="button" class="btn btn-outline-secondary" title="Clear status (set back to unchecked)"
+                    ${st ? '' : 'disabled'} onclick="event.stopPropagation(); ${baseCall} 'clear')"><i class="bi bi-x-lg"></i></button>
+        </div>`;
+
+    return `
+        <div class="ai-check-bar alert alert-${meta.cls} d-flex justify-content-between align-items-start py-2 px-3 mb-2" role="alert">
+            <div class="flex-grow-1" style="min-width:0;">
+                <span class="fw-semibold"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span>
+                ${body}
+                ${metaLine}
+            </div>
+            ${btns}
+        </div>`;
+}
+
+// Manually set/clear a slot's proofread status. For 'issues' we prompt for a
+// short note. Posts to the admin endpoint then refreshes the assets view.
+function setSlotCheckState(questionId, lang, atype, state) {
+    let note = '';
+    let severity = 'minor';
+    if (state === 'issues') {
+        note = window.prompt(`Describe the issue with ${atype} (${lang}):`, '');
+        if (note === null) return; // cancelled
+        note = note.trim();
+    } else if (state === 'clear') {
+        if (!confirm(`Clear the proofread status for ${atype} (${lang})?`)) return;
+    }
+    const url = `{{ url_for('admin.set_asset_check_state', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ version: lang, asset_type: atype, state: state, note: note, severity: severity })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            const labels = { ok: 'marked correct', issues: 'marked with an issue', clear: 'cleared', error: 'marked as error' };
+            showToast(`${atype} (${lang}) — ${labels[state] || 'updated'}`, state === 'issues' ? 'warning' : 'success');
+            refreshAssetsView(questionId);
+        } else {
+            showToast((d && (d.error || d.message)) || 'Could not update status', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
+}
+
+// Per-slot "Generate Markdown with AI" button. Only meaningful when AI Tools
+// are enabled AND this version/atype has source images to transcribe.
+function aiSlotMdButtonHtml(questionId, lang, atype, hasMd, imgCount) {
+    if (!window.OQB_AI_TOOLS_ENABLED || !imgCount) return '';
+    if (hasMd) {
+        return `<button class="btn btn-sm btn-outline-warning" type="button"
+                    title="Regenerate this Markdown with AI (overwrites the current MD)"
+                    onclick="event.stopPropagation(); openAiSlotMdModal(${questionId}, '${lang}', '${atype}', true)"><i class="bi bi-robot"></i></button>`;
+    }
+    return `<button class="btn btn-sm btn-outline-info" type="button"
+                title="Transcribe this version's image(s) into Markdown with AI"
+                onclick="event.stopPropagation(); openAiSlotMdModal(${questionId}, '${lang}', '${atype}', false)"><i class="bi bi-robot"></i> Generate with AI</button>`;
+}
+
 function renderAssetSections(questionId, lang, langAssets, ctx) {
     ctx = ctx || 'edit';
     let html = '';
@@ -316,6 +420,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
                 </div>
+                ${renderCheckStatusBar(questionId, lang, atype, imgs)}
                 <div id="${ctx}_assetParts_${lang}_${atype}" class="oqb-img-parts">`;
 
         if (imgs.length === 0) {
@@ -362,11 +467,12 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <span class="part-label"><i class="bi bi-file-earmark-text"></i> <small class="text-muted fw-normal ms-1">${mdFname}</small></span>
                         <div class="part-actions">
                             <button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})"><i class="bi bi-pencil-square"></i></button>
+                            ${aiSlotMdButtonHtml(questionId, lang, atype, true, imgs.length)}
                             <a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${mdFsUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
-                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-version="${lang}"
+                    <div class="md-preview-card" data-preview-q="${questionId}" data-preview-type="${atype}" data-preview-version="${lang}" data-preview-format="MD"
                          style="max-height:160px; cursor:pointer;"
                          onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})">
                         <div class="text-muted small fst-italic">Rendering...</div>
@@ -377,6 +483,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                     <button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')">
                         <i class="bi bi-markdown"></i> New Markdown (inline)
                     </button>
+                    ${aiSlotMdButtonHtml(questionId, lang, atype, false, imgs.length)}
                     <a class="btn btn-sm btn-outline-secondary" target="_blank" href="${fullscreenMdNewUrl}" onclick="event.stopPropagation()">
                         <i class="bi bi-arrows-fullscreen"></i> Fullscreen editor
                     </a>
@@ -843,3 +950,114 @@ document.addEventListener('paste', function(e) {
         }
     }
 });
+
+// ============== Per-slot AI Markdown generation ==============
+// Builds a small stacked modal on demand (works on top of the open edit modal)
+// to pick an endpoint and generate Markdown for ONE version/atype slot from
+// that version's source image(s). Driven by the per-slot "Generate with AI"
+// button rendered in renderAssetSections.
+let _aiSlotModalInstance = null;
+
+function openAiSlotMdModal(questionId, version, atype, hasMd) {
+    let el = document.getElementById('aiSlotMdModal');
+    if (el) el.remove();
+    el = document.createElement('div');
+    el.id = 'aiSlotMdModal';
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('data-bs-backdrop', 'static');
+    el.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-robot"></i> Generate Markdown with AI</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-2">Target: <strong>${_aiEscapeAttr(atype)}</strong> &middot; version <strong>${_aiEscapeAttr(version)}</strong> — transcribed from this version's image(s).</p>
+            <div class="mb-3">
+              <label class="form-label fw-bold" for="aiSlotEndpoint">LLM endpoint</label>
+              <select class="form-select form-select-sm" id="aiSlotEndpoint"><option value="">Loading…</option></select>
+            </div>
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="aiSlotEmbed" checked>
+              <label class="form-check-label" for="aiSlotEmbed">Embed figures (cropped when possible) — only when the question has a diagram</label>
+            </div>
+            ${hasMd ? '<div class="alert alert-warning py-2 small mb-2"><i class="bi bi-exclamation-triangle"></i> This will <strong>overwrite</strong> the existing Markdown for this slot.</div>' : ''}
+            <div id="aiSlotStatus" class="small text-muted"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="aiSlotGenBtn"><i class="bi bi-robot"></i> Generate</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+
+    const sel = el.querySelector('#aiSlotEndpoint');
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
+            }).join('');
+            const fv = eps.find(ep => ep.supports_vision);
+            if (fv) sel.value = fv.id;
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    el.querySelector('#aiSlotGenBtn').onclick = () => runAiSlotMd(questionId, version, atype, hasMd, el);
+    el.addEventListener('hidden.bs.modal', () => {
+        el.remove();
+        // Closing a stacked modal can drop the parent modal's scroll lock —
+        // restore it if the edit modal is still open underneath.
+        const editModal = document.getElementById('editQuestionModal');
+        if (editModal && editModal.classList.contains('show')) {
+            document.body.classList.add('modal-open');
+        }
+    });
+    _aiSlotModalInstance = new bootstrap.Modal(el);
+    _aiSlotModalInstance.show();
+}
+
+function runAiSlotMd(questionId, version, atype, hasMd, el) {
+    const sel = el.querySelector('#aiSlotEndpoint');
+    const endpointId = sel.value;
+    if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const embed = el.querySelector('#aiSlotEmbed').checked;
+    const btn = el.querySelector('#aiSlotGenBtn');
+    const status = el.querySelector('#aiSlotStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating…';
+    status.textContent = 'Calling the model — this can take a while for image questions…';
+
+    const url = `{{ url_for('admin.ai_generate_md_slot', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            version: version, asset_type: atype, endpoint_id: parseInt(endpointId, 10),
+            embed_image: embed, overwrite: !!hasMd
+        })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            showToast(d.message || 'Markdown generated', 'success');
+            if (_aiSlotModalInstance) _aiSlotModalInstance.hide();
+            refreshAssetsView(questionId);
+        } else {
+            status.innerHTML = `<span class="text-danger">${_aiEscapeAttr((d && (d.message || d.error)) || 'Generation failed')}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-robot"></i> Generate';
+        }
+    })
+    .catch(err => {
+        status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-robot"></i> Generate';
+    });
+}

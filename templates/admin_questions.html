@@ -660,7 +660,7 @@
                             </div>
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="aiEmbedImage" checked>
-                                <label class="form-check-label" for="aiEmbedImage">Embed original image(s) in the Markdown (figure fallback)</label>
+                                <label class="form-check-label" for="aiEmbedImage">Embed figures (cropped when possible) — only when the question has a diagram</label>
                             </div>
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="aiMdOverwrite">
@@ -1322,6 +1322,7 @@ function stopBatchImg() {
 }
 
 // ===================== AI TOOLS =====================
+// window.OQB_AI_TOOLS_ENABLED is set globally in base.html (admin + dashboard).
 let aiToolsEventSource = null;
 let aiToolsRunning = false;
 let aiToolsJobId = null;

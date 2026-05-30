@@ -532,8 +532,12 @@ GET  /admin/questions/ai/endpoints          → {endpoints: [{id, name, model_na
 GET  /admin/questions/ai/check?question_ids=&endpoint_id=&typed_version=&ref_version=&atypes=&recheck=
      → SSE stream (job/info/skip/success/error/done); writes check_state/check_result/checked_at
 GET  /admin/questions/ai/generate-md?question_ids=&endpoint_id=&source_version=&target_version=&atypes=&overwrite=&embed_image=
-     → SSE stream; writes/upserts target MD QuestionAsset
+     → SSE stream; writes/upserts target MD QuestionAsset (figures embedded only when present; cropped when localisable)
 POST /admin/questions/ai/cancel             → {success, known}  (body {job_id})
+POST /admin/questions/<id>/assets/ai/generate-md  (body {version, asset_type, endpoint_id, embed_image?, overwrite?})
+     → {success, status, message, asset_id}  (synchronous per-slot MD generation for the edit-modal button)
+POST /admin/questions/<id>/assets/check-state     (body {version, asset_type, state: ok|issues|error|clear, note?, severity?})
+     → {success, version, asset_type, check_state, checked_at}  (manual set/clear of a slot's proofread status)
 
 # LLM endpoints CRUD (super-admin)
 GET  /admin/llm-endpoints                   → page

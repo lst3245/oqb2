@@ -573,7 +573,12 @@
                 const atype = card.dataset.previewType || 'QUE';
                 const ver = card.dataset.previewVersion || card.dataset.previewLang || 'EN';
                 card.dataset.loaded = '1';
-                const url = `/dashboard/api/question/${qid}/preview/${atype}?version_priority=${encodeURIComponent(ver)}`;
+                // Optional `data-preview-format` (IMG/MD/DOC) forces a specific
+                // format — the edit modal's per-slot MD card uses it so the MD
+                // renders even when a higher-priority IMG exists for the slot.
+                const fmt = card.dataset.previewFormat || '';
+                let url = `/dashboard/api/question/${qid}/preview/${atype}?version_priority=${encodeURIComponent(ver)}`;
+                if (fmt) url += `&format=${encodeURIComponent(fmt)}`;
                 fetch(url)
                     .then(r => r.json())
                     .then(data => {
@@ -651,6 +656,11 @@
         // base.html below using a Jinja conditional. Used to show/hide the
         // per-preview "Re-render" buttons.
         window.OQB_IS_ADMIN = {{ 'true' if current_user.is_authenticated and (current_user.is_super_admin or current_user.has_any_admin_access()) else 'false' }};
+
+        // AI Tools availability for admins on ANY page that hosts the
+        // edit-question modal (admin Question Management AND the dashboard).
+        // Gates the per-slot "Generate with AI" button + proofread controls.
+        window.OQB_AI_TOOLS_ENABLED = {{ 'true' if (config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated and (current_user.is_super_admin or current_user.has_any_admin_access())) else 'false' }};
 
         // Canonical asset-version list + labels + default priority order.
         // Single source of truth is app/utils.py (injected via context processor).

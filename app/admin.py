@@ -7,6 +7,7 @@ import os
 import re
 import json
 import shutil
+from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -1156,6 +1157,91 @@ def question_assets(question_id):
         })
 
     return jsonify({'assets': result, 'qid': question.qid})
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/check-state', methods=['POST'])
+@login_required
+@admin_required
+def set_asset_check_state(question_id):
+    """Manually set / clear the proofread check state for one
+    (version, asset_type) slot — drives the editable status bar in the
+    edit-question modal.
+
+    Body JSON: {version, asset_type, state, note?, severity?}
+      state ∈ 'ok' | 'issues' | 'error' | 'clear'  ('clear' → unchecked)
+
+    Writes check_state/check_result/checked_at to EVERY asset row in the slot
+    (mirrors how the AI proofread writes the typed IMG parts). Subject-admin
+    scoped.
+    """
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    state = (data.get('state') or '').strip().lower()
+    note = (data.get('note') or '').strip()
+    severity = (data.get('severity') or 'minor').strip().lower()
+
+    if version not in set(VERSIONS):
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+    if state not in ('ok', 'issues', 'error', 'clear'):
+        return jsonify({'error': "state must be ok / issues / error / clear"}), 400
+    if severity not in ('minor', 'major', 'critical'):
+        severity = 'minor'
+
+    slot_assets = QuestionAsset.query.filter_by(
+        question_id=question_id, version=version, asset_type=asset_type
+    ).all()
+    if not slot_assets:
+        return jsonify({'error': f'No {version}/{asset_type} assets to mark.'}), 404
+
+    if state == 'clear':
+        new_state = None
+        encoded = None
+        checked_at = None
+    else:
+        new_state = state
+        result = {'status': state, 'issues': [], 'checked_by': 'manual',
+                  'editor': current_user.username}
+        if state == 'issues':
+            result['issues'] = [{
+                'severity': severity,
+                'location': '',
+                'description': note or 'Marked as having issues (manual).',
+            }]
+        elif state == 'error' and note:
+            result['raw'] = note
+        elif note:
+            result['note'] = note
+        encoded = json.dumps(result, ensure_ascii=False)
+        checked_at = datetime.utcnow()
+
+    try:
+        for a in slot_assets:
+            a.check_state = new_state
+            a.check_result = encoded
+            a.checked_at = checked_at
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Manual check-state write failed for q%s %s/%s',
+                         question_id, version, asset_type)
+        return jsonify({'error': f'Save failed: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'version': version,
+        'asset_type': asset_type,
+        'check_state': new_state,
+        'checked_at': checked_at.isoformat() if checked_at else None,
+    })
 
 
 @admin_bp.route('/questions/<int:question_id>/rename', methods=['POST'])
@@ -3595,6 +3681,65 @@ def ai_generate_md():
                                          md_max_bytes, source_path, cancel)
 
     return _ai_stream(factory)
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/ai/generate-md', methods=['POST'])
+@login_required
+@admin_required
+def ai_generate_md_slot(question_id):
+    """Synchronously generate one Markdown asset for a single
+    (question, asset_type, version) slot from that version's images — drives
+    the per-slot "Generate with AI" button in the edit-question modal.
+
+    Body JSON: {version, asset_type, endpoint_id, embed_image?, overwrite?}.
+    Source and target version are the same (the slot's own version).
+    """
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    if version not in set(VERSIONS):
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+
+    from app.models import LLMConfig
+    try:
+        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'endpoint_id is required'}), 400
+    if not cfg or not cfg.enabled:
+        return jsonify({'error': 'Endpoint not found or disabled'}), 404
+    if not cfg.supports_vision:
+        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+
+    embed_image = bool(data.get('embed_image', True))
+    overwrite = bool(data.get('overwrite', False))
+
+    from app import ai_tools
+    res = ai_tools.generate_md_slot(
+        question, asset_type, version, version,
+        embed_image=embed_image, overwrite=overwrite, config=cfg,
+        image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+        md_max_bytes=int(current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)),
+        source_path=current_app.config['SOURCE_PATH'],
+    )
+    status = res.get('status')
+    http = 200 if status in ('created', 'updated') else (409 if status == 'skip' else 502)
+    return jsonify({
+        'success': status in ('created', 'updated'),
+        'status': status,
+        'message': res.get('message', ''),
+        'asset_id': res.get('asset_id'),
+    }), http
 
 
 # ==================== System Settings (Super Admin Only) ====================

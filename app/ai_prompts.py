@@ -51,9 +51,12 @@ MD_SYSTEM = (
     "- Preserve question/part numbering, lists, tables, and option labels "
     "(A/B/C/D) as Markdown structure.\n"
     "- Keep the original language (English and/or Chinese) exactly.\n"
-    "- For diagrams, figures, graphs, or geometric drawings that cannot be "
-    "expressed as text/LaTeX, insert a placeholder line on its own: "
-    "[FIGURE: short description].\n"
+    "- ONLY for an actual diagram, figure, graph, chart, or geometric drawing "
+    "that genuinely cannot be written as text or LaTeX, insert a placeholder "
+    "line on its own: [FIGURE: short description]. Plain text, equations, "
+    "tables, and multiple-choice options are NOT figures — never use the "
+    "placeholder for them. If the question has no such drawing, do not emit "
+    "any [FIGURE] placeholder at all.\n"
     "- Output ONLY the Markdown for the question content. No code fences "
     "around the whole answer, no preamble, no explanation."
 )
@@ -62,8 +65,91 @@ MD_SYSTEM = (
 def build_md_user_text(source_version, asset_type):
     return (
         f"Transcribe this {asset_type} image (version {source_version}) into "
-        f"Markdown following the rules. Output Markdown only."
+        f"Markdown following the rules. Output Markdown only. Remember: only use "
+        f"a [FIGURE: ...] placeholder if there is a real diagram/graph/drawing."
     )
+
+
+# ---- Figure placeholders + bounding-box localisation (for cropping) --------
+
+# Matches a figure placeholder like "[FIGURE]" or "[FIGURE: a right triangle]".
+# Deliberately excludes markdown links ("[text](url)") because a closing "]"
+# is required with no "(" semantics here.
+FIGURE_RE = re.compile(r'\[FIGURE\b\s*:?\s*([^\]]*)\]', re.IGNORECASE)
+
+
+def has_figure_placeholder(md: str) -> bool:
+    return bool(FIGURE_RE.search(md or ''))
+
+
+def figure_captions(md: str):
+    """Return the caption text of every [FIGURE: ...] placeholder, in order."""
+    return [m.group(1).strip() for m in FIGURE_RE.finditer(md or '')]
+
+
+FIGURE_BOX_SYSTEM = (
+    "You are a precise vision tool that locates figures in an exam-question "
+    "image. A 'figure' is a diagram, graph, chart, geometric drawing, or "
+    "picture — NOT plain text, equations, tables, or multiple-choice options.\n"
+    "Return STRICT JSON only (no prose, no markdown fences): a list of figures "
+    "in reading order, each as {\"caption\": \"...\", \"box\": [x1, y1, x2, y2]} "
+    "where the coordinates are FRACTIONS of the image size between 0 and 1 "
+    "(x1,y1 = top-left corner, x2,y2 = bottom-right corner). If there are no "
+    "figures, return []."
+)
+
+FIGURE_BOX_USER = (
+    "List the bounding boxes of the real figures/diagrams in this image as "
+    "STRICT JSON. Use fractional coordinates (0..1). Return [] if none."
+)
+
+
+def parse_figure_boxes(text: str):
+    """Parse the figure-box model output into a list of
+    ``{caption, box:[x1,y1,x2,y2]}`` with floats clamped to 0..1.
+
+    Tolerant of fences/prose. Returns ``[]`` on any failure (caller then
+    falls back to embedding the whole image).
+    """
+    if not text:
+        return []
+    candidates = [text.strip()]
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+    arr = re.search(r'\[.*\]', text, re.DOTALL)
+    if arr:
+        candidates.append(arr.group(0))
+
+    for c in candidates:
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            data = data.get('figures') or data.get('boxes') or []
+        if not isinstance(data, list):
+            continue
+        out = []
+        for it in data:
+            if not isinstance(it, dict):
+                continue
+            box = it.get('box') or it.get('bbox') or it.get('bounding_box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                coords = [float(v) for v in box]
+            except (ValueError, TypeError):
+                continue
+            # Some models answer in 0..1000 or pixel space — normalise > 1.
+            if any(v > 1.0 for v in coords):
+                m = max(coords) or 1.0
+                scale = 1000.0 if m <= 1000 else m
+                coords = [v / scale for v in coords]
+            x1, y1, x2, y2 = (min(max(v, 0.0), 1.0) for v in coords)
+            out.append({'caption': str(it.get('caption', '') or ''),
+                        'box': [x1, y1, x2, y2]})
+        return out
+    return []
 
 
 def strip_md_fences(text: str) -> str:
