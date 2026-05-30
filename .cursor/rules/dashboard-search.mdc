@@ -76,6 +76,7 @@ Full page requests → return complete `dashboard.html`.
 - `GET /dashboard/api/asset/<asset_id>` — asset info
 - `GET /dashboard/api/question/<id>/assets/<type>` — all parts for a question's asset type (legacy; image-centric)
 - `GET /dashboard/api/question/<id>/preview/<type>?version_priority=EN,CH,BI,ENO,CHO` — **unified preview resolver** (legacy `?lang=EN` still accepted). Returns `{mode: 'image'|'html'|'download', format, version, parts/html/url, ...}`. Format priority: **IMG > MD > DOC**. Optional `&format=IMG|MD|DOC` restricts candidates to one format (used by the edit-modal MD preview card, which must show its MD even when a higher-priority IMG exists). The `.md-preview-card` loader in `base.html` forwards a `data-preview-format` attribute as this param. Used by dashboard cards (lazy fetch for HTML/download), the preview modal (`previewAsset()`), and the in-browser MD render helpers in `templates/base.html`.
+- `POST /dashboard/api/question/<id>/explain` — **AI tutor chat** behind the per-card **Explain** button. Sends the QUE (+ SOL) image(s) (or MD text fallback) to the default vision LLM and returns `{reply, reply_html, model, endpoint, has_solution}`. Body `{turns:[{role,content}], version_priority?}` (stateless multi-turn; server rebuilds the image turn each call). Gated on `AI_TOOLS_ENABLED`; available to any user with subject access. See `ai-tools.mdc` for the full contract.
 - `GET /dashboard/files/<path>` — serve raw asset file from SOURCE_PATH
 
 ## Asset Version Selection (Preview)

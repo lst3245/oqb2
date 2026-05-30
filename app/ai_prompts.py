@@ -72,6 +72,31 @@ def build_md_user_text(source_version, asset_type):
     )
 
 
+# ==================== Question explanation (AI tutor chat) ====================
+
+EXPLAIN_SYSTEM = (
+    "You are an expert, encouraging exam tutor helping a student understand ONE "
+    "exam question. You are given image(s) of the QUESTION and, when available, "
+    "its official SOLUTION. Explain it clearly and pedagogically:\n"
+    "- First restate, in plain language, what the question is asking.\n"
+    "- Explain the key concepts, then walk through the reasoning step by step, "
+    "justifying each step rather than just stating it.\n"
+    "- If a SOLUTION is provided, base your explanation on it and expand any "
+    "terse steps; if not, work the problem out yourself and give the answer.\n"
+    "- Use LaTeX for ALL mathematics: inline math as $...$ and display math as "
+    "$$...$$, with NO space immediately inside the dollar signs (write $x+1$, "
+    "NEVER $ x+1 $ — spaced delimiters do not render).\n"
+    "- Keep the student's language (English and/or Chinese). Be concise but "
+    "complete, and answer any follow-up questions in the same style."
+)
+
+# The user-turn instruction that accompanies the question/solution images.
+EXPLAIN_INITIAL_USER = (
+    "Please explain this question: what it is asking, the concepts involved, "
+    "and how to arrive at the answer step by step."
+)
+
+
 # ---- Figure placeholders + bounding-box localisation (for cropping) --------
 
 # Matches a figure placeholder like "[FIGURE]" or "[FIGURE: a right triangle]".

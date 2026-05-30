@@ -158,26 +158,38 @@
                 
                 <!-- Actions -->
                 <div class="col-md-2">
-                    <div class="btn-group-vertical w-100 gap-1">
-                        {% if question.has_ans %}
-                        <button type="button" class="btn btn-sm btn-outline-primary" 
-                                onclick="previewAsset({{ question.id }}, 'ANS')">
-                            <i class="bi bi-eye"></i> Answer
-                        </button>
-                        {% endif %}
-                        {% if question.has_sol %}
-                        <button type="button" class="btn btn-sm btn-outline-success" 
-                                onclick="previewAsset({{ question.id }}, 'SOL')">
-                            <i class="bi bi-eye"></i> Solution
-                        </button>
-                        {% endif %}
-                        {% if question.has_answer_text %}
-                        <button type="button" class="btn btn-sm btn-outline-info" 
-                                data-text-title="Answer Text"
-                                data-text-content="{{ question.answer | e }}"
-                                onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
-                            <i class="bi bi-card-text"></i> Ans Text
-                        </button>
+                    <div class="d-flex flex-column w-100 gap-1">
+                        {# Answer / Solution / Ans Text: separate stacked buttons on
+                           tablet/desktop (col-md-2 is too narrow for 3 side-by-side),
+                           but combined into one connected split button on mobile to
+                           save vertical space. The split⇄stack switch is CSS-only
+                           (.oqb-action-group, see dashboard.html). #}
+                        {% if question.has_ans or question.has_sol or question.has_answer_text %}
+                        <div class="btn-group btn-group-sm w-100 oqb-action-group" role="group" aria-label="View answer, solution and answer text">
+                            {% if question.has_ans %}
+                            <button type="button" class="btn btn-outline-primary px-1"
+                                    title="View Answer"
+                                    onclick="previewAsset({{ question.id }}, 'ANS')">
+                                <i class="bi bi-eye"></i> Answer
+                            </button>
+                            {% endif %}
+                            {% if question.has_sol %}
+                            <button type="button" class="btn btn-outline-success px-1"
+                                    title="View Solution"
+                                    onclick="previewAsset({{ question.id }}, 'SOL')">
+                                <i class="bi bi-eye"></i> Solution
+                            </button>
+                            {% endif %}
+                            {% if question.has_answer_text %}
+                            <button type="button" class="btn btn-outline-info px-1"
+                                    title="View Answer Text"
+                                    data-text-title="Answer Text"
+                                    data-text-content="{{ question.answer | e }}"
+                                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
+                                <i class="bi bi-card-text"></i> Ans Text
+                            </button>
+                            {% endif %}
+                        </div>
                         {% endif %}
                         {% if question.has_comment %}
                         <button type="button" class="btn btn-sm btn-outline-secondary" 
@@ -185,6 +197,14 @@
                                 data-text-content="{{ question.comment | e }}"
                                 onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
                             <i class="bi bi-chat-text"></i> Comment
+                        </button>
+                        {% endif %}
+                        {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
+                        {# AI tutor: sends the question (+ solution) image to the default
+                           LLM and opens a follow-up chat. Gated by AI_TOOLS_ENABLED. #}
+                        <button type="button" class="btn btn-sm btn-outline-dark"
+                                onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }})'>
+                            <i class="bi bi-stars"></i> Explain
                         </button>
                         {% endif %}
                         {% if question.subject in admin_subjects %}

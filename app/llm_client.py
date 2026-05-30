@@ -168,31 +168,20 @@ def crop_image_data_uri(abs_path: str, box, pad: float = 0.02,
 
 # ==================== Chat completion ====================
 
-def chat(config, system: str, user_text: str, images=None):
-    """Call ``{base_url}/chat/completions`` and return ``(text, usage)``.
+def _image_block(b64, mime):
+    """An OpenAI image_url content block from a ``(b64, mime)`` pair."""
+    return {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}}
 
-    ``images`` is a list of ``(b64, mime)`` tuples (from ``prepare_image``)
-    appended as image_url content blocks after the user text. Raises
-    ``LLMError`` on any failure.
-    """
-    images = images or []
-    content = [{'type': 'text', 'text': user_text}]
-    for b64, mime in images:
-        content.append({
-            'type': 'image_url',
-            'image_url': {'url': f'data:{mime};base64,{b64}'},
-        })
 
-    messages = []
-    if system:
-        messages.append({'role': 'system', 'content': system})
-    messages.append({'role': 'user', 'content': content})
-
+def _post_chat(config, messages, max_tokens=None, temperature=None):
+    """POST a pre-built OpenAI ``messages`` array to
+    ``{base_url}/chat/completions`` and return ``(text, info)``. Shared by
+    ``chat`` (single-turn + images) and ``chat_messages`` (multi-turn)."""
     payload = {
         'model': config.model_name,
         'messages': messages,
-        'max_tokens': int(config.max_output_tokens or 4096),
-        'temperature': float(config.temperature or 0.0),
+        'max_tokens': int(max_tokens or config.max_output_tokens or 4096),
+        'temperature': float(config.temperature if temperature is None else temperature),
     }
 
     headers = {'Content-Type': 'application/json'}
@@ -230,6 +219,35 @@ def chat(config, system: str, user_text: str, images=None):
         'raw': data,
     }
     return text, info
+
+
+def chat(config, system: str, user_text: str, images=None):
+    """Call ``{base_url}/chat/completions`` with a single user turn and return
+    ``(text, info)``.
+
+    ``images`` is a list of ``(b64, mime)`` tuples (from ``prepare_image``)
+    appended as image_url content blocks after the user text. Raises
+    ``LLMError`` on any failure.
+    """
+    images = images or []
+    content = [{'type': 'text', 'text': user_text}]
+    for b64, mime in images:
+        content.append(_image_block(b64, mime))
+
+    messages = []
+    if system:
+        messages.append({'role': 'system', 'content': system})
+    messages.append({'role': 'user', 'content': content})
+    return _post_chat(config, messages)
+
+
+def chat_messages(config, messages, max_tokens=None, temperature=None):
+    """Call ``{base_url}/chat/completions`` with a full pre-built OpenAI
+    ``messages`` array (multi-turn conversation, optionally multimodal) and
+    return ``(text, info)``. Used by the Explain tutor chat. Raises
+    ``LLMError`` on any failure."""
+    return _post_chat(config, messages, max_tokens=max_tokens,
+                      temperature=temperature)
 
 
 def _extract_message_text(data):

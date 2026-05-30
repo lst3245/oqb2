@@ -6,6 +6,15 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Explain — AI tutor chat (dashboard)
+
+A new **Explain** button on every dashboard question card (between the view buttons and Edit) opens an AI tutor chat:
+
+- Sends the question's **QUESTION image(s)** and, when present, its **SOLUTION image(s)** to the default vision LLM and returns a step-by-step explanation. Text-only Markdown questions fall back to sending the MD text.
+- **Math renders** in the chat (server-rendered Markdown + client-side KaTeX), and the LLM is instructed to emit tight `$x$` inline delimiters (same rule as MD generation).
+- **Follow-up questions** are supported: the running transcript is posted back each turn and the server re-attaches the images to the first turn, so context is preserved without re-uploading from the browser.
+- Uses the **default endpoint** (first enabled, vision-capable LLM under Admin → LLM Endpoints). Available to **any logged-in user** with access to the subject; gated by the `AI_TOOLS_ENABLED` setting. New route `POST /dashboard/api/question/<id>/explain`.
+
 #### AI Tools — LLM image proofreading + Markdown generation (Admin)
 
 A new **AI Tools** bulk action on the Question Management page calls an OpenAI-compatible LLM (local or cloud) over the selected questions to:
@@ -37,11 +46,14 @@ The per-asset **language** concept (EN / CH / BI) has been generalised into **Ve
 
 ### ✨ Enhanced Features
 
+- **Dashboard action buttons adapt to screen width.** The per-question **Answer / Solution / Ans Text** buttons are now a single connected split button (one row) on **mobile** to save vertical space, but stay as **separate stacked full-width buttons on tablet/desktop** (the narrow `col-md-2` actions column can't fit three side-by-side). The split⇄stack switch is CSS-only at the `768px` breakpoint (`.oqb-action-group`).
 - **Per-slot "Generate with AI" now works on the dashboard too.** The button (and the proofread controls below) appear in the edit-question modal on both the admin Question Management page and the dashboard. AI-Tools availability is now a single global (`window.OQB_AI_TOOLS_ENABLED`, set in `base.html` for any admin when `AI_TOOLS_ENABLED` is on) instead of being set only on the admin page.
 - **Editable, more visible proofread status.** Each image slot in the edit-question modal now shows a prominent colour-coded status bar (green OK / red issues with the full issue list / amber error / grey "Not proofread") instead of only a small badge. Admins can change it inline: **mark correct**, **mark issue…** (prompts for a note + severity), or **clear** (back to unchecked) — backed by a new `POST /admin/questions/<id>/assets/check-state` endpoint (subject-admin scoped). Manual edits are recorded with `checked_by: "manual"` and the editor's username.
 
 ### 🐛 Bug Fixes
 
+- **Explain button did nothing (threw a JS error) on the dashboard.** Its inline `onclick` passed the QID via `{{ question.qid|tojson }}` inside a **double-quoted** attribute; `tojson` emits double quotes around the string, which closed the attribute early and produced a malformed handler (syntax error on click). The attribute now uses single quotes, so the JSON-encoded QID is embedded safely.
+- **Edit-question asset toolbar: the Delete button was off-screen on mobile.** In the Markdown (and other) asset slots, a long filename pushed the action buttons past the right edge in portrait orientation — only visible after rotating to landscape. The asset toolbar now wraps and the filename truncates with an ellipsis, so the Edit / AI / Fullscreen / **Delete** buttons stay reachable on narrow screens.
 - **Edit-modal Markdown preview showed the image, not the MD.** The per-slot Markdown preview card in the edit-question modal resolved its content through the unified preview API, which ranks IMG above MD — so a slot with both an image and a Markdown asset previewed the image. The preview API now accepts an optional `?format=IMG|MD|DOC` override, the `.md-preview-card` loader forwards an optional `data-preview-format`, and the edit-modal MD card sets `data-preview-format="MD"` so it always renders its Markdown. (Dashboard cards are unchanged — they still follow IMG > MD > DOC priority.)
 - **Inline `$ ... $` math with spaces inside the delimiters didn't render — neither in the editor preview nor in the generated Word `.docx`.** Pandoc's `tex_math_dollars` (and standard dollar-math) only treat `$...$` as math when there's no space immediately inside the delimiters, so LLM-generated `$ D $` / `$ \beta \le -10 $` stayed as literal text in the `.docx` (while `$$ ... $$` worked). Rather than only relaxing the preview, the fix now **tightens the delimiters at the source**: a shared `ai_prompts.normalize_inline_math()` strips the inner padding (`$ D $` → `$D$`) leaving display math, escaped `\$`, and currency `$5` untouched. It runs both at MD generation time (canonical storage) and in the `.docx` pandoc pre-processing step (`_preprocess_md_for_pandoc`), so **existing/already-generated MD files render correctly without regenerating**. The MD-generation prompt also now instructs the model to emit tight `$x$` delimiters. The editor preview keeps tolerating inner spaces (capturing the trimmed formula) so it stays faithful to the `.docx` output for legacy content.
 

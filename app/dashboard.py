@@ -891,6 +891,143 @@ def get_question_preview(question_id, asset_type):
     })
 
 
+# ==================== Explain (AI tutor chat) ====================
+
+def _default_explain_endpoint():
+    """The endpoint used by the Explain tutor: the first enabled,
+    vision-capable LLM endpoint (by sort_order, then name). Returns None when
+    none is configured."""
+    from app.models import LLMConfig
+    return (LLMConfig.query
+            .filter_by(enabled=True, supports_vision=True)
+            .order_by(LLMConfig.sort_order, LLMConfig.name)
+            .first())
+
+
+def _explain_slot_context(question_id, asset_type, version_priority,
+                          source_path, image_max_dim):
+    """Gather context for one asset slot for the Explain prompt.
+
+    Prefers IMG (sent to the vision model); falls back to the slot's Markdown
+    text when no image exists. Returns ``(image_blocks, md_text)`` where
+    ``image_blocks`` is a list of ``(b64, mime)`` pairs.
+    """
+    from app import llm_client
+    _v, _f, imgs = _resolve_preview_assets(
+        question_id, asset_type, version_priority, force_format='IMG')
+    blocks = []
+    for a in imgs:
+        abs_path = os.path.join(source_path, *a.file_path.split('/'))
+        try:
+            blocks.append(llm_client.prepare_image(abs_path, image_max_dim))
+        except Exception:
+            current_app.logger.warning('explain: image prep failed for %s', a.file_path)
+    if blocks:
+        return blocks, ''
+    # No image — fall back to Markdown text so text-only questions still work.
+    _v, _f, mds = _resolve_preview_assets(
+        question_id, asset_type, version_priority, force_format='MD')
+    for a in mds:
+        abs_path = os.path.join(source_path, *a.file_path.split('/'))
+        try:
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                return [], f.read()
+        except OSError:
+            continue
+    return [], ''
+
+
+@dashboard_bp.route('/api/question/<int:question_id>/explain', methods=['POST'])
+@login_required
+def explain_question(question_id):
+    """AI tutor chat for a single question.
+
+    Sends the QUESTION image(s) (and the SOLUTION image(s) when present) to the
+    default vision LLM and returns an explanation. Supports follow-up turns:
+    the client posts the running transcript and the server re-attaches the
+    images to the first user turn each time (stateless, context preserved).
+
+    Body JSON: ``{turns: [{role, content}], version_priority?}``. ``turns`` is
+    the conversation AFTER the (server-built) initial image turn; empty for the
+    first request.
+    """
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin and not current_user.has_subject_access(question.subject):
+        return jsonify({'error': 'You do not have access to this question.'}), 403
+
+    cfg = _default_explain_endpoint()
+    if not cfg:
+        return jsonify({'error': 'No vision-capable LLM endpoint is configured. '
+                                 'Ask an administrator to add one under Admin → LLM Endpoints.'}), 400
+
+    data = request.get_json(silent=True) or {}
+
+    # Sanitise the client-sent transcript (text-only follow-up turns).
+    turns = []
+    for t in (data.get('turns') or [])[-20:]:
+        if not isinstance(t, dict):
+            continue
+        role = t.get('role')
+        content = t.get('content')
+        if role in ('user', 'assistant') and isinstance(content, str) and content.strip():
+            turns.append({'role': role, 'content': content[:8000]})
+
+    version_priority = parse_version_priority(data.get('version_priority'))
+    source_path = current_app.config['SOURCE_PATH']
+    image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+
+    que_imgs, que_text = _explain_slot_context(
+        question_id, 'QUE', version_priority, source_path, image_max_dim)
+    sol_imgs, sol_text = _explain_slot_context(
+        question_id, 'SOL', version_priority, source_path, image_max_dim)
+
+    if not (que_imgs or que_text):
+        return jsonify({'error': 'This question has no image or Markdown to explain.'}), 400
+
+    from app import ai_prompts, llm_client
+
+    # Build the multimodal initial user turn: labelled QUE then SOL context.
+    parts = []
+    if que_imgs:
+        parts.append({'type': 'text', 'text': 'QUESTION image(s):'})
+        parts += [llm_client._image_block(b, m) for (b, m) in que_imgs]
+    elif que_text:
+        parts.append({'type': 'text', 'text': 'QUESTION (Markdown):\n' + que_text[:6000]})
+    if sol_imgs:
+        parts.append({'type': 'text', 'text': 'Official SOLUTION image(s):'})
+        parts += [llm_client._image_block(b, m) for (b, m) in sol_imgs]
+    elif sol_text:
+        parts.append({'type': 'text', 'text': 'Official SOLUTION (Markdown):\n' + sol_text[:6000]})
+    parts.append({'type': 'text', 'text': ai_prompts.EXPLAIN_INITIAL_USER})
+
+    messages = [
+        {'role': 'system', 'content': ai_prompts.EXPLAIN_SYSTEM},
+        {'role': 'user', 'content': parts},
+    ]
+    messages.extend(turns)
+
+    try:
+        text, info = llm_client.chat_messages(cfg, messages)
+    except llm_client.LLMError as e:
+        return jsonify({'error': f'LLM error: {e}'}), 502
+    if not (text or '').strip():
+        fr = (info or {}).get('finish_reason')
+        return jsonify({'error': f'The model returned an empty reply (finish_reason={fr}). '
+                                 'The endpoint may not be vision-capable or hit its token limit.'}), 502
+
+    text = ai_prompts.normalize_inline_math(text)
+    return jsonify({
+        'reply': text,
+        'reply_html': md_render.render_text(text),
+        'model': cfg.model_name,
+        'endpoint': cfg.name,
+        'has_solution': bool(sol_imgs or sol_text),
+    })
+
+
 @dashboard_bp.route('/api/doc_thumbnail/<int:asset_id>.png')
 @login_required
 def doc_thumbnail(asset_id):

@@ -25,6 +25,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | AI Tools modal + console | [templates/admin_questions.html](mdc:templates/admin_questions.html) `aiToolsModal` |
 | Per-slot check badge/bar + "Generate with AI" button + slot modal | [templates/partials/edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `renderCheckBadge`, `renderCheckStatusBar`, `setSlotCheckState`, `aiSlotMdButtonHtml`, `openAiSlotMdModal` |
 | AI-Tools-enabled global (admin, any page) | [templates/base.html](mdc:templates/base.html) `window.OQB_AI_TOOLS_ENABLED` |
+| Explain tutor chat (route + helpers) | [app/dashboard.py](mdc:app/dashboard.py) `explain_question`, `_default_explain_endpoint`, `_explain_slot_context` |
+| Explain chat modal + JS | [templates/dashboard.html](mdc:templates/dashboard.html) `#explainModal`, `openExplainModal`, `sendExplainMessage` |
 | Tunables (`AI_TOOLS_ENABLED`, `LLM_IMAGE_MAX_DIM`) | [app/settings.py](mdc:app/settings.py) REGISTRY group "AI Tools" |
 | `.env` secrets | `LLM_API_KEY`, `LLM_KEY_SECRET` (see [app/config.py](mdc:app/config.py)) |
 
@@ -32,7 +34,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 
 All endpoints speak `POST {base_url}/chat/completions` (OpenAI shape). Images go in as base64 `image_url` content blocks. `base_url` must be the API root that exposes `/chat/completions` (e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1`). Local servers (Ollama, LM Studio, vLLM) and cloud (OpenAI, OpenRouter) all work; Anthropic/Gemini via an OpenAI-compat proxy.
 
-- `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, raw}`; raises `LLMError`. `_extract_message_text` tolerates content-as-blocks, reasoning-only replies, and completion-style `text`; a 200 body carrying an `error` is raised as `LLMError`.
+- `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, raw}`; raises `LLMError`. `_extract_message_text` tolerates content-as-blocks, reasoning-only replies, and completion-style `text`; a 200 body carrying an `error` is raised as `LLMError`. Both `chat` and `chat_messages` share `_post_chat`.
+- `llm_client.chat_messages(config, messages, max_tokens?, temperature?)` → `(text, info)` for **multi-turn** conversations with a pre-built OpenAI `messages` array (used by the Explain tutor chat). `_image_block(b64, mime)` builds an `image_url` content block.
 - `llm_client.prepare_image(abs_path, max_dim)` → downscaled JPEG `(b64, mime)` for sending.
 - `llm_client.read_image_data_uri(abs_path)` → ORIGINAL bytes data-URI (whole-image figure fallback).
 - `llm_client.crop_image_data_uri(abs_path, box, pad, max_dim)` → PNG data-URI of a cropped region; `box` is `[x1,y1,x2,y2]` **fractions** 0..1 (top-left origin). Flattens alpha to white; raises `ValueError` for a degenerate box.
@@ -72,6 +75,14 @@ The edit-modal slot header keeps a compact badge (`renderCheckBadge`), and the I
 Per slot: load source IMG parts → `MD_SYSTEM` LLM call → `strip_md_fences` → `normalize_inline_math` (tightens `$ x $` → `$x$` so pandoc/docx renders it — `tex_math_dollars` rejects spaced inline delimiters; the prompt also asks for tight `$x$`). **Figures are only embedded when the transcription actually contains a `[FIGURE: ...]` placeholder** (`ai_prompts.FIGURE_RE` / `figure_captions`) — pure-text questions yield Markdown only, no image. When figures exist and `embed_image` is on, `_embed_figures` runs a **second LLM "locate figures" pass** (`FIGURE_BOX_SYSTEM` → `parse_figure_boxes`, fractional boxes) for single-image slots and replaces each placeholder with a **cropped** base64 image (`crop_image_data_uri`); it falls back to the **whole** source image when the box is missing/degenerate/near-full-page (`_box_is_useful`) or the slot has multiple parts. Skips+logs if the result exceeds `MD_MAX_SIZE_BYTES`. Writes to the canonical MD path (`_md_rel_path`, mirrors `admin.create_md_asset`), upserts the target `QuestionAsset`, and calls `md_render.invalidate(asset.id)`.
 
 The prompt is strict that `[FIGURE]` is ONLY for real diagrams/graphs/drawings — never plain text, equations, tables, or MC options.
+
+## Explain (AI tutor chat — dashboard, all users)
+
+`POST /dashboard/api/question/<id>/explain` (login-required, gated on `AI_TOOLS_ENABLED`, subject-access checked via `has_subject_access`) drives the dashboard **Explain** button. Unlike the admin AI Tools, it's available to **any** logged-in user with access to the subject, and uses the **default endpoint** (`_default_explain_endpoint` = first enabled, vision-capable `LLMConfig` by `sort_order,name`).
+
+- Body `{turns: [{role,content}], version_priority?}`. `turns` is the conversation AFTER the (server-built) initial image turn; empty for the first request. Stateless: the server rebuilds turn 1 (system `EXPLAIN_SYSTEM` + labelled QUE/SOL context) every call and appends `turns`, so images aren't re-uploaded from the browser.
+- `_explain_slot_context(qid, atype, vp, ...)` prefers IMG (vision) via `_resolve_preview_assets(..., force_format='IMG')`; falls back to the slot's MD **text** when no image exists. QUE is required (image or MD); SOL is optional.
+- Returns `{reply, reply_html, model, endpoint, has_solution}`. `reply_html` is `md_render.render_text(normalize_inline_math(reply))` (sanitised; KaTeX client-side). The frontend renders assistant bubbles via `oqbTypesetMath`, stores raw `reply` in `turns` for the next request, and shows a typing indicator while busy.
 
 ## Gotchas / invariants
 

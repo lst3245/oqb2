@@ -3,6 +3,22 @@
 {% block title %}Dashboard - Question Bank{% endblock %}
 
 {% block content %}
+<style>
+    /* Per-question action buttons (Answer/Solution/Ans Text).
+       Mobile (<768px): keep Bootstrap's connected horizontal split button
+       (.btn-group) to save vertical space. Tablet/desktop (>=768px): the
+       col-md-2 column is too narrow for 3 side-by-side, so stack them as
+       separate full-width buttons (the old look). CSS-only switch. */
+    @media (min-width: 768px) {
+        .oqb-action-group.btn-group { flex-direction: column; row-gap: 0.25rem; }
+        .oqb-action-group.btn-group > .btn {
+            flex: 0 0 auto;
+            width: 100%;
+            margin-left: 0 !important;
+            border-radius: var(--bs-border-radius, 0.375rem) !important;
+        }
+    }
+</style>
 {% if no_access %}
 <div class="container mt-5">
     <div class="alert alert-warning">
@@ -537,6 +553,49 @@
         </div>
     </div>
 </div>
+
+{% if config.get('AI_TOOLS_ENABLED', True) %}
+<!-- Explain (AI tutor) Modal -->
+<style>
+    .explain-transcript { display: flex; flex-direction: column; gap: 0.75rem; }
+    .explain-msg { max-width: 92%; padding: 0.6rem 0.85rem; border-radius: 0.75rem; line-height: 1.55; }
+    .explain-msg.user { align-self: flex-end; background: #0d6efd; color: #fff; border-bottom-right-radius: 0.2rem; white-space: pre-wrap; word-wrap: break-word; }
+    .explain-msg.assistant { align-self: flex-start; background: #f1f3f5; color: #212529; border-bottom-left-radius: 0.2rem; }
+    .explain-msg.assistant.error { background: #f8d7da; color: #842029; }
+    .explain-msg.assistant p:last-child { margin-bottom: 0; }
+    .explain-msg.assistant .katex-display { margin: 0.4rem 0; }
+    .explain-typing span { display: inline-block; width: 7px; height: 7px; margin: 0 1px; background: #adb5bd; border-radius: 50%; animation: explainBlink 1.2s infinite both; }
+    .explain-typing span:nth-child(2) { animation-delay: .2s; }
+    .explain-typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes explainBlink { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+</style>
+<div class="modal fade" id="explainModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="me-auto">
+                    <h5 class="modal-title mb-0"><i class="bi bi-stars"></i> Explain <span id="explainQid" class="text-muted fw-normal small"></span></h5>
+                    <small class="text-muted" id="explainMeta"></small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="explainTranscript" class="explain-transcript"></div>
+            </div>
+            <div class="modal-footer flex-column align-items-stretch gap-2">
+                <div class="d-flex gap-2 align-items-end">
+                    <textarea id="explainInput" class="form-control" rows="1"
+                              placeholder="Ask a follow-up question…" style="resize:none; max-height:140px;"></textarea>
+                    <button type="button" id="explainSendBtn" class="btn btn-dark" onclick="sendExplainMessage()" title="Send">
+                        <i class="bi bi-send"></i>
+                    </button>
+                </div>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> The question and its solution image are sent to the AI. Press Enter to send, Shift+Enter for a new line.</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- Shared Question Edit modal (admin only — same modal used by the admin
@@ -3851,6 +3910,130 @@ function previewText(title, textContent) {
     modalBody.innerHTML = `<div class="text-start p-3" style="font-size: 1rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">${escaped}</div>`;
     
     modal.show();
+}
+
+// ============== Explain (AI tutor chat) ==============
+// Opens a chat modal that sends the question (+ solution) image to the default
+// LLM and streams back an explanation. Follow-up turns post the running
+// transcript; the server re-attaches the images to the first turn each time.
+let explainModalInstance = null;
+let explainState = null; // { questionId, qid, turns: [...], busy: bool }
+
+function _explainEscape(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _explainAppendBubble(role, html, opts) {
+    opts = opts || {};
+    const transcript = document.getElementById('explainTranscript');
+    const div = document.createElement('div');
+    div.className = 'explain-msg ' + role + (opts.error ? ' error' : '');
+    div.innerHTML = html;
+    transcript.appendChild(div);
+    if (role === 'assistant' && !opts.error && !opts.typing) {
+        window.oqbTypesetMath && window.oqbTypesetMath(div);
+    }
+    // Scroll the modal body to the bottom.
+    const body = transcript.closest('.modal-body');
+    if (body) body.scrollTop = body.scrollHeight;
+    return div;
+}
+
+function _explainSetBusy(busy) {
+    if (explainState) explainState.busy = busy;
+    const btn = document.getElementById('explainSendBtn');
+    const input = document.getElementById('explainInput');
+    if (btn) btn.disabled = busy;
+    if (input) input.disabled = busy;
+}
+
+function openExplainModal(questionId, qid) {
+    explainState = { questionId: questionId, qid: qid || '', turns: [], busy: false };
+    const modalEl = document.getElementById('explainModal');
+    if (!modalEl) return;
+
+    document.getElementById('explainQid').textContent = qid ? ('· ' + qid) : '';
+    document.getElementById('explainMeta').textContent = '';
+    document.getElementById('explainTranscript').innerHTML = '';
+    const input = document.getElementById('explainInput');
+    input.value = '';
+
+    if (!explainModalInstance) {
+        explainModalInstance = new bootstrap.Modal(modalEl);
+        // Enter to send (Shift+Enter = newline); auto-grow the textarea.
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendExplainMessage();
+            }
+        });
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+        });
+    }
+    explainModalInstance.show();
+
+    // Kick off the initial explanation (no user message — server builds it).
+    _explainSend(null);
+}
+
+function sendExplainMessage() {
+    const input = document.getElementById('explainInput');
+    if (!input || !explainState || explainState.busy) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    _explainSend(text);
+}
+
+function _explainSend(userMessage) {
+    if (!explainState) return;
+    if (userMessage) {
+        _explainAppendBubble('user', _explainEscape(userMessage));
+        explainState.turns.push({ role: 'user', content: userMessage });
+    }
+    _explainSetBusy(true);
+    const typing = _explainAppendBubble('assistant',
+        '<span class="explain-typing"><span></span><span></span><span></span></span>',
+        { typing: true });
+
+    const vp = (typeof getVersionPriority === 'function') ? getVersionPriority()
+        : (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
+
+    fetch(`/dashboard/api/question/${explainState.questionId}/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turns: explainState.turns, version_priority: vp }),
+    })
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            typing.remove();
+            if (!ok || d.error) {
+                _explainAppendBubble('assistant',
+                    '<i class="bi bi-exclamation-triangle"></i> ' + _explainEscape(d.error || 'Request failed.'),
+                    { error: true });
+                _explainSetBusy(false);
+                return;
+            }
+            _explainAppendBubble('assistant', d.reply_html || _explainEscape(d.reply || ''));
+            explainState.turns.push({ role: 'assistant', content: d.reply || '' });
+            const meta = document.getElementById('explainMeta');
+            if (meta && d.model) {
+                meta.textContent = d.model + (d.has_solution ? ' · question + solution' : ' · question only');
+            }
+            _explainSetBusy(false);
+            const input = document.getElementById('explainInput');
+            if (input) input.focus();
+        })
+        .catch(() => {
+            typing.remove();
+            _explainAppendBubble('assistant',
+                '<i class="bi bi-exclamation-triangle"></i> Network error contacting the AI.',
+                { error: true });
+            _explainSetBusy(false);
+        });
 }
 
 // Clear all selections
