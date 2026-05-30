@@ -138,15 +138,43 @@ class _Spec(dict):
 
 def _spec(key: str, type_: str, *, group: str, label: str, help: str = '',
           validator: Callable[[Any], Any] | None = None,
-          min: int | float | None = None, max: int | float | None = None) -> _Spec:
+          min: int | float | None = None, max: int | float | None = None,
+          choices_fn: Callable[[], list] | None = None) -> _Spec:
     """Build a registry spec. `min`/`max` are convenience shortcuts for a
-    numeric range validator on int/float types."""
+    numeric range validator on int/float types.
+
+    `choices_fn` is an optional zero-argument callable that returns a list of
+    ``{'value': ..., 'label': ...}`` dicts for a dropdown UI. It is called
+    lazily inside ``as_dict()`` so it can query the DB safely. When present,
+    the settings UI renders a ``<select>`` instead of a text input.
+    """
     if validator is None and (min is not None or max is not None):
         validator = _range_validator(min, max)
     return _Spec(
         key=key, type=type_, group=group, label=label, help=help,
-        validator=validator, min=min, max=max,
+        validator=validator, min=min, max=max, choices_fn=choices_fn,
     )
+
+
+def _llm_endpoint_choices() -> list:
+    """Return ``[{value, label}, ...]`` for all enabled LLMConfig rows,
+    ordered by sort_order then name. Called lazily from ``as_dict()``."""
+    try:
+        from app.models import LLMConfig
+        rows = (LLMConfig.query
+                .filter_by(enabled=True)
+                .order_by(LLMConfig.sort_order, LLMConfig.name)
+                .all())
+        return [
+            {
+                'value': r.name,
+                'label': f'{r.name} ({r.model_name})'
+                         + (' · vision' if r.supports_vision else ''),
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
@@ -246,6 +274,19 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Max image dimension sent to LLM (px)',
         help='Images are downscaled so their longest edge is at most this many pixels before being base64-encoded and sent to the model. Lower = cheaper/faster but less legible; 1600 is a good balance for exam scans.',
         min=256, max=4096,
+    )),
+    ('EXPLAIN_DEFAULT_LLM', _spec(
+        'EXPLAIN_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Explain feature',
+        help=(
+            'LLM endpoint to use for the Explain tutor chat on the dashboard. '
+            'Leave blank to auto-select the first enabled, vision-capable '
+            'endpoint ordered by sort order then name. The chosen endpoint '
+            'does not need to be vision-capable — text-only questions fall '
+            'back to Markdown text automatically — but vision is required to '
+            'explain image-based questions.'
+        ),
+        choices_fn=_llm_endpoint_choices,
     )),
 
     # PDF Batch Import
@@ -426,6 +467,13 @@ def as_dict() -> dict:
     for key, spec in REGISTRY.items():
         if spec['group'] not in groups:
             groups.append(spec['group'])
+        choices_fn = spec.get('choices_fn')
+        choices = None
+        if choices_fn is not None:
+            try:
+                choices = choices_fn()
+            except Exception:
+                choices = []
         out_registry[key] = {
             'key': key,
             'type': spec['type'],
@@ -434,6 +482,7 @@ def as_dict() -> dict:
             'help': spec.get('help', ''),
             'min': spec.get('min'),
             'max': spec.get('max'),
+            'choices': choices,
             'value': current_app.config.get(key, _BOOTSTRAP_DEFAULTS.get(key)),
             'default': _BOOTSTRAP_DEFAULTS.get(key),
             'has_override': key in overrides,

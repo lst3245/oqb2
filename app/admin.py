@@ -4328,6 +4328,43 @@ def llm_endpoints_delete(cid):
     return jsonify({'success': True})
 
 
+@admin_bp.route('/llm-endpoints/<int:cid>/duplicate', methods=['POST'])
+@login_required
+@super_admin_required
+def llm_endpoints_duplicate(cid):
+    """Create a copy of an endpoint with a unique auto-generated name.
+    The API key is NOT copied — the duplicate starts without a stored key
+    and falls back to the .env variable just like a freshly created endpoint.
+    """
+    from app.models import LLMConfig
+    src = LLMConfig.query.get_or_404(cid)
+
+    # Build a unique name: "Copy of <name>", "Copy 2 of <name>", …
+    base_name = f'Copy of {src.name}'
+    candidate = base_name
+    counter = 2
+    while LLMConfig.query.filter_by(name=candidate).first():
+        candidate = f'Copy {counter} of {src.name}'
+        counter += 1
+
+    copy = LLMConfig(
+        name=candidate,
+        base_url=src.base_url,
+        model_name=src.model_name,
+        provider=src.provider,
+        api_key_env=src.api_key_env,
+        supports_vision=src.supports_vision,
+        max_output_tokens=src.max_output_tokens,
+        temperature=src.temperature,
+        timeout_seconds=src.timeout_seconds,
+        enabled=src.enabled,
+        sort_order=src.sort_order,
+    )
+    db.session.add(copy)
+    db.session.commit()
+    return jsonify({'success': True, 'endpoint': _serialize_llm_config(copy)})
+
+
 @admin_bp.route('/llm-endpoints/<int:cid>/test', methods=['POST'])
 @login_required
 @super_admin_required

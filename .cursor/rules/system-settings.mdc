@@ -28,7 +28,7 @@ hardcoded module literal  <  app/config.py default  <  .env  <  system_settings 
 
 ## REGISTRY structure
 
-Each entry: `{type, default, group, label, help, validator}`.
+Each entry: `{type, default, group, label, help, validator, choices_fn?}`.
 
 ```python
 _spec('DOC_THUMBNAIL_WIDTH', 'int', group='Thumbnails',
@@ -38,6 +38,8 @@ _spec('DOC_THUMBNAIL_WIDTH', 'int', group='Thumbnails',
 ```
 
 Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts that build a numeric range validator. Custom validators receive the already-coerced value and may raise `ValueError`.
+
+**`choices_fn`** (optional, `string` type only): a zero-argument callable that returns `[{'value': str, 'label': str}, ...]`. Called lazily inside `as_dict()` (always inside a Flask request context). When present, the settings UI renders a `<select>` dropdown instead of a plain text input. Used by `EXPLAIN_DEFAULT_LLM` to list enabled LLM endpoints.
 
 ## Current REGISTRY entries
 
@@ -56,6 +58,9 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | Batch IMG | `BATCH_IMG_DEFAULT_STITCH` | bool | True | Stitch multi-page sources by default |
 | AI Tools | `AI_TOOLS_ENABLED` | bool | True | Master switch for the AI Tools admin feature |
 | AI Tools | `LLM_IMAGE_MAX_DIM` | int 256–4096 | 1600 | Long-edge downscale (px) before images are sent to the LLM |
+| AI Tools | `EXPLAIN_DEFAULT_LLM` | string | `''` | Name of the LLM endpoint to use for the dashboard Explain tutor. Blank = auto (first enabled+vision by sort order). Rendered as a `<select>` of enabled endpoints via `choices_fn`. |
+| PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int | 1700 | PDF page raster width (px) |
+| PDF Import | `PDF_IMPORT_COORD_ORDER` | string | `xyxy` | Bounding-box coordinate order (`xyxy` or `yxyx`) |
 
 > AI Tools LLM **endpoints** are NOT registry scalars — they live in their own `llm_configs` table managed via the dedicated **Admin → LLM Endpoints** page (super-admin). See [.cursor/rules/ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
@@ -85,11 +90,11 @@ Anything that needs a process restart to take effect (e.g. SQLAlchemy engine opt
 
 ## Adding a new tunable
 
-1. Add an entry to `REGISTRY` in `app/settings.py` (specify type, group, label, help, validator/min/max).
+1. Add an entry to `REGISTRY` in `app/settings.py` (specify type, group, label, help, validator/min/max; add `choices_fn` for a dynamic dropdown).
 2. Add the matching `Config` attribute in `app/config.py` reading from `os.getenv` with a sensible default.
 3. Document the new key in `.env` (commented) so admins know it can be overridden via env.
 4. Update the consumer to read from `current_app.config[KEY]` (avoid hardcoding constants).
-5. The UI auto-renders the new row — no template changes needed.
+5. The UI auto-renders the new row — no template changes needed (a `choices_fn` causes a `<select>` to render automatically).
 
 ## Common gotchas
 

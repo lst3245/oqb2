@@ -6,6 +6,20 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### System Settings — Default LLM for Explain feature
+
+A new **Default LLM for Explain feature** setting has been added to the **AI Tools** group in Admin → System Settings:
+
+- Select from a dropdown of all currently enabled LLM endpoints. Leaving it blank (default) preserves the existing auto-selection behaviour: the first enabled, vision-capable endpoint ordered by sort order then name.
+- When a named endpoint is selected but is later disabled or deleted, the Explain feature gracefully falls back to the auto-selection logic, so nothing breaks.
+- Backed by the new `EXPLAIN_DEFAULT_LLM` config key (also settable via `.env` as an override).
+
+The System Settings framework now supports a **`choices_fn`** spec field (a callable returning `[{value, label}]`) that causes the UI to render a `<select>` dropdown instead of a plain text input. The choices list is populated lazily at page-load time.
+
+#### LLM Endpoints — Duplicate endpoint
+
+Each endpoint card on Admin → LLM Endpoints now has a **Duplicate** (copy) button. Clicking it creates an identical copy of the endpoint with a unique auto-generated name ("Copy of …", "Copy 2 of …", etc.). The **API key is not copied** — the duplicate starts without a stored key and falls back to the `.env` variable, the same as a freshly created endpoint. The duplicate opens ready to edit (its card appears immediately; use Edit to rename or fill in the key).
+
 #### PDF Batch Import — auto-detect & crop questions from exam PDFs (Admin)
 
 A new **PDF Batch Import** tool in the Admin Panel Operations section (after Question Ingestion) turns whole exam PDFs into per-question image assets, replacing the manual screenshot-and-upload workflow:

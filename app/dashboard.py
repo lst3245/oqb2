@@ -894,10 +894,20 @@ def get_question_preview(question_id, asset_type):
 # ==================== Explain (AI tutor chat) ====================
 
 def _default_explain_endpoint():
-    """The endpoint used by the Explain tutor: the first enabled,
-    vision-capable LLM endpoint (by sort_order, then name). Returns None when
-    none is configured."""
+    """The endpoint used by the Explain tutor.
+
+    When ``EXPLAIN_DEFAULT_LLM`` names a specific enabled endpoint that
+    endpoint is used.  Otherwise falls back to the first enabled,
+    vision-capable endpoint ordered by sort_order then name.
+    Returns ``None`` when nothing is configured.
+    """
     from app.models import LLMConfig
+    from flask import current_app
+    preferred = (current_app.config.get('EXPLAIN_DEFAULT_LLM') or '').strip()
+    if preferred:
+        cfg = LLMConfig.query.filter_by(name=preferred, enabled=True).first()
+        if cfg:
+            return cfg
     return (LLMConfig.query
             .filter_by(enabled=True, supports_vision=True)
             .order_by(LLMConfig.sort_order, LLMConfig.name)

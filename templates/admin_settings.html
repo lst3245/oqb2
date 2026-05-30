@@ -133,8 +133,23 @@ function renderRow(spec) {
             <input type="number" class="form-control form-control-sm ${overriddenClass}" style="max-width: 220px;"
                    ${dataKey} value="${spec.value ?? ''}" step="${step}" ${min} ${max}
                    oninput="markDirty('${spec.key}')">`;
+    } else if (spec.choices && Array.isArray(spec.choices)) {
+        // string setting with a dynamic dropdown
+        const currentVal = spec.value ?? '';
+        let opts = `<option value="">(auto — use first by sort order)</option>`;
+        spec.choices.forEach(ch => {
+            const sel = ch.value === currentVal ? ' selected' : '';
+            opts += `<option value="${escapeAttr(ch.value)}"${sel}>${escapeHtml(ch.label)}</option>`;
+        });
+        // Keep current value even if the endpoint was deleted / disabled since last save
+        if (currentVal && !spec.choices.find(c => c.value === currentVal)) {
+            opts += `<option value="${escapeAttr(currentVal)}" selected>${escapeHtml(currentVal)} (not found)</option>`;
+        }
+        input = `
+            <select class="form-select form-select-sm ${overriddenClass}" style="max-width: 400px;"
+                    ${dataKey} onchange="markDirty('${spec.key}')">${opts}</select>`;
     } else {
-        // string
+        // plain string
         input = `
             <input type="text" class="form-control form-control-sm ${overriddenClass}" style="max-width: 360px;"
                    ${dataKey} value="${escapeAttr(spec.value ?? '')}"

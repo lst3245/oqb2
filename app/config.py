@@ -77,6 +77,10 @@ class Config:
     LLM_IMAGE_MAX_DIM = int(os.getenv('LLM_IMAGE_MAX_DIM', '1600'))
     # Master on/off switch for the AI Tools admin feature.
     AI_TOOLS_ENABLED = os.getenv('AI_TOOLS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # Name of the LLM endpoint to use for the dashboard Explain tutor chat.
+    # Empty string = auto-select the first enabled, vision-capable endpoint
+    # by sort_order then name (original behaviour).
+    EXPLAIN_DEFAULT_LLM = os.getenv('EXPLAIN_DEFAULT_LLM', '')
 
     # PDF Batch Import — width (px) to rasterise uploaded PDF pages to. The
     # high-res page PNGs are what per-question crops are cut from (the image
