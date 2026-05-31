@@ -1,0 +1,128 @@
+---
+description: AI Prompts admin feature — registry, resolver, override storage, variable syntax, gotchas
+globs: app/ai_prompts.py,templates/admin_prompts.html
+alwaysApply: false
+---
+
+# AI Prompts (super-admin editable system + user-turn templates)
+
+Editable storage for the prompts powering every AI feature: proofreading, MD generation, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import. Twelve prompts total, in five groups. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
+
+## Files map
+
+| Concern | File(s) |
+|---|---|
+| Registry + resolver + cache + parsers | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PROMPTS_REGISTRY`, `get_prompt`, `render_prompt`, `set_prompt`, `reset_prompt`, `invalidate_cache`, `as_dict` |
+| DB override storage | [app/models.py](mdc:app/models.py) `PromptOverride` (table `prompt_overrides`) |
+| Routes (super-admin) | [app/admin.py](mdc:app/admin.py) `prompts_page`, `prompts_data`, `prompts_save`, `prompts_reset` |
+| Admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html) |
+| Auto-create table | [app/__init__.py](mdc:app/__init__.py) (alongside `system_settings`) |
+
+## Registered prompts
+
+In declaration order (the UI renders them in this order, grouped by `group`):
+
+1. `CHECK_SYSTEM` (system) — proofreading
+2. `CHECK_USER` (user, vars `asset_type`, `ref_version`, `typed_version`)
+3. `MD_SYSTEM` (system) — Markdown generation
+4. `MD_USER` (user, vars `asset_type`, `source_version`)
+5. `EXPLAIN_SYSTEM` (system) — dashboard Explain tutor
+6. `EXPLAIN_INITIAL_USER` (user) — first-turn instruction after the images
+7. `FIGURE_BOX_SYSTEM` (system) — figure bbox detection during MD gen
+8. `FIGURE_BOX_USER` (user)
+9. `PDF_BOX_JSON_CONTRACT` (system, sub-template) — shared JSON contract
+10. `PDF_QUE_BOX_SYSTEM` (system, var `json_contract`)
+11. `PDF_SOL_BOX_SYSTEM` (system, var `json_contract`)
+12. `PDF_BOX_USER` (user, var `what`)
+
+`PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via the `{{json_contract}}` placeholder, resolved at render time by `build_pdf_box_system(asset_type)`. Edit the contract once to update the response shape on both sides.
+
+## Variable substitution
+
+Syntax is **`{{name}}`** (double-braces). Single `{` / `}` are literal — this matters because several prompts contain JSON examples (`{"status": "ok"}`, `{"qno": <int>, ...}`) that must pass through unchanged. The substitution regex `_VAR_RE = re.compile(r'\{\{(\w+)\}\}')` only matches whole-word `{{...}}` pairs.
+
+Rules enforced by `render_prompt`:
+- Only variables **declared** in the registry's `variables` list for that key are substituted. Extra kwargs are ignored. Unknown declared names left as literal `{{name}}` so design errors surface in the model's reply rather than crashing the request.
+- Single-pass substitution. The substituted *value* may itself contain `{{...}}` (e.g. `{{json_contract}}`'s body) — those are NOT recursively expanded.
+
+Helpers for call-site compatibility:
+- `build_check_user_text(typed_version, ref_version, asset_type)` — wraps `render_prompt('CHECK_USER', ...)`.
+- `build_md_user_text(source_version, asset_type)` — wraps `render_prompt('MD_USER', ...)`.
+- `build_pdf_box_user_text(asset_type)` — maps QUE/SOL → `'questions'`/`'solutions'` then renders `PDF_BOX_USER`.
+- `build_pdf_box_system(asset_type)` — picks `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` and substitutes `{{json_contract}}`.
+
+## Resolver flow
+
+```
+get_prompt(key):
+  cache hit? → return
+  PromptOverride.query.get(key) → return content if present
+  fallback: PROMPTS_REGISTRY[key]['default']
+  cache, return
+
+set_prompt(key, content):
+  validate (str, non-empty, ≤ 32 KiB after rstrip)
+  upsert PromptOverride row
+  cache.pop(key)
+
+reset_prompt(key):
+  delete PromptOverride row (if any)
+  cache.pop(key)
+```
+
+Module-level `_PROMPT_CACHE` (dict + Lock) keeps chat calls off the DB. Single-process assumption — same caveat as `system_settings`. If you run multi-worker, cache invalidation is local; restart the worker or hit `invalidate_cache(None)` programmatically.
+
+## DB schema
+
+`prompt_overrides`:
+- `key` String(80) PK — matches `PROMPTS_REGISTRY` keys.
+- `content` Text NOT NULL.
+- `updated_at`, `updated_by` (FK users.id, nullable).
+- Auto-created via `PromptOverride.__table__.create(db.engine, checkfirst=True)` in `app/__init__.py`.
+
+A missing row means "use the built-in default". Resetting deletes the row.
+
+## Routes (all super-admin)
+
+| Method | URL | Purpose |
+|---|---|---|
+| GET  | `/admin/prompts` | Page (`prompts_page`) |
+| GET  | `/admin/prompts/data` | `as_dict()` JSON: `{groups, registry: {key: {label, description, default, value, has_override, ...}}}` |
+| POST | `/admin/prompts/save` | Body `{key: content, ...}`. Per-key partial errors; response `{saved: [], errors: {}}` |
+| POST | `/admin/prompts/reset/<key>` | Drops override, returns the default |
+
+Mirrors the system-settings save shape exactly so the UI patterns match.
+
+## UI
+
+[templates/admin_prompts.html](mdc:templates/admin_prompts.html) renders one **card per prompt**, grouped by category:
+- Coloured left border: grey (default), amber (DB override), blue (unsaved edits).
+- Per-card **Save** / **Reset to default** buttons + an expandable **Default** read-only panel showing the bootstrap default.
+- Variable badges (`{{asset_type}}`, etc.) so authors know what placeholders to use.
+- Live char counter; navigate-away guard on unsaved edits.
+- Group TOC at the top (jump-links).
+
+Per-card save (not a global "save all dirty" button) so users can experiment safely. Cross-link buttons to System Settings + LLM Endpoints in the page header.
+
+The page is reached from:
+- Admin Panel → AI Prompts card (Super Admin section)
+- Admin navbar dropdown (super-admin section)
+- "AI Prompts" buttons on System Settings and LLM Endpoints
+
+## Gotchas / invariants
+
+1. **Don't break the JSON contract** of `CHECK_SYSTEM` / `FIGURE_BOX_SYSTEM` / `PDF_BOX_JSON_CONTRACT` without also updating the corresponding parser (`parse_check_result`, `parse_figure_boxes`, `parse_question_boxes`). The admin UI's description warns about this for each.
+2. **Variable syntax is `{{name}}`** not Python's `{name}`. Old `f""`-style placeholders in defaults were converted during the migration. Adding a new variable means: (a) declare it in the registry's `variables` list, (b) add `{{name}}` to the default content, (c) pass it as kwarg from the call site.
+3. **Keep `[FIGURE: ...]` sentinel** in the MD_SYSTEM prompt — `app/ai_tools._embed_figures` and `ai_prompts.FIGURE_RE` rely on it as a discriminator for when to run the figure-cropping pass.
+4. **Cache is per-process.** A multi-worker deployment will see staleness across workers until each handles a request that touches a saved/reset key. Acceptable trade-off; same caveat as system settings.
+5. **Limit is 32 KiB** per prompt content (after rstrip). More than enough for any reasonable system prompt; protects the row size + the `as_dict` response.
+6. **Plaintext only** — prompts are not encrypted. Don't put secrets in them. (Use `.env` / `LLMConfig.api_key_enc` for keys.)
+7. **No live re-rendering of saved values** — `get_prompt` cache returns the override once it's fetched. `set_prompt` invalidates the cache for that key, so subsequent reads see the new content immediately. Don't manually mutate `PROMPTS_REGISTRY[key]['default']` at runtime — it's the bootstrap default that `reset_prompt` restores to.
+
+## Adding a new prompt
+
+1. Add `_DEFAULT_NEW_KEY = (...)` near the top of `app/ai_prompts.py` (or wherever its category lives).
+2. Append a `('NEW_KEY', _prompt(group=..., label=..., description=..., default=_DEFAULT_NEW_KEY, variables=[...], role='system'|'user'))` entry in `PROMPTS_REGISTRY`.
+3. At the call site, use `ai_prompts.get_prompt('NEW_KEY')` (no vars) or `ai_prompts.render_prompt('NEW_KEY', **vars)`.
+4. The UI auto-discovers it via `as_dict()` — no template change needed.
+5. Document the prompt's purpose in its `description` (shown verbatim in the admin UI).

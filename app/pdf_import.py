@@ -281,8 +281,7 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int):
     from app import ai_prompts, llm_client
 
     b64, mime = llm_client.prepare_image(png_path, image_max_dim)
-    system = (ai_prompts.PDF_QUE_BOX_SYSTEM if atype == 'QUE'
-              else ai_prompts.PDF_SOL_BOX_SYSTEM)
+    system = ai_prompts.build_pdf_box_system(atype)
     user_text = ai_prompts.build_pdf_box_user_text(atype)
     text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
 

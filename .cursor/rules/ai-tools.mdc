@@ -13,7 +13,9 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | Concern | File(s) |
 |---|---|
 | LLM transport (chat + vision + Fernet keys) | [app/llm_client.py](mdc:app/llm_client.py) |
-| Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) |
+| Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) — `PROMPTS_REGISTRY`, `get_prompt`, `render_prompt`, parsers |
+| Prompt override storage | [app/models.py](mdc:app/models.py) `PromptOverride` (table `prompt_overrides`) |
+| Prompt admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html), [app/admin.py](mdc:app/admin.py) `prompts_*` |
 | SSE generators + cancel registry + `generate_md_slot` | [app/ai_tools.py](mdc:app/ai_tools.py) |
 | Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`) |
 | Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |

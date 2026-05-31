@@ -6,6 +6,28 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Admin → AI Prompts (super-admin only)
+
+Every system / user-turn prompt powering the AI features — proofreading, Markdown generation, the dashboard **Explain** tutor, the figure-bbox detector, and the PDF Batch Import bbox detector — is now editable from a new **Admin → AI Prompts** page (super-admin only). Twelve prompts in five groups, each shown as its own card with:
+
+- The current content in a textarea (Markdown / plain text), with a live character counter and a coloured left border that flips to amber when a DB override is active and to blue while you have unsaved edits.
+- A **Variables** strip listing every `{{varname}}` placeholder the prompt accepts (e.g. `{{asset_type}}`, `{{ref_version}}`, `{{json_contract}}`).
+- An expandable **Default** panel showing the read-only built-in default so you can see what you're diverging from.
+- Per-card **Save** (persists a DB override) and **Reset to default** (deletes the override) buttons. Save is per-prompt — you can experiment freely without batching changes.
+- A **DB override** / **Built-in default** badge plus the timestamp + username of the last edit, so prompt drift is visible.
+- A jump-to-group TOC at the top, and a navigate-away guard if you have unsaved changes.
+
+Variable syntax is **`{{name}}`** (double-braces). Single `{` / `}` are literal so JSON examples in prompts (`{"status": "ok"}`, `{"qno": <int>, ...}`) pass through unchanged. The PDF question-page and solution-page system prompts share a **`PDF_BOX_JSON_CONTRACT`** sub-template via the `{{json_contract}}` placeholder so the JSON shape can be updated in one place.
+
+Architecture:
+- New table **`prompt_overrides`** (key PK, content TEXT, updated_at, updated_by FK) — auto-created on app startup, no migration step. Missing row = use the built-in default.
+- New `app/ai_prompts.PROMPTS_REGISTRY` is now the single source of truth: it carries the bootstrap default, group, label, description, declared variables, and role (`system` / `user`) for each prompt. Resolver functions: `get_prompt(key)`, `render_prompt(key, **vars)` (only declared `{{vars}}` substituted; unknown names left as literal `{{name}}` so design errors show up in the model's reply), `set_prompt(key, content)`, `reset_prompt(key)`, `invalidate_cache()`. A module-level cache means chat calls don't hit the DB per request; writes invalidate the relevant key.
+- Existing `build_check_user_text` / `build_md_user_text` / `build_pdf_box_user_text` helpers preserved for call-site compatibility; they now wrap `render_prompt`. New `build_pdf_box_system(asset_type)` resolves the QUE/SOL system prompt with the shared `{{json_contract}}` substituted in.
+- Routes (super-admin only): `GET /admin/prompts` (page), `GET /admin/prompts/data` (JSON), `POST /admin/prompts/save` (`{key: content, ...}`), `POST /admin/prompts/reset/<key>`. Mirrors the system-settings save/reset shape.
+- The old module-level `CHECK_SYSTEM` / `MD_SYSTEM` / `EXPLAIN_SYSTEM` / `FIGURE_BOX_SYSTEM` / `FIGURE_BOX_USER` / `EXPLAIN_INITIAL_USER` / `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` constants have been removed; call sites now use `ai_prompts.get_prompt('CHECK_SYSTEM')` etc. Existing behaviour is preserved exactly when no override is saved.
+
+The page is accessible from the **Admin Panel → AI Prompts** card (Super Admin section), the **Admin** navbar dropdown, and cross-link buttons on **System Settings** / **LLM Endpoints**.
+
 #### System Settings — Default LLM for Explain feature
 
 A new **Default LLM for Explain feature** setting has been added to the **AI Tools** group in Admin → System Settings:

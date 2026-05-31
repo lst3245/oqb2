@@ -461,6 +461,35 @@ class SystemSetting(db.Model):
         return f'<SystemSetting {self.key}={self.value!r}>'
 
 
+class PromptOverride(db.Model):
+    """Editable storage for AI prompt templates.
+
+    Each row overrides one prompt (system / user-turn template) used by the
+    AI features (proofreading, MD generation, the Explain tutor, the figure
+    bbox detector, the PDF batch-import bbox detector). The full registry
+    of prompts — keys, defaults, declared variables, group / label /
+    description metadata — lives in `app/ai_prompts.py` (PROMPTS_REGISTRY).
+    A missing row means "use the built-in default"; saving overrides it,
+    resetting deletes the row.
+
+    Distinct from `SystemSetting` because prompts are large free-text blobs
+    with their own dedicated UI (Admin → AI Prompts) and validation
+    semantics — not the typed-tunable shape that the settings page assumes.
+    """
+    __tablename__ = 'prompt_overrides'
+
+    key = db.Column(db.String(80), primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by])
+
+    def __repr__(self):
+        return f'<PromptOverride {self.key} ({len(self.content or "")} chars)>'
+
+
 class LLMConfig(db.Model):
     """A configured LLM endpoint for the AI Tools feature.
 

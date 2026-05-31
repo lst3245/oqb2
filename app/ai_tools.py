@@ -174,7 +174,7 @@ def iter_check(qs, typed_version, ref_version, asset_types, recheck,
               f"image(s) are the TYPED ({typed_version}) version to proofread."
         )
         try:
-            text, info = llm_client.chat(config, ai_prompts.CHECK_SYSTEM,
+            text, info = llm_client.chat(config, ai_prompts.get_prompt('CHECK_SYSTEM'),
                                          user_text, ref_imgs + typed_imgs)
         except llm_client.LLMError as e:
             errors += 1
@@ -281,8 +281,8 @@ def _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path):
     boxes = []
     if len(src_assets) == 1:
         try:
-            btext, _info = llm_client.chat(config, ai_prompts.FIGURE_BOX_SYSTEM,
-                                           ai_prompts.FIGURE_BOX_USER, imgs)
+            btext, _info = llm_client.chat(config, ai_prompts.get_prompt('FIGURE_BOX_SYSTEM'),
+                                           ai_prompts.get_prompt('FIGURE_BOX_USER'), imgs)
             boxes = ai_prompts.parse_figure_boxes(btext)
         except llm_client.LLMError:
             boxes = []
@@ -349,7 +349,7 @@ def generate_md_slot(question, asset_type, source_version, target_version, *,
 
     user_text = ai_prompts.build_md_user_text(source_version, asset_type)
     try:
-        text, info = llm_client.chat(config, ai_prompts.MD_SYSTEM, user_text, imgs)
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('MD_SYSTEM'), user_text, imgs)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
 

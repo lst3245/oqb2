@@ -134,6 +134,17 @@
                 </div>
             </div>
         </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-chat-square-text"></i> AI Prompts</h5>
+                    <p class="card-text">View and edit the system / user-turn prompts powering every AI feature (proofreading, MD generation, Explain tutor, figure detection, PDF import).</p>
+                    <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-danger btn-sm">
+                        <i class="bi bi-arrow-right"></i> AI Prompts
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
     {% endif %}
 </div>

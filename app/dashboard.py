@@ -1021,10 +1021,10 @@ def explain_question(question_id):
         parts += [llm_client._image_block(b, m) for (b, m) in sol_imgs]
     elif sol_text:
         parts.append({'type': 'text', 'text': 'Official SOLUTION (Markdown):\n' + sol_text[:6000]})
-    parts.append({'type': 'text', 'text': ai_prompts.EXPLAIN_INITIAL_USER})
+    parts.append({'type': 'text', 'text': ai_prompts.get_prompt('EXPLAIN_INITIAL_USER')})
 
     messages = [
-        {'role': 'system', 'content': ai_prompts.EXPLAIN_SYSTEM},
+        {'role': 'system', 'content': ai_prompts.get_prompt('EXPLAIN_SYSTEM')},
         {'role': 'user', 'content': parts},
     ]
     messages.extend(turns)

@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+
+{% block title %}AI Prompts - Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .prompt-card { border-left: 3px solid #dee2e6; }
+    .prompt-card.has-override { border-left-color: #ffc107; }
+    .prompt-card.is-dirty { border-left-color: #0d6efd; background: #fff8e1; }
+    .prompt-label { font-weight: 600; }
+    .prompt-meta { font-size: 0.78rem; color: #6c757d; }
+    .prompt-meta code { font-size: 0.78rem; }
+    .prompt-description { font-size: 0.88rem; color: #495057; margin: 0.25rem 0 0.5rem; }
+    .prompt-textarea {
+        font-family: ui-monospace, SFMono-Regular, "Menlo", "Consolas", monospace;
+        font-size: 0.85rem;
+        line-height: 1.45;
+        min-height: 6rem;
+        max-height: 30rem;
+        resize: vertical;
+    }
+    .prompt-default-pre {
+        font-family: ui-monospace, SFMono-Regular, "Menlo", "Consolas", monospace;
+        font-size: 0.78rem;
+        line-height: 1.4;
+        max-height: 18rem;
+        overflow: auto;
+        padding: 0.6rem 0.75rem;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .prompt-vars { font-size: 0.78rem; }
+    .prompt-vars .badge { font-size: 0.7rem; }
+    .badge-override { background-color: #ffc107; color: #212529; font-size: 0.72rem; }
+    .badge-default { background-color: #6c757d; font-size: 0.72rem; }
+    .badge-role { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-role.role-system { background-color: #6f42c1; color: #fff; }
+    .badge-role.role-user { background-color: #0dcaf0; color: #052c65; }
+    .group-anchor { scroll-margin-top: 6rem; }
+    .group-toc a { display: inline-block; margin: 0 0.6rem 0.4rem 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-chat-square-text"></i> AI Prompts</h2>
+        <div>
+            <a href="{{ url_for('admin.settings_page') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-sliders"></i> System Settings
+            </a>
+            <a href="{{ url_for('admin.llm_endpoints_page') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-robot"></i> LLM Endpoints
+            </a>
+            <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Admin
+            </a>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i>
+        These are the system / user-turn prompt templates that drive every AI feature
+        (proofreading, Markdown generation, the dashboard <strong>Explain</strong> tutor,
+        the figure detector, and PDF Batch Import). Edit a prompt and click <strong>Save</strong>
+        on its card to persist a DB override; click <strong>Reset to default</strong> to drop the
+        override and restore the built-in default. Changes apply immediately to the running server.
+        <br><small class="text-muted mt-1 d-inline-block">
+        Variable syntax: <code>{{ '{{varname}}' }}</code> &mdash; double-braces.
+        Single <code>{</code> / <code>}</code> are literal so JSON examples like
+        <code>{"status": "ok"}</code> pass through unchanged.</small>
+    </div>
+
+    <div id="groupToc" class="group-toc mb-3" style="display:none;"></div>
+
+    <div id="promptsContainer">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading prompts...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let serverData = null;
+const dirty = new Set();
+
+document.addEventListener('DOMContentLoaded', reloadPrompts);
+
+function reloadPrompts() {
+    document.getElementById('promptsContainer').innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading prompts...</p>
+        </div>`;
+    dirty.clear();
+
+    fetch('{{ url_for("admin.prompts_data") }}')
+        .then(r => r.json())
+        .then(data => {
+            serverData = data;
+            renderPrompts();
+        })
+        .catch(err => {
+            document.getElementById('promptsContainer').innerHTML =
+                `<div class="alert alert-danger">Failed to load prompts: ${escapeHtml(err.message || err)}</div>`;
+        });
+}
+
+function renderPrompts() {
+    const { groups, registry } = serverData;
+    const tocEl = document.getElementById('groupToc');
+    tocEl.innerHTML = groups.map(g => {
+        const anchor = groupAnchor(g);
+        return `<a href="#${anchor}" class="badge text-bg-light border">${escapeHtml(g)}</a>`;
+    }).join('');
+    tocEl.style.display = '';
+
+    const html = groups.map(group => {
+        const keysInGroup = Object.keys(registry).filter(k => registry[k].group === group);
+        if (keysInGroup.length === 0) return '';
+        const cards = keysInGroup.map(k => renderCard(registry[k])).join('');
+        return `
+            <section class="mb-4 group-anchor" id="${groupAnchor(group)}">
+                <h5 class="mt-4 mb-2"><i class="bi bi-bookmark"></i> ${escapeHtml(group)}</h5>
+                <div class="d-flex flex-column gap-3">${cards}</div>
+            </section>`;
+    }).join('');
+    document.getElementById('promptsContainer').innerHTML = html;
+}
+
+function groupAnchor(group) {
+    return 'g_' + group.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+}
+
+function renderCard(spec) {
+    const overrideBadge = spec.has_override
+        ? `<span class="badge badge-override ms-2">DB override</span>`
+        : `<span class="badge badge-default ms-2">Built-in default</span>`;
+
+    const roleBadge = `<span class="badge badge-role role-${spec.role}">${escapeHtml(spec.role)}</span>`;
+
+    const varsHtml = (spec.variables && spec.variables.length)
+        ? '<div class="prompt-vars mb-2">'
+            + '<span class="text-muted me-1">Variables:</span>'
+            + spec.variables.map(v =>
+                '<span class="badge text-bg-secondary me-1">'
+                + '{' + '{' + escapeHtml(v) + '}' + '}'
+                + '</span>'
+            ).join('')
+            + '</div>'
+        : '';
+
+    const updatedMeta = spec.updated_at
+        ? `<span class="ms-2">Last edited ${escapeHtml(formatTimestamp(spec.updated_at))}${spec.updated_by_username ? ' by ' + escapeHtml(spec.updated_by_username) : ''}</span>`
+        : '';
+
+    const charCount = (spec.value || '').length;
+    const cardClass = spec.has_override ? 'has-override' : '';
+
+    return `
+        <div class="card prompt-card ${cardClass}" id="card_${spec.key}">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-1">
+                    <div>
+                        <div class="prompt-label">${escapeHtml(spec.label)} ${roleBadge} ${overrideBadge}</div>
+                        <div class="prompt-meta">
+                            <code>${escapeHtml(spec.key)}</code>
+                            &middot; <span data-charcount-for="${spec.key}">${charCount} chars</span>
+                            ${updatedMeta}
+                        </div>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-secondary" onclick="toggleDefault('${spec.key}')" title="Show built-in default">
+                            <i class="bi bi-eye"></i> Default
+                        </button>
+                        <button class="btn btn-outline-warning" onclick="resetPrompt('${spec.key}')" ${spec.has_override ? '' : 'disabled'} title="Drop the DB override and restore the built-in default">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                        </button>
+                        <button class="btn btn-primary" id="save_${spec.key}" onclick="savePrompt('${spec.key}')" disabled>
+                            <i class="bi bi-floppy"></i> Save
+                        </button>
+                    </div>
+                </div>
+                <div class="prompt-description">${escapeHtml(spec.description)}</div>
+                ${varsHtml}
+                <textarea
+                    class="form-control prompt-textarea"
+                    id="ta_${spec.key}"
+                    data-key="${escapeAttr(spec.key)}"
+                    spellcheck="false"
+                    oninput="markDirty('${spec.key}')"
+                >${escapeHtml(spec.value || '')}</textarea>
+                <div class="collapse mt-2" id="default_${spec.key}">
+                    <div class="text-muted small mb-1"><i class="bi bi-info-circle"></i> Built-in default (read-only):</div>
+                    <pre class="prompt-default-pre">${escapeHtml(spec.default || '')}</pre>
+                </div>
+            </div>
+        </div>`;
+}
+
+function markDirty(key) {
+    dirty.add(key);
+    const card = document.getElementById(`card_${key}`);
+    if (card) card.classList.add('is-dirty');
+    const saveBtn = document.getElementById(`save_${key}`);
+    if (saveBtn) saveBtn.disabled = false;
+    const ta = document.getElementById(`ta_${key}`);
+    const charSpan = document.querySelector(`[data-charcount-for="${key}"]`);
+    if (ta && charSpan) charSpan.textContent = `${ta.value.length} chars`;
+}
+
+function clearDirty(key) {
+    dirty.delete(key);
+    const card = document.getElementById(`card_${key}`);
+    if (card) card.classList.remove('is-dirty');
+    const saveBtn = document.getElementById(`save_${key}`);
+    if (saveBtn) saveBtn.disabled = true;
+}
+
+function toggleDefault(key) {
+    const el = document.getElementById(`default_${key}`);
+    if (!el) return;
+    const isShown = el.classList.contains('show');
+    if (isShown) el.classList.remove('show');
+    else el.classList.add('show');
+}
+
+function savePrompt(key) {
+    const ta = document.getElementById(`ta_${key}`);
+    if (!ta) return;
+    const content = ta.value;
+    const btn = document.getElementById(`save_${key}`);
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+
+    fetch('{{ url_for("admin.prompts_save") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: content }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if ((data.errors || {})[key]) {
+                showToast(`Save failed: ${data.errors[key]}`, 'danger');
+                btn.innerHTML = orig;
+                btn.disabled = false;
+                return;
+            }
+            if ((data.saved || []).includes(key)) {
+                clearDirty(key);
+                if (serverData.registry[key]) {
+                    serverData.registry[key].value = content;
+                    serverData.registry[key].has_override = true;
+                    serverData.registry[key].updated_at = new Date().toISOString();
+                    serverData.registry[key].updated_by_username = '{{ current_user.username|e }}';
+                }
+                renderPrompts();
+                showToast(`Saved ${key}.`, 'success');
+            } else {
+                showToast('Server response did not confirm save.', 'warning');
+                btn.innerHTML = orig;
+                btn.disabled = false;
+            }
+        })
+        .catch(err => {
+            showToast('Network error: ' + (err.message || err), 'danger');
+            btn.innerHTML = orig;
+            btn.disabled = false;
+        });
+}
+
+function resetPrompt(key) {
+    if (!confirm(`Reset "${key}" to the built-in default? The DB override will be deleted.`)) return;
+
+    fetch(`{{ url_for("admin.prompts_reset", key="__KEY__") }}`.replace('__KEY__', encodeURIComponent(key)), {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast('Reset failed: ' + data.error, 'danger'); return; }
+            if (serverData.registry[key]) {
+                serverData.registry[key].value = data.value;
+                serverData.registry[key].has_override = false;
+                serverData.registry[key].updated_at = null;
+                serverData.registry[key].updated_by_username = null;
+            }
+            clearDirty(key);
+            renderPrompts();
+            showToast(`Reset ${key} to default.`, 'success');
+        })
+        .catch(err => showToast('Network error: ' + (err.message || err), 'danger'));
+}
+
+window.addEventListener('beforeunload', (e) => {
+    if (dirty.size > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
+function showToast(msg, level) {
+    const div = document.createElement('div');
+    div.className = `alert alert-${level} position-fixed`;
+    div.style.cssText = 'top: 70px; right: 20px; z-index: 9999; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+    div.textContent = msg;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+function formatTimestamp(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleString();
+    } catch (_) { return iso; }
+}
+
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+
+function escapeAttr(s) {
+    return escapeHtml(s).replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}

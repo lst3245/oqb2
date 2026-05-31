@@ -80,13 +80,15 @@ def create_app():
         except Exception:
             db.session.rollback()  # Table may not exist yet (pre-migration)
 
-    # Auto-create the system_settings table if missing so admins running an
-    # upgraded build don't have to re-run init_db.py just for this. Other
-    # tables predate this feature and are already present.
+    # Auto-create the system_settings + prompt_overrides tables if missing
+    # so admins running an upgraded build don't have to re-run init_db.py
+    # just for these. Other tables predate this feature and are already
+    # present.
     with app.app_context():
         try:
-            from app.models import SystemSetting
+            from app.models import SystemSetting, PromptOverride
             SystemSetting.__table__.create(db.engine, checkfirst=True)
+            PromptOverride.__table__.create(db.engine, checkfirst=True)
         except Exception:
             pass  # broken DB connection / pre-init; settings will fall back to .env
 

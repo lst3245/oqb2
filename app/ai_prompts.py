@@ -1,17 +1,232 @@
 """
-Prompt templates + output parsing for the AI Tools feature.
+Prompt templates + output parsing for the AI features.
 
-Two operations:
-  * CHECK  - proofread a typed question image against the official scan.
-  * MD GEN - transcribe a question image into self-contained Markdown.
+The prompt content (system + user-turn templates for proofreading, MD
+generation, the Explain tutor, the figure-bbox detector, and the PDF
+batch-import bbox detector) lives in PROMPTS_REGISTRY below as bootstrap
+defaults, and is overridable at runtime via the Admin -> AI Prompts page
+(super-admin only). Overrides persist in the `prompt_overrides` table
+(see app/models.py PromptOverride).
+
+Variable substitution syntax for prompts that take parameters:
+  ``{{var}}``  - replaced with the value of ``var``.
+Single ``{`` / ``}`` are LITERAL - they pass through unchanged. This
+matters because several prompts contain JSON examples like ``{"status":
+"ok"}`` that we must not mangle. Use double-braces only for our own
+substitution points.
+
+Output parsing (parse_check_result, parse_figure_boxes,
+parse_question_boxes, normalize_inline_math, strip_md_fences, the figure
+regex) lives at the bottom of this module unchanged - those are pure
+utility functions, not prompts.
 """
 import json
+import logging
 import re
+from collections import OrderedDict
+from threading import Lock
+from typing import Any
+
+
+logger = logging.getLogger(__name__)
+
+
+# ==================== Prompt registry ========================================
+
+class _PromptSpec(dict):
+    """Metadata for one editable prompt. Behaves like a dict so it serialises
+    cleanly in the /admin/prompts/data response."""
+    __getattr__ = dict.__getitem__
+
+
+def _prompt(*, group, label, description, default,
+            variables=None, role='system'):
+    return _PromptSpec(
+        group=group,
+        label=label,
+        description=description,
+        default=default,
+        variables=list(variables or []),
+        role=role,
+    )
+
+
+# ---- Resolver / cache ------------------------------------------------------
+#
+# Module-level cache so chat calls don't hit the DB every time. Writes
+# (set_prompt / reset_prompt / invalidate_cache) drop entries; reads
+# repopulate. Single-process assumption — same caveat as the system
+# settings cache.
+
+_PROMPT_CACHE: dict = {}
+_CACHE_LOCK = Lock()
+
+
+def _load_override(key):
+    """Read the DB override for ``key`` if present. Returns None when no row
+    exists or the DB isn't reachable (caller falls back to the default)."""
+    try:
+        from app.models import PromptOverride
+        row = PromptOverride.query.get(key)
+        return row.content if row else None
+    except Exception as e:  # pragma: no cover — DB down / pre-init
+        logger.debug('PromptOverride load failed for %s: %s', key, e)
+        return None
+
+
+def get_prompt(key: str) -> str:
+    """Return the live content for ``key`` (DB override if any, else the
+    bootstrap default). Raises KeyError on an unknown key."""
+    if key not in PROMPTS_REGISTRY:
+        raise KeyError(f'Unknown prompt key: {key}')
+
+    with _CACHE_LOCK:
+        cached = _PROMPT_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    override = _load_override(key)
+    content = override if override is not None else PROMPTS_REGISTRY[key]['default']
+
+    with _CACHE_LOCK:
+        _PROMPT_CACHE[key] = content
+    return content
+
+
+# Variable substitution: only `{{name}}` is replaced — single `{` / `}` are
+# left alone so JSON examples and other curly-brace literals in prompts pass
+# through untouched. Unknown names render as `{{name}}` literally so the
+# model's reply makes the misuse visible at debug time.
+_VAR_RE = re.compile(r'\{\{(\w+)\}\}')
+
+
+def render_prompt(key: str, **vars: Any) -> str:
+    """Return ``get_prompt(key)`` with declared ``{{var}}`` placeholders
+    substituted. Variables not declared in the registry for that key are
+    ignored. Missing declared variables leave the literal ``{{var}}`` in
+    the output (so prompt-design errors surface in the model's reply
+    rather than crashing the request)."""
+    template = get_prompt(key)
+    if not vars:
+        return template
+
+    spec = PROMPTS_REGISTRY[key]
+    declared = set(spec['variables'])
+    if not declared:
+        return template
+
+    def _sub(m):
+        name = m.group(1)
+        if name in declared and name in vars:
+            return str(vars[name])
+        return m.group(0)
+
+    return _VAR_RE.sub(_sub, template)
+
+
+def set_prompt(key: str, content: str, user_id=None) -> str:
+    """Persist a DB override for ``key`` and invalidate the cache. Returns
+    the saved content. Raises KeyError on an unknown key, ValueError on a
+    blank or excessively large payload."""
+    if key not in PROMPTS_REGISTRY:
+        raise KeyError(f'Unknown prompt key: {key}')
+    if not isinstance(content, str):
+        raise ValueError('content must be a string')
+    content = content.strip('\ufeff').rstrip()  # strip BOM + trailing whitespace
+    if not content:
+        raise ValueError('content must not be empty')
+    if len(content) > 32000:
+        raise ValueError('content exceeds 32000 characters')
+
+    from app import db
+    from app.models import PromptOverride
+
+    row = PromptOverride.query.get(key)
+    if row is None:
+        row = PromptOverride(key=key, content=content, updated_by=user_id)
+        db.session.add(row)
+    else:
+        row.content = content
+        row.updated_by = user_id
+    db.session.commit()
+
+    with _CACHE_LOCK:
+        _PROMPT_CACHE.pop(key, None)
+    logger.info('PromptOverride saved: %s (%d chars, by user %s)',
+                key, len(content), user_id)
+    return content
+
+
+def reset_prompt(key: str, user_id=None) -> str:
+    """Delete the DB override for ``key`` and restore the bootstrap default.
+    Returns the default content."""
+    if key not in PROMPTS_REGISTRY:
+        raise KeyError(f'Unknown prompt key: {key}')
+
+    from app import db
+    from app.models import PromptOverride
+
+    row = PromptOverride.query.get(key)
+    if row is not None:
+        db.session.delete(row)
+        db.session.commit()
+
+    with _CACHE_LOCK:
+        _PROMPT_CACHE.pop(key, None)
+    default = PROMPTS_REGISTRY[key]['default']
+    logger.info('PromptOverride reset to default: %s (by user %s)', key, user_id)
+    return default
+
+
+def invalidate_cache(key=None) -> None:
+    """Drop one cached prompt, or the whole cache when ``key`` is None.
+    Called automatically by set_prompt / reset_prompt; also exposed so
+    tests / live-reloaders can force a refresh."""
+    with _CACHE_LOCK:
+        if key is None:
+            _PROMPT_CACHE.clear()
+        else:
+            _PROMPT_CACHE.pop(key, None)
+
+
+def as_dict() -> dict:
+    """Serialise the registry + current values for the admin UI."""
+    from app.models import PromptOverride
+
+    overrides = {}
+    try:
+        for row in PromptOverride.query.all():
+            overrides[row.key] = row
+    except Exception as e:  # pragma: no cover — pre-init / DB down
+        logger.debug('PromptOverride query failed: %s', e)
+
+    out_registry = OrderedDict()
+    groups = []
+    for key, spec in PROMPTS_REGISTRY.items():
+        if spec['group'] not in groups:
+            groups.append(spec['group'])
+        row = overrides.get(key)
+        out_registry[key] = {
+            'key': key,
+            'group': spec['group'],
+            'label': spec['label'],
+            'description': spec['description'],
+            'variables': spec['variables'],
+            'role': spec['role'],
+            'default': spec['default'],
+            'value': row.content if row else spec['default'],
+            'has_override': row is not None,
+            'updated_at': row.updated_at.isoformat() if (row and row.updated_at) else None,
+            'updated_by_username': (
+                row.updated_by_user.username if (row and row.updated_by_user) else None
+            ),
+        }
+    return {'groups': groups, 'registry': out_registry}
 
 
 # ==================== Image checking (proofreading) ====================
 
-CHECK_SYSTEM = (
+_DEFAULT_CHECK_SYSTEM = (
     "You are a meticulous bilingual (English/Chinese) exam-paper proofreader. "
     "You are given two images of the SAME exam question asset: an OFFICIAL "
     "scanned version (the ground truth) and a TYPED reproduction that may "
@@ -30,19 +245,27 @@ CHECK_SYSTEM = (
 )
 
 
+_DEFAULT_CHECK_USER = (
+    "Asset type: {{asset_type}}. The FIRST image(s) are the OFFICIAL scanned "
+    "version ({{ref_version}}). The following image(s) are the TYPED version "
+    "({{typed_version}}) to be proofread. List discrepancies in the TYPED "
+    "version. Return STRICT JSON."
+)
+
+
 def build_check_user_text(typed_version, ref_version, asset_type):
-    """The user-turn instruction accompanying the two images."""
-    return (
-        f"Asset type: {asset_type}. "
-        f"The FIRST image(s) are the OFFICIAL scanned version ({ref_version}). "
-        f"The following image(s) are the TYPED version ({typed_version}) to be "
-        f"proofread. List discrepancies in the TYPED version. Return STRICT JSON."
+    """The user-turn instruction accompanying the two images for proofreading."""
+    return render_prompt(
+        'CHECK_USER',
+        typed_version=typed_version,
+        ref_version=ref_version,
+        asset_type=asset_type,
     )
 
 
 # ==================== Markdown generation ====================
 
-MD_SYSTEM = (
+_DEFAULT_MD_SYSTEM = (
     "You are an expert at transcribing exam questions from images into clean, "
     "self-contained GitHub-Flavored Markdown. Rules:\n"
     "- Transcribe the content faithfully and completely. Do NOT solve, answer, "
@@ -64,17 +287,24 @@ MD_SYSTEM = (
 )
 
 
+_DEFAULT_MD_USER = (
+    "Transcribe this {{asset_type}} image (version {{source_version}}) into "
+    "Markdown following the rules. Output Markdown only. Remember: only use a "
+    "[FIGURE: ...] placeholder if there is a real diagram/graph/drawing."
+)
+
+
 def build_md_user_text(source_version, asset_type):
-    return (
-        f"Transcribe this {asset_type} image (version {source_version}) into "
-        f"Markdown following the rules. Output Markdown only. Remember: only use "
-        f"a [FIGURE: ...] placeholder if there is a real diagram/graph/drawing."
+    return render_prompt(
+        'MD_USER',
+        source_version=source_version,
+        asset_type=asset_type,
     )
 
 
 # ==================== Question explanation (AI tutor chat) ====================
 
-EXPLAIN_SYSTEM = (
+_DEFAULT_EXPLAIN_SYSTEM = (
     "You are an expert, encouraging exam tutor helping a student understand ONE "
     "exam question. You are given image(s) of the QUESTION and, when available, "
     "its official SOLUTION. Explain it clearly and pedagogically:\n"
@@ -90,8 +320,7 @@ EXPLAIN_SYSTEM = (
     "complete, and answer any follow-up questions in the same style."
 )
 
-# The user-turn instruction that accompanies the question/solution images.
-EXPLAIN_INITIAL_USER = (
+_DEFAULT_EXPLAIN_INITIAL_USER = (
     "Please explain this question: what it is asking, the concepts involved, "
     "and how to arrive at the answer step by step."
 )
@@ -114,7 +343,7 @@ def figure_captions(md: str):
     return [m.group(1).strip() for m in FIGURE_RE.finditer(md or '')]
 
 
-FIGURE_BOX_SYSTEM = (
+_DEFAULT_FIGURE_BOX_SYSTEM = (
     "You are a precise vision tool that locates figures in an exam-question "
     "image. A 'figure' is a diagram, graph, chart, geometric drawing, or "
     "picture — NOT plain text, equations, tables, or multiple-choice options.\n"
@@ -125,7 +354,7 @@ FIGURE_BOX_SYSTEM = (
     "figures, return []."
 )
 
-FIGURE_BOX_USER = (
+_DEFAULT_FIGURE_BOX_USER = (
     "List the bounding boxes of the real figures/diagrams in this image as "
     "STRICT JSON. Use fractional coordinates (0..1). Return [] if none."
 )
@@ -189,7 +418,7 @@ def parse_figure_boxes(text: str):
 # so we pin one convention here and parse defensively in parse_question_boxes.
 # Models that ignore this and answer y-first (Gemma/Gemini family) are handled
 # by the PDF_IMPORT_COORD_ORDER='yxyx' setting.
-_PDF_BOX_JSON_CONTRACT = (
+_DEFAULT_PDF_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
     '{"qno": <integer printed question number>, "box": [x1, y1, x2, y2], '
@@ -210,7 +439,7 @@ _PDF_BOX_JSON_CONTRACT = (
     "continues on the next page. If the page has no question content, return []."
 )
 
-PDF_QUE_BOX_SYSTEM = (
+_DEFAULT_PDF_QUE_BOX_SYSTEM = (
     "You are a precise document-layout tool for Hong Kong DSE exam papers. "
     "You are given ONE rasterised page of a QUESTION paper. Locate the tight "
     "bounding box around each individual exam QUESTION on the page.\n"
@@ -230,10 +459,10 @@ PDF_QUE_BOX_SYSTEM = (
     "- Each numbered question is one box. Do NOT split a question into its "
     "sub-parts (a), (b), (c) — keep the whole numbered question together.\n"
     "- The page is a single column; questions are stacked vertically.\n\n"
-    + _PDF_BOX_JSON_CONTRACT
+    "{{json_contract}}"
 )
 
-PDF_SOL_BOX_SYSTEM = (
+_DEFAULT_PDF_SOL_BOX_SYSTEM = (
     "You are a precise document-layout tool for Hong Kong DSE exam papers. "
     "You are given ONE rasterised page of a SOLUTION / marking-scheme "
     "document. Locate the tight bounding box around each individual "
@@ -247,20 +476,180 @@ PDF_SOL_BOX_SYSTEM = (
     "numbered question together.\n"
     "- The page is a single column of solutions stacked vertically (side notes "
     "do not count as a second column).\n\n"
-    + _PDF_BOX_JSON_CONTRACT
+    "{{json_contract}}"
 )
+
+
+_DEFAULT_PDF_BOX_USER = (
+    "List the bounding boxes of every {{what}} on this page as STRICT JSON. "
+    "Use integer coordinates on a 0-1000 grid in the order [x1, y1, x2, y2] = "
+    "[left, top, right, bottom], measured from the top-left corner. Include "
+    "the printed question number for each. Return [] if the page has no "
+    "{{what}}."
+)
+
+
+# ---- Registry --------------------------------------------------------------
+#
+# Order here drives the order rendered in the admin UI; group keys also
+# define the section ordering. Variables declared here are the ONLY names
+# that ``render_prompt`` will recognise; passing extra kwargs is fine
+# (they'll just be ignored by the substitution regex).
+
+PROMPTS_REGISTRY = OrderedDict([
+    ('CHECK_SYSTEM', _prompt(
+        group='AI Tools — Proofreading',
+        label='Proofreading: System prompt',
+        description=(
+            'Role and contract for the proofreader. The model receives the '
+            'OFFICIAL scan first, then the TYPED reproduction, and must reply '
+            'with STRICT JSON of the documented shape. Changing this prompt '
+            'risks breaking the JSON parser — keep the response contract.'
+        ),
+        default=_DEFAULT_CHECK_SYSTEM,
+        role='system',
+    )),
+    ('CHECK_USER', _prompt(
+        group='AI Tools — Proofreading',
+        label='Proofreading: User-turn instruction',
+        description=(
+            'Accompanies the two images sent each call. Variables are filled '
+            'in per-question by the AI Tools batch op.'
+        ),
+        default=_DEFAULT_CHECK_USER,
+        variables=['asset_type', 'ref_version', 'typed_version'],
+        role='user',
+    )),
+    ('MD_SYSTEM', _prompt(
+        group='AI Tools — Markdown Generation',
+        label='Markdown generation: System prompt',
+        description=(
+            'Rules for transcribing question images into self-contained '
+            'GitHub-Flavored Markdown. The [FIGURE: ...] placeholder rule is '
+            'consumed downstream by the figure-embed pass — keep that '
+            'sentinel intact if you customise this prompt.'
+        ),
+        default=_DEFAULT_MD_SYSTEM,
+        role='system',
+    )),
+    ('MD_USER', _prompt(
+        group='AI Tools — Markdown Generation',
+        label='Markdown generation: User-turn instruction',
+        description='Accompanies the source image(s) sent each call.',
+        default=_DEFAULT_MD_USER,
+        variables=['asset_type', 'source_version'],
+        role='user',
+    )),
+    ('EXPLAIN_SYSTEM', _prompt(
+        group='Explain Tutor (Dashboard)',
+        label='Explain: System prompt',
+        description=(
+            'Persona + rules for the dashboard Explain tutor chat. The model '
+            'is shown the QUESTION image and (when available) the official '
+            'SOLUTION image, and replies in Markdown + LaTeX math.'
+        ),
+        default=_DEFAULT_EXPLAIN_SYSTEM,
+        role='system',
+    )),
+    ('EXPLAIN_INITIAL_USER', _prompt(
+        group='Explain Tutor (Dashboard)',
+        label='Explain: Initial user request',
+        description=(
+            'Trailing text appended after the QUESTION/SOLUTION images on the '
+            'first user turn. Keep it short — it just kicks off the tutor '
+            'response. Follow-up turns are user free-text and use no prompt.'
+        ),
+        default=_DEFAULT_EXPLAIN_INITIAL_USER,
+        role='user',
+    )),
+    ('FIGURE_BOX_SYSTEM', _prompt(
+        group='Figure Detection (MD Generation)',
+        label='Figure bbox: System prompt',
+        description=(
+            'Used during MD generation when a [FIGURE: ...] placeholder is '
+            'present and embed_image is enabled, to locate the figure region '
+            'for cropping. STRICT JSON contract; coordinates are FRACTIONS '
+            '0..1. Changing this risks breaking parse_figure_boxes.'
+        ),
+        default=_DEFAULT_FIGURE_BOX_SYSTEM,
+        role='system',
+    )),
+    ('FIGURE_BOX_USER', _prompt(
+        group='Figure Detection (MD Generation)',
+        label='Figure bbox: User-turn instruction',
+        description='Accompanies the single source image to localise figures in.',
+        default=_DEFAULT_FIGURE_BOX_USER,
+        role='user',
+    )),
+    ('PDF_BOX_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — Question/Solution Detection',
+        label='PDF bbox: JSON contract (shared)',
+        description=(
+            'Common JSON-shape contract appended to BOTH the Question and '
+            'Solution detection system prompts via the {{json_contract}} '
+            'placeholder. Edit ONCE here to update the response shape '
+            'expected from the model on both sides; the parser '
+            '(parse_question_boxes) is tightly coupled to this contract.'
+        ),
+        default=_DEFAULT_PDF_BOX_JSON_CONTRACT,
+        role='system',
+    )),
+    ('PDF_QUE_BOX_SYSTEM', _prompt(
+        group='PDF Batch Import — Question/Solution Detection',
+        label='PDF bbox: Question-page system prompt',
+        description=(
+            'Used by PDF Batch Import to detect each individual question on a '
+            'rasterised exam page. Includes specific guidance for marks '
+            'annotations, multi-part questions, and excluding answer space. '
+            'The {{json_contract}} placeholder is replaced with the shared '
+            'JSON contract above.'
+        ),
+        default=_DEFAULT_PDF_QUE_BOX_SYSTEM,
+        variables=['json_contract'],
+        role='system',
+    )),
+    ('PDF_SOL_BOX_SYSTEM', _prompt(
+        group='PDF Batch Import — Question/Solution Detection',
+        label='PDF bbox: Solution-page system prompt',
+        description=(
+            'Used by PDF Batch Import to detect each individual solution on a '
+            'rasterised marking-scheme page. Keeps right-hand marking '
+            'annotations (which the QUE prompt does not). The '
+            '{{json_contract}} placeholder is replaced with the shared JSON '
+            'contract above.'
+        ),
+        default=_DEFAULT_PDF_SOL_BOX_SYSTEM,
+        variables=['json_contract'],
+        role='system',
+    )),
+    ('PDF_BOX_USER', _prompt(
+        group='PDF Batch Import — Question/Solution Detection',
+        label='PDF bbox: User-turn instruction',
+        description=(
+            "Accompanies the single page image. {{what}} is filled with "
+            "either 'questions' or 'solutions' depending on which side is "
+            "being processed."
+        ),
+        default=_DEFAULT_PDF_BOX_USER,
+        variables=['what'],
+        role='user',
+    )),
+])
 
 
 def build_pdf_box_user_text(asset_type: str) -> str:
     """User-turn instruction accompanying a single page image."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
-    return (
-        f"List the bounding boxes of every {what} on this page as STRICT JSON. "
-        f"Use integer coordinates on a 0-1000 grid in the order [x1, y1, x2, y2] "
-        f"= [left, top, right, bottom], measured from the top-left corner. "
-        f"Include the printed question number for each. Return [] if the page "
-        f"has no {what}."
-    )
+    return render_prompt('PDF_BOX_USER', what=what)
+
+
+def build_pdf_box_system(asset_type: str) -> str:
+    """Resolved system prompt for the PDF page-detection model, with the
+    shared JSON contract substituted in. Use this from call sites instead of
+    branching on QUE/SOL yourself."""
+    contract = get_prompt('PDF_BOX_JSON_CONTRACT')
+    key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
+    return render_prompt(key, json_contract=contract)
 
 
 def _normalize_box(coords, img_w=None, img_h=None, coord_order='xyxy'):

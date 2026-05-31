@@ -4190,6 +4190,93 @@ def settings_reset(key):
     return jsonify({'key': key, 'value': default, 'has_override': False})
 
 
+# ==================== AI Prompts (Super Admin Only) ====================
+#
+# Edit-in-place admin UI for the system / user-turn prompt templates used by
+# every AI feature (proofreading, MD generation, the Explain tutor, the
+# figure-bbox detector, the PDF batch-import bbox detector). The full
+# registry — keys, defaults, declared variables, group / label / description
+# — lives in `app/ai_prompts.py` (PROMPTS_REGISTRY); these routes are the
+# thin HTTP surface around it. All write paths require super-admin because
+# prompts shape global model behaviour.
+
+@admin_bp.route('/prompts')
+@login_required
+@super_admin_required
+def prompts_page():
+    """Render the AI prompts admin page."""
+    return render_template('admin_prompts.html')
+
+
+@admin_bp.route('/prompts/data')
+@login_required
+@super_admin_required
+def prompts_data():
+    """Return the full registry + current values as JSON for the UI."""
+    from app import ai_prompts
+    return jsonify(ai_prompts.as_dict())
+
+
+@admin_bp.route('/prompts/save', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_save():
+    """Accept ``{key: content, ...}`` and persist each as a DB override.
+
+    Per-key validation errors are reported in the response (200 OK either
+    way) so a partial save can complete even if one prompt is bad. Mirrors
+    the system-settings save shape.
+
+    Response:
+        {
+          'saved':  ['CHECK_SYSTEM', ...],
+          'errors': {'CHECK_USER': '...', ...},
+        }
+    """
+    from app import ai_prompts
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'JSON object body required'}), 400
+
+    saved = []
+    errors = {}
+    for key, content in payload.items():
+        if key not in ai_prompts.PROMPTS_REGISTRY:
+            errors[key] = 'unknown prompt key'
+            continue
+        try:
+            ai_prompts.set_prompt(key, content, user_id=current_user.id)
+            saved.append(key)
+        except (ValueError, KeyError) as e:
+            errors[key] = str(e)
+        except Exception as e:  # pragma: no cover — surface DB errors gracefully
+            errors[key] = f'unexpected error: {e}'
+
+    return jsonify({'saved': saved, 'errors': errors})
+
+
+@admin_bp.route('/prompts/reset/<key>', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_reset(key):
+    """Drop the DB override for ``key`` and restore the bootstrap default.
+
+    Returns the restored default content so the UI can update its display
+    without a refresh."""
+    from app import ai_prompts
+
+    if key not in ai_prompts.PROMPTS_REGISTRY:
+        return jsonify({'error': 'Unknown prompt key'}), 404
+
+    try:
+        default = ai_prompts.reset_prompt(key, user_id=current_user.id)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'key': key, 'value': default, 'has_override': False})
+
+
 # ==================== LLM Endpoints (AI Tools, Super Admin Only) ====================
 #
 # CRUD for the named OpenAI-compatible endpoints used by the AI Tools
