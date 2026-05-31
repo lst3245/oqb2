@@ -6,6 +6,21 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Explain modal — Admin model picker + user image attachments
+
+Two upgrades to the dashboard **Explain** tutor:
+
+- **Per-conversation model picker (super-admin / subject-admin only).** A dropdown next to the modal title lets admins swap LLM endpoints on the fly without touching the system-wide `EXPLAIN_DEFAULT_LLM` setting. Useful for quickly comparing reasoning models against the same question, falling back to a faster model when the default is overloaded, or running an A/B between providers. The dropdown is populated from `GET /dashboard/api/question/<id>/explain/endpoints`, which returns `{can_pick, default_id, endpoints: [{id, name, model, supports_vision}]}` — `can_pick=false` for regular users so the picker stays hidden. Each option shows the endpoint name, the model id, a `(text-only)` marker for non-vision endpoints, and a `(default)` flag on the configured default. **Switching the picker auto-regenerates the last assistant reply** with the new model — the in-flight stream (if any) is cleanly aborted via `AbortController`, the trailing assistant bubble is dropped, and the same conversation history is resubmitted to the newly selected endpoint. The chosen `endpoint_id` is sent in the body of every request that turn; the server re-validates the permission via `_can_pick_explain_endpoint(question)` (super-admin OR `is_subject_admin(question.subject)`) and silently ignores any override coming from a regular user.
+- **User-attached images.** Up to **6 images per turn** (8 MB each, 32 MB total per request) can be added through three input methods: the **paperclip** button (file picker), **paste** (Ctrl+V anywhere in the modal — handy for screenshots), or **drag-drop** (drop anywhere on the modal body). A staged-image strip appears above the input row with a remove ("×") button per thumbnail. Allowed mime types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`. Once sent, the images stay inside the user bubble (clickable to open at full size in a new tab) and are re-sent on every follow-up turn so the model retains visual context across the whole conversation. The attach button auto-disables when the picked endpoint is **not** vision-capable; switching from a vision to a non-vision model mid-chat warns "earlier turns include images this endpoint can't see — the next send will be rejected" and drops any still-staged images.
+
+Frontend caps live in `templates/dashboard.html` as `EXPLAIN_MAX_IMAGES_PER_TURN` / `EXPLAIN_MAX_IMAGE_BYTES` / `EXPLAIN_MAX_TOTAL_IMAGE_BYTES`; backend caps in `app/dashboard.py` as `EXPLAIN_MAX_IMAGES_PER_TURN` / `EXPLAIN_MAX_IMAGES_TOTAL_BYTES`. The backend re-decodes every data URL through a new `llm_client.prepare_image_from_data_url(data_url, max_dim=LLM_IMAGE_MAX_DIM)` (mirrors `prepare_image` but takes raw bytes from a `data:image/...;base64,...` URL), so over-the-wire payloads stay small even when the user pastes a multi-megabyte PNG screenshot.
+
+Routes:
+- `GET /dashboard/api/question/<id>/explain/endpoints` — list available endpoints + permission flag.
+- `POST /dashboard/api/question/<id>/explain` — extended body now accepts `endpoint_id` (admin-only) and per-turn `images: [data_url, ...]` arrays. All existing fields preserved.
+
+UI lives in `templates/dashboard.html` (`#explainModal`, `openExplainModal`, `sendExplainMessage`, plus new helpers `_explainStageFiles`, `_explainRenderStaged`, `_explainApplyEndpoints`, `_explainSyncVisionFromPicker`).
+
 #### Admin → AI Prompts (super-admin only)
 
 Every system / user-turn prompt powering the AI features — proofreading, Markdown generation, the dashboard **Explain** tutor, the figure-bbox detector, and the PDF Batch Import bbox detector — is now editable from a new **Admin → AI Prompts** page (super-admin only). Twelve prompts in five groups, each shown as its own card with:

@@ -571,6 +571,27 @@
     .explain-typing span:nth-child(2) { animation-delay: .2s; }
     .explain-typing span:nth-child(3) { animation-delay: .4s; }
     @keyframes explainBlink { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+    /* User-attached images shown inside the user bubble. */
+    .explain-msg.user .user-images { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem; }
+    .explain-msg.user .user-images img { max-width: 160px; max-height: 160px; border-radius: 0.35rem; object-fit: cover; cursor: zoom-in; background: #fff; }
+    /* Full-size image overlay — same pattern as .fullsize-overlay in
+       edit_question_modal.html but z-index is set higher (10500) so it
+       reliably appears in front of the Bootstrap Explain modal (1055)
+       and of the asset-management overlay (9999). */
+    .explain-img-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 10500; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+    .explain-img-overlay img { max-width: 95vw; max-height: 92vh; object-fit: contain; background: #fff; border-radius: 4px; padding: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.45); }
+    .explain-img-overlay .overlay-caption { position: absolute; bottom: 1.1rem; left: 50%; transform: translateX(-50%); color: #e0e0e0; font-size: 0.8rem; background: rgba(0,0,0,0.45); padding: 0.2rem 0.65rem; border-radius: 1rem; white-space: nowrap; pointer-events: none; }
+    /* Staged-image preview strip above the input row. */
+    .explain-attach-preview { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.45rem; background: #f8f9fa; border: 1px dashed #ced4da; border-radius: 0.4rem; }
+    .explain-attach-preview.dragover { background: #e7f1ff; border-color: #0d6efd; }
+    .explain-attach-thumb { position: relative; width: 64px; height: 64px; border-radius: 0.35rem; overflow: hidden; background: #fff; border: 1px solid #dee2e6; flex-shrink: 0; }
+    .explain-attach-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .explain-attach-thumb .remove { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.65); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; cursor: pointer; border: none; padding: 0; }
+    .explain-attach-thumb .remove:hover { background: rgba(220,53,69,0.85); }
+    .explain-attach-msg { font-size: 0.85em; color: #842029; padding: 0.3rem 0.5rem; background: #f8d7da; border-radius: 0.35rem; }
+    /* Endpoint picker in the modal header. */
+    .explain-endpoint-picker { min-width: 220px; max-width: 320px; }
+    .explain-endpoint-picker .form-select { font-size: 0.875rem; padding: 0.25rem 1.5rem 0.25rem 0.5rem; }
 </style>
 <div class="modal fade" id="explainModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -580,20 +601,33 @@
                     <h5 class="modal-title mb-0"><i class="bi bi-stars"></i> Explain <span id="explainQid" class="text-muted fw-normal small"></span></h5>
                     <small class="text-muted" id="explainMeta"></small>
                 </div>
+                <div id="explainEndpointPickerWrap" class="explain-endpoint-picker me-2 d-none">
+                    <select id="explainEndpointPicker" class="form-select form-select-sm"
+                            title="Choose which LLM endpoint to use for this chat (admins only)">
+                    </select>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" id="explainModalBody">
                 <div id="explainTranscript" class="explain-transcript"></div>
             </div>
             <div class="modal-footer flex-column align-items-stretch gap-2">
+                <div id="explainAttachMsg" class="explain-attach-msg d-none"></div>
+                <div id="explainAttachPreview" class="explain-attach-preview d-none"></div>
                 <div class="d-flex gap-2 align-items-end">
+                    <button type="button" id="explainAttachBtn" class="btn btn-outline-secondary"
+                            onclick="document.getElementById('explainAttachInput').click()"
+                            title="Attach images (paste, drag-drop, or pick)">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+                    <input type="file" id="explainAttachInput" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden>
                     <textarea id="explainInput" class="form-control" rows="1"
                               placeholder="Ask a follow-up question…" style="resize:none; max-height:140px;"></textarea>
                     <button type="button" id="explainSendBtn" class="btn btn-dark" onclick="sendExplainMessage()" title="Send">
                         <i class="bi bi-send"></i>
                     </button>
                 </div>
-                <small class="text-muted"><i class="bi bi-info-circle"></i> The question and its solution image are sent to the AI. Press Enter to send, Shift+Enter for a new line.</small>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> The question and its solution image are sent to the AI. Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach up to 6 images per message.</small>
             </div>
         </div>
     </div>
@@ -3916,11 +3950,29 @@ function previewText(title, textContent) {
 }
 
 // ============== Explain (AI tutor chat) ==============
-// Opens a chat modal that sends the question (+ solution) image to the default
-// LLM and streams back an explanation. Follow-up turns post the running
-// transcript; the server re-attaches the images to the first turn each time.
+// Opens a chat modal that sends the question (+ solution) image to the
+// chosen LLM and streams back an explanation. Follow-up turns post the
+// running transcript; the server re-attaches the source images to the
+// first turn each time.
+//
+// Two admin-controlled extras:
+//   * Endpoint picker (super-admin or subject-admin only) — swap the LLM
+//     mid-conversation. The server validates ``endpoint_id`` against the
+//     same permission check; regular users' override is silently ignored.
+//   * User-attached images — paste, drag, or file-pick up to 6 images
+//     per turn (8 MB each, 32 MB total). Sent as base64 data: URLs and
+//     re-sent on every follow-up turn so visual context persists.
 let explainModalInstance = null;
-let explainState = null; // { questionId, qid, turns: [...], busy: bool }
+// explainState shape:
+//   { questionId, qid, turns: [{role, content, images?: [dataUrl,...]}],
+//     busy: bool, endpointId: int|null, endpoints: [{id, name, model,
+//     supports_vision}], canPick: bool, supportsVision: bool, staged: [dataUrl,...] }
+let explainState = null;
+
+const EXPLAIN_MAX_IMAGES_PER_TURN = 6;
+const EXPLAIN_MAX_IMAGE_BYTES = 8 * 1024 * 1024;        // 8 MB per image
+const EXPLAIN_MAX_TOTAL_IMAGE_BYTES = 32 * 1024 * 1024; // 32 MB across staged + history
+const EXPLAIN_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 function _explainEscape(s) {
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -3931,7 +3983,20 @@ function _explainAppendBubble(role, html, opts) {
     const transcript = document.getElementById('explainTranscript');
     const div = document.createElement('div');
     div.className = 'explain-msg ' + role + (opts.error ? ' error' : '');
-    div.innerHTML = html;
+    let inner = html || '';
+    if (opts.images && opts.images.length) {
+        // Append a thumbnail strip below the user text. Empty-text turns
+        // (image-only) still get the strip — the bubble has no text node.
+        // Clicking a thumbnail opens the full-size overlay; the listener
+        // is delegated from #explainTranscript so it covers all bubbles.
+        let imgHtml = '<div class="user-images">';
+        for (const u of opts.images) {
+            imgHtml += '<img src="' + u + '" alt="attached" loading="lazy">';
+        }
+        imgHtml += '</div>';
+        inner += imgHtml;
+    }
+    div.innerHTML = inner;
     transcript.appendChild(div);
     if (role === 'assistant' && !opts.error && !opts.typing) {
         window.oqbTypesetMath && window.oqbTypesetMath(div);
@@ -3942,22 +4007,269 @@ function _explainAppendBubble(role, html, opts) {
     return div;
 }
 
+// Open a full-size image overlay on top of the Explain modal.
+// Identical pattern to showFullSize() in edit_question_modal_js.html
+// but uses z-index 10500 so it renders in front of both the Bootstrap
+// modal (1055) and the asset-management overlay (9999). Always defined
+// here so it works for all users, regardless of admin status.
+function _explainShowImageOverlay(src, caption) {
+    const overlay = document.createElement('div');
+    overlay.className = 'explain-img-overlay';
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = caption || 'attached image';
+    img.onerror = () => {
+        overlay.innerHTML = '<div class="text-white text-center p-4">'
+            + '<i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>Image could not be loaded</div>';
+    };
+    overlay.appendChild(img);
+    if (caption) {
+        const cap = document.createElement('div');
+        cap.className = 'overlay-caption';
+        cap.textContent = caption;
+        overlay.appendChild(cap);
+    }
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+    };
+    const onKey = (e) => {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') close();
+    };
+    overlay.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    // Remove the ESC listener when the overlay is no longer in the DOM
+    // (e.g. if the Bootstrap modal itself closes). A MutationObserver
+    // is overkill here; the overlay is so short-lived that a stray
+    // keydown listener is negligible.
+}
+
 function _explainSetBusy(busy) {
     if (explainState) explainState.busy = busy;
     const btn = document.getElementById('explainSendBtn');
     const input = document.getElementById('explainInput');
+    const attachBtn = document.getElementById('explainAttachBtn');
     if (btn) btn.disabled = busy;
     if (input) input.disabled = busy;
+    if (attachBtn) attachBtn.disabled = busy || !(explainState && explainState.supportsVision);
+}
+
+function _explainShowAttachMsg(text) {
+    const el = document.getElementById('explainAttachMsg');
+    if (!el) return;
+    if (!text) { el.classList.add('d-none'); el.textContent = ''; return; }
+    el.textContent = text;
+    el.classList.remove('d-none');
+    // Auto-hide after 4 s; clearing earlier on the next call.
+    if (el._hideTimer) clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => {
+        el.classList.add('d-none');
+        el.textContent = '';
+    }, 4000);
+}
+
+function _explainRenderStaged() {
+    const wrap = document.getElementById('explainAttachPreview');
+    if (!wrap) return;
+    const staged = (explainState && explainState.staged) || [];
+    if (!staged.length) {
+        wrap.classList.add('d-none');
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.classList.remove('d-none');
+    let html = '';
+    for (let i = 0; i < staged.length; i++) {
+        html += '<div class="explain-attach-thumb">'
+            + '<img src="' + staged[i] + '" alt="staged">'
+            + '<button type="button" class="remove" title="Remove" '
+            +   'onclick="_explainRemoveStaged(' + i + ')">×</button>'
+            + '</div>';
+    }
+    wrap.innerHTML = html;
+}
+
+function _explainRemoveStaged(idx) {
+    if (!explainState || !explainState.staged) return;
+    explainState.staged.splice(idx, 1);
+    _explainRenderStaged();
+}
+
+// Total size of currently staged + already-sent images, in bytes (b64
+// payload divided by 4/3). Used to enforce the 32 MB budget.
+function _explainCurrentImageBytes() {
+    if (!explainState) return 0;
+    let total = 0;
+    const all = (explainState.staged || []).slice();
+    for (const t of (explainState.turns || [])) {
+        if (t.images) all.push(...t.images);
+    }
+    for (const u of all) {
+        const comma = u.indexOf(',');
+        if (comma >= 0) total += ((u.length - comma - 1) * 3) >> 2;
+    }
+    return total;
+}
+
+// Total count of currently staged + already-sent images (for the per-turn
+// cap — we count the latest user turn cumulatively to keep the API simple
+// for the user, even though the limit is technically per-turn server-side).
+function _explainStagedCount() {
+    return (explainState && explainState.staged) ? explainState.staged.length : 0;
+}
+
+function _explainStageFiles(files) {
+    if (!explainState) return;
+    if (!explainState.supportsVision) {
+        _explainShowAttachMsg("The selected model can't see images. Pick a vision-capable endpoint to attach images.");
+        return;
+    }
+    const queue = Array.from(files || []);
+    if (!queue.length) return;
+    const remainingSlots = EXPLAIN_MAX_IMAGES_PER_TURN - _explainStagedCount();
+    if (remainingSlots <= 0) {
+        _explainShowAttachMsg('Maximum ' + EXPLAIN_MAX_IMAGES_PER_TURN
+            + ' images per message — remove one before adding more.');
+        return;
+    }
+    const accepted = queue.slice(0, remainingSlots);
+    const rejected = [];
+    let runningBytes = _explainCurrentImageBytes();
+    let i = 0;
+    const next = () => {
+        if (i >= accepted.length) {
+            _explainRenderStaged();
+            if (rejected.length) _explainShowAttachMsg('Rejected: ' + rejected.join('; '));
+            else if (queue.length > accepted.length) {
+                _explainShowAttachMsg('Only the first ' + accepted.length
+                    + ' image(s) were added (cap: ' + EXPLAIN_MAX_IMAGES_PER_TURN + ' per message).');
+            }
+            return;
+        }
+        const f = accepted[i++];
+        if (!EXPLAIN_ALLOWED_MIME.includes(f.type)) {
+            rejected.push((f.name || 'file') + ' (unsupported type ' + (f.type || '?') + ')');
+            return next();
+        }
+        if (f.size > EXPLAIN_MAX_IMAGE_BYTES) {
+            rejected.push((f.name || 'file') + ' (too large, ' + Math.round(f.size / 1024 / 1024) + ' MB)');
+            return next();
+        }
+        if (runningBytes + f.size > EXPLAIN_MAX_TOTAL_IMAGE_BYTES) {
+            rejected.push((f.name || 'file') + ' (would exceed 32 MB total)');
+            return next();
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result;
+            if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+                explainState.staged.push(dataUrl);
+                // Approximate byte size from the b64 payload length.
+                const comma = dataUrl.indexOf(',');
+                if (comma >= 0) runningBytes += ((dataUrl.length - comma - 1) * 3) >> 2;
+            } else {
+                rejected.push((f.name || 'file') + ' (could not read)');
+            }
+            next();
+        };
+        reader.onerror = () => {
+            rejected.push((f.name || 'file') + ' (read error)');
+            next();
+        };
+        reader.readAsDataURL(f);
+    };
+    next();
+}
+
+// Populate the endpoint picker. The picker stays hidden when the caller
+// is a regular user (the server returns ``can_pick=false`` for them).
+function _explainApplyEndpoints(payload) {
+    explainState.endpoints = payload.endpoints || [];
+    explainState.canPick = !!payload.can_pick;
+    const wrap = document.getElementById('explainEndpointPickerWrap');
+    const sel = document.getElementById('explainEndpointPicker');
+    if (!wrap || !sel) return;
+    if (!explainState.canPick || !explainState.endpoints.length) {
+        wrap.classList.add('d-none');
+        // Endpoint not user-pickable: trust whatever default the server
+        // ends up using. ``supportsVision`` defaults to true so the
+        // attach button stays enabled (server will reject if it's wrong).
+        explainState.supportsVision = true;
+        return;
+    }
+    let html = '';
+    const defaultId = payload.default_id;
+    for (const e of explainState.endpoints) {
+        const isDefault = (e.id === defaultId);
+        const visMark = e.supports_vision ? '' : ' (text-only)';
+        html += '<option value="' + e.id + '"' + (isDefault ? ' selected' : '') + '>'
+            + _explainEscape(e.name) + ' · ' + _explainEscape(e.model || '')
+            + visMark + (isDefault ? ' (default)' : '')
+            + '</option>';
+    }
+    sel.innerHTML = html;
+    wrap.classList.remove('d-none');
+    explainState.endpointId = defaultId || (explainState.endpoints[0] && explainState.endpoints[0].id) || null;
+    sel.value = String(explainState.endpointId || '');
+    _explainSyncVisionFromPicker();
+}
+
+function _explainSyncVisionFromPicker() {
+    if (!explainState || !explainState.endpoints) return;
+    const id = parseInt(explainState.endpointId, 10);
+    const ep = explainState.endpoints.find((e) => e.id === id);
+    explainState.supportsVision = ep ? !!ep.supports_vision : true;
+    const attachBtn = document.getElementById('explainAttachBtn');
+    if (attachBtn) {
+        attachBtn.disabled = explainState.busy || !explainState.supportsVision;
+        attachBtn.title = explainState.supportsVision
+            ? 'Attach images (paste, drag-drop, or pick)'
+            : "This endpoint doesn't support images";
+    }
+    // If the user just switched to a non-vision model with images
+    // already staged, drop them (they were only client-side). We CAN'T
+    // touch images already in ``turns`` — those are part of the
+    // conversation record and the server will reject the next request
+    // if any past turn carries images and the new endpoint can't see
+    // them, which is the right behaviour. Warn loudly so the user knows.
+    if (!explainState.supportsVision) {
+        const droppedStaged = (explainState.staged || []).length;
+        if (droppedStaged) {
+            explainState.staged = [];
+            _explainRenderStaged();
+        }
+        const hasHistory = (explainState.turns || []).some((t) => t.images && t.images.length);
+        if (hasHistory) {
+            _explainShowAttachMsg("Heads up — earlier turns include images this endpoint can't see. "
+                + "The next send will be rejected. Switch back to a vision-capable model, or "
+                + "close and re-open the modal to start fresh.");
+        } else if (droppedStaged) {
+            _explainShowAttachMsg("Staged images dropped — selected endpoint can't see images.");
+        }
+    }
 }
 
 function openExplainModal(questionId, qid) {
-    explainState = { questionId: questionId, qid: qid || '', turns: [], busy: false };
+    explainState = {
+        questionId: questionId,
+        qid: qid || '',
+        turns: [],
+        busy: false,
+        endpointId: null,
+        endpoints: [],
+        canPick: false,
+        supportsVision: true,
+        staged: [],
+    };
     const modalEl = document.getElementById('explainModal');
     if (!modalEl) return;
 
     document.getElementById('explainQid').textContent = qid ? ('· ' + qid) : '';
     document.getElementById('explainMeta').textContent = '';
     document.getElementById('explainTranscript').innerHTML = '';
+    _explainShowAttachMsg('');
+    _explainRenderStaged();
     const input = document.getElementById('explainInput');
     input.value = '';
 
@@ -3974,28 +4286,138 @@ function openExplainModal(questionId, qid) {
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 140) + 'px';
         });
+        // Endpoint picker change → update vision support + regenerate
+        // the current reply against the new model. The natural UX is
+        // "redo that answer with the model I just picked" — without it,
+        // the user has to manually retry, which is annoying when they
+        // didn't like the default's output. Cancels any in-flight
+        // stream cleanly; see ``_explainRegenerate`` for race handling.
+        const picker = document.getElementById('explainEndpointPicker');
+        if (picker) {
+            picker.addEventListener('change', () => {
+                if (!explainState) return;
+                explainState.endpointId = parseInt(picker.value, 10) || null;
+                _explainSyncVisionFromPicker();
+                // If we have nothing to regenerate yet (modal just opened
+                // and the initial request hasn't completed past the
+                // typing-dots stage), still abort + restart so the new
+                // model handles the initial explanation. _explainRegenerate
+                // is a no-op when there's nothing in-flight and no prior
+                // assistant turn — but the initial flow ALWAYS has a
+                // typing bubble + in-flight stream by the time the user
+                // could click the picker, so a regenerate is the right
+                // call.
+                _explainRegenerate();
+            });
+        }
+        // File picker → stage selected files.
+        const fileInput = document.getElementById('explainAttachInput');
+        if (fileInput) {
+            fileInput.addEventListener('change', () => {
+                _explainStageFiles(fileInput.files);
+                fileInput.value = '';   // allow re-selecting the same file
+            });
+        }
+        // Paste anywhere in the modal-body or the textarea → grab images
+        // out of the clipboard.
+        const onPaste = (e) => {
+            if (!explainState) return;
+            const items = (e.clipboardData && e.clipboardData.items) || [];
+            const files = [];
+            for (const it of items) {
+                if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+                    const f = it.getAsFile();
+                    if (f) files.push(f);
+                }
+            }
+            if (files.length) {
+                e.preventDefault();
+                _explainStageFiles(files);
+            }
+        };
+        input.addEventListener('paste', onPaste);
+        const body = document.getElementById('explainModalBody');
+        if (body) body.addEventListener('paste', onPaste);
+        // Drag-drop support on the entire modal body.
+        const preview = document.getElementById('explainAttachPreview');
+        const stopAndShow = (e) => { e.preventDefault(); e.stopPropagation();
+            if (preview) preview.classList.remove('d-none');
+            if (preview) preview.classList.add('dragover');
+        };
+        const stopAndHide = (e) => { e.preventDefault(); e.stopPropagation();
+            if (preview) preview.classList.remove('dragover');
+            if (preview && !(explainState && explainState.staged && explainState.staged.length)) {
+                preview.classList.add('d-none');
+            }
+        };
+        if (body) {
+            body.addEventListener('dragenter', stopAndShow);
+            body.addEventListener('dragover', stopAndShow);
+            body.addEventListener('dragleave', stopAndHide);
+            body.addEventListener('drop', (e) => {
+                stopAndHide(e);
+                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                    _explainStageFiles(e.dataTransfer.files);
+                }
+            });
+        }
+        // Delegated listener for clicking user-attached image thumbnails
+        // in the transcript → open the full-size overlay.  A single
+        // listener here covers all bubbles appended dynamically in
+        // _explainAppendBubble, present and future, without having to
+        // re-attach per bubble.
+        const transcript = document.getElementById('explainTranscript');
+        if (transcript) {
+            transcript.addEventListener('click', (e) => {
+                const img = e.target.closest('.user-images img');
+                if (!img) return;
+                e.stopPropagation();
+                _explainShowImageOverlay(img.src, img.alt !== 'attached' ? img.alt : '');
+            });
+        }
     }
     explainModalInstance.show();
 
-    // Kick off the initial explanation (no user message — server builds it).
-    _explainSend(null);
+    // Fetch the endpoint list for the picker (and to learn vision status
+    // for non-admin users), then kick off the initial explanation. The
+    // initial request fires regardless of the listing result so the modal
+    // stays usable even if the listing endpoint is unreachable.
+    fetch('/dashboard/api/question/' + questionId + '/explain/endpoints')
+        .then((r) => r.ok ? r.json() : { can_pick: false, endpoints: [] })
+        .catch(() => ({ can_pick: false, endpoints: [] }))
+        .then((payload) => {
+            _explainApplyEndpoints(payload || {});
+            _explainSend(null);
+        });
 }
 
 function sendExplainMessage() {
     const input = document.getElementById('explainInput');
     if (!input || !explainState || explainState.busy) return;
     const text = input.value.trim();
-    if (!text) return;
+    const stagedCount = (explainState.staged || []).length;
+    if (!text && !stagedCount) return;
     input.value = '';
     input.style.height = 'auto';
-    _explainSend(text);
+    // Snapshot the staged images for this turn, then clear so the next
+    // turn starts fresh. ``images`` becomes part of explainState.turns
+    // and is re-sent on every follow-up turn (so the model retains visual
+    // context across the whole conversation).
+    const images = stagedCount ? explainState.staged.slice() : null;
+    explainState.staged = [];
+    _explainRenderStaged();
+    _explainSend(text, images);
 }
 
-function _explainSend(userMessage) {
+function _explainSend(userMessage, userImages) {
     if (!explainState) return;
-    if (userMessage) {
-        _explainAppendBubble('user', _explainEscape(userMessage));
-        explainState.turns.push({ role: 'user', content: userMessage });
+    if (userMessage || (userImages && userImages.length)) {
+        _explainAppendBubble('user',
+            userMessage ? _explainEscape(userMessage) : '',
+            { images: userImages || [] });
+        const turn = { role: 'user', content: userMessage || '' };
+        if (userImages && userImages.length) turn.images = userImages;
+        explainState.turns.push(turn);
     }
     _explainSetBusy(true);
     const typing = _explainAppendBubble('assistant',
@@ -4005,12 +4427,34 @@ function _explainSend(userMessage) {
     const vp = (typeof getVersionPriority === 'function') ? getVersionPriority()
         : (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
 
+    const body = {
+        turns: explainState.turns,
+        version_priority: vp,
+    };
+    // Only send the override when it differs from whatever the server's
+    // default would be — keeps the wire payload tidy for regular users.
+    if (explainState.canPick && explainState.endpointId) {
+        body.endpoint_id = explainState.endpointId;
+    }
+
+    // Per-stream AbortController so a model switch (regenerate) can cancel
+    // the in-flight fetch without the SSE event handlers writing into a
+    // bubble we're about to remove. We capture the controller into a local
+    // ``myAborter`` so the onDone / .finally callbacks can detect that
+    // they're stale (a regenerate replaced ``explainState.aborter``) and
+    // bow out without clobbering the new stream's busy/turn state.
+    const aborter = new AbortController();
+    const myAborter = aborter;
+    explainState.aborter = aborter;
+
     const stream = _explainStreamRequest(
         `/dashboard/api/question/${explainState.questionId}/explain`,
-        { turns: explainState.turns, version_priority: vp },
+        body,
         typing,
         {
+            signal: aborter.signal,
             onDone: (payload) => {
+                if (!explainState || explainState.aborter !== myAborter) return;
                 explainState.turns.push({ role: 'assistant', content: payload.reply || '' });
                 const meta = document.getElementById('explainMeta');
                 if (meta && payload.model) {
@@ -4020,10 +4464,55 @@ function _explainSend(userMessage) {
         }
     );
     stream.finally(() => {
+        // A stream that lost its turn (was aborted by a newer regenerate)
+        // must NOT touch the shared busy state — the new stream owns it.
+        if (!explainState || explainState.aborter !== myAborter) return;
+        explainState.aborter = null;
         _explainSetBusy(false);
         const input = document.getElementById('explainInput');
         if (input) input.focus();
     });
+}
+
+// Discard the most recent assistant reply and re-fire the previous request
+// against whatever endpoint is currently selected. Used when the user
+// changes the model picker — the natural expectation is "redo that answer
+// with the new model". Cancels any in-flight stream first.
+function _explainRegenerate() {
+    if (!explainState) return;
+    // Abort the current stream (if any). The streaming consumer's catch
+    // handler removes the partial bubble; the .finally is a no-op because
+    // ``aborter`` is about to change.
+    if (explainState.aborter) {
+        try { explainState.aborter.abort(); } catch (_) { /* ignore */ }
+        explainState.aborter = null;
+    }
+    // Drop the last assistant turn from state so the regenerated reply
+    // appends at the right place in the conversation history. User turns
+    // (and their attached images) stay so the new model sees the same
+    // context — that's the whole point of "regenerate".
+    const turns = explainState.turns;
+    if (turns.length && turns[turns.length - 1].role === 'assistant') {
+        turns.pop();
+    }
+    // Drop trailing assistant bubble(s) from the DOM. Covers the
+    // typing-dots bubble, a partially-streamed reply, and a complete
+    // reply alike.
+    const transcript = document.getElementById('explainTranscript');
+    if (transcript) {
+        while (transcript.lastElementChild
+            && transcript.lastElementChild.classList.contains('explain-msg')
+            && transcript.lastElementChild.classList.contains('assistant')) {
+            transcript.removeChild(transcript.lastElementChild);
+        }
+    }
+    // Manually reset busy: the aborted stream's .finally is now a no-op
+    // (its aborter no longer matches) so it won't flip busy off for us.
+    _explainSetBusy(false);
+    // Re-fire the LAST request shape with the new endpoint. ``null/null``
+    // means no new user message — _explainSend will skip the user-bubble
+    // append and just stream a fresh assistant reply.
+    _explainSend(null, null);
 }
 
 // SSE streaming consumer shared between Explain (here) and the admin Chat
@@ -4126,6 +4615,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify(body),
+        signal: callbacks.signal,
     }).then(async (r) => {
         if (!r.ok || !r.body) {
             // Try to read JSON / text error.
@@ -4212,6 +4702,14 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
         }
     }).catch((err) => {
         cancelScheduledRender();
+        // Caller-initiated cancel (e.g. user changed model, hit regenerate).
+        // Don't show an error toast — the caller already cleaned up the
+        // bubble and is starting a new stream.
+        if (err && (err.name === 'AbortError' || err.code === 20)) {
+            if (typingBubble && typingBubble.parentNode) typingBubble.remove();
+            if (bubble && bubble.parentNode) bubble.remove();
+            return;
+        }
         const msg = (err && err.message) ? err.message : 'request did not complete';
         showError('Network error contacting the AI: ' + msg);
     });

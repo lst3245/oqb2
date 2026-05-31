@@ -18,6 +18,7 @@ import io
 import json
 import mimetypes
 import os
+from binascii import Error as binascii_error
 
 import requests
 from flask import current_app
@@ -118,6 +119,56 @@ def read_image_data_uri(abs_path: str) -> str:
     with open(abs_path, 'rb') as f:
         raw = f.read()
     return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def prepare_image_from_data_url(data_url: str, max_dim: int = 1600):
+    """Decode a ``data:image/...;base64,...`` URL (e.g. from the Explain
+    modal's user-attached images), downscale, and return ``(b64, 'image/jpeg')``
+    ready for an OpenAI ``image_url`` block.
+
+    Mirrors :func:`prepare_image` but takes the raw bytes from the URL
+    instead of opening a file on disk. Re-encoded as JPEG (q=88) to keep
+    the over-the-wire payload small — the original mime / colour profile
+    aren't preserved, but for VLM input that's not a concern.
+
+    Raises :class:`ValueError` for malformed input. The caller is expected
+    to reject the request with a 400 in that case.
+    """
+    import re
+    from PIL import Image, UnidentifiedImageError
+
+    if not isinstance(data_url, str) or not data_url.startswith('data:'):
+        raise ValueError('not a data URL')
+    m = re.match(r'data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$', data_url, re.DOTALL)
+    if not m:
+        raise ValueError('not a base64 image data URL')
+    try:
+        raw = base64.b64decode(m.group(2), validate=False)
+    except (ValueError, binascii_error):
+        raise ValueError('invalid base64 in data URL')
+    if not raw:
+        raise ValueError('empty image bytes')
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            im.load()
+            has_alpha = im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info)
+            if has_alpha:
+                rgba = im.convert('RGBA')
+                bg = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
+                bg.alpha_composite(rgba)
+                im = bg.convert('RGB')
+            elif im.mode != 'RGB':
+                im = im.convert('RGB')
+            w, h = im.size
+            longest = max(w, h)
+            if max_dim and longest > max_dim:
+                scale = max_dim / float(longest)
+                im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+            buf = io.BytesIO()
+            im.save(buf, format='JPEG', quality=88)
+    except UnidentifiedImageError:
+        raise ValueError('image bytes could not be decoded')
+    return base64.b64encode(buf.getvalue()).decode('ascii'), 'image/jpeg'
 
 
 def _flatten_white(im):

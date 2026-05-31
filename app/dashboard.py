@@ -893,6 +893,15 @@ def get_question_preview(question_id, asset_type):
 
 # ==================== Explain (AI tutor chat) ====================
 
+# Caps on user-attached images per Explain chat turn. The frontend's attach
+# UI also enforces these but the backend re-checks because the network is
+# untrusted. The server downscales every image via
+# ``llm_client.prepare_image_from_data_url`` (long edge -> ``LLM_IMAGE_MAX_DIM``)
+# so the per-image post-encode size is usually well under the byte cap.
+EXPLAIN_MAX_IMAGES_PER_TURN = 6
+EXPLAIN_MAX_IMAGES_TOTAL_BYTES = 32 * 1024 * 1024  # 32 MB across all turns
+
+
 def _default_explain_endpoint():
     """The endpoint used by the Explain tutor.
 
@@ -912,6 +921,23 @@ def _default_explain_endpoint():
             .filter_by(enabled=True, supports_vision=True)
             .order_by(LLMConfig.sort_order, LLMConfig.name)
             .first())
+
+
+def _can_pick_explain_endpoint(question):
+    """Whether the current user is allowed to override the default Explain
+    LLM endpoint via the modal's model picker.
+
+    Super-admins can always pick. Subject-admins of the question's subject
+    can pick. Regular users / viewers cannot — they're stuck with the
+    configured default (which a super-admin sets system-wide via
+    ``EXPLAIN_DEFAULT_LLM`` in System Settings) so we don't bleed
+    paid-API tokens to anonymous browsing.
+    """
+    if not current_user.is_authenticated:
+        return False
+    if current_user.is_super_admin:
+        return True
+    return current_user.is_subject_admin(question.subject)
 
 
 def _explain_slot_context(question_id, asset_type, version_priority,
@@ -947,20 +973,74 @@ def _explain_slot_context(question_id, asset_type, version_priority,
     return [], ''
 
 
+@dashboard_bp.route('/api/question/<int:question_id>/explain/endpoints')
+@login_required
+def explain_endpoints(question_id):
+    """List the LLM endpoints the caller is allowed to pick for this
+    question's Explain modal.
+
+    Super-admins / subject-admins of the question's subject get every
+    enabled endpoint with a per-row ``supports_vision`` flag (so the
+    frontend can grey out the Attach Image button when a non-vision model
+    is selected). Regular users get an empty list and ``can_pick=False``;
+    they always use the configured default endpoint.
+
+    Returns ``{can_pick: bool, default_id: int|null, endpoints: [...]}``.
+    """
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'can_pick': False, 'default_id': None, 'endpoints': []})
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin and not current_user.has_subject_access(question.subject):
+        return jsonify({'error': 'You do not have access to this question.'}), 403
+
+    default_cfg = _default_explain_endpoint()
+    default_id = default_cfg.id if default_cfg else None
+
+    if not _can_pick_explain_endpoint(question):
+        return jsonify({'can_pick': False, 'default_id': default_id, 'endpoints': []})
+
+    from app.models import LLMConfig
+    rows = (LLMConfig.query.filter_by(enabled=True)
+            .order_by(LLMConfig.sort_order, LLMConfig.name).all())
+    return jsonify({
+        'can_pick': True,
+        'default_id': default_id,
+        'endpoints': [{
+            'id': c.id,
+            'name': c.name,
+            'model': c.model_name,
+            'supports_vision': bool(c.supports_vision),
+        } for c in rows],
+    })
+
+
 @dashboard_bp.route('/api/question/<int:question_id>/explain', methods=['POST'])
 @login_required
 def explain_question(question_id):
     """AI tutor chat for a single question — SSE-streamed.
 
-    Sends the QUESTION image(s) (and the SOLUTION image(s) when present) to the
-    default vision LLM and streams an explanation back as Server-Sent Events.
-    Streaming keeps the response flowing through reverse proxies (no idle
-    timeout) and lets the user watch the model think in real time.
+    Sends the QUESTION image(s) (and the SOLUTION image(s) when present) to
+    the chosen vision LLM and streams an explanation back as Server-Sent
+    Events. Streaming keeps the response flowing through reverse proxies
+    (no idle timeout) and lets the user watch the model think in real time.
 
-    Body JSON: ``{turns: [{role, content}], version_priority?}``. ``turns`` is
-    the conversation AFTER the (server-built) initial image turn; empty for
-    the first request — the server rebuilds turn 1 (system prompt + labelled
-    QUE/SOL context) on every call so images aren't re-uploaded by the client.
+    Body JSON:
+      * ``turns``        — conversation AFTER the (server-built) initial
+                           image turn. Each user turn may include an
+                           ``images`` array of ``data:image/...;base64,...``
+                           URLs (downscaled & re-encoded server-side via
+                           :func:`llm_client.prepare_image_from_data_url`).
+      * ``version_priority`` — overrides the user's default version order
+                           when resolving QUE/SOL assets.
+      * ``endpoint_id``  — admin-only (super-admin or subject-admin of the
+                           question's subject) override of the default
+                           Explain LLM endpoint. Silently ignored for
+                           regular users.
+
+    The server rebuilds turn 1 (system prompt + labelled QUE/SOL context)
+    on every call so the question/solution images aren't re-uploaded by
+    the client.
 
     Response is ``text/event-stream``; each event is one ``data: {...}\\n\\n``
     line of JSON:
@@ -979,26 +1059,95 @@ def explain_question(question_id):
     if not current_user.is_super_admin and not current_user.has_subject_access(question.subject):
         return jsonify({'error': 'You do not have access to this question.'}), 403
 
-    cfg = _default_explain_endpoint()
+    data = request.get_json(silent=True) or {}
+
+    # Optional admin-only override of the default Explain endpoint. Super-
+    # admins / subject-admins of the question's subject can pass an
+    # ``endpoint_id`` to swap models on the fly without changing the
+    # system-wide ``EXPLAIN_DEFAULT_LLM`` setting (e.g. compare two
+    # reasoning models against the same question, or fall back to a faster
+    # / cheaper model when the default is overloaded). Regular users'
+    # ``endpoint_id`` is silently ignored.
+    cfg = None
+    override_id = data.get('endpoint_id')
+    if override_id is not None and _can_pick_explain_endpoint(question):
+        from app.models import LLMConfig
+        try:
+            oid = int(override_id)
+        except (TypeError, ValueError):
+            oid = None
+        if oid:
+            cfg = LLMConfig.query.filter_by(id=oid, enabled=True).first()
+    if cfg is None:
+        cfg = _default_explain_endpoint()
     if not cfg:
         return jsonify({'error': 'No vision-capable LLM endpoint is configured. '
                                  'Ask an administrator to add one under Admin → LLM Endpoints.'}), 400
 
-    data = request.get_json(silent=True) or {}
-
-    turns = []
-    for t in (data.get('turns') or [])[-20:]:
-        if not isinstance(t, dict):
-            continue
-        role = t.get('role')
-        content = t.get('content')
-        if role in ('user', 'assistant') and isinstance(content, str) and content.strip():
-            turns.append({'role': role, 'content': content[:8000]})
+    from app import ai_prompts, llm_client
 
     version_priority = parse_version_priority(data.get('version_priority'))
     source_path = current_app.config['SOURCE_PATH']
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     chat_timeout = int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None
+
+    # Parse the conversation transcript. Each user turn may carry an
+    # ``images`` array of ``data:image/...;base64,...`` URLs (attached via
+    # the modal's Attach button / paste / drag-drop). The same images are
+    # re-sent on every follow-up turn so the model retains visual context
+    # across the conversation; downscaling + JPEG re-encoding caps the
+    # per-image bytes.
+    turns = []
+    total_image_bytes = 0
+    for t in (data.get('turns') or [])[-20:]:
+        if not isinstance(t, dict):
+            continue
+        role = t.get('role')
+        if role not in ('user', 'assistant'):
+            continue
+        text_raw = t.get('content')
+        text = text_raw[:8000] if isinstance(text_raw, str) else ''
+        if role == 'assistant':
+            if text.strip():
+                turns.append({'role': 'assistant', 'content': text})
+            continue
+        # User turn — may have attached images.
+        raw_images = t.get('images') if isinstance(t.get('images'), list) else []
+        image_blocks = []
+        if raw_images:
+            if not cfg.supports_vision:
+                return jsonify({
+                    'error': "The selected LLM endpoint can't see images. Pick a "
+                             "vision-capable model from the dropdown, or remove "
+                             "the attached images.",
+                }), 400
+            for du in raw_images[:EXPLAIN_MAX_IMAGES_PER_TURN]:
+                if not isinstance(du, str):
+                    continue
+                try:
+                    b64, mime = llm_client.prepare_image_from_data_url(du, image_max_dim)
+                except (ValueError, OSError) as e:
+                    return jsonify({
+                        'error': f'Could not decode an attached image: {e}',
+                    }), 400
+                image_blocks.append((b64, mime))
+                total_image_bytes += (len(b64) * 3) // 4
+                if total_image_bytes > EXPLAIN_MAX_IMAGES_TOTAL_BYTES:
+                    return jsonify({
+                        'error': 'Total attached-image size exceeds the 32 MB limit. '
+                                 'Drop a few images and try again.',
+                    }), 413
+        if not text.strip() and not image_blocks:
+            continue
+        if image_blocks:
+            parts = []
+            if text.strip():
+                parts.append({'type': 'text', 'text': text})
+            for (b64, mime) in image_blocks:
+                parts.append(llm_client._image_block(b64, mime))
+            turns.append({'role': 'user', 'content': parts})
+        else:
+            turns.append({'role': 'user', 'content': text})
 
     que_imgs, que_text = _explain_slot_context(
         question_id, 'QUE', version_priority, source_path, image_max_dim)
@@ -1007,8 +1156,6 @@ def explain_question(question_id):
 
     if not (que_imgs or que_text):
         return jsonify({'error': 'This question has no image or Markdown to explain.'}), 400
-
-    from app import ai_prompts, llm_client
 
     parts = []
     if que_imgs:
