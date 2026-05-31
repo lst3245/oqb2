@@ -99,3 +99,10 @@ class Config:
     # (Gemma / Gemini / PaliGemma family). Range (0..1 vs 0..1000 vs pixels) is
     # auto-detected; only the axis ORDER is ambiguous, so it's configurable.
     PDF_IMPORT_COORD_ORDER = os.getenv('PDF_IMPORT_COORD_ORDER', 'xyxy').strip().lower()
+    # PDF Batch Import — whether the "Auto-deskew scans" checkbox starts ticked.
+    # Deskew straightens skewed/rotated scanned pages during staging (NumPy).
+    PDF_IMPORT_DESKEW_DEFAULT = os.getenv('PDF_IMPORT_DESKEW_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # PDF Batch Import — default detection method pre-selected in Setup:
+    # 'llm' (model draws boxes), 'refine' (LLM boxes + CV edge-snap), or
+    # 'segment' (LLM start-anchors + CV projection segmentation).
+    PDF_IMPORT_DEFAULT_METHOD = os.getenv('PDF_IMPORT_DEFAULT_METHOD', 'llm').strip().lower()

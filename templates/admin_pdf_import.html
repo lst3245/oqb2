@@ -159,6 +159,16 @@
                 </div>
 
                 <div class="col-md-4">
+                    <label for="methodSelect" class="form-label fw-bold">Detection method</label>
+                    <select id="methodSelect" class="form-select">
+                        <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
+                        <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
+                        <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
+                    </select>
+                    <div class="form-text"><strong>Refine</strong>: model boxes snapped to content by CV. <strong>Segment</strong>: model marks where each question starts, CV derives the boxes. Both need NumPy; you can retry per page in review.</div>
+                </div>
+
+                <div class="col-md-4">
                     <label for="quePdf" class="form-label fw-bold">Question PDF <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
                 </div>
@@ -177,6 +187,12 @@
                             <input class="form-check-input" type="radio" name="mode" id="modeAuto" value="auto">
                             <label class="form-check-label" for="modeAuto">Automatic</label>
                         </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
+                        <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
+                            <i class="bi bi-rulers"></i> Auto-deskew scans
+                        </label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="overwriteChk">
@@ -230,7 +246,7 @@ Fill in the setup above and click "Start".
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, fix the question number, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one. Use <strong>Re-run page</strong> if a page came out badly. When you're happy, click <strong>Import</strong>.
+            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong> if a page came out badly. When you're happy, click <strong>Import</strong>.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
             </p>
@@ -255,13 +271,18 @@ Fill in the setup above and click "Start".
 {% block extra_js %}
 <script>
 const IMPORT_BASE = "{{ url_for('admin.pdf_import_page') }}";  // /admin/pdf-import
+const ENDPOINTS = {{ endpoints|tojson }};   // [{id, name, model_name}]
+const DEFAULT_METHOD = "{{ default_method }}";
+const METHOD_LABELS = { llm: 'LLM only', refine: 'Assisted: refine', segment: 'Assisted: segment' };
 
 // ----- DOM refs -----
 const paperInput = document.getElementById('paperInput');
 const versionSelect = document.getElementById('versionSelect');
 const endpointSelect = document.getElementById('endpointSelect');
+const methodSelect = document.getElementById('methodSelect');
 const quePdf = document.getElementById('quePdf');
 const solPdf = document.getElementById('solPdf');
+const deskewChk = document.getElementById('deskewChk');
 const overwriteChk = document.getElementById('overwriteChk');
 const debugChk = document.getElementById('debugChk');
 const btnStart = document.getElementById('btnStart');
@@ -344,7 +365,8 @@ function setRunning(on) {
     running = on;
     btnStart.classList.toggle('d-none', on);
     btnStop.classList.toggle('d-none', !on);
-    [paperInput, versionSelect, endpointSelect, quePdf, solPdf, overwriteChk, debugChk,
+    [paperInput, versionSelect, endpointSelect, methodSelect, quePdf, solPdf,
+     deskewChk, overwriteChk, debugChk,
      document.getElementById('modeReview'), document.getElementById('modeAuto')]
         .forEach(el => { el.disabled = on; });
     btnCommit.disabled = on;
@@ -373,6 +395,7 @@ async function startRun() {
     const fd = new FormData();
     fd.append('paper', paper);
     fd.append('version', versionSelect.value);
+    fd.append('deskew', deskewChk.checked ? '1' : '0');
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
 
@@ -389,9 +412,10 @@ async function startRun() {
     }
 
     staging = data;
+    staging.method = methodSelect.value;   // remember the run's detection method
     const qn = (data.que.pages || []).length;
     const sn = (data.sol.pages || []).length;
-    appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s). Token ${data.token.slice(0, 8)}.`, 'success');
+    appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
 
     startDetect();
 }
@@ -404,6 +428,7 @@ function startDetect() {
 
     const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
+        + `&method=${encodeURIComponent(methodSelect.value)}`
         + (debugChk.checked ? '&debug=1' : '');
     eventSource = new EventSource(url);
 
@@ -478,17 +503,34 @@ function renderReview() {
     });
 }
 
+function methodOptionsHtml(selected) {
+    return ['llm', 'refine', 'segment'].map(m =>
+        `<option value="${m}"${m === selected ? ' selected' : ''}>${METHOD_LABELS[m]}</option>`).join('');
+}
+function endpointOptionsHtml(selectedId) {
+    return ENDPOINTS.map(e =>
+        `<option value="${e.id}"${String(e.id) === String(selectedId) ? ' selected' : ''}>${e.name}</option>`).join('');
+}
+
 function buildPageCard(kind, pageIndex) {
     const card = document.createElement('div');
     card.className = 'card page-card';
     card.dataset.kind = kind;
     card.dataset.page = pageIndex;
     card.innerHTML = `
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span><i class="bi bi-file-earmark-image"></i> ${kind.toUpperCase()} — page ${pageIndex + 1}</span>
-            <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-success btn-add"><i class="bi bi-plus-square"></i> Add box</button>
-                <button class="btn btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run page</button>
+            <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm page-method" style="width:auto;" title="Detection method for this page">
+                    ${methodOptionsHtml(staging.method || DEFAULT_METHOD)}
+                </select>
+                <select class="form-select form-select-sm page-endpoint" style="width:auto;max-width:11rem;" title="LLM endpoint for this page">
+                    ${endpointOptionsHtml(endpointSelect.value)}
+                </select>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-success btn-add"><i class="bi bi-plus-square"></i> Add box</button>
+                    <button class="btn btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run</button>
+                </div>
             </div>
         </div>
         <div class="card-body">
@@ -616,6 +658,8 @@ function addBoxDom(card, kind, item) {
         plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
         boxEl.remove();
         row.remove();
+        renumberAfterDelete(kind, item);
+        refreshNumbersUI(kind);
         toggleEmpty(card);
         updateReviewSummary();
     });
@@ -713,9 +757,13 @@ function finishDraw(d) {
         appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning');
         return;
     }
-    const item = { page: d.pageIndex, qno: guessNextQno(d.kind), box, _uid: nextUid() };
+    // qno is assigned by renumberAfterInsert (relative shift) once the box is
+    // placed in reading order.
+    const item = { page: d.pageIndex, qno: null, box, _uid: nextUid() };
     plan[d.kind].push(item);
+    renumberAfterInsert(d.kind, item);
     addBoxDom(d.card, d.kind, item);
+    refreshNumbersUI(d.kind);
     toggleEmpty(d.card);
     updateReviewSummary();
     const row = document.getElementById('row-' + item._uid);
@@ -723,9 +771,43 @@ function finishDraw(d) {
     document.getElementById('box-' + item._uid)?.classList.add('selected');
 }
 
-function guessNextQno(kind) {
-    const nums = plan[kind].map(it => it.qno).filter(n => Number.isFinite(n));
-    return nums.length ? Math.max(...nums) + 1 : 1;
+// ----- Auto-renumber (relative shift) -----
+// Reading order within a kind = (page, then box top-Y). Adding a box bumps
+// every later box +1; deleting a box bumps every later box -1. This keeps the
+// model-read numbers and just reflows around the edit. Manual qno edits and
+// move/resize deliberately do NOT cascade.
+function readingKey(it) { return it.page * 2 + it.box[1]; }   // box[1] (top) is 0..1
+function readingOrder(kind) {
+    return plan[kind].slice().sort((a, b) => readingKey(a) - readingKey(b));
+}
+function renumberAfterInsert(kind, item) {
+    const order = readingOrder(kind);
+    const idx = order.indexOf(item);
+    if (idx < 0) return;
+    let base = 0;
+    for (let i = idx - 1; i >= 0; i--) {
+        if (Number.isFinite(order[i].qno)) { base = order[i].qno; break; }
+    }
+    item.qno = base + 1;
+    for (let i = idx + 1; i < order.length; i++) {
+        if (Number.isFinite(order[i].qno)) order[i].qno += 1;
+    }
+}
+function renumberAfterDelete(kind, removed) {
+    const key = readingKey(removed);
+    plan[kind].forEach(it => {
+        if (readingKey(it) > key && Number.isFinite(it.qno)) {
+            it.qno = Math.max(1, it.qno - 1);
+        }
+    });
+}
+function refreshNumbersUI(kind) {
+    plan[kind].forEach(it => {
+        const lbl = document.getElementById('lbl-' + it._uid);
+        if (lbl) lbl.textContent = 'Q' + (it.qno ?? '?');
+        const row = document.getElementById('row-' + it._uid);
+        if (row) { const inp = row.querySelector('.qno-input'); if (inp) inp.value = (it.qno ?? ''); }
+    });
 }
 
 function setAddMode(card, on) {
@@ -785,6 +867,8 @@ function drawPreview(canvas, img, box) {
 
 async function rerunPage(card, kind, pageIndex) {
     const btn = card.querySelector('.btn-rerun');
+    const pageMethod = (card.querySelector('.page-method') || {}).value || (staging.method || DEFAULT_METHOD);
+    const pageEndpoint = (card.querySelector('.page-endpoint') || {}).value || endpointSelect.value;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Re-running';
     try {
@@ -792,11 +876,14 @@ async function rerunPage(card, kind, pageIndex) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: staging.token, kind, index: pageIndex,
-                                   endpoint_id: endpointSelect.value, debug: debugChk.checked })
+                                   endpoint_id: pageEndpoint, method: pageMethod,
+                                   debug: debugChk.checked })
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
-        // Replace this page's boxes.
+        // Replace this page's boxes (the fresh question numbers are
+        // authoritative, so re-detect deliberately does NOT renumber-cascade
+        // onto other pages).
         plan[kind].filter(it => it.page === pageIndex).forEach(it => {
             document.getElementById('box-' + it._uid)?.remove();
             document.getElementById('row-' + it._uid)?.remove();
@@ -809,7 +896,7 @@ async function rerunPage(card, kind, pageIndex) {
         });
         toggleEmpty(card);
         updateReviewSummary();
-        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s).`, 'success');
+        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
         if (data.raw !== undefined) {
             rawByPage[kind][pageIndex] = data.raw;
             logRaw(kind, pageIndex, data.raw);
@@ -821,7 +908,7 @@ async function rerunPage(card, kind, pageIndex) {
         appendLog('Re-run failed: ' + err.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-run page';
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-run';
     }
 }
 

@@ -317,6 +317,17 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Axis order the vision model uses for detected boxes. "xyxy" = [x1,y1,x2,y2] (Qwen and most models). "yxyx" = [y1,x1,y2,x2] (Gemma / Gemini / PaliGemma family — they put the vertical coordinate first). If detected boxes are shifted or rotated relative to the real questions, flip this. The number range (0–1, 0–1000, or pixels) is auto-detected; only the axis order needs setting.',
         validator=_choice_validator('xyxy', 'yxyx'),
     )),
+    ('PDF_IMPORT_DESKEW_DEFAULT', _spec(
+        'PDF_IMPORT_DESKEW_DEFAULT', 'bool', group='PDF Import',
+        label='Auto-deskew scans by default',
+        help='Whether the "Auto-deskew scans" checkbox in PDF Import Setup starts ticked. Deskew straightens skewed/rotated scanned pages during staging (projection-profile angle search, NumPy required). Users can still toggle it per run.',
+    )),
+    ('PDF_IMPORT_DEFAULT_METHOD', _spec(
+        'PDF_IMPORT_DEFAULT_METHOD', 'string', group='PDF Import',
+        label='Default detection method',
+        help='Detection method pre-selected in PDF Import Setup. "llm" = the model draws boxes (works without NumPy). "refine" = the model draws boxes, then classical CV snaps each edge to the printed content. "segment" = the model only marks where each question starts and CV derives the boxes. refine/segment need NumPy; users can change the method per run and per page.',
+        validator=_choice_validator('llm', 'refine', 'segment'),
+    )),
 ])
 
 

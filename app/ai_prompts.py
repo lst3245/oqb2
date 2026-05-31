@@ -489,6 +489,49 @@ _DEFAULT_PDF_BOX_USER = (
 )
 
 
+# ---- Anchor mode (LLM assisted: segment) -----------------------------------
+#
+# The "segment" detection method asks the model for ONLY the vertical START
+# position of each question — a single scalar per question, which a vision LLM
+# localises far more reliably than a tight 4-tuple box. Classical CV
+# (app/pdf_layout.segment_page) then derives each question's true extent from
+# the whitespace gaps between consecutive anchors.
+_DEFAULT_PDF_ANCHOR_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom order, of objects of the form\n"
+    '{"qno": <integer question number>, "y": <start position 0-1000>}\n'
+    "y is the VERTICAL position of the START (top) of the item — the line "
+    "where its printed number appears — measured from the TOP of the page on a "
+    "0-1000 grid (y=0 is the very top, y=1000 the very bottom). You do NOT need "
+    "to say where each item ends, how tall it is, or its left/right extent — "
+    "ONLY where each one begins. Example: a page whose first question starts "
+    "near the top and whose second starts just below the middle -> "
+    '[{"qno": 1, "y": 60}, {"qno": 2, "y": 540}]. "qno" is the PRINTED number '
+    "(an integer). If the page has no relevant content, return []."
+)
+
+_DEFAULT_PDF_ANCHOR_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE exam papers. "
+    "You are given ONE rasterised page. Identify where each individual "
+    "{{what}} on the page BEGINS, top to bottom.\n"
+    "- Report one entry per numbered {{what}}, using its printed number.\n"
+    "- Give ONLY the vertical START position of each (the line with its "
+    "number). The precise crop is computed separately, so do not draw boxes "
+    "or estimate heights.\n"
+    "- A {{what}} that is the continuation (tail) of one begun on the previous "
+    "page has no printed number at the top — only list items whose number you "
+    "can actually read.\n"
+    "- The page is a single column, stacked vertically.\n\n"
+    "{{json_contract}}"
+)
+
+_DEFAULT_PDF_ANCHOR_USER = (
+    "List where every {{what}} on this page BEGINS as STRICT JSON: its printed "
+    "number and its vertical start position on a 0-1000 grid (0=top, "
+    "1000=bottom). Return [] if the page has no {{what}}."
+)
+
+
 # ---- Registry --------------------------------------------------------------
 #
 # Order here drives the order rendered in the admin UI; group keys also
@@ -634,6 +677,43 @@ PROMPTS_REGISTRY = OrderedDict([
         variables=['what'],
         role='user',
     )),
+    ('PDF_ANCHOR_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — Assisted (Anchor) Detection',
+        label='PDF anchor: JSON contract (shared)',
+        description=(
+            'Response contract for the "segment" assisted method: the model '
+            'returns only {qno, y-start} per question and classical CV derives '
+            'the boxes. Substituted into the anchor system prompt via '
+            '{{json_contract}}. Parser parse_question_anchors is coupled to '
+            'this shape.'
+        ),
+        default=_DEFAULT_PDF_ANCHOR_JSON_CONTRACT,
+        role='system',
+    )),
+    ('PDF_ANCHOR_SYSTEM', _prompt(
+        group='PDF Batch Import — Assisted (Anchor) Detection',
+        label='PDF anchor: System prompt',
+        description=(
+            'Used by the "segment" assisted method to find where each question '
+            '/ solution starts (one y per item). {{what}} is "question" or '
+            '"solution"; {{json_contract}} is replaced with the shared anchor '
+            'contract above.'
+        ),
+        default=_DEFAULT_PDF_ANCHOR_SYSTEM,
+        variables=['what', 'json_contract'],
+        role='system',
+    )),
+    ('PDF_ANCHOR_USER', _prompt(
+        group='PDF Batch Import — Assisted (Anchor) Detection',
+        label='PDF anchor: User-turn instruction',
+        description=(
+            "Accompanies the single page image for the anchor method. {{what}} "
+            "is 'questions' or 'solutions'."
+        ),
+        default=_DEFAULT_PDF_ANCHOR_USER,
+        variables=['what'],
+        role='user',
+    )),
 ])
 
 
@@ -650,6 +730,90 @@ def build_pdf_box_system(asset_type: str) -> str:
     contract = get_prompt('PDF_BOX_JSON_CONTRACT')
     key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
     return render_prompt(key, json_contract=contract)
+
+
+def build_pdf_anchor_user_text(asset_type: str) -> str:
+    """User-turn instruction for the anchor (segment) detection method."""
+    what = 'questions' if asset_type == 'QUE' else 'solutions'
+    return render_prompt('PDF_ANCHOR_USER', what=what)
+
+
+def build_pdf_anchor_system(asset_type: str) -> str:
+    """Resolved anchor-detection system prompt (segment method), with the
+    shared anchor JSON contract substituted in."""
+    contract = get_prompt('PDF_ANCHOR_JSON_CONTRACT')
+    what = 'question' if asset_type == 'QUE' else 'solution'
+    return render_prompt('PDF_ANCHOR_SYSTEM', what=what, json_contract=contract)
+
+
+def _normalize_scalar(v, dim=None):
+    """Normalise a single coordinate to a 0..1 fraction, mirroring the range
+    logic in :func:`_normalize_box` (0..1 kept; <=1024 treated as 0..1000;
+    larger treated as pixels and divided by ``dim`` when known, else /1000)."""
+    v = abs(float(v))
+    if v <= 1.0:
+        f = v
+    elif v <= 1024.0:
+        f = v / 1000.0
+    elif dim:
+        f = v / float(dim)
+    else:
+        f = v / 1000.0
+    return min(max(f, 0.0), 1.0)
+
+
+def parse_question_anchors(text: str, img_h=None, coord_order='xyxy'):
+    """Parse the anchor-detection model output into a list of
+    ``{qno:int|None, y:float}`` (fractional y).
+
+    Tolerant of code fences / surrounding prose (mirrors
+    ``parse_question_boxes``). ``coord_order`` is accepted for signature parity
+    but a single y has no axis ambiguity, so it's ignored. Accepts ``y`` (or
+    ``top`` / ``y1``) and, as a fallback, the ``y1`` of a ``box``. Returns ``[]``
+    on total failure."""
+    if not text:
+        return []
+    candidates = [text.strip()]
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+    arr = re.search(r'\[.*\]', text, re.DOTALL)
+    if arr:
+        candidates.append(arr.group(0))
+
+    for c in candidates:
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            data = (data.get('questions') or data.get('anchors')
+                    or data.get('regions') or [])
+        if not isinstance(data, list):
+            continue
+        out = []
+        for it in data:
+            if not isinstance(it, dict):
+                continue
+            yraw = it.get('y', it.get('top', it.get('y1')))
+            if yraw is None:
+                box = it.get('box') or it.get('bbox')
+                if isinstance(box, (list, tuple)) and len(box) >= 2:
+                    yraw = box[1]
+            if yraw is None:
+                continue
+            try:
+                yv = _normalize_scalar(yraw, img_h)
+            except (ValueError, TypeError):
+                continue
+            qno_raw = it.get('qno', it.get('question_number', it.get('number')))
+            qno = None
+            if qno_raw is not None:
+                mqn = re.search(r'\d+', str(qno_raw))
+                if mqn:
+                    qno = int(mqn.group(0))
+            out.append({'qno': qno, 'y': yv})
+        return out
+    return []
 
 
 def _normalize_box(coords, img_w=None, img_h=None, coord_order='xyxy'):

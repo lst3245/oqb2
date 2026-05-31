@@ -15,7 +15,7 @@ stage (upload + rasterise) -> detect (SSE, vision LLM per page) -> [review] -> c
 ```
 
 - **Automatic mode**: detect SSE writes `plan.json`; on `done` the browser opens commit directly (reads `plan.json`).
-- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin **drag a box to move, drag handles to resize, Add box (draw on the page), edit qno, delete, or re-run a page**. Boxes are edited in place on the in-memory `plan[kind]` items (`{page,qno,box,_uid}`); the live drag/draw system is in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`startDrag`/`onDragMove`/`startDraw`/`finishDraw`/`applyBoxStyle`, pointer-events toggled via `.pdf-page-wrap.adding`). On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
+- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin **drag a box to move, drag handles to resize, Add box (draw on the page), edit qno, delete, or re-run a page with a different method/endpoint**. Boxes are edited in place on the in-memory `plan[kind]` items (`{page,qno,box,_uid}`); the live drag/draw system is in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`startDrag`/`onDragMove`/`startDraw`/`finishDraw`/`applyBoxStyle`, pointer-events toggled via `.pdf-page-wrap.adding`). **Add/Delete auto-renumber** the following boxes (relative shift; see below); manual qno edits and move/resize do not. On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
 
 One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` — within its context window). Spanning questions = same `qno` on consecutive pages → grouped into a **multi-part** IMG asset (`replace_img_assets(..., stitch=False)`).
 
@@ -23,21 +23,23 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 
 | Concern | File(s) |
 |---|---|
-| Staging, rasterise, detect, crop, commit, `_PDF_CANCEL` registry | [app/pdf_import.py](mdc:app/pdf_import.py) |
+| Staging, rasterise (+deskew), detect (+method), crop, commit, `_PDF_CANCEL` registry | [app/pdf_import.py](mdc:app/pdf_import.py) |
+| Classical-CV helpers (NumPy): `deskew_image`, `refine_box`, `segment_page`, `load_gray` | [app/pdf_layout.py](mdc:app/pdf_layout.py) |
 | Box prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_QUE_BOX_SYSTEM`, `PDF_SOL_BOX_SYSTEM`, `build_pdf_box_user_text`, `parse_question_boxes` |
+| Anchor prompts + parser (segment method) | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_ANCHOR_SYSTEM`, `PDF_ANCHOR_JSON_CONTRACT`, `build_pdf_anchor_*`, `parse_question_anchors` |
 | Routes (page, stage, page image, detect, redo-page, plan, commit, cancel, discard) | [app/admin.py](mdc:app/admin.py) `pdf_import_*` |
 | Atomic IMG write + path + thumbnail lifecycle | [app/batch_image_gen.py](mdc:app/batch_image_gen.py) `replace_img_assets`, `slot_has_img` |
 | LLM transport / image prep | [app/llm_client.py](mdc:app/llm_client.py) `prepare_image`, `chat` |
 | UI | [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) |
-| Tunable | [app/settings.py](mdc:app/settings.py) / [app/config.py](mdc:app/config.py) `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_COORD_ORDER` |
+| Tunable | [app/settings.py](mdc:app/settings.py) / [app/config.py](mdc:app/config.py) `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_COORD_ORDER`, `PDF_IMPORT_DESKEW_DEFAULT`, `PDF_IMPORT_DEFAULT_METHOD` |
 
 ## Routes (all `@admin_required`, gated on `AI_TOOLS_ENABLED`)
 
 - `GET  /admin/pdf-import` — page (`pdf_import_page`).
-- `POST /admin/pdf-import/stage` — multipart: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only), `version`, `que_pdf`, `sol_pdf` (≥1). Validates prefix + subject admin access. Rasterises pages. Returns `{token, que:{pages}, sol:{pages}}`.
+- `POST /admin/pdf-import/stage` — multipart: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only), `version`, `deskew` (default on), `que_pdf`, `sol_pdf` (≥1). Validates prefix + subject admin access. Rasterises pages (deskewing scans when set). Returns `{token, deskew, que:{pages}, sol:{pages}}`.
 - `GET  /admin/pdf-import/page/<token>/<kind>/<int:page>.png` — serve a staged page PNG (kind = `que`|`sol`).
-- `GET  /admin/pdf-import/detect?token=&endpoint_id=&debug=` — SSE: per-page detection (QUE then SOL); accumulates `plan.json`. `debug=1` attaches `raw` (verbatim model reply) to each page event.
-- `POST /admin/pdf-import/redo-page` — body `{token, kind, index, endpoint_id, debug?}`; re-detect one page → `{boxes, raw?}`.
+- `GET  /admin/pdf-import/detect?token=&endpoint_id=&method=&debug=` — SSE: per-page detection (QUE then SOL); accumulates `plan.json`. `method` ∈ `llm`/`refine`/`segment`. `debug=1` attaches `raw` (verbatim model reply) to each page event.
+- `POST /admin/pdf-import/redo-page` — body `{token, kind, index, endpoint_id, method?, debug?}`; re-detect one page (optionally different method+endpoint) → `{boxes, raw?}`.
 - `POST /admin/pdf-import/plan` — body `{token, plan:{que,sol}}`; sanitises + overwrites `plan.json`.
 - `GET  /admin/pdf-import/commit?token=&version=&overwrite=` — SSE: crop + create rows from `plan.json`.
 - `POST /admin/pdf-import/cancel` — body `{job_id}` (from the `job` SSE event).
@@ -47,9 +49,16 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 
 Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; carries `job_id`) / `info` / `success` / `skip` / `error` / `done`. `detect` page events carry `page:{kind,index,boxes}`; `done` carries `stats` + `plan`. `commit` `done` carries `stats:{questions_created, assets_written, skipped, errors}`. Cancellation mirrors `app/ai_tools`: per-job `threading.Event` in `_PDF_CANCEL`, checked between pages/questions.
 
-## Box detection
+## Detection methods (`detect_page(config, png, atype, image_max_dim, method='llm')`)
 
-`detect_page(config, png, atype, image_max_dim)` downscales the page via `llm_client.prepare_image`, calls `chat` with the atype-specific system prompt, and returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`. QUE prompt = tight box excluding answer space + margins **but keeping the marks annotation** (e.g. `(4 marks)`) even when slightly below/right; SOL prompt = full solution incl. right-hand notes.
+Returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`. `DETECT_METHODS = ('llm','refine','segment')`; threaded through `iter_detect`/`detect_single_page` and both routes. `_check_method_available` fails fast (one SSE error) when `refine`/`segment` are picked without NumPy.
+
+- **`llm`** (default, no NumPy): the model returns tight boxes via `build_pdf_box_system`/`parse_question_boxes`. QUE prompt = tight box excluding answer space + margins **but keeping the marks annotation** (e.g. `(4 marks)`); SOL prompt = full solution incl. right-hand notes.
+- **`refine`**: LLM boxes, then `pdf_layout.refine_box(gray, box, shrink_sides)` expands by `grow_frac` then trims to content via projection profiles (recovers chopped text / marks / figures, drops blank margins).
+- **`segment`**: model returns only `{qno, y-start}` per item (`build_pdf_anchor_system`/`parse_question_anchors` — one scalar is far easier for a VLM to localise); `pdf_layout.segment_page(gray, anchors, shrink_sides)` derives each box from the whitespace gap to the next anchor.
+- `shrink_sides = (atype=='QUE')` — SOL keeps full width so right-hand side-notes are never trimmed. CV runs on the **high-res** PNG (`load_gray`); the LLM still sees the downscaled copy.
+
+**Deskew** (staging): `rasterize_pdf(..., deskew=)` straightens each scanned page in place via `pdf_layout.deskew_image` (projection-variance angle sweep ±6°, `expand=False` so dims/`meta` stay valid). Stored as `meta['deskew']`; skipped (warn) if NumPy missing.
 
 **Coordinate convention is the #1 failure mode.** The prompt (`_PDF_BOX_JSON_CONTRACT`) pins an explicit **0–1000 integer grid, origin top-left, `[x1,y1,x2,y2]` (x-first)** with a worked example. `parse_question_boxes(text, img_w, img_h, coord_order)` (via `_normalize_box`) tolerates fences/prose and:
 - **Axis order**: `coord_order='xyxy'` (default, Qwen/most) or `'yxyx'` (Gemma/Gemini/PaliGemma — vertical coord first), from setting `PDF_IMPORT_COORD_ORDER`. This is the only genuinely ambiguous part, hence a setting.
@@ -63,7 +72,11 @@ Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; c
 
 ## Staging
 
-`OUTPUT_PATH/.pdf_import/<token>/` holds `meta.json` (subject/source/year/paper/version + page dims), `plan.json`, and `que/`/`sol/` (`source.pdf` + `page_NNNN.png`). `cleanup_old()` (called on each `stage`) purges dirs older than ~6 h; Discard removes one immediately. Token is validated (`^[0-9a-f]{8,40}$`) before any filesystem join.
+`OUTPUT_PATH/.pdf_import/<token>/` holds `meta.json` (subject/source/year/paper/version + `deskew` flag + page dims), `plan.json`, and `que/`/`sol/` (`source.pdf` + `page_NNNN.png`). `cleanup_old()` (called on each `stage`) purges dirs older than ~6 h; Discard removes one immediately. Token is validated (`^[0-9a-f]{8,40}$`) before any filesystem join.
+
+## Auto-renumber (review, client-side)
+
+Reading order within a kind = `(page, box top-Y)`. **Add** (`finishDraw`→`renumberAfterInsert`): the new box's qno = predecessor+1 (or 1), then every later box +1. **Delete** (`renumberAfterDelete`): every later box −1 (clamped ≥1). `refreshNumbersUI` rewrites labels + qno inputs from the plan. Re-detecting a page replaces its boxes with the model's authoritative numbers and does **not** cascade. Manual qno edits + move/resize never cascade (deliberate).
 
 ## Gotchas / invariants
 
@@ -73,3 +86,4 @@ Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; c
 4. The LLM sees the **downscaled** page (`LLM_IMAGE_MAX_DIM`); crops are cut from the **high-res** page (`PDF_IMPORT_RASTER_WIDTH`). Boxes are fractional → resolution-independent.
 5. `replace_img_assets` deletes existing IMG rows for the slot first — that IS the overwrite path. The skip-existing branch guards it with `slot_has_img` when `overwrite` is off.
 6. Dev server must run threaded for the long SSE streams (already the case for the other batch ops).
+7. **NumPy optional**: `refine`/`segment`/deskew need it (`pdf_layout.numpy_available()`); `llm` method + the rest of the app work without it. Detect fails fast with one SSE error; deskew silently skips with a warning. `segment` assumes a single column — dense MC / note-heavy SOL pages can over/under-merge; per-page retry to `llm` is the escape hatch.

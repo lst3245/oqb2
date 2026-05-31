@@ -2915,9 +2915,13 @@ def _pdf_load_token_meta(token):
 @admin_required
 def pdf_import_page():
     """PDF Batch Import management page."""
+    from app import pdf_import
     subjects = get_user_admin_subjects()
     endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name}
                  for c in _pdf_vision_endpoints()]
+    default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
+    if default_method not in pdf_import.DETECT_METHODS:
+        default_method = 'llm'
     return render_template(
         'admin_pdf_import.html',
         subjects=subjects,
@@ -2926,6 +2930,8 @@ def pdf_import_page():
         endpoints=endpoints,
         ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
+        deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
+        default_method=default_method,
     )
 
 
@@ -2970,11 +2976,13 @@ def pdf_import_stage():
         return jsonify({'error': 'Upload at least one PDF (a question PDF and/or a solution PDF).'}), 400
 
     raster_width = int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700))
+    deskew = (request.form.get('deskew', '1').strip().lower()
+              in ('1', 'true', 'yes', 'on'))
     try:
         token, saved_meta = pdf_import.stage(
             que_file if has_que else None,
             sol_file if has_sol else None,
-            meta, raster_width)
+            meta, raster_width, deskew=deskew)
     except Exception as e:
         current_app.logger.exception('PDF import staging failed')
         return jsonify({'error': f'Could not process PDF: {e}'}), 500
@@ -2990,6 +2998,7 @@ def pdf_import_stage():
         'token': token,
         'subject': subject, 'source': meta['source'],
         'year': meta['year'], 'paper': meta['paper'], 'version': version,
+        'deskew': bool(saved_meta.get('deskew')),
         'que': {'filename': (que_file.filename if has_que else None), 'pages': _pages('que')},
         'sol': {'filename': (sol_file.filename if has_sol else None), 'pages': _pages('sol')},
     })
@@ -3044,6 +3053,9 @@ def pdf_import_detect():
         return _pdf_sse_error('The selected endpoint is not vision-capable.')
 
     debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    method = (request.args.get('method', 'llm') or 'llm').strip().lower()
+    if method not in pdf_import.DETECT_METHODS:
+        method = 'llm'
 
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
@@ -3056,7 +3068,8 @@ def pdf_import_detect():
                 live_cfg = _Cfg.query.get(endpoint_id)
                 image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
                 for ev in pdf_import.iter_detect(app, cancel, token, live_cfg,
-                                                 image_max_dim, debug=debug):
+                                                 image_max_dim, debug=debug,
+                                                 method=method):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import detect stream aborted')
@@ -3099,8 +3112,12 @@ def pdf_import_redo_page():
 
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     debug = bool(data.get('debug'))
+    method = (data.get('method') or 'llm').strip().lower()
+    if method not in pdf_import.DETECT_METHODS:
+        method = 'llm'
     try:
-        boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index, image_max_dim)
+        boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index,
+                                                   image_max_dim, method=method)
     except Exception as e:
         current_app.logger.exception('PDF import redo-page failed')
         return jsonify({'error': f'Detection failed: {e}'}), 502

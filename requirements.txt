@@ -29,3 +29,7 @@ pywin32>=306; sys_platform == "win32"
 psutil>=5.9; sys_platform == "win32"
 # PyMuPDF rasterises the first PDF page to PNG for DOC asset thumbnails.
 PyMuPDF>=1.24.10
+# NumPy powers the PDF Batch Import "LLM assisted" detection: projection-profile
+# deskew + whitespace-based box refinement / segmentation (app/pdf_layout.py).
+# Pure-LLM detection and the rest of the app work without it.
+numpy>=1.26

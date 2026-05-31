@@ -187,7 +187,8 @@ def cleanup_old(max_age_hours: float = 6.0) -> None:
 
 # ==================== Rasterisation ====================
 
-def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int) -> list:
+def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
+                  deskew: bool = False) -> list:
     """Rasterise every page of ``pdf_path`` to ``page_NNNN.png`` in
     ``out_dir``. Returns a list of ``{index, filename, width, height}``.
 
@@ -195,10 +196,28 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int) -> list:
     ``app/batch_image_gen._pdf_to_cropped_images`` but keeps the full page
     (no cropping) so the LLM sees the whole layout and we can crop precisely
     later.
+
+    When ``deskew`` is set, each rendered page is straightened in place via
+    :func:`app.pdf_layout.deskew_image` (skew/rotation fix for scans). The
+    rotation uses ``expand=False`` so the cached width/height stay valid. If
+    NumPy isn't available the deskew is silently skipped (a warning is logged).
     """
     import fitz  # type: ignore
+    from PIL import Image
 
     os.makedirs(out_dir, exist_ok=True)
+
+    do_deskew = bool(deskew)
+    if do_deskew:
+        try:
+            from app import pdf_layout
+            if not pdf_layout.numpy_available():
+                logger.warning('PDF import deskew requested but NumPy is '
+                               'unavailable — staging without deskew.')
+                do_deskew = False
+        except Exception:  # pragma: no cover
+            do_deskew = False
+
     pages: list = []
     pdf = fitz.open(pdf_path)
     try:
@@ -209,7 +228,20 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int) -> list:
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
             fname = f'page_{i + 1:04d}.png'
-            pix.save(os.path.join(out_dir, fname))
+            out_path = os.path.join(out_dir, fname)
+            pix.save(out_path)
+            if do_deskew:
+                try:
+                    from app import pdf_layout
+                    with Image.open(out_path) as im:
+                        im.load()
+                        straight = pdf_layout.deskew_image(im)
+                    tmp = out_path + '.tmp'
+                    straight.save(tmp, format='PNG')  # ext is .tmp; tell PIL the format
+                    os.replace(tmp, out_path)
+                except Exception as e:  # pragma: no cover — deskew is best-effort
+                    logger.warning('PDF import deskew failed for page %s: %s',
+                                   i + 1, e)
             pages.append({'index': i, 'filename': fname,
                           'width': pix.width, 'height': pix.height})
     finally:
@@ -217,12 +249,14 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int) -> list:
     return pages
 
 
-def stage(que_storage, sol_storage, meta_in: dict, raster_width: int):
+def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
+          deskew: bool = False):
     """Save the uploaded PDFs and rasterise their pages.
 
     ``que_storage`` / ``sol_storage`` are Werkzeug ``FileStorage`` objects (or
-    None). ``meta_in`` carries the parsed paper prefix + version. Returns
-    ``(token, meta)`` where ``meta`` is the persisted JSON.
+    None). ``meta_in`` carries the parsed paper prefix + version. ``deskew``
+    straightens scanned pages during rasterisation. Returns ``(token, meta)``
+    where ``meta`` is the persisted JSON.
     """
     cleanup_old()
     token = uuid.uuid4().hex
@@ -231,6 +265,7 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int):
 
     meta = dict(meta_in)
     meta['created_at'] = datetime.utcnow().isoformat()
+    meta['deskew'] = bool(deskew)
     meta['que'] = None
     meta['sol'] = None
 
@@ -241,7 +276,7 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int):
         os.makedirs(kind_dir, exist_ok=True)
         pdf_path = os.path.join(kind_dir, 'source.pdf')
         storage.save(pdf_path)
-        pages = rasterize_pdf(pdf_path, kind_dir, raster_width)
+        pages = rasterize_pdf(pdf_path, kind_dir, raster_width, deskew=deskew)
         meta[kind] = {'filename': storage.filename, 'pages': pages}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:
@@ -270,25 +305,73 @@ def _sent_image_size(png_path: str, image_max_dim: int):
     return w, h
 
 
-def detect_page(config, png_path: str, atype: str, image_max_dim: int):
-    """Ask the vision LLM for the question regions on one page.
+DETECT_METHODS = ('llm', 'refine', 'segment')
+
+
+def detect_page(config, png_path: str, atype: str, image_max_dim: int,
+                method: str = 'llm'):
+    """Detect the question/solution regions on one page.
+
+    ``method``:
+      * ``'llm'``     - the model returns tight boxes (original behaviour).
+      * ``'refine'``  - the model returns boxes, then classical CV snaps each
+        box to the printed content (recovers chopped text / marks / figures,
+        drops answer-space margins). See :func:`app.pdf_layout.refine_box`.
+      * ``'segment'`` - the model returns only each item's START y; classical
+        CV derives the boxes from the whitespace gaps. See
+        :func:`app.pdf_layout.segment_page`.
+
+    For ``refine`` / ``segment`` the side edges are only tightened on QUE pages
+    (``shrink_sides``); SOL pages keep full width so right-hand marking
+    side-notes are never trimmed.
 
     Returns ``(boxes, raw_text)`` where ``boxes`` is a list of
     ``{qno, box:[x1,y1,x2,y2], continues_prev, continues_next}`` (fractional
     coords) and ``raw_text`` is the model's verbatim reply (kept for the debug
-    view). Raises on transport failure.
+    view). Raises on transport failure or when an assisted method is requested
+    without NumPy.
     """
     from app import ai_prompts, llm_client
 
+    method = (method or 'llm').strip().lower()
+    if method not in DETECT_METHODS:
+        method = 'llm'
+    coord_order = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
+    shrink_sides = (atype == 'QUE')
+
     b64, mime = llm_client.prepare_image(png_path, image_max_dim)
+    sw, sh = _sent_image_size(png_path, image_max_dim)
+
+    if method == 'segment':
+        from app import pdf_layout
+        system = ai_prompts.build_pdf_anchor_system(atype)
+        user_text = ai_prompts.build_pdf_anchor_user_text(atype)
+        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
+        anchors = ai_prompts.parse_question_anchors(text, img_h=sh,
+                                                    coord_order=coord_order)
+        gray = pdf_layout.load_gray(png_path)
+        seg = pdf_layout.segment_page(gray, anchors, shrink_sides=shrink_sides)
+        boxes = [{'qno': s['qno'], 'box': s['box'],
+                  'continues_prev': False, 'continues_next': False} for s in seg]
+        return boxes, (text or '')
+
+    # 'llm' or 'refine': the model returns full boxes.
     system = ai_prompts.build_pdf_box_system(atype)
     user_text = ai_prompts.build_pdf_box_user_text(atype)
     text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
-
-    coord_order = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
-    sw, sh = _sent_image_size(png_path, image_max_dim)
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)
+
+    if method == 'refine':
+        from app import pdf_layout
+        gray = pdf_layout.load_gray(png_path)
+        for b in boxes:
+            try:
+                b['box'] = pdf_layout.refine_box(gray, b['box'],
+                                                 shrink_sides=shrink_sides)
+            except Exception as e:  # pragma: no cover — keep the LLM box
+                logger.warning('pdf-import refine_box failed: %s', e)
+
     return boxes, (text or '')
 
 
@@ -353,14 +436,32 @@ def _empty_stats():
     return {'pages': 0, 'questions': 0}
 
 
+def _check_method_available(method: str):
+    """Return an error string if ``method`` needs NumPy and it's missing,
+    else None. Lets iter_detect fail fast with one clear message instead of
+    erroring on every page."""
+    if (method or 'llm') in ('refine', 'segment'):
+        try:
+            from app import pdf_layout
+            if not pdf_layout.numpy_available():
+                return ('LLM-assisted detection needs NumPy, which is not '
+                        'installed. Install it (pip install "numpy>=1.26") or '
+                        'use the "LLM only" method.')
+        except Exception:  # pragma: no cover
+            return 'LLM-assisted detection module failed to load.'
+    return None
+
+
 def iter_detect(app, cancel, token: str, config, image_max_dim: int,
-                debug: bool = False):
+                debug: bool = False, method: str = 'llm'):
     """Generator yielding detection progress events (one LLM call per page).
 
     Accumulates the detected boxes into ``plan.json`` so a later commit can
     read them even without the browser echoing them back. When ``debug`` is
     set, each page's verbatim model output is logged and attached to the
     page event so coordinate problems can be diagnosed in the browser.
+    ``method`` selects LLM-only vs an assisted CV method (see
+    :func:`detect_page`).
     """
     meta = load_meta(token)
     kinds = [k for k in ('que', 'sol')
@@ -375,8 +476,20 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                'total': 0, 'stats': _empty_stats(), 'plan': plan}
         return
 
+    method = (method or 'llm').strip().lower()
+    method_err = _check_method_available(method)
+    if method_err:
+        save_plan(token, plan)
+        yield {'type': 'error', 'message': method_err}
+        yield {'type': 'done', 'message': 'Detection aborted.', 'current': 0,
+               'total': total, 'stats': _empty_stats(), 'plan': plan}
+        return
+
+    method_label = {'llm': 'LLM only', 'refine': 'LLM assisted (refine)',
+                    'segment': 'LLM assisted (segment)'}.get(method, method)
     yield {'type': 'info',
-           'message': f'Detecting questions across {total} page(s) with model {config.model_name}...',
+           'message': (f'Detecting questions across {total} page(s) with model '
+                       f'{config.model_name} [{method_label}]...'),
            'current': 0, 'total': total}
 
     done = 0
@@ -394,7 +507,7 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             idx = p['index']
             png = page_png_path(token, kind, idx)
             try:
-                boxes, raw = detect_page(config, png, atype, image_max_dim)
+                boxes, raw = detect_page(config, png, atype, image_max_dim, method)
             except Exception as e:  # transport / parse failure for this page
                 done += 1
                 logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, e)
@@ -426,12 +539,17 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
 
 
 def detect_single_page(config, token: str, kind: str, index: int,
-                       image_max_dim: int):
+                       image_max_dim: int, method: str = 'llm'):
     """Re-run detection for a single page (the review-mode 'Re-run page'
-    button). Returns ``(boxes, raw_text)``."""
+    button), optionally with a different ``method``. Returns
+    ``(boxes, raw_text)``. Raises a clear error if an assisted method is
+    requested without NumPy."""
+    err = _check_method_available(method)
+    if err:
+        raise RuntimeError(err)
     atype = 'QUE' if kind == 'que' else 'SOL'
     png = page_png_path(token, kind, index)
-    return detect_page(config, png, atype, image_max_dim)
+    return detect_page(config, png, atype, image_max_dim, method)
 
 
 def _group_plan(plan: dict):
