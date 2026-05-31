@@ -564,6 +564,9 @@
     .explain-msg.assistant.error { background: #f8d7da; color: #842029; }
     .explain-msg.assistant p:last-child { margin-bottom: 0; }
     .explain-msg.assistant .katex-display { margin: 0.4rem 0; }
+    .explain-streaming { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; }
+    .explain-reasoning { color: #6c757d; font-size: 0.9em; border-left: 3px solid #dee2e6; padding-left: 0.6rem; margin: 0.25rem 0 0.4rem; white-space: pre-wrap; word-wrap: break-word; }
+    .explain-reasoning summary { cursor: pointer; font-weight: 500; }
     .explain-typing span { display: inline-block; width: 7px; height: 7px; margin: 0 1px; background: #adb5bd; border-radius: 50%; animation: explainBlink 1.2s infinite both; }
     .explain-typing span:nth-child(2) { animation-delay: .2s; }
     .explain-typing span:nth-child(3) { animation-delay: .4s; }
@@ -4002,62 +4005,171 @@ function _explainSend(userMessage) {
     const vp = (typeof getVersionPriority === 'function') ? getVersionPriority()
         : (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
 
-    fetch(`/dashboard/api/question/${explainState.questionId}/explain`, {
+    const stream = _explainStreamRequest(
+        `/dashboard/api/question/${explainState.questionId}/explain`,
+        { turns: explainState.turns, version_priority: vp },
+        typing,
+        {
+            onDone: (payload) => {
+                explainState.turns.push({ role: 'assistant', content: payload.reply || '' });
+                const meta = document.getElementById('explainMeta');
+                if (meta && payload.model) {
+                    meta.textContent = payload.model + (payload.has_solution ? ' · question + solution' : ' · question only');
+                }
+            },
+        }
+    );
+    stream.finally(() => {
+        _explainSetBusy(false);
+        const input = document.getElementById('explainInput');
+        if (input) input.focus();
+    });
+}
+
+// SSE streaming consumer shared between Explain (here) and the admin Chat
+// console. Reads `data: {...}\n\n` events from a POST that returns
+// text/event-stream, appends `delta` content live to the assistant bubble,
+// finalises on `done`, and surfaces structured errors. Returns a Promise.
+function _explainStreamRequest(url, body, typingBubble, callbacks) {
+    callbacks = callbacks || {};
+    let bubble = null;            // assistant bubble (replaces the typing dots)
+    let liveContent = '';
+    let liveReasoning = '';
+    let receivedAny = false;
+    let finished = false;
+
+    const ensureBubble = () => {
+        if (!bubble) {
+            if (typingBubble && typingBubble.parentNode) typingBubble.remove();
+            bubble = _explainAppendBubble('assistant', '');
+        }
+        return bubble;
+    };
+
+    const renderLive = () => {
+        const b = ensureBubble();
+        let html = '';
+        // Reasoning is shown as preformatted text (typically chain-of-thought,
+        // not Markdown) — keep it readable but not parsed.
+        if (liveReasoning) {
+            html += '<details class="explain-reasoning"' + (liveContent ? '' : ' open') + '>'
+                + '<summary>Reasoning…</summary>'
+                + '<div class="explain-streaming">' + _explainEscape(liveReasoning) + '</div>'
+                + '</details>';
+        }
+        // Live Markdown render for the actual reply: marked + KaTeX
+        // pre-rendered. Partial input (unclosed code fence, half-typed bold,
+        // etc.) renders gracefully and self-corrects on the next delta.
+        if (liveContent) {
+            const mdHtml = (window.oqbRenderMarkdownLive
+                ? window.oqbRenderMarkdownLive(liveContent)
+                : '<div class="explain-streaming">' + _explainEscape(liveContent) + '</div>');
+            html += '<div class="explain-md-live">' + mdHtml + '</div>';
+        }
+        b.innerHTML = html;
+        const body = b.closest('.modal-body');
+        if (body) body.scrollTop = body.scrollHeight;
+    };
+
+    const showError = (msg) => {
+        if (typingBubble && typingBubble.parentNode) typingBubble.remove();
+        if (bubble && bubble.parentNode) bubble.remove();
+        _explainAppendBubble('assistant',
+            '<i class="bi bi-exclamation-triangle"></i> ' + _explainEscape(msg)
+            + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
+            { error: true });
+    };
+
+    return fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turns: explainState.turns, version_priority: vp }),
-    })
-        .then(async r => {
-            const text = await r.text();
-            let d = null;
-            let parseErr = null;
-            try { d = text ? JSON.parse(text) : {}; }
-            catch (e) { parseErr = e; }
-            return { ok: r.ok, status: r.status, contentType: r.headers.get('content-type') || '', text, d, parseErr };
-        })
-        .then((res) => {
-            typing.remove();
-            if (res.parseErr) {
-                // Server returned non-JSON (HTML error page from Werkzeug debugger,
-                // a tunnel/proxy timeout page, etc.). Surface what came back so it's
-                // diagnosable instead of just saying "JSON parse failed".
-                const snippet = (res.text || '').replace(/\s+/g, ' ').slice(0, 400);
-                _explainAppendBubble('assistant',
-                    '<i class="bi bi-exclamation-triangle"></i> Server returned a non-JSON response (HTTP '
-                    + res.status + ', ' + _explainEscape(res.contentType || 'unknown') + ').'
-                    + (snippet ? '<br><small><code>' + _explainEscape(snippet) + '</code></small>' : '')
-                    + '<br><small class="text-muted">Check the Flask terminal for the underlying exception. If using a tunnel/reverse proxy, raise its read timeout too.</small>',
-                    { error: true });
-                _explainSetBusy(false);
-                return;
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: JSON.stringify(body),
+    }).then(async (r) => {
+        if (!r.ok || !r.body) {
+            // Try to read JSON / text error.
+            const text = await r.text().catch(() => '');
+            let detail = `HTTP ${r.status}`;
+            try {
+                const j = JSON.parse(text);
+                if (j && j.error) detail = j.error;
+            } catch (e) {
+                if (text) {
+                    const snippet = text.replace(/\s+/g, ' ').slice(0, 300);
+                    detail = `HTTP ${r.status} (${r.headers.get('content-type') || 'unknown'}): ${snippet}`;
+                }
             }
-            const { ok, d } = res;
-            if (!ok || (d && d.error)) {
-                _explainAppendBubble('assistant',
-                    '<i class="bi bi-exclamation-triangle"></i> ' + _explainEscape((d && d.error) || ('HTTP ' + res.status)),
-                    { error: true });
-                _explainSetBusy(false);
-                return;
+            throw new Error(detail);
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        // Consume the stream chunk-by-chunk.
+        // Each SSE event is "data: ...\n\n"; comments start with ":".
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let sep;
+            while ((sep = buffer.indexOf('\n\n')) !== -1) {
+                const eventBlock = buffer.slice(0, sep);
+                buffer = buffer.slice(sep + 2);
+                const dataLines = [];
+                for (const line of eventBlock.split('\n')) {
+                    if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+                }
+                if (!dataLines.length) continue;
+                let payload;
+                try { payload = JSON.parse(dataLines.join('\n')); }
+                catch (e) { continue; }
+
+                receivedAny = true;
+                if (payload.type === 'preamble') {
+                    continue;
+                } else if (payload.type === 'delta') {
+                    if (payload.content) liveContent += payload.content;
+                    if (payload.reasoning) liveReasoning += payload.reasoning;
+                    renderLive();
+                } else if (payload.type === 'done') {
+                    finished = true;
+                    if (typingBubble && typingBubble.parentNode) typingBubble.remove();
+                    const b = ensureBubble();
+                    if (liveReasoning) {
+                        // Keep the reasoning available as a collapsed details.
+                        b.innerHTML =
+                            '<details class="explain-reasoning"><summary>Reasoning</summary>'
+                            + '<div class="explain-streaming">' + _explainEscape(liveReasoning) + '</div>'
+                            + '</details>'
+                            + (payload.reply_html || _explainEscape(payload.reply || ''));
+                    } else {
+                        b.innerHTML = payload.reply_html || _explainEscape(payload.reply || '');
+                    }
+                    window.oqbTypesetMath && window.oqbTypesetMath(b);
+                    if (callbacks.onDone) callbacks.onDone(payload);
+                } else if (payload.type === 'error') {
+                    finished = true;
+                    showError(payload.message || 'Request failed.');
+                }
             }
-            _explainAppendBubble('assistant', d.reply_html || _explainEscape(d.reply || ''));
-            explainState.turns.push({ role: 'assistant', content: d.reply || '' });
-            const meta = document.getElementById('explainMeta');
-            if (meta && d.model) {
-                meta.textContent = d.model + (d.has_solution ? ' · question + solution' : ' · question only');
+        }
+
+        if (!finished) {
+            if (!receivedAny) {
+                showError('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.');
+            } else {
+                // We got some deltas but no done event — finalise with what we have.
+                if (typingBubble && typingBubble.parentNode) typingBubble.remove();
+                const b = ensureBubble();
+                if (!b.textContent.trim()) {
+                    showError('Connection closed before the response completed.');
+                }
             }
-            _explainSetBusy(false);
-            const input = document.getElementById('explainInput');
-            if (input) input.focus();
-        })
-        .catch((err) => {
-            typing.remove();
-            const msg = (err && err.message) ? err.message : 'request did not complete';
-            _explainAppendBubble('assistant',
-                '<i class="bi bi-exclamation-triangle"></i> Network error contacting the AI: ' + _explainEscape(msg)
-                + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
-                { error: true });
-            _explainSetBusy(false);
-        });
+        }
+    }).catch((err) => {
+        const msg = (err && err.message) ? err.message : 'request did not complete';
+        showError('Network error contacting the AI: ' + msg);
+    });
 }
 
 // Clear all selections

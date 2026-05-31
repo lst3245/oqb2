@@ -16,6 +16,9 @@
     .chat-msg.system { align-self: stretch; background: #fff3cd; color: #664d03; font-size: 0.85rem; border: 1px dashed #ffe69c; }
     .chat-msg.assistant p:last-child { margin-bottom: 0; }
     .chat-msg.assistant .katex-display { margin: 0.4rem 0; }
+    .chat-streaming { white-space: pre-wrap; word-wrap: break-word; }
+    .chat-reasoning { color: #6c757d; font-size: 0.9em; border-left: 3px solid #dee2e6; padding-left: 0.6rem; margin: 0.25rem 0 0.4rem; white-space: pre-wrap; word-wrap: break-word; }
+    .chat-reasoning summary { cursor: pointer; font-weight: 500; }
     .chat-typing span { display: inline-block; width: 7px; height: 7px; margin: 0 1px; background: #adb5bd; border-radius: 50%; animation: chatBlink 1.2s infinite both; }
     .chat-typing span:nth-child(2) { animation-delay: .2s; }
     .chat-typing span:nth-child(3) { animation-delay: .4s; }
@@ -473,54 +476,139 @@ function sendChatMessage() {
         '<span class="chat-typing"><span></span><span></span><span></span></span>',
         { typing: true });
 
-    fetch(`{{ url_for("admin.llm_endpoints_chat", cid=0) }}`.replace('/0/', `/${chatState.endpointId}/`), {
+    const url = `{{ url_for("admin.llm_endpoints_chat", cid=0) }}`.replace('/0/', `/${chatState.endpointId}/`);
+
+    let bubble = null;
+    let liveContent = '';
+    let liveReasoning = '';
+    let receivedAny = false;
+    let finished = false;
+
+    const ensureBubble = () => {
+        if (!bubble) {
+            if (typing && typing.parentNode) typing.remove();
+            bubble = _chatAppendBubble('assistant', '');
+        }
+        return bubble;
+    };
+
+    const renderLive = () => {
+        const b = ensureBubble();
+        let html = '';
+        if (liveReasoning) {
+            html += '<details class="chat-reasoning"' + (liveContent ? '' : ' open') + '>'
+                + '<summary>Reasoning…</summary>'
+                + '<div class="chat-streaming">' + escapeHtml(liveReasoning) + '</div>'
+                + '</details>';
+        }
+        if (liveContent) {
+            const mdHtml = (window.oqbRenderMarkdownLive
+                ? window.oqbRenderMarkdownLive(liveContent)
+                : '<div class="chat-streaming">' + escapeHtml(liveContent) + '</div>');
+            html += '<div class="chat-md-live">' + mdHtml + '</div>';
+        }
+        b.innerHTML = html;
+        const body = b.closest('.modal-body');
+        if (body) body.scrollTop = body.scrollHeight;
+    };
+
+    const showError = (msg) => {
+        if (typing && typing.parentNode) typing.remove();
+        if (bubble && bubble.parentNode) bubble.remove();
+        _chatAppendBubble('assistant',
+            '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(msg)
+            + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
+            { error: true });
+    };
+
+    fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({ turns: chatState.turns }),
-    })
-        .then(async r => {
-            const text = await r.text();
-            let d = null;
-            let parseErr = null;
-            try { d = text ? JSON.parse(text) : {}; }
-            catch (e) { parseErr = e; }
-            return { ok: r.ok, status: r.status, contentType: r.headers.get('content-type') || '', text, d, parseErr };
-        })
-        .then((res) => {
-            typing.remove();
-            if (res.parseErr) {
-                const snippet = (res.text || '').replace(/\s+/g, ' ').slice(0, 400);
-                _chatAppendBubble('assistant',
-                    '<i class="bi bi-exclamation-triangle"></i> Server returned a non-JSON response (HTTP '
-                    + res.status + ', ' + escapeHtml(res.contentType || 'unknown') + ').'
-                    + (snippet ? '<br><small><code>' + escapeHtml(snippet) + '</code></small>' : '')
-                    + '<br><small class="text-muted">Check the Flask terminal for the underlying exception. If using a tunnel/reverse proxy, raise its read timeout too.</small>',
-                    { error: true });
-                _chatSetBusy(false);
-                return;
+    }).then(async (r) => {
+        if (!r.ok || !r.body) {
+            const text = await r.text().catch(() => '');
+            let detail = `HTTP ${r.status}`;
+            try {
+                const j = JSON.parse(text);
+                if (j && j.error) detail = j.error;
+            } catch (e) {
+                if (text) {
+                    const snippet = text.replace(/\s+/g, ' ').slice(0, 300);
+                    detail = `HTTP ${r.status} (${r.headers.get('content-type') || 'unknown'}): ${snippet}`;
+                }
             }
-            const { ok, d } = res;
-            if (!ok || (d && d.error)) {
-                _chatAppendBubble('assistant',
-                    '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml((d && d.error) || ('HTTP ' + res.status)),
-                    { error: true });
-                _chatSetBusy(false);
-                return;
+            throw new Error(detail);
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let sep;
+            while ((sep = buffer.indexOf('\n\n')) !== -1) {
+                const eventBlock = buffer.slice(0, sep);
+                buffer = buffer.slice(sep + 2);
+                const dataLines = [];
+                for (const line of eventBlock.split('\n')) {
+                    if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+                }
+                if (!dataLines.length) continue;
+                let payload;
+                try { payload = JSON.parse(dataLines.join('\n')); }
+                catch (e) { continue; }
+
+                receivedAny = true;
+                if (payload.type === 'preamble') {
+                    continue;
+                } else if (payload.type === 'delta') {
+                    if (payload.content) liveContent += payload.content;
+                    if (payload.reasoning) liveReasoning += payload.reasoning;
+                    renderLive();
+                } else if (payload.type === 'done') {
+                    finished = true;
+                    if (typing && typing.parentNode) typing.remove();
+                    const b = ensureBubble();
+                    if (liveReasoning) {
+                        b.innerHTML =
+                            '<details class="chat-reasoning"><summary>Reasoning</summary>'
+                            + '<div class="chat-streaming">' + escapeHtml(liveReasoning) + '</div>'
+                            + '</details>'
+                            + (payload.reply_html || escapeHtml(payload.reply || ''));
+                    } else {
+                        b.innerHTML = payload.reply_html || escapeHtml(payload.reply || '');
+                    }
+                    window.oqbTypesetMath && window.oqbTypesetMath(b);
+                    chatState.turns.push({ role: 'assistant', content: payload.reply || '' });
+                } else if (payload.type === 'error') {
+                    finished = true;
+                    showError(payload.message || 'Request failed.');
+                }
             }
-            _chatAppendBubble('assistant', d.reply_html || escapeHtml(d.reply || ''));
-            chatState.turns.push({ role: 'assistant', content: d.reply || '' });
-            _chatSetBusy(false);
-            input.focus();
-        })
-        .catch(err => {
-            typing.remove();
-            const msg = (err && err.message) ? err.message : 'request did not complete';
-            _chatAppendBubble('assistant',
-                '<i class="bi bi-exclamation-triangle"></i> Network error: ' + escapeHtml(msg)
-                + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
-                { error: true });
-            _chatSetBusy(false);
-        });
+        }
+
+        if (!finished) {
+            if (!receivedAny) {
+                showError('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.');
+            } else {
+                if (typing && typing.parentNode) typing.remove();
+                const b = ensureBubble();
+                if (!b.textContent.trim()) {
+                    showError('Connection closed before the response completed.');
+                }
+            }
+        }
+    }).catch((err) => {
+        const msg = (err && err.message) ? err.message : 'request did not complete';
+        showError('Network error: ' + msg);
+    }).finally(() => {
+        _chatSetBusy(false);
+        input.focus();
+    });
 }
 </script>
 {% endblock %}

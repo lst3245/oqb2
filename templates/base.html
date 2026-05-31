@@ -21,6 +21,15 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+
+    <!-- marked: client-side Markdown parser used for live previews
+         (LLM streaming chat, future inline previews). The MD editor partial
+         (templates/partials/md_editor.html) loads its own copy too — version
+         pinned to match. The final HTML rendered for persisted MD assets and
+         end-of-stream chat replies still comes from the server-side bleach
+         pipeline (app/md_render.py); this client copy is for transient
+         live-render only. -->
+    <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     
     <style>
         .question-card {
@@ -560,6 +569,89 @@
             el.innerHTML = html || '';
             window.oqbTypesetMath(el);
         };
+
+        // Render Markdown text to HTML on the client, with KaTeX math
+        // pre-rendered to HTML before marked sees the source. Used for the
+        // live-typing previews in the LLM Explain tutor and the admin Chat
+        // console as deltas stream in. The same content is replaced with the
+        // server-side bleach-sanitized HTML at end-of-stream.
+        //
+        // Math first, marked second — same approach as the MD editor's live
+        // preview — because marked splits blank-line-separated `$$...$$`
+        // across multiple <p> and KaTeX auto-render then can't pair the
+        // delimiters. Returns an HTML string; caller writes it into innerHTML.
+        //
+        // Configures marked once on first call (idempotent). Inputs that
+        // aren't yet parseable (a half-streamed code fence, an unclosed bold,
+        // etc.) render gracefully — marked auto-closes at the buffer end and
+        // self-corrects on the next delta.
+        window.oqbRenderMarkdownLive = (function() {
+            let configured = false;
+            function configureOnce() {
+                if (configured || typeof marked === 'undefined') return;
+                if (marked.setOptions) {
+                    marked.setOptions({
+                        gfm: true,
+                        breaks: false,
+                        mangle: false,
+                        headerIds: false,
+                    });
+                }
+                configured = true;
+            }
+            function preprocessMath(text) {
+                if (!text || typeof katex === 'undefined') return text;
+                // 1) Display math: $$...$$ — wrap rendered HTML in blank
+                //    lines so marked treats it as an HTML block, not a stray
+                //    paragraph child.
+                text = text.replace(/\$\$([\s\S]+?)\$\$/g, function(_m, formula) {
+                    try {
+                        const html = katex.renderToString(formula.trim(), {
+                            displayMode: true, throwOnError: false, output: 'html',
+                        });
+                        return '\n\n<div class="katex-display-wrap">' + html + '</div>\n\n';
+                    } catch (e) {
+                        return '\n\n<pre class="text-danger small">'
+                            + String(e && e.message ? e.message : 'KaTeX error')
+                            + '</pre>\n\n';
+                    }
+                });
+                // 2) Inline math: $...$ on a single line. Reject the
+                //    currency-style "$5" usage (closing `$` followed by a
+                //    digit). Tolerates inner whitespace; trims captured
+                //    formula to match the server-side normalize_inline_math
+                //    behaviour (so dashboard / docx / live preview agree).
+                text = text.replace(/(?<![\\$])\$[ \t]*([^\n$]*?[^\s$])[ \t]*\$(?!\d)/g, function(_m, formula) {
+                    try {
+                        return katex.renderToString(formula, {
+                            displayMode: false, throwOnError: false, output: 'html',
+                        });
+                    } catch (e) {
+                        return '<code class="text-danger">'
+                            + String(e && e.message ? e.message : 'math err')
+                            + '</code>';
+                    }
+                });
+                return text;
+            }
+            return function(text) {
+                configureOnce();
+                if (typeof marked === 'undefined' || !marked.parse) {
+                    // marked hasn't loaded yet — fall back to escaped plain
+                    // text so the user sees something instead of nothing.
+                    const div = document.createElement('div');
+                    div.textContent = text || '';
+                    return div.innerHTML.replace(/\n/g, '<br>');
+                }
+                try {
+                    return marked.parse(preprocessMath(text || ''));
+                } catch (e) {
+                    const div = document.createElement('div');
+                    div.textContent = text || '';
+                    return div.innerHTML;
+                }
+            };
+        })();
 
         // Lazily fill any `.md-preview-card[data-preview-q][data-preview-type]`
         // placeholders by hitting the unified preview API. Honour the

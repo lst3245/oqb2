@@ -15,6 +15,7 @@ when blank the client falls back to ``os.getenv(api_key_env or
 import base64
 import hashlib
 import io
+import json
 import mimetypes
 import os
 
@@ -257,6 +258,160 @@ def chat_messages(config, messages, max_tokens=None, temperature=None, timeout=N
     failure."""
     return _post_chat(config, messages, max_tokens=max_tokens,
                       temperature=temperature, timeout=timeout)
+
+
+def chat_messages_stream(config, messages, max_tokens=None, temperature=None,
+                         timeout=None):
+    """Generator that streams chunks from ``{base_url}/chat/completions``.
+
+    Asks the server for ``"stream": true`` and yields dicts as data arrives:
+
+    * ``{'type': 'delta', 'content': str, 'reasoning': str}`` — incremental
+      tokens. Either ``content`` or ``reasoning`` may be empty for a given
+      chunk; both never simultaneously empty.
+    * ``{'type': 'done', 'text': str, 'reasoning': str, 'finish_reason': str,
+       'usage': dict}`` — emitted exactly once at end-of-stream.
+
+    Raises ``LLMError`` on transport / HTTP / shape failures.
+
+    Servers that don't actually stream (return a one-shot JSON body even when
+    asked to stream) are handled gracefully — the full response is parsed and
+    a single ``done`` event is yielded with the complete text.
+
+    Streaming is the right choice when a reverse proxy sits between the
+    browser and Flask: bytes flow continuously down the wire, so the proxy
+    never sees an idle connection and never returns a 504.
+    """
+    payload = {
+        'model': config.model_name,
+        'messages': messages,
+        'max_tokens': int(max_tokens or config.max_output_tokens or 4096),
+        'temperature': float(config.temperature if temperature is None else temperature),
+        'stream': True,
+    }
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+    }
+    api_key = resolve_api_key(config)
+    if api_key:
+        headers['Authorization'] = f'Bearer {api_key}'
+
+    effective_timeout = int(timeout or config.timeout_seconds or 120)
+    url = config.base_url.rstrip('/') + '/chat/completions'
+
+    accumulated_content: list[str] = []
+    accumulated_reasoning: list[str] = []
+    finish_reason = None
+    usage: dict = {}
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers,
+                             timeout=effective_timeout, stream=True)
+    except requests.Timeout:
+        raise LLMError(f'request timed out after {effective_timeout}s')
+    except requests.RequestException as e:
+        raise LLMError(f'request failed: {e}')
+
+    with resp:
+        if resp.status_code != 200:
+            raise LLMError(f'HTTP {resp.status_code}: {resp.text[:500]}')
+
+        # Force UTF-8 decoding. JSON / SSE bodies are mandated to be UTF-8
+        # (RFC 8259, RFC 8895), but many LLM servers (LM Studio, some Ollama
+        # builds) forget to put ``charset=utf-8`` in Content-Type. Without an
+        # explicit encoding, ``requests`` falls back to ISO-8859-1, which
+        # mangles curly quotes / em-dashes / CJK / emoji into mojibake
+        # (``â€œ``, ``ðŸ§®``) once the bytes are re-encoded as JSON further
+        # down the chain.
+        resp.encoding = 'utf-8'
+
+        content_type = (resp.headers.get('content-type') or '').lower()
+        is_streaming = ('text/event-stream' in content_type
+                        or 'application/x-ndjson' in content_type
+                        or 'stream' in content_type)
+
+        if not is_streaming:
+            # Server ignored stream:true — fall back to one-shot parse.
+            try:
+                data = resp.json()
+            except ValueError as e:
+                raise LLMError(f'non-JSON response ({e}): {resp.text[:300]}')
+            if isinstance(data, dict) and data.get('error') and not data.get('choices'):
+                err = data['error']
+                msg = err.get('message') if isinstance(err, dict) else str(err)
+                raise LLMError(f'API error: {msg}')
+            text, finish = _extract_message_text(data)
+            yield {
+                'type': 'done',
+                'text': text or '',
+                'reasoning': '',
+                'finish_reason': finish,
+                'usage': data.get('usage') or {},
+            }
+            return
+
+        for raw_line in resp.iter_lines(decode_unicode=True):
+            if raw_line is None:
+                continue
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith(':'):
+                continue  # SSE comment / heartbeat
+            if not line.startswith('data:'):
+                continue
+            payload_str = line[len('data:'):].strip()
+            if payload_str == '[DONE]':
+                break
+            try:
+                chunk = json.loads(payload_str)
+            except ValueError:
+                continue
+
+            # OpenAI errors-as-200 in a chunk.
+            if isinstance(chunk, dict) and chunk.get('error') and not chunk.get('choices'):
+                err = chunk['error']
+                msg = err.get('message') if isinstance(err, dict) else str(err)
+                raise LLMError(f'API error: {msg}')
+
+            if isinstance(chunk, dict) and chunk.get('usage'):
+                usage = chunk['usage']
+
+            choices = (chunk.get('choices') or []) if isinstance(chunk, dict) else []
+            if not choices:
+                continue
+            choice = choices[0] or {}
+            delta = choice.get('delta') or {}
+            content_delta = delta.get('content') or ''
+            # Reasoning models send reasoning under various aliases.
+            reasoning_delta = (delta.get('reasoning_content')
+                               or delta.get('reasoning')
+                               or '')
+
+            fr = choice.get('finish_reason')
+            if fr:
+                finish_reason = fr
+
+            if content_delta or reasoning_delta:
+                accumulated_content.append(content_delta)
+                accumulated_reasoning.append(reasoning_delta)
+                yield {
+                    'type': 'delta',
+                    'content': content_delta,
+                    'reasoning': reasoning_delta,
+                }
+
+    full_text = ''.join(accumulated_content)
+    full_reasoning = ''.join(accumulated_reasoning)
+    yield {
+        'type': 'done',
+        'text': full_text,
+        'reasoning': full_reasoning,
+        'finish_reason': finish_reason,
+        'usage': usage,
+    }
 
 
 def _extract_message_text(data):

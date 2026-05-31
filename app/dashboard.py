@@ -1,7 +1,7 @@
 """
 Dashboard routes for question browsing and filtering
 """
-from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort, url_for
+from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort, url_for, Response
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from app import db
@@ -950,28 +950,28 @@ def _explain_slot_context(question_id, asset_type, version_priority,
 @dashboard_bp.route('/api/question/<int:question_id>/explain', methods=['POST'])
 @login_required
 def explain_question(question_id):
-    """AI tutor chat for a single question.
+    """AI tutor chat for a single question — SSE-streamed.
 
     Sends the QUESTION image(s) (and the SOLUTION image(s) when present) to the
-    default vision LLM and returns an explanation. Supports follow-up turns:
-    the client posts the running transcript and the server re-attaches the
-    images to the first user turn each time (stateless, context preserved).
+    default vision LLM and streams an explanation back as Server-Sent Events.
+    Streaming keeps the response flowing through reverse proxies (no idle
+    timeout) and lets the user watch the model think in real time.
 
     Body JSON: ``{turns: [{role, content}], version_priority?}``. ``turns`` is
-    the conversation AFTER the (server-built) initial image turn; empty for the
-    first request.
+    the conversation AFTER the (server-built) initial image turn; empty for
+    the first request — the server rebuilds turn 1 (system prompt + labelled
+    QUE/SOL context) on every call so images aren't re-uploaded by the client.
+
+    Response is ``text/event-stream``; each event is one ``data: {...}\\n\\n``
+    line of JSON:
+
+    * ``{type: 'preamble'}`` — emitted immediately so proxies see bytes.
+    * ``{type: 'delta', content?: str, reasoning?: str}`` — incremental tokens.
+    * ``{type: 'done', reply, reply_html, model, endpoint, has_solution}`` —
+      final, with the rendered Markdown HTML.
+    * ``{type: 'error', message}`` — fatal error mid-stream.
     """
-    try:
-        return _explain_question_impl(question_id)
-    except Exception as e:
-        # Always return JSON so the chat client can show a useful error
-        # instead of the Werkzeug debugger HTML page (which makes the browser
-        # report "Unexpected token '<', '<html><bod'... is not valid JSON").
-        current_app.logger.exception('Unhandled error in explain_question for q=%s', question_id)
-        return jsonify({'error': f'Server error: {type(e).__name__}: {e}'}), 500
-
-
-def _explain_question_impl(question_id):
+    # Permission / prep work happens here, in request context.
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': 'AI features are disabled.'}), 400
 
@@ -986,7 +986,6 @@ def _explain_question_impl(question_id):
 
     data = request.get_json(silent=True) or {}
 
-    # Sanitise the client-sent transcript (text-only follow-up turns).
     turns = []
     for t in (data.get('turns') or [])[-20:]:
         if not isinstance(t, dict):
@@ -999,6 +998,7 @@ def _explain_question_impl(question_id):
     version_priority = parse_version_priority(data.get('version_priority'))
     source_path = current_app.config['SOURCE_PATH']
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+    chat_timeout = int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None
 
     que_imgs, que_text = _explain_slot_context(
         question_id, 'QUE', version_priority, source_path, image_max_dim)
@@ -1010,7 +1010,6 @@ def _explain_question_impl(question_id):
 
     from app import ai_prompts, llm_client
 
-    # Build the multimodal initial user turn: labelled QUE then SOL context.
     parts = []
     if que_imgs:
         parts.append({'type': 'text', 'text': 'QUESTION image(s):'})
@@ -1030,25 +1029,97 @@ def _explain_question_impl(question_id):
     ]
     messages.extend(turns)
 
-    try:
-        text, info = llm_client.chat_messages(
-            cfg, messages,
-            timeout=int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None,
-        )
-    except llm_client.LLMError as e:
-        return jsonify({'error': f'LLM error: {e}'}), 502
-    if not (text or '').strip():
-        fr = (info or {}).get('finish_reason')
-        return jsonify({'error': f'The model returned an empty reply (finish_reason={fr}). '
-                                 'The endpoint may not be vision-capable or hit its token limit.'}), 502
+    has_solution = bool(sol_imgs or sol_text)
+    app = current_app._get_current_object()
 
-    text = ai_prompts.normalize_inline_math(text)
-    return jsonify({
-        'reply': text,
-        'reply_html': md_render.render_text(text),
-        'model': cfg.model_name,
-        'endpoint': cfg.name,
-        'has_solution': bool(sol_imgs or sol_text),
+    def generate():
+        # Push an app context so DB / config access inside the generator
+        # (md_render, normalize_inline_math, llm_client) keep working after
+        # the request context tears down.
+        with app.app_context():
+            # Initial padding helps some proxies recognise this as a stream
+            # and start forwarding bytes without buffering.
+            yield ': stream-start\n\n'
+            yield 'data: ' + json.dumps({'type': 'preamble'}) + '\n\n'
+
+            full_text_parts: list[str] = []
+            full_reasoning_parts: list[str] = []
+            final_finish_reason = None
+
+            try:
+                for evt in llm_client.chat_messages_stream(
+                        cfg, messages, timeout=chat_timeout):
+                    etype = evt.get('type')
+                    if etype == 'delta':
+                        c = evt.get('content') or ''
+                        r = evt.get('reasoning') or ''
+                        if c:
+                            full_text_parts.append(c)
+                        if r:
+                            full_reasoning_parts.append(r)
+                        out = {'type': 'delta'}
+                        if c:
+                            out['content'] = c
+                        if r:
+                            out['reasoning'] = r
+                        yield 'data: ' + json.dumps(out) + '\n\n'
+                    elif etype == 'done':
+                        final_finish_reason = evt.get('finish_reason')
+                        # Some servers emit the full text only at done.
+                        if not full_text_parts and evt.get('text'):
+                            full_text_parts.append(evt['text'])
+                        if not full_reasoning_parts and evt.get('reasoning'):
+                            full_reasoning_parts.append(evt['reasoning'])
+            except llm_client.LLMError as e:
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'LLM error: {e}',
+                }) + '\n\n'
+                return
+            except Exception as e:
+                app.logger.exception('Unhandled error streaming explain for q=%s', question_id)
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'Server error: {type(e).__name__}: {e}',
+                }) + '\n\n'
+                return
+
+            full_text = ''.join(full_text_parts)
+            full_reasoning = ''.join(full_reasoning_parts)
+            reply = full_text.strip() or full_reasoning.strip()
+            if not reply:
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'The model returned an empty reply '
+                               f'(finish_reason={final_finish_reason}). '
+                               'The endpoint may not be vision-capable or hit its token limit.',
+                }) + '\n\n'
+                return
+
+            try:
+                reply_norm = ai_prompts.normalize_inline_math(reply)
+                reply_html = md_render.render_text(reply_norm)
+            except Exception as e:
+                app.logger.exception('Failed to render explain reply for q=%s', question_id)
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'Failed to render reply: {type(e).__name__}: {e}',
+                }) + '\n\n'
+                return
+
+            yield 'data: ' + json.dumps({
+                'type': 'done',
+                'reply': reply_norm,
+                'reply_html': reply_html,
+                'model': cfg.model_name,
+                'endpoint': cfg.name,
+                'has_solution': has_solution,
+            }) + '\n\n'
+
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',  # Tells nginx to not buffer the stream.
+        'Connection': 'keep-alive',
     })
 
 

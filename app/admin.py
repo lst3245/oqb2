@@ -4387,19 +4387,14 @@ def llm_endpoints_chat(cid):
     verify behaviour, debug formatting, or check reasoning quality.
 
     Body JSON: ``{turns: [{role, content}, ...]}`` — the full conversation.
-    The server passes it straight through to ``llm_client.chat_messages``
+    The server passes it straight through to ``llm_client.chat_messages_stream``
     with no other messages prepended.
+
+    Response is ``text/event-stream`` (SSE). Same event shape as the dashboard
+    Explain endpoint: ``preamble``, ``delta``, ``done``, ``error``. Streaming
+    keeps the response flowing through reverse proxies (no idle timeout) and
+    lets the user watch the model think in real time.
     """
-    try:
-        return _llm_endpoints_chat_impl(cid)
-    except Exception as e:
-        # Always return JSON so the chat client surfaces a useful error
-        # rather than the Werkzeug debugger HTML page.
-        current_app.logger.exception('Unhandled error in llm_endpoints_chat for cid=%s', cid)
-        return jsonify({'error': f'Server error: {type(e).__name__}: {e}'}), 500
-
-
-def _llm_endpoints_chat_impl(cid):
     from app.models import LLMConfig
     from app import llm_client, md_render, ai_prompts
 
@@ -4422,24 +4417,102 @@ def _llm_endpoints_chat_impl(cid):
     if not messages:
         return jsonify({'error': 'No messages to send.'}), 400
 
-    try:
-        text, info = llm_client.chat_messages(
-            cfg, messages,
-            timeout=int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None,
-        )
-    except llm_client.LLMError as e:
-        return jsonify({'error': f'LLM error: {e}'}), 502
-    if not (text or '').strip():
-        fr = (info or {}).get('finish_reason')
-        return jsonify({'error': f'The model returned an empty reply '
-                                 f'(finish_reason={fr}).'}), 502
+    chat_timeout = int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None
+    app = current_app._get_current_object()
+    cfg_id = cfg.id
+    cfg_name = cfg.name
+    cfg_model = cfg.model_name
 
-    text_norm = ai_prompts.normalize_inline_math(text)
-    return jsonify({
-        'reply': text,
-        'reply_html': md_render.render_text(text_norm),
-        'model': cfg.model_name,
-        'endpoint': cfg.name,
+    def generate():
+        with app.app_context():
+            yield ': stream-start\n\n'
+            yield 'data: ' + json.dumps({'type': 'preamble'}) + '\n\n'
+
+            full_text_parts: list[str] = []
+            full_reasoning_parts: list[str] = []
+            final_finish_reason = None
+
+            try:
+                # Re-fetch the config inside the app context the generator owns
+                # so the SQLAlchemy session is local to this thread.
+                cfg_local = LLMConfig.query.get(cfg_id)
+                if cfg_local is None:
+                    yield 'data: ' + json.dumps({
+                        'type': 'error',
+                        'message': 'Endpoint was deleted.',
+                    }) + '\n\n'
+                    return
+
+                for evt in llm_client.chat_messages_stream(
+                        cfg_local, messages, timeout=chat_timeout):
+                    etype = evt.get('type')
+                    if etype == 'delta':
+                        c = evt.get('content') or ''
+                        r = evt.get('reasoning') or ''
+                        if c:
+                            full_text_parts.append(c)
+                        if r:
+                            full_reasoning_parts.append(r)
+                        out = {'type': 'delta'}
+                        if c:
+                            out['content'] = c
+                        if r:
+                            out['reasoning'] = r
+                        yield 'data: ' + json.dumps(out) + '\n\n'
+                    elif etype == 'done':
+                        final_finish_reason = evt.get('finish_reason')
+                        if not full_text_parts and evt.get('text'):
+                            full_text_parts.append(evt['text'])
+                        if not full_reasoning_parts and evt.get('reasoning'):
+                            full_reasoning_parts.append(evt['reasoning'])
+            except llm_client.LLMError as e:
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'LLM error: {e}',
+                }) + '\n\n'
+                return
+            except Exception as e:
+                app.logger.exception('Unhandled error streaming chat for cid=%s', cfg_id)
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'Server error: {type(e).__name__}: {e}',
+                }) + '\n\n'
+                return
+
+            full_text = ''.join(full_text_parts)
+            full_reasoning = ''.join(full_reasoning_parts)
+            reply = full_text.strip() or full_reasoning.strip()
+            if not reply:
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'The model returned an empty reply '
+                               f'(finish_reason={final_finish_reason}).',
+                }) + '\n\n'
+                return
+
+            try:
+                reply_norm = ai_prompts.normalize_inline_math(reply)
+                reply_html = md_render.render_text(reply_norm)
+            except Exception as e:
+                app.logger.exception('Failed to render chat reply for cid=%s', cfg_id)
+                yield 'data: ' + json.dumps({
+                    'type': 'error',
+                    'message': f'Failed to render reply: {type(e).__name__}: {e}',
+                }) + '\n\n'
+                return
+
+            yield 'data: ' + json.dumps({
+                'type': 'done',
+                'reply': reply_norm,
+                'reply_html': reply_html,
+                'model': cfg_model,
+                'endpoint': cfg_name,
+            }) + '\n\n'
+
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+        'Connection': 'keep-alive',
     })
 
 
