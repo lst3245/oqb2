@@ -478,12 +478,31 @@ function sendChatMessage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ turns: chatState.turns }),
     })
-        .then(r => r.json().then(d => ({ ok: r.ok, d })))
-        .then(({ ok, d }) => {
+        .then(async r => {
+            const text = await r.text();
+            let d = null;
+            let parseErr = null;
+            try { d = text ? JSON.parse(text) : {}; }
+            catch (e) { parseErr = e; }
+            return { ok: r.ok, status: r.status, contentType: r.headers.get('content-type') || '', text, d, parseErr };
+        })
+        .then((res) => {
             typing.remove();
-            if (!ok || d.error) {
+            if (res.parseErr) {
+                const snippet = (res.text || '').replace(/\s+/g, ' ').slice(0, 400);
                 _chatAppendBubble('assistant',
-                    '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(d.error || 'Request failed.'),
+                    '<i class="bi bi-exclamation-triangle"></i> Server returned a non-JSON response (HTTP '
+                    + res.status + ', ' + escapeHtml(res.contentType || 'unknown') + ').'
+                    + (snippet ? '<br><small><code>' + escapeHtml(snippet) + '</code></small>' : '')
+                    + '<br><small class="text-muted">Check the Flask terminal for the underlying exception. If using a tunnel/reverse proxy, raise its read timeout too.</small>',
+                    { error: true });
+                _chatSetBusy(false);
+                return;
+            }
+            const { ok, d } = res;
+            if (!ok || (d && d.error)) {
+                _chatAppendBubble('assistant',
+                    '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml((d && d.error) || ('HTTP ' + res.status)),
                     { error: true });
                 _chatSetBusy(false);
                 return;

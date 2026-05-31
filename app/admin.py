@@ -4390,6 +4390,16 @@ def llm_endpoints_chat(cid):
     The server passes it straight through to ``llm_client.chat_messages``
     with no other messages prepended.
     """
+    try:
+        return _llm_endpoints_chat_impl(cid)
+    except Exception as e:
+        # Always return JSON so the chat client surfaces a useful error
+        # rather than the Werkzeug debugger HTML page.
+        current_app.logger.exception('Unhandled error in llm_endpoints_chat for cid=%s', cid)
+        return jsonify({'error': f'Server error: {type(e).__name__}: {e}'}), 500
+
+
+def _llm_endpoints_chat_impl(cid):
     from app.models import LLMConfig
     from app import llm_client, md_render, ai_prompts
 

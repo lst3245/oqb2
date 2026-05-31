@@ -961,6 +961,17 @@ def explain_question(question_id):
     the conversation AFTER the (server-built) initial image turn; empty for the
     first request.
     """
+    try:
+        return _explain_question_impl(question_id)
+    except Exception as e:
+        # Always return JSON so the chat client can show a useful error
+        # instead of the Werkzeug debugger HTML page (which makes the browser
+        # report "Unexpected token '<', '<html><bod'... is not valid JSON").
+        current_app.logger.exception('Unhandled error in explain_question for q=%s', question_id)
+        return jsonify({'error': f'Server error: {type(e).__name__}: {e}'}), 500
+
+
+def _explain_question_impl(question_id):
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': 'AI features are disabled.'}), 400
 
