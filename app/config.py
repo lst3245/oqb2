@@ -81,6 +81,13 @@ class Config:
     # Empty string = auto-select the first enabled, vision-capable endpoint
     # by sort_order then name (original behaviour).
     EXPLAIN_DEFAULT_LLM = os.getenv('EXPLAIN_DEFAULT_LLM', '')
+    # Per-feature timeout override for interactive LLM chat (the dashboard
+    # Explain tutor and the LLM Endpoints chat console). Reasoning models
+    # can take several minutes thinking before they emit any visible output,
+    # so this defaults much higher than the per-endpoint `timeout_seconds`
+    # (which is fine for fast batch ops like proofreading). Set to 0 to fall
+    # back to the endpoint's own timeout.
+    LLM_CHAT_TIMEOUT_SECONDS = int(os.getenv('LLM_CHAT_TIMEOUT_SECONDS', '600'))
 
     # PDF Batch Import — width (px) to rasterise uploaded PDF pages to. The
     # high-res page PNGs are what per-question crops are cut from (the image

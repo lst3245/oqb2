@@ -1020,7 +1020,10 @@ def explain_question(question_id):
     messages.extend(turns)
 
     try:
-        text, info = llm_client.chat_messages(cfg, messages)
+        text, info = llm_client.chat_messages(
+            cfg, messages,
+            timeout=int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None,
+        )
     except llm_client.LLMError as e:
         return jsonify({'error': f'LLM error: {e}'}), 502
     if not (text or '').strip():

@@ -17,7 +17,7 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | SSE generators + cancel registry + `generate_md_slot` | [app/ai_tools.py](mdc:app/ai_tools.py) |
 | Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`) |
 | Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |
-| Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` |
+| Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` (incl. `_duplicate`, `_chat` raw-chat console) |
 | SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_cancel`, `ai_endpoints` |
 | Per-slot sync MD route (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_generate_md_slot` |
 | Manual check-state route (subject-admin) | [app/admin.py](mdc:app/admin.py) `set_asset_check_state` |
@@ -35,7 +35,7 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 All endpoints speak `POST {base_url}/chat/completions` (OpenAI shape). Images go in as base64 `image_url` content blocks. `base_url` must be the API root that exposes `/chat/completions` (e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1`). Local servers (Ollama, LM Studio, vLLM) and cloud (OpenAI, OpenRouter) all work; Anthropic/Gemini via an OpenAI-compat proxy.
 
 - `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, raw}`; raises `LLMError`. `_extract_message_text` tolerates content-as-blocks, reasoning-only replies, and completion-style `text`; a 200 body carrying an `error` is raised as `LLMError`. Both `chat` and `chat_messages` share `_post_chat`.
-- `llm_client.chat_messages(config, messages, max_tokens?, temperature?)` → `(text, info)` for **multi-turn** conversations with a pre-built OpenAI `messages` array (used by the Explain tutor chat). `_image_block(b64, mime)` builds an `image_url` content block.
+- `llm_client.chat_messages(config, messages, max_tokens?, temperature?, timeout?)` → `(text, info)` for **multi-turn** conversations with a pre-built OpenAI `messages` array (used by the Explain tutor chat and the admin Chat console). The optional `timeout` (seconds) overrides the endpoint's `timeout_seconds` — interactive features pass `LLM_CHAT_TIMEOUT_SECONDS` (default 600 s) to grant reasoning models extra wall-clock time without bumping the per-endpoint default that batch ops rely on. `_image_block(b64, mime)` builds an `image_url` content block.
 - `llm_client.prepare_image(abs_path, max_dim)` → downscaled JPEG `(b64, mime)` for sending.
 - `llm_client.read_image_data_uri(abs_path)` → ORIGINAL bytes data-URI (whole-image figure fallback).
 - `llm_client.crop_image_data_uri(abs_path, box, pad, max_dim)` → PNG data-URI of a cropped region; `box` is `[x1,y1,x2,y2]` **fractions** 0..1 (top-left origin). Flattens alpha to white; raises `ValueError` for a degenerate box.
@@ -78,11 +78,17 @@ The prompt is strict that `[FIGURE]` is ONLY for real diagrams/graphs/drawings �
 
 ## Explain (AI tutor chat — dashboard, all users)
 
-`POST /dashboard/api/question/<id>/explain` (login-required, gated on `AI_TOOLS_ENABLED`, subject-access checked via `has_subject_access`) drives the dashboard **Explain** button. Unlike the admin AI Tools, it's available to **any** logged-in user with access to the subject, and uses the **default endpoint** (`_default_explain_endpoint` = first enabled, vision-capable `LLMConfig` by `sort_order,name`).
+`POST /dashboard/api/question/<id>/explain` (login-required, gated on `AI_TOOLS_ENABLED`, subject-access checked via `has_subject_access`) drives the dashboard **Explain** button. Unlike the admin AI Tools, it's available to **any** logged-in user with access to the subject, and uses the **default endpoint** — `_default_explain_endpoint()` first honours the `EXPLAIN_DEFAULT_LLM` system setting (an endpoint name picked from a dropdown of enabled endpoints), and falls back to the first enabled, vision-capable `LLMConfig` by `sort_order,name` when the setting is blank or names a missing/disabled endpoint.
 
 - Body `{turns: [{role,content}], version_priority?}`. `turns` is the conversation AFTER the (server-built) initial image turn; empty for the first request. Stateless: the server rebuilds turn 1 (system `EXPLAIN_SYSTEM` + labelled QUE/SOL context) every call and appends `turns`, so images aren't re-uploaded from the browser.
 - `_explain_slot_context(qid, atype, vp, ...)` prefers IMG (vision) via `_resolve_preview_assets(..., force_format='IMG')`; falls back to the slot's MD **text** when no image exists. QUE is required (image or MD); SOL is optional.
 - Returns `{reply, reply_html, model, endpoint, has_solution}`. `reply_html` is `md_render.render_text(normalize_inline_math(reply))` (sanitised; KaTeX client-side). The frontend renders assistant bubbles via `oqbTypesetMath`, stores raw `reply` in `turns` for the next request, and shows a typing indicator while busy.
+
+## Direct chat (super-admin endpoint console)
+
+`POST /admin/llm-endpoints/<id>/chat` is a **raw** chat console on the LLM Endpoints management page (super-admin only). Body `{turns: [{role, content}, ...]}` is passed straight to `llm_client.chat_messages(cfg, messages)` with **no system prompt, no injected context, and no other guardrails** — useful for probing model behaviour, debugging Markdown formatting, or sanity-checking a newly added endpoint before exposing it via the AI Tools / Explain flows.
+
+The reply is `normalize_inline_math`'d and Markdown-rendered server-side (`md_render.render_text`) so KaTeX in the chat bubbles works the same way as the dashboard Explain modal. Disabled endpoints are rejected with a 400. The server caps each message at 16 KiB and the running transcript at the most recent 40 turns. UI lives in `templates/admin_llm_endpoints.html` (`#chatModal`, `openChatModal`, `sendChatMessage`).
 
 ## Gotchas / invariants
 

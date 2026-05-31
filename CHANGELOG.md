@@ -20,6 +20,24 @@ The System Settings framework now supports a **`choices_fn`** spec field (a call
 
 Each endpoint card on Admin → LLM Endpoints now has a **Duplicate** (copy) button. Clicking it creates an identical copy of the endpoint with a unique auto-generated name ("Copy of …", "Copy 2 of …", etc.). The **API key is not copied** — the duplicate starts without a stored key and falls back to the `.env` variable, the same as a freshly created endpoint. The duplicate opens ready to edit (its card appears immediately; use Edit to rename or fill in the key).
 
+#### LLM Endpoints — Direct chat console
+
+Each endpoint card now has a **Chat** button that opens a chat modal for talking to the model directly:
+
+- **No system prompt, no injected context, no guardrails** — every message is sent verbatim to the endpoint. Useful for probing raw model behaviour, debugging formatting/Markdown output, comparing reasoning quality between endpoints, or sanity-checking a newly added model before exposing it to users via the AI Tools or Explain features.
+- The same chat UX as the dashboard Explain modal: Markdown is server-rendered (with `normalize_inline_math` so `$x$` math reaches the client tightly), and KaTeX renders client-side. **Reset** clears the conversation; multi-turn follow-ups work naturally because the full transcript is posted each turn.
+- Super-admin only; disabled endpoints can't be opened. Backed by the new `POST /admin/llm-endpoints/<id>/chat` route which calls `llm_client.chat_messages` directly with the user's `turns` array — no other messages prepended.
+
+#### System Settings — Interactive chat timeout (reasoning-model support)
+
+Reasoning models (DeepSeek-R1, Gemma reasoning, QwQ, etc.) often think for several minutes before producing visible output. The per-endpoint `timeout_seconds` is fine for fast batch ops (proofreading, MD generation, connectivity test), but enforcing the same value on the interactive Explain tutor and the admin Chat console caused them to time out mid-reasoning.
+
+- A new **Interactive chat timeout (seconds)** setting (`LLM_CHAT_TIMEOUT_SECONDS`, default **600 s = 10 min**) has been added to the AI Tools group in System Settings. It overrides the endpoint's own timeout for the dashboard **Explain** chat and the LLM Endpoints **Chat** console only — other features still respect each endpoint's configured timeout.
+- Set it to **0** to disable the override and fall back to the endpoint's `timeout_seconds`.
+- The LLM client (`_post_chat`, `chat_messages`, `chat`) now accepts a `timeout` parameter, passed in by the two interactive routes.
+- The **Network error contacting the AI** message in both the Explain modal and the Chat console now includes the underlying error text (e.g. `Failed to fetch`, `request timed out after 30s`) plus a hint to bump `LLM_CHAT_TIMEOUT_SECONDS` or the endpoint's own timeout — so a stalled reasoning request is no longer mistaken for a disconnected server.
+- The endpoint Add/Edit modal now shows a small "Reasoning models often need 300+ s" hint below the Timeout field.
+
 #### PDF Batch Import — auto-detect & crop questions from exam PDFs (Admin)
 
 A new **PDF Batch Import** tool in the Admin Panel Operations section (after Question Ingestion) turns whole exam PDFs into per-question image assets, replacing the manual screenshot-and-upload workflow:

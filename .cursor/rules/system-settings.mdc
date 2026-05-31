@@ -59,6 +59,7 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | AI Tools | `AI_TOOLS_ENABLED` | bool | True | Master switch for the AI Tools admin feature |
 | AI Tools | `LLM_IMAGE_MAX_DIM` | int 256–4096 | 1600 | Long-edge downscale (px) before images are sent to the LLM |
 | AI Tools | `EXPLAIN_DEFAULT_LLM` | string | `''` | Name of the LLM endpoint to use for the dashboard Explain tutor. Blank = auto (first enabled+vision by sort order). Rendered as a `<select>` of enabled endpoints via `choices_fn`. |
+| AI Tools | `LLM_CHAT_TIMEOUT_SECONDS` | int 0–3600 | 600 | Per-feature timeout override for **interactive** LLM chat (dashboard Explain + admin Chat console). 0 = use the endpoint's own `timeout_seconds`. Reasoning models can think for several minutes. |
 | PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int | 1700 | PDF page raster width (px) |
 | PDF Import | `PDF_IMPORT_COORD_ORDER` | string | `xyxy` | Bounding-box coordinate order (`xyxy` or `yxyx`) |
 

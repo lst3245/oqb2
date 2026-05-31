@@ -173,10 +173,16 @@ def _image_block(b64, mime):
     return {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}}
 
 
-def _post_chat(config, messages, max_tokens=None, temperature=None):
+def _post_chat(config, messages, max_tokens=None, temperature=None, timeout=None):
     """POST a pre-built OpenAI ``messages`` array to
     ``{base_url}/chat/completions`` and return ``(text, info)``. Shared by
-    ``chat`` (single-turn + images) and ``chat_messages`` (multi-turn)."""
+    ``chat`` (single-turn + images) and ``chat_messages`` (multi-turn).
+
+    ``timeout`` (seconds) overrides ``config.timeout_seconds`` when set —
+    used by interactive features (Explain, admin Chat console) to grant
+    reasoning models extra wall-clock time without bumping the per-endpoint
+    default that batch ops rely on.
+    """
     payload = {
         'model': config.model_name,
         'messages': messages,
@@ -189,12 +195,13 @@ def _post_chat(config, messages, max_tokens=None, temperature=None):
     if api_key:
         headers['Authorization'] = f'Bearer {api_key}'
 
+    effective_timeout = int(timeout or config.timeout_seconds or 120)
     url = config.base_url.rstrip('/') + '/chat/completions'
     try:
         resp = requests.post(url, json=payload, headers=headers,
-                             timeout=int(config.timeout_seconds or 120))
+                             timeout=effective_timeout)
     except requests.Timeout:
-        raise LLMError(f'request timed out after {config.timeout_seconds}s')
+        raise LLMError(f'request timed out after {effective_timeout}s')
     except requests.RequestException as e:
         raise LLMError(f'request failed: {e}')
 
@@ -241,13 +248,15 @@ def chat(config, system: str, user_text: str, images=None):
     return _post_chat(config, messages)
 
 
-def chat_messages(config, messages, max_tokens=None, temperature=None):
+def chat_messages(config, messages, max_tokens=None, temperature=None, timeout=None):
     """Call ``{base_url}/chat/completions`` with a full pre-built OpenAI
     ``messages`` array (multi-turn conversation, optionally multimodal) and
-    return ``(text, info)``. Used by the Explain tutor chat. Raises
-    ``LLMError`` on any failure."""
+    return ``(text, info)``. Used by the Explain tutor chat and the admin
+    Chat console. ``timeout`` (seconds) overrides the endpoint's default
+    when set — handy for reasoning models. Raises ``LLMError`` on any
+    failure."""
     return _post_chat(config, messages, max_tokens=max_tokens,
-                      temperature=temperature)
+                      temperature=temperature, timeout=timeout)
 
 
 def _extract_message_text(data):

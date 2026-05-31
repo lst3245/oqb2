@@ -4377,6 +4377,62 @@ def llm_endpoints_test(cid):
     return jsonify({'success': ok, 'message': message})
 
 
+@admin_bp.route('/llm-endpoints/<int:cid>/chat', methods=['POST'])
+@login_required
+@super_admin_required
+def llm_endpoints_chat(cid):
+    """Direct chat with an LLM endpoint — NO system prompt, NO injected
+    context, NO guardrails. Powers the "Chat" console on the LLM Endpoints
+    management page so super-admins can probe a model in its raw form to
+    verify behaviour, debug formatting, or check reasoning quality.
+
+    Body JSON: ``{turns: [{role, content}, ...]}`` — the full conversation.
+    The server passes it straight through to ``llm_client.chat_messages``
+    with no other messages prepended.
+    """
+    from app.models import LLMConfig
+    from app import llm_client, md_render, ai_prompts
+
+    cfg = LLMConfig.query.get_or_404(cid)
+    if not cfg.enabled:
+        return jsonify({'error': 'This endpoint is disabled.'}), 400
+
+    data = request.get_json(silent=True) or {}
+    raw_turns = data.get('turns') or []
+
+    messages = []
+    for t in raw_turns[-40:]:
+        if not isinstance(t, dict):
+            continue
+        role = t.get('role')
+        content = t.get('content')
+        if role in ('user', 'assistant', 'system') and isinstance(content, str) and content.strip():
+            messages.append({'role': role, 'content': content[:16000]})
+
+    if not messages:
+        return jsonify({'error': 'No messages to send.'}), 400
+
+    try:
+        text, info = llm_client.chat_messages(
+            cfg, messages,
+            timeout=int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None,
+        )
+    except llm_client.LLMError as e:
+        return jsonify({'error': f'LLM error: {e}'}), 502
+    if not (text or '').strip():
+        fr = (info or {}).get('finish_reason')
+        return jsonify({'error': f'The model returned an empty reply '
+                                 f'(finish_reason={fr}).'}), 502
+
+    text_norm = ai_prompts.normalize_inline_math(text)
+    return jsonify({
+        'reply': text,
+        'reply_html': md_render.render_text(text_norm),
+        'model': cfg.model_name,
+        'endpoint': cfg.name,
+    })
+
+
 # ==================== File Browser (Super Admin Only) ====================
 
 def _resolve_source_path():

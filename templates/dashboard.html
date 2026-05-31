@@ -4027,10 +4027,12 @@ function _explainSend(userMessage) {
             const input = document.getElementById('explainInput');
             if (input) input.focus();
         })
-        .catch(() => {
+        .catch((err) => {
             typing.remove();
+            const msg = (err && err.message) ? err.message : 'request did not complete';
             _explainAppendBubble('assistant',
-                '<i class="bi bi-exclamation-triangle"></i> Network error contacting the AI.',
+                '<i class="bi bi-exclamation-triangle"></i> Network error contacting the AI: ' + _explainEscape(msg)
+                + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
                 { error: true });
             _explainSetBusy(false);
         });

@@ -288,6 +288,21 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         choices_fn=_llm_endpoint_choices,
     )),
+    ('LLM_CHAT_TIMEOUT_SECONDS', _spec(
+        'LLM_CHAT_TIMEOUT_SECONDS', 'int', group='AI Tools',
+        label='Interactive chat timeout (seconds)',
+        help=(
+            'How long to wait for the LLM to respond to an interactive chat '
+            'request — the dashboard Explain tutor and the LLM Endpoints '
+            'Chat console. Reasoning models (DeepSeek-R1, Gemma reasoning, '
+            'QwQ, etc.) often think for several minutes before producing '
+            'visible output, so this defaults much higher than the per-'
+            'endpoint timeout (which still applies to fast batch ops like '
+            'proofreading). Set to 0 to fall back to the endpoint\'s own '
+            'timeout.'
+        ),
+        min=0, max=3600,
+    )),
 
     # PDF Batch Import
     ('PDF_IMPORT_RASTER_WIDTH', _spec(
