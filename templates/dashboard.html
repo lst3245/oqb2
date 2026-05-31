@@ -4030,6 +4030,18 @@ function _explainSend(userMessage) {
 // console. Reads `data: {...}\n\n` events from a POST that returns
 // text/event-stream, appends `delta` content live to the assistant bubble,
 // finalises on `done`, and surfaces structured errors. Returns a Promise.
+//
+// Performance notes — long replies used to lag/freeze the browser because
+// every delta re-parsed the full buffer through marked + re-rendered every
+// KaTeX expression. Two mitigations are in play here, in this order of
+// importance:
+//   1. Render is throttled via setTimeout to ~10 fps (RENDER_MIN_INTERVAL).
+//      Multiple deltas arriving inside one window collapse into a single
+//      DOM update.
+//   2. ``oqbRenderMarkdownLiveSplit`` (in base.html) splits the buffer at
+//      the last paragraph boundary outside an open code fence, freezes the
+//      rendered HTML for the prefix, and only re-renders the tail each
+//      delta. KaTeX renderToString is also memoised per (formula, mode).
 function _explainStreamRequest(url, body, typingBubble, callbacks) {
     callbacks = callbacks || {};
     let bubble = null;            // assistant bubble (replaces the typing dots)
@@ -4037,6 +4049,29 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
     let liveReasoning = '';
     let receivedAny = false;
     let finished = false;
+    let liveSplitState = null;    // committed-prefix cache for split rendering
+
+    // ---- Throttled render scheduler -------------------------------------
+    const RENDER_MIN_INTERVAL = 100;  // ms; 10 fps max for live updates
+    let renderTimer = null;
+    let lastRenderAt = 0;
+    let pendingChange = false;
+    const scheduleRender = () => {
+        pendingChange = true;
+        if (renderTimer !== null) return;
+        const wait = Math.max(0, RENDER_MIN_INTERVAL - (performance.now() - lastRenderAt));
+        renderTimer = setTimeout(() => {
+            renderTimer = null;
+            if (!pendingChange) return;
+            pendingChange = false;
+            lastRenderAt = performance.now();
+            renderLive();
+        }, wait);
+    };
+    const cancelScheduledRender = () => {
+        if (renderTimer !== null) { clearTimeout(renderTimer); renderTimer = null; }
+        pendingChange = false;
+    };
 
     const ensureBubble = () => {
         if (!bubble) {
@@ -4057,13 +4092,20 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
                 + '<div class="explain-streaming">' + _explainEscape(liveReasoning) + '</div>'
                 + '</details>';
         }
-        // Live Markdown render for the actual reply: marked + KaTeX
-        // pre-rendered. Partial input (unclosed code fence, half-typed bold,
-        // etc.) renders gracefully and self-corrects on the next delta.
+        // Live Markdown render for the actual reply via the split-aware
+        // helper: the rendered HTML for the stable prefix is reused from
+        // ``liveSplitState`` and only the tail is re-rendered each delta.
         if (liveContent) {
-            const mdHtml = (window.oqbRenderMarkdownLive
-                ? window.oqbRenderMarkdownLive(liveContent)
-                : '<div class="explain-streaming">' + _explainEscape(liveContent) + '</div>');
+            let mdHtml;
+            if (window.oqbRenderMarkdownLiveSplit) {
+                const out = window.oqbRenderMarkdownLiveSplit(liveSplitState, liveContent);
+                liveSplitState = out.state;
+                mdHtml = out.html;
+            } else if (window.oqbRenderMarkdownLive) {
+                mdHtml = window.oqbRenderMarkdownLive(liveContent);
+            } else {
+                mdHtml = '<div class="explain-streaming">' + _explainEscape(liveContent) + '</div>';
+            }
             html += '<div class="explain-md-live">' + mdHtml + '</div>';
         }
         b.innerHTML = html;
@@ -4130,9 +4172,10 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
                 } else if (payload.type === 'delta') {
                     if (payload.content) liveContent += payload.content;
                     if (payload.reasoning) liveReasoning += payload.reasoning;
-                    renderLive();
+                    scheduleRender();
                 } else if (payload.type === 'done') {
                     finished = true;
+                    cancelScheduledRender();
                     if (typingBubble && typingBubble.parentNode) typingBubble.remove();
                     const b = ensureBubble();
                     if (liveReasoning) {
@@ -4149,6 +4192,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
                     if (callbacks.onDone) callbacks.onDone(payload);
                 } else if (payload.type === 'error') {
                     finished = true;
+                    cancelScheduledRender();
                     showError(payload.message || 'Request failed.');
                 }
             }
@@ -4167,6 +4211,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
             }
         }
     }).catch((err) => {
+        cancelScheduledRender();
         const msg = (err && err.message) ? err.message : 'request did not complete';
         showError('Network error contacting the AI: ' + msg);
     });

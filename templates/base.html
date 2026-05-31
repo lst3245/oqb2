@@ -586,8 +586,27 @@
         // aren't yet parseable (a half-streamed code fence, an unclosed bold,
         // etc.) render gracefully — marked auto-closes at the buffer end and
         // self-corrects on the next delta.
-        window.oqbRenderMarkdownLive = (function() {
+        //
+        // Performance — three streaming-specific optimisations:
+        //   1. KaTeX renderToString results are memoised per (formula, mode)
+        //      so a long reply with many recurring symbols doesn't re-render
+        //      every expression on every token.
+        //   2. ``oqbRenderMarkdownLiveSplit(prevState, fullText)`` returns a
+        //      pre-split structure: the rendered HTML for the "stable prefix"
+        //      (everything before the last paragraph break outside an open
+        //      code fence) is computed at most ONCE per paragraph and reused
+        //      verbatim, while only the tail is re-rendered each delta. This
+        //      drops the per-delta cost from O(buffer) to O(tail) for
+        //      multi-paragraph streams.
+        //   3. The plain ``oqbRenderMarkdownLive(text)`` form (used by
+        //      callers that don't need split-rendering) just calls the same
+        //      pipeline on the full buffer.
+        const _liveImpl = (function() {
             let configured = false;
+            const katexCache = new Map();
+            const KATEX_CACHE_MAX = 500;
+            const renderedPrefixCache = { textLen: 0, html: '' };
+
             function configureOnce() {
                 if (configured || typeof marked === 'undefined') return;
                 if (marked.setOptions) {
@@ -600,46 +619,59 @@
                 }
                 configured = true;
             }
+
+            function renderMath(formula, displayMode) {
+                const cacheKey = (displayMode ? 'D|' : 'I|') + formula;
+                const hit = katexCache.get(cacheKey);
+                if (hit !== undefined) {
+                    // LRU touch: re-insert to mark as recently used.
+                    katexCache.delete(cacheKey);
+                    katexCache.set(cacheKey, hit);
+                    return hit;
+                }
+                let html;
+                try {
+                    html = katex.renderToString(formula, {
+                        displayMode: displayMode,
+                        throwOnError: false,
+                        output: 'html',
+                    });
+                } catch (e) {
+                    html = (displayMode ? '<pre class="text-danger small">' : '<code class="text-danger">')
+                        + String(e && e.message ? e.message : 'math err')
+                        + (displayMode ? '</pre>' : '</code>');
+                }
+                if (katexCache.size >= KATEX_CACHE_MAX) {
+                    // Drop oldest (Map preserves insertion order).
+                    const firstKey = katexCache.keys().next().value;
+                    katexCache.delete(firstKey);
+                }
+                katexCache.set(cacheKey, html);
+                return html;
+            }
+
             function preprocessMath(text) {
                 if (!text || typeof katex === 'undefined') return text;
                 // 1) Display math: $$...$$ — wrap rendered HTML in blank
                 //    lines so marked treats it as an HTML block, not a stray
                 //    paragraph child.
                 text = text.replace(/\$\$([\s\S]+?)\$\$/g, function(_m, formula) {
-                    try {
-                        const html = katex.renderToString(formula.trim(), {
-                            displayMode: true, throwOnError: false, output: 'html',
-                        });
-                        return '\n\n<div class="katex-display-wrap">' + html + '</div>\n\n';
-                    } catch (e) {
-                        return '\n\n<pre class="text-danger small">'
-                            + String(e && e.message ? e.message : 'KaTeX error')
-                            + '</pre>\n\n';
-                    }
+                    return '\n\n<div class="katex-display-wrap">'
+                        + renderMath(formula.trim(), true) + '</div>\n\n';
                 });
                 // 2) Inline math: $...$ on a single line. Reject the
-                //    currency-style "$5" usage (closing `$` followed by a
-                //    digit). Tolerates inner whitespace; trims captured
-                //    formula to match the server-side normalize_inline_math
-                //    behaviour (so dashboard / docx / live preview agree).
+                //    currency-style "$5" usage. Tolerates inner whitespace;
+                //    trims captured formula to match the server-side
+                //    normalize_inline_math behaviour.
                 text = text.replace(/(?<![\\$])\$[ \t]*([^\n$]*?[^\s$])[ \t]*\$(?!\d)/g, function(_m, formula) {
-                    try {
-                        return katex.renderToString(formula, {
-                            displayMode: false, throwOnError: false, output: 'html',
-                        });
-                    } catch (e) {
-                        return '<code class="text-danger">'
-                            + String(e && e.message ? e.message : 'math err')
-                            + '</code>';
-                    }
+                    return renderMath(formula, false);
                 });
                 return text;
             }
-            return function(text) {
+
+            function renderText(text) {
                 configureOnce();
                 if (typeof marked === 'undefined' || !marked.parse) {
-                    // marked hasn't loaded yet — fall back to escaped plain
-                    // text so the user sees something instead of nothing.
                     const div = document.createElement('div');
                     div.textContent = text || '';
                     return div.innerHTML.replace(/\n/g, '<br>');
@@ -651,8 +683,105 @@
                     div.textContent = text || '';
                     return div.innerHTML;
                 }
-            };
+            }
+
+            // Locate the last "stable boundary" in `text` — a position such
+            // that markdown after it cannot retroactively change the meaning
+            // of content before it. We use the last "\n\n" that is NOT
+            // inside an open fenced code block (an unmatched ```...```)
+            // and NOT inside an open `$$...$$` display-math block (so we
+            // don't split a multi-line formula across the prefix/tail seam,
+            // which would leave both sides with unmatched delimiters and
+            // suppress KaTeX rendering on the whole expression).
+            // Returns 0 when there is no safe boundary yet.
+            //
+            // Conservatively also keeps a short trailing buffer (~ 256 chars)
+            // unrendered as part of the tail so that an in-flight reference
+            // link `[label][...]` style construct on the boundary doesn't get
+            // committed prematurely.
+            function findStableBoundary(text) {
+                if (!text) return 0;
+                const TAIL_BUFFER = 256;
+                const limit = text.length - TAIL_BUFFER;
+                if (limit <= 0) return 0;
+
+                let lastBoundary = 0;
+                let inFence = false;
+                let inDisplayMath = false;
+                let i = 0;
+                while (i < text.length) {
+                    if (!inDisplayMath
+                        && text[i] === '`' && text[i + 1] === '`' && text[i + 2] === '`'
+                        && (i === 0 || text[i - 1] === '\n')) {
+                        inFence = !inFence;
+                        // Advance to end of line so we don't double-count the
+                        // characters of the fence marker itself.
+                        const nl = text.indexOf('\n', i);
+                        i = nl === -1 ? text.length : nl + 1;
+                        continue;
+                    }
+                    if (!inFence
+                        && text[i] === '$' && text[i + 1] === '$') {
+                        inDisplayMath = !inDisplayMath;
+                        i += 2;
+                        continue;
+                    }
+                    if (!inFence && !inDisplayMath
+                        && text[i] === '\n' && text[i + 1] === '\n'
+                        && i + 2 <= limit) {
+                        lastBoundary = i + 2; // boundary lies AFTER the "\n\n"
+                    }
+                    i++;
+                }
+                return lastBoundary;
+            }
+
+            // Split-aware live render. ``state`` is an opaque object the
+            // caller persists between deltas; on first call, pass ``null``
+            // and we'll build it.
+            //
+            // Returns { html, state } where ``html`` is the assembled
+            // committed-prefix + live-tail HTML, and ``state`` should be
+            // passed back next call to retain the cached prefix render.
+            function liveSplit(state, fullText) {
+                fullText = fullText || '';
+                const boundary = findStableBoundary(fullText);
+
+                let committedHtml = (state && state.committedHtml) || '';
+                let committedLen = (state && state.committedLen) || 0;
+
+                if (boundary > committedLen) {
+                    // Re-render the full prefix once and freeze it.
+                    // (We can't append since markdown is non-local — a list
+                    // item or table row in the new chunk needs surrounding
+                    // context to render correctly.)
+                    committedHtml = renderText(fullText.slice(0, boundary));
+                    committedLen = boundary;
+                }
+
+                const tailText = fullText.slice(committedLen);
+                const tailHtml = tailText ? renderText(tailText) : '';
+
+                return {
+                    html: committedHtml + tailHtml,
+                    state: { committedHtml: committedHtml, committedLen: committedLen },
+                };
+            }
+
+            return { renderText: renderText, liveSplit: liveSplit };
         })();
+
+        window.oqbRenderMarkdownLive = function(text) {
+            return _liveImpl.renderText(text);
+        };
+
+        // Streaming-friendly wrapper: pass back the previous state on each
+        // call to amortise the prefix render cost across deltas. Returns
+        // ``{ html, state }``; persist ``state`` in your stream-consumer
+        // closure and feed it back in next time.
+        window.oqbRenderMarkdownLiveSplit = function(prevState, fullText) {
+            return _liveImpl.liveSplit(prevState, fullText);
+        };
 
         // Lazily fill any `.md-preview-card[data-preview-q][data-preview-type]`
         // placeholders by hitting the unified preview API. Honour the

@@ -486,6 +486,34 @@ function sendChatMessage() {
     let liveReasoning = '';
     let receivedAny = false;
     let finished = false;
+    let liveSplitState = null;
+
+    // Throttled render — long replies used to lag the browser because every
+    // delta re-parsed the full buffer through marked + re-rendered every
+    // KaTeX expression. Render is now coalesced to ~10 fps via setTimeout
+    // and ``oqbRenderMarkdownLiveSplit`` reuses the rendered HTML for the
+    // committed prefix between deltas. See dashboard.html for the matching
+    // implementation in the Explain tutor.
+    const RENDER_MIN_INTERVAL = 100;
+    let renderTimer = null;
+    let lastRenderAt = 0;
+    let pendingChange = false;
+    const scheduleRender = () => {
+        pendingChange = true;
+        if (renderTimer !== null) return;
+        const wait = Math.max(0, RENDER_MIN_INTERVAL - (performance.now() - lastRenderAt));
+        renderTimer = setTimeout(() => {
+            renderTimer = null;
+            if (!pendingChange) return;
+            pendingChange = false;
+            lastRenderAt = performance.now();
+            renderLive();
+        }, wait);
+    };
+    const cancelScheduledRender = () => {
+        if (renderTimer !== null) { clearTimeout(renderTimer); renderTimer = null; }
+        pendingChange = false;
+    };
 
     const ensureBubble = () => {
         if (!bubble) {
@@ -505,9 +533,16 @@ function sendChatMessage() {
                 + '</details>';
         }
         if (liveContent) {
-            const mdHtml = (window.oqbRenderMarkdownLive
-                ? window.oqbRenderMarkdownLive(liveContent)
-                : '<div class="chat-streaming">' + escapeHtml(liveContent) + '</div>');
+            let mdHtml;
+            if (window.oqbRenderMarkdownLiveSplit) {
+                const out = window.oqbRenderMarkdownLiveSplit(liveSplitState, liveContent);
+                liveSplitState = out.state;
+                mdHtml = out.html;
+            } else if (window.oqbRenderMarkdownLive) {
+                mdHtml = window.oqbRenderMarkdownLive(liveContent);
+            } else {
+                mdHtml = '<div class="chat-streaming">' + escapeHtml(liveContent) + '</div>';
+            }
             html += '<div class="chat-md-live">' + mdHtml + '</div>';
         }
         b.innerHTML = html;
@@ -571,9 +606,10 @@ function sendChatMessage() {
                 } else if (payload.type === 'delta') {
                     if (payload.content) liveContent += payload.content;
                     if (payload.reasoning) liveReasoning += payload.reasoning;
-                    renderLive();
+                    scheduleRender();
                 } else if (payload.type === 'done') {
                     finished = true;
+                    cancelScheduledRender();
                     if (typing && typing.parentNode) typing.remove();
                     const b = ensureBubble();
                     if (liveReasoning) {
@@ -589,6 +625,7 @@ function sendChatMessage() {
                     chatState.turns.push({ role: 'assistant', content: payload.reply || '' });
                 } else if (payload.type === 'error') {
                     finished = true;
+                    cancelScheduledRender();
                     showError(payload.message || 'Request failed.');
                 }
             }
@@ -606,6 +643,7 @@ function sendChatMessage() {
             }
         }
     }).catch((err) => {
+        cancelScheduledRender();
         const msg = (err && err.message) ? err.message : 'request did not complete';
         showError('Network error: ' + msg);
     }).finally(() => {
