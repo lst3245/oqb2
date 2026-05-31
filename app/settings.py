@@ -328,6 +328,24 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Detection method pre-selected in PDF Import Setup. "llm" = the model draws boxes (works without NumPy). "refine" = the model draws boxes, then classical CV snaps each edge to the printed content. "segment" = the model only marks where each question starts and CV derives the boxes. refine/segment need NumPy; users can change the method per run and per page.',
         validator=_choice_validator('llm', 'refine', 'segment'),
     )),
+    ('PDF_IMPORT_CROP_PAD_PCT', _spec(
+        'PDF_IMPORT_CROP_PAD_PCT', 'float', group='PDF Import',
+        label='Crop safety margin (% of page)',
+        help='Extra margin added around every detected box before the final crop, as a percentage of the page size. Larger = safer (less chance of clipping the question or a figure at the box edge). The automatic white-margin trim still removes excess blank space afterwards, so a bigger value mainly recovers content near the edges rather than padding the image with whitespace. Default 0.6.',
+        min=0.0, max=10.0,
+    )),
+    ('PDF_IMPORT_REFINE_GROW_PCT', _spec(
+        'PDF_IMPORT_REFINE_GROW_PCT', 'float', group='PDF Import',
+        label='Assisted "refine": grow window (% of page)',
+        help='For the "LLM assisted — refine boxes" method: how far each LLM box is expanded into a search window (% of page) before the CV snaps it back to the printed content. Larger recovers more chopped text, a marks line just below, or a figure just outside the box — but too large can swallow part of the next question. Default 3.5.',
+        min=0.0, max=20.0,
+    )),
+    ('PDF_IMPORT_ASSIST_PAD_PCT', _spec(
+        'PDF_IMPORT_ASSIST_PAD_PCT', 'float', group='PDF Import',
+        label='Assisted "refine"/"segment": content pad (% of page)',
+        help='For the LLM-assisted methods: padding kept around the detected content edges (% of page) after the CV tightens the box. A small value hugs the content; increase it for a little breathing room. Default 0.6.',
+        min=0.0, max=10.0,
+    )),
 ])
 
 

@@ -15,7 +15,7 @@ stage (upload + rasterise) -> detect (SSE, vision LLM per page) -> [review] -> c
 ```
 
 - **Automatic mode**: detect SSE writes `plan.json`; on `done` the browser opens commit directly (reads `plan.json`).
-- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin **drag a box to move, drag handles to resize, Add box (draw on the page), edit qno, delete, or re-run a page with a different method/endpoint**. Boxes are edited in place on the in-memory `plan[kind]` items (`{page,qno,box,_uid}`); the live drag/draw system is in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`startDrag`/`onDragMove`/`startDraw`/`finishDraw`/`applyBoxStyle`, pointer-events toggled via `.pdf-page-wrap.adding`). **Add/Delete auto-renumber** the following boxes (relative shift; see below); manual qno edits and move/resize do not. On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
+- **Review mode**: after detect, a lightweight per-page editor (overlay boxes + crop-preview canvas) lets the admin **drag a box to move, drag handles to resize, Add box (draw on the page), edit qno, delete, click a crop thumbnail to enlarge it full-size (`showCropPreview`, native-res canvas overlay), or re-run a page with a different method/endpoint**. Boxes are edited in place on the in-memory `plan[kind]` items (`{page,qno,box,_uid}`); the live drag/draw system is in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`startDrag`/`onDragMove`/`startDraw`/`finishDraw`/`applyBoxStyle`, pointer-events toggled via `.pdf-page-wrap.adding`). **Add/Delete auto-renumber** the following boxes (relative shift; see below); manual qno edits and move/resize do not. On Import the edited plan is POSTed to `/plan` (overwrites `plan.json`), then commit runs.
 
 One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` — within its context window). Spanning questions = same `qno` on consecutive pages → grouped into a **multi-part** IMG asset (`replace_img_assets(..., stitch=False)`).
 
@@ -31,7 +31,7 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 | Atomic IMG write + path + thumbnail lifecycle | [app/batch_image_gen.py](mdc:app/batch_image_gen.py) `replace_img_assets`, `slot_has_img` |
 | LLM transport / image prep | [app/llm_client.py](mdc:app/llm_client.py) `prepare_image`, `chat` |
 | UI | [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) |
-| Tunable | [app/settings.py](mdc:app/settings.py) / [app/config.py](mdc:app/config.py) `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_COORD_ORDER`, `PDF_IMPORT_DESKEW_DEFAULT`, `PDF_IMPORT_DEFAULT_METHOD` |
+| Tunable | [app/settings.py](mdc:app/settings.py) / [app/config.py](mdc:app/config.py) `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_COORD_ORDER`, `PDF_IMPORT_DESKEW_DEFAULT`, `PDF_IMPORT_DEFAULT_METHOD`, `PDF_IMPORT_CROP_PAD_PCT`, `PDF_IMPORT_REFINE_GROW_PCT`, `PDF_IMPORT_ASSIST_PAD_PCT` |
 
 ## Routes (all `@admin_required`, gated on `AI_TOOLS_ENABLED`)
 
@@ -68,7 +68,9 @@ Returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractio
 
 ## Commit
 
-`_group_plan(plan)` groups boxes by `(kind, qno)`, ordered by (page, top-Y). For each group: find-or-create `Question` (QID `{subj}_{source}_{year}_{paper}_Q{qno}`, `q_type` via `ingestor.determine_question_type`); skip if `slot_has_img` and not `overwrite`; else `crop_page` each part (small pad + white-trim) and `replace_img_assets(question, atype, version, imgs, stitch=False, source_path)` (atomic; fires DOC-thumbnail lifecycle). Boxes with `qno is None` are skipped.
+`_group_plan(plan)` groups boxes by `(kind, qno)`, ordered by (page, top-Y). For each group: find-or-create `Question` (QID `{subj}_{source}_{year}_{paper}_Q{qno}`, `q_type` via `ingestor.determine_question_type`); skip if `slot_has_img` and not `overwrite`; else `crop_page` each part and `replace_img_assets(question, atype, version, imgs, stitch=False, source_path)` (atomic; fires DOC-thumbnail lifecycle). Boxes with `qno is None` are skipped.
+
+`crop_page(png, box, pad_frac, trim_white, whiteness_threshold)`: pads the box by `pad_frac` (from `PDF_IMPORT_CROP_PAD_PCT`/100 — the "safety margin", larger = safer against clipping), crops, then white-trims back to content (keeps an 8px border; content never removed, so SOL side-notes stay). `whiteness_threshold` = `THUMBNAIL_WHITENESS_THRESHOLD`. The refine/segment CV params are `PDF_IMPORT_REFINE_GROW_PCT`/100 (`grow_frac`) + `PDF_IMPORT_ASSIST_PAD_PCT`/100 (`pad_frac`), read in `detect_page`.
 
 ## Staging
 

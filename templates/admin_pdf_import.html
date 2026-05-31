@@ -106,10 +106,29 @@
         background: #fff;
         max-height: 70px;
         width: auto;
+        cursor: zoom-in;
     }
+    .pdf-box-list .box-row canvas:hover { border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13,110,253,.25); }
     .pdf-box-list .qno-input { width: 5.5rem; }
     .page-card { margin-bottom: 1rem; }
     .page-card .card-header { font-size: 0.9rem; }
+
+    /* Full-size crop preview overlay (click a thumbnail to enlarge). */
+    .pdf-fullsize-overlay {
+        position: fixed; inset: 0; z-index: 1080;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 0.75rem; padding: 2vmin;
+        cursor: zoom-out;
+    }
+    .pdf-fullsize-overlay canvas {
+        max-width: 96vw; max-height: 88vh;
+        background: #fff; box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+    }
+    .pdf-fullsize-cap {
+        color: #fff; font-size: 0.85rem; opacity: 0.85;
+        background: rgba(0, 0, 0, 0.35); padding: 0.25rem 0.75rem; border-radius: 4px;
+    }
 </style>
 {% endblock %}
 
@@ -246,7 +265,7 @@ Fill in the setup above and click "Start".
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong> if a page came out badly. When you're happy, click <strong>Import</strong>.
+            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong> if a page came out badly. <strong>Click a crop preview</strong> to enlarge it full-size. When you're happy, click <strong>Import</strong>.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
             </p>
@@ -628,6 +647,8 @@ function addBoxDom(card, kind, item) {
     row.className = 'box-row';
     row.id = 'row-' + item._uid;
     const canvas = document.createElement('canvas');
+    canvas.title = 'Click to enlarge this crop';
+    canvas.addEventListener('click', () => showCropPreview(img, item.box, kind, item.qno));
     const qInput = document.createElement('input');
     qInput.type = 'number';
     qInput.min = '1';
@@ -863,6 +884,38 @@ function drawPreview(canvas, img, box) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     try { ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height); } catch (e) {}
+}
+
+// Enlarge the crop region of a box to a full-size overlay (mirrors the asset
+// modal's full-size preview). Draws the current box region from the high-res
+// page image at native resolution; click anywhere or press Esc to close.
+function showCropPreview(img, box, kind, qno) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    const x1 = clamp01(box[0]), y1 = clamp01(box[1]), x2 = clamp01(box[2]), y2 = clamp01(box[3]);
+    const sx = x1 * nw, sy = y1 * nh;
+    const sw = Math.max(1, (x2 - x1) * nw), sh = Math.max(1, (y2 - y1) * nh);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(sw);
+    canvas.height = Math.round(sh);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    try { ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height); } catch (e) {}
+
+    const overlay = document.createElement('div');
+    overlay.className = 'pdf-fullsize-overlay';
+    const cap = document.createElement('div');
+    cap.className = 'pdf-fullsize-cap';
+    cap.textContent = `${(kind || '').toUpperCase()} Q${qno ?? '?'} — ${canvas.width}×${canvas.height}px · click or press Esc to close`;
+    overlay.appendChild(canvas);
+    overlay.appendChild(cap);
+
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onEsc); };
+    const onEsc = (e) => { if (e.key === 'Escape') close(); };
+    overlay.addEventListener('click', close);
+    document.addEventListener('keydown', onEsc);
+    document.body.appendChild(overlay);
 }
 
 async function rerunPage(card, kind, pageIndex) {

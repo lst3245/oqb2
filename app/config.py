@@ -106,3 +106,16 @@ class Config:
     # 'llm' (model draws boxes), 'refine' (LLM boxes + CV edge-snap), or
     # 'segment' (LLM start-anchors + CV projection segmentation).
     PDF_IMPORT_DEFAULT_METHOD = os.getenv('PDF_IMPORT_DEFAULT_METHOD', 'llm').strip().lower()
+    # PDF Batch Import — safety margin (% of page) added around every detected
+    # box before the final crop. Larger = safer against clipping content; the
+    # white-trim still removes excess blank space afterwards, so content stays
+    # the focus.
+    PDF_IMPORT_CROP_PAD_PCT = float(os.getenv('PDF_IMPORT_CROP_PAD_PCT', '0.6'))
+    # PDF Batch Import — "refine" method: how far (% of page) to expand each
+    # LLM box into a search window before snapping back to content. Larger
+    # recovers more chopped text / nearby figures / marks but risks merging
+    # adjacent questions.
+    PDF_IMPORT_REFINE_GROW_PCT = float(os.getenv('PDF_IMPORT_REFINE_GROW_PCT', '3.5'))
+    # PDF Batch Import — "refine"/"segment" methods: padding (% of page) kept
+    # around the detected content edges.
+    PDF_IMPORT_ASSIST_PAD_PCT = float(os.getenv('PDF_IMPORT_ASSIST_PAD_PCT', '0.6'))

@@ -342,6 +342,9 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     b64, mime = llm_client.prepare_image(png_path, image_max_dim)
     sw, sh = _sent_image_size(png_path, image_max_dim)
 
+    assist_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_ASSIST_PAD_PCT', 0.6))) / 100.0
+    refine_grow = max(0.0, float(current_app.config.get('PDF_IMPORT_REFINE_GROW_PCT', 3.5))) / 100.0
+
     if method == 'segment':
         from app import pdf_layout
         system = ai_prompts.build_pdf_anchor_system(atype)
@@ -350,7 +353,8 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         anchors = ai_prompts.parse_question_anchors(text, img_h=sh,
                                                     coord_order=coord_order)
         gray = pdf_layout.load_gray(png_path)
-        seg = pdf_layout.segment_page(gray, anchors, shrink_sides=shrink_sides)
+        seg = pdf_layout.segment_page(gray, anchors, shrink_sides=shrink_sides,
+                                      pad_frac=assist_pad)
         boxes = [{'qno': s['qno'], 'box': s['box'],
                   'continues_prev': False, 'continues_next': False} for s in seg]
         return boxes, (text or '')
@@ -368,7 +372,9 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         for b in boxes:
             try:
                 b['box'] = pdf_layout.refine_box(gray, b['box'],
-                                                 shrink_sides=shrink_sides)
+                                                 shrink_sides=shrink_sides,
+                                                 grow_frac=refine_grow,
+                                                 pad_frac=assist_pad)
             except Exception as e:  # pragma: no cover — keep the LLM box
                 logger.warning('pdf-import refine_box failed: %s', e)
 
@@ -595,6 +601,7 @@ def iter_commit(app, cancel, token: str, plan: dict, version: str,
     year = meta['year']
     paper = meta['paper']
     whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
+    crop_pad = max(0.0, float(app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
 
     groups = _group_plan(plan)
     total = len(groups)
@@ -647,7 +654,8 @@ def iter_commit(app, cancel, token: str, plan: dict, version: str,
             imgs = []
             for prt in parts:
                 png = page_png_path(token, kind, prt['page'])
-                imgs.append(crop_page(png, prt['box'], trim_white=True,
+                imgs.append(crop_page(png, prt['box'], pad_frac=crop_pad,
+                                      trim_white=True,
                                       whiteness_threshold=whiteness))
 
             res = replace_img_assets(question, atype, version, imgs,
