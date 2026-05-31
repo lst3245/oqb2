@@ -65,6 +65,8 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 
 > AI Tools LLM **endpoints** are NOT registry scalars — they live in their own `llm_configs` table managed via the dedicated **Admin → LLM Endpoints** page (super-admin). See [.cursor/rules/ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
+> **Non-registry `system_settings` key:** `FILE_BROWSER_EXTRA_ROOTS` (JSON list of abs paths) is stored in the `system_settings` table but is **deliberately not in the REGISTRY** — it's a list, not a scalar, and is managed by the File Browser's own `/admin/files/roots/*` routes (`_load_extra_roots` / `_save_extra_roots` read/write the row directly). `load_all` logs+ignores it as an "unknown" key, which is fine. See [.cursor/rules/admin-panel.mdc](mdc:.cursor/rules/admin-panel.mdc).
+
 ## Lifecycle
 
 1. **Startup** — `create_app()` calls `app/settings.load_all(app)`. It captures the current `app.config[key]` for every registry key into `_BOOTSTRAP_DEFAULTS` (so `reset()` knows what to restore), then reads each row of `system_settings` and overwrites `app.config[key]` with the parsed value. Missing tables / malformed JSON / failed validation are logged and skipped — the bootstrap defaults remain authoritative.
@@ -83,7 +85,7 @@ Secrets and infrastructure paths are NOT exposed via the Settings UI:
 
 - `SECRET_KEY` — Flask session signing
 - DB credentials: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
-- Filesystem roots: `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
+- Filesystem roots: `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`, `PDF_SOURCE_PATH` (server-side source-PDF folder for PDF Batch Import; defaults to a `Source_PDF` folder beside `SOURCE_PATH`)
 - External binaries: `PANDOC_PATH`
 - AI Tools secrets: `LLM_API_KEY` (global fallback key), `LLM_KEY_SECRET` (Fernet secret for encrypting UI-entered endpoint keys; falls back to `SECRET_KEY` when blank)
 

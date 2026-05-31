@@ -72,11 +72,19 @@
             <i class="bi bi-arrow-left"></i> Back to Admin
         </a>
     </div>
-    <p class="text-muted mb-3">Source directory: <code id="sourcePathLabel">{{ source_path }}</code></p>
+    <!-- Root selector -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <label for="rootSelect" class="form-label mb-0 small fw-bold"><i class="bi bi-hdd-stack"></i> Root:</label>
+        <select id="rootSelect" class="form-select form-select-sm" style="width:auto; max-width:520px;" onchange="onRootChange()"></select>
+        <button class="btn btn-sm btn-outline-secondary toolbar-btn" onclick="showRootsModal()" title="Add or remove root directories">
+            <i class="bi bi-gear"></i> Manage roots
+        </button>
+        <code id="sourcePathLabel" class="text-muted ms-1"></code>
+    </div>
 
     <!-- Breadcrumb Navigation -->
     <nav id="breadcrumbNav" class="breadcrumb-path mb-2">
-        <a href="#" onclick="navigateTo(''); return false;"><i class="bi bi-house-door"></i> Source</a>
+        <a href="#" onclick="navigateTo(''); return false;"><i class="bi bi-house-door"></i> <span id="breadcrumbRootLabel">Source</span></a>
     </nav>
 
     <!-- Toolbar -->
@@ -307,11 +315,48 @@
         </div>
     </div>
 </div>
+
+<!-- Manage Roots Modal -->
+<div class="modal fade" id="rootsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-hdd-stack"></i> Manage root directories</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    Add directories the file browser can open. Every root must live on the
+                    <code id="rootsDriveLabel"></code> drive. The default <strong>Source</strong> root cannot be removed.
+                </p>
+                <ul class="list-group mb-3" id="rootsList"></ul>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-folder-plus"></i></span>
+                    <input type="text" class="form-control" id="newRootPath"
+                           placeholder="e.g. Q:\Source_PDF" autocomplete="off"
+                           onkeydown="if(event.key==='Enter') doAddRoot()">
+                    <button class="btn btn-success" onclick="doAddRoot()"><i class="bi bi-plus-lg"></i> Add root</button>
+                </div>
+                <div id="rootsError" class="text-danger small mt-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 // ==================== State ====================
+// Roots: [{id, label, path, removable, missing?}]. `id` is the normalised
+// absolute path; the server validates it on every request. ROOTS is the
+// initial server-rendered list; rootsRefresh() keeps it in sync after
+// add/remove.
+let ROOTS = {{ roots|tojson }};
+const ALLOWED_DRIVE = {{ allowed_drive|tojson }};
+let currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
 let currentPath = '';
 let selectedItems = new Set();  // Set of relative paths
 let pendingUploadFiles = [];
@@ -320,14 +365,148 @@ let clipboard = [];  // Array of relative paths pending paste
 
 // ==================== URL helpers ====================
 const URLS = {
-    list:     '{{ url_for("admin.files_list") }}',
-    download: '{{ url_for("admin.files_download") }}',
-    upload:   '{{ url_for("admin.files_upload") }}',
-    rename:   '{{ url_for("admin.files_rename") }}',
-    delete:   '{{ url_for("admin.files_delete") }}',
-    mkdir:    '{{ url_for("admin.files_mkdir") }}',
-    copy:     '{{ url_for("admin.files_copy") }}',
+    list:        '{{ url_for("admin.files_list") }}',
+    download:    '{{ url_for("admin.files_download") }}',
+    upload:      '{{ url_for("admin.files_upload") }}',
+    rename:      '{{ url_for("admin.files_rename") }}',
+    delete:      '{{ url_for("admin.files_delete") }}',
+    mkdir:       '{{ url_for("admin.files_mkdir") }}',
+    copy:        '{{ url_for("admin.files_copy") }}',
+    roots:       '{{ url_for("admin.files_roots") }}',
+    rootsAdd:    '{{ url_for("admin.files_roots_add") }}',
+    rootsRemove: '{{ url_for("admin.files_roots_remove") }}',
 };
+
+// Append the selected root to a GET URL that already has a query string.
+function withRoot(url) {
+    return url + '&root=' + encodeURIComponent(currentRoot);
+}
+
+// ==================== Roots ====================
+
+function currentRootObj() {
+    return ROOTS.find(r => r.id === currentRoot) || ROOTS[0] || null;
+}
+
+function renderRootSelect() {
+    const sel = document.getElementById('rootSelect');
+    sel.innerHTML = '';
+    ROOTS.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = r.label + (r.missing ? ' (missing)' : '');
+        if (r.id === currentRoot) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    const ro = currentRootObj();
+    document.getElementById('sourcePathLabel').textContent = ro ? ro.path : '';
+    const rootLbl = document.getElementById('breadcrumbRootLabel');
+    if (rootLbl) rootLbl.textContent = ro ? (ro.removable ? ro.label.split(/[\\/]/).pop() || ro.label : 'Source') : 'Source';
+}
+
+function onRootChange() {
+    const sel = document.getElementById('rootSelect');
+    currentRoot = sel.value;
+    selectedItems.clear();
+    clearClipboard();
+    updateSelectionUI();
+    navigateTo('');
+    renderRootSelect();
+}
+
+function refreshRoots() {
+    return fetch(URLS.roots)
+        .then(r => r.json())
+        .then(data => {
+            ROOTS = data.roots || ROOTS;
+            // If the current root vanished (removed), fall back to default.
+            if (!ROOTS.some(r => r.id === currentRoot)) {
+                currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
+            }
+            renderRootSelect();
+        })
+        .catch(() => {});
+}
+
+function showRootsModal() {
+    document.getElementById('rootsDriveLabel').textContent = ALLOWED_DRIVE;
+    document.getElementById('rootsError').classList.add('d-none');
+    document.getElementById('newRootPath').value = '';
+    renderRootsList();
+    new bootstrap.Modal(document.getElementById('rootsModal')).show();
+    setTimeout(() => document.getElementById('newRootPath').focus(), 300);
+}
+
+function renderRootsList() {
+    const ul = document.getElementById('rootsList');
+    ul.innerHTML = '';
+    ROOTS.forEach(r => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-center';
+        const left = document.createElement('span');
+        left.innerHTML = `<i class="bi bi-folder-fill text-warning"></i> <code>${escapeHtml(r.path)}</code>`
+            + (r.missing ? ' <span class="badge bg-danger ms-1">missing</span>' : '')
+            + (r.removable ? '' : ' <span class="badge bg-secondary ms-1">default</span>');
+        li.appendChild(left);
+        if (r.removable) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-danger';
+            btn.innerHTML = '<i class="bi bi-trash"></i>';
+            btn.title = 'Remove root';
+            btn.onclick = () => doRemoveRoot(r.id);
+            li.appendChild(btn);
+        }
+        ul.appendChild(li);
+    });
+}
+
+function showRootsError(msg) {
+    const el = document.getElementById('rootsError');
+    el.textContent = msg;
+    el.classList.remove('d-none');
+}
+
+function doAddRoot() {
+    const input = document.getElementById('newRootPath');
+    const path = input.value.trim();
+    if (!path) return;
+    document.getElementById('rootsError').classList.add('d-none');
+    fetch(URLS.rootsAdd, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: path})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok || d.error) { showRootsError(d.error || 'Could not add root.'); return; }
+        ROOTS = d.roots || ROOTS;
+        input.value = '';
+        renderRootsList();
+        renderRootSelect();
+    })
+    .catch(err => showRootsError('Add failed: ' + err.message));
+}
+
+function doRemoveRoot(id) {
+    if (!confirm('Remove this root from the browser? (The folder itself is NOT deleted.)')) return;
+    fetch(URLS.rootsRemove, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok || d.error) { showRootsError(d.error || 'Could not remove root.'); return; }
+        ROOTS = d.roots || ROOTS;
+        if (!ROOTS.some(r => r.id === currentRoot)) {
+            currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
+            navigateTo('');
+        }
+        renderRootsList();
+        renderRootSelect();
+    })
+    .catch(err => showRootsError('Remove failed: ' + err.message));
+}
 
 // ==================== Navigation ====================
 
@@ -350,7 +529,7 @@ function loadDirectory(path) {
     empty.classList.add('d-none');
     table.classList.add('d-none');
 
-    const url = URLS.list + '?path=' + encodeURIComponent(path);
+    const url = withRoot(URLS.list + '?path=' + encodeURIComponent(path));
     fetch(url)
         .then(r => {
             if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'HTTP ' + r.status); });
@@ -377,7 +556,9 @@ function loadDirectory(path) {
 
 function updateBreadcrumb(path) {
     const nav = document.getElementById('breadcrumbNav');
-    let html = '<a href="#" onclick="navigateTo(\'\'); return false;"><i class="bi bi-house-door"></i> Source</a>';
+    const ro = currentRootObj();
+    const rootName = ro ? (ro.removable ? (ro.label.split(/[\\/]/).pop() || ro.label) : 'Source') : 'Source';
+    let html = `<a href="#" onclick="navigateTo(''); return false;"><i class="bi bi-house-door"></i> ${escapeHtml(rootName)}</a>`;
     if (path) {
         const parts = path.split('/');
         let accumulated = '';
@@ -479,7 +660,7 @@ function renderFileTable(items) {
         // Action buttons
         let actions = '';
         if (!item.is_dir) {
-            actions += `<a href="${URLS.download}?path=${encodeURIComponent(itemPath)}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
+            actions += `<a href="${withRoot(URLS.download + '?path=' + encodeURIComponent(itemPath))}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
         }
         actions += `<button class="btn btn-outline-secondary btn-sm" title="Copy to clipboard" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
         if (!item.is_dir) {
@@ -632,6 +813,7 @@ function doUpload() {
 
     const formData = new FormData();
     formData.append('path', currentPath);
+    formData.append('root', currentRoot);
     pendingUploadFiles.forEach(f => formData.append('files', f));
 
     const xhr = new XMLHttpRequest();
@@ -728,7 +910,7 @@ function doRename() {
     fetch(URLS.rename, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: path, new_name: newName})
+        body: JSON.stringify({path: path, new_name: newName, root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -757,7 +939,7 @@ function doNewFolder() {
     fetch(URLS.mkdir, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: currentPath, name: name})
+        body: JSON.stringify({path: currentPath, name: name, root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -816,7 +998,7 @@ function doSingleDelete() {
     fetch(URLS.delete, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({paths: [path]})
+        body: JSON.stringify({paths: [path], root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -868,7 +1050,7 @@ function doBatchDelete() {
     fetch(URLS.delete, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({paths: paths})
+        body: JSON.stringify({paths: paths, root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -933,7 +1115,7 @@ function pasteFromClipboard() {
     fetch(URLS.copy, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({sources: clipboard, dest_dir: currentPath})
+        body: JSON.stringify({sources: clipboard, dest_dir: currentPath, root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -958,7 +1140,7 @@ function duplicateItem(path) {
     fetch(URLS.copy, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({sources: [path], dest_dir: parentDir})
+        body: JSON.stringify({sources: [path], dest_dir: parentDir, root: currentRoot})
     })
     .then(r => r.json())
     .then(data => {
@@ -1005,6 +1187,7 @@ function refreshListing() {
 // ==================== Init ====================
 
 document.addEventListener('DOMContentLoaded', function() {
+    renderRootSelect();
     navigateTo('');
 });
 </script>

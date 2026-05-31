@@ -30,6 +30,14 @@ class Config:
     # Application paths
     SOURCE_PATH = os.getenv('SOURCE_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Source'))
     OUTPUT_PATH = os.getenv('OUTPUT_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'output'))
+    # Directory of source PDFs the PDF Batch Import tool can pick from
+    # server-side (instead of uploading from the browser). Defaults to a
+    # `Source_PDF` folder beside SOURCE_PATH — e.g. SOURCE_PATH=Q:\Source
+    # → Q:\Source_PDF.
+    PDF_SOURCE_PATH = os.getenv(
+        'PDF_SOURCE_PATH',
+        os.path.join(os.path.dirname(SOURCE_PATH), 'Source_PDF')
+    )
     
     # Pagination
     QUESTIONS_PER_PAGE = 20

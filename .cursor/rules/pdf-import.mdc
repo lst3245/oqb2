@@ -27,7 +27,8 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 | Classical-CV helpers (NumPy): `deskew_image`, `refine_box`, `segment_page`, `load_gray` | [app/pdf_layout.py](mdc:app/pdf_layout.py) |
 | Box prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_QUE_BOX_SYSTEM`, `PDF_SOL_BOX_SYSTEM`, `build_pdf_box_user_text`, `parse_question_boxes` |
 | Anchor prompts + parser (segment method) | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_ANCHOR_SYSTEM`, `PDF_ANCHOR_JSON_CONTRACT`, `build_pdf_anchor_*`, `parse_question_anchors` |
-| Routes (page, stage, page image, detect, redo-page, plan, commit, cancel, discard) | [app/admin.py](mdc:app/admin.py) `pdf_import_*` |
+| Paper-name guess prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_PAPER_NAME_SYSTEM`, `PDF_PAPER_NAME_USER`, `build_pdf_paper_name_*`, `parse_paper_name` + `pdf_import.guess_paper_name` |
+| Routes (page, stage, page image, detect, redo-page, plan, commit, cancel, discard, source-list, guess-paper) | [app/admin.py](mdc:app/admin.py) `pdf_import_*` |
 | Atomic IMG write + path + thumbnail lifecycle | [app/batch_image_gen.py](mdc:app/batch_image_gen.py) `replace_img_assets`, `slot_has_img` |
 | LLM transport / image prep | [app/llm_client.py](mdc:app/llm_client.py) `prepare_image`, `chat` |
 | UI | [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) |
@@ -35,8 +36,10 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 
 ## Routes (all `@admin_required`, gated on `AI_TOOLS_ENABLED`)
 
-- `GET  /admin/pdf-import` — page (`pdf_import_page`).
-- `POST /admin/pdf-import/stage` — multipart: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only), `version`, `deskew` (default on), `que_pdf`, `sol_pdf` (≥1). Validates prefix + subject admin access. Rasterises pages (deskewing scans when set). Returns `{token, deskew, que:{pages}, sol:{pages}}`.
+- `GET  /admin/pdf-import` — page (`pdf_import_page`). Passes `pdf_source_path` / `pdf_source_available` so the UI shows the "pick from server" links.
+- `POST /admin/pdf-import/stage` — multipart: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only), `version`, `deskew` (default on), `que_pdf`, `sol_pdf` **or** `que_server_path`/`sol_server_path` (≥1). Validates prefix + subject admin access. Server paths are resolved under `PDF_SOURCE_PATH` via `_resolve_server_pdf` → a duck-typed `_ServerPDF` (`.filename`/`.save()`) so `pdf_import.stage` is unchanged; uploads win over server picks per side. Rasterises pages (deskewing scans when set). Returns `{token, deskew, que:{pages}, sol:{pages}}`.
+- `GET  /admin/pdf-import/source-list` — list every `.pdf` under `PDF_SOURCE_PATH` (recursive) → `{configured, root, files:[{rel_path,name,size,modified}]}`. Powers the "pick from server" modal.
+- `POST /admin/pdf-import/guess-paper` — multipart `pdf` (upload) **or** `server_path`. Rasterises the PDF's first page, sends it + the file name to the default LLM (`_pdf_default_endpoint`: `EXPLAIN_DEFAULT_LLM` by name, else first vision endpoint), returns `{paper, filename}` (`paper` validated against `PREFIX_PATTERN`, may be null). The UI calls this on file pick when **Paper name** is empty (never overwrites a typed value).
 - `GET  /admin/pdf-import/page/<token>/<kind>/<int:page>.png` — serve a staged page PNG (kind = `que`|`sol`).
 - `GET  /admin/pdf-import/detect?token=&endpoint_id=&method=&debug=` — SSE: per-page detection (QUE then SOL); accumulates `plan.json`. `method` ∈ `llm`/`refine`/`segment`. `debug=1` attaches `raw` (verbatim model reply) to each page event.
 - `POST /admin/pdf-import/redo-page` — body `{token, kind, index, endpoint_id, method?, debug?}`; re-detect one page (optionally different method+endpoint) → `{boxes, raw?}`.

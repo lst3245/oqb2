@@ -2894,6 +2894,156 @@ def _pdf_sse_error(message):
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+def _pdf_source_root():
+    """Absolute path to the server-side source-PDF directory the import tool
+    can pick from (PDF_SOURCE_PATH, defaults to Q:\\Source_PDF)."""
+    return os.path.abspath(current_app.config.get('PDF_SOURCE_PATH', ''))
+
+
+def _pdf_default_endpoint():
+    """Endpoint used for the auto paper-name guess: honour EXPLAIN_DEFAULT_LLM
+    by name first (it need not be vision-capable for filename guesses, but we
+    feed it the first page image so prefer vision), then fall back to the
+    first enabled vision endpoint."""
+    from app.models import LLMConfig
+    preferred = (current_app.config.get('EXPLAIN_DEFAULT_LLM') or '').strip()
+    if preferred:
+        cfg = LLMConfig.query.filter_by(name=preferred, enabled=True).first()
+        if cfg:
+            return cfg
+    endpoints = _pdf_vision_endpoints()
+    return endpoints[0] if endpoints else None
+
+
+class _ServerPDF:
+    """Duck-typed stand-in for a Werkzeug ``FileStorage`` so a PDF already on
+    the server (under PDF_SOURCE_PATH) can be fed to ``pdf_import.stage``
+    unchanged — it only uses ``.filename`` and ``.save(dest)``."""
+
+    def __init__(self, abs_path, filename):
+        self._abs = abs_path
+        self.filename = filename
+
+    def save(self, dest):
+        shutil.copyfile(self._abs, dest)
+
+
+def _resolve_server_pdf(rel_path):
+    """Resolve a client-supplied relative path (under PDF_SOURCE_PATH) to a
+    ``_ServerPDF``. Returns ``(server_pdf, error)``."""
+    root = _pdf_source_root()
+    if not root or not os.path.isdir(root):
+        return None, 'The server source-PDF folder is not configured or missing.'
+    rel = (rel_path or '').strip().strip('/').strip('\\')
+    if not rel:
+        return None, 'No server PDF selected.'
+    full = _safe_join(root, rel)
+    if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
+        return None, 'Selected PDF not found on the server.'
+    return _ServerPDF(full, os.path.basename(full)), None
+
+
+@admin_bp.route('/pdf-import/source-list')
+@login_required
+@admin_required
+def pdf_import_source_list():
+    """List the subfolders + PDFs in ONE directory under PDF_SOURCE_PATH so
+    the user can navigate the folder tree and pick a PDF instead of uploading.
+    Query ``path`` is relative to PDF_SOURCE_PATH (sandboxed)."""
+    root = _pdf_source_root()
+    if not root or not os.path.isdir(root):
+        return jsonify({'configured': False, 'root': root, 'current_path': '',
+                        'dirs': [], 'files': [],
+                        'message': 'Server source-PDF folder is not configured or does not exist.'})
+
+    rel_path = (request.args.get('path') or '').strip().strip('/').strip('\\')
+    cur_dir = _safe_join(root, rel_path) if rel_path else root
+    if not cur_dir or not os.path.isdir(cur_dir):
+        return jsonify({'error': 'Directory not found or access denied'}), 404
+
+    rel_norm = os.path.relpath(cur_dir, root).replace('\\', '/')
+    if rel_norm == '.':
+        rel_norm = ''
+
+    dirs, files = [], []
+    try:
+        entries = os.listdir(cur_dir)
+    except OSError:
+        entries = []
+    for name in entries:
+        full = os.path.join(cur_dir, name)
+        child_rel = (rel_norm + '/' + name) if rel_norm else name
+        if os.path.isdir(full):
+            dirs.append({'name': name, 'rel_path': child_rel})
+        elif name.lower().endswith('.pdf'):
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            files.append({'name': name, 'rel_path': child_rel,
+                          'size': st.st_size, 'modified': st.st_mtime})
+    dirs.sort(key=lambda d: d['name'].lower())
+    files.sort(key=lambda f: f['name'].lower())
+    return jsonify({'configured': True, 'root': root, 'current_path': rel_norm,
+                    'dirs': dirs, 'files': files})
+
+
+@admin_bp.route('/pdf-import/guess-paper', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_guess_paper():
+    """Best-guess the paper name (SUBJECT_SOURCE_YEAR_PAPER) for a PDF using
+    the default LLM and the PDF's file name + first page. Accepts either an
+    uploaded PDF (``pdf`` file field) or a ``server_path`` under
+    PDF_SOURCE_PATH. Returns ``{paper, filename}`` (paper may be null)."""
+    from app import pdf_import
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+
+    config = _pdf_default_endpoint()
+    if config is None:
+        return jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+
+    subjects = [s.id for s in get_user_admin_subjects()]
+
+    upload = request.files.get('pdf')
+    server_path = (request.form.get('server_path') or '').strip()
+
+    import tempfile
+    tmp_path = None
+    tmp_dir = None
+    filename = ''
+    try:
+        if upload is not None and upload.filename and upload.filename.lower().endswith('.pdf'):
+            filename = upload.filename
+            tmp_dir = tempfile.mkdtemp(prefix='pdfguess_up_')
+            tmp_path = os.path.join(tmp_dir, 'source.pdf')
+            upload.save(tmp_path)
+            pdf_path = tmp_path
+        elif server_path:
+            server_pdf, err = _resolve_server_pdf(server_path)
+            if err:
+                return jsonify({'error': err}), 400
+            pdf_path = server_pdf._abs
+            filename = server_pdf.filename
+        else:
+            return jsonify({'error': 'No PDF supplied.'}), 400
+
+        image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        try:
+            paper, raw = pdf_import.guess_paper_name(
+                config, pdf_path, filename, subjects, image_max_dim)
+        except Exception as e:
+            current_app.logger.exception('PDF import paper-name guess failed')
+            return jsonify({'error': f'Could not read the PDF: {e}'}), 500
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return jsonify({'paper': paper, 'filename': filename})
+
+
 def _pdf_load_token_meta(token):
     """Load a staging token's meta.json and enforce admin access to its
     subject. Returns ``(meta, error_message)``."""
@@ -2922,6 +3072,7 @@ def pdf_import_page():
     default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
     if default_method not in pdf_import.DETECT_METHODS:
         default_method = 'llm'
+    pdf_source_root = _pdf_source_root()
     return render_template(
         'admin_pdf_import.html',
         subjects=subjects,
@@ -2932,6 +3083,8 @@ def pdf_import_page():
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
         deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
         default_method=default_method,
+        pdf_source_path=pdf_source_root,
+        pdf_source_available=bool(pdf_source_root and os.path.isdir(pdf_source_root)),
     )
 
 
@@ -2972,8 +3125,26 @@ def pdf_import_stage():
 
     has_que = _is_pdf(que_file)
     has_sol = _is_pdf(sol_file)
+
+    # Server-side PDFs (picked from PDF_SOURCE_PATH) take effect only when no
+    # file was uploaded for that side.
+    if not has_que:
+        que_server = (request.form.get('que_server_path') or '').strip()
+        if que_server:
+            que_file, err = _resolve_server_pdf(que_server)
+            if err:
+                return jsonify({'error': f'Question PDF: {err}'}), 400
+            has_que = True
+    if not has_sol:
+        sol_server = (request.form.get('sol_server_path') or '').strip()
+        if sol_server:
+            sol_file, err = _resolve_server_pdf(sol_server)
+            if err:
+                return jsonify({'error': f'Solution PDF: {err}'}), 400
+            has_sol = True
+
     if not has_que and not has_sol:
-        return jsonify({'error': 'Upload at least one PDF (a question PDF and/or a solution PDF).'}), 400
+        return jsonify({'error': 'Upload or pick at least one PDF (a question PDF and/or a solution PDF).'}), 400
 
     raster_width = int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700))
     deskew = (request.form.get('deskew', '1').strip().lower()
@@ -4621,10 +4792,138 @@ def llm_endpoints_chat(cid):
 
 
 # ==================== File Browser (Super Admin Only) ====================
+#
+# The browser exposes one or more "roots". SOURCE_PATH is always present
+# (the built-in, non-removable root). A super admin may register extra
+# roots through the UI; they are persisted in the `system_settings` table
+# under the key FILE_BROWSER_EXTRA_ROOTS (a JSON list of absolute paths).
+# Every root — built-in or extra — MUST live on the same drive as
+# SOURCE_PATH (e.g. the whole Q:\ drive) so the browser can never be
+# pointed at C:\ or a network share outside the question-bank volume.
+
+FILE_BROWSER_ROOTS_KEY = 'FILE_BROWSER_EXTRA_ROOTS'
+
 
 def _resolve_source_path():
     """Get the resolved source path, using abspath instead of realpath to avoid UNC issues on Windows."""
     return os.path.abspath(current_app.config['SOURCE_PATH'])
+
+
+def _browser_allowed_drive():
+    """The drive (e.g. ``Q:\\``) every file-browser root must live on.
+
+    Derived from SOURCE_PATH so the deployment's question-bank volume is the
+    only thing reachable. ``os.path.splitdrive`` returns ``('Q:', '\\Source')``
+    on Windows; we normalise to ``Q:\\``. On a POSIX host (no drive letter)
+    this falls back to the filesystem root ``/``.
+    """
+    drive, _ = os.path.splitdrive(_resolve_source_path())
+    if drive:
+        return os.path.normcase(drive + os.sep)
+    return os.path.normcase(os.sep)
+
+
+def _path_on_allowed_drive(abs_path):
+    """True when ``abs_path`` is on the same drive as SOURCE_PATH."""
+    return os.path.normcase(os.path.abspath(abs_path)).startswith(_browser_allowed_drive())
+
+
+def _load_extra_roots():
+    """Return the list of extra root absolute paths from the DB setting.
+
+    Reads the `system_settings` row directly (this key is intentionally NOT
+    in the settings REGISTRY — it's managed by the dedicated routes below).
+    Malformed / missing rows yield an empty list.
+    """
+    from app.models import SystemSetting
+    try:
+        row = SystemSetting.query.get(FILE_BROWSER_ROOTS_KEY)
+    except Exception:
+        return []
+    if not row:
+        return []
+    try:
+        data = json.loads(row.value)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for p in data:
+        if isinstance(p, str) and p.strip():
+            out.append(os.path.abspath(p.strip()))
+    return out
+
+
+def _save_extra_roots(paths):
+    """Persist the extra-roots list (list of abs paths) to the DB setting."""
+    from app.models import SystemSetting
+    encoded = json.dumps([os.path.abspath(p) for p in paths])
+    row = SystemSetting.query.get(FILE_BROWSER_ROOTS_KEY)
+    if row is None:
+        row = SystemSetting(key=FILE_BROWSER_ROOTS_KEY, value=encoded,
+                            updated_by=current_user.id)
+        db.session.add(row)
+    else:
+        row.value = encoded
+        row.updated_by = current_user.id
+    db.session.commit()
+
+
+def _browser_roots():
+    """Ordered list of available roots as ``{id, label, path, removable}``.
+
+    The first entry is always SOURCE_PATH (built-in, not removable). The
+    ``id`` is the normalised absolute path — used by the client to select a
+    root and validated server-side via :func:`_resolve_browser_root`.
+    """
+    source = _resolve_source_path()
+    roots = [{
+        'id': os.path.normcase(source),
+        'label': 'Source (default)',
+        'path': source,
+        'removable': False,
+    }]
+    seen = {os.path.normcase(source)}
+    for p in _load_extra_roots():
+        key = os.path.normcase(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append({
+            'id': key,
+            'label': p,
+            'path': p,
+            'removable': True,
+            'missing': not os.path.isdir(p),
+        })
+    return roots
+
+
+def _resolve_browser_root(root_id):
+    """Map a client-supplied root id to an absolute path, or None if it is
+    not one of the allowed roots. A blank / missing id defaults to
+    SOURCE_PATH so existing links keep working."""
+    if not root_id:
+        return _resolve_source_path()
+    target = os.path.normcase(str(root_id))
+    for r in _browser_roots():
+        if r['id'] == target:
+            return r['path']
+    return None
+
+
+def _request_browser_root():
+    """Resolve the selected root from the current request (query, form, or
+    JSON body ``root`` field). Returns an abs path or None when the id was
+    supplied but invalid."""
+    root_id = request.args.get('root')
+    if root_id is None and request.form:
+        root_id = request.form.get('root')
+    if root_id is None and request.is_json:
+        body = request.get_json(silent=True) or {}
+        root_id = body.get('root')
+    return _resolve_browser_root(root_id)
 
 
 def _safe_join(base, *paths):
@@ -4675,7 +4974,70 @@ def _get_dir_info(full_path, source_path):
 def files():
     """File browser page - super admin only"""
     source_path = current_app.config['SOURCE_PATH']
-    return render_template('admin_files.html', source_path=source_path)
+    return render_template('admin_files.html', source_path=source_path,
+                           roots=_browser_roots(),
+                           allowed_drive=_browser_allowed_drive())
+
+
+@admin_bp.route('/files/roots')
+@login_required
+@super_admin_required
+def files_roots():
+    """List the configured browser roots (JSON)."""
+    return jsonify({
+        'roots': _browser_roots(),
+        'allowed_drive': _browser_allowed_drive(),
+    })
+
+
+@admin_bp.route('/files/roots/add', methods=['POST'])
+@login_required
+@super_admin_required
+def files_roots_add():
+    """Register a new browser root. The path must exist, be a directory, and
+    live on the same drive as SOURCE_PATH."""
+    data = request.get_json(silent=True) or {}
+    raw = (data.get('path') or '').strip().strip('"')
+    if not raw:
+        return jsonify({'error': 'Path is required'}), 400
+
+    abs_path = os.path.abspath(raw)
+    if not _path_on_allowed_drive(abs_path):
+        drive = _browser_allowed_drive()
+        return jsonify({'error': f'Root must be on the {drive} drive.'}), 400
+    if not os.path.isdir(abs_path):
+        return jsonify({'error': 'Path does not exist or is not a directory.'}), 400
+
+    # Don't duplicate SOURCE_PATH or an existing extra root.
+    existing_ids = {r['id'] for r in _browser_roots()}
+    if os.path.normcase(abs_path) in existing_ids:
+        return jsonify({'error': 'That root is already registered.'}), 409
+
+    roots = _load_extra_roots()
+    roots.append(abs_path)
+    _save_extra_roots(roots)
+    return jsonify({'success': True, 'roots': _browser_roots()})
+
+
+@admin_bp.route('/files/roots/remove', methods=['POST'])
+@login_required
+@super_admin_required
+def files_roots_remove():
+    """Remove an extra browser root by its id (normalised abs path). The
+    built-in SOURCE_PATH root cannot be removed."""
+    data = request.get_json(silent=True) or {}
+    root_id = os.path.normcase((data.get('id') or '').strip())
+    if not root_id:
+        return jsonify({'error': 'Root id is required'}), 400
+    if root_id == os.path.normcase(_resolve_source_path()):
+        return jsonify({'error': 'The default Source root cannot be removed.'}), 400
+
+    roots = _load_extra_roots()
+    kept = [p for p in roots if os.path.normcase(p) != root_id]
+    if len(kept) == len(roots):
+        return jsonify({'error': 'Root not found.'}), 404
+    _save_extra_roots(kept)
+    return jsonify({'success': True, 'roots': _browser_roots()})
 
 
 @admin_bp.route('/files/list')
@@ -4683,7 +5045,9 @@ def files():
 @super_admin_required
 def files_list():
     """List files and directories in a path (JSON API)"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     rel_path = request.args.get('path', '').strip('/')
 
     if rel_path:
@@ -4703,7 +5067,9 @@ def files_list():
 @super_admin_required
 def files_download():
     """Download a single file"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     rel_path = request.args.get('path', '').strip('/')
 
     if not rel_path:
@@ -4721,7 +5087,9 @@ def files_download():
 @super_admin_required
 def files_upload():
     """Upload one or more files to a directory"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     rel_path = request.form.get('path', '').strip('/')
 
     if rel_path:
@@ -4765,7 +5133,9 @@ def files_upload():
 @super_admin_required
 def files_rename():
     """Rename a file or directory"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     data = request.get_json()
     old_path = data.get('path', '').strip('/')
     new_name = data.get('new_name', '').strip()
@@ -4804,7 +5174,9 @@ def files_rename():
 @super_admin_required
 def files_delete():
     """Delete one or more files or directories"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     data = request.get_json()
     paths = data.get('paths', [])
 
@@ -4851,7 +5223,9 @@ def files_delete():
 @super_admin_required
 def files_mkdir():
     """Create a new directory"""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     data = request.get_json()
     parent_path = data.get('path', '').strip('/')
     dir_name = data.get('name', '').strip()
@@ -4910,7 +5284,9 @@ def _unique_copy_name(dest_dir, name):
 @super_admin_required
 def files_copy():
     """Copy one or more files/directories into a destination directory."""
-    source_path = _resolve_source_path()
+    source_path = _request_browser_root()
+    if source_path is None:
+        return jsonify({'error': 'Invalid root'}), 400
     data = request.get_json()
     sources = data.get('sources', [])
     dest_dir = data.get('dest_dir', '').strip('/')

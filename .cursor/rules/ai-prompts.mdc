@@ -6,7 +6,7 @@ alwaysApply: false
 
 # AI Prompts (super-admin editable system + user-turn templates)
 
-Editable storage for the prompts powering every AI feature: proofreading, MD generation, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import. Twelve prompts total, in five groups. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
+Editable storage for the prompts powering every AI feature: proofreading, MD generation, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import (box detection, anchor/segment detection, and paper-name guess). Seventeen prompts total, in seven groups. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
 
 ## Files map
 
@@ -34,8 +34,13 @@ In declaration order (the UI renders them in this order, grouped by `group`):
 10. `PDF_QUE_BOX_SYSTEM` (system, var `json_contract`)
 11. `PDF_SOL_BOX_SYSTEM` (system, var `json_contract`)
 12. `PDF_BOX_USER` (user, var `what`)
+13. `PDF_ANCHOR_JSON_CONTRACT` (system, sub-template) — segment-method shared contract
+14. `PDF_ANCHOR_SYSTEM` (system, vars `what`, `json_contract`)
+15. `PDF_ANCHOR_USER` (user, var `what`)
+16. `PDF_PAPER_NAME_SYSTEM` (system) — PDF Import paper-name auto-guess
+17. `PDF_PAPER_NAME_USER` (user, vars `filename`, `subjects`)
 
-`PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via the `{{json_contract}}` placeholder, resolved at render time by `build_pdf_box_system(asset_type)`. Edit the contract once to update the response shape on both sides.
+`PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via the `{{json_contract}}` placeholder, resolved at render time by `build_pdf_box_system(asset_type)`. Edit the contract once to update the response shape on both sides. `PDF_PAPER_NAME_*` feed `pdf_import.guess_paper_name` (first-page image + file name → `SUBJECT_SOURCE_YEAR_PAPER`); parsed by `parse_paper_name`.
 
 ## Variable substitution
 

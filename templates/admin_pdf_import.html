@@ -157,7 +157,7 @@
                 <div class="col-md-4">
                     <label for="paperInput" class="form-label fw-bold">Paper name</label>
                     <input type="text" id="paperInput" class="form-control" placeholder="MATC_DSE_2012_P1" autocomplete="off">
-                    <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages.</div>
+                    <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages. <span id="paperGuessHint" class="text-info d-none"><span class="spinner-border spinner-border-sm"></span> Guessing from PDF…</span></div>
                 </div>
                 <div class="col-md-4">
                     <label for="versionSelect" class="form-label fw-bold">Version</label>
@@ -190,10 +190,28 @@
                 <div class="col-md-4">
                     <label for="quePdf" class="form-label fw-bold">Question PDF <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
+                    {% if pdf_source_available %}
+                    <div class="form-text">
+                        <a href="#" onclick="openServerPicker('que'); return false;"><i class="bi bi-hdd"></i> or pick from server</a>
+                        <span id="queServerPick" class="d-none ms-1">
+                            <span class="badge bg-info text-dark"><i class="bi bi-filetype-pdf"></i> <span id="queServerName"></span></span>
+                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('que'); return false;" title="Clear"><i class="bi bi-x-circle"></i></a>
+                        </span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="col-md-4">
                     <label for="solPdf" class="form-label fw-bold">Solution PDF <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="solPdf" class="form-control" accept="application/pdf,.pdf">
+                    {% if pdf_source_available %}
+                    <div class="form-text">
+                        <a href="#" onclick="openServerPicker('sol'); return false;"><i class="bi bi-hdd"></i> or pick from server</a>
+                        <span id="solServerPick" class="d-none ms-1">
+                            <span class="badge bg-info text-dark"><i class="bi bi-filetype-pdf"></i> <span id="solServerName"></span></span>
+                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('sol'); return false;" title="Clear"><i class="bi bi-x-circle"></i></a>
+                        </span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="col-md-4 d-flex flex-column justify-content-end">
                     <div class="mb-2">
@@ -277,6 +295,30 @@ Fill in the setup above and click "Start".
         </div>
     </div>
 
+    <!-- ===== Server PDF picker modal ===== -->
+    <div class="modal fade" id="serverPdfModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-hdd"></i> Pick a PDF from the server
+                        <small class="text-muted" id="serverPickTargetLabel"></small></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">Source folder: <code>{{ pdf_source_path }}</code></p>
+                    <nav id="serverPdfBreadcrumb" class="small mb-2"></nav>
+                    <input type="text" id="serverPdfFilter" class="form-control form-control-sm mb-2"
+                           placeholder="Filter this folder…" oninput="renderServerPdfList()" autocomplete="off">
+                    <div id="serverPdfLoading" class="text-center py-4 d-none">
+                        <div class="spinner-border text-primary"></div>
+                    </div>
+                    <div id="serverPdfError" class="alert alert-danger d-none"></div>
+                    <div class="list-group" id="serverPdfList" style="max-height: 50vh; overflow-y:auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== Summary ===== -->
     <div id="summaryPanel" class="card mt-3 d-none">
         <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> Import Summary</div>
@@ -330,6 +372,194 @@ let currentJobId = null;
 let running = false;
 let uidCounter = 0;
 function nextUid() { return 'b' + (++uidCounter); }
+
+// ----- Server PDF picking + paper-name auto-guess -----
+const serverPdf = { que: null, sol: null };  // each: {rel_path, name}
+let serverPickTarget = 'que';
+let serverCurDir = '';        // current folder rel path within PDF_SOURCE_PATH
+let serverDirs = [];          // subfolders in the current folder
+let serverFiles = [];         // PDFs in the current folder
+let guessing = false;
+
+function openServerPicker(target) {
+    serverPickTarget = target;
+    document.getElementById('serverPickTargetLabel').textContent =
+        '(' + (target === 'que' ? 'Question' : 'Solution') + ')';
+    document.getElementById('serverPdfFilter').value = '';
+    document.getElementById('serverPdfError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('serverPdfModal')).show();
+    loadServerDir('');
+}
+
+function loadServerDir(path) {
+    const loading = document.getElementById('serverPdfLoading');
+    const errBox = document.getElementById('serverPdfError');
+    const list = document.getElementById('serverPdfList');
+    loading.classList.remove('d-none');
+    errBox.classList.add('d-none');
+    list.innerHTML = '';
+    fetch(`${IMPORT_BASE}/source-list?path=${encodeURIComponent(path)}`)
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            loading.classList.add('d-none');
+            if (!ok) { throw new Error(d.error || 'Could not open folder.'); }
+            if (!d.configured) {
+                errBox.textContent = d.message || 'Server source-PDF folder is not available.';
+                errBox.classList.remove('d-none');
+                return;
+            }
+            serverCurDir = d.current_path || '';
+            serverDirs = d.dirs || [];
+            serverFiles = d.files || [];
+            document.getElementById('serverPdfFilter').value = '';
+            renderServerBreadcrumb();
+            renderServerPdfList();
+        })
+        .catch(err => {
+            loading.classList.add('d-none');
+            errBox.textContent = err.message;
+            errBox.classList.remove('d-none');
+        });
+}
+
+function renderServerBreadcrumb() {
+    const nav = document.getElementById('serverPdfBreadcrumb');
+    nav.innerHTML = '';
+
+    const home = document.createElement('a');
+    home.href = '#';
+    home.innerHTML = '<i class="bi bi-house-door"></i> Source_PDF';
+    home.onclick = (e) => { e.preventDefault(); loadServerDir(''); };
+    nav.appendChild(home);
+
+    if (serverCurDir) {
+        let acc = '';
+        const parts = serverCurDir.split('/');
+        parts.forEach((part, i) => {
+            acc += (acc ? '/' : '') + part;
+            const p = acc;
+            nav.insertAdjacentHTML('beforeend', ' <span class="text-muted">/</span> ');
+            if (i < parts.length - 1) {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.textContent = part;
+                a.onclick = (e) => { e.preventDefault(); loadServerDir(p); };
+                nav.appendChild(a);
+            } else {
+                const strong = document.createElement('strong');
+                strong.textContent = part;
+                nav.appendChild(strong);
+            }
+        });
+    }
+}
+
+function renderServerPdfList() {
+    const list = document.getElementById('serverPdfList');
+    const q = (document.getElementById('serverPdfFilter').value || '').toLowerCase();
+    list.innerHTML = '';
+
+    // Parent-folder row
+    if (serverCurDir) {
+        const parent = serverCurDir.includes('/') ? serverCurDir.substring(0, serverCurDir.lastIndexOf('/')) : '';
+        const up = document.createElement('a');
+        up.href = '#';
+        up.className = 'list-group-item list-group-item-action';
+        up.innerHTML = '<i class="bi bi-arrow-up-circle text-secondary"></i> <span class="fw-bold">..</span>';
+        up.onclick = (e) => { e.preventDefault(); loadServerDir(parent); };
+        list.appendChild(up);
+    }
+
+    const dirs = serverDirs.filter(d => !q || d.name.toLowerCase().includes(q));
+    const files = serverFiles.filter(f => !q || f.name.toLowerCase().includes(q));
+
+    dirs.forEach(d => {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.className = 'list-group-item list-group-item-action';
+        a.innerHTML = `<i class="bi bi-folder-fill text-warning"></i> ${escapeHtmlPdf(d.name)}`;
+        a.onclick = (e) => { e.preventDefault(); loadServerDir(d.rel_path); };
+        list.appendChild(a);
+    });
+
+    files.forEach(f => {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+        const kb = f.size ? (f.size / 1024).toFixed(0) + ' KB' : '';
+        a.innerHTML = `<span><i class="bi bi-filetype-pdf text-danger"></i> ${escapeHtmlPdf(f.name)}</span>`
+            + `<small class="text-muted">${kb}</small>`;
+        a.onclick = (e) => { e.preventDefault(); pickServerPdf(f); };
+        list.appendChild(a);
+    });
+
+    if (!dirs.length && !files.length) {
+        const empty = document.createElement('div');
+        empty.className = 'text-muted small p-3';
+        empty.textContent = q ? 'No matching items in this folder.' : 'This folder has no PDFs or subfolders.';
+        list.appendChild(empty);
+    }
+}
+
+function escapeHtmlPdf(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function pickServerPdf(f) {
+    const side = serverPickTarget;
+    serverPdf[side] = { rel_path: f.rel_path, name: f.name };
+    // A server pick and a local upload are mutually exclusive per side.
+    (side === 'que' ? quePdf : solPdf).value = '';
+    document.getElementById(side + 'ServerName').textContent = f.name;
+    document.getElementById(side + 'ServerPick').classList.remove('d-none');
+    bootstrap.Modal.getInstance(document.getElementById('serverPdfModal')).hide();
+    maybeGuessPaper({ server_path: f.rel_path });
+}
+
+function clearServerPick(side) {
+    serverPdf[side] = null;
+    document.getElementById(side + 'ServerPick').classList.add('d-none');
+}
+
+// Auto-fill the paper name from the chosen PDF when the field is still empty.
+// `src` is either {file: File} or {server_path: '...'}.
+function maybeGuessPaper(src) {
+    if (guessing) return;
+    if (paperInput.value.trim()) return;  // never overwrite a typed value
+    const hint = document.getElementById('paperGuessHint');
+    const fd = new FormData();
+    if (src.file) fd.append('pdf', src.file);
+    else if (src.server_path) fd.append('server_path', src.server_path);
+    else return;
+
+    guessing = true;
+    if (hint) hint.classList.remove('d-none');
+    fetch(`${IMPORT_BASE}/guess-paper`, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.paper && !paperInput.value.trim()) {
+                paperInput.value = data.paper;
+                appendLog(`Auto-filled paper name from PDF: ${data.paper}`, 'success');
+            } else if (!data.paper) {
+                appendLog('Could not auto-detect the paper name — please type it.', 'info');
+            }
+        })
+        .catch(() => { /* non-fatal — user types it manually */ })
+        .finally(() => {
+            guessing = false;
+            if (hint) hint.classList.add('d-none');
+        });
+}
+
+// When a local file is chosen, clear that side's server pick and try a guess.
+quePdf.addEventListener('change', () => {
+    if (quePdf.files.length) { clearServerPick('que'); maybeGuessPaper({ file: quePdf.files[0] }); }
+});
+solPdf.addEventListener('change', () => {
+    if (solPdf.files.length) { clearServerPick('sol'); maybeGuessPaper({ file: solPdf.files[0] }); }
+});
 
 function pageImgUrl(token, kind, index) {
     return `${IMPORT_BASE}/page/${token}/${kind}/${index}.png`;
@@ -395,8 +625,10 @@ function setRunning(on) {
 async function startRun() {
     const paper = paperInput.value.trim();
     if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
-    if (!quePdf.files.length && !solPdf.files.length) {
-        alert('Choose a question PDF and/or a solution PDF.'); return;
+    const hasQue = quePdf.files.length || serverPdf.que;
+    const hasSol = solPdf.files.length || serverPdf.sol;
+    if (!hasQue && !hasSol) {
+        alert('Choose or pick a question PDF and/or a solution PDF.'); return;
     }
     mode = document.querySelector('input[name="mode"]:checked').value;
 
@@ -416,7 +648,9 @@ async function startRun() {
     fd.append('version', versionSelect.value);
     fd.append('deskew', deskewChk.checked ? '1' : '0');
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
+    else if (serverPdf.que) fd.append('que_server_path', serverPdf.que.rel_path);
     if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
+    else if (serverPdf.sol) fd.append('sol_server_path', serverPdf.sol.rel_path);
 
     let data;
     try {
@@ -1061,6 +1295,8 @@ function resetAll() {
     reviewBody.innerHTML = '';
     btnReset.classList.add('d-none');
     quePdf.value = ''; solPdf.value = '';
+    serverPdf.que = null; serverPdf.sol = null;
+    document.querySelectorAll('#queServerPick, #solServerPick').forEach(el => el.classList.add('d-none'));
     setRunning(false);
     setStatus('Idle', 'bg-secondary');
     appendLog('Ready for a new import.', 'info');

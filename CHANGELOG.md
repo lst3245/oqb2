@@ -6,6 +6,24 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### File Browser — multiple root directories (whole-drive access)
+
+The super-admin File Browser is no longer locked to `SOURCE_PATH`. A **root selector** dropdown at the top of the page lets you switch between the built-in **Source** root and any extra roots you register, and a **Manage roots** modal adds/removes them. Every root — built-in or added — must live on the **same drive as `SOURCE_PATH`** (e.g. the whole `Q:\` drive), so the browser can never be pointed at `C:\` or an unrelated share. The allowed drive is derived automatically from `SOURCE_PATH` via `os.path.splitdrive`.
+
+- Extra roots persist in the `system_settings` table under `FILE_BROWSER_EXTRA_ROOTS` (a JSON list of absolute paths; managed by dedicated routes, intentionally **not** in the settings REGISTRY).
+- Adding a root validates that the path exists, is a directory, is on the allowed drive, and isn't a duplicate. The default Source root can't be removed; removing a folder from the browser never deletes it on disk.
+- Every file operation now carries a `root` parameter (query / form / JSON body); the server maps it back to one of the allowed roots and sandboxes all path joins within it (`_resolve_browser_root` + the existing `_safe_join`). An unknown root id is rejected with `400`.
+- New routes (super-admin): `GET /admin/files/roots`, `POST /admin/files/roots/add`, `POST /admin/files/roots/remove`.
+
+#### PDF Batch Import — pick a server-side PDF + auto-fill the paper name
+
+Two upgrades to **Admin → PDF Batch Import**:
+
+- **Use a PDF already on the server.** Instead of uploading, you can pick a PDF from a server folder (`PDF_SOURCE_PATH`, default `Q:\Source_PDF`). Each PDF input now has an **"or pick from server"** link that opens a searchable, scrollable list of every `.pdf` under that folder (recursive). A server pick and a local upload are mutually exclusive per side. Backed by `GET /admin/pdf-import/source-list`; the chosen relative path is sent as `que_server_path` / `sol_server_path` to the staging route and resolved through a duck-typed `_ServerPDF` wrapper so `pdf_import.stage` is unchanged.
+- **Auto-filled paper name.** When you pick or upload a PDF and the **Paper name** field is still empty, the default LLM reads the PDF's **file name + first page** and best-guesses the `SUBJECT_SOURCE_YEAR_PAPER` code, filling it in (a "Guessing from PDF…" hint shows while it works; a typed value is never overwritten). Backed by `POST /admin/pdf-import/guess-paper`, the new `pdf_import.guess_paper_name(...)`, and a new editable prompt pair **PDF Batch Import — Paper-name Guess** (`PDF_PAPER_NAME_SYSTEM` / `PDF_PAPER_NAME_USER`) with parser `ai_prompts.parse_paper_name`. The endpoint honours `EXPLAIN_DEFAULT_LLM` by name, then falls back to the first enabled vision endpoint.
+
+New config key **`PDF_SOURCE_PATH`** (`.env`, defaults to a `Source_PDF` folder beside `SOURCE_PATH`).
+
 #### Explain modal — Admin model picker + user image attachments
 
 Two upgrades to the dashboard **Explain** tutor:

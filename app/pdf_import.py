@@ -73,6 +73,54 @@ def parse_paper_prefix(prefix: str):
     }, None
 
 
+def guess_paper_name(config, pdf_path: str, filename: str, subjects,
+                     image_max_dim: int):
+    """Best-guess the SUBJECT_SOURCE_YEAR_PAPER paper code for a PDF using a
+    vision LLM, from its file name and rasterised first page.
+
+    ``config`` is an LLMConfig, ``pdf_path`` an absolute path to the PDF,
+    ``subjects`` an iterable of allowed subject codes. Returns
+    ``(paper_or_None, raw_text)``. The returned code is validated against
+    :data:`PREFIX_PATTERN`; an unparseable / invalid reply yields ``None``.
+    Raises on transport failure.
+    """
+    import tempfile
+
+    from app import ai_prompts, llm_client
+
+    # Rasterise the first page to a temp PNG, then send it downscaled.
+    tmp_dir = tempfile.mkdtemp(prefix='pdfguess_')
+    try:
+        import fitz  # type: ignore
+        pdf = fitz.open(pdf_path)
+        try:
+            if pdf.page_count == 0:
+                return None, ''
+            page = pdf.load_page(0)
+            base_width = page.rect.width or 595.0
+            zoom = max(0.1, 1700 / base_width)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            png_path = os.path.join(tmp_dir, 'page1.png')
+            pix.save(png_path)
+        finally:
+            pdf.close()
+
+        b64, mime = llm_client.prepare_image(png_path, image_max_dim)
+        system = ai_prompts.build_pdf_paper_name_system()
+        user_text = ai_prompts.build_pdf_paper_name_user_text(filename, subjects)
+        text, _info = llm_client.chat(config, system, user_text,
+                                      images=[(b64, mime)])
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    paper, _conf = ai_prompts.parse_paper_name(text or '')
+    if paper:
+        meta, err = parse_paper_prefix(paper)
+        if err:
+            return None, (text or '')
+    return paper, (text or '')
+
+
 # ==================== Cancellation registry ====================
 #
 # Single-process assumption (same caveat as the AI Tools cancel registry and

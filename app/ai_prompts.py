@@ -532,6 +532,35 @@ _DEFAULT_PDF_ANCHOR_USER = (
 )
 
 
+_DEFAULT_PDF_PAPER_NAME_SYSTEM = (
+    "You identify the paper code of a Hong Kong public-exam paper (HKDSE, "
+    "HKCEE, HKALE) from its first page and file name. The paper code has the "
+    "form SUBJECT_SOURCE_YEAR_PAPER where:\n"
+    "- SUBJECT is the question bank's short subject code (uppercase letters/"
+    "digits). Choose the BEST match from the allowed list when one is given.\n"
+    "- SOURCE is exactly one of DSE (HKDSE), CE (HKCEE), or AL (HKALE).\n"
+    "- YEAR is the 4-digit exam year.\n"
+    "- PAPER starts with 'P' followed by the paper number/letter, e.g. P1, "
+    "P2, P1A, PIB. If the page shows 'Paper 1' use P1, 'Paper 2B' use P2B.\n\n"
+    "Use BOTH the file name and the visible text on the page (subject title, "
+    "year, 'PAPER 1', exam authority logos/headers). Prefer the page content "
+    "when it conflicts with the file name.\n\n"
+    "Respond with STRICT JSON only (no prose, no markdown fences):\n"
+    '{"paper": "SUBJECT_SOURCE_YEAR_PAPER", "confidence": <0-1>} when you can '
+    "determine it, OR\n"
+    '{"paper": null, "confidence": 0} when you genuinely cannot tell.\n'
+    "Do NOT include the question number — only the paper-level code."
+)
+
+
+_DEFAULT_PDF_PAPER_NAME_USER = (
+    "File name: {{filename}}\n"
+    "Allowed subject codes: {{subjects}}\n\n"
+    "Identify this paper's code as SUBJECT_SOURCE_YEAR_PAPER. Return STRICT "
+    "JSON only."
+)
+
+
 # ---- Registry --------------------------------------------------------------
 #
 # Order here drives the order rendered in the admin UI; group keys also
@@ -714,6 +743,31 @@ PROMPTS_REGISTRY = OrderedDict([
         variables=['what'],
         role='user',
     )),
+    ('PDF_PAPER_NAME_SYSTEM', _prompt(
+        group='PDF Batch Import — Paper-name Guess',
+        label='Paper-name guess: System prompt',
+        description=(
+            'Used to auto-fill the Paper name field in PDF Batch Import. The '
+            'model is shown the first page image + file name and must reply '
+            'with STRICT JSON {paper, confidence}. The parser '
+            '(parse_paper_name) and the SUBJECT_SOURCE_YEAR_PAPER contract '
+            'are coupled to this prompt — keep the JSON shape.'
+        ),
+        default=_DEFAULT_PDF_PAPER_NAME_SYSTEM,
+        role='system',
+    )),
+    ('PDF_PAPER_NAME_USER', _prompt(
+        group='PDF Batch Import — Paper-name Guess',
+        label='Paper-name guess: User-turn instruction',
+        description=(
+            'Accompanies the first-page image. {{filename}} is the PDF file '
+            'name; {{subjects}} is the comma-separated list of subject codes '
+            'the user may import into.'
+        ),
+        default=_DEFAULT_PDF_PAPER_NAME_USER,
+        variables=['filename', 'subjects'],
+        role='user',
+    )),
 ])
 
 
@@ -744,6 +798,58 @@ def build_pdf_anchor_system(asset_type: str) -> str:
     contract = get_prompt('PDF_ANCHOR_JSON_CONTRACT')
     what = 'question' if asset_type == 'QUE' else 'solution'
     return render_prompt('PDF_ANCHOR_SYSTEM', what=what, json_contract=contract)
+
+
+def build_pdf_paper_name_system() -> str:
+    """System prompt for the PDF Import paper-name auto-guess."""
+    return get_prompt('PDF_PAPER_NAME_SYSTEM')
+
+
+def build_pdf_paper_name_user_text(filename: str, subjects) -> str:
+    """User-turn instruction for the paper-name guess. ``subjects`` is an
+    iterable of allowed subject codes (or a string)."""
+    if isinstance(subjects, (list, tuple, set)):
+        subjects = ', '.join(str(s) for s in subjects) or '(none configured)'
+    return render_prompt('PDF_PAPER_NAME_USER', filename=filename or '(unknown)',
+                         subjects=subjects)
+
+
+def parse_paper_name(text: str):
+    """Extract the guessed ``SUBJECT_SOURCE_YEAR_PAPER`` code from the model's
+    reply. Returns ``(paper_or_None, confidence_float)``. Tolerant of markdown
+    fences and surrounding prose — finds the first JSON object with a "paper"
+    key, falling back to a regex scan for the code pattern."""
+    if not text:
+        return None, 0.0
+    cleaned = strip_md_fences(text)
+
+    paper = None
+    confidence = 0.0
+    # Try every {...} object until one parses with a usable "paper".
+    for m in re.finditer(r'\{[^{}]*\}', cleaned, re.DOTALL):
+        try:
+            obj = json.loads(m.group(0))
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict) and 'paper' in obj:
+            paper = obj.get('paper')
+            try:
+                confidence = float(obj.get('confidence', 0) or 0)
+            except (ValueError, TypeError):
+                confidence = 0.0
+            break
+
+    if not paper:
+        # Fall back to a direct pattern scan over the whole reply.
+        m = re.search(r'\b([A-Z0-9]+_(?:DSE|CE|AL)_\d{4}_P[A-Za-z0-9]+)\b',
+                      cleaned.upper())
+        if m:
+            return m.group(1), confidence
+
+    if isinstance(paper, str):
+        paper = paper.strip().strip('"').upper()
+        return (paper or None), confidence
+    return None, confidence
 
 
 def _normalize_scalar(v, dim=None):
