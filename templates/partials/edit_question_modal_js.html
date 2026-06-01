@@ -548,6 +548,14 @@ function loadAssetsForEdit(questionId) {
     fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
         .then(r => r.json())
         .then(data => {
+            // Cache full per-version asset tree before rendering any tab so
+            // aiSlotMdButtonHtml can see IMG on other versions (ENO, etc.).
+            window._oqbQuestionAssets = window._oqbQuestionAssets || {};
+            window._oqbQuestionAssets[questionId] = data.assets || {};
+            if (editQuestionData) {
+                editQuestionData._assets = data.assets || {};
+            }
+
             (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).forEach(lang => {
                 const container = document.getElementById('lang' + lang);
                 if (!container) return;
@@ -724,17 +732,70 @@ function setSlotCheckState(questionId, lang, atype, state) {
     .catch(err => showToast('Error: ' + err.message, 'danger'));
 }
 
-// Per-slot "Generate Markdown with AI" button. Only meaningful when AI Tools
-// are enabled AND this version/atype has source images to transcribe.
-function aiSlotMdButtonHtml(questionId, lang, atype, hasMd, imgCount) {
-    if (!window.OQB_AI_TOOLS_ENABLED || !imgCount) return '';
+// Versions that have at least one IMG part for (atype) anywhere on this question.
+function _oqbImgVersionsForAtype(assetsRoot, atype) {
+    const out = [];
+    const allVers = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    allVers.forEach(ver => {
+        const parts = ((assetsRoot || {})[ver] || {})[atype] || [];
+        const n = parts.filter(p => p.file_format === 'IMG').length;
+        if (n > 0) out.push({ ver, count: n });
+    });
+    return out;
+}
+
+// Preferred source-image version order when generating MD for ``targetVer``.
+function _mdSourceVersionPriority(targetVer) {
+    const all = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    const defaultPri = window.OQB_DEFAULT_VERSION_PRIORITY || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    const official = { EN: 'ENO', CH: 'CHO', BI: 'ENO', ENO: 'EN', CHO: 'CH' };
+    const tailAfterOfficial = {
+        EN: ['BI', 'CH', 'CHO'],
+        CH: ['BI', 'EN', 'ENO', 'CHO'],
+        BI: ['EN', 'ENO', 'CH', 'CHO'],
+        ENO: ['BI', 'CH', 'CHO'],
+        CHO: ['BI', 'EN', 'ENO'],
+    };
+    const out = [];
+    const seen = new Set();
+    const add = (v) => {
+        if (v && all.includes(v) && !seen.has(v)) { seen.add(v); out.push(v); }
+    };
+    add(targetVer);
+    const off = official[targetVer];
+    if (off && off !== targetVer) add(off);
+    (tailAfterOfficial[targetVer] || defaultPri).forEach(add);
+    defaultPri.forEach(add);
+    all.forEach(add);
+    return out;
+}
+
+function _defaultMdSourceVersion(targetVer, assetsRoot, atype) {
+    const available = new Set(_oqbImgVersionsForAtype(assetsRoot, atype).map(x => x.ver));
+    for (const v of _mdSourceVersionPriority(targetVer)) {
+        if (available.has(v)) return v;
+    }
+    return null;
+}
+
+function _oqbQuestionAssets(questionId) {
+    if (editQuestionData && editQuestionData.id === questionId && editQuestionData._assets) {
+        return editQuestionData._assets;
+    }
+    return (window._oqbQuestionAssets || {})[questionId] || null;
+}
+
+// Per-slot "Generate Markdown with AI" — shown when ANY version has source IMG.
+function aiSlotMdButtonHtml(questionId, lang, atype, hasMd) {
+    const assetsRoot = _oqbQuestionAssets(questionId);
+    if (!window.OQB_AI_TOOLS_ENABLED || !_oqbImgVersionsForAtype(assetsRoot, atype).length) return '';
     if (hasMd) {
         return `<button class="btn btn-sm btn-outline-warning" type="button"
                     title="Regenerate this Markdown with AI (overwrites the current MD)"
                     onclick="event.stopPropagation(); openAiSlotMdModal(${questionId}, '${lang}', '${atype}', true)"><i class="bi bi-robot"></i></button>`;
     }
     return `<button class="btn btn-sm btn-outline-info" type="button"
-                title="Transcribe this version's image(s) into Markdown with AI"
+                title="Transcribe images into Markdown with AI (pick source version if several exist)"
                 onclick="event.stopPropagation(); openAiSlotMdModal(${questionId}, '${lang}', '${atype}', false)"><i class="bi bi-robot"></i> Generate with AI</button>`;
 }
 
@@ -853,7 +914,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <div class="part-actions">
                             <button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})"><i class="bi bi-pencil-square"></i></button>
                             ${genImgButtonHtml(questionId, lang, atype, 'MD', imgs.length)}
-                            ${aiSlotMdButtonHtml(questionId, lang, atype, true, imgs.length)}
+                            ${aiSlotMdButtonHtml(questionId, lang, atype, true)}
                             <a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${mdFsUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
                         </div>
@@ -869,7 +930,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                     <button class="btn btn-sm btn-outline-success" type="button" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, null, '${lang}', '${atype}')">
                         <i class="bi bi-markdown"></i> New Markdown (inline)
                     </button>
-                    ${aiSlotMdButtonHtml(questionId, lang, atype, false, imgs.length)}
+                    ${aiSlotMdButtonHtml(questionId, lang, atype, false)}
                     <a class="btn btn-sm btn-outline-secondary" target="_blank" href="${fullscreenMdNewUrl}" onclick="event.stopPropagation()">
                         <i class="bi bi-arrows-fullscreen"></i> Fullscreen editor
                     </a>
@@ -979,6 +1040,11 @@ function refreshAssetsView(questionId) {
         fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
             .then(r => r.json())
             .then(data => {
+                window._oqbQuestionAssets = window._oqbQuestionAssets || {};
+                window._oqbQuestionAssets[questionId] = data.assets || {};
+                if (editQuestionData && editQuestionData.id === questionId) {
+                    editQuestionData._assets = data.assets || {};
+                }
                 const langAssets = data.assets[lang] || {};
                 const newHtml = renderAssetSections(questionId, lang, langAssets, 'add');
                 while (area.children.length > 1) area.removeChild(area.lastChild);
@@ -1346,6 +1412,29 @@ document.addEventListener('paste', function(e) {
 let _aiSlotModalInstance = null;
 
 function openAiSlotMdModal(questionId, version, atype, hasMd) {
+    const assetsRoot = _oqbQuestionAssets(questionId);
+    const imgVers = _oqbImgVersionsForAtype(assetsRoot, atype);
+    if (!imgVers.length) {
+        showToast(`No ${atype} images on any version to transcribe.`, 'warning');
+        return;
+    }
+    const defaultSrc = _defaultMdSourceVersion(version, assetsRoot, atype) || imgVers[0].ver;
+    const srcVersOrdered = _mdSourceVersionPriority(version)
+        .filter(v => imgVers.some(x => x.ver === v));
+    const srcOptions = srcVersOrdered.map(v => {
+        const n = (imgVers.find(x => x.ver === v) || {}).count || 0;
+        const sel = v === defaultSrc ? ' selected' : '';
+        return `<option value="${v}"${sel}>${v} (${n} image part${n === 1 ? '' : 's'})</option>`;
+    }).join('');
+    const srcPickHtml = srcVersOrdered.length > 1
+        ? `<div class="mb-3">
+              <label class="form-label fw-bold" for="aiSlotSourceVersion">Source images (version)</label>
+              <select class="form-select form-select-sm" id="aiSlotSourceVersion">${srcOptions}</select>
+              <div class="form-text">Transcribe from the chosen version's image(s). Default: this slot's version, then its official scan (e.g. EN → ENO), then other versions with images.</div>
+            </div>`
+        : `<input type="hidden" id="aiSlotSourceVersion" value="${_aiEscapeAttr(defaultSrc)}">
+            <p class="small mb-3">Source images: <strong>${_aiEscapeAttr(defaultSrc)}</strong> (${(imgVers.find(x => x.ver === defaultSrc) || {}).count || 0} part(s))</p>`;
+
     let el = document.getElementById('aiSlotMdModal');
     if (el) el.remove();
     el = document.createElement('div');
@@ -1361,7 +1450,8 @@ function openAiSlotMdModal(questionId, version, atype, hasMd) {
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <p class="small text-muted mb-2">Target: <strong>${_aiEscapeAttr(atype)}</strong> &middot; version <strong>${_aiEscapeAttr(version)}</strong> — transcribed from this version's image(s).</p>
+            <p class="small text-muted mb-2">Target slot: <strong>${_aiEscapeAttr(atype)}</strong> &middot; version <strong>${_aiEscapeAttr(version)}</strong> (Markdown is saved here).</p>
+            ${srcPickHtml}
             <div class="mb-3">
               <label class="form-label fw-bold" for="aiSlotEndpoint">LLM endpoint</label>
               <select class="form-select form-select-sm" id="aiSlotEndpoint"><option value="">Loading…</option></select>
@@ -1414,20 +1504,25 @@ function runAiSlotMd(questionId, version, atype, hasMd, el) {
     const sel = el.querySelector('#aiSlotEndpoint');
     const endpointId = sel.value;
     if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const sourceVersion = (el.querySelector('#aiSlotSourceVersion') || {}).value || version;
     const embed = el.querySelector('#aiSlotEmbed').checked;
     const btn = el.querySelector('#aiSlotGenBtn');
     const status = el.querySelector('#aiSlotStatus');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating…';
-    status.textContent = 'Calling the model — this can take a while for image questions…';
+    status.textContent = `Transcribing ${atype} images from ${sourceVersion} into ${version} Markdown…`;
 
     const url = `{{ url_for('admin.ai_generate_md_slot', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
     fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            version: version, asset_type: atype, endpoint_id: parseInt(endpointId, 10),
-            embed_image: embed, overwrite: !!hasMd
+            version: version,
+            source_version: sourceVersion,
+            asset_type: atype,
+            endpoint_id: parseInt(endpointId, 10),
+            embed_image: embed,
+            overwrite: !!hasMd
         })
     })
     .then(r => r.json().then(d => ({ ok: r.ok, d: d })))

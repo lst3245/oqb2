@@ -4539,8 +4539,9 @@ def ai_generate_md_slot(question_id):
     (question, asset_type, version) slot from that version's images — drives
     the per-slot "Generate with AI" button in the edit-question modal.
 
-    Body JSON: {version, asset_type, endpoint_id, embed_image?, overwrite?}.
-    Source and target version are the same (the slot's own version).
+    Body JSON: {version, asset_type, endpoint_id, embed_image?, overwrite?,
+    source_version?}. Target slot is ``version``; images are read from
+    ``source_version`` when set, otherwise from ``version`` (same-version).
     """
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
@@ -4553,9 +4554,12 @@ def ai_generate_md_slot(question_id):
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
+    source_version = (data.get('source_version') or version).strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     if version not in set(VERSIONS):
         return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if source_version not in set(VERSIONS):
+        return jsonify({'error': 'source_version must be one of ' + '/'.join(VERSIONS)}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
 
@@ -4568,7 +4572,7 @@ def ai_generate_md_slot(question_id):
 
     from app import ai_tools
     res = ai_tools.generate_md_slot(
-        question, asset_type, version, version,
+        question, asset_type, source_version, version,
         embed_image=embed_image, overwrite=overwrite, config=cfg,
         image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
         md_max_bytes=int(current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)),

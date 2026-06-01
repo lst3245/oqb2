@@ -29,6 +29,10 @@ Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.p
 
 ### ✨ Enhanced Features
 
+#### Per-slot "Generate with AI" — cross-version source images
+
+The edit-modal **Generate with AI** / regenerate Markdown buttons now appear on every version tab when **any** version (EN/CH/BI/ENO/CHO) has IMG for that asset type — not only when the current tab has images. The generation modal adds a **Source images (version)** picker when more than one version has images; the default order is the target version first, then its official scan (EN→ENO, CH→CHO), then other versions. Markdown is still written to the tab you started from (`POST .../ai/generate-md` body `version` + `source_version`).
+
 #### Figure bbox detection — 0–1000 grid (aligned with PDF import)
 
 MD generation's figure-localisation pass (`FIGURE_BOX_*` prompts) now uses the same **0–1000 integer coordinate grid** and worked example as PDF batch import, instead of asking for 0..1 fractions. `parse_figure_boxes` delegates to `_normalize_box` (same range/axis handling as `parse_question_boxes`) and honours **`PDF_IMPORT_COORD_ORDER`** (`yxyx` for Gemini-style y-first tuples). New admin prompt card **`FIGURE_BOX_JSON_CONTRACT`**; call sites use `build_figure_box_system()`. Shared `llm_client.sent_image_size()` for downscaled dimensions passed to the parser.
