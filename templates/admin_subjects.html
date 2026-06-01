@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Subjects - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h2 class="mb-0"><i class="bi bi-mortarboard"></i> Manage Subjects</h2>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+    <p class="text-muted mt-1">
+        <i class="bi bi-info-circle"></i>
+        The subject ID is embedded in question IDs and the source folder layout, so it
+        cannot be changed after creation — only the display name can be edited.
+    </p>
+    <hr>
+
+    <button class="btn btn-success btn-sm mb-3" onclick="showAddSubjectModal()">
+        <i class="bi bi-plus-circle"></i> Add Subject
+    </button>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 12%;">ID</th>
+                        <th>Name</th>
+                        <th class="text-end" style="width: 12%;">Questions</th>
+                        <th class="text-end" style="width: 10%;">Topics</th>
+                        <th class="text-end" style="width: 10%;">Chapters</th>
+                        <th class="text-end" style="width: 18%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for data in subjects_data %}
+                    <tr data-subject-id="{{ data.subject.id }}">
+                        <td><span class="badge bg-primary">{{ data.subject.id }}</span></td>
+                        <td class="subject-name">{{ data.subject.name }}</td>
+                        <td class="text-end">{{ data.question_count }}</td>
+                        <td class="text-end">{{ data.topic_count }}</td>
+                        <td class="text-end">{{ data.chapter_count }}</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary"
+                                    onclick="showEditSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}')">
+                                <i class="bi bi-pencil"></i> Rename
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger"
+                                    onclick="showDeleteSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}')">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if not subjects_data %}
+        <div class="card-body">
+            <p class="text-muted mb-0">No subjects yet. Add one above!</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add Subject Modal -->
+<div class="modal fade" id="addSubjectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add Subject</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addSubjectForm" onsubmit="return false;">
+                    <div class="mb-3">
+                        <label class="form-label">Subject ID</label>
+                        <input type="text" class="form-control text-uppercase" id="addSubjectId"
+                               maxlength="10" autocomplete="off" required>
+                        <small class="text-muted">1-10 uppercase letters/digits (e.g. <code>MATC</code>). Cannot be changed later.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="addSubjectName"
+                               placeholder="e.g. Mathematics Compulsory Part" required>
+                    </div>
+                    <div class="alert alert-danger d-none" id="addSubjectError"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="saveNewSubject()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit (rename) Subject Modal -->
+<div class="modal fade" id="editSubjectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> Rename Subject</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editSubjectForm" onsubmit="return false;">
+                    <input type="hidden" id="editSubjectId">
+                    <div class="mb-3">
+                        <label class="form-label">Subject ID</label>
+                        <input type="text" class="form-control" id="editSubjectIdDisplay" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="editSubjectName" required>
+                    </div>
+                    <div class="alert alert-danger d-none" id="editSubjectError"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveEditSubject()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Subject Modal -->
+<div class="modal fade" id="deleteSubjectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle"></i> Delete Subject</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="deleteSubjectId">
+
+                <div id="deleteSubjectLoading" class="text-muted">
+                    <span class="spinner-border spinner-border-sm"></span> Checking usage…
+                </div>
+
+                <div id="deleteSubjectBlocked" class="d-none">
+                    <div class="alert alert-danger mb-0">
+                        <i class="bi bi-x-octagon"></i>
+                        <strong>Cannot delete <span class="delete-subject-label"></span>.</strong>
+                        It still has <strong><span id="deleteSubjectQCount"></span></strong> question(s).
+                        Remove all questions in this subject first.
+                    </div>
+                </div>
+
+                <div id="deleteSubjectConfirm" class="d-none">
+                    <p>You are about to permanently delete
+                        <strong><span class="delete-subject-label"></span></strong>.</p>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        This will also delete the following associated data:
+                        <ul class="mb-0 mt-2">
+                            <li><strong><span id="deleteSubjectTopics"></span></strong> topic(s) and their subtopics</li>
+                            <li><strong><span id="deleteSubjectChapters"></span></strong> chapter(s) and their subchapters</li>
+                            <li><strong><span id="deleteSubjectFilters"></span></strong> saved filter / search profile(s)</li>
+                            <li><strong><span id="deleteSubjectSets"></span></strong> saved question set(s)</li>
+                            <li><strong><span id="deleteSubjectPerms"></span></strong> user permission grant(s)</li>
+                        </ul>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="deleteSubjectAck">
+                        <label class="form-check-label" for="deleteSubjectAck">
+                            I understand this cannot be undone.
+                        </label>
+                    </div>
+                </div>
+
+                <div class="alert alert-danger d-none mt-2" id="deleteSubjectError"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="deleteSubjectBtn" disabled
+                        onclick="confirmDeleteSubject()">
+                    <i class="bi bi-trash"></i> Delete Subject
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let addSubjectModal, editSubjectModal, deleteSubjectModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    addSubjectModal = new bootstrap.Modal(document.getElementById('addSubjectModal'));
+    editSubjectModal = new bootstrap.Modal(document.getElementById('editSubjectModal'));
+    deleteSubjectModal = new bootstrap.Modal(document.getElementById('deleteSubjectModal'));
+
+    document.getElementById('addSubjectId').addEventListener('input', function() {
+        this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    document.getElementById('deleteSubjectAck').addEventListener('change', function() {
+        document.getElementById('deleteSubjectBtn').disabled = !this.checked;
+    });
+});
+
+function showError(elId, msg) {
+    const el = document.getElementById(elId);
+    el.textContent = msg;
+    el.classList.remove('d-none');
+}
+
+function hideError(elId) {
+    document.getElementById(elId).classList.add('d-none');
+}
+
+// ============== Add ==============
+
+function showAddSubjectModal() {
+    document.getElementById('addSubjectId').value = '';
+    document.getElementById('addSubjectName').value = '';
+    hideError('addSubjectError');
+    addSubjectModal.show();
+}
+
+function saveNewSubject() {
+    const id = document.getElementById('addSubjectId').value.trim().toUpperCase();
+    const name = document.getElementById('addSubjectName').value.trim();
+    hideError('addSubjectError');
+
+    if (!id || !name) {
+        showError('addSubjectError', 'Subject ID and name are required.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('id', id);
+    formData.append('name', name);
+
+    fetch(`{{ url_for('admin.add_subject') }}`, { method: 'POST', body: formData })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok) {
+                showError('addSubjectError', data.error || 'Failed to create subject.');
+                return;
+            }
+            addSubjectModal.hide();
+            location.reload();
+        })
+        .catch(() => showError('addSubjectError', 'Network error.'));
+}
+
+// ============== Rename ==============
+
+function showEditSubjectModal(id, name) {
+    document.getElementById('editSubjectId').value = id;
+    document.getElementById('editSubjectIdDisplay').value = id;
+    document.getElementById('editSubjectName').value = name;
+    hideError('editSubjectError');
+    editSubjectModal.show();
+}
+
+function saveEditSubject() {
+    const id = document.getElementById('editSubjectId').value;
+    const name = document.getElementById('editSubjectName').value.trim();
+    hideError('editSubjectError');
+
+    if (!name) {
+        showError('editSubjectError', 'Name is required.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('name', name);
+
+    fetch(`{{ url_for('admin.edit_subject', subject_id='__ID__') }}`.replace('__ID__', encodeURIComponent(id)), {
+        method: 'POST', body: formData
+    })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok) {
+                showError('editSubjectError', data.error || 'Failed to rename subject.');
+                return;
+            }
+            editSubjectModal.hide();
+            location.reload();
+        })
+        .catch(() => showError('editSubjectError', 'Network error.'));
+}
+
+// ============== Delete ==============
+
+function showDeleteSubjectModal(id, name) {
+    document.getElementById('deleteSubjectId').value = id;
+    document.querySelectorAll('.delete-subject-label').forEach(el => el.textContent = `${name} (${id})`);
+
+    // Reset modal state.
+    document.getElementById('deleteSubjectLoading').classList.remove('d-none');
+    document.getElementById('deleteSubjectBlocked').classList.add('d-none');
+    document.getElementById('deleteSubjectConfirm').classList.add('d-none');
+    hideError('deleteSubjectError');
+    document.getElementById('deleteSubjectAck').checked = false;
+    document.getElementById('deleteSubjectBtn').disabled = true;
+    document.getElementById('deleteSubjectBtn').classList.add('d-none');
+
+    deleteSubjectModal.show();
+
+    fetch(`{{ url_for('admin.subject_usage', subject_id='__ID__') }}`.replace('__ID__', encodeURIComponent(id)))
+        .then(r => r.json())
+        .then(usage => {
+            document.getElementById('deleteSubjectLoading').classList.add('d-none');
+            if (usage.questions > 0) {
+                document.getElementById('deleteSubjectQCount').textContent = usage.questions;
+                document.getElementById('deleteSubjectBlocked').classList.remove('d-none');
+                return;
+            }
+            document.getElementById('deleteSubjectTopics').textContent = usage.topics;
+            document.getElementById('deleteSubjectChapters').textContent = usage.chapters;
+            document.getElementById('deleteSubjectFilters').textContent = usage.saved_filters;
+            document.getElementById('deleteSubjectSets').textContent = usage.question_sets;
+            document.getElementById('deleteSubjectPerms').textContent = usage.permissions;
+            document.getElementById('deleteSubjectConfirm').classList.remove('d-none');
+            document.getElementById('deleteSubjectBtn').classList.remove('d-none');
+        })
+        .catch(() => {
+            document.getElementById('deleteSubjectLoading').classList.add('d-none');
+            showError('deleteSubjectError', 'Failed to load usage info.');
+        });
+}
+
+function confirmDeleteSubject() {
+    const id = document.getElementById('deleteSubjectId').value;
+    hideError('deleteSubjectError');
+    const btn = document.getElementById('deleteSubjectBtn');
+    btn.disabled = true;
+
+    fetch(`{{ url_for('admin.delete_subject', subject_id='__ID__') }}`.replace('__ID__', encodeURIComponent(id)), {
+        method: 'POST'
+    })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok) {
+                showError('deleteSubjectError', data.error || 'Failed to delete subject.');
+                btn.disabled = false;
+                return;
+            }
+            deleteSubjectModal.hide();
+            location.reload();
+        })
+        .catch(() => {
+            showError('deleteSubjectError', 'Network error.');
+            btn.disabled = false;
+        });
+}
+</script>
+{% endblock %}

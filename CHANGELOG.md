@@ -6,6 +6,18 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Admin → Manage Subjects (super-admin only)
+
+Subjects used to exist only as DB rows seeded once by `init_db.py` — there was no way to add a new subject (e.g. a new exam) or remove an obsolete one without touching the database by hand. A new **Admin → Manage Subjects** page (super-admin only) gives full CRUD:
+
+- **Add** a subject with an uppercase-alphanumeric ID (1–10 chars, e.g. `MATC`) and a display name. The ID is the primary key and is embedded in question IDs (`MATC_DSE_2024_P1_Q5`) and the `SOURCE_PATH/<subject>/` folder layout, so it is **immutable** once created — only the display name can be edited afterwards.
+- **Rename** a subject's display name in place.
+- **Delete** a subject — **blocked while any question still references it** (the page tells you how many to remove first). When deletion is allowed, a confirmation modal lists everything that will be removed alongside it: topics/subtopics and chapters/subchapters (SQLAlchemy cascade), saved question sets, saved filters / search profiles whose stored subject matches, and user permission grants for that subject. An "I understand" checkbox gates the final delete.
+
+The page shows per-subject question / topic / chapter counts. Everywhere else in the app already reads subjects dynamically (`get_user_accessible_subjects()`, `Subject.query`), so new subjects appear in the dashboard, generator, and permission UIs immediately.
+
+Routes (all super-admin): `GET /admin/subjects`, `GET /admin/subjects/<id>/usage` (JSON counts for the delete modal), `POST /admin/subjects/add`, `POST /admin/subjects/<id>/edit`, `POST /admin/subjects/<id>/delete`. UI: `templates/admin_subjects.html`, linked from the Admin Panel index card and the Admin navbar dropdown.
+
 #### File Browser — multiple root directories (whole-drive access)
 
 The super-admin File Browser is no longer locked to `SOURCE_PATH`. A **root selector** dropdown at the top of the page lets you switch between the built-in **Source** root and any extra roots you register, and a **Manage roots** modal adds/removes them. Every root — built-in or added — must live on the **same drive as `SOURCE_PATH`** (e.g. the whole `Q:\` drive), so the browser can never be pointed at `C:\` or an unrelated share. The allowed drive is derived automatically from `SOURCE_PATH` via `os.path.splitdrive`.

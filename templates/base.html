@@ -503,6 +503,7 @@
                                 <li><a class="dropdown-item" href="{{ url_for('admin.pdf_import_page') }}"><i class="bi bi-filetype-pdf"></i> PDF Import</a></li>
                                 {% if current_user.is_super_admin %}
                                 <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> Manage Subjects</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> Manage Users</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> Database Health</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> File Browser</a></li>

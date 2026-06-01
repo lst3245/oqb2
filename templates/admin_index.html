@@ -93,6 +93,17 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-mortarboard"></i> Manage Subjects</h5>
+                    <p class="card-text">Create, rename, and remove subjects. Deletion is blocked while questions exist.</p>
+                    <a href="{{ url_for('admin.subjects') }}" class="btn btn-danger btn-sm">
+                        <i class="bi bi-arrow-right"></i> Manage Subjects
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-heart-pulse"></i> Database Health</h5>
                     <p class="card-text">Check DB statistics, detect anomalies, and clean up orphaned records.</p>
                     <a href="{{ url_for('admin.health') }}" class="btn btn-danger btn-sm">

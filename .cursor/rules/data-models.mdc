@@ -45,6 +45,11 @@ FileShare (file_id?, section_id?, shared_by_user_id, shared_with_user_id)  — X
 SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
 ```
 
+## Subject (CRUD-managed)
+`Subject.id` is a string PK (e.g. `MATC`), embedded in QIDs (`MATC_DSE_2024_P1_Q5`) and the `SOURCE_PATH/<subject>/` folder layout — **immutable** once created. Seeded by `init_db.py`, but super admins now manage subjects via **Admin → Manage Subjects** (`/admin/subjects`, see [admin-panel.mdc](mdc:.cursor/rules/admin-panel.mdc)): add (validated ID + name), rename (name only), and delete.
+
+Delete is **blocked while any `Question` references the subject**. When allowed, the route cleans up every reference: `Topic`/`Subtopic` + `Chapter`/`Subchapter` cascade via the `Subject` relationships; `SavedQuestionSet` (FK, no cascade) and `UserSubjectPermission` (FK, no cascade) are deleted explicitly; and `SavedFilter` rows are deleted by scanning each `filter_data` JSON for `subject == id` (it's a JSON key, not a real FK). `SavedGenerationProfile` is options-only and untouched.
+
 ## Key Question Fields
 | Field | Notes |
 |---|---|

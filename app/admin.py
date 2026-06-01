@@ -13,7 +13,8 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
-from app.models import Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter, User, UserSubjectPermission
+from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
+                        User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
 from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS, VERSION_LABELS
 from app import md_render
 
@@ -25,6 +26,151 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 def index():
     """Admin dashboard"""
     return render_template('admin_index.html')
+
+# ==================== Subject Management ====================
+# Subjects live in the DB (Subject model) and are read dynamically everywhere.
+# Historically they were only seeded via init_db.py; these routes give super
+# admins full CRUD. The subject `id` is the PK and is embedded in QIDs
+# (MATC_DSE_2024_P1_Q5) and the SOURCE_PATH/<subject>/ folder layout, so it is
+# immutable once created — only the display name can be edited.
+
+_SUBJECT_ID_RE = re.compile(r'^[A-Z0-9]{1,10}$')
+
+
+def _saved_filter_subject_count(subject_id):
+    """Count SavedFilter rows whose filter_data JSON targets this subject.
+
+    `SavedFilter.filter_data` is a JSON blob with a `subject` key — not a real
+    foreign key — so we have to scan and parse to find stale references.
+    Returns (count, matching_ids)."""
+    matching_ids = []
+    for f in SavedFilter.query.all():
+        try:
+            data = json.loads(f.filter_data) if f.filter_data else {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        if isinstance(data, dict) and data.get('subject') == subject_id:
+            matching_ids.append(f.id)
+    return len(matching_ids), matching_ids
+
+
+@admin_bp.route('/subjects')
+@login_required
+@super_admin_required
+def subjects():
+    """Subject management page (super admin only)"""
+    subject_rows = Subject.query.order_by(Subject.id).all()
+    subjects_data = []
+    for subject in subject_rows:
+        subjects_data.append({
+            'subject': subject,
+            'question_count': Question.query.filter_by(subject=subject.id).count(),
+            'topic_count': Topic.query.filter_by(subject_id=subject.id).count(),
+            'chapter_count': Chapter.query.filter_by(subject_id=subject.id).count(),
+        })
+    return render_template('admin_subjects.html', subjects_data=subjects_data)
+
+
+@admin_bp.route('/subjects/<subject_id>/usage')
+@login_required
+@super_admin_required
+def subject_usage(subject_id):
+    """JSON counts of everything tied to a subject (drives the delete modal)."""
+    subject = Subject.query.get_or_404(subject_id)
+    saved_filters, _ = _saved_filter_subject_count(subject.id)
+    return jsonify({
+        'id': subject.id,
+        'name': subject.name,
+        'questions': Question.query.filter_by(subject=subject.id).count(),
+        'topics': Topic.query.filter_by(subject_id=subject.id).count(),
+        'chapters': Chapter.query.filter_by(subject_id=subject.id).count(),
+        'saved_filters': saved_filters,
+        'question_sets': SavedQuestionSet.query.filter_by(subject=subject.id).count(),
+        'permissions': UserSubjectPermission.query.filter_by(subject_id=subject.id).count(),
+    })
+
+
+@admin_bp.route('/subjects/add', methods=['POST'])
+@login_required
+@super_admin_required
+def add_subject():
+    """Create a new subject. ID is immutable once set."""
+    subject_id = (request.form.get('id') or '').strip().upper()
+    name = (request.form.get('name') or '').strip()
+
+    if not subject_id or not name:
+        return jsonify({'error': 'Subject ID and name are required'}), 400
+    if not _SUBJECT_ID_RE.match(subject_id):
+        return jsonify({'error': 'Subject ID must be 1-10 uppercase letters/digits (A-Z, 0-9)'}), 400
+    if Subject.query.get(subject_id):
+        return jsonify({'error': f'Subject {subject_id} already exists'}), 400
+
+    subject = Subject(id=subject_id, name=name)
+    db.session.add(subject)
+    db.session.commit()
+
+    return jsonify({'id': subject.id, 'name': subject.name})
+
+
+@admin_bp.route('/subjects/<subject_id>/edit', methods=['POST'])
+@login_required
+@super_admin_required
+def edit_subject(subject_id):
+    """Rename a subject (display name only — the ID is immutable)."""
+    subject = Subject.query.get_or_404(subject_id)
+    name = (request.form.get('name') or '').strip()
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    subject.name = name
+    db.session.commit()
+
+    return jsonify({'id': subject.id, 'name': subject.name})
+
+
+@admin_bp.route('/subjects/<subject_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+@super_admin_required
+def delete_subject(subject_id):
+    """Delete a subject.
+
+    Blocked if any question still references it. Otherwise cascades cleanup of
+    everything tied to the subject: saved question sets, stale saved filters
+    (matched via JSON), user permissions, and (via SQLAlchemy cascade) topics /
+    subtopics / chapters / subchapters.
+    """
+    subject = Subject.query.get_or_404(subject_id)
+
+    question_count = Question.query.filter_by(subject=subject.id).count()
+    if question_count > 0:
+        return jsonify({
+            'error': f'Cannot delete {subject.id}: {question_count} question(s) still '
+                     f'reference it. Remove all questions first.'
+        }), 400
+
+    try:
+        # Saved question sets tied to this subject (FK, no cascade configured).
+        SavedQuestionSet.query.filter_by(subject=subject.id).delete(synchronize_session=False)
+
+        # Saved filters reference the subject only inside their JSON blob.
+        _, stale_filter_ids = _saved_filter_subject_count(subject.id)
+        if stale_filter_ids:
+            SavedFilter.query.filter(SavedFilter.id.in_(stale_filter_ids)).delete(
+                synchronize_session=False)
+
+        # User permissions for this subject (FK, no cascade configured).
+        UserSubjectPermission.query.filter_by(subject_id=subject.id).delete(
+            synchronize_session=False)
+
+        # Topics/subtopics/chapters/subchapters cascade via the Subject relationships.
+        db.session.delete(subject)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete subject: {e}'}), 500
+
+    return jsonify({'success': True})
 
 # ==================== Topic Management ====================
 

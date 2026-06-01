@@ -16,6 +16,14 @@ Very large file (~3700 lines). Organised into clearly labelled sections with `# 
 
 ## Sections
 
+### Subject Management (`/admin/subjects`) — super admin only
+CRUD for the `Subject` model (historically only seeded by `init_db.py`).
+- `GET /admin/subjects` — page (`admin_subjects.html`); table with per-subject question/topic/chapter counts.
+- `GET /admin/subjects/<id>/usage` — JSON `{questions, topics, chapters, saved_filters, question_sets, permissions}` driving the delete-confirm modal. `saved_filters` is computed by parsing each `SavedFilter.filter_data` JSON for `subject == id` (helper `_saved_filter_subject_count`).
+- `POST /admin/subjects/add` — `{id, name}`. ID is validated against `^[A-Z0-9]{1,10}$`, uppercased, must be unique (PK).
+- `POST /admin/subjects/<id>/edit` — `{name}`. **Name only** — the ID is the PK, embedded in QIDs + the `SOURCE_PATH/<subject>/` layout, so it's immutable.
+- `POST /admin/subjects/<id>/delete` — rejected (400) if any `Question` references it. Otherwise deletes `SavedQuestionSet`, stale `SavedFilter` rows (JSON match), `UserSubjectPermission`, then the `Subject` (topics/subtopics/chapters/subchapters cascade). Disk folder under `SOURCE_PATH` is left untouched.
+
 ### Topic Management (`/admin/topics`)
 CRUD + reorder for Topics and Subtopics per subject.
 - Topics/Subtopics have `sort_order` for drag-and-drop reorder
