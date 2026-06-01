@@ -1720,6 +1720,26 @@ def _require_md_admin(question):
     return None
 
 
+def _mtime_ns_json(mtime_ns: int) -> str:
+    """Serialize mtime_ns for JSON clients.
+
+    JavaScript ``Number`` cannot represent nanosecond epoch values exactly
+    (they exceed ``MAX_SAFE_INTEGER``), which breaks optimistic-concurrency
+    round-trips if sent as a JSON number. Always return (and accept) strings.
+    """
+    return str(int(mtime_ns))
+
+
+def _parse_mtime_ns(value):
+    """Coerce ``expected_mtime_ns`` from the editor (int or string) to int."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @admin_bp.route('/questions/<int:question_id>/assets/<int:asset_id>/md/content', methods=['GET'])
 @login_required
 @admin_required
@@ -1764,7 +1784,7 @@ def get_md_asset_content(question_id, asset_id):
         'version': asset.version,
         'asset_type': asset.asset_type,
         'file_path': asset.file_path,
-        'mtime_ns': mtime_ns,
+        'mtime_ns': _mtime_ns_json(mtime_ns),
         'content': content,
         'max_size': current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024),
     })
@@ -1804,16 +1824,16 @@ def save_md_asset_content(question_id, asset_id):
 
     # Optimistic concurrency: if the caller passes expected_mtime_ns and the
     # file on disk has changed since, reject with 409 unless `force` is set.
-    expected = data.get('expected_mtime_ns')
+    expected = _parse_mtime_ns(data.get('expected_mtime_ns'))
     force = bool(data.get('force'))
     if expected is not None and not force and os.path.exists(full_path):
         try:
             current = os.stat(full_path).st_mtime_ns
-            if int(expected) != current:
+            if expected != current:
                 return jsonify({
                     'error': 'File changed on disk since you opened it. '
                              'Reload to see the latest content, or pass force=true to overwrite.',
-                    'current_mtime_ns': current,
+                    'current_mtime_ns': _mtime_ns_json(current),
                 }), 409
         except (OSError, ValueError):
             pass
@@ -1829,7 +1849,7 @@ def save_md_asset_content(question_id, asset_id):
     return jsonify({
         'success': True,
         'asset_id': asset.id,
-        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'mtime_ns': _mtime_ns_json(os.stat(full_path).st_mtime_ns),
         'size_bytes': len(payload),
     })
 
@@ -1911,7 +1931,7 @@ def create_md_asset(question_id):
         'success': True,
         'asset_id': asset.id,
         'file_path': rel_path,
-        'mtime_ns': os.stat(full_path).st_mtime_ns,
+        'mtime_ns': _mtime_ns_json(os.stat(full_path).st_mtime_ns),
         'size_bytes': len(payload),
     })
 

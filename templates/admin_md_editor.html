@@ -94,7 +94,12 @@
     const reloadBtn = document.getElementById('mdReloadBtn');
 
     let editor = null;
-    let lastMtime = null;       // last known mtime_ns from server (null for create)
+    let lastMtime = null;       // last known mtime_ns from server as string (null for create)
+
+    function mtimeFromApi(mtime) {
+        if (mtime == null || mtime === '') return null;
+        return typeof mtime === 'string' ? mtime : String(mtime);
+    }
     let dirty = false;
 
     function setStatus(text, kind) {
@@ -138,7 +143,7 @@
                     setStatus('Error: ' + (data.error || 'load failed'), 'error');
                     return;
                 }
-                lastMtime = data.mtime_ns;
+                lastMtime = mtimeFromApi(data.mtime_ns);
                 if (editor) {
                     editor.setValue(data.content);
                     markClean('Reloaded');
@@ -195,7 +200,7 @@
                     return;
                 }
                 if (status === 201 || (status === 200 && data.success)) {
-                    lastMtime = data.mtime_ns;
+                    lastMtime = mtimeFromApi(data.mtime_ns);
                     markClean('Saved ' + new Date().toLocaleTimeString());
                     if (isCreate && data.asset_id) {
                         // Redirect to edit mode for the freshly created asset so

@@ -77,8 +77,8 @@ All require `@admin_required` + `_require_md_admin(question)` (subject-admin che
 
 | Method | URL | Purpose |
 |---|---|---|
-| GET  | `/admin/questions/<qid>/assets/<aid>/md/content` | raw MD text + `mtime_ns` |
-| POST | `/admin/questions/<qid>/assets/<aid>/md/save`    | overwrite file; body `{content, expected_mtime_ns?, force?}`; **409 on optimistic conflict** |
+| GET  | `/admin/questions/<qid>/assets/<aid>/md/content` | raw MD text + `mtime_ns` (**string** in JSON — ns precision) |
+| POST | `/admin/questions/<qid>/assets/<aid>/md/save`    | overwrite file; body `{content, expected_mtime_ns?, force?}` (`expected_mtime_ns` string or int); **409 on optimistic conflict** |
 | POST | `/admin/questions/<qid>/assets/md/create`        | new MD asset; body `{version, asset_type, content}` (legacy `language` accepted); **409 if slot already has MD** |
 | GET  | `/admin/questions/<qid>/assets/<aid>/md/edit`    | fullscreen editor page |
 | GET  | `/admin/questions/<qid>/assets/md/new?version=&asset_type=` | fullscreen editor in create mode (legacy `language=` accepted) |

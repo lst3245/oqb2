@@ -1112,7 +1112,46 @@ function deleteAssetPart(questionId, assetId, filename) {
 // openMdEditorModal(questionId, null, lang, asset_type)  -> CREATE new MD asset
 let mdEditorModalInstance = null;
 let mdEditorModalEditor = null;
-let mdEditorModalState = null;   // { questionId, assetId, lang, atype, isCreate, lastMtime, dirty }
+let mdEditorModalState = null;   // { questionId, assetId, lang, atype, isCreate, lastMtime (string), baselineContent }
+
+/** mtime_ns must be a string — JSON numbers lose ns precision in JS. */
+function _oqbMtimeNsFromApi(mtime) {
+    if (mtime == null || mtime === '') return null;
+    return typeof mtime === 'string' ? mtime : String(mtime);
+}
+
+function _mdEditorModalIsDirty() {
+    if (!mdEditorModalState || !mdEditorModalEditor) return false;
+    const cur = mdEditorModalEditor.getValue();
+    const base = mdEditorModalState.baselineContent != null ? mdEditorModalState.baselineContent : '';
+    return cur !== base;
+}
+
+function _mdEditorModalSyncDirtyStatus() {
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    if (!statusEl || !mdEditorModalState || !mdEditorModalEditor) return;
+    if (_mdEditorModalIsDirty()) {
+        statusEl.textContent = 'Unsaved changes';
+        statusEl.className = 'text-warning';
+    } else if (mdEditorModalState.isCreate && !mdEditorModalEditor.getValue()) {
+        statusEl.textContent = 'New file. Start typing.';
+        statusEl.className = 'text-muted';
+    } else {
+        statusEl.textContent = 'All changes saved';
+        statusEl.className = 'text-success';
+    }
+}
+
+/** Snapshot editor text as the clean baseline (after load / save). */
+function _mdEditorModalMarkClean(statusText) {
+    if (!mdEditorModalState || !mdEditorModalEditor) return;
+    mdEditorModalState.baselineContent = mdEditorModalEditor.getValue();
+    const statusEl = document.getElementById('mdEditorModalStatus');
+    if (statusEl) {
+        statusEl.textContent = statusText || 'Loaded.';
+        statusEl.className = 'text-muted';
+    }
+}
 
 function openMdEditorModal(questionId, assetId, lang, atype) {
     const isCreate = !assetId;
@@ -1123,7 +1162,7 @@ function openMdEditorModal(questionId, assetId, lang, atype) {
         questionId, assetId, isCreate,
         lang: language, atype: assetType,
         lastMtime: null,
-        dirty: false,
+        baselineContent: '',
     };
 
     const modalEl = document.getElementById('mdEditorModal');
@@ -1157,29 +1196,29 @@ function openMdEditorModal(questionId, assetId, lang, atype) {
 
     function initOnce() {
         function buildEditor(initialContent) {
+            mdEditorModalState.ignoreChangesUntil = Date.now() + 200;
             mdEditorModalEditor = window.oqbCreateMdEditor(textarea, {
                 initialContent: initialContent || '',
                 maxSize: {{ md_max_size_bytes if md_max_size_bytes is defined else 5242880 }},
                 maxHeight: '55vh',
                 onChange: function() {
-                    if (!mdEditorModalState.dirty) {
-                        mdEditorModalState.dirty = true;
-                        statusEl.textContent = 'Unsaved changes';
-                        statusEl.className = 'text-warning';
+                    if (mdEditorModalState.ignoreChangesUntil && Date.now() < mdEditorModalState.ignoreChangesUntil) {
+                        return;
                     }
+                    _mdEditorModalSyncDirtyStatus();
                 },
             });
             setTimeout(() => {
                 if (mdEditorModalEditor && mdEditorModalEditor.easymde) {
                     mdEditorModalEditor.easymde.codemirror.refresh();
                 }
-            }, 50);
+                mdEditorModalState.ignoreChangesUntil = 0;
+                _mdEditorModalMarkClean(isCreate ? 'New file. Start typing.' : 'Loaded.');
+            }, 80);
         }
 
         if (isCreate) {
             buildEditor('');
-            statusEl.textContent = 'New file. Start typing.';
-            statusEl.className = 'text-muted';
         } else {
             fetch(`/admin/questions/${questionId}/assets/${assetId}/md/content`)
                 .then(r => r.json().then(d => ({status: r.status, data: d})))
@@ -1189,10 +1228,8 @@ function openMdEditorModal(questionId, assetId, lang, atype) {
                         statusEl.className = 'text-danger';
                         return;
                     }
-                    mdEditorModalState.lastMtime = data.mtime_ns;
+                    mdEditorModalState.lastMtime = _oqbMtimeNsFromApi(data.mtime_ns);
                     buildEditor(data.content);
-                    statusEl.textContent = 'Loaded.';
-                    statusEl.className = 'text-muted';
                 })
                 .catch(err => {
                     statusEl.textContent = 'Error: ' + err.message;
@@ -1253,8 +1290,8 @@ function doSaveMdEditorModal(force) {
                 return;
             }
             if (data.success) {
-                s.dirty = false;
-                s.lastMtime = data.mtime_ns;
+                s.lastMtime = _oqbMtimeNsFromApi(data.mtime_ns);
+                s.baselineContent = content;
                 statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString();
                 statusEl.className = 'text-success';
                 refreshAssetsView(s.questionId);
@@ -1265,6 +1302,9 @@ function doSaveMdEditorModal(force) {
                     fsLink.href = `/admin/questions/${s.questionId}/assets/${data.asset_id}/md/edit`;
                     document.getElementById('mdEditorModalTitle').textContent =
                         `Edit Markdown (${s.atype}/${s.lang})`;
+                }
+                if (mdEditorModalInstance) {
+                    mdEditorModalInstance.hide();
                 }
             } else {
                 statusEl.textContent = 'Error: ' + (data.error || 'save failed');
@@ -1283,7 +1323,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalEl = document.getElementById('mdEditorModal');
     if (!modalEl) return;
     modalEl.addEventListener('hide.bs.modal', function(e) {
-        if (mdEditorModalState && mdEditorModalState.dirty) {
+        if (_mdEditorModalIsDirty()) {
             if (!confirm('Discard unsaved changes?')) {
                 e.preventDefault();
             }

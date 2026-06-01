@@ -29,6 +29,16 @@ Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.p
 
 ### ✨ Enhanced Features
 
+#### Markdown editor modal — dirty-state and close after save
+
+The inline Markdown editor no longer treats EasyMDE's init `change` events as edits (Close without changes no longer prompts). Dirty detection compares the current text to a baseline snapshot after load/save. A successful **Save** closes the modal automatically.
+
+### 🐛 Bug Fixes
+
+#### MD editor false "file changed on disk" on save
+
+`mtime_ns` from the MD content/save API is now returned and round-tripped as a **JSON string** so JavaScript does not corrupt nanosecond timestamps (they exceed `Number.MAX_SAFE_INTEGER`). This fixes spurious 409 conflict prompts when saving from the edit modal or fullscreen MD editor without anyone else touching the file.
+
 #### Per-slot "Generate with AI" — cross-version source images
 
 The edit-modal **Generate with AI** / regenerate Markdown buttons now appear on every version tab when **any** version (EN/CH/BI/ENO/CHO) has IMG for that asset type — not only when the current tab has images. The generation modal adds a **Source images (version)** picker when more than one version has images; the default order is the target version first, then its official scan (EN→ENO, CH→CHO), then other versions. Markdown is still written to the tab you started from (`POST .../ai/generate-md` body `version` + `source_version`).
