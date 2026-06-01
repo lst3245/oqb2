@@ -559,29 +559,47 @@ def figure_captions(md: str):
     return [m.group(1).strip() for m in FIGURE_RE.finditer(md or '')]
 
 
+# Shared 0-1000 grid contract (same convention as PDF batch import).
+_DEFAULT_FIGURE_BOX_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom reading order, of objects of the form\n"
+    '{"caption": "<short description>", "box": [x1, y1, x2, y2]}\n'
+    "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
+    "of the image. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
+    "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
+    "the BOTTOM edge). The box is [x1, y1, x2, y2] where (x1,y1) is its "
+    "TOP-LEFT corner and (x2,y2) its BOTTOM-RIGHT corner, so always x1 < x2 "
+    "and y1 < y2. Draw a TIGHT box around each diagram only — exclude "
+    "surrounding question text, equations, tables, and multiple-choice "
+    "options. Example: a diagram in the upper-middle of the image might be "
+    '{"caption": "right triangle", "box": [120, 80, 520, 420]}. '
+    "If there are no figures, return []."
+)
+
 _DEFAULT_FIGURE_BOX_SYSTEM = (
     "You are a precise vision tool that locates figures in an exam-question "
     "image. A 'figure' is a diagram, graph, chart, geometric drawing, or "
     "picture — NOT plain text, equations, tables, or multiple-choice options.\n"
-    "Return STRICT JSON only (no prose, no markdown fences): a list of figures "
-    "in reading order, each as {\"caption\": \"...\", \"box\": [x1, y1, x2, y2]} "
-    "where the coordinates are FRACTIONS of the image size between 0 and 1 "
-    "(x1,y1 = top-left corner, x2,y2 = bottom-right corner). If there are no "
-    "figures, return []."
+    "Locate every real figure on the image.\n\n"
+    "{{json_contract}}"
 )
 
 _DEFAULT_FIGURE_BOX_USER = (
     "List the bounding boxes of the real figures/diagrams in this image as "
-    "STRICT JSON. Use fractional coordinates (0..1). Return [] if none."
+    "STRICT JSON. Use integer coordinates on a 0-1000 grid in the order "
+    "[x1, y1, x2, y2] = [left, top, right, bottom], measured from the "
+    "top-left corner. Return [] if none."
 )
 
 
-def parse_figure_boxes(text: str):
+def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     """Parse the figure-box model output into a list of
-    ``{caption, box:[x1,y1,x2,y2]}`` with floats clamped to 0..1.
+    ``{caption, box:[x1,y1,x2,y2]}`` with fractional coords clamped to 0..1.
 
-    Tolerant of fences/prose. Returns ``[]`` on any failure (caller then
-    falls back to embedding the whole image).
+    Uses the same normalisation as :func:`parse_question_boxes` (0-1000 grid,
+    0..1 fractions, raw pixels vs downscaled ``img_w``/``img_h``, and
+    ``coord_order`` for Gemini-style y-first tuples). Returns ``[]`` on any
+    failure (caller then falls back to embedding the whole image).
     """
     if not text:
         return []
@@ -612,12 +630,7 @@ def parse_figure_boxes(text: str):
                 coords = [float(v) for v in box]
             except (ValueError, TypeError):
                 continue
-            # Some models answer in 0..1000 or pixel space — normalise > 1.
-            if any(v > 1.0 for v in coords):
-                m = max(coords) or 1.0
-                scale = 1000.0 if m <= 1000 else m
-                coords = [v / scale for v in coords]
-            x1, y1, x2, y2 = (min(max(v, 0.0), 1.0) for v in coords)
+            x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
             out.append({'caption': str(it.get('caption', '') or ''),
                         'box': [x1, y1, x2, y2]})
         return out
@@ -876,16 +889,30 @@ PROMPTS_REGISTRY = OrderedDict([
         default=_DEFAULT_EXPLAIN_INITIAL_USER,
         role='user',
     )),
+    ('FIGURE_BOX_JSON_CONTRACT', _prompt(
+        group='Figure Detection (MD Generation)',
+        label='Figure bbox: JSON contract (shared)',
+        description=(
+            'JSON-shape + 0-1000 coordinate contract appended to the figure '
+            'bbox system prompt via {{json_contract}}. Uses the same grid as '
+            'PDF batch import; parsed by parse_figure_boxes (honours '
+            'PDF_IMPORT_COORD_ORDER for y-first models like Gemini).'
+        ),
+        default=_DEFAULT_FIGURE_BOX_JSON_CONTRACT,
+        role='system',
+    )),
     ('FIGURE_BOX_SYSTEM', _prompt(
         group='Figure Detection (MD Generation)',
         label='Figure bbox: System prompt',
         description=(
             'Used during MD generation when a [FIGURE: ...] placeholder is '
             'present and embed_image is enabled, to locate the figure region '
-            'for cropping. STRICT JSON contract; coordinates are FRACTIONS '
-            '0..1. Changing this risks breaking parse_figure_boxes.'
+            'for cropping. STRICT JSON contract; coordinates are 0-1000 '
+            'integers (normalised by parse_figure_boxes). Changing this risks '
+            'breaking parse_figure_boxes.'
         ),
         default=_DEFAULT_FIGURE_BOX_SYSTEM,
+        variables=['json_contract'],
         role='system',
     )),
     ('FIGURE_BOX_USER', _prompt(
@@ -1011,6 +1038,12 @@ PROMPTS_REGISTRY = OrderedDict([
         role='user',
     )),
 ])
+
+
+def build_figure_box_system() -> str:
+    """Resolved system prompt for figure localisation during MD generation."""
+    contract = get_prompt('FIGURE_BOX_JSON_CONTRACT')
+    return render_prompt('FIGURE_BOX_SYSTEM', json_contract=contract)
 
 
 def build_pdf_box_user_text(asset_type: str) -> str:

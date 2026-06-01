@@ -147,6 +147,24 @@ def prepare_image(abs_path: str, max_dim: int = 1600):
     return base64.b64encode(buf.getvalue()).decode('ascii'), 'image/jpeg'
 
 
+def sent_image_size(abs_path: str, max_dim: int):
+    """Return ``(w, h)`` the vision model actually sees for ``abs_path`` after
+    :func:`prepare_image`'s long-edge downscale to ``max_dim``. Used so boxes
+    answered in raw pixels are normalised against the right dimensions.
+    Returns ``(None, None)`` if the file cannot be read."""
+    try:
+        from PIL import Image
+        with Image.open(abs_path) as im:
+            w, h = im.size
+    except Exception:
+        return None, None
+    longest = max(w, h)
+    if max_dim and longest > max_dim:
+        scale = max_dim / float(longest)
+        return max(1, int(w * scale)), max(1, int(h * scale))
+    return w, h
+
+
 def read_image_data_uri(abs_path: str) -> str:
     """Read an image file verbatim and return a ``data:<mime>;base64,...``
     URI of the ORIGINAL bytes — used to embed source figures into generated

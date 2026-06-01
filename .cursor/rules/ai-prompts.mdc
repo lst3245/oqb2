@@ -6,7 +6,7 @@ alwaysApply: false
 
 # AI Prompts (super-admin editable system + user-turn templates)
 
-Editable storage for the prompts powering every AI feature: proofreading, MD generation, **auto question tagging**, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import (box detection, anchor/segment detection, and paper-name guess). Nineteen prompts total, in eight groups. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
+Editable storage for the prompts powering every AI feature: proofreading, MD generation, **auto question tagging**, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import (box detection, anchor/segment detection, and paper-name guess). Twenty prompts total, in eight groups. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
 
 ## Files map
 
@@ -30,19 +30,20 @@ In declaration order (the UI renders them in this order, grouped by `group`):
 6. `TAG_USER` (user, vars `subject_name`, `fields`, `taxonomy`)
 7. `EXPLAIN_SYSTEM` (system) — dashboard Explain tutor
 8. `EXPLAIN_INITIAL_USER` (user) — first-turn instruction after the images
-9. `FIGURE_BOX_SYSTEM` (system) — figure bbox detection during MD gen
-10. `FIGURE_BOX_USER` (user)
-11. `PDF_BOX_JSON_CONTRACT` (system, sub-template) — shared JSON contract
-12. `PDF_QUE_BOX_SYSTEM` (system, var `json_contract`)
-13. `PDF_SOL_BOX_SYSTEM` (system, var `json_contract`)
-14. `PDF_BOX_USER` (user, var `what`)
-15. `PDF_ANCHOR_JSON_CONTRACT` (system, sub-template) — segment-method shared contract
-16. `PDF_ANCHOR_SYSTEM` (system, vars `what`, `json_contract`)
-17. `PDF_ANCHOR_USER` (user, var `what`)
-18. `PDF_PAPER_NAME_SYSTEM` (system) — PDF Import paper-name auto-guess
-19. `PDF_PAPER_NAME_USER` (user, vars `filename`, `subjects`)
+9. `FIGURE_BOX_JSON_CONTRACT` (system, sub-template) — figure bbox 0–1000 contract
+10. `FIGURE_BOX_SYSTEM` (system, var `json_contract`) — figure bbox detection during MD gen
+11. `FIGURE_BOX_USER` (user)
+12. `PDF_BOX_JSON_CONTRACT` (system, sub-template) — shared JSON contract
+13. `PDF_QUE_BOX_SYSTEM` (system, var `json_contract`)
+14. `PDF_SOL_BOX_SYSTEM` (system, var `json_contract`)
+15. `PDF_BOX_USER` (user, var `what`)
+16. `PDF_ANCHOR_JSON_CONTRACT` (system, sub-template) — segment-method shared contract
+17. `PDF_ANCHOR_SYSTEM` (system, vars `what`, `json_contract`)
+18. `PDF_ANCHOR_USER` (user, var `what`)
+19. `PDF_PAPER_NAME_SYSTEM` (system) — PDF Import paper-name auto-guess
+20. `PDF_PAPER_NAME_USER` (user, vars `filename`, `subjects`)
 
-`PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via the `{{json_contract}}` placeholder, resolved at render time by `build_pdf_box_system(asset_type)`. Edit the contract once to update the response shape on both sides. `PDF_PAPER_NAME_*` feed `pdf_import.guess_paper_name` (first-page image + file name → `SUBJECT_SOURCE_YEAR_PAPER`); parsed by `parse_paper_name`.
+`FIGURE_BOX_SYSTEM` references `FIGURE_BOX_JSON_CONTRACT` via `build_figure_box_system()`. `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via `build_pdf_box_system(asset_type)`. Figure + PDF parsers share `_normalize_box` and honour `PDF_IMPORT_COORD_ORDER`. `PDF_PAPER_NAME_*` feed `pdf_import.guess_paper_name` (first-page image + file name → `SUBJECT_SOURCE_YEAR_PAPER`); parsed by `parse_paper_name`.
 
 ## Variable substitution
 
@@ -119,7 +120,7 @@ The page is reached from:
 
 ## Gotchas / invariants
 
-1. **Don't break the JSON contract** of `CHECK_SYSTEM` / `TAG_SYSTEM` / `FIGURE_BOX_SYSTEM` / `PDF_BOX_JSON_CONTRACT` without also updating the corresponding parser (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`). The admin UI's description warns about this for each.
+1. **Don't break the JSON contract** of `CHECK_SYSTEM` / `TAG_SYSTEM` / `FIGURE_BOX_JSON_CONTRACT` / `FIGURE_BOX_SYSTEM` / `PDF_BOX_JSON_CONTRACT` without also updating the corresponding parser (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`). The admin UI's description warns about this for each.
 2. **Variable syntax is `{{name}}`** not Python's `{name}`. Old `f""`-style placeholders in defaults were converted during the migration. Adding a new variable means: (a) declare it in the registry's `variables` list, (b) add `{{name}}` to the default content, (c) pass it as kwarg from the call site.
 3. **Keep `[FIGURE: ...]` sentinel** in the MD_SYSTEM prompt — `app/ai_tools._embed_figures` and `ai_prompts.FIGURE_RE` rely on it as a discriminator for when to run the figure-cropping pass.
 4. **Cache is per-process.** A multi-worker deployment will see staleness across workers until each handles a request that touches a saved/reset key. Acceptable trade-off; same caveat as system settings.

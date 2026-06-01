@@ -335,22 +335,10 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
 # ==================== LLM detection ====================
 
 def _sent_image_size(png_path: str, image_max_dim: int):
-    """Return the ``(w, h)`` the LLM actually sees for ``png_path`` — i.e. the
-    high-res page dims after :func:`llm_client.prepare_image`'s long-edge
-    downscale to ``image_max_dim``. Used so a model that answers in raw pixels
-    is normalised against the right dimensions. Returns ``(None, None)`` if the
-    image can't be read."""
-    try:
-        from PIL import Image
-        with Image.open(png_path) as im:
-            w, h = im.size
-    except Exception:
-        return None, None
-    longest = max(w, h)
-    if image_max_dim and longest > image_max_dim:
-        scale = image_max_dim / float(longest)
-        return max(1, int(w * scale)), max(1, int(h * scale))
-    return w, h
+    """Return the ``(w, h)`` the LLM actually sees — delegates to
+    :func:`llm_client.sent_image_size`."""
+    from app import llm_client
+    return llm_client.sent_image_size(png_path, image_max_dim)
 
 
 DETECT_METHODS = ('llm', 'refine', 'segment')

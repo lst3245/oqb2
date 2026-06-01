@@ -18,6 +18,8 @@ import threading
 import uuid
 from datetime import datetime
 
+from flask import current_app
+
 from app import db, md_render
 from app.models import Question, QuestionAsset
 from app import ai_prompts
@@ -426,9 +428,20 @@ def _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path):
     boxes = []
     if len(src_assets) == 1:
         try:
-            btext, _info = llm_client.chat(config, ai_prompts.get_prompt('FIGURE_BOX_SYSTEM'),
-                                           ai_prompts.get_prompt('FIGURE_BOX_USER'), imgs)
-            boxes = ai_prompts.parse_figure_boxes(btext)
+            abs_path = _abs(source_path, src_assets[0].file_path)
+            sw, sh = llm_client.sent_image_size(abs_path, image_max_dim)
+            coord_order = str(
+                current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')
+            ).strip().lower()
+            btext, _info = llm_client.chat(
+                config,
+                ai_prompts.build_figure_box_system(),
+                ai_prompts.get_prompt('FIGURE_BOX_USER'),
+                imgs,
+            )
+            boxes = ai_prompts.parse_figure_boxes(
+                btext, img_w=sw, img_h=sh, coord_order=coord_order,
+            )
         except llm_client.LLMError:
             boxes = []
         except Exception:

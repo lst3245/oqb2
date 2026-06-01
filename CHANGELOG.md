@@ -29,6 +29,10 @@ Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.p
 
 ### ✨ Enhanced Features
 
+#### Figure bbox detection — 0–1000 grid (aligned with PDF import)
+
+MD generation's figure-localisation pass (`FIGURE_BOX_*` prompts) now uses the same **0–1000 integer coordinate grid** and worked example as PDF batch import, instead of asking for 0..1 fractions. `parse_figure_boxes` delegates to `_normalize_box` (same range/axis handling as `parse_question_boxes`) and honours **`PDF_IMPORT_COORD_ORDER`** (`yxyx` for Gemini-style y-first tuples). New admin prompt card **`FIGURE_BOX_JSON_CONTRACT`**; call sites use `build_figure_box_system()`. Shared `llm_client.sent_image_size()` for downscaled dimensions passed to the parser.
+
 #### AI Markdown generation prompts — escaped question numbers and MC line breaks
 
 Default `MD_SYSTEM` / `MD_USER` prompts now instruct models to escape periods after question numbers (`8\.` not `8.`) so GFM does not render exam stems as ordered lists (fixes unwanted indent in preview and pandoc Word output). They also require each multiple-choice option on its own line with explicit newline rules, and include a short example block. Sites with a DB override of these prompts must **Reset to default** on Admin → AI Prompts (or merge the new rules manually) to pick up the change.
