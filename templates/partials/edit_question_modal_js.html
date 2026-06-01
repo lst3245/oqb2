@@ -118,6 +118,13 @@ function openEditModal(questionId) {
             // Use shared populateTagForm to fill in tag fields
             populateTagForm(data);
 
+            // Auto Tag button is admin-only + gated on AI Tools being enabled.
+            const atBtn = document.getElementById('autoTagBtn');
+            if (atBtn) atBtn.style.display = window.OQB_AI_TOOLS_ENABLED ? '' : 'none';
+
+            // Whole-question verified state (Details tab).
+            setVerifiedUI(data.verified, data.verified_at, data.verified_by);
+
             // Load assets (deferred — Assets tab is hidden until user clicks)
             loadAssetsForEdit(data.id);
 
@@ -176,6 +183,242 @@ function saveQuestionTags() {
         }
     })
     .catch(err => showToast(err.message || 'Error saving tags', 'danger'));
+}
+
+// ==================== VERIFY (whole-question flag) ====================
+function setVerifiedUI(verified, verifiedAt, verifiedBy) {
+    const toggle = document.getElementById('editVerifiedToggle');
+    const badge = document.getElementById('editVerifiedBadge');
+    const meta = document.getElementById('editVerifiedMeta');
+    if (toggle) toggle.checked = !!verified;
+    if (badge) {
+        badge.className = 'badge ' + (verified ? 'bg-success' : 'bg-secondary');
+        badge.innerHTML = verified
+            ? '<i class="bi bi-patch-check-fill"></i> Verified'
+            : '<i class="bi bi-shield"></i> Not verified';
+    }
+    if (meta) {
+        meta.textContent = (verified && verifiedAt)
+            ? `Verified ${verifiedAt}${verifiedBy ? ' by ' + verifiedBy : ''}` : '';
+    }
+}
+
+function onEditVerifiedToggle() {
+    if (!editQuestionData) return;
+    const toggle = document.getElementById('editVerifiedToggle');
+    const want = toggle.checked;
+
+    // Soft-warn when verifying a question whose assets aren't all checked-OK.
+    if (want) {
+        const notOk = editQuestionData._assetNotOk || 0;
+        const total = editQuestionData._assetTotal || 0;
+        if (total === 0) {
+            if (!confirm('This question has no assets. Mark it verified anyway?')) {
+                toggle.checked = false; return;
+            }
+        } else if (notOk > 0) {
+            if (!confirm(`${notOk} of ${total} asset(s) are not marked checked-OK. Mark the question verified anyway?`)) {
+                toggle.checked = false; return;
+            }
+        }
+    }
+
+    const url = `{{ url_for('admin.set_question_verified', question_id=0) }}`.replace('/questions/0/', `/questions/${editQuestionData.id}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ verified: want })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            editQuestionData.verified = d.verified;
+            editQuestionData.verified_at = d.verified_at;
+            setVerifiedUI(d.verified, d.verified_at ? new Date(d.verified_at).toLocaleString() : null, null);
+            showToast(d.verified ? 'Marked verified' : 'Verification cleared', d.verified ? 'success' : 'info');
+            if (typeof window.oqbAfterQuestionEdit === 'function') window.oqbAfterQuestionEdit();
+        } else {
+            toggle.checked = !want;  // revert on failure
+            showToast((d && (d.error || d.message)) || 'Could not update verification', 'danger');
+        }
+    })
+    .catch(err => { toggle.checked = !want; showToast('Error: ' + err.message, 'danger'); });
+}
+
+// ==================== AUTO TAG (single-question, review-before-save) ====================
+let _autoTagModalInstance = null;
+
+function openAutoTagModal() {
+    if (!editQuestionData) return;
+    const modalEl = document.getElementById('autoTagModal');
+    if (!modalEl) return;
+
+    document.getElementById('autoTagStatus').innerHTML = '';
+    const runBtn = document.getElementById('autoTagRunBtn');
+    runBtn.disabled = false;
+    runBtn.innerHTML = '<i class="bi bi-robot"></i> Suggest tags';
+
+    // Default version selection: versions that actually have assets, else EN.
+    const present = (editQuestionData._presentVersions && editQuestionData._presentVersions.length)
+        ? editQuestionData._presentVersions : ['EN'];
+    document.querySelectorAll('.autotag-version').forEach(cb => {
+        cb.checked = present.includes(cb.value);
+    });
+
+    // Populate endpoints (vision-capable preferred).
+    const sel = document.getElementById('autoTagEndpoint');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
+            }).join('');
+            const fv = eps.find(ep => ep.supports_vision);
+            if (fv) sel.value = fv.id;
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    if (!_autoTagModalInstance) {
+        _autoTagModalInstance = new bootstrap.Modal(modalEl);
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            // Restore the parent edit modal's scroll lock (stacked modal).
+            const editModal = document.getElementById('editQuestionModal');
+            if (editModal && editModal.classList.contains('show')) {
+                document.body.classList.add('modal-open');
+            }
+        });
+    }
+    _autoTagModalInstance.show();
+}
+
+function runAutoTag() {
+    if (!editQuestionData) return;
+    const endpointId = document.getElementById('autoTagEndpoint').value;
+    if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const fields = Array.from(document.querySelectorAll('.autotag-field:checked')).map(cb => cb.value);
+    if (!fields.length) { showToast('Pick at least one tag field.', 'warning'); return; }
+    const versions = Array.from(document.querySelectorAll('.autotag-version:checked')).map(cb => cb.value);
+    if (!versions.length) { showToast('Pick at least one version to send.', 'warning'); return; }
+    const overwrite = document.getElementById('autoTagOverwrite').checked;
+
+    const runBtn = document.getElementById('autoTagRunBtn');
+    const status = document.getElementById('autoTagStatus');
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Thinking…';
+    status.innerHTML = '<span class="text-muted">Calling the model — this can take a while…</span>';
+
+    const url = `{{ url_for('admin.ai_suggest_tags', question_id=0) }}`.replace('/questions/0/', `/questions/${editQuestionData.id}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ endpoint_id: parseInt(endpointId, 10), fields: fields, versions: versions })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<i class="bi bi-robot"></i> Suggest tags';
+        if (!ok || !d.success) {
+            status.innerHTML = `<span class="text-danger">${_aiEscapeAttr((d && (d.error || d.message)) || 'No suggestion')}</span>`;
+            return;
+        }
+        const changed = applySuggestionsToForm(d.suggestions || {}, d.fields || fields, overwrite);
+        let summary = `<span class="text-success"><i class="bi bi-check-circle"></i> Populated ${changed.length} field(s) — review and click <strong>Save Tags</strong>.</span>`;
+        const unmatched = d.unmatched || [];
+        if (unmatched.length) {
+            summary += `<div class="mt-1 text-warning"><i class="bi bi-exclamation-triangle"></i> Could not match: ${unmatched.map(u => _aiEscapeAttr(u.name)).join(', ')}</div>`;
+        }
+        status.innerHTML = summary;
+        showToast(`Auto Tag populated ${changed.length} field(s)`, 'success');
+        setTimeout(() => { if (_autoTagModalInstance) _autoTagModalInstance.hide(); }, unmatched.length ? 1800 : 600);
+    })
+    .catch(err => {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<i class="bi bi-robot"></i> Suggest tags';
+        status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
+    });
+}
+
+// Snapshot the current tag-form state as a populateTagForm-shaped object.
+function readCurrentTagFormState() {
+    const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const intOrNull = s => (s && s !== '' ? parseInt(s, 10) : null);
+    return {
+        subject: editQuestionData ? editQuestionData.subject : '',
+        level: v('editLevel') === '' ? null : parseInt(v('editLevel'), 10),
+        q_type: v('editQType') || null,
+        section: v('editSection') || null,
+        description: v('editDescription') || null,
+        correct_percentage: v('editCorrectPercentage') === '' ? null : parseInt(v('editCorrectPercentage'), 10),
+        answer: v('editAnswer') || null,
+        comment: v('editComment') || null,
+        major_topic_id: intOrNull(v('editMajorTopic')),
+        major_subtopic_id: intOrNull(v('editMajorSubtopic')),
+        minor_topic_ids: Array.from(document.querySelectorAll('.edit-minor-topic-checkbox:checked')).map(cb => parseInt(cb.value)),
+        subtopic_ids: Array.from(document.querySelectorAll('.edit-subtopic-checkbox:checked')).map(cb => parseInt(cb.value)),
+        chapter_id: intOrNull(v('editChapter')),
+        subchapter_id: intOrNull(v('editSubchapter')),
+    };
+}
+
+// Merge LLM suggestions into the current form (respecting overwrite), re-run
+// populateTagForm, switch to the Tags tab, and briefly highlight changed
+// fields. Returns the list of field keys actually set.
+function applySuggestionsToForm(suggestions, fields, overwrite) {
+    const cur = readCurrentTagFormState();
+    const merged = Object.assign({}, cur);
+    const fieldSet = new Set(fields);
+    const changed = [];
+
+    function setIf(fieldKey, dataKey, value, isEmpty) {
+        if (!fieldSet.has(fieldKey)) return;
+        if (value === undefined || value === null) return;
+        if (Array.isArray(value) && value.length === 0) return;
+        if (!overwrite && !isEmpty) return;
+        merged[dataKey] = value;
+        changed.push(fieldKey);
+    }
+
+    setIf('q_type', 'q_type', suggestions.q_type, !cur.q_type);
+    setIf('level', 'level', suggestions.level, cur.level === null || cur.level === undefined);
+    setIf('section', 'section', suggestions.section, !cur.section);
+    setIf('major_topic', 'major_topic_id', suggestions.major_topic_id, cur.major_topic_id === null);
+    setIf('major_subtopic', 'major_subtopic_id', suggestions.major_subtopic_id, cur.major_subtopic_id === null);
+    setIf('minor_topics', 'minor_topic_ids', suggestions.minor_topic_ids, (cur.minor_topic_ids || []).length === 0);
+    setIf('subtopics', 'subtopic_ids', suggestions.subtopic_ids, (cur.subtopic_ids || []).length === 0);
+    setIf('chapter', 'chapter_id', suggestions.chapter_id, cur.chapter_id === null);
+    setIf('subchapter', 'subchapter_id', suggestions.subchapter_id, cur.subchapter_id === null);
+
+    populateTagForm(merged);
+
+    // Switch to the Tags tab so the populated fields are visible.
+    const tagsTabLink = document.querySelector('#editQuestionModal [href="#tabTags"]');
+    if (tagsTabLink) { try { new bootstrap.Tab(tagsTabLink).show(); } catch (e) {} }
+
+    // Highlight changed fields after populateTagForm's async dropdown rebuild.
+    setTimeout(() => _highlightSuggestedFields(changed), 650);
+    return changed;
+}
+
+function _highlightSuggestedFields(fields) {
+    const map = {
+        q_type: '#editQType', level: '#editLevel', section: '#editSection',
+        major_topic: '#editMajorTopicDropdown .dropdown-toggle',
+        major_subtopic: '#editMajorSubtopicDropdown .dropdown-toggle',
+        minor_topics: '#editMinorTopicsDropdown .dropdown-toggle',
+        subtopics: '#editSubtopicsDropdown .dropdown-toggle',
+        chapter: '#editChapterDropdown .dropdown-toggle',
+        subchapter: '#editSubchapterDropdown .dropdown-toggle',
+    };
+    (fields || []).forEach(f => {
+        const el = document.querySelector(map[f]);
+        if (!el) return;
+        el.classList.add('oqb-tag-suggested');
+        setTimeout(() => el.classList.remove('oqb-tag-suggested'), 2500);
+    });
 }
 
 // ==================== RENAME ====================
@@ -241,6 +484,28 @@ function loadAssetsForEdit(questionId) {
                 if (!container) return;
                 container.innerHTML = renderAssetSections(questionId, lang, data.assets[lang] || {}, 'edit');
             });
+
+            // Roll up asset check states (for the verify soft-warn) and record
+            // which versions actually have assets (Auto Tag default versions).
+            let notOk = 0, totalA = 0;
+            const present = [];
+            Object.keys(data.assets || {}).forEach(ver => {
+                const byType = data.assets[ver] || {};
+                let verHas = false;
+                Object.keys(byType).forEach(at => {
+                    (byType[at] || []).forEach(p => {
+                        totalA++; verHas = true;
+                        if ((p.check_state || null) !== 'ok') notOk++;
+                    });
+                });
+                if (verHas) present.push(ver);
+            });
+            if (editQuestionData) {
+                editQuestionData._assetNotOk = notOk;
+                editQuestionData._assetTotal = totalA;
+                editQuestionData._presentVersions = present;
+            }
+
             // Re-render always paints QUE as the visual default. Override it so the user's
             // chosen paste target (e.g. SOL) survives an upload → refresh round-trip.
             setActivePasteTarget(activePasteTarget.lang, activePasteTarget.atype, 'edit');

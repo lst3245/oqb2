@@ -223,9 +223,18 @@ class Question(db.Model):
     answer = db.Column(db.Text, nullable=True)  # Answer text (alternative to ANS image)
     comment = db.Column(db.Text, nullable=True)  # Comment / notes
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    
+
+    # Whole-question verification flag. Set manually by an admin once every
+    # asset is checked and the tagging is satisfactory. Independent of the
+    # per-asset QuestionAsset.check_state proofreading, but the UI soft-warns
+    # when verifying a question whose assets are not all checked-ok.
+    verified = db.Column(db.Boolean, default=False, nullable=False)
+    verified_at = db.Column(db.DateTime, nullable=True)
+    verified_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
     # Relationships
     assets = db.relationship('QuestionAsset', backref='question', lazy='dynamic', cascade='all, delete-orphan')
+    verified_by_user = db.relationship('User', foreign_keys=[verified_by])
     major_subtopic = db.relationship('Subtopic', foreign_keys=[major_subtopic_id])
     minor_topics = db.relationship('Topic', secondary=question_minor_topics, lazy='select',
                                    backref=db.backref('minor_questions', lazy='dynamic'))

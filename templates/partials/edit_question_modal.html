@@ -83,6 +83,11 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
 /* Toast */
 .toast-container { position: fixed; top: 80px; right: 20px; z-index: 10000; }
 
+/* Auto Tag: transient highlight on fields the LLM just populated */
+@keyframes oqbTagSuggestPulse { 0% { box-shadow: 0 0 0 0 rgba(13,202,240,.6); } 100% { box-shadow: 0 0 0 6px rgba(13,202,240,0); } }
+.oqb-tag-suggested { border-color: #0dcaf0 !important; animation: oqbTagSuggestPulse 1s ease-out 2; background-color: #f0fbff !important; }
+.oqb-tag-suggested.dropdown-toggle { border-color: #0dcaf0 !important; }
+
 /* Wider modals for desktop */
 @media (min-width: 1200px) {
     .modal-dialog.modal-xxl { max-width: 90vw; }
@@ -116,7 +121,12 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                     <div class="tab-pane show active" id="tabTags">
                         <form id="editForm">
                             {% include 'partials/tag_editor_form.html' %}
-                            <div class="mt-3 text-end">
+                            <div class="mt-3 d-flex justify-content-end gap-2">
+                                <button type="button" class="btn btn-outline-info" id="autoTagBtn"
+                                        style="display:none" onclick="openAutoTagModal()"
+                                        title="Suggest tags with an LLM (review before saving)">
+                                    <i class="bi bi-robot"></i> Auto Tag
+                                </button>
                                 <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">
                                     <i class="bi bi-check-lg"></i> Save Tags
                                 </button>
@@ -166,8 +176,113 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                                 <input type="text" class="form-control-plaintext" id="editCreatedAt" readonly>
                             </div>
                         </div>
+
+                        <hr class="my-3">
+                        <h6 class="mb-2"><i class="bi bi-patch-check"></i> Verification</h6>
+                        <p class="text-muted small mb-2">
+                            Mark the whole question as verified once its assets are checked and the
+                            tagging is correct. You'll get a soft warning if not all assets are
+                            checked-OK, but you can still mark it verified.
+                        </p>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="editVerifiedToggle" onchange="onEditVerifiedToggle()">
+                            <label class="form-check-label" for="editVerifiedToggle">
+                                <span id="editVerifiedBadge" class="badge bg-secondary"><i class="bi bi-shield"></i> Not verified</span>
+                            </label>
+                        </div>
+                        <div id="editVerifiedMeta" class="small text-muted mt-1"></div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== AUTO TAG MODAL ======================== -->
+<div class="modal fade" id="autoTagModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-dark">
+                <h5 class="modal-title"><i class="bi bi-robot"></i> Auto Tag with AI</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small">
+                    <i class="bi bi-info-circle"></i>
+                    The model is sent the question's image(s) (and solution if present) plus this
+                    subject's allowed tag values, and suggests tags. Suggestions <strong>populate the
+                    form for review</strong> — nothing is saved until you click <em>Save Tags</em>.
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-7">
+                        <label class="form-label fw-bold" for="autoTagEndpoint">LLM endpoint</label>
+                        <select class="form-select form-select-sm" id="autoTagEndpoint">
+                            <option value="">Loading…</option>
+                        </select>
+                        <small class="text-muted">A vision-capable endpoint is required.</small>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold d-block">Send versions</label>
+                        <div id="autoTagVersions" class="d-flex flex-wrap gap-2">
+                            {% for v in OQB_VERSIONS %}
+                            <div class="form-check">
+                                <input class="form-check-input autotag-version" type="checkbox"
+                                       value="{{ v }}" id="autoTagVer_{{ v }}">
+                                <label class="form-check-label" for="autoTagVer_{{ v }}">{{ v }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">First available per type (IMG → MD → DOC) is sent.</small>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+
+                <label class="form-label fw-bold d-block mb-2">Tags to apply</label>
+                <div class="row g-2">
+                    {# Defaults: q_type / major_topic / major_subtopic / chapter ON; rest OFF #}
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_q_type" value="q_type" checked>
+                        <label class="form-check-label" for="atf_q_type">Question Type</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_level" value="level">
+                        <label class="form-check-label" for="atf_level">Level</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_section" value="section">
+                        <label class="form-check-label" for="atf_section">Section</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_major_topic" value="major_topic" checked>
+                        <label class="form-check-label" for="atf_major_topic">Major Topic</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_major_subtopic" value="major_subtopic" checked>
+                        <label class="form-check-label" for="atf_major_subtopic">Major Subtopic</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_minor_topics" value="minor_topics">
+                        <label class="form-check-label" for="atf_minor_topics">Minor Topics</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_subtopics" value="subtopics">
+                        <label class="form-check-label" for="atf_subtopics">Minor Subtopics</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_chapter" value="chapter" checked>
+                        <label class="form-check-label" for="atf_chapter">Chapter</label></div></div>
+                    <div class="col-sm-6 col-md-4"><div class="form-check">
+                        <input class="form-check-input autotag-field" type="checkbox" id="atf_subchapter" value="subchapter">
+                        <label class="form-check-label" for="atf_subchapter">Subchapter</label></div></div>
+                </div>
+
+                <div class="form-check form-switch mt-3">
+                    <input class="form-check-input" type="checkbox" id="autoTagOverwrite">
+                    <label class="form-check-label" for="autoTagOverwrite">Overwrite fields that already have a value</label>
+                </div>
+
+                <div id="autoTagStatus" class="small mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="autoTagRunBtn" onclick="runAutoTag()">
+                    <i class="bi bi-robot"></i> Suggest tags
+                </button>
             </div>
         </div>
     </div>

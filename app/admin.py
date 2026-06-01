@@ -1160,6 +1160,37 @@ def questions_api_list():
         else:
             query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
 
+    # Verified filter (1/0)
+    verified_param = request.args.get('verified', '').strip().lower()
+    if verified_param in ('1', 'true', 'yes'):
+        query = query.filter(Question.verified.is_(True))
+    elif verified_param in ('0', 'false', 'no'):
+        query = query.filter(Question.verified.is_(False))
+
+    # Asset-check status rollup filter (issues / ok / unchecked) via correlated
+    # EXISTS subqueries. Rules:
+    #   issues    = any asset check_state in ('issues','error')
+    #   unchecked = any asset check_state still NULL
+    #   ok        = >=1 asset AND every asset is exactly 'ok'
+    check_status = request.args.get('check_status', '').strip().lower()
+    if check_status in ('issues', 'ok', 'unchecked'):
+        from sqlalchemy import exists, and_, or_, not_
+        A = QuestionAsset
+        has_any_asset = exists().where(A.question_id == Question.id)
+        has_issue = exists().where(and_(A.question_id == Question.id,
+                                        A.check_state.in_(['issues', 'error'])))
+        has_unchecked = exists().where(and_(A.question_id == Question.id,
+                                            A.check_state.is_(None)))
+        has_not_ok = exists().where(and_(A.question_id == Question.id,
+                                         or_(A.check_state.is_(None),
+                                             A.check_state != 'ok')))
+        if check_status == 'issues':
+            query = query.filter(has_issue)
+        elif check_status == 'unchecked':
+            query = query.filter(has_unchecked)
+        else:  # 'ok'
+            query = query.filter(and_(has_any_asset, not_(has_not_ok)))
+
     # Sorting
     if preserve_selection_order and qid_order_list:
         # Preserve order of the supplied QID list
@@ -1204,8 +1235,37 @@ def questions_api_list():
     total = query.count()
     questions = query.offset((page - 1) * page_size).limit(page_size).all()
 
+    # Roll up asset check states for THIS page in one query (replaces the old
+    # per-row assets.count() N+1) so each item can carry an asset-check summary.
+    from collections import defaultdict
+    page_qids = [q.id for q in questions]
+    states_by_q = defaultdict(list)
+    if page_qids:
+        for qid_, state in (db.session.query(QuestionAsset.question_id,
+                                              QuestionAsset.check_state)
+                            .filter(QuestionAsset.question_id.in_(page_qids)).all()):
+            states_by_q[qid_].append(state)
+
+    def _check_summary(states):
+        total_assets = len(states)
+        n_issues = sum(1 for s in states if s in ('issues', 'error'))
+        n_unchecked = sum(1 for s in states if s is None)
+        n_checking = sum(1 for s in states if s == 'checking')
+        n_ok = sum(1 for s in states if s == 'ok')
+        if total_assets == 0:
+            status = 'none'
+        elif n_issues:
+            status = 'issues'
+        elif n_unchecked or n_checking:
+            status = 'unchecked'
+        else:
+            status = 'ok'
+        return {'status': status, 'total': total_assets, 'ok': n_ok,
+                'issues': n_issues, 'unchecked': n_unchecked}
+
     items = []
     for q in questions:
+        states = states_by_q.get(q.id, [])
         items.append({
             'id': q.id,
             'qid': q.qid,
@@ -1218,7 +1278,9 @@ def questions_api_list():
             'q_type': q.q_type,
             'level': q.level,
             'created_at': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
-            'asset_count': q.assets.count(),
+            'asset_count': len(states),
+            'verified': bool(q.verified),
+            'check_summary': _check_summary(states),
         })
 
     return jsonify({
@@ -1264,6 +1326,9 @@ def question_details(question_id):
         'answer': question.answer,
         'comment': question.comment,
         'created_at': question.created_at.strftime('%Y-%m-%d %H:%M') if question.created_at else '',
+        'verified': bool(question.verified),
+        'verified_at': question.verified_at.strftime('%Y-%m-%d %H:%M') if question.verified_at else None,
+        'verified_by': (question.verified_by_user.username if question.verified_by_user else None),
     })
 
 
@@ -4436,6 +4501,325 @@ def ai_generate_md_slot(question_id):
         'message': res.get('message', ''),
         'asset_id': res.get('asset_id'),
     }), http
+
+
+# ==================== Auto Question Tagging (LLM) ====================
+#
+# Classify questions with an LLM and map the returned names back to the
+# subject's Topic / Subtopic / Chapter / Subchapter IDs (see app/ai_tools.py).
+# The single-question route is sync + read-only (the edit modal populates the
+# form for review and the user clicks Save Tags); the batch route streams SSE
+# and writes per question.
+
+def _ai_versions_list(name='versions'):
+    """Parse a CSV of asset versions, validated + de-duped, order preserved."""
+    raw = request.args.get(name, '').strip().upper()
+    out = []
+    valid = set(VERSIONS)
+    for v in (s.strip() for s in raw.split(',')):
+        if v in valid and v not in out:
+            out.append(v)
+    return out
+
+
+def _ai_tag_fields_list(name='fields'):
+    """Parse a CSV of Auto Tag field keys, validated against ai_prompts."""
+    from app import ai_prompts
+    raw = request.args.get(name, '').strip()
+    valid = set(ai_prompts.TAG_FIELDS)
+    out = []
+    for v in (s.strip() for s in raw.split(',')):
+        if v in valid and v not in out:
+            out.append(v)
+    return out
+
+
+@admin_bp.route('/questions/ai/auto-tag')
+@login_required
+@admin_required
+def ai_auto_tag():
+    """SSE: auto-tag the selected questions with an LLM.
+
+    Query params: question_ids (csv), endpoint_id, versions (csv),
+    fields (csv of tag field keys), overwrite (1/0).
+    """
+    guard = _ai_tools_guard()
+    if guard:
+        return guard
+    qs, err, code = _ai_parse_qs()
+    if err:
+        return err, code
+    cfg, err, code = _ai_load_endpoint()
+    if err:
+        return err, code
+
+    versions = _ai_versions_list('versions')
+    if not versions:
+        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+    fields = _ai_tag_fields_list('fields')
+    if not fields:
+        return jsonify({'error': 'fields must include at least one tag field'}), 400
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+
+    def factory(app, cancel):
+        from app import ai_tools
+        image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        source_path = app.config['SOURCE_PATH']
+        from app.models import LLMConfig
+        live_cfg = LLMConfig.query.get(cfg.id)
+        return ai_tools.iter_auto_tag(qs, versions, fields, overwrite, live_cfg,
+                                      image_max_dim, source_path, cancel)
+
+    return _ai_stream(factory)
+
+
+@admin_bp.route('/questions/<int:question_id>/ai/suggest-tags', methods=['POST'])
+@login_required
+@admin_required
+def ai_suggest_tags(question_id):
+    """Synchronously classify ONE question and return the suggested tags
+    (resolved to IDs) for review in the edit modal. Writes NOTHING — the modal
+    populates the form and the user saves explicitly.
+
+    Body JSON: {versions[], fields[], endpoint_id}.
+    """
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    from app import ai_prompts
+    valid_fields = set(ai_prompts.TAG_FIELDS)
+    fields = [f for f in (data.get('fields') or []) if f in valid_fields]
+    if not fields:
+        return jsonify({'error': 'Select at least one tag field.'}), 400
+    versions = [str(v).strip().upper() for v in (data.get('versions') or [])]
+    versions = [v for v in versions if v in set(VERSIONS)]
+    if not versions:
+        return jsonify({'error': 'Select at least one version.'}), 400
+
+    from app.models import LLMConfig
+    try:
+        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'endpoint_id is required'}), 400
+    if not cfg or not cfg.enabled:
+        return jsonify({'error': 'Endpoint not found or disabled'}), 404
+    if not cfg.supports_vision:
+        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+
+    from app import ai_tools
+    from app.llm_client import LLMError
+    try:
+        res = ai_tools.suggest_tags(
+            question, versions, fields, cfg,
+            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+            source_path=current_app.config['SOURCE_PATH'],
+        )
+    except LLMError as e:
+        return jsonify({'error': str(e)}), 502
+    except Exception as e:
+        current_app.logger.exception('suggest_tags failed for q%s', question_id)
+        return jsonify({'error': str(e)}), 500
+
+    if not res.get('ok'):
+        return jsonify({'success': False, 'error': res.get('error') or 'No suggestion',
+                        'raw': res.get('raw', '')}), 200
+    return jsonify({
+        'success': True,
+        'suggestions': res['suggestions'],
+        'display': res['display'],
+        'unmatched': res['unmatched'],
+        'fields': fields,
+        'model': res.get('model'),
+    })
+
+
+# ==================== Whole-question verification + batch QA state ============
+
+@admin_bp.route('/questions/<int:question_id>/verify', methods=['POST'])
+@login_required
+@admin_required
+def set_question_verified(question_id):
+    """Set / clear the whole-question verified flag. Independent manual flag;
+    the response includes the not-checked-OK asset count so the modal can
+    soft-warn (but the action is always allowed).
+
+    Body JSON: {verified: bool}.
+    """
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    verified = bool(data.get('verified'))
+
+    assets = QuestionAsset.query.filter_by(question_id=question_id).all()
+    not_ok = sum(1 for a in assets if (a.check_state or None) != 'ok')
+
+    try:
+        question.verified = verified
+        if verified:
+            question.verified_at = datetime.utcnow()
+            question.verified_by = current_user.id
+        else:
+            question.verified_at = None
+            question.verified_by = None
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Save failed: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'verified': question.verified,
+        'verified_at': question.verified_at.isoformat() if question.verified_at else None,
+        'unchecked_assets': not_ok,
+        'total_assets': len(assets),
+    })
+
+
+@admin_bp.route('/questions/batch-set-verified', methods=['POST'])
+@login_required
+@admin_required
+def batch_set_verified():
+    """Batch set / clear the verified flag across the selection (subject-scoped).
+
+    Body JSON: {question_ids[], verified: bool}.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        question_ids = [int(x) for x in (data.get('question_ids') or [])]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'question_ids must be integers'}), 400
+    if not question_ids:
+        return jsonify({'error': 'No questions selected'}), 400
+    verified = bool(data.get('verified'))
+
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    if not qs:
+        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+
+    now = datetime.utcnow()
+    updated = 0
+    try:
+        for q in qs:
+            q.verified = verified
+            if verified:
+                q.verified_at = now
+                q.verified_by = current_user.id
+            else:
+                q.verified_at = None
+                q.verified_by = None
+            updated += 1
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Save failed: {e}'}), 500
+
+    return jsonify({'success': True, 'updated': updated, 'verified': verified})
+
+
+@admin_bp.route('/questions/batch-set-check-state', methods=['POST'])
+@login_required
+@admin_required
+def batch_set_check_state():
+    """Batch set the proofread check_state for given (version, atype) slots
+    across the selected questions. Reuses the per-slot write shape of
+    set_asset_check_state.
+
+    Body JSON: {question_ids[], versions[], atypes[], state, note?, severity?,
+                overwrite?}. With overwrite off (default), slots that already
+    carry a check_state are left untouched (clear always applies).
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        question_ids = [int(x) for x in (data.get('question_ids') or [])]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'question_ids must be integers'}), 400
+    if not question_ids:
+        return jsonify({'error': 'No questions selected'}), 400
+
+    versions = [str(v).strip().upper() for v in (data.get('versions') or [])]
+    versions = [v for v in versions if v in set(VERSIONS)]
+    if not versions:
+        return jsonify({'error': 'Select at least one version.'}), 400
+    atypes = [str(a).strip().upper() for a in (data.get('atypes') or [])]
+    atypes = [a for a in atypes if a in ('QUE', 'ANS', 'SOL')]
+    if not atypes:
+        return jsonify({'error': 'Select at least one asset type (QUE/ANS/SOL).'}), 400
+    state = (data.get('state') or '').strip().lower()
+    if state not in ('ok', 'issues', 'error', 'clear'):
+        return jsonify({'error': 'state must be ok / issues / error / clear'}), 400
+    note = (data.get('note') or '').strip()
+    severity = (data.get('severity') or 'minor').strip().lower()
+    if severity not in ('minor', 'major', 'critical'):
+        severity = 'minor'
+    overwrite = bool(data.get('overwrite', False))
+
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    if not qs:
+        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+
+    if state == 'clear':
+        new_state = None
+        encoded = None
+        checked_at = None
+    else:
+        new_state = state
+        result = {'status': state, 'issues': [], 'checked_by': 'manual',
+                  'editor': current_user.username}
+        if state == 'issues':
+            result['issues'] = [{
+                'severity': severity,
+                'location': '',
+                'description': note or 'Marked as having issues (manual, batch).',
+            }]
+        elif state == 'error' and note:
+            result['raw'] = note
+        elif note:
+            result['note'] = note
+        encoded = json.dumps(result, ensure_ascii=False)
+        checked_at = datetime.utcnow()
+
+    slots_updated = 0
+    assets_updated = 0
+    try:
+        for q in qs:
+            for version in versions:
+                for atype in atypes:
+                    slot_assets = QuestionAsset.query.filter_by(
+                        question_id=q.id, version=version, asset_type=atype).all()
+                    if not slot_assets:
+                        continue
+                    if not overwrite and state != 'clear' and any(a.check_state for a in slot_assets):
+                        continue
+                    for a in slot_assets:
+                        a.check_state = new_state
+                        a.check_result = encoded
+                        a.checked_at = checked_at
+                        assets_updated += 1
+                    slots_updated += 1
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Save failed: {e}'}), 500
+
+    return jsonify({'success': True, 'slots_updated': slots_updated,
+                    'assets_updated': assets_updated})
 
 
 # ==================== System Settings (Super Admin Only) ====================

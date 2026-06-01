@@ -23,6 +23,10 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_cancel`, `ai_endpoints` |
 | Per-slot sync MD route (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_generate_md_slot` |
 | Manual check-state route (subject-admin) | [app/admin.py](mdc:app/admin.py) `set_asset_check_state` |
+| Auto-tagging service (single + batch) | [app/ai_tools.py](mdc:app/ai_tools.py) `_resolve_tag_inputs`, `suggest_tags`, `apply_tags`, `iter_auto_tag` |
+| Auto-tag routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_suggest_tags` (sync), `ai_auto_tag` (SSE) |
+| Verify / batch routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `verify_question`, `batch_set_verified`, `batch_set_check_state` |
+| Auto-Tag button + modal + review-populate JS | [templates/partials/edit_question_modal.html](mdc:templates/partials/edit_question_modal.html) `#autoTagModal`, [.../edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `openAutoTagModal`, `runAutoTag`, `applySuggestionsToForm` |
 | Endpoint management UI | [templates/admin_llm_endpoints.html](mdc:templates/admin_llm_endpoints.html) |
 | AI Tools modal + console | [templates/admin_questions.html](mdc:templates/admin_questions.html) `aiToolsModal` |
 | Per-slot check badge/bar + "Generate with AI" button + slot modal | [templates/partials/edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `renderCheckBadge`, `renderCheckStatusBar`, `setSlotCheckState`, `aiSlotMdButtonHtml`, `openAiSlotMdModal` |
@@ -58,6 +62,11 @@ Routes mirror `batch_generate_images`: gather work in request context, stream in
 - `GET /admin/questions/ai/endpoints` — enabled endpoints for the modal dropdown (subject-admin OK).
 - `POST /admin/questions/<id>/assets/ai/generate-md` — **synchronous** (not SSE) per-slot MD generation for the edit-modal button; body `{version, asset_type, endpoint_id, embed_image?, overwrite?}` (source = target = `version`); returns `{success, status, message, asset_id}`.
 - `POST /admin/questions/<id>/assets/check-state` — **manual** set/clear of a slot's proofread status; body `{version, asset_type, state, note?, severity?}` where `state ∈ ok|issues|error|clear`. Writes check fields to ALL rows in the slot; `clear` nulls them. Manual edits store `checked_by: "manual"` + `editor` username. Drives the editable status bar.
+- `POST /admin/questions/<id>/ai/suggest-tags` — **synchronous**, no DB write. Body `{versions[], fields[], endpoint_id?}` → returns `{suggestions, display_names, unmatched[], raw}` for the edit modal to populate + highlight (user clicks Save Tags to commit).
+- `GET /admin/questions/ai/auto-tag` — SSE batch tagging. Params `question_ids, endpoint_id, versions, fields, overwrite` → `iter_auto_tag` (suggest + apply + commit per question). Reuses `/admin/questions/ai/cancel`.
+- `POST /admin/questions/<id>/verify` — set the whole-question `verified` flag; body `{verified}`; response includes `unchecked_assets` so the modal can soft-warn.
+- `POST /admin/questions/batch-set-verified` — body `{question_ids[], verified}` (subject-scoped).
+- `POST /admin/questions/batch-set-check-state` — body `{question_ids[], versions[], atypes[], state, note?, severity?, overwrite?}`; applies the per-slot check write across the selection (skips empty slots; `overwrite=false` skips slots already carrying a status).
 
 Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; carries `job_id`) / `info` / `skip` / `success` / `error` / `done`. The `done` event carries `stats` (`{ok, issues, skipped, errors}` for check; `{created, skipped, errors}` for MD).
 
@@ -70,6 +79,16 @@ Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; 
 `iter_check` loads all IMG parts of the typed slot + reference slot; skips (with event) if either missing, or if already checked and `recheck` is off. Sends reference images first, then typed; parses strict JSON via `ai_prompts.parse_check_result`. Writes the SAME `check_state`/`check_result`/`checked_at` to every typed IMG part. States: `ok` (faithful), `issues` (discrepancies listed), `error` (unparseable reply — raw stored). `check_result` JSON: `{status, issues:[{severity,location,description}], model, ref_version, checked_by}` (manual edits use `checked_by:"manual"` + `editor`).
 
 The edit-modal slot header keeps a compact badge (`renderCheckBadge`), and the IMG group shows a prominent **editable** status bar (`renderCheckStatusBar`, shown whenever the slot has images — even unchecked): colour-coded OK/issues/error/"Not proofread", the issue list, and inline **mark correct / mark issue… / clear** buttons (`setSlotCheckState` → `set_asset_check_state`). All of this is gated on `window.OQB_AI_TOOLS_ENABLED` (admin + dashboard).
+
+## Auto-tagging semantics
+
+Classify a question with a vision LLM and map returned **names** back to the subject's Topic/Subtopic/Chapter/Subchapter IDs.
+
+- **Inputs** (`_resolve_tag_inputs`): for QUE then SOL, across the requested versions in order, take the FIRST available content per type — **IMG parts** (`prepare_image`) → else the **MD text** (data-URIs stripped to keep the prompt small) → else a **DOC slot rendered to a PNG** via `doc_thumbnails.ensure_thumbnail` (polled briefly). QUE is required; SOL optional.
+- **Prompt**: `TAG_SYSTEM` (role + STRICT JSON contract) + `TAG_USER` (vars `subject_name`, `fields`, `taxonomy`). `build_tag_taxonomy(subject_id, fields)` renders only the requested fields' allowed values (Topics→Subtopics, Chapters→Subchapters, q_type/level enums). The model must choose ONLY from these names.
+- **Parse + map** (`parse_tag_result` → `_map_tag_names`): defensive JSON extraction (fenced/bare); names matched case-insensitively within the subject. Subtopics validated as children of their resolved topic; `major_subtopic` must belong to `major_topic`. Topics/Subtopics share one list each (major + minor). Unmatched names are reported, not invented.
+- **`suggest_tags`** returns suggestions + display names + unmatched (NO write) — used by the sync route for review-before-save. **`apply_tags`** writes only the requested fields, skipping any field already holding a value when `overwrite` is off (scalar + M2M lists). **`iter_auto_tag`** is the SSE batch generator (job/info/skip/success/error/done + cancel between questions), calling `suggest_tags`+`apply_tags` and committing per question.
+- Field keys: `q_type` (MC/CQ), `level` (1-3), `section`, `major_topic`, `major_subtopic`, `minor_topics[]`, `subtopics[]`, `chapter`, `subchapter`. Defaults the UI pre-selects: `q_type, major_topic, major_subtopic, chapter`.
 
 ## MD generation
 

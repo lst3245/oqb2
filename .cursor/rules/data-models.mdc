@@ -18,13 +18,15 @@ Subject (id: string, e.g. 'MATC')
 Chapter (subject_id, sort_order)
   └── Subchapter (chapter_id, hidden, sort_order)
 
-Question (qid, subject, source, year, paper, section, qno, q_type, level, ...)
+Question (qid, subject, source, year, paper, section, qno, q_type, level,
+          verified, verified_at, verified_by, ...)
   ├── major_topic_id → Topic
   ├── major_subtopic_id → Subtopic  (must belong to major_topic)
   ├── minor_topics → [Topic]  (M2M via question_minor_topics)
   ├── subtopics → [Subtopic]  (M2M via question_subtopics)
   ├── chapter_id → Chapter
   ├── subchapter_id → Subchapter
+  ├── verified_by → User  (verified_by_user relationship)
   └── assets → [QuestionAsset]
 
 QuestionAsset (question_id, asset_type, file_format, version, file_path, part_number,
@@ -61,6 +63,7 @@ Delete is **blocked while any `Question` references the subject**. When allowed,
 | `correct_percentage` | 0–100 or NULL (public exam correct rate) |
 | `answer` | Text answer (alternative to ANS image) |
 | `comment` | Notes/commentary text |
+| `verified` | Bool (default False) — whole-question verified flag, set manually by an admin once assets are checked + tagging is correct. Independent of per-asset `check_state`; the edit modal soft-warns when verifying a question whose assets aren't all checked-OK. `verified_at` (UTC) + `verified_by` (FK users.id) record who/when. Filterable + batch-settable in Admin → Manage Questions. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc). |
 
 ## QuestionAsset Constraints
 - `asset_type`: `QUE`, `ANS`, `SOL`

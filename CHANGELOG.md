@@ -6,6 +6,23 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### Auto Question Tagging (LLM) + whole-question Verification
+
+Three connected additions to **Admin → Manage Questions** that make proofreading and classifying a large library tractable.
+
+**1. Auto Question Tagging (LLM).** Classify questions with a vision LLM instead of tagging by hand.
+
+- **Single question (review-before-save).** The Tags tab of the edit modal gains an **Auto Tag** button (next to *Save Tags*, gated on AI Tools being enabled). It opens a config modal where you pick which fields to tag, which versions to send, whether to overwrite already-set fields, and which LLM endpoint to use. Defaults selected: **Question Type, Major Topic, Major Subtopic, Chapter**; left off: Level, Section, Minor Topics, Minor Subtopics, Subchapter. The model's answer **populates the form and highlights the changed fields** — nothing is written until you click *Save Tags*, so every suggestion is reviewable.
+- **Batch.** Select questions in the list and run **Auto Tag** from the AI Tools modal (new *Auto tag (classify)* operation). This streams progress over SSE (same console/cancel UX as proofreading) and **writes per question** as it goes (no per-question review — a warning in the modal says so). Honours the same overwrite toggle.
+- **What gets sent.** For QUE then SOL, across the chosen versions, the first available content per type is sent: **IMG parts → else the MD text → else a DOC slot rendered to a PNG** via the existing thumbnail pipeline. The prompt also includes the subject's *allowed* tag values (Topics→Subtopics, Chapters→Subchapters, plus q_type/level enums) and the model must choose only from them — returned **names** are mapped back to IDs case-insensitively, with subtopics validated as children of their resolved topic and the major subtopic required to belong to the major topic. Major/Minor Topics share one list; Major/Minor Subtopics share one list (under the chosen topics).
+- Two new editable prompts appear under **Admin → AI Prompts**: **Auto tagging: System prompt** (`TAG_SYSTEM`) and **Auto tagging: User-turn instruction** (`TAG_USER`).
+
+**2. Asset-check status indicators + filter + batch set.** The list now shows a per-question **Status** column rolled up from each asset slot's proofread `check_state`: a red warning triangle if any slot has issues/errors, a green check if every asset is checked-OK, or a grey dash if anything is still unchecked. A new **Status** filter (Has issues / All checked OK / Has unchecked) narrows the list, and a **Set Check State** batch button writes the proofread status of the chosen *version × asset-type* slots across the selection (with severity/note for issues, an optional *Clear* back to unchecked, and an overwrite toggle that skips slots already carrying a status).
+
+**3. Whole-question Verification flag.** A new **Verified** column / badge marks a question as fully reviewed (assets checked + tagging correct). Set it from a toggle in the edit modal's Details tab (with a **soft warning** if not every asset is checked-OK — you can still verify) or in bulk via the **Set Verified** batch dropdown. A **Verified** filter (Verified / Not verified) is available in the toolbar.
+
+Routes (subject-admin, AI ones gated on `AI_TOOLS_ENABLED`): `POST /admin/questions/<id>/ai/suggest-tags` (sync, no write), `GET /admin/questions/ai/auto-tag` (SSE, reuses `/admin/questions/ai/cancel`), `POST /admin/questions/<id>/verify`, `POST /admin/questions/batch-set-verified`, `POST /admin/questions/batch-set-check-state`. `questions_api_list` gained `verified` + `check_summary` per item and `verified` / `check_status` filters.
+
 #### Admin → Manage Subjects (super-admin only)
 
 Subjects used to exist only as DB rows seeded once by `init_db.py` — there was no way to add a new subject (e.g. a new exam) or remove an obsolete one without touching the database by hand. A new **Admin → Manage Subjects** page (super-admin only) gives full CRUD:
@@ -174,6 +191,7 @@ The per-asset **language** concept (EN / CH / BI) has been generalised into **Ve
 
 - **`question_assets.language` → `version`**, enum widened from `ENUM('EN','CH','BI')` to `ENUM('EN','CH','BI','ENO','CHO')`. Run `python migrate_versions.py` (idempotent `CHANGE COLUMN`, auto-carries the `uq_asset_identity` unique index to the renamed column). Existing deployments also auto-upgrade on startup via an idempotent INFORMATION_SCHEMA check in `app/__init__.py`, so the manual script is a safety net rather than a hard requirement.
 - **AI Tools**: three new nullable columns on `question_assets` — `check_state` `VARCHAR(20)`, `check_result` `TEXT` (JSON), `checked_at` `DATETIME` — plus a new **`llm_configs`** table (named LLM endpoints, encrypted keys). Both are created/added automatically on app startup via the same idempotent INFORMATION_SCHEMA pattern — no manual migration needed.
+- **Question verification**: three new columns on `questions` — `verified` `TINYINT(1) NOT NULL DEFAULT 0`, `verified_at` `DATETIME NULL`, `verified_by` `INT NULL` (FK `users.id`) — for the whole-question verified flag. Added automatically on startup via the same idempotent INFORMATION_SCHEMA pattern.
 - New `.env` keys: `LLM_API_KEY` (global fallback API key) and `LLM_KEY_SECRET` (optional Fernet secret for encrypting UI-entered endpoint keys; falls back to `SECRET_KEY`). New dependency: `requests`.
 
 ### ✨ Enhanced Features

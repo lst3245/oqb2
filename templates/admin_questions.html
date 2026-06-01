@@ -76,7 +76,22 @@
                     <button class="btn btn-sm btn-primary" id="bulkAiToolsBtn" style="display:none" onclick="openAiToolsModal()" title="Run AI proofreading or Markdown generation on the selected questions">
                         <i class="bi bi-robot"></i> AI Tools (<span id="selCountBadgeAi">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-info text-dark" id="bulkAutoTagBtn" style="display:none" onclick="openAiToolsModal('tag')" title="Auto-tag the selected questions with an LLM">
+                        <i class="bi bi-tags"></i> Auto Tag (<span id="selCountBadgeTag">0</span>)
+                    </button>
                     {% endif %}
+                    <button class="btn btn-sm btn-outline-success" id="bulkCheckStateBtn" style="display:none" onclick="openBatchCheckStateModal()" title="Set the proofread check status of asset slots for the selected questions">
+                        <i class="bi bi-clipboard-check"></i> Set Check State (<span id="selCountBadgeChk">0</span>)
+                    </button>
+                    <div class="dropdown d-inline-block" id="bulkVerifiedWrap" style="display:none">
+                        <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" title="Set the verified flag for the selected questions">
+                            <i class="bi bi-patch-check"></i> Set Verified (<span id="selCountBadgeVer">0</span>)
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="batchSetVerified(true); return false;"><i class="bi bi-patch-check-fill text-success"></i> Mark Verified</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="batchSetVerified(false); return false;"><i class="bi bi-shield text-secondary"></i> Mark Not Verified</a></li>
+                        </ul>
+                    </div>
                     <div class="dropdown d-inline-block">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> Options
@@ -94,6 +109,30 @@
                                 </label>
                             </li>
                         </ul>
+                    </div>
+                </div>
+            </div>
+            <!-- Secondary filter row: asset-check status + verified -->
+            <div class="row g-2 align-items-center mt-1">
+                <div class="col-auto">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-clipboard-check"></i> Status</span>
+                        <select id="checkStatusFilter" class="form-select form-select-sm" onchange="currentPage=1; loadQuestions();">
+                            <option value="">All</option>
+                            <option value="issues">Has issues</option>
+                            <option value="ok">All checked OK</option>
+                            <option value="unchecked">Has unchecked</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-patch-check"></i> Verified</span>
+                        <select id="verifiedFilter" class="form-select form-select-sm" onchange="currentPage=1; loadQuestions();">
+                            <option value="">All</option>
+                            <option value="1">Verified</option>
+                            <option value="0">Not verified</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -127,12 +166,14 @@
                         <th data-sort="qno" onclick="sortBy('qno')">Q# <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th data-sort="q_type" onclick="sortBy('q_type')">Type <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th>Assets</th>
+                        <th title="Asset proofreading status">Status</th>
+                        <th title="Whole-question verified flag">Verified</th>
                         <th data-sort="created_at" onclick="sortBy('created_at')">Created <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th style="width:80px">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="questionTableBody">
-                    <tr><td colspan="11" class="text-center text-muted py-4">Loading...</td></tr>
+                    <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -566,7 +607,8 @@
                     <i class="bi bi-info-circle"></i>
                     Run an LLM over the selected questions. <strong>Check images</strong> proofreads a typed version
                     against an official scan and records the result on each asset. <strong>Generate Markdown</strong>
-                    transcribes images (with LaTeX) into a Markdown asset. A vision-capable endpoint is required.
+                    transcribes images (with LaTeX) into a Markdown asset. <strong>Auto tag</strong> classifies each
+                    question and writes the chosen tags. A vision-capable endpoint is required.
                 </div>
 
                 <div id="aiToolsOptions">
@@ -590,12 +632,16 @@
                                 <input class="form-check-input" type="radio" name="aiOp" id="aiOpMd" value="md" onchange="aiToolsToggleOp()">
                                 <label class="form-check-label" for="aiOpMd">Generate Markdown</label>
                             </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="aiOp" id="aiOpTag" value="tag" onchange="aiToolsToggleOp()">
+                                <label class="form-check-label" for="aiOpTag">Auto tag (classify)</label>
+                            </div>
                         </div>
                     </div>
 
                     <hr class="my-3">
 
-                    <div class="row g-3">
+                    <div class="row g-3" id="aiTypeAndPanelRow">
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Asset types</label>
                             <div class="form-check">
@@ -666,6 +712,45 @@
                                 <input class="form-check-input" type="checkbox" id="aiMdOverwrite">
                                 <label class="form-check-label" for="aiMdOverwrite">Overwrite existing target MD</label>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto tag panel (full width, shown only for the tag op) -->
+                    <div class="d-none" id="aiTagPanel">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold d-block">Send versions</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% for v in OQB_VERSIONS %}
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-tag-version" type="checkbox" value="{{ v }}" id="aiTagVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                                        <label class="form-check-label" for="aiTagVer_{{ v }}">{{ v }}</label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <small class="text-muted">QUE + SOL; first available per type (IMG → MD → DOC) is sent.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold d-block">Tags to apply</label>
+                                <div class="row g-1">
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_q_type" value="q_type" checked><label class="form-check-label" for="aitf_q_type">Question Type</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_level" value="level"><label class="form-check-label" for="aitf_level">Level</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_section" value="section"><label class="form-check-label" for="aitf_section">Section</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_major_topic" value="major_topic" checked><label class="form-check-label" for="aitf_major_topic">Major Topic</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_major_subtopic" value="major_subtopic" checked><label class="form-check-label" for="aitf_major_subtopic">Major Subtopic</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_minor_topics" value="minor_topics"><label class="form-check-label" for="aitf_minor_topics">Minor Topics</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_subtopics" value="subtopics"><label class="form-check-label" for="aitf_subtopics">Minor Subtopics</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_chapter" value="chapter" checked><label class="form-check-label" for="aitf_chapter">Chapter</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_subchapter" value="subchapter"><label class="form-check-label" for="aitf_subchapter">Subchapter</label></div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mt-3">
+                            <input class="form-check-input" type="checkbox" id="aiTagOverwrite">
+                            <label class="form-check-label" for="aiTagOverwrite">Overwrite fields that already have a value</label>
+                        </div>
+                        <div class="alert alert-warning py-2 small mt-2 mb-0">
+                            <i class="bi bi-exclamation-triangle"></i> Batch auto-tag writes directly to the database (no per-question review). Use the single-question <em>Auto Tag</em> button in the edit modal if you want to review before saving.
                         </div>
                     </div>
                 </div>
@@ -774,6 +859,83 @@
     </div>
 </div>
 
+<!-- ===================== Batch Set Check State Modal ===================== -->
+<div class="modal fade" id="batchCheckStateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-clipboard-check"></i> Set Asset Check State</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    Sets the proofread status of the chosen <strong>version × asset-type</strong> slots
+                    for every selected question. Slots with no assets are skipped.
+                </div>
+                <p class="mb-3"><strong>Selected questions:</strong> <span id="batchCheckStateCount" class="badge bg-secondary">0</span></p>
+
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold">Versions</label>
+                        {% for v in OQB_VERSIONS %}
+                        <div class="form-check">
+                            <input class="form-check-input bcs-version" type="checkbox" value="{{ v }}" id="bcsVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                            <label class="form-check-label" for="bcsVer_{{ v }}">{{ v }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold">Asset types</label>
+                        <div class="form-check"><input class="form-check-input bcs-atype" type="checkbox" value="QUE" id="bcsType_QUE" checked><label class="form-check-label" for="bcsType_QUE">QUE</label></div>
+                        <div class="form-check"><input class="form-check-input bcs-atype" type="checkbox" value="ANS" id="bcsType_ANS"><label class="form-check-label" for="bcsType_ANS">ANS</label></div>
+                        <div class="form-check"><input class="form-check-input bcs-atype" type="checkbox" value="SOL" id="bcsType_SOL"><label class="form-check-label" for="bcsType_SOL">SOL</label></div>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold" for="bcsState">New state</label>
+                        <select class="form-select form-select-sm" id="bcsState" onchange="onBcsStateChange()">
+                            <option value="ok">Checked — OK</option>
+                            <option value="issues">Has issue(s)</option>
+                            <option value="error">Check error</option>
+                            <option value="clear">Clear (set back to unchecked)</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6" id="bcsSeverityWrap" style="display:none">
+                        <label class="form-label fw-bold" for="bcsSeverity">Severity</label>
+                        <select class="form-select form-select-sm" id="bcsSeverity">
+                            <option value="minor">Minor</option>
+                            <option value="major">Major</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-2" id="bcsNoteWrap" style="display:none">
+                    <label class="form-label fw-bold" for="bcsNote">Note (optional)</label>
+                    <input type="text" class="form-control form-control-sm" id="bcsNote" placeholder="Short description of the issue">
+                </div>
+
+                <div class="form-check form-switch mt-3">
+                    <input class="form-check-input" type="checkbox" id="bcsOverwrite">
+                    <label class="form-check-label" for="bcsOverwrite">Overwrite slots that already have a status</label>
+                </div>
+
+                <div id="bcsStatus" class="small mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-success" id="bcsRunBtn" onclick="runBatchCheckState()">
+                    <i class="bi bi-play-fill"></i> Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -818,6 +980,12 @@ function loadQuestions() {
         ? 'selection_order' : currentSort.field;
     let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${sortField}&dir=${currentSort.dir}`;
 
+    // Asset-check status + verified filters (apply in every branch).
+    const checkStatus = document.getElementById('checkStatusFilter')?.value || '';
+    const verifiedFilter = document.getElementById('verifiedFilter')?.value || '';
+    if (checkStatus) url += '&check_status=' + encodeURIComponent(checkStatus);
+    if (verifiedFilter !== '') url += '&verified=' + encodeURIComponent(verifiedFilter);
+
     if (usingPinned) {
         url += '&qids=' + encodeURIComponent(pinnedQids.join(','));
     } else if (showSelected) {
@@ -844,7 +1012,7 @@ function loadQuestions() {
 }
 
 function renderEmptyTable(msg) {
-    document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">${msg}</td></tr>`;
+    document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="13" class="text-center text-muted py-4">${msg}</td></tr>`;
     document.getElementById('pageInfo').textContent = '0 questions';
     document.getElementById('pagination').innerHTML = '';
 }
@@ -869,6 +1037,8 @@ function renderTable(data) {
             <td>${q.qno}</td>
             <td>${q.q_type || '-'}</td>
             <td><span class="badge text-dark bg-light border">${q.asset_count}</span></td>
+            <td>${renderCheckStatusIndicator(q.check_summary)}</td>
+            <td>${renderVerifiedIndicator(q.verified)}</td>
             <td><small>${q.created_at}</small></td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(${q.id})" title="Edit">
@@ -881,6 +1051,28 @@ function renderTable(data) {
     const start = (data.page - 1) * data.page_size + 1;
     const end = Math.min(data.page * data.page_size, data.total);
     document.getElementById('pageInfo').textContent = `${start}-${end} of ${data.total} questions`;
+}
+
+// Small asset-proofreading indicator built from item.check_summary.
+function renderCheckStatusIndicator(cs) {
+    cs = cs || { status: 'none', total: 0 };
+    const total = cs.total || 0;
+    if (cs.status === 'issues') {
+        return `<span class="badge bg-danger" title="${cs.issues || 0} asset(s) flagged with issues"><i class="bi bi-exclamation-triangle-fill"></i> Issues</span>`;
+    }
+    if (cs.status === 'ok') {
+        return `<span class="badge bg-success" title="All ${total} asset(s) checked OK"><i class="bi bi-check-circle-fill"></i> OK</span>`;
+    }
+    if (cs.status === 'unchecked') {
+        return `<span class="badge bg-warning text-dark" title="${cs.unchecked || 0} of ${total} asset(s) not yet checked"><i class="bi bi-hourglass-split"></i> ${cs.unchecked || 0} unchecked</span>`;
+    }
+    return `<span class="text-muted" title="No assets">—</span>`;
+}
+
+function renderVerifiedIndicator(verified) {
+    return verified
+        ? `<span class="badge bg-success" title="Question verified"><i class="bi bi-patch-check-fill"></i> Verified</span>`
+        : `<span class="badge bg-light text-secondary border" title="Not verified"><i class="bi bi-shield"></i> No</span>`;
 }
 
 function renderPagination(data) {
@@ -979,6 +1171,18 @@ function updateSelectionUI() {
     const aiBadge = document.getElementById('selCountBadgeAi');
     if (aiBtn) aiBtn.style.display = count > 0 ? '' : 'none';
     if (aiBadge) aiBadge.textContent = count;
+    const tagBtn = document.getElementById('bulkAutoTagBtn');
+    const tagBadge = document.getElementById('selCountBadgeTag');
+    if (tagBtn) tagBtn.style.display = count > 0 ? '' : 'none';
+    if (tagBadge) tagBadge.textContent = count;
+    const chkBtn = document.getElementById('bulkCheckStateBtn');
+    const chkBadge = document.getElementById('selCountBadgeChk');
+    if (chkBtn) chkBtn.style.display = count > 0 ? '' : 'none';
+    if (chkBadge) chkBadge.textContent = count;
+    const verWrap = document.getElementById('bulkVerifiedWrap');
+    const verBadge = document.getElementById('selCountBadgeVer');
+    if (verWrap) verWrap.style.display = count > 0 ? '' : 'none';
+    if (verBadge) verBadge.textContent = count;
     // Update select-all checkbox
     const all = document.querySelectorAll('.q-checkbox');
     const checked = document.querySelectorAll('.q-checkbox:checked');
@@ -1330,12 +1534,21 @@ let aiToolsOp = 'check';
 
 function aiToolsToggleOp() {
     const op = document.querySelector('input[name="aiOp"]:checked').value;
+    // Auto tag uses its own panel and doesn't need the per-type / version row.
+    document.getElementById('aiTypeAndPanelRow').classList.toggle('d-none', op === 'tag');
+    document.getElementById('aiTagPanel').classList.toggle('d-none', op !== 'tag');
     document.getElementById('aiCheckPanel').classList.toggle('d-none', op !== 'check');
     document.getElementById('aiMdPanel').classList.toggle('d-none', op !== 'md');
 }
 
-function openAiToolsModal() {
+function openAiToolsModal(presetOp) {
     if (selectedQIds.size === 0) return;
+    // Optional preset operation (e.g. the dedicated "Auto Tag" toolbar button).
+    if (presetOp) {
+        const radio = document.getElementById(
+            presetOp === 'tag' ? 'aiOpTag' : presetOp === 'md' ? 'aiOpMd' : 'aiOpCheck');
+        if (radio) radio.checked = true;
+    }
     document.getElementById('aiToolsCount').textContent = selectedQIds.size;
     document.getElementById('aiToolsConsoleWrap').classList.add('d-none');
     document.getElementById('aiToolsLog').innerHTML = '';
@@ -1402,38 +1615,49 @@ function runAiTools() {
         showToast('Select an LLM endpoint first.', 'warning');
         return;
     }
-    const atypes = ['QUE', 'ANS', 'SOL'].filter(t => document.getElementById('aiType_' + t).checked);
-    if (atypes.length === 0) {
-        showToast('Pick at least one asset type (QUE / ANS / SOL).', 'warning');
-        return;
-    }
 
     aiToolsOp = document.querySelector('input[name="aiOp"]:checked').value;
     const params = new URLSearchParams();
     params.set('question_ids', Array.from(selectedQIds).join(','));
     params.set('endpoint_id', endpointId);
-    params.set('atypes', atypes.join(','));
 
     let endpointUrl;
-    if (aiToolsOp === 'check') {
-        const typed = document.getElementById('aiTypedVersion').value;
-        const ref = document.getElementById('aiRefVersion').value;
-        if (typed === ref) {
-            showToast('Typed and reference versions must differ.', 'warning');
+    if (aiToolsOp === 'tag') {
+        const fields = Array.from(document.querySelectorAll('.ai-tag-field:checked')).map(cb => cb.value);
+        if (fields.length === 0) { showToast('Pick at least one tag field.', 'warning'); return; }
+        const versions = Array.from(document.querySelectorAll('.ai-tag-version:checked')).map(cb => cb.value);
+        if (versions.length === 0) { showToast('Pick at least one version to send.', 'warning'); return; }
+        params.set('fields', fields.join(','));
+        params.set('versions', versions.join(','));
+        params.set('overwrite', document.getElementById('aiTagOverwrite').checked ? '1' : '0');
+        endpointUrl = '{{ url_for("admin.ai_auto_tag") }}';
+    } else {
+        const atypes = ['QUE', 'ANS', 'SOL'].filter(t => document.getElementById('aiType_' + t).checked);
+        if (atypes.length === 0) {
+            showToast('Pick at least one asset type (QUE / ANS / SOL).', 'warning');
             return;
         }
-        params.set('typed_version', typed);
-        params.set('ref_version', ref);
-        params.set('recheck', document.getElementById('aiRecheck').checked ? '1' : '0');
-        endpointUrl = '{{ url_for("admin.ai_check") }}';
-    } else {
-        const source = document.getElementById('aiSourceVersion').value;
-        const target = document.getElementById('aiTargetVersion').value;
-        params.set('source_version', source);
-        params.set('target_version', target);
-        params.set('embed_image', document.getElementById('aiEmbedImage').checked ? '1' : '0');
-        params.set('overwrite', document.getElementById('aiMdOverwrite').checked ? '1' : '0');
-        endpointUrl = '{{ url_for("admin.ai_generate_md") }}';
+        params.set('atypes', atypes.join(','));
+        if (aiToolsOp === 'check') {
+            const typed = document.getElementById('aiTypedVersion').value;
+            const ref = document.getElementById('aiRefVersion').value;
+            if (typed === ref) {
+                showToast('Typed and reference versions must differ.', 'warning');
+                return;
+            }
+            params.set('typed_version', typed);
+            params.set('ref_version', ref);
+            params.set('recheck', document.getElementById('aiRecheck').checked ? '1' : '0');
+            endpointUrl = '{{ url_for("admin.ai_check") }}';
+        } else {
+            const source = document.getElementById('aiSourceVersion').value;
+            const target = document.getElementById('aiTargetVersion').value;
+            params.set('source_version', source);
+            params.set('target_version', target);
+            params.set('embed_image', document.getElementById('aiEmbedImage').checked ? '1' : '0');
+            params.set('overwrite', document.getElementById('aiMdOverwrite').checked ? '1' : '0');
+            endpointUrl = '{{ url_for("admin.ai_generate_md") }}';
+        }
     }
 
     aiToolsRunning = true;
@@ -1448,7 +1672,9 @@ function runAiTools() {
     document.getElementById('aiToolsProgressBar').className = 'progress-bar progress-bar-striped progress-bar-animated';
     document.getElementById('aiToolsSummary').classList.add('d-none');
 
-    _appendAiLog(`Starting ${aiToolsOp === 'check' ? 'image check' : 'Markdown generation'} (${selectedQIds.size} question(s))...`, 'info');
+    const opLabel = aiToolsOp === 'check' ? 'image check'
+        : aiToolsOp === 'tag' ? 'auto tagging' : 'Markdown generation';
+    _appendAiLog(`Starting ${opLabel} (${selectedQIds.size} question(s))...`, 'info');
 
     const url = endpointUrl + '?' + params.toString();
     aiToolsEventSource = new EventSource(url);
@@ -1508,6 +1734,11 @@ function finishAiTools(event) {
             html = `
                 <div class="col"><div class="fs-5 fw-bold text-success">${s.ok ?? 0}</div><small class="text-muted">OK</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-warning">${s.issues ?? 0}</div><small class="text-muted">Issues</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
+        } else if (aiToolsOp === 'tag') {
+            html = `
+                <div class="col"><div class="fs-5 fw-bold text-success">${s.tagged ?? 0}</div><small class="text-muted">Tagged</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
         } else {
@@ -1960,6 +2191,91 @@ function stopBatchMcqAns() {
     document.getElementById('batchMcqAnsStatus').className = 'badge bg-warning text-dark';
     document.getElementById('batchMcqAnsOptions').classList.remove('opacity-50');
     _appendMcqAnsLog('Stopped by user.', 'warning');
+}
+
+// ===================== BATCH SET CHECK STATE =====================
+function onBcsStateChange() {
+    const state = document.getElementById('bcsState').value;
+    document.getElementById('bcsSeverityWrap').style.display = state === 'issues' ? '' : 'none';
+    document.getElementById('bcsNoteWrap').style.display = (state === 'issues' || state === 'error') ? '' : 'none';
+}
+
+function openBatchCheckStateModal() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('batchCheckStateCount').textContent = selectedQIds.size;
+    document.getElementById('bcsStatus').innerHTML = '';
+    document.getElementById('bcsState').value = 'ok';
+    document.getElementById('bcsNote').value = '';
+    document.getElementById('bcsOverwrite').checked = false;
+    onBcsStateChange();
+    new bootstrap.Modal(document.getElementById('batchCheckStateModal')).show();
+}
+
+function runBatchCheckState() {
+    if (selectedQIds.size === 0) return;
+    const versions = Array.from(document.querySelectorAll('.bcs-version:checked')).map(cb => cb.value);
+    if (!versions.length) { showToast('Pick at least one version.', 'warning'); return; }
+    const atypes = Array.from(document.querySelectorAll('.bcs-atype:checked')).map(cb => cb.value);
+    if (!atypes.length) { showToast('Pick at least one asset type.', 'warning'); return; }
+    const state = document.getElementById('bcsState').value;
+    const note = document.getElementById('bcsNote').value.trim();
+    const severity = document.getElementById('bcsSeverity').value;
+    const overwrite = document.getElementById('bcsOverwrite').checked;
+
+    const btn = document.getElementById('bcsRunBtn');
+    const status = document.getElementById('bcsStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying…';
+    status.innerHTML = '';
+
+    fetch('{{ url_for("admin.batch_set_check_state") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            question_ids: Array.from(selectedQIds),
+            versions: versions, atypes: atypes, state: state,
+            note: note, severity: severity, overwrite: overwrite
+        })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill"></i> Apply';
+        if (ok && d.success) {
+            showToast(`Updated ${d.slots_updated} slot(s) across the selection.`, 'success');
+            status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> Updated ${d.slots_updated} slot(s), ${d.assets_updated} asset(s).</span>`;
+            loadQuestions();
+        } else {
+            status.innerHTML = `<span class="text-danger">${escapeHtmlAi((d && (d.error || d.message)) || 'Failed')}</span>`;
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill"></i> Apply';
+        status.innerHTML = `<span class="text-danger">Network error: ${escapeHtmlAi(err.message)}</span>`;
+    });
+}
+
+// ===================== BATCH SET VERIFIED =====================
+function batchSetVerified(verified) {
+    if (selectedQIds.size === 0) return;
+    const n = selectedQIds.size;
+    if (!confirm(`Mark ${n} selected question(s) as ${verified ? 'VERIFIED' : 'NOT verified'}?`)) return;
+    fetch('{{ url_for("admin.batch_set_verified") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ question_ids: Array.from(selectedQIds), verified: verified })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            showToast(`${d.updated} question(s) marked ${verified ? 'verified' : 'not verified'}.`, 'success');
+            loadQuestions();
+        } else {
+            showToast((d && (d.error || d.message)) || 'Failed to update verification', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
 }
 
 // ===================== INIT =====================

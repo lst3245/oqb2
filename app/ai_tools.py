@@ -13,6 +13,7 @@ All LLM access goes through ``app/llm_client.py`` (OpenAI-compatible).
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime
@@ -452,3 +453,452 @@ def iter_generate_md(qs, source_version, target_version, asset_types, overwrite,
     else:
         yield {'type': 'done', 'message': 'Stopped.', 'current': current, 'total': total,
                'stats': {'created': created, 'skipped': skipped, 'errors': errors}}
+
+
+# ==================== Auto question tagging ====================
+#
+# Classify a question with an LLM and map the returned names back to the
+# subject's Topic / Subtopic / Chapter / Subchapter IDs. ``suggest_tags`` is
+# read-only (used by the single-question review flow in the edit modal);
+# ``apply_tags`` writes the resolved IDs to the Question; ``iter_auto_tag`` is
+# the SSE batch generator that does both per question.
+
+# Embedded base64 image data-URIs in MD assets are huge and useless for
+# tagging — strip them so the text we send the model stays small.
+_DATA_URI_RE = re.compile(r'data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+')
+
+
+def _strip_data_uris(text, limit=8000):
+    text = _DATA_URI_RE.sub('[embedded image]', text or '')
+    if len(text) > limit:
+        text = text[:limit] + '\n…[truncated]'
+    return text
+
+
+def _doc_thumb_png(asset_id):
+    """Absolute path to a DOC asset's first-page PNG thumbnail, rendering it
+    synchronously if it isn't cached yet. Returns None if unavailable (e.g.
+    Word COM not present)."""
+    from flask import current_app
+    from app import doc_thumbnails
+    if doc_thumbnails.thumbnail_exists(asset_id):
+        return doc_thumbnails.thumbnail_path(asset_id)
+    app = current_app._get_current_object()
+    try:
+        ok = doc_thumbnails.render_doc_thumbnail_sync(app, asset_id)
+    except Exception:
+        logger.exception('DOC thumbnail render failed for asset %s (tag input)', asset_id)
+        ok = False
+    return doc_thumbnails.thumbnail_path(asset_id) if ok else None
+
+
+def _resolve_tag_inputs(question, versions, source_path, image_max_dim):
+    """Gather LLM inputs for tagging ONE question. For QUE then SOL, try each
+    requested version in priority order and take the FIRST available content:
+    prefer IMG parts, else the MD text, else a DOC rendered to a PNG.
+
+    Returns ``(images, text_blocks, found_que)`` where ``images`` is a list of
+    ``(b64, mime)`` tuples and ``text_blocks`` a list of strings.
+    """
+    images = []
+    text_blocks = []
+    found_que = False
+
+    for atype in ('QUE', 'SOL'):
+        got = False
+        for version in versions:
+            # 1) IMG parts (preferred)
+            img_parts = _slot_img_parts(question.id, atype, version)
+            if img_parts:
+                try:
+                    for a in img_parts:
+                        images.append(llm_client.prepare_image(
+                            _abs(source_path, a.file_path), image_max_dim))
+                    got = True
+                    break
+                except Exception:
+                    logger.exception('Tag input IMG prep failed for q%s %s/%s',
+                                     question.id, atype, version)
+                    continue
+            # 2) MD text
+            md = (QuestionAsset.query
+                  .filter_by(question_id=question.id, asset_type=atype,
+                             version=version, file_format='MD')
+                  .first())
+            if md:
+                try:
+                    with open(_abs(source_path, md.file_path), 'r', encoding='utf-8') as f:
+                        raw = f.read()
+                    text_blocks.append(f'{atype} ({version}) Markdown:\n{_strip_data_uris(raw)}')
+                    got = True
+                    break
+                except Exception:
+                    logger.exception('Tag input MD read failed for q%s %s/%s',
+                                     question.id, atype, version)
+                    continue
+            # 3) DOC -> thumbnail PNG
+            doc = (QuestionAsset.query
+                   .filter_by(question_id=question.id, asset_type=atype,
+                              version=version, file_format='DOC')
+                   .first())
+            if doc:
+                png = _doc_thumb_png(doc.id)
+                if png:
+                    try:
+                        images.append(llm_client.prepare_image(png, image_max_dim))
+                        got = True
+                        break
+                    except Exception:
+                        logger.exception('Tag input DOC thumb prep failed for q%s %s/%s',
+                                         question.id, atype, version)
+                        continue
+        if atype == 'QUE' and got:
+            found_que = True
+
+    return images, text_blocks, found_que
+
+
+def _map_tag_names(question, parsed, fields):
+    """Map the LLM's returned NAMES back to the subject's Topic / Subtopic /
+    Chapter / Subchapter IDs (case-insensitive). Returns
+    ``(suggestions, display, unmatched)`` where ``suggestions`` holds resolved
+    IDs / scalar values keyed for write-back, ``display`` holds the resolved
+    names for the UI, and ``unmatched`` lists names that didn't resolve.
+    """
+    from app.models import Topic, Subtopic, Chapter, Subchapter
+
+    subject = question.subject
+    suggestions = {}
+    display = {}
+    unmatched = []
+
+    topics = Topic.query.filter_by(subject_id=subject).all()
+    topic_by_name = {t.name.strip().lower(): t for t in topics}
+
+    def _subs(rel):
+        return rel.all() if hasattr(rel, 'all') else list(rel)
+
+    # ---- scalars ----
+    if 'q_type' in fields and parsed.get('q_type'):
+        suggestions['q_type'] = parsed['q_type']
+        display['q_type'] = parsed['q_type']
+    if 'level' in fields and parsed.get('level') is not None:
+        suggestions['level'] = parsed['level']
+        display['level'] = parsed['level']
+    if 'section' in fields and parsed.get('section'):
+        suggestions['section'] = parsed['section']
+        display['section'] = parsed['section']
+
+    # ---- major topic ----
+    resolved_major_topic = None
+    if 'major_topic' in fields and parsed.get('major_topic'):
+        t = topic_by_name.get(parsed['major_topic'].strip().lower())
+        if t:
+            resolved_major_topic = t
+            suggestions['major_topic_id'] = t.id
+            display['major_topic'] = t.name
+        else:
+            unmatched.append({'field': 'major_topic', 'name': parsed['major_topic']})
+
+    eff_major_topic = resolved_major_topic
+    if eff_major_topic is None and question.major_topic_id:
+        eff_major_topic = Topic.query.get(question.major_topic_id)
+
+    # ---- major subtopic ----
+    if 'major_subtopic' in fields and parsed.get('major_subtopic'):
+        low = parsed['major_subtopic'].strip().lower()
+        found = None
+        if eff_major_topic:
+            for s in _subs(eff_major_topic.subtopics):
+                if s.name.strip().lower() == low:
+                    found = s
+                    break
+        if not found:
+            found = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
+                     .filter(Topic.subject_id == subject)
+                     .filter(db.func.lower(Subtopic.name) == low).first())
+        if found:
+            suggestions['major_subtopic_id'] = found.id
+            display['major_subtopic'] = found.name
+        else:
+            unmatched.append({'field': 'major_subtopic', 'name': parsed['major_subtopic']})
+
+    # ---- minor topics (M2M) ----
+    if 'minor_topics' in fields and parsed.get('minor_topics'):
+        ids = []
+        names = []
+        for nm in parsed['minor_topics']:
+            t = topic_by_name.get(nm.strip().lower())
+            if t:
+                if resolved_major_topic and t.id == resolved_major_topic.id:
+                    continue
+                if t.id not in ids:
+                    ids.append(t.id)
+                    names.append(t.name)
+            else:
+                unmatched.append({'field': 'minor_topics', 'name': nm})
+        if ids:
+            suggestions['minor_topic_ids'] = ids
+            display['minor_topics'] = names
+
+    # ---- subtopics (M2M) ----
+    if 'subtopics' in fields and parsed.get('subtopics'):
+        scope_topic_ids = set()
+        if eff_major_topic:
+            scope_topic_ids.add(eff_major_topic.id)
+        scope_topic_ids.update(suggestions.get('minor_topic_ids', []))
+        ids = []
+        names = []
+        for nm in parsed['subtopics']:
+            low = nm.strip().lower()
+            found = None
+            if scope_topic_ids:
+                found = (Subtopic.query
+                         .filter(Subtopic.topic_id.in_(scope_topic_ids))
+                         .filter(db.func.lower(Subtopic.name) == low).first())
+            if not found:
+                found = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
+                         .filter(Topic.subject_id == subject)
+                         .filter(db.func.lower(Subtopic.name) == low).first())
+            if found:
+                if found.id not in ids:
+                    ids.append(found.id)
+                    names.append(found.name)
+            else:
+                unmatched.append({'field': 'subtopics', 'name': nm})
+        if ids:
+            suggestions['subtopic_ids'] = ids
+            display['subtopics'] = names
+
+    # ---- chapter ----
+    resolved_chapter = None
+    if 'chapter' in fields and parsed.get('chapter'):
+        low = parsed['chapter'].strip().lower()
+        c = (Chapter.query.filter_by(subject_id=subject)
+             .filter(db.func.lower(Chapter.name) == low).first())
+        if c:
+            resolved_chapter = c
+            suggestions['chapter_id'] = c.id
+            display['chapter'] = c.name
+        else:
+            unmatched.append({'field': 'chapter', 'name': parsed['chapter']})
+
+    eff_chapter = resolved_chapter
+    if eff_chapter is None and question.chapter_id:
+        eff_chapter = Chapter.query.get(question.chapter_id)
+
+    # ---- subchapter ----
+    if 'subchapter' in fields and parsed.get('subchapter'):
+        low = parsed['subchapter'].strip().lower()
+        found = None
+        if eff_chapter:
+            for sc in _subs(eff_chapter.subchapters):
+                if sc.name.strip().lower() == low:
+                    found = sc
+                    break
+        if not found:
+            found = (Subchapter.query.join(Chapter, Subchapter.chapter_id == Chapter.id)
+                     .filter(Chapter.subject_id == subject)
+                     .filter(db.func.lower(Subchapter.name) == low).first())
+        if found:
+            suggestions['subchapter_id'] = found.id
+            display['subchapter'] = found.name
+        else:
+            unmatched.append({'field': 'subchapter', 'name': parsed['subchapter']})
+
+    return suggestions, display, unmatched
+
+
+def suggest_tags(question, versions, fields, config, image_max_dim, source_path):
+    """Ask the LLM to classify ONE question and map the result to IDs. Pure
+    read — does NOT write to the DB. Returns a dict:
+
+      {ok, error?, suggestions, display, unmatched, raw}
+    """
+    from app.models import Subject
+
+    fields = [f for f in (fields or []) if f in ai_prompts.TAG_FIELDS]
+    if not fields:
+        return {'ok': False, 'error': 'no fields selected', 'suggestions': {},
+                'display': {}, 'unmatched': [], 'raw': ''}
+
+    images, text_blocks, _found_que = _resolve_tag_inputs(
+        question, versions, source_path, image_max_dim)
+    if not images and not text_blocks:
+        return {'ok': False,
+                'error': 'no QUE/SOL content (IMG/MD/DOC) found in the selected version(s)',
+                'suggestions': {}, 'display': {}, 'unmatched': [], 'raw': ''}
+
+    subject_row = Subject.query.get(question.subject)
+    subject_name = subject_row.name if subject_row else question.subject
+    taxonomy = ai_prompts.build_tag_taxonomy(question.subject, fields)
+    user_text = ai_prompts.build_tag_user_text(subject_name, fields, taxonomy)
+    if text_blocks:
+        user_text += '\n\n' + '\n\n'.join(text_blocks)
+
+    text, info = llm_client.chat(config, ai_prompts.get_prompt('TAG_SYSTEM'),
+                                 user_text, images)
+    if not (text or '').strip():
+        hint = _empty_reply_hint(info)
+        return {'ok': False, 'error': f'model returned an empty reply{hint}',
+                'suggestions': {}, 'display': {}, 'unmatched': [], 'raw': ''}
+
+    parsed = ai_prompts.parse_tag_result(text)
+    if parsed is None:
+        return {'ok': False, 'error': 'unparseable model reply',
+                'suggestions': {}, 'display': {}, 'unmatched': [],
+                'raw': (text or '')[:4000]}
+
+    suggestions, display, unmatched = _map_tag_names(question, parsed, fields)
+    return {'ok': True, 'error': None, 'suggestions': suggestions,
+            'display': display, 'unmatched': unmatched, 'raw': (text or '')[:4000],
+            'model': config.model_name}
+
+
+def apply_tags(question, suggestions, fields, overwrite):
+    """Write resolved tag suggestions to ``question``. With ``overwrite`` off,
+    only fields that are currently empty are filled. Caller commits. Returns
+    the list of field keys actually applied."""
+    from app.models import Topic, Subtopic, Subchapter
+
+    fields = set(fields)
+    applied = []
+
+    def _empty(v):
+        return v is None or v == ''
+
+    if 'q_type' in fields and 'q_type' in suggestions and (overwrite or _empty(question.q_type)):
+        question.q_type = suggestions['q_type']
+        applied.append('q_type')
+    if 'level' in fields and 'level' in suggestions and (overwrite or question.level is None):
+        question.level = suggestions['level']
+        applied.append('level')
+    if 'section' in fields and 'section' in suggestions and (overwrite or _empty(question.section)):
+        question.section = suggestions['section']
+        applied.append('section')
+
+    if 'major_topic' in fields and 'major_topic_id' in suggestions and (overwrite or question.major_topic_id is None):
+        if question.major_topic_id != suggestions['major_topic_id']:
+            # Major topic changed — the old major subtopic may no longer belong.
+            question.major_subtopic_id = None
+        question.major_topic_id = suggestions['major_topic_id']
+        applied.append('major_topic')
+
+    if 'major_subtopic' in fields and 'major_subtopic_id' in suggestions and (overwrite or question.major_subtopic_id is None):
+        sub = Subtopic.query.get(suggestions['major_subtopic_id'])
+        if sub and question.major_topic_id and sub.topic_id == question.major_topic_id:
+            question.major_subtopic_id = sub.id
+            applied.append('major_subtopic')
+
+    if 'minor_topics' in fields and 'minor_topic_ids' in suggestions and (overwrite or len(question.minor_topics) == 0):
+        topics = [t for t in (Topic.query.get(i) for i in suggestions['minor_topic_ids']) if t]
+        if overwrite:
+            question.minor_topics = topics
+        else:
+            for t in topics:
+                if t not in question.minor_topics:
+                    question.minor_topics.append(t)
+        applied.append('minor_topics')
+
+    if 'subtopics' in fields and 'subtopic_ids' in suggestions and (overwrite or len(question.subtopics) == 0):
+        subs = [s for s in (Subtopic.query.get(i) for i in suggestions['subtopic_ids']) if s]
+        if overwrite:
+            question.subtopics = subs
+        else:
+            for s in subs:
+                if s not in question.subtopics:
+                    question.subtopics.append(s)
+        applied.append('subtopics')
+
+    if 'chapter' in fields and 'chapter_id' in suggestions and (overwrite or question.chapter_id is None):
+        if question.chapter_id != suggestions['chapter_id']:
+            question.subchapter_id = None
+        question.chapter_id = suggestions['chapter_id']
+        applied.append('chapter')
+
+    if 'subchapter' in fields and 'subchapter_id' in suggestions and (overwrite or question.subchapter_id is None):
+        sc = Subchapter.query.get(suggestions['subchapter_id'])
+        if sc and question.chapter_id and sc.chapter_id == question.chapter_id:
+            question.subchapter_id = sc.id
+            applied.append('subchapter')
+
+    return applied
+
+
+def iter_auto_tag(qs, versions, fields, overwrite, config, image_max_dim,
+                  source_path, cancel):
+    """SSE generator: auto-tag each question (suggest + apply). Mirrors
+    ``iter_check`` (job/info/skip/success/error/done + cancel between
+    questions)."""
+    fields = [f for f in (fields or []) if f in ai_prompts.TAG_FIELDS]
+    total = len(qs)
+    yield {'type': 'info',
+           'message': (f'Auto-tagging {total} question(s) — fields: '
+                       f'{", ".join(fields) or "(none)"}; versions: '
+                       f'{", ".join(versions)}; overwrite: '
+                       f'{"on" if overwrite else "off"}.')}
+
+    tagged = skipped = errors = 0
+    current = 0
+    for question in qs:
+        if cancel.is_set():
+            yield {'type': 'info', 'message': 'Cancelled by user.',
+                   'current': current, 'total': total}
+            break
+        current += 1
+        label = question.qid
+        try:
+            res = suggest_tags(question, versions, fields, config,
+                               image_max_dim, source_path)
+        except llm_client.LLMError as e:
+            errors += 1
+            yield {'type': 'error', 'message': f'{label} — LLM error: {e}',
+                   'current': current, 'total': total}
+            continue
+        except Exception as e:
+            errors += 1
+            logger.exception('Auto-tag suggest failed for %s', label)
+            yield {'type': 'error', 'message': f'{label} — {e}',
+                   'current': current, 'total': total}
+            continue
+
+        if not res.get('ok'):
+            skipped += 1
+            yield {'type': 'skip', 'message': f'{label} — {res.get("error") or "no suggestion"}',
+                   'current': current, 'total': total}
+            continue
+
+        try:
+            applied = apply_tags(question, res['suggestions'], fields, overwrite)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            errors += 1
+            logger.exception('Auto-tag apply failed for %s', label)
+            yield {'type': 'error', 'message': f'{label} — DB write failed: {e}',
+                   'current': current, 'total': total}
+            continue
+
+        unmatched = res.get('unmatched') or []
+        unmatched_note = (f' (unmatched: {", ".join(u["name"] for u in unmatched)})'
+                          if unmatched else '')
+        if applied:
+            tagged += 1
+            yield {'type': 'success',
+                   'message': f'{label} — applied: {", ".join(applied)}{unmatched_note}',
+                   'current': current, 'total': total}
+        else:
+            skipped += 1
+            extra = unmatched_note or (' (fields already filled; overwrite off)'
+                                       if not overwrite else '')
+            yield {'type': 'skip', 'message': f'{label} — nothing applied{extra}',
+                   'current': current, 'total': total}
+
+    if not cancel.is_set():
+        yield {'type': 'done',
+               'message': f'Done. Tagged: {tagged}, skipped: {skipped}, errors: {errors}.',
+               'current': total, 'total': total,
+               'stats': {'tagged': tagged, 'skipped': skipped, 'errors': errors}}
+    else:
+        yield {'type': 'done', 'message': 'Stopped.', 'current': current, 'total': total,
+               'stats': {'tagged': tagged, 'skipped': skipped, 'errors': errors}}

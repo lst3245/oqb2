@@ -191,6 +191,32 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
 
+        # Auto-tagging / verification: add the whole-question verified columns
+        # (verified / verified_at / verified_by) if absent. Same idempotent
+        # INFORMATION_SCHEMA pattern so existing deployments upgrade
+        # automatically without a manual migration.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                existing = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions'"
+                ))}
+                if 'verified' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN verified TINYINT(1) NOT NULL DEFAULT 0"
+                    ))
+                if 'verified_at' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN verified_at DATETIME NULL"
+                    ))
+                if 'verified_by' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN verified_by INT NULL"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

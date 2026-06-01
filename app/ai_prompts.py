@@ -302,6 +302,197 @@ def build_md_user_text(source_version, asset_type):
     )
 
 
+# ==================== Auto question tagging ====================
+
+_DEFAULT_TAG_SYSTEM = (
+    "You are a meticulous exam-question classifier. You are given image(s) of "
+    "ONE exam question (and possibly its official solution), plus the list of "
+    "ALLOWED tag values for its subject. Classify the question by choosing "
+    "ONLY from the allowed values provided — never invent a topic / subtopic / "
+    "chapter / subchapter name that is not in the list, and copy the chosen "
+    "value's spelling EXACTLY.\n\n"
+    "Tagging rules:\n"
+    "- Every question has exactly ONE major topic and ONE major subtopic. The "
+    "major subtopic MUST be one of the subtopics listed under the chosen major "
+    "topic.\n"
+    "- Only if the question genuinely spans more than one topic, also list the "
+    "minor topic(s) it also touches and the relevant minor subtopic(s). Topics "
+    "and subtopics share the same lists as the major ones. Leave these empty "
+    "for a single-topic question.\n"
+    "- Choose chapter / subchapter the same way (the subchapter must belong to "
+    "the chosen chapter).\n"
+    "- q_type: \"MC\" for a multiple-choice question, \"CQ\" for a conventional "
+    "(long / structured) question.\n"
+    "- level: an integer difficulty from 1 (easy) to 3 (hard).\n"
+    "- section: the printed paper-section label if visible (e.g. \"A\", \"B\"), "
+    "else null.\n"
+    "- Tag ONLY the fields you are asked for. Use null (or [] for the list "
+    "fields) for anything you cannot determine from the allowed values.\n\n"
+    "Respond with STRICT JSON only (no prose, no markdown fences) of the form:\n"
+    '{"q_type": "MC"|"CQ"|null, "level": 1|2|3|null, "section": "..."|null, '
+    '"major_topic": "..."|null, "major_subtopic": "..."|null, '
+    '"minor_topics": ["..."], "subtopics": ["..."], '
+    '"chapter": "..."|null, "subchapter": "..."|null}\n'
+    "Use the EXACT allowed names. Include only the keys you were asked to tag."
+)
+
+
+_DEFAULT_TAG_USER = (
+    "Subject: {{subject_name}}.\n"
+    "Tag ONLY these fields: {{fields}}.\n\n"
+    "Allowed values for this subject:\n{{taxonomy}}\n\n"
+    "Classify the attached question image(s) (and solution if provided). "
+    "Return STRICT JSON using the EXACT allowed names. Use null / [] when "
+    "unsure."
+)
+
+
+# Human-readable labels for the field keys used across the Auto Tag UI / API.
+TAG_FIELD_LABELS = OrderedDict([
+    ('q_type', 'Question Type'),
+    ('level', 'Level'),
+    ('section', 'Section'),
+    ('major_topic', 'Major Topic'),
+    ('major_subtopic', 'Major Subtopic'),
+    ('minor_topics', 'Minor Topics'),
+    ('subtopics', 'Minor Subtopics'),
+    ('chapter', 'Chapter'),
+    ('subchapter', 'Subchapter'),
+])
+
+TAG_FIELDS = list(TAG_FIELD_LABELS.keys())
+
+# Fields that draw on the subject's Topic / Subtopic taxonomy.
+_TAG_TOPIC_FIELDS = {'major_topic', 'major_subtopic', 'minor_topics', 'subtopics'}
+# Fields that draw on the subject's Chapter / Subchapter taxonomy.
+_TAG_CHAPTER_FIELDS = {'chapter', 'subchapter'}
+
+
+def build_tag_taxonomy(subject_id, fields):
+    """Render the subject's allowed tag values (topics→subtopics,
+    chapters→subchapters, q_type / level enums) as a compact text block for
+    the Auto Tag prompt. Only the sections relevant to ``fields`` are
+    included.
+
+    ``fields`` is an iterable of field keys (see ``TAG_FIELDS``).
+    """
+    from app.models import Topic, Chapter
+
+    fields = set(fields or [])
+    blocks = []
+
+    if fields & _TAG_TOPIC_FIELDS:
+        topics = (Topic.query.filter_by(subject_id=subject_id)
+                  .order_by(Topic.sort_order).all())
+        lines = ['TOPICS (each topic, then its subtopics indented):']
+        if not topics:
+            lines.append('  (none defined)')
+        for t in topics:
+            lines.append(f'- {t.name}')
+            subs = t.subtopics.all() if hasattr(t.subtopics, 'all') else list(t.subtopics)
+            for s in subs:
+                lines.append(f'    * {s.name}')
+        blocks.append('\n'.join(lines))
+
+    if fields & _TAG_CHAPTER_FIELDS:
+        chapters = (Chapter.query.filter_by(subject_id=subject_id)
+                    .order_by(Chapter.sort_order).all())
+        lines = ['CHAPTERS (each chapter, then its subchapters indented):']
+        if not chapters:
+            lines.append('  (none defined)')
+        for c in chapters:
+            lines.append(f'- {c.name}')
+            subs = c.subchapters.all() if hasattr(c.subchapters, 'all') else list(c.subchapters)
+            for sc in subs:
+                lines.append(f'    * {sc.name}')
+        blocks.append('\n'.join(lines))
+
+    if 'q_type' in fields:
+        blocks.append('QUESTION TYPES: MC (multiple choice), CQ (conventional question)')
+    if 'level' in fields:
+        blocks.append('LEVELS: 1, 2, 3')
+
+    return '\n\n'.join(blocks) if blocks else '(no taxonomy required)'
+
+
+def build_tag_user_text(subject_name, fields, taxonomy):
+    """User-turn instruction for Auto Tag. ``fields`` is an iterable of field
+    keys; rendered with human labels."""
+    labels = ', '.join(TAG_FIELD_LABELS.get(f, f) for f in fields) or '(none)'
+    return render_prompt('TAG_USER', subject_name=subject_name or '(unknown)',
+                         fields=labels, taxonomy=taxonomy)
+
+
+def parse_tag_result(text: str):
+    """Parse the Auto Tag model output into a normalised dict:
+    ``{q_type, level, section, major_topic, major_subtopic, minor_topics[],
+    subtopics[], chapter, subchapter}``.
+
+    Tolerant of code fences and surrounding prose (mirrors
+    ``parse_check_result``). Returns ``None`` on total failure.
+    """
+    if not text:
+        return None
+    candidates = [text.strip()]
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+    brace = re.search(r'\{.*\}', text, re.DOTALL)
+    if brace:
+        candidates.append(brace.group(0))
+
+    def _clean_str(v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    def _clean_list(v):
+        if not isinstance(v, (list, tuple)):
+            if v in (None, ''):
+                return []
+            v = [v]
+        out = []
+        for it in v:
+            s = _clean_str(it)
+            if s:
+                out.append(s)
+        return out
+
+    for c in candidates:
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        # q_type
+        qt = _clean_str(data.get('q_type'))
+        if qt:
+            qt = qt.upper()
+            qt = qt if qt in ('MC', 'CQ') else None
+        # level
+        level = None
+        lvl_raw = data.get('level')
+        if lvl_raw not in (None, ''):
+            m = re.search(r'[123]', str(lvl_raw))
+            if m:
+                level = int(m.group(0))
+
+        return {
+            'q_type': qt,
+            'level': level,
+            'section': _clean_str(data.get('section')),
+            'major_topic': _clean_str(data.get('major_topic')),
+            'major_subtopic': _clean_str(data.get('major_subtopic')),
+            'minor_topics': _clean_list(data.get('minor_topics')),
+            'subtopics': _clean_list(data.get('subtopics')),
+            'chapter': _clean_str(data.get('chapter')),
+            'subchapter': _clean_str(data.get('subchapter')),
+        }
+    return None
+
+
 # ==================== Question explanation (AI tutor chat) ====================
 
 _DEFAULT_EXPLAIN_SYSTEM = (
@@ -610,6 +801,31 @@ PROMPTS_REGISTRY = OrderedDict([
         description='Accompanies the source image(s) sent each call.',
         default=_DEFAULT_MD_USER,
         variables=['asset_type', 'source_version'],
+        role='user',
+    )),
+    ('TAG_SYSTEM', _prompt(
+        group='AI Tools — Auto Tagging',
+        label='Auto tagging: System prompt',
+        description=(
+            'Role + STRICT JSON contract for the Auto Question Tagging '
+            'feature. The model is shown the question (and optional solution) '
+            'image(s) plus the subject\'s allowed tag values, and must reply '
+            'with JSON using the EXACT allowed names. Changing the JSON shape '
+            'risks breaking parse_tag_result — keep the response contract.'
+        ),
+        default=_DEFAULT_TAG_SYSTEM,
+        role='system',
+    )),
+    ('TAG_USER', _prompt(
+        group='AI Tools — Auto Tagging',
+        label='Auto tagging: User-turn instruction',
+        description=(
+            'Accompanies the question image(s) each call. Variables are filled '
+            'in per-question: the subject name, the list of fields to tag, and '
+            'the rendered allowed-values taxonomy for the subject.'
+        ),
+        default=_DEFAULT_TAG_USER,
+        variables=['subject_name', 'fields', 'taxonomy'],
         role='user',
     )),
     ('EXPLAIN_SYSTEM', _prompt(
