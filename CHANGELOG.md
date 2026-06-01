@@ -35,6 +35,14 @@ The inline Markdown editor no longer treats EasyMDE's init `change` events as ed
 
 ### 🐛 Bug Fixes
 
+#### AI Markdown / Explain — literal dollar signs no longer break as math
+
+The Markdown-generation prompt (`MD_SYSTEM` / `MD_USER`) and the Explain tutor prompt (`EXPLAIN_SYSTEM`) now instruct the model to **escape a literal/currency dollar sign as `\$`** (e.g. `\$5`, not `$5`). An unescaped `$` opens LaTeX math mode, so text like "costs $5 and $10" was being rendered with "5 and" as a formula. Escaping is consistent across the whole pipeline — `normalize_inline_math` leaves `\$` untouched and pandoc's `tex_math_dollars` (the .docx path) treats `\$` as a literal `$` — so the same content now renders correctly in the editor preview, dashboard, and generated Word docs. Unescaped `$...$` / `$$...$$` remain reserved for real mathematics.
+
+#### PDF Batch Import — bbox prompt now honours the coordinate-order setting
+
+The detection prompt previously **hardcoded** the x-first (`[x1,y1,x2,y2]`) instruction even though `PDF_IMPORT_COORD_ORDER` lets an admin select `yxyx` (Gemma/Gemini/PaliGemma family, vertical-coordinate-first). The setting only drove the *parser*, so choosing `yxyx` made the prompt and parser disagree. The shared JSON contract (`PDF_BOX_JSON_CONTRACT`) and user-turn prompt now use `{{box_array}}` / `{{box_corner}}` / `{{box_example}}` / `{{box_pairs}}` placeholders filled from the setting via `ai_prompts.pdf_box_order_vars(coord_order)`; `build_pdf_box_system` / `build_pdf_box_user_text` take the order (passed from `detect_page`), so the wording the model sees matches what `parse_question_boxes` expects on both `xyxy` and `yxyx`.
+
 #### MD editor false "file changed on disk" on save
 
 `mtime_ns` from the MD content/save API is now returned and round-tripped as a **JSON string** so JavaScript does not corrupt nanosecond timestamps (they exceed `Number.MAX_SAFE_INTEGER`). This fixes spurious 409 conflict prompts when saving from the edit modal or fullscreen MD editor without anyone else touching the file.

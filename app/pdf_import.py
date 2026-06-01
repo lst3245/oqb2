@@ -396,8 +396,8 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         return boxes, (text or '')
 
     # 'llm' or 'refine': the model returns full boxes.
-    system = ai_prompts.build_pdf_box_system(atype)
-    user_text = ai_prompts.build_pdf_box_user_text(atype)
+    system = ai_prompts.build_pdf_box_system(atype, coord_order)
+    user_text = ai_prompts.build_pdf_box_user_text(atype, coord_order)
     text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)

@@ -273,6 +273,12 @@ _DEFAULT_MD_SYSTEM = (
     "- Write inline math as $...$ and display math as $$...$$ (LaTeX). Put NO "
     "space immediately inside the inline dollar signs: write $x+1$, NEVER "
     "$ x+1 $. Spaced delimiters do not render.\n"
+    "- A LITERAL dollar sign (currency or the $ symbol — e.g. $5, $1.50, "
+    "US$20, a price) MUST be escaped with a backslash as \\$, because an "
+    "UNescaped $ opens LaTeX math mode. For example \"costs $5 and $10\" is "
+    "wrongly rendered with \"5 and\" as a formula; write \"costs \\$5 and "
+    "\\$10\" instead. Reserve UNescaped $...$ / $$...$$ strictly for real "
+    "mathematics, and escape every other dollar sign as \\$.\n"
     "- Question and part numbers (8, 8a, 12(i), etc.): write the number as "
     "plain text, then ESCAPE the period with a backslash so Markdown does NOT "
     "treat the line as an ordered list (which adds bad indentation in preview "
@@ -313,9 +319,10 @@ _DEFAULT_MD_SYSTEM = (
 _DEFAULT_MD_USER = (
     "Transcribe this {{asset_type}} image (version {{source_version}}) into "
     "Markdown following the rules. Output Markdown only. Escape dots after "
-    "question numbers (8\\. not 8.). Put each MC option A/B/C/D on its own "
-    "line with newlines between them. Remember: only use a [FIGURE: ...] "
-    "placeholder if there is a real diagram/graph/drawing."
+    "question numbers (8\\. not 8.). Escape literal/currency dollar signs as "
+    "\\$ (write \\$5, not $5) so they are not read as LaTeX math. Put each MC "
+    "option A/B/C/D on its own line with newlines between them. Remember: only "
+    "use a [FIGURE: ...] placeholder if there is a real diagram/graph/drawing."
 )
 
 
@@ -532,6 +539,9 @@ _DEFAULT_EXPLAIN_SYSTEM = (
     "- Use LaTeX for ALL mathematics: inline math as $...$ and display math as "
     "$$...$$, with NO space immediately inside the dollar signs (write $x+1$, "
     "NEVER $ x+1 $ — spaced delimiters do not render).\n"
+    "- Escape any LITERAL dollar sign as \\$ (e.g. a price like \\$5), because "
+    "an unescaped $ starts LaTeX math mode — \"$5 and $10\" would wrongly "
+    "render \"5 and\" as a formula. Use unescaped $ only for real math.\n"
     "- Keep the student's language (English and/or Chinese). Be concise but "
     "complete, and answer any follow-up questions in the same style."
 )
@@ -642,30 +652,30 @@ def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
 # Shared tail describing the STRICT JSON contract for both QUE and SOL prompts.
 #
 # Coordinate convention: an explicit 0-1000 integer grid with the ORIGIN at the
-# TOP-LEFT and x BEFORE y, plus a worked numeric example. Vision models disagree
-# wildly on box conventions (0..1 vs 0..1000 vs raw pixels; x-first vs y-first),
-# so we pin one convention here and parse defensively in parse_question_boxes.
-# Models that ignore this and answer y-first (Gemma/Gemini family) are handled
-# by the PDF_IMPORT_COORD_ORDER='yxyx' setting.
+# TOP-LEFT, plus a worked numeric example. The AXIS ORDER is NOT hardcoded —
+# the {{box_array}} / {{box_corner}} / {{box_example}} placeholders are filled
+# from the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx) by pdf_box_order_vars,
+# so the instruction the model sees matches what parse_question_boxes expects.
+# Vision models disagree wildly on box conventions (0..1 vs 0..1000 vs raw
+# pixels; x-first vs y-first); we pin one convention and parse defensively.
 _DEFAULT_PDF_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
-    '{"qno": <integer printed question number>, "box": [x1, y1, x2, y2], '
+    '{"qno": <integer printed question number>, "box": {{box_array}}, '
     '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of the page. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
     "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
-    "the BOTTOM edge). The box is [x1, y1, x2, y2] where (x1,y1) is its "
-    "TOP-LEFT corner and (x2,y2) its BOTTOM-RIGHT corner, so always x1 < x2 "
-    "and y1 < y2. Example: a question that fills the TOP THIRD of the page "
-    "across almost the full width is "
-    '{"qno": 1, "box": [40, 70, 960, 330], "continues_prev": false, '
-    '"continues_next": false} — note the small y values because it is near the '
-    "TOP. \"qno\" is the PRINTED question number you can read on the page (an "
-    "integer; for a part like \"5\" use 5). Set \"continues_prev\" to true when "
-    "the topmost region is the tail of a question that began on the previous "
-    "page, and \"continues_next\" to true when the bottom region is cut off and "
-    "continues on the next page. If the page has no question content, return []."
+    "the BOTTOM edge). The box is {{box_corner}}. Example: a question that "
+    "fills the TOP THIRD of the page across almost the full width is "
+    '{"qno": 1, "box": {{box_example}}, "continues_prev": false, '
+    '"continues_next": false} — note the small vertical values because it is '
+    "near the TOP. \"qno\" is the PRINTED question number you can read on the "
+    "page (an integer; for a part like \"5\" use 5). Set \"continues_prev\" to "
+    "true when the topmost region is the tail of a question that began on the "
+    "previous page, and \"continues_next\" to true when the bottom region is "
+    "cut off and continues on the next page. If the page has no question "
+    "content, return []."
 )
 
 _DEFAULT_PDF_QUE_BOX_SYSTEM = (
@@ -711,10 +721,9 @@ _DEFAULT_PDF_SOL_BOX_SYSTEM = (
 
 _DEFAULT_PDF_BOX_USER = (
     "List the bounding boxes of every {{what}} on this page as STRICT JSON. "
-    "Use integer coordinates on a 0-1000 grid in the order [x1, y1, x2, y2] = "
-    "[left, top, right, bottom], measured from the top-left corner. Include "
-    "the printed question number for each. Return [] if the page has no "
-    "{{what}}."
+    "Use integer coordinates on a 0-1000 grid in the order {{box_pairs}}, "
+    "measured from the top-left corner. Include the printed question number "
+    "for each. Return [] if the page has no {{what}}."
 )
 
 
@@ -930,9 +939,13 @@ PROMPTS_REGISTRY = OrderedDict([
             'Solution detection system prompts via the {{json_contract}} '
             'placeholder. Edit ONCE here to update the response shape '
             'expected from the model on both sides; the parser '
-            '(parse_question_boxes) is tightly coupled to this contract.'
+            '(parse_question_boxes) is tightly coupled to this contract. '
+            'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
+            'are filled from the PDF_IMPORT_COORD_ORDER system setting (xyxy '
+            'vs yxyx) so the coordinate order is NOT hardcoded.'
         ),
         default=_DEFAULT_PDF_BOX_JSON_CONTRACT,
+        variables=['box_array', 'box_corner', 'box_example'],
         role='system',
     )),
     ('PDF_QUE_BOX_SYSTEM', _prompt(
@@ -969,10 +982,11 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             "Accompanies the single page image. {{what}} is filled with "
             "either 'questions' or 'solutions' depending on which side is "
-            "being processed."
+            "being processed. {{box_pairs}} is filled from the "
+            "PDF_IMPORT_COORD_ORDER system setting (xyxy vs yxyx)."
         ),
         default=_DEFAULT_PDF_BOX_USER,
-        variables=['what'],
+        variables=['what', 'box_pairs'],
         role='user',
     )),
     ('PDF_ANCHOR_JSON_CONTRACT', _prompt(
@@ -1046,17 +1060,48 @@ def build_figure_box_system() -> str:
     return render_prompt('FIGURE_BOX_SYSTEM', json_contract=contract)
 
 
-def build_pdf_box_user_text(asset_type: str) -> str:
-    """User-turn instruction accompanying a single page image."""
+def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:
+    """Order-specific text fragments for the PDF bbox prompts, so the prompt
+    INSTRUCTION matches the ``PDF_IMPORT_COORD_ORDER`` setting instead of
+    hardcoding x-first. Keys: ``box_array`` (the ``"box"`` array shape),
+    ``box_corner`` (the corner/ordering sentence), ``box_example`` (the worked
+    example array), ``box_pairs`` (the user-turn ``[..] = [..]`` mapping)."""
+    if (coord_order or 'xyxy').strip().lower() == 'yxyx':
+        return {
+            'box_array': '[y1, x1, y2, x2]',
+            'box_corner': (
+                '[y1, x1, y2, x2] — the VERTICAL coordinate comes FIRST — '
+                'where (y1,x1) is its TOP-LEFT corner and (y2,x2) its '
+                'BOTTOM-RIGHT corner, so always y1 < y2 and x1 < x2'),
+            'box_example': '[70, 40, 330, 960]',
+            'box_pairs': '[y1, x1, y2, x2] = [top, left, bottom, right]',
+        }
+    return {
+        'box_array': '[x1, y1, x2, y2]',
+        'box_corner': (
+            '[x1, y1, x2, y2] where (x1,y1) is its TOP-LEFT corner and '
+            '(x2,y2) its BOTTOM-RIGHT corner, so always x1 < x2 and y1 < y2'),
+        'box_example': '[40, 70, 960, 330]',
+        'box_pairs': '[x1, y1, x2, y2] = [left, top, right, bottom]',
+    }
+
+
+def build_pdf_box_user_text(asset_type: str, coord_order: str = 'xyxy') -> str:
+    """User-turn instruction accompanying a single page image. ``coord_order``
+    (the ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
-    return render_prompt('PDF_BOX_USER', what=what)
+    return render_prompt('PDF_BOX_USER', what=what,
+                         **pdf_box_order_vars(coord_order))
 
 
-def build_pdf_box_system(asset_type: str) -> str:
+def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy') -> str:
     """Resolved system prompt for the PDF page-detection model, with the
     shared JSON contract substituted in. Use this from call sites instead of
-    branching on QUE/SOL yourself."""
-    contract = get_prompt('PDF_BOX_JSON_CONTRACT')
+    branching on QUE/SOL yourself. ``coord_order`` (the
+    ``PDF_IMPORT_COORD_ORDER`` setting) drives the coordinate-order wording in
+    the contract so the prompt matches what ``parse_question_boxes`` expects."""
+    contract = render_prompt('PDF_BOX_JSON_CONTRACT',
+                             **pdf_box_order_vars(coord_order))
     key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
     return render_prompt(key, json_contract=contract)
 

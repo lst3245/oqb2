@@ -25,7 +25,7 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 |---|---|
 | Staging, rasterise (+deskew), detect (+method), crop, commit, `_PDF_CANCEL` registry | [app/pdf_import.py](mdc:app/pdf_import.py) |
 | Classical-CV helpers (NumPy): `deskew_image`, `refine_box`, `segment_page`, `load_gray` | [app/pdf_layout.py](mdc:app/pdf_layout.py) |
-| Box prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_QUE_BOX_SYSTEM`, `PDF_SOL_BOX_SYSTEM`, `build_pdf_box_user_text`, `parse_question_boxes` |
+| Box prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_QUE_BOX_SYSTEM`, `PDF_SOL_BOX_SYSTEM`, `PDF_BOX_JSON_CONTRACT`, `build_pdf_box_system`/`build_pdf_box_user_text` (take `coord_order`), `pdf_box_order_vars`, `parse_question_boxes` |
 | Anchor prompts + parser (segment method) | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_ANCHOR_SYSTEM`, `PDF_ANCHOR_JSON_CONTRACT`, `build_pdf_anchor_*`, `parse_question_anchors` |
 | Paper-name guess prompts + parser | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PDF_PAPER_NAME_SYSTEM`, `PDF_PAPER_NAME_USER`, `build_pdf_paper_name_*`, `parse_paper_name` + `pdf_import.guess_paper_name` |
 | Routes (page, stage, page image, detect, redo-page, plan, commit, cancel, discard, source-list, guess-paper) | [app/admin.py](mdc:app/admin.py) `pdf_import_*` |
@@ -63,8 +63,8 @@ Returns `(boxes, raw_text)`. Boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractio
 
 **Deskew** (staging): `rasterize_pdf(..., deskew=)` straightens each scanned page in place via `pdf_layout.deskew_image` (projection-variance angle sweep ±6°, `expand=False` so dims/`meta` stay valid). Stored as `meta['deskew']`; skipped (warn) if NumPy missing.
 
-**Coordinate convention is the #1 failure mode.** The prompt (`_PDF_BOX_JSON_CONTRACT`) pins an explicit **0–1000 integer grid, origin top-left, `[x1,y1,x2,y2]` (x-first)** with a worked example. `parse_question_boxes(text, img_w, img_h, coord_order)` (via `_normalize_box`) tolerates fences/prose and:
-- **Axis order**: `coord_order='xyxy'` (default, Qwen/most) or `'yxyx'` (Gemma/Gemini/PaliGemma — vertical coord first), from setting `PDF_IMPORT_COORD_ORDER`. This is the only genuinely ambiguous part, hence a setting.
+**Coordinate convention is the #1 failure mode.** The prompt pins an explicit **0–1000 integer grid, origin top-left** with a worked example. The **axis order is NOT hardcoded**: `build_pdf_box_system(atype, coord_order)` / `build_pdf_box_user_text(atype, coord_order)` render the `{{box_array}}`/`{{box_corner}}`/`{{box_example}}` (contract) and `{{box_pairs}}` (user) placeholders from `pdf_box_order_vars(coord_order)`, so the instruction the model sees (x-first vs y-first) MATCHES the `PDF_IMPORT_COORD_ORDER` setting and the parser. `detect_page` passes the setting in. `parse_question_boxes(text, img_w, img_h, coord_order)` (via `_normalize_box`) tolerates fences/prose and:
+- **Axis order**: `coord_order='xyxy'` (default, Qwen/most) or `'yxyx'` (Gemma/Gemini/PaliGemma — vertical coord first), from setting `PDF_IMPORT_COORD_ORDER`. This is the only genuinely ambiguous part, hence a setting; it drives BOTH the prompt wording and the parse.
 - **Range** (auto): `max≤1`→fractional; `max≤1024`→`/1000`; else raw pixels→divide by the **downscaled** dims the model saw (`_sent_image_size`, replicates `prepare_image`'s long-edge downscale to `LLM_IMAGE_MAX_DIM`), else `/max`.
 
 **Debug**: `detect?...&debug=1` (and `redo-page` body `debug:true`) make `iter_detect`/the route log each page's verbatim reply and attach `raw` to the page event; the UI's **Debug** checkbox shows it in the console + a per-page collapsible. Use it to confirm the model's number range / axis order before flipping `PDF_IMPORT_COORD_ORDER`.
