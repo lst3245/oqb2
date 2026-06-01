@@ -113,14 +113,235 @@ def _empty_reply_hint(info):
 
 
 # ==================== Image checking (proofreading) ====================
+#
+# Checking compares a TYPED version (EN/CH/BI) against a reference scan
+# (typically ENO/CHO). The source images for either side may be real IMG
+# parts OR — when a slot has only MD / DOC — rendered on the fly to temp
+# page images via the same Word COM pipeline used for batch IMG generation
+# and DOC thumbnails. The resulting check_state is written to EVERY row of
+# the typed slot (IMG / MD / DOC alike) so the status shows regardless of
+# which format the slot holds.
+
+class _RenderUnavailable(Exception):
+    """Raised when a DOC/MD slot can't be rendered to images (no Word COM,
+    missing file, render failure) — surfaced as a per-slot error/skip."""
+
+
+class _LazyWord:
+    """Open a Word COM session on first use and reuse it for the rest of a
+    run. Pure-IMG checks never touch Word (and never take its global lock)."""
+
+    def __init__(self, lock_timeout=600.0):
+        self.lock_timeout = lock_timeout
+        self._cm = None
+        self._app = None
+
+    def get(self):
+        if self._app is not None:
+            return self._app
+        from app import word_com
+        if not word_com.IS_AVAILABLE:
+            return None
+        self._cm = word_com.word_session(lock_timeout=self.lock_timeout)
+        self._app = self._cm.__enter__()
+        return self._app
+
+    def close(self):
+        if self._cm is not None:
+            try:
+                self._cm.__exit__(None, None, None)
+            except Exception:
+                logger.exception('Word session close failed')
+            self._cm = None
+            self._app = None
+
+
+def default_render_opts(config):
+    """Build the DOC/MD → image render options from app config (mirrors the
+    defaults used by batch_generate_images)."""
+    return {
+        'width': int(config.get('BATCH_IMG_DEFAULT_WIDTH',
+                                config.get('DOC_THUMBNAIL_WIDTH', 1000))),
+        'transparent': bool(config.get('THUMBNAIL_TRANSPARENT', False)),
+        'whiteness': int(config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250)),
+        'padding': int(config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24)),
+        'symmetric': bool(config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False)),
+        'lock_timeout': float(config.get('WORD_COM_LOCK_TIMEOUT', 600)),
+    }
+
+
+def _slot_any_assets(question_id, asset_type, version):
+    """Every asset row (any format) for a (question, asset_type, version) slot."""
+    return (QuestionAsset.query
+            .filter_by(question_id=question_id, asset_type=asset_type, version=version)
+            .order_by(QuestionAsset.file_format, QuestionAsset.part_number)
+            .all())
+
+
+def _render_source_to_pages(src_asset, source_path, render_opts, word):
+    """Render one MD/DOC source asset to a list of cropped PIL pages via Word
+    COM. Raises ``_RenderUnavailable`` when it can't be done."""
+    from app import word_com, batch_image_gen
+    if not word_com.IS_AVAILABLE:
+        raise _RenderUnavailable('Word COM unavailable on this server (needs Windows + Word + pywin32)')
+    app_word = word.get()
+    if app_word is None:
+        raise _RenderUnavailable('could not open a Word session')
+    abs_path = _abs(source_path, src_asset.file_path)
+    if not os.path.isfile(abs_path):
+        raise _RenderUnavailable('source file missing on disk')
+    kw = dict(width_px=render_opts.get('width', 1000),
+              transparent=render_opts.get('transparent', False),
+              whiteness_threshold=render_opts.get('whiteness', 250),
+              bottom_padding_px=render_opts.get('padding', 24),
+              symmetric_horizontal_crop=render_opts.get('symmetric', False))
+    if src_asset.file_format == 'DOC':
+        return batch_image_gen.render_doc_to_pages(app_word, abs_path, **kw)
+    return batch_image_gen.render_md_to_pages(app_word, abs_path, **kw)
+
+
+def _resolve_slot_images(question, asset_type, version, source_path,
+                         image_max_dim, render_opts, word):
+    """Images for a slot, ready for the LLM. Prefer real IMG parts; otherwise
+    render the slot's DOC (preferred) or MD source to temp page images.
+    Returns a list of ``(b64, mime)`` (possibly empty when no source exists)."""
+    img_parts = _slot_img_parts(question.id, asset_type, version)
+    if img_parts:
+        return [llm_client.prepare_image(_abs(source_path, a.file_path), image_max_dim)
+                for a in img_parts]
+    # No IMG — fall back to rendering DOC (better fidelity) then MD.
+    doc = (QuestionAsset.query
+           .filter_by(question_id=question.id, asset_type=asset_type,
+                      version=version, file_format='DOC').first())
+    md = (QuestionAsset.query
+          .filter_by(question_id=question.id, asset_type=asset_type,
+                     version=version, file_format='MD').first())
+    src = doc or md
+    if not src:
+        return []
+    pages = _render_source_to_pages(src, source_path, render_opts, word)
+    return [llm_client.prepare_image_from_pil(im, image_max_dim) for im in pages]
+
+
+def _write_slot_check_state(question_id, asset_type, version, state, result, now):
+    """Write check_state/check_result/checked_at to EVERY row in the slot
+    (IMG / MD / DOC) so the status shows regardless of stored format."""
+    encoded = json.dumps(result, ensure_ascii=False) if result is not None else None
+    rows = QuestionAsset.query.filter_by(
+        question_id=question_id, asset_type=asset_type, version=version).all()
+    for a in rows:
+        a.check_state = state
+        a.check_result = encoded
+        a.checked_at = now
+    db.session.commit()
+    return len(rows)
+
+
+def check_slot(question, asset_type, typed_version, ref_version, *, recheck,
+               config, image_max_dim, source_path, render_opts, word):
+    """Proofread ONE (question, asset_type, typed_version) slot against the
+    reference slot. Resolves images from IMG parts, else renders MD/DOC to
+    temp page images. Writes the result to every row of the typed slot.
+
+    Returns ``{status, message, state?}`` where status is one of
+    ``ok`` / ``issues`` / ``error`` / ``skip``. Shared by the SSE batch
+    generator and the per-slot sync route.
+    """
+    label = f'{question.qid} / {asset_type} / {typed_version} vs {ref_version}'
+
+    typed_rows = _slot_any_assets(question.id, asset_type, typed_version)
+    if not typed_rows:
+        return {'status': 'skip', 'message': f'{label} — no {typed_version} asset'}
+    ref_rows = _slot_any_assets(question.id, asset_type, ref_version)
+    if not ref_rows:
+        return {'status': 'skip', 'message': f'{label} — no {ref_version} reference asset'}
+    if not recheck and any(a.check_state in ('ok', 'issues') for a in typed_rows):
+        return {'status': 'skip', 'message': f'{label} — already checked (recheck off)'}
+
+    # Resolve images for both sides (rendering MD/DOC on demand).
+    try:
+        typed_imgs = _resolve_slot_images(question, asset_type, typed_version,
+                                          source_path, image_max_dim, render_opts, word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — {typed_version} render failed: {e}'}
+    except Exception as e:
+        logger.exception('Typed image resolve failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — {typed_version} image load failed: {e}'}
+    if not typed_imgs:
+        return {'status': 'skip', 'message': f'{label} — no usable {typed_version} image/source'}
+
+    try:
+        ref_imgs = _resolve_slot_images(question, asset_type, ref_version,
+                                        source_path, image_max_dim, render_opts, word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — {ref_version} render failed: {e}'}
+    except Exception as e:
+        logger.exception('Reference image resolve failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — {ref_version} image load failed: {e}'}
+    if not ref_imgs:
+        return {'status': 'skip', 'message': f'{label} — no usable {ref_version} reference image/source'}
+
+    user_text = (
+        ai_prompts.build_check_user_text(typed_version, ref_version, asset_type)
+        + f"\n\nImage order: the first {len(ref_imgs)} image(s) are the "
+          f"OFFICIAL ({ref_version}) version; the remaining {len(typed_imgs)} "
+          f"image(s) are the TYPED ({typed_version}) version to proofread."
+    )
+    try:
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('CHECK_SYSTEM'),
+                                     user_text, ref_imgs + typed_imgs)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+
+    if not (text or '').strip():
+        hint = _empty_reply_hint(info)
+        logger.warning('Empty check reply for %s; finish_reason=%s raw=%s',
+                       label, (info or {}).get('finish_reason'),
+                       str((info or {}).get('raw'))[:1000])
+        return {'status': 'error', 'message': f'{label} — model returned an empty reply{hint}'}
+
+    parsed = ai_prompts.parse_check_result(text)
+    now = datetime.utcnow()
+    if parsed is None:
+        state = 'error'
+        result = {'status': 'error', 'issues': [], 'raw': (text or '')[:4000],
+                  'model': config.model_name, 'ref_version': ref_version,
+                  'checked_by': 'ai'}
+        msg = f'{label} — unparseable model reply (stored raw)'
+        out_status = 'error'
+    else:
+        state = parsed['status']  # 'ok' or 'issues'
+        result = {'status': state, 'issues': parsed['issues'],
+                  'model': config.model_name, 'ref_version': ref_version,
+                  'checked_by': 'ai'}
+        if state == 'ok':
+            msg = f'{label} — OK (no issues)'
+            out_status = 'ok'
+        else:
+            n = len(parsed['issues'])
+            first = parsed['issues'][0]['description'] if parsed['issues'] else ''
+            msg = f'{label} — {n} issue(s): {first[:160]}'
+            out_status = 'issues'
+
+    try:
+        _write_slot_check_state(question.id, asset_type, typed_version, state, result, now)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('DB write failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — DB write failed: {e}'}
+
+    return {'status': out_status, 'message': msg, 'state': state}
+
 
 def iter_check(qs, typed_version, ref_version, asset_types, recheck,
-               config, image_max_dim, source_path, cancel):
+               config, image_max_dim, source_path, cancel, render_opts=None):
     """Proofread each typed slot against the official reference slot.
 
-    Yields event dicts. Updates ``check_state`` / ``check_result`` /
-    ``checked_at`` on the TYPED asset rows.
+    Yields event dicts. Delegates each slot to ``check_slot`` (which resolves
+    images from IMG parts or renders MD/DOC on the fly) and writes
+    ``check_state`` / ``check_result`` / ``checked_at`` to the typed slot rows.
     """
+    render_opts = render_opts or {}
     work = [(q, atype) for q in qs for atype in asset_types]
     total = len(work)
     yield {'type': 'info',
@@ -129,114 +350,37 @@ def iter_check(qs, typed_version, ref_version, asset_types, recheck,
 
     ok = issues = skipped = errors = 0
     current = 0
-    for question, atype in work:
-        if cancel.is_set():
-            yield {'type': 'info', 'message': 'Cancelled by user.',
-                   'current': current, 'total': total}
-            break
-        current += 1
-        label = f'{question.qid} / {atype} / {typed_version} vs {ref_version}'
-
-        typed_assets = _slot_img_parts(question.id, atype, typed_version)
-        ref_assets = _slot_img_parts(question.id, atype, ref_version)
-        if not typed_assets:
-            skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — no {typed_version} IMG',
-                   'current': current, 'total': total}
-            continue
-        if not ref_assets:
-            skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — no {ref_version} reference IMG',
-                   'current': current, 'total': total}
-            continue
-        if not recheck and any(a.check_state in ('ok', 'issues') for a in typed_assets):
-            skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — already checked (recheck off)',
-                   'current': current, 'total': total}
-            continue
-
-        # Prepare images: reference first, then typed.
-        try:
-            ref_imgs = [llm_client.prepare_image(_abs(source_path, a.file_path), image_max_dim)
-                        for a in ref_assets]
-            typed_imgs = [llm_client.prepare_image(_abs(source_path, a.file_path), image_max_dim)
-                          for a in typed_assets]
-        except Exception as e:
-            errors += 1
-            logger.exception('Image prep failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — image load failed: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        user_text = (
-            ai_prompts.build_check_user_text(typed_version, ref_version, atype)
-            + f"\n\nImage order: the first {len(ref_imgs)} image(s) are the "
-              f"OFFICIAL ({ref_version}) version; the remaining {len(typed_imgs)} "
-              f"image(s) are the TYPED ({typed_version}) version to proofread."
-        )
-        try:
-            text, info = llm_client.chat(config, ai_prompts.get_prompt('CHECK_SYSTEM'),
-                                         user_text, ref_imgs + typed_imgs)
-        except llm_client.LLMError as e:
-            errors += 1
-            yield {'type': 'error', 'message': f'{label} — LLM error: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        if not (text or '').strip():
-            errors += 1
-            hint = _empty_reply_hint(info)
-            logger.warning('Empty check reply for %s; finish_reason=%s raw=%s',
-                           label, (info or {}).get('finish_reason'),
-                           str((info or {}).get('raw'))[:1000])
-            yield {'type': 'error', 'message': f'{label} — model returned an empty reply{hint}',
-                   'current': current, 'total': total}
-            continue
-
-        parsed = ai_prompts.parse_check_result(text)
-        now = datetime.utcnow()
-        if parsed is None:
-            # Got a reply we couldn't parse — record it as an error state.
-            state = 'error'
-            result = {'status': 'error', 'issues': [], 'raw': (text or '')[:4000],
-                      'model': config.model_name, 'ref_version': ref_version,
-                      'checked_by': 'ai'}
-            errors += 1
-            msg = f'{label} — unparseable model reply (stored raw)'
-            ev_type = 'error'
-        else:
-            state = parsed['status']  # 'ok' or 'issues'
-            result = {'status': state, 'issues': parsed['issues'],
-                      'model': config.model_name, 'ref_version': ref_version,
-                      'checked_by': 'ai'}
-            if state == 'ok':
+    word = _LazyWord(render_opts.get('lock_timeout', 600))
+    try:
+        for question, atype in work:
+            if cancel.is_set():
+                yield {'type': 'info', 'message': 'Cancelled by user.',
+                       'current': current, 'total': total}
+                break
+            current += 1
+            res = check_slot(question, atype, typed_version, ref_version,
+                             recheck=recheck, config=config, image_max_dim=image_max_dim,
+                             source_path=source_path, render_opts=render_opts, word=word)
+            status = res['status']
+            if status == 'ok':
                 ok += 1
-                msg = f'{label} — OK (no issues)'
                 ev_type = 'success'
-            else:
+            elif status == 'issues':
                 issues += 1
-                n = len(parsed['issues'])
-                first = parsed['issues'][0]['description'] if parsed['issues'] else ''
-                msg = f'{label} — {n} issue(s): {first[:160]}'
                 ev_type = 'success'
-
-        try:
-            encoded = json.dumps(result, ensure_ascii=False)
-            for a in typed_assets:
-                a.check_state = state
-                a.check_result = encoded
-                a.checked_at = now
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            errors += 1
-            logger.exception('DB write failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — DB write failed: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        yield {'type': ev_type, 'message': msg, 'state': state,
-               'current': current, 'total': total}
+            elif status == 'skip':
+                skipped += 1
+                ev_type = 'skip'
+            else:
+                errors += 1
+                ev_type = 'error'
+            ev = {'type': ev_type, 'message': res['message'],
+                  'current': current, 'total': total}
+            if res.get('state'):
+                ev['state'] = res['state']
+            yield ev
+    finally:
+        word.close()
 
     if not cancel.is_set():
         yield {

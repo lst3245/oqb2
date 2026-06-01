@@ -86,24 +86,92 @@ document.addEventListener('DOMContentLoaded', oqbInitThumbCompact);
 // e.g. when this partial loads later than the body parse).
 oqbInitThumbCompact();
 
+// ==================== EDIT MODAL NAVIGATION (Prev / Next) ====================
+//
+// Host pages provide the ordered list of question IDs to navigate either by
+// calling window.oqbSetEditNavList([...]) or by defining a function
+// window.oqbEditNavSource() that returns the current ordered ID array (read
+// fresh every time the modal opens). The dashboard uses the full filtered set
+// (#allQuestionIds across all pages); the admin list uses the current page's
+// rows.
+window.oqbEditNav = window.oqbEditNav || { ids: [], idx: -1 };
+
+window.oqbSetEditNavList = function(ids) {
+    window.oqbEditNav.ids = (ids || []).map(Number).filter(n => !isNaN(n));
+};
+
+function _oqbRefreshEditNavList() {
+    if (typeof window.oqbEditNavSource === 'function') {
+        try { window.oqbSetEditNavList(window.oqbEditNavSource()); } catch (e) { /* ignore */ }
+    }
+}
+
+function _oqbUpdateEditNavUI(currentId) {
+    const ctrls = document.getElementById('editNavControls');
+    if (!ctrls) return;
+    const nav = window.oqbEditNav;
+    nav.idx = nav.ids.indexOf(Number(currentId));
+    if (nav.ids.length <= 1 || nav.idx === -1) {
+        ctrls.classList.add('d-none');
+        ctrls.classList.remove('d-flex');
+        return;
+    }
+    ctrls.classList.remove('d-none');
+    ctrls.classList.add('d-flex');
+    document.getElementById('editNavPos').textContent = `${nav.idx + 1} / ${nav.ids.length}`;
+    document.getElementById('editNavPrev').disabled = nav.idx <= 0;
+    document.getElementById('editNavNext').disabled = nav.idx >= nav.ids.length - 1;
+}
+
+function oqbEditNavGo(delta) {
+    const nav = window.oqbEditNav;
+    if (nav.idx === -1) return;
+    const target = nav.idx + delta;
+    if (target < 0 || target >= nav.ids.length) return;
+    // Preserve the currently active main tab + version pill across navigation.
+    openEditModal(nav.ids[target], { preserveView: true });
+}
+
 // ==================== EDIT MODAL ====================
-function openEditModal(questionId) {
+function openEditModal(questionId, opts) {
+    opts = opts || {};
+    const preserve = !!opts.preserveView;
+
+    // When preserving, remember which main tab + version pill is active so we
+    // can re-activate the same view after the new question's data loads.
+    let keepTab = null, keepLang = null;
+    if (preserve) {
+        const at = document.querySelector('#editQuestionModal .nav-tabs .nav-link.active');
+        keepTab = at ? at.getAttribute('href') : null;
+        const al = document.querySelector('#langTabs .nav-link.active');
+        keepLang = al ? al.getAttribute('href') : null;
+    }
+
     editQuestionData = null;
-    currentAssetLang = 'EN';
+    currentAssetLang = (preserve && keepLang) ? keepLang.replace('#lang', '') : 'EN';
     oqbInitThumbCompact();
 
-    // Reset tabs to first (Tags is now the default tab)
-    document.querySelector('#editQuestionModal .nav-link.active')?.classList.remove('active');
-    document.querySelector('#editQuestionModal .tab-pane.active')?.classList.remove('show', 'active');
-    document.querySelector('#editQuestionModal [href="#tabTags"]').classList.add('active');
-    document.getElementById('tabTags').classList.add('show', 'active');
-    // Reset lang pills
-    document.querySelectorAll('#langTabs .nav-link').forEach(l => l.classList.remove('active'));
-    document.querySelector('#langTabs [href="#langEN"]').classList.add('active');
-    document.querySelectorAll('#tabAssets .tab-pane').forEach(p => { p.classList.remove('show','active'); p.innerHTML = ''; });
-    document.getElementById('langEN').classList.add('show','active');
+    if (!preserve) {
+        // Reset tabs to first (Tags is the default tab)
+        document.querySelector('#editQuestionModal .nav-link.active')?.classList.remove('active');
+        document.querySelector('#editQuestionModal .tab-pane.active')?.classList.remove('show', 'active');
+        document.querySelector('#editQuestionModal [href="#tabTags"]').classList.add('active');
+        document.getElementById('tabTags').classList.add('show', 'active');
+        // Reset lang pills
+        document.querySelectorAll('#langTabs .nav-link').forEach(l => l.classList.remove('active'));
+        document.querySelector('#langTabs [href="#langEN"]').classList.add('active');
+        document.querySelectorAll('#tabAssets .tab-pane').forEach(p => { p.classList.remove('show','active'); p.innerHTML = ''; });
+        document.getElementById('langEN').classList.add('show','active');
+    } else {
+        // Keep active tab/pill markup; just clear stale asset pane contents.
+        document.querySelectorAll('#tabAssets .tab-pane').forEach(p => { p.innerHTML = ''; });
+    }
 
     document.getElementById('renameStatus').innerHTML = '';
+
+    // Refresh the navigation list (host-provided) and update the Prev/Next UI.
+    _oqbRefreshEditNavList();
+    _oqbUpdateEditNavUI(questionId);
 
     // Load question details
     fetch(`{{ url_for('admin.question_details', question_id=0) }}`.replace('/0/', `/${questionId}/`))
@@ -128,7 +196,8 @@ function openEditModal(questionId) {
             // Load assets (deferred — Assets tab is hidden until user clicks)
             loadAssetsForEdit(data.id);
 
-            new bootstrap.Modal(document.getElementById('editQuestionModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editQuestionModal')).show();
+            _oqbUpdateEditNavUI(data.id);
         })
         .catch(err => showToast('Error loading question: ' + err.message, 'danger'));
 }
@@ -546,11 +615,14 @@ function renderCheckBadge(parts) {
     return '';
 }
 
-// Prominent + EDITABLE proofread status bar for an image slot. Shown inside
-// the IMG group whenever the slot has image parts (so an admin can also mark
-// an unchecked slot). Reads check_state/check_result off the IMG parts.
-function renderCheckStatusBar(questionId, lang, atype, imgs) {
-    if (!window.OQB_AI_TOOLS_ENABLED || !imgs || imgs.length === 0) return '';
+// Prominent + EDITABLE proofread status bar for an asset slot. Shown at the
+// section level whenever the slot has ANY asset (IMG / MD / DOC) so an admin
+// can mark/AI-check it regardless of stored format. Reads check_state /
+// check_result off whichever slot row carries it (the state is written to
+// every row of the slot).
+function renderCheckStatusBar(questionId, lang, atype, parts) {
+    if (!window.OQB_AI_TOOLS_ENABLED || !parts || parts.length === 0) return '';
+    const imgs = parts;
     const checked = imgs.find(p => p.check_state) || null;
     const st = checked ? checked.check_state : null;
     const res = (checked && checked.check_result) || {};
@@ -582,10 +654,12 @@ function renderCheckStatusBar(questionId, lang, atype, imgs) {
         ? `<div class="small text-muted mt-1">${[ref, who, when].filter(Boolean).map(_aiEscapeAttr).join(' · ')}</div>`
         : '';
 
-    // Action buttons (always allow re-marking / clearing).
+    // Action buttons (always allow re-marking / clearing + an AI quick-check).
     const baseCall = `setSlotCheckState(${questionId}, '${lang}', '${atype}',`;
     const btns = `
         <div class="btn-group btn-group-sm flex-shrink-0 ms-2" role="group">
+            <button type="button" class="btn btn-outline-primary" title="Proofread with AI against a reference version"
+                    onclick="event.stopPropagation(); openQuickCheckModal(${questionId}, '${lang}', '${atype}')"><i class="bi bi-robot"></i></button>
             <button type="button" class="btn btn-outline-success" title="Mark as correct"
                     onclick="event.stopPropagation(); ${baseCall} 'ok')"><i class="bi bi-check-lg"></i></button>
             <button type="button" class="btn btn-outline-danger" title="Mark as having an issue (add a note)"
@@ -650,6 +724,37 @@ function aiSlotMdButtonHtml(questionId, lang, atype, hasMd, imgCount) {
                 onclick="event.stopPropagation(); openAiSlotMdModal(${questionId}, '${lang}', '${atype}', false)"><i class="bi bi-robot"></i> Generate with AI</button>`;
 }
 
+// Per-slot "Generate IMG" button — renders this MD / DOC source into IMG
+// part(s) via the Word COM pipeline (replacing any existing IMG for the slot).
+function genImgButtonHtml(questionId, lang, atype, sourceFormat, imgCount) {
+    const warn = imgCount ? ' (replaces existing IMG)' : '';
+    return `<button class="btn btn-sm btn-outline-success" type="button"
+                title="Generate the IMG version from this ${sourceFormat}${warn}"
+                onclick="event.stopPropagation(); generateImgFromSlot(${questionId}, '${lang}', '${atype}', '${sourceFormat}', ${imgCount})">
+                <i class="bi bi-image"></i> Gen IMG</button>`;
+}
+
+function generateImgFromSlot(questionId, lang, atype, sourceFormat, imgCount) {
+    if (imgCount && !confirm(`Generate the IMG version of ${atype} (${lang}) from ${sourceFormat}?\n\nThis REPLACES the ${imgCount} existing image part(s) for this slot.`)) return;
+    showToast(`Rendering ${sourceFormat} → IMG for ${atype} (${lang})…`, 'info');
+    const url = `{{ url_for('admin.generate_img_slot', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ version: lang, asset_type: atype, source_format: sourceFormat, stitch: true })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            showToast(d.message || 'IMG generated', 'success');
+            refreshAssetsView(questionId);
+        } else {
+            showToast((d && (d.error || d.message)) || 'IMG generation failed', 'danger');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'danger'));
+}
+
 function renderAssetSections(questionId, lang, langAssets, ctx) {
     ctx = ctx || 'edit';
     let html = '';
@@ -668,7 +773,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
             <div class="d-flex justify-content-between align-items-center mb-2 section-header">
                 <h6 class="mb-0">
                     <i class="bi bi-collection"></i> ${label} (${lang})
-                    ${renderCheckBadge(imgs)}
+                    ${renderCheckBadge(allParts)}
                     <span class="paste-hint badge bg-success bg-opacity-75 ms-2" style="font-size:0.65rem; opacity:${isDefault ? '1' : '0'}; transition: opacity .2s">
                         <i class="bi bi-clipboard"></i> Ctrl+V image target
                     </span>
@@ -680,12 +785,13 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                 </span>
             </div>
 
+            ${renderCheckStatusBar(questionId, lang, atype, allParts)}
+
             <!-- ===== IMAGES (multi-part) ===== -->
             <div class="asset-format-group asset-format-img mb-3">
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
                 </div>
-                ${renderCheckStatusBar(questionId, lang, atype, imgs)}
                 <div id="${ctx}_assetParts_${lang}_${atype}" class="oqb-img-parts">`;
 
         if (imgs.length === 0) {
@@ -732,6 +838,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <span class="part-label"><i class="bi bi-file-earmark-text"></i> <small class="text-muted fw-normal ms-1">${mdFname}</small></span>
                         <div class="part-actions">
                             <button class="btn btn-sm btn-outline-primary" title="Edit Markdown" onclick="event.stopPropagation(); openMdEditorModal(${questionId}, ${md.id})"><i class="bi bi-pencil-square"></i></button>
+                            ${genImgButtonHtml(questionId, lang, atype, 'MD', imgs.length)}
                             ${aiSlotMdButtonHtml(questionId, lang, atype, true, imgs.length)}
                             <a class="btn btn-sm btn-outline-secondary" title="Open fullscreen editor" target="_blank" href="${mdFsUrl}" onclick="event.stopPropagation()"><i class="bi bi-arrows-fullscreen"></i></a>
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${md.id},'${mdFname}')"><i class="bi bi-trash"></i></button>
@@ -774,6 +881,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <span class="part-label"><i class="bi bi-file-earmark-word"></i> <small class="text-muted fw-normal ms-1">${docFname}</small></span>
                         <div class="part-actions">
                             <a class="btn btn-sm btn-outline-primary" title="Download" target="_blank" href="${docUrl}" onclick="event.stopPropagation()"><i class="bi bi-download"></i></a>
+                            ${genImgButtonHtml(questionId, lang, atype, 'DOC', imgs.length)}
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${doc.id},'${docFname}')"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
@@ -1324,5 +1432,130 @@ function runAiSlotMd(questionId, version, atype, hasMd, el) {
         status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-robot"></i> Generate';
+    });
+}
+
+// ============== Per-slot AI proofread ("Quick check") ==============
+//
+// Proofread one slot (its IMG, or rendered from MD/DOC) against a chosen
+// reference version. Mirrors the per-slot MD modal's dynamic-modal pattern.
+let _quickCheckModalInstance = null;
+
+function _defaultRefVersion(typed) {
+    // Sensible default reference scan for a typed version.
+    const map = { EN: 'ENO', CH: 'CHO', BI: 'ENO', ENO: 'EN', CHO: 'CH' };
+    return map[typed] || (typed === 'EN' ? 'ENO' : 'EN');
+}
+
+function openQuickCheckModal(questionId, version, atype) {
+    const allVers = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    const def = _defaultRefVersion(version);
+    const refOptions = allVers.filter(v => v !== version)
+        .map(v => `<option value="${v}"${v === def ? ' selected' : ''}>${v}</option>`).join('');
+
+    let el = document.getElementById('quickCheckModal');
+    if (el) el.remove();
+    el = document.createElement('div');
+    el.id = 'quickCheckModal';
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('data-bs-backdrop', 'static');
+    el.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-robot"></i> Proofread with AI</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-2">Proofread <strong>${_aiEscapeAttr(atype)} / ${_aiEscapeAttr(version)}</strong> against a reference version. Slots with only MD / DOCX are rendered to images automatically.</p>
+            <div class="row g-2 mb-2">
+              <div class="col-7">
+                <label class="form-label fw-bold mb-1" for="qcEndpoint">LLM endpoint</label>
+                <select class="form-select form-select-sm" id="qcEndpoint"><option value="">Loading…</option></select>
+              </div>
+              <div class="col-5">
+                <label class="form-label fw-bold mb-1" for="qcRefVersion">Reference</label>
+                <select class="form-select form-select-sm" id="qcRefVersion">${refOptions}</select>
+              </div>
+            </div>
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="qcRecheck" checked>
+              <label class="form-check-label" for="qcRecheck">Re-check even if already proofread</label>
+            </div>
+            <div id="qcStatus" class="small text-muted"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="qcRunBtn"><i class="bi bi-robot"></i> Run check</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+
+    const sel = el.querySelector('#qcEndpoint');
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
+            }).join('');
+            const fv = eps.find(ep => ep.supports_vision);
+            if (fv) sel.value = fv.id;
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    el.querySelector('#qcRunBtn').onclick = () => runQuickCheck(questionId, version, atype, el);
+    el.addEventListener('hidden.bs.modal', () => {
+        el.remove();
+        const editModal = document.getElementById('editQuestionModal');
+        if (editModal && editModal.classList.contains('show')) {
+            document.body.classList.add('modal-open');
+        }
+    });
+    _quickCheckModalInstance = new bootstrap.Modal(el);
+    _quickCheckModalInstance.show();
+}
+
+function runQuickCheck(questionId, version, atype, el) {
+    const endpointId = el.querySelector('#qcEndpoint').value;
+    if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const refVersion = el.querySelector('#qcRefVersion').value;
+    const recheck = el.querySelector('#qcRecheck').checked;
+    const btn = el.querySelector('#qcRunBtn');
+    const status = el.querySelector('#qcStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking…';
+    status.textContent = 'Calling the model — this can take a while (MD/DOC are rendered first)…';
+
+    const url = `{{ url_for('admin.ai_check_slot', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            version: version, asset_type: atype, ref_version: refVersion,
+            endpoint_id: parseInt(endpointId, 10), recheck: recheck
+        })
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            const tone = d.state === 'issues' ? 'warning' : 'success';
+            showToast(d.message || 'Check complete', tone);
+            if (_quickCheckModalInstance) _quickCheckModalInstance.hide();
+            refreshAssetsView(questionId);
+        } else {
+            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'Check failed')}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-robot"></i> Run check';
+        }
+    })
+    .catch(err => {
+        status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-robot"></i> Run check';
     });
 }

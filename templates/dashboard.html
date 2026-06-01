@@ -5595,6 +5595,16 @@ function executeBatchEdit() {
 // list so the card reflects the new state.
 window.oqbAfterQuestionEdit = refreshCurrentPage;
 
+// Prev/Next navigation source for the edit modal: the FULL filtered set of
+// question IDs across all pages (#allQuestionIds carries them), so an admin
+// can step through every matching question without paging manually.
+window.oqbEditNavSource = function() {
+    const el = document.getElementById('allQuestionIds');
+    if (!el) return [];
+    return (el.dataset.ids || '').split(',')
+        .map(s => Number(s.trim())).filter(n => !isNaN(n));
+};
+
 // Helper function to refresh current page (preserving page number)
 function refreshCurrentPage() {
     // Find the current active page from pagination

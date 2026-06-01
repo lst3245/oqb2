@@ -682,6 +682,7 @@
                                 <input class="form-check-input" type="checkbox" id="aiRecheck">
                                 <label class="form-check-label" for="aiRecheck">Re-check slots already checked</label>
                             </div>
+                            <small class="text-muted d-block mt-1">Slots with only MD / DOCX (no IMG) are rendered to images automatically before checking.</small>
                         </div>
 
                         <!-- Markdown panel -->
@@ -1794,6 +1795,13 @@ function stopAiTools() {
 
 // Wire the partial's after-save callback to refresh the question table.
 window.oqbAfterQuestionEdit = loadQuestions;
+
+// Prev/Next navigation source for the edit modal: the current page's rows in
+// display order (read fresh each time the modal opens).
+window.oqbEditNavSource = function() {
+    return Array.from(document.querySelectorAll('#questionTableBody tr.q-row'))
+        .map(tr => Number(tr.dataset.id)).filter(n => !isNaN(n));
+};
 
 // ===================== ADD QUESTION =====================
 function showAddModal() {

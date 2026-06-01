@@ -171,6 +171,35 @@ def prepare_image_from_data_url(data_url: str, max_dim: int = 1600):
     return base64.b64encode(buf.getvalue()).decode('ascii'), 'image/jpeg'
 
 
+def prepare_image_from_pil(im, max_dim: int = 1600):
+    """Downscale a PIL Image's long edge to ``max_dim`` and return
+    ``(b64, 'image/jpeg')`` ready for an OpenAI ``image_url`` block.
+
+    Mirrors :func:`prepare_image` but takes an in-memory PIL Image instead of
+    a file on disk — used when MD / DOC source assets are rendered to pages on
+    the fly (no IMG exists for the slot) and sent to the model for
+    proofreading. Alpha is composited onto white (see :func:`prepare_image`).
+    """
+    from PIL import Image
+    work = im
+    has_alpha = work.mode in ('RGBA', 'LA') or (work.mode == 'P' and 'transparency' in work.info)
+    if has_alpha:
+        rgba = work.convert('RGBA')
+        bg = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
+        bg.alpha_composite(rgba)
+        work = bg.convert('RGB')
+    elif work.mode != 'RGB':
+        work = work.convert('RGB')
+    w, h = work.size
+    longest = max(w, h)
+    if max_dim and longest > max_dim:
+        scale = max_dim / float(longest)
+        work = work.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+    buf = io.BytesIO()
+    work.save(buf, format='JPEG', quality=90)
+    return base64.b64encode(buf.getvalue()).decode('ascii'), 'image/jpeg'
+
+
 def _flatten_white(im):
     """Composite an alpha-bearing image onto white and return RGB (see
     prepare_image for why)."""

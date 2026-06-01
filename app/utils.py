@@ -26,6 +26,13 @@ VERSION_LABELS = {
     'CHO': 'Chinese (Official)',
 }
 
+# "Typed" versions are the ones we author and proofread; their per-asset
+# check_state drives the per-question asset-status rollup in the admin list.
+# ENO/CHO are official public-exam scans used only as the proofreading
+# REFERENCE, so they are excluded from the status indicator/rollup.
+TYPED_VERSIONS = ['EN', 'CH', 'BI']
+OFFICIAL_VERSIONS = ['ENO', 'CHO']
+
 # Default priority order = canonical list order.
 DEFAULT_VERSION_PRIORITY = list(VERSIONS)
 

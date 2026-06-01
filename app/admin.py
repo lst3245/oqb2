@@ -15,7 +15,7 @@ from app import db
 from app import word_com
 from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
                         User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
-from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS, VERSION_LABELS
+from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS, VERSION_LABELS, TYPED_VERSIONS
 from app import md_render
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -1168,20 +1168,22 @@ def questions_api_list():
         query = query.filter(Question.verified.is_(False))
 
     # Asset-check status rollup filter (issues / ok / unchecked) via correlated
-    # EXISTS subqueries. Rules:
-    #   issues    = any asset check_state in ('issues','error')
-    #   unchecked = any asset check_state still NULL
-    #   ok        = >=1 asset AND every asset is exactly 'ok'
+    # EXISTS subqueries. Only TYPED versions (EN/CH/BI) count — ENO/CHO are the
+    # official reference scans and never carry a proofread state. Rules:
+    #   issues    = any typed asset check_state in ('issues','error')
+    #   unchecked = any typed asset check_state still NULL
+    #   ok        = >=1 typed asset AND every typed asset is exactly 'ok'
     check_status = request.args.get('check_status', '').strip().lower()
     if check_status in ('issues', 'ok', 'unchecked'):
         from sqlalchemy import exists, and_, or_, not_
         A = QuestionAsset
-        has_any_asset = exists().where(A.question_id == Question.id)
-        has_issue = exists().where(and_(A.question_id == Question.id,
+        _typed = A.version.in_(TYPED_VERSIONS)
+        has_any_asset = exists().where(and_(A.question_id == Question.id, _typed))
+        has_issue = exists().where(and_(A.question_id == Question.id, _typed,
                                         A.check_state.in_(['issues', 'error'])))
-        has_unchecked = exists().where(and_(A.question_id == Question.id,
+        has_unchecked = exists().where(and_(A.question_id == Question.id, _typed,
                                             A.check_state.is_(None)))
-        has_not_ok = exists().where(and_(A.question_id == Question.id,
+        has_not_ok = exists().where(and_(A.question_id == Question.id, _typed,
                                          or_(A.check_state.is_(None),
                                              A.check_state != 'ok')))
         if check_status == 'issues':
@@ -1236,15 +1238,21 @@ def questions_api_list():
     questions = query.offset((page - 1) * page_size).limit(page_size).all()
 
     # Roll up asset check states for THIS page in one query (replaces the old
-    # per-row assets.count() N+1) so each item can carry an asset-check summary.
+    # per-row assets.count() N+1). `asset_count` keeps the TRUE total (all
+    # versions), but the proofread status summary only considers TYPED versions
+    # (EN/CH/BI) — ENO/CHO are reference scans and don't get proofread.
     from collections import defaultdict
     page_qids = [q.id for q in questions]
-    states_by_q = defaultdict(list)
+    total_by_q = defaultdict(int)
+    typed_states_by_q = defaultdict(list)
     if page_qids:
-        for qid_, state in (db.session.query(QuestionAsset.question_id,
-                                              QuestionAsset.check_state)
-                            .filter(QuestionAsset.question_id.in_(page_qids)).all()):
-            states_by_q[qid_].append(state)
+        for qid_, version, state in (db.session.query(QuestionAsset.question_id,
+                                                       QuestionAsset.version,
+                                                       QuestionAsset.check_state)
+                                      .filter(QuestionAsset.question_id.in_(page_qids)).all()):
+            total_by_q[qid_] += 1
+            if version in TYPED_VERSIONS:
+                typed_states_by_q[qid_].append(state)
 
     def _check_summary(states):
         total_assets = len(states)
@@ -1265,7 +1273,6 @@ def questions_api_list():
 
     items = []
     for q in questions:
-        states = states_by_q.get(q.id, [])
         items.append({
             'id': q.id,
             'qid': q.qid,
@@ -1278,9 +1285,9 @@ def questions_api_list():
             'q_type': q.q_type,
             'level': q.level,
             'created_at': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
-            'asset_count': len(states),
+            'asset_count': total_by_q.get(q.id, 0),
             'verified': bool(q.verified),
-            'check_summary': _check_summary(states),
+            'check_summary': _check_summary(typed_states_by_q.get(q.id, [])),
         })
 
     return jsonify({
@@ -4393,10 +4400,12 @@ def ai_check():
         from app import ai_tools
         image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
         source_path = app.config['SOURCE_PATH']
+        render_opts = ai_tools.default_render_opts(app.config)
         from app.models import LLMConfig
         live_cfg = LLMConfig.query.get(cfg.id)
         return ai_tools.iter_check(qs, typed_version, ref_version, atypes,
-                                   recheck, live_cfg, image_max_dim, source_path, cancel)
+                                   recheck, live_cfg, image_max_dim, source_path,
+                                   cancel, render_opts=render_opts)
 
     return _ai_stream(factory)
 
@@ -4501,6 +4510,158 @@ def ai_generate_md_slot(question_id):
         'message': res.get('message', ''),
         'asset_id': res.get('asset_id'),
     }), http
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/ai/check', methods=['POST'])
+@login_required
+@admin_required
+def ai_check_slot(question_id):
+    """Synchronously proofread ONE (question, asset_type, version) slot against
+    a reference version — drives the per-slot "Quick check" button in the
+    edit-question modal. Images come from IMG parts, or are rendered from the
+    slot's MD/DOC source on the fly.
+
+    Body JSON: {version, asset_type, ref_version, endpoint_id, recheck?}.
+    """
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    ref_version = (data.get('ref_version') or '').strip().upper()
+    if version not in set(VERSIONS) or ref_version not in set(VERSIONS):
+        return jsonify({'error': 'version and ref_version must each be one of ' + '/'.join(VERSIONS)}), 400
+    if version == ref_version:
+        return jsonify({'error': 'version and ref_version must differ'}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+
+    from app.models import LLMConfig
+    try:
+        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'endpoint_id is required'}), 400
+    if not cfg or not cfg.enabled:
+        return jsonify({'error': 'Endpoint not found or disabled'}), 404
+    if not cfg.supports_vision:
+        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+
+    recheck = bool(data.get('recheck', True))
+
+    from app import ai_tools
+    word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
+    try:
+        res = ai_tools.check_slot(
+            question, asset_type, version, ref_version,
+            recheck=recheck, config=cfg,
+            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+            source_path=current_app.config['SOURCE_PATH'],
+            render_opts=ai_tools.default_render_opts(current_app.config),
+            word=word,
+        )
+    finally:
+        word.close()
+
+    status = res.get('status')
+    http = 200 if status in ('ok', 'issues') else (409 if status == 'skip' else 502)
+    return jsonify({
+        'success': status in ('ok', 'issues'),
+        'status': status,
+        'state': res.get('state'),
+        'message': res.get('message', ''),
+    }), http
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/generate-img', methods=['POST'])
+@login_required
+@admin_required
+def generate_img_slot(question_id):
+    """Synchronously render ONE (question, asset_type, version) slot's MD/DOC
+    source into IMG part(s), replacing any existing IMG for the slot — drives
+    the per-slot "Generate IMG" button in the edit-question modal.
+
+    Body JSON: {version, asset_type, source_format?, stitch?}.
+      source_format ∈ 'DOC' | 'MD' | '' (auto: prefer DOC, else MD).
+    """
+    if not word_com.IS_AVAILABLE:
+        return jsonify({'error': 'Word COM unavailable on this server — image generation requires Windows + Microsoft Word + pywin32.'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    source_format = (data.get('source_format') or '').strip().upper()
+    if version not in set(VERSIONS):
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if asset_type not in ('QUE', 'ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+    if source_format not in ('', 'DOC', 'MD'):
+        return jsonify({'error': 'source_format must be DOC / MD (or empty for auto)'}), 400
+    stitch = bool(data.get('stitch', True))
+
+    from app import batch_image_gen
+    src_asset = batch_image_gen.find_best_source(
+        question, asset_type, version,
+        allow_doc=(source_format in ('', 'DOC')),
+        allow_md=(source_format in ('', 'MD')),
+    )
+    if src_asset is None:
+        return jsonify({'error': f'No {source_format or "DOC/MD"} source for {version}/{asset_type} to render.'}), 404
+
+    source_path = current_app.config['SOURCE_PATH']
+    src_abs = os.path.join(source_path, *src_asset.file_path.split('/'))
+    if not os.path.isfile(src_abs):
+        return jsonify({'error': 'Source file missing on disk.'}), 404
+
+    width = int(current_app.config.get('BATCH_IMG_DEFAULT_WIDTH',
+                                       current_app.config.get('DOC_THUMBNAIL_WIDTH', 1000)))
+    transparent = bool(current_app.config.get('THUMBNAIL_TRANSPARENT', False))
+    whiteness = int(current_app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
+    padding = int(current_app.config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
+    symmetric = bool(current_app.config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
+    lock_timeout = float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
+
+    try:
+        with word_com.word_session(lock_timeout=lock_timeout) as word_app:
+            if src_asset.file_format == 'DOC':
+                pages = batch_image_gen.render_doc_to_pages(
+                    word_app, src_abs, width, transparent, whiteness, padding, symmetric)
+            else:
+                pages = batch_image_gen.render_md_to_pages(
+                    word_app, src_abs, width, transparent, whiteness, padding, symmetric)
+    except Exception as e:
+        current_app.logger.exception('generate_img_slot render failed for q%s %s/%s', question_id, version, asset_type)
+        return jsonify({'error': f'Render failed: {e}'}), 502
+
+    if not pages:
+        return jsonify({'error': 'Render produced 0 pages.'}), 502
+
+    try:
+        summary = batch_image_gen.replace_img_assets(
+            question, asset_type, version, pages, stitch, source_path)
+    except Exception as e:
+        current_app.logger.exception('generate_img_slot replace failed for q%s %s/%s', question_id, version, asset_type)
+        return jsonify({'error': f'Saving images failed: {e}'}), 502
+
+    return jsonify({
+        'success': True,
+        'message': f'{version}/{asset_type} — wrote {summary["wrote"]} IMG part(s) from {src_asset.file_format}, replaced {summary["deleted"]}.',
+        'wrote': summary['wrote'],
+        'deleted': summary['deleted'],
+        'source_format': src_asset.file_format,
+    })
 
 
 # ==================== Auto Question Tagging (LLM) ====================

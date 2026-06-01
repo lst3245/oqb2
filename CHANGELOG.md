@@ -4,6 +4,19 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### Proofreading reaches MD/DOCX, per-slot Check & Gen-IMG buttons, typed-only status, and edit-modal Prev/Next
+
+Four upgrades that build on the asset-check + edit-modal work:
+
+- **Status rollup counts only typed versions.** The per-question **Status** indicator and the **Status** filter in Admin → Manage Questions now consider only the **EN / CH / BI** assets — the ones we author and proofread. The **ENO / CHO** official scans are the proofreading *reference* and never carry a check state, so they no longer drag a question into "unchecked". The **Assets** count column still shows the true total (all versions). New shared constants `TYPED_VERSIONS` / `OFFICIAL_VERSIONS` in `app/utils.py`.
+- **Proofreading now works on MD & DOCX slots.** Previously only IMG slots could be checked. A slot that has only **Markdown** or a **Word document** (no IMG) is now **rendered to page images on the fly** (the same pandoc → Word COM → PNG pipeline used by batch IMG generation / thumbnails) and sent to the model. This applies to both the typed side and the reference side, and to **both** the batch **AI Tools → Check** op and the new per-slot button. The resulting `check_state` is written to **every row of the slot** (IMG / MD / DOC), so the status shows regardless of stored format. `iter_check` is now a thin loop over a shared `check_slot(...)` worker, and opens a Word session **lazily** (pure-IMG runs never take the Word lock).
+- **Per-slot Quick Check & Generate IMG buttons** in the edit modal's Assets tab. Each asset slot's proofread bar gains a **robot button** that opens a small modal to proofread *that slot* against a chosen reference version (default ENO for EN, CHO for CH/BI) using a picked endpoint — synchronous, no batch selection needed. MD and DOCX cards gain a **Gen IMG** button that renders that source into the slot's IMG part(s) on the spot (replacing any existing IMG, with a confirm). Example: on an EN QUE Markdown asset you can click **Gen IMG** to build its image version, then **robot** to proofread it against the ENO scan — all without leaving the question.
+- **Prev / Next navigation in the edit modal.** Header arrows (with an "n / total" counter) step through the **filtered** question list **keeping the current tab and version pill** — so while reviewing Q5's Assets/CH tab you can jump straight to the next question's Assets/CH tab. On the dashboard the list is the full filtered set across all pages (`#allQuestionIds`); on the admin list it's the current page's rows. Host pages provide the ordered IDs via `window.oqbEditNavSource()`.
+
+New routes (subject-admin, AI ones gated on `AI_TOOLS_ENABLED`): `POST /admin/questions/<id>/assets/ai/check` (synchronous per-slot proofread) and `POST /admin/questions/<id>/assets/generate-img` (render one MD/DOC slot to IMG). New helper `llm_client.prepare_image_from_pil(im, max_dim)` for sending rendered pages.
+
 ### ✨ New Features
 
 #### Auto Question Tagging (LLM) + whole-question Verification

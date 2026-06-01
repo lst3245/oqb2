@@ -89,7 +89,7 @@ The `#editQuestionModal` markup lives in `partials/edit_question_modal.html` and
 2. **Assets** — one tab per **version** (EN / CH / BI / ENO / CHO, rendered from a Jinja loop over `OQB_VERSIONS`) × asset type (QUE / ANS / SOL); upload / delete / reorder. Supports IMG (multi-part), MD (single-slot, inline editor via `#mdEditorModal`), DOC (single-slot upload + download). Upload/create/reorder requests send the `version` field.
 3. **Details** — QID rename (via `#renameConfirmModal`) + read-only `created_at`.
 
-`openEditModal(questionId)` is the entry point — it fetches `GET /admin/questions/<id>/details` and `GET /admin/questions/<id>/assets`, populates the tag form via the shared `populateTagForm`, and shows the modal.
+`openEditModal(questionId, opts?)` is the entry point — it fetches `GET /admin/questions/<id>/details` and `GET /admin/questions/<id>/assets`, populates the tag form via the shared `populateTagForm`, and shows the modal. `opts.preserveView` keeps the active main tab + version pill (used by Prev/Next navigation).
 
 **Refresh callback contract**: the modal's save / rename / asset flows call `window.oqbAfterQuestionEdit?.()` after a successful mutation. Each host page wires its own implementation immediately after the include:
 
@@ -97,6 +97,10 @@ The `#editQuestionModal` markup lives in `partials/edit_question_modal.html` and
 window.oqbAfterQuestionEdit = loadQuestions;       // admin questions page
 window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
 ```
+
+**Prev/Next navigation contract**: the modal header has Prev/Next arrows (`#editNavControls`) that step through the filtered question list keeping the current tab. Each host defines `window.oqbEditNavSource()` returning the ordered ID array (read fresh on open): admin → current page rows (`#questionTableBody tr.q-row`), dashboard → full filtered set (`#allQuestionIds`).
+
+The Assets tab also exposes per-slot AI actions (gated on `window.OQB_AI_TOOLS_ENABLED`): a slot-level editable proofread bar (`renderCheckStatusBar`, now for IMG/MD/DOC), an **AI proofread** quick-check button (`openQuickCheckModal`), and **Gen IMG** on MD/DOC cards (`generateImgFromSlot`).
 
 The admin **Add Question** modal keeps its own Details → Assets → Tags 3-step wizard (Step 1 must create the question record before assets/tags can attach to it) — only the Edit modal is unified across pages.
 

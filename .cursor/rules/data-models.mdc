@@ -73,7 +73,7 @@ Delete is **blocked while any `Question` references the subject**. When allowed,
 - `part_number`: int starting at 1 (for multi-image questions; always 1 for MD)
 - Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
 - `file_path` stored as forward-slash relative path from `SOURCE_PATH`
-- AI Tools proofreading (nullable): `check_state` (None / `checking` / `ok` / `issues` / `error`), `check_result` (JSON `{status, issues[], raw, model, ref_version, checked_by}`), `checked_at` (UTC). Set by `app/ai_tools.iter_check` when a typed version is checked against an official scan. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
+- AI Tools proofreading (nullable): `check_state` (None / `checking` / `ok` / `issues` / `error`), `check_result` (JSON `{status, issues[], raw, model, ref_version, checked_by}`), `checked_at` (UTC). Set by `app/ai_tools.check_slot` (batch `iter_check` or the per-slot route) when a typed version is checked against an official scan — written to **every row of the slot (IMG / MD / DOC)**, and MD/DOC-only slots are rendered to images on the fly so they're checkable too. The Admin → Manage Questions **Status** rollup/filter counts only `TYPED_VERSIONS` (EN/CH/BI); `OFFICIAL_VERSIONS` (ENO/CHO) are excluded (`app/utils.py`). See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
 ## LLMConfig (AI Tools endpoints)
 - Table `llm_configs`. One row per configured OpenAI-compatible LLM endpoint (local or cloud). Managed via the super-admin **Admin → LLM Endpoints** page.
