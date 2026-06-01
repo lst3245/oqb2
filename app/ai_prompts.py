@@ -273,8 +273,31 @@ _DEFAULT_MD_SYSTEM = (
     "- Write inline math as $...$ and display math as $$...$$ (LaTeX). Put NO "
     "space immediately inside the inline dollar signs: write $x+1$, NEVER "
     "$ x+1 $. Spaced delimiters do not render.\n"
-    "- Preserve question/part numbering, lists, tables, and option labels "
-    "(A/B/C/D) as Markdown structure.\n"
+    "- Question and part numbers (8, 8a, 12(i), etc.): write the number as "
+    "plain text, then ESCAPE the period with a backslash so Markdown does NOT "
+    "treat the line as an ordered list (which adds bad indentation in preview "
+    "and Word). Write 8\\. not 8. ; 8a\\. not 8a. ; 12(i)\\. not 12(i). "
+    "Never start a line with digits + unescaped dot + space.\n"
+    "- Multiple-choice options (A/B/C/D): GitHub-Flavored Markdown needs a "
+    "newline to separate lines. Put EACH option on its OWN line, starting at "
+    "column 0 with the label and a period (A. … then newline, then B. …). "
+    "NEVER run two or more options on the same line. Do NOT indent options "
+    "with leading spaces (that nests them under a list item). Prefer a blank "
+    "line between the question stem and the first option when the source has "
+    "clear separation. Example:\n"
+    "8\\. Which factor contributed most to …?\n"
+    "\n"
+    "A. immigration from other countries\n"
+    "\n"
+    "B. birth rate\n"
+    "\n"
+    "C. death rate\n"
+    "\n"
+    "D. emigration to other countries\n"
+    "- Use Markdown where it helps (**bold**, *italic*, tables, $math$). Do "
+    "NOT use Markdown ordered lists (1. 2. 3.) for exam question numbers — "
+    "use escaped numbering (8\\.) instead. Ordinary bullet lists (- item) "
+    "are OK only for genuine lists in the source.\n"
     "- Keep the original language (English and/or Chinese) exactly.\n"
     "- ONLY for an actual diagram, figure, graph, chart, or geometric drawing "
     "that genuinely cannot be written as text or LaTeX, insert a placeholder "
@@ -289,8 +312,10 @@ _DEFAULT_MD_SYSTEM = (
 
 _DEFAULT_MD_USER = (
     "Transcribe this {{asset_type}} image (version {{source_version}}) into "
-    "Markdown following the rules. Output Markdown only. Remember: only use a "
-    "[FIGURE: ...] placeholder if there is a real diagram/graph/drawing."
+    "Markdown following the rules. Output Markdown only. Escape dots after "
+    "question numbers (8\\. not 8.). Put each MC option A/B/C/D on its own "
+    "line with newlines between them. Remember: only use a [FIGURE: ...] "
+    "placeholder if there is a real diagram/graph/drawing."
 )
 
 
@@ -788,8 +813,9 @@ PROMPTS_REGISTRY = OrderedDict([
         label='Markdown generation: System prompt',
         description=(
             'Rules for transcribing question images into self-contained '
-            'GitHub-Flavored Markdown. The [FIGURE: ...] placeholder rule is '
-            'consumed downstream by the figure-embed pass — keep that '
+            'GitHub-Flavored Markdown. Requires escaped question numbers '
+            '(8\\.) and one MC option per line. The [FIGURE: ...] placeholder '
+            'rule is consumed downstream by the figure-embed pass — keep that '
             'sentinel intact if you customise this prompt.'
         ),
         default=_DEFAULT_MD_SYSTEM,

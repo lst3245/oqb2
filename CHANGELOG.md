@@ -29,6 +29,10 @@ Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.p
 
 ### ✨ Enhanced Features
 
+#### AI Markdown generation prompts — escaped question numbers and MC line breaks
+
+Default `MD_SYSTEM` / `MD_USER` prompts now instruct models to escape periods after question numbers (`8\.` not `8.`) so GFM does not render exam stems as ordered lists (fixes unwanted indent in preview and pandoc Word output). They also require each multiple-choice option on its own line with explicit newline rules, and include a short example block. Sites with a DB override of these prompts must **Reset to default** on Admin → AI Prompts (or merge the new rules manually) to pick up the change.
+
 #### Proofreading reaches MD/DOCX, per-slot Check & Gen-IMG buttons, typed-only status, and edit-modal Prev/Next
 
 Four upgrades that build on the asset-check + edit-modal work:

@@ -134,7 +134,7 @@ Classify a question with a vision LLM and map returned **names** back to the sub
 
 Per slot: load source IMG parts → `MD_SYSTEM` LLM call → `strip_md_fences` → `normalize_inline_math` (tightens `$ x $` → `$x$` so pandoc/docx renders it — `tex_math_dollars` rejects spaced inline delimiters; the prompt also asks for tight `$x$`). **Figures are only embedded when the transcription actually contains a `[FIGURE: ...]` placeholder** (`ai_prompts.FIGURE_RE` / `figure_captions`) — pure-text questions yield Markdown only, no image. When figures exist and `embed_image` is on, `_embed_figures` runs a **second LLM "locate figures" pass** (`FIGURE_BOX_SYSTEM` → `parse_figure_boxes`, fractional boxes) for single-image slots and replaces each placeholder with a **cropped** base64 image (`crop_image_data_uri`); it falls back to the **whole** source image when the box is missing/degenerate/near-full-page (`_box_is_useful`) or the slot has multiple parts. Skips+logs if the result exceeds `MD_MAX_SIZE_BYTES`. Writes to the canonical MD path (`_md_rel_path`, mirrors `admin.create_md_asset`), upserts the target `QuestionAsset`, and calls `md_render.invalidate(asset.id)`.
 
-The prompt is strict that `[FIGURE]` is ONLY for real diagrams/graphs/drawings — never plain text, equations, tables, or MC options.
+The prompt is strict that `[FIGURE]` is ONLY for real diagrams/graphs/drawings — never plain text, equations, tables, or MC options. Default `MD_SYSTEM` also requires escaped question numbers (`8\.`) and each MC option on its own line (GFM newline rules).
 
 ## Explain (AI tutor chat — dashboard, all users)
 

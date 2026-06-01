@@ -126,6 +126,7 @@ The page is reached from:
 5. **Limit is 32 KiB** per prompt content (after rstrip). More than enough for any reasonable system prompt; protects the row size + the `as_dict` response.
 6. **Plaintext only** — prompts are not encrypted. Don't put secrets in them. (Use `.env` / `LLMConfig.api_key_enc` for keys.)
 7. **No live re-rendering of saved values** — `get_prompt` cache returns the override once it's fetched. `set_prompt` invalidates the cache for that key, so subsequent reads see the new content immediately. Don't manually mutate `PROMPTS_REGISTRY[key]['default']` at runtime — it's the bootstrap default that `reset_prompt` restores to.
+8. **`MD_SYSTEM` numbering** — default prompt requires escaped dots after question numbers (`8\.`) and one MC option per line; do not revert to bare `8. ` or ordered-list syntax without understanding preview/Word list indentation.
 
 ## Adding a new prompt
 
