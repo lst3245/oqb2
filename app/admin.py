@@ -3291,6 +3291,10 @@ def _pdf_load_token_meta(token):
         meta = pdf_import.load_meta(token)
     except (ValueError, OSError):
         return None, 'Staging session not found or expired. Please re-upload.'
+    # Generic Extraction sessions have no subject (they never touch the
+    # question DB), so any admin who can use the tool may access them.
+    if meta.get('mode') == 'generic':
+        return meta, None
     subject = meta.get('subject')
     if not current_user.is_super_admin:
         admin_ids = [s.id for s in get_user_admin_subjects()]
@@ -3340,23 +3344,41 @@ def pdf_import_stage():
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': 'AI features are disabled.'}), 400
 
-    paper = request.form.get('paper', '')
-    meta, err = pdf_import.parse_paper_prefix(paper)
-    if err:
-        return jsonify({'error': err}), 400
+    is_generic = (request.form.get('mode') or 'exam').strip().lower() == 'generic'
 
-    subject = meta['subject']
-    if not Subject.query.get(subject):
-        return jsonify({'error': f'Subject {subject} does not exist.'}), 400
-    if not current_user.is_super_admin:
-        admin_ids = [s.id for s in get_user_admin_subjects()]
-        if subject not in admin_ids:
-            return jsonify({'error': f'You do not have admin access to subject {subject}.'}), 403
+    if is_generic:
+        # Generic Extraction: no paper/subject/version — just an instruction.
+        instruction = (request.form.get('instruction') or '').strip()
+        if not instruction:
+            return jsonify({'error': 'Describe what to extract before starting.'}), 400
+        meta = {'mode': 'generic', 'instruction': instruction[:2000],
+                'subject': None, 'source': None, 'year': None, 'paper': None}
+        que_version = sol_version = None
+    else:
+        paper = request.form.get('paper', '')
+        meta, err = pdf_import.parse_paper_prefix(paper)
+        if err:
+            return jsonify({'error': err}), 400
 
-    version = (request.form.get('version') or '').strip().upper()
-    if version not in VERSIONS:
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
-    meta['version'] = version
+        subject = meta['subject']
+        if not Subject.query.get(subject):
+            return jsonify({'error': f'Subject {subject} does not exist.'}), 400
+        if not current_user.is_super_admin:
+            admin_ids = [s.id for s in get_user_admin_subjects()]
+            if subject not in admin_ids:
+                return jsonify({'error': f'You do not have admin access to subject {subject}.'}), 403
+
+        # Question and solution images may target different versions. Accept
+        # the legacy single `version` field as a fallback for both sides.
+        legacy = (request.form.get('version') or '').strip().upper()
+        que_version = (request.form.get('que_version') or legacy or '').strip().upper()
+        sol_version = (request.form.get('sol_version') or legacy or '').strip().upper()
+        if que_version not in VERSIONS or sol_version not in VERSIONS:
+            return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        meta['mode'] = 'exam'
+        meta['que_version'] = que_version
+        meta['sol_version'] = sol_version
+        meta['version'] = que_version  # back-compat single value
 
     que_file = request.files.get('que_pdf')
     sol_file = request.files.get('sol_pdf')
@@ -3408,8 +3430,12 @@ def pdf_import_stage():
 
     return jsonify({
         'token': token,
-        'subject': subject, 'source': meta['source'],
-        'year': meta['year'], 'paper': meta['paper'], 'version': version,
+        'mode': saved_meta.get('mode', 'exam'),
+        'instruction': saved_meta.get('instruction'),
+        'subject': meta.get('subject'), 'source': meta.get('source'),
+        'year': meta.get('year'), 'paper': meta.get('paper'),
+        'que_version': que_version, 'sol_version': sol_version,
+        'version': que_version,
         'deskew': bool(saved_meta.get('deskew')),
         'que': {'filename': (que_file.filename if has_que else None), 'pages': _pages('que')},
         'sol': {'filename': (sol_file.filename if has_sol else None), 'pages': _pages('sol')},
@@ -3610,9 +3636,17 @@ def pdf_import_commit():
     if err:
         return _pdf_sse_error(err)
 
-    version = (request.args.get('version') or meta.get('version') or '').strip().upper()
-    if version not in VERSIONS:
+    if meta.get('mode') == 'generic':
+        return _pdf_sse_error('Generic Extraction does not import to the '
+                              'database — use "Download all as ZIP" instead.')
+
+    que_version = (request.args.get('que_version')
+                   or meta.get('que_version') or meta.get('version') or '').strip().upper()
+    sol_version = (request.args.get('sol_version')
+                   or meta.get('sol_version') or meta.get('version') or '').strip().upper()
+    if que_version not in VERSIONS or sol_version not in VERSIONS:
         return _pdf_sse_error('version must be one of ' + '/'.join(VERSIONS))
+    versions = {'que': que_version, 'sol': sol_version}
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
 
     app = current_app._get_current_object()
@@ -3625,7 +3659,7 @@ def pdf_import_commit():
                 plan = pdf_import.load_plan(token)
                 source_path = app.config['SOURCE_PATH']
                 for ev in pdf_import.iter_commit(app, cancel, token, plan,
-                                                 version, overwrite, source_path):
+                                                 versions, overwrite, source_path):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import commit stream aborted')
@@ -3669,6 +3703,70 @@ def pdf_import_discard():
     except ValueError:
         return jsonify({'success': True, 'removed': False})
     return jsonify({'success': True, 'removed': removed})
+
+
+@admin_bp.route('/pdf-import/processed/<token>/<kind>.pdf')
+@login_required
+@admin_required
+def pdf_import_processed_pdf(token, kind):
+    """Download the staged (deskewed / processed) pages of one side as a PDF."""
+    import io
+    from app import pdf_import
+    if kind not in ('que', 'sol'):
+        return abort(404)
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return abort(404)
+    try:
+        data = pdf_import.pages_to_pdf_bytes(token, kind)
+    except (ValueError, OSError):
+        return abort(404)
+
+    deskewed = bool(meta.get('deskew'))
+    if meta.get('mode') == 'generic':
+        stem = 'extraction'
+    else:
+        stem = f"{meta.get('subject')}_{meta.get('source')}_{meta.get('year')}_{meta.get('paper')}_{kind}"
+    name = f"{stem}{'_deskewed' if deskewed else '_processed'}.pdf"
+    return send_file(io.BytesIO(data), mimetype='application/pdf',
+                     as_attachment=True, download_name=name)
+
+
+@admin_bp.route('/pdf-import/export-zip', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_export_zip():
+    """Crop the supplied regions out of the staged pages and return them as a
+    ZIP download (Generic Extraction — does NOT touch the database)."""
+    import io
+    from app import pdf_import
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 404
+    kind = (data.get('kind') or 'que').strip()
+    if kind not in ('que', 'sol'):
+        return jsonify({'error': 'invalid kind'}), 400
+
+    items = data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return jsonify({'error': 'No regions to export. Detect or draw some boxes first.'}), 400
+
+    crop_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
+    try:
+        blob = pdf_import.export_zip_bytes(token, kind, items, pad_frac=crop_pad)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception('PDF import ZIP export failed')
+        return jsonify({'error': f'Could not build ZIP: {e}'}), 500
+
+    stem = 'extraction' if meta.get('mode') == 'generic' else \
+        f"{meta.get('subject')}_{meta.get('paper')}_{kind}"
+    return send_file(io.BytesIO(blob), mimetype='application/zip',
+                     as_attachment=True, download_name=f'{stem}.zip')
 
 
 # ==================== Database Health (Super Admin) ====================

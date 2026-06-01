@@ -345,8 +345,14 @@ DETECT_METHODS = ('llm', 'refine', 'segment')
 
 
 def detect_page(config, png_path: str, atype: str, image_max_dim: int,
-                method: str = 'llm'):
+                method: str = 'llm', mode: str = 'exam', instruction: str = ''):
     """Detect the question/solution regions on one page.
+
+    ``mode`` is ``'exam'`` (the default — question/solution detection) or
+    ``'generic'`` (no exam context; the model is asked to find regions
+    matching the free-text ``instruction``). In generic mode the ``segment``
+    method is not meaningful and falls back to ``llm``; returned boxes carry a
+    ``label`` instead of a ``qno``.
 
     ``method``:
       * ``'llm'``     - the model returns tight boxes (original behaviour).
@@ -372,6 +378,7 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     method = (method or 'llm').strip().lower()
     if method not in DETECT_METHODS:
         method = 'llm'
+    mode = (mode or 'exam').strip().lower()
     coord_order = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
     shrink_sides = (atype == 'QUE')
 
@@ -380,6 +387,28 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
 
     assist_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_ASSIST_PAD_PCT', 0.6))) / 100.0
     refine_grow = max(0.0, float(current_app.config.get('PDF_IMPORT_REFINE_GROW_PCT', 3.5))) / 100.0
+
+    if mode == 'generic':
+        # No exam context: the model finds regions matching the user request.
+        # 'segment' (anchor) detection is exam-specific, so collapse it to llm.
+        system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
+        user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
+        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
+        gboxes = ai_prompts.parse_generic_boxes(text, img_w=sw, img_h=sh,
+                                                coord_order=coord_order)
+        boxes = [{'label': g.get('label'), 'box': g['box']} for g in gboxes]
+        if method == 'refine':
+            from app import pdf_layout
+            gray = pdf_layout.load_gray(png_path)
+            for b in boxes:
+                try:
+                    b['box'] = pdf_layout.refine_box(gray, b['box'],
+                                                     shrink_sides=False,
+                                                     grow_frac=refine_grow,
+                                                     pad_frac=assist_pad)
+                except Exception as e:  # pragma: no cover — keep the LLM box
+                    logger.warning('pdf-import generic refine_box failed: %s', e)
+        return boxes, (text or '')
 
     if method == 'segment':
         from app import pdf_layout
@@ -472,6 +501,94 @@ def crop_page(png_path: str, box, pad_frac: float = 0.006,
         return crop
 
 
+# ==================== Processed-PDF / ZIP export ====================
+
+def pages_to_pdf_bytes(token: str, kind: str) -> bytes:
+    """Assemble the staged page PNGs for ``kind`` back into a single PDF and
+    return its bytes. The staged PNGs already reflect any deskew applied at
+    rasterisation, so this is the "deskewed / processed" PDF. Raises
+    ``ValueError`` when the kind has no staged pages."""
+    import io
+    from PIL import Image
+
+    meta = load_meta(token)
+    info = meta.get(kind)
+    if not info or not info.get('pages'):
+        raise ValueError('no staged pages for this side')
+
+    images = []
+    try:
+        for p in info['pages']:
+            path = page_png_path(token, kind, p['index'])
+            im = Image.open(path)
+            im.load()
+            if im.mode != 'RGB':
+                im = im.convert('RGB')
+            images.append(im)
+        if not images:
+            raise ValueError('no pages')
+        buf = io.BytesIO()
+        images[0].save(buf, format='PDF', save_all=True,
+                       append_images=images[1:])
+        return buf.getvalue()
+    finally:
+        for im in images:
+            try:
+                im.close()
+            except Exception:
+                pass
+
+
+def _safe_filename(name: str, fallback: str) -> str:
+    """Sanitise a label into a filesystem-safe stem (no extension)."""
+    name = re.sub(r'[^\w\-. ]+', '_', (name or '').strip())
+    name = re.sub(r'\s+', '_', name).strip('._')
+    return name[:60] or fallback
+
+
+def export_zip_bytes(token: str, kind: str, items, pad_frac: float = 0.0) -> bytes:
+    """Crop every ``item`` ({page, label, box}) out of the staged page PNGs
+    and return a ZIP archive of PNGs (Generic Extraction download).
+
+    No white-trimming is applied so the user gets exactly the region they
+    selected (plus the optional ``pad_frac``). Filenames use each item's
+    label, de-duplicated, falling back to ``page<NN>_<i>``.
+    """
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    used = {}
+    count = 0
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for i, it in enumerate(items or []):
+            box = it.get('box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                page = int(it.get('page', 0))
+            except (ValueError, TypeError):
+                continue
+            png = page_png_path(token, kind, page)
+            try:
+                crop = crop_page(png, [float(v) for v in box], pad_frac=pad_frac,
+                                 trim_white=False)
+            except Exception as e:  # pragma: no cover — skip a bad region
+                logger.warning('pdf-import zip crop failed (region %s): %s', i, e)
+                continue
+            stem = _safe_filename(it.get('label'), f'page{page + 1:02d}_{i + 1}')
+            n = used.get(stem, 0) + 1
+            used[stem] = n
+            fname = f'{stem}.png' if n == 1 else f'{stem}_{n}.png'
+            img_buf = io.BytesIO()
+            crop.save(img_buf, format='PNG')
+            zf.writestr(fname, img_buf.getvalue())
+            count += 1
+    if count == 0:
+        raise ValueError('no regions to export')
+    return buf.getvalue()
+
+
 # ==================== SSE generators ====================
 
 def _empty_stats():
@@ -506,6 +623,8 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     :func:`detect_page`).
     """
     meta = load_meta(token)
+    is_generic = (meta.get('mode') == 'generic')
+    instruction = meta.get('instruction') or ''
     kinds = [k for k in ('que', 'sol')
              if meta.get(k) and meta[k].get('pages')]
     total = sum(len(meta[k]['pages']) for k in kinds)
@@ -549,7 +668,9 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             idx = p['index']
             png = page_png_path(token, kind, idx)
             try:
-                boxes, raw = detect_page(config, png, atype, image_max_dim, method)
+                boxes, raw = detect_page(config, png, atype, image_max_dim,
+                                         method, mode=meta.get('mode', 'exam'),
+                                         instruction=instruction)
             except Exception as e:  # transport / parse failure for this page
                 done += 1
                 logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, e)
@@ -559,16 +680,22 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        'page': {'kind': kind, 'index': idx, 'boxes': []}}
                 continue
             for b in boxes:
-                plan[kind].append({'page': idx, 'qno': b.get('qno'),
-                                   'box': b['box']})
+                if is_generic:
+                    plan[kind].append({'page': idx, 'label': b.get('label'),
+                                       'box': b['box']})
+                else:
+                    plan[kind].append({'page': idx, 'qno': b.get('qno'),
+                                       'box': b['box']})
             qcount += len(boxes)
             done += 1
             page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
             if debug:
                 logger.info('pdf-import raw (%s page %s):\n%s', kind, idx + 1, raw)
                 page_ev['raw'] = (raw or '')[:6000]
+            noun = 'region(s)' if is_generic else 'question region(s)'
+            label = 'Page' if is_generic else atype
             yield {'type': 'success',
-                   'message': f'{atype} page {idx + 1}: found {len(boxes)} question region(s).',
+                   'message': f'{label} {idx + 1}: found {len(boxes)} {noun}.',
                    'current': done, 'total': total,
                    'page': page_ev}
 
@@ -589,9 +716,12 @@ def detect_single_page(config, token: str, kind: str, index: int,
     err = _check_method_available(method)
     if err:
         raise RuntimeError(err)
+    meta = load_meta(token)
     atype = 'QUE' if kind == 'que' else 'SOL'
     png = page_png_path(token, kind, index)
-    return detect_page(config, png, atype, image_max_dim, method)
+    return detect_page(config, png, atype, image_max_dim, method,
+                       mode=meta.get('mode', 'exam'),
+                       instruction=meta.get('instruction', ''))
 
 
 def _group_plan(plan: dict):
@@ -624,10 +754,18 @@ def _group_plan(plan: dict):
     return groups
 
 
-def iter_commit(app, cancel, token: str, plan: dict, version: str,
+def iter_commit(app, cancel, token: str, plan: dict, versions,
                 overwrite: bool, source_path: str):
     """Generator yielding commit progress events: crop each grouped question
-    region and create ``Question`` + ``QuestionAsset`` (IMG) rows."""
+    region and create ``Question`` + ``QuestionAsset`` (IMG) rows.
+
+    ``versions`` maps each kind to its target asset version, e.g.
+    ``{'que': 'ENO', 'sol': 'EN'}`` so question and solution images can be
+    imported under different versions. A bare string is accepted for backward
+    compatibility and applied to both kinds.
+    """
+    if isinstance(versions, str):
+        versions = {'que': versions, 'sol': versions}
     from app.ingestor import determine_question_type
     from app.batch_image_gen import replace_img_assets, slot_has_img
 
@@ -649,8 +787,10 @@ def iter_commit(app, cancel, token: str, plan: dict, version: str,
                                      'skipped': 0, 'errors': 0}}
         return
 
+    ver_note = '/'.join(f'{k.upper()}:{versions.get(k)}'
+                        for k in ('que', 'sol') if versions.get(k))
     yield {'type': 'info',
-           'message': f'Importing {total} question slot(s) for {subject}_{source}_{year}_{paper} ({version})...',
+           'message': f'Importing {total} question slot(s) for {subject}_{source}_{year}_{paper} ({ver_note})...',
            'current': 0, 'total': total}
 
     created_q = assets_written = skipped = errors = 0
@@ -664,6 +804,7 @@ def iter_commit(app, cancel, token: str, plan: dict, version: str,
                              'skipped': skipped, 'errors': errors}}
             return
 
+        version = versions.get(kind)
         qid = f'{subject}_{source}_{year}_{paper}_Q{qno}'
         try:
             question = Question.query.filter_by(qid=qid).first()

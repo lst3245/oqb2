@@ -6,6 +6,17 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+#### PDF Batch Import — per-side versions, live review, deskewed-PDF download & Generic Extraction
+
+Four upgrades to **Admin → PDF Batch Import**:
+
+- **Separate QUE / SOL versions.** The single Version select is replaced by two (Question → version, Solution → version), so question images can land in one version (e.g. `ENO`) and solutions in another (e.g. `EN`) in a single run. Sent as `que_version` / `sol_version` to the staging + commit routes; `iter_commit` now takes a `{'que':…, 'sol':…}` versions map (a bare string is still accepted for back-compat). Defaults: QUE→ENO, SOL→EN.
+- **Live page review.** In Review mode the page cards now render up-front (each showing a "detecting…" badge) and fill in **as each page's detection finishes**, so you can start reviewing/fixing page 1 while later pages are still being processed instead of waiting for the whole PDF. Each card shows a per-page status badge (`N region(s)` / `no regions`).
+- **Download the processed (deskewed) PDF.** Each side of the review gets a **Download deskewed PDF** button (labelled "processed" when deskew is off) that re-assembles the staged page PNGs into a PDF — handy for keeping the straightened scan. Backed by `GET /admin/pdf-import/processed/<token>/<kind>.pdf` and `pdf_import.pages_to_pdf_bytes`.
+- **Generic Extraction task.** A new top-of-form **Task** toggle (Exam paper ↔ Generic extraction). In Generic mode there is **no exam-question context**: you give a free-text **"What to extract"** instruction (e.g. "extract every data table with its title"), the model returns labelled regions, and you review/drag/add boxes exactly like the exam flow — but instead of importing to the database you click **Download all as ZIP** to get every cropped region as a PNG (filenames from each region's label). Backed by a new prompt group **PDF Batch Import — Generic Extraction** (`PDF_GENERIC_BOX_SYSTEM` / `PDF_GENERIC_BOX_JSON_CONTRACT` / `PDF_GENERIC_BOX_USER`, coordinate-order aware) + parser `ai_prompts.parse_generic_boxes`, `detect_page(..., mode='generic', instruction=…)`, the staging route's `mode=generic` branch (no paper/subject), and `POST /admin/pdf-import/export-zip` (`pdf_import.export_zip_bytes`, no DB writes).
+
+Files: `app/ai_prompts.py`, `app/pdf_import.py`, `app/admin.py`, `templates/admin_pdf_import.html`. See [.cursor/rules/pdf-import.mdc](.cursor/rules/pdf-import.mdc).
+
 #### Per-feature default LLM endpoints
 
 `EXPLAIN_DEFAULT_LLM` (the existing setting) now has siblings for every other AI feature, so each operation can target a different model out-of-the-box without the user having to pick from a dropdown each time. Four new System Settings keys (group **AI Tools**), each rendered as a `<select>` of enabled endpoints:

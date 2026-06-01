@@ -727,6 +727,54 @@ _DEFAULT_PDF_BOX_USER = (
 )
 
 
+# ---- Generic extraction mode ----------------------------------------------
+#
+# A general-purpose region detector with NO exam-question context: the caller
+# supplies a free-text description of WHAT to extract (e.g. "every table",
+# "each chart with its caption"). The model returns a short label + box per
+# matching region. Coordinate handling mirrors the question-box contract so
+# the same {{box_array}}/{{box_corner}}/{{box_example}}/{{box_pairs}} order
+# variables apply and parse_generic_boxes can reuse _normalize_box.
+_DEFAULT_PDF_GENERIC_BOX_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom reading order, of objects of the form\n"
+    '{"label": <short descriptive name>, "box": {{box_array}}}\n'
+    "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
+    "of the page. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
+    "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
+    "the BOTTOM edge). The box is {{box_corner}}. Example: a region that fills "
+    "the TOP THIRD of the page across almost the full width is "
+    '{"label": "Table 1", "box": {{box_example}}} — note the small vertical '
+    "values because it is near the TOP. \"label\" is a short human-readable "
+    "name for the region (e.g. \"Table 1\", \"Figure 2\", \"Chart\"); keep it "
+    "filename-safe. If the page has nothing matching the request, return []."
+)
+
+_DEFAULT_PDF_GENERIC_BOX_SYSTEM = (
+    "You are a precise, general-purpose document-layout tool. You are given "
+    "ONE rasterised page of a document. The user tells you WHAT to extract; "
+    "locate a tight bounding box around each region on the page that matches "
+    "their request.\n"
+    "- Return one box per distinct matching region.\n"
+    "- Each box must enclose the WHOLE region, including its title/caption/"
+    "labels, and exclude unrelated surrounding content and the outer page "
+    "margins.\n"
+    "- The page may use any layout (single or multi column). Read top to "
+    "bottom, then left to right.\n"
+    "- If nothing on the page matches, return an empty list.\n\n"
+    "THE USER'S EXTRACTION REQUEST:\n{{instruction}}\n\n"
+    "{{json_contract}}"
+)
+
+_DEFAULT_PDF_GENERIC_BOX_USER = (
+    "Extract every region matching this request from the page as STRICT JSON: "
+    "{{instruction}}\n"
+    "Use integer coordinates on a 0-1000 grid in the order {{box_pairs}}, "
+    "measured from the top-left corner, and give each region a short "
+    "filename-safe label. Return [] if nothing on this page matches."
+)
+
+
 # ---- Anchor mode (LLM assisted: segment) -----------------------------------
 #
 # The "segment" detection method asks the model for ONLY the vertical START
@@ -989,6 +1037,46 @@ PROMPTS_REGISTRY = OrderedDict([
         variables=['what', 'box_pairs'],
         role='user',
     )),
+    ('PDF_GENERIC_BOX_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — Generic Extraction',
+        label='PDF generic: JSON contract (shared)',
+        description=(
+            'Response contract for the "Generic Extraction" task (no exam '
+            'context): the model returns {label, box} per matching region. '
+            'Substituted into the generic system prompt via {{json_contract}}. '
+            'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
+            'are filled from the PDF_IMPORT_COORD_ORDER setting. Parser '
+            'parse_generic_boxes is coupled to this shape.'
+        ),
+        default=_DEFAULT_PDF_GENERIC_BOX_JSON_CONTRACT,
+        variables=['box_array', 'box_corner', 'box_example'],
+        role='system',
+    )),
+    ('PDF_GENERIC_BOX_SYSTEM', _prompt(
+        group='PDF Batch Import — Generic Extraction',
+        label='PDF generic: System prompt',
+        description=(
+            'Used by the "Generic Extraction" task to find regions matching a '
+            'user-supplied request on any document page (no exam-question '
+            'context). {{instruction}} is the user request; {{json_contract}} '
+            'is replaced with the generic contract above.'
+        ),
+        default=_DEFAULT_PDF_GENERIC_BOX_SYSTEM,
+        variables=['instruction', 'json_contract'],
+        role='system',
+    )),
+    ('PDF_GENERIC_BOX_USER', _prompt(
+        group='PDF Batch Import — Generic Extraction',
+        label='PDF generic: User-turn instruction',
+        description=(
+            "Accompanies the single page image for Generic Extraction. "
+            "{{instruction}} is the user request; {{box_pairs}} is filled from "
+            "the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx)."
+        ),
+        default=_DEFAULT_PDF_GENERIC_BOX_USER,
+        variables=['instruction', 'box_pairs'],
+        role='user',
+    )),
     ('PDF_ANCHOR_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Assisted (Anchor) Detection',
         label='PDF anchor: JSON contract (shared)',
@@ -1104,6 +1192,26 @@ def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy') -> str:
                              **pdf_box_order_vars(coord_order))
     key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
     return render_prompt(key, json_contract=contract)
+
+
+def build_pdf_generic_system(instruction: str, coord_order: str = 'xyxy') -> str:
+    """Resolved system prompt for Generic Extraction (no exam context).
+    ``instruction`` is the user's free-text request; ``coord_order`` (the
+    PDF_IMPORT_COORD_ORDER setting) drives the coordinate-order wording."""
+    contract = render_prompt('PDF_GENERIC_BOX_JSON_CONTRACT',
+                             **pdf_box_order_vars(coord_order))
+    return render_prompt('PDF_GENERIC_BOX_SYSTEM',
+                         instruction=(instruction or '').strip()
+                         or '(no specific request given — extract the main content regions)',
+                         json_contract=contract)
+
+
+def build_pdf_generic_user_text(instruction: str, coord_order: str = 'xyxy') -> str:
+    """User-turn instruction for Generic Extraction accompanying one page."""
+    return render_prompt('PDF_GENERIC_BOX_USER',
+                         instruction=(instruction or '').strip()
+                         or 'Extract the main content regions',
+                         **pdf_box_order_vars(coord_order))
 
 
 def build_pdf_anchor_user_text(asset_type: str) -> str:
@@ -1327,6 +1435,54 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
                 'continues_prev': bool(it.get('continues_prev', False)),
                 'continues_next': bool(it.get('continues_next', False)),
             })
+        return out
+    return []
+
+
+def parse_generic_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
+    """Parse the Generic Extraction model output into a list of
+    ``{label, box:[x1,y1,x2,y2]}``.
+
+    Mirrors :func:`parse_question_boxes` (same fence/array tolerance and
+    coordinate normalisation) but reads a free-text ``label`` instead of a
+    printed question number. ``label`` falls back to ``None`` when absent.
+    """
+    if not text:
+        return []
+    candidates = [text.strip()]
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+    arr = re.search(r'\[.*\]', text, re.DOTALL)
+    if arr:
+        candidates.append(arr.group(0))
+
+    for c in candidates:
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            data = (data.get('regions') or data.get('boxes')
+                    or data.get('items') or [])
+        if not isinstance(data, list):
+            continue
+        out = []
+        for it in data:
+            if not isinstance(it, dict):
+                continue
+            box = it.get('box') or it.get('bbox') or it.get('bounding_box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                coords = [float(v) for v in box]
+            except (ValueError, TypeError):
+                continue
+            x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
+            label_raw = it.get('label', it.get('name', it.get('title')))
+            label = None
+            if label_raw is not None and str(label_raw).strip() != '':
+                label = str(label_raw).strip()[:80]
+            out.append({'label': label, 'box': [x1, y1, x2, y2]})
         return out
     return []
 

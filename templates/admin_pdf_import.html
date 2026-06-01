@@ -153,20 +153,46 @@
     <div class="card mb-3" id="setupCard">
         <div class="card-header bg-light"><i class="bi bi-1-circle"></i> Setup</div>
         <div class="card-body">
+            <div class="mb-3">
+                <span class="fw-bold me-2">Task:</span>
+                <div class="btn-group" role="group">
+                    <input type="radio" class="btn-check" name="task" id="taskExam" value="exam" checked>
+                    <label class="btn btn-outline-primary btn-sm" for="taskExam"><i class="bi bi-mortarboard"></i> Exam paper (questions / solutions)</label>
+                    <input type="radio" class="btn-check" name="task" id="taskGeneric" value="generic">
+                    <label class="btn btn-outline-primary btn-sm" for="taskGeneric"><i class="bi bi-grid-3x3-gap"></i> Generic extraction</label>
+                </div>
+                <div class="form-text" id="taskHint">Detect each exam question / solution and import them as image assets.</div>
+            </div>
             <div class="row g-3">
-                <div class="col-md-4">
+                <div class="col-md-4 exam-only" id="paperCol">
                     <label for="paperInput" class="form-label fw-bold">Paper name</label>
                     <input type="text" id="paperInput" class="form-control" placeholder="MATC_DSE_2012_P1" autocomplete="off">
                     <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages. <span id="paperGuessHint" class="text-info d-none"><span class="spinner-border spinner-border-sm"></span> Guessing from PDF…</span></div>
                 </div>
-                <div class="col-md-4">
-                    <label for="versionSelect" class="form-label fw-bold">Version</label>
-                    <select id="versionSelect" class="form-select">
-                        {% for v in versions %}
-                        <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>{{ version_labels.get(v, v) }} ({{ v }})</option>
-                        {% endfor %}
-                    </select>
-                    <div class="form-text">Applied to both question and solution images created in this run.</div>
+                <div class="col-md-4 exam-only" id="versionCol">
+                    <label class="form-label fw-bold">Versions</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <select id="queVersionSelect" class="form-select form-select-sm" title="Version for QUESTION images">
+                                {% for v in versions %}
+                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>QUE → {{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <select id="solVersionSelect" class="form-select form-select-sm" title="Version for SOLUTION images">
+                                {% for v in versions %}
+                                <option value="{{ v }}" {% if v == 'EN' %}selected{% endif %}>SOL → {{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-text">Question and solution images can use different versions.</div>
+                </div>
+                <div class="col-12 generic-only d-none" id="instructionCol">
+                    <label for="instructionInput" class="form-label fw-bold">What to extract</label>
+                    <textarea id="instructionInput" class="form-control" rows="2" placeholder="e.g. Extract every data table with its title. / Extract each chart and its caption."></textarea>
+                    <div class="form-text">Describe the regions you want cropped out. No exam-question context is sent to the model.</div>
                 </div>
                 <div class="col-md-4">
                     <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
@@ -187,8 +213,8 @@
                     <div class="form-text"><strong>Refine</strong>: model boxes snapped to content by CV. <strong>Segment</strong>: model marks where each question starts, CV derives the boxes. Both need NumPy; you can retry per page in review.</div>
                 </div>
 
-                <div class="col-md-4">
-                    <label for="quePdf" class="form-label fw-bold">Question PDF <span class="text-muted fw-normal">(optional)</span></label>
+                <div class="col-md-4" id="quePdfCol">
+                    <label for="quePdf" class="form-label fw-bold"><span id="quePdfLabel">Question PDF</span> <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
                     {% if pdf_source_available %}
                     <div class="form-text">
@@ -200,7 +226,7 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-4 exam-only" id="solCol">
                     <label for="solPdf" class="form-label fw-bold">Solution PDF <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="solPdf" class="form-control" accept="application/pdf,.pdf">
                     {% if pdf_source_available %}
@@ -214,7 +240,7 @@
                     {% endif %}
                 </div>
                 <div class="col-md-4 d-flex flex-column justify-content-end">
-                    <div class="mb-2">
+                    <div class="mb-2 exam-only" id="modeCol">
                         <span class="fw-bold me-2">Mode:</span>
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="mode" id="modeReview" value="review" checked>
@@ -231,7 +257,7 @@
                             <i class="bi bi-rulers"></i> Auto-deskew scans
                         </label>
                     </div>
-                    <div class="form-check">
+                    <div class="form-check exam-only">
                         <input class="form-check-input" type="checkbox" id="overwriteChk">
                         <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
                     </div>
@@ -290,6 +316,7 @@ Fill in the setup above and click "Start".
             <div id="reviewBody"></div>
             <div class="d-flex gap-2 mt-3">
                 <button id="btnCommit" class="btn btn-success"><i class="bi bi-check2-circle"></i> Import to database</button>
+                <button id="btnZip" class="btn btn-success d-none"><i class="bi bi-file-earmark-zip"></i> Download all as ZIP</button>
                 <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
             </div>
         </div>
@@ -338,7 +365,9 @@ const METHOD_LABELS = { llm: 'LLM only', refine: 'Assisted: refine', segment: 'A
 
 // ----- DOM refs -----
 const paperInput = document.getElementById('paperInput');
-const versionSelect = document.getElementById('versionSelect');
+const queVersionSelect = document.getElementById('queVersionSelect');
+const solVersionSelect = document.getElementById('solVersionSelect');
+const instructionInput = document.getElementById('instructionInput');
 const endpointSelect = document.getElementById('endpointSelect');
 const methodSelect = document.getElementById('methodSelect');
 const quePdf = document.getElementById('quePdf');
@@ -350,7 +379,36 @@ const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
 const btnReset = document.getElementById('btnReset');
 const btnCommit = document.getElementById('btnCommit');
+const btnZip = document.getElementById('btnZip');
 const btnDiscard = document.getElementById('btnDiscard');
+
+// ----- Task (exam vs generic) -----
+function currentTask() {
+    const el = document.querySelector('input[name="task"]:checked');
+    return el ? el.value : 'exam';
+}
+// True once a run is staged in generic mode (staging is authoritative during
+// review/commit so the setup toggle can't change mid-run).
+function isGeneric() {
+    return staging ? staging.mode === 'generic' : currentTask() === 'generic';
+}
+function applyTaskUI() {
+    const generic = currentTask() === 'generic';
+    document.querySelectorAll('.exam-only').forEach(el => el.classList.toggle('d-none', generic));
+    document.querySelectorAll('.generic-only').forEach(el => el.classList.toggle('d-none', !generic));
+    document.getElementById('quePdfLabel').textContent = generic ? 'PDF' : 'Question PDF';
+    document.getElementById('taskHint').textContent = generic
+        ? 'Detect arbitrary regions you describe and download them as a ZIP (nothing is imported to the database).'
+        : 'Detect each exam question / solution and import them as image assets.';
+    // The "segment" method is exam-specific; hide it for generic.
+    const segOpt = methodSelect.querySelector('option[value="segment"]');
+    if (segOpt) {
+        segOpt.disabled = generic;
+        segOpt.classList.toggle('d-none', generic);
+        if (generic && methodSelect.value === 'segment') methodSelect.value = 'llm';
+    }
+}
+document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListener('change', applyTaskUI));
 const logConsole = document.getElementById('logConsole');
 const logStatus = document.getElementById('logStatus');
 const progressSection = document.getElementById('progressSection');
@@ -527,6 +585,7 @@ function clearServerPick(side) {
 // `src` is either {file: File} or {server_path: '...'}.
 function maybeGuessPaper(src) {
     if (guessing) return;
+    if (currentTask() === 'generic') return;  // no paper in generic extraction
     if (paperInput.value.trim()) return;  // never overwrite a typed value
     const hint = document.getElementById('paperGuessHint');
     const fd = new FormData();
@@ -608,29 +667,42 @@ btnStart.addEventListener('click', startRun);
 btnStop.addEventListener('click', stopRun);
 btnReset.addEventListener('click', resetAll);
 btnCommit.addEventListener('click', startCommit);
+btnZip.addEventListener('click', downloadZip);
 btnDiscard.addEventListener('click', discardRun);
 
 function setRunning(on) {
     running = on;
     btnStart.classList.toggle('d-none', on);
     btnStop.classList.toggle('d-none', !on);
-    [paperInput, versionSelect, endpointSelect, methodSelect, quePdf, solPdf,
+    [paperInput, queVersionSelect, solVersionSelect, instructionInput,
+     endpointSelect, methodSelect, quePdf, solPdf,
      deskewChk, overwriteChk, debugChk,
+     document.getElementById('taskExam'), document.getElementById('taskGeneric'),
      document.getElementById('modeReview'), document.getElementById('modeAuto')]
-        .forEach(el => { el.disabled = on; });
+        .forEach(el => { if (el) el.disabled = on; });
     btnCommit.disabled = on;
+    btnZip.disabled = on;
     btnDiscard.disabled = on;
 }
 
 async function startRun() {
+    const generic = currentTask() === 'generic';
     const paper = paperInput.value.trim();
-    if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
+    const instruction = instructionInput.value.trim();
     const hasQue = quePdf.files.length || serverPdf.que;
     const hasSol = solPdf.files.length || serverPdf.sol;
-    if (!hasQue && !hasSol) {
-        alert('Choose or pick a question PDF and/or a solution PDF.'); return;
+
+    if (generic) {
+        if (!instruction) { alert('Describe what to extract first.'); return; }
+        if (!hasQue) { alert('Choose or pick a PDF to extract from.'); return; }
+        mode = 'review';   // generic always reviews then downloads a ZIP
+    } else {
+        if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
+        if (!hasQue && !hasSol) {
+            alert('Choose or pick a question PDF and/or a solution PDF.'); return;
+        }
+        mode = document.querySelector('input[name="mode"]:checked').value;
     }
-    mode = document.querySelector('input[name="mode"]:checked').value;
 
     // Reset any previous run UI
     reviewCard.classList.add('d-none');
@@ -641,16 +713,25 @@ async function startRun() {
 
     setRunning(true);
     setStatus('Uploading', 'bg-info');
-    appendLog(`Uploading PDF(s) for ${paper}...`, 'info');
+    appendLog(generic ? 'Uploading PDF for generic extraction...'
+                      : `Uploading PDF(s) for ${paper}...`, 'info');
 
     const fd = new FormData();
-    fd.append('paper', paper);
-    fd.append('version', versionSelect.value);
+    fd.append('mode', generic ? 'generic' : 'exam');
     fd.append('deskew', deskewChk.checked ? '1' : '0');
+    if (generic) {
+        fd.append('instruction', instruction);
+    } else {
+        fd.append('paper', paper);
+        fd.append('que_version', queVersionSelect.value);
+        fd.append('sol_version', solVersionSelect.value);
+    }
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     else if (serverPdf.que) fd.append('que_server_path', serverPdf.que.rel_path);
-    if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
-    else if (serverPdf.sol) fd.append('sol_server_path', serverPdf.sol.rel_path);
+    if (!generic) {
+        if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
+        else if (serverPdf.sol) fd.append('sol_server_path', serverPdf.sol.rel_path);
+    }
 
     let data;
     try {
@@ -668,7 +749,11 @@ async function startRun() {
     staging.method = methodSelect.value;   // remember the run's detection method
     const qn = (data.que.pages || []).length;
     const sn = (data.sol.pages || []).length;
-    appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
+    if (isGeneric()) {
+        appendLog(`Staged: ${qn} page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
+    } else {
+        appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
+    }
 
     startDetect();
 }
@@ -676,8 +761,19 @@ async function startRun() {
 // ----- Detect (SSE) -----
 function startDetect() {
     setStatus('Detecting', 'bg-success');
-    showProgress('Detecting question regions...');
-    appendLog('Starting question detection (one page at a time)...', 'info');
+    showProgress('Detecting regions...');
+    appendLog('Starting detection (one page at a time)...', 'info');
+
+    // Live review: render the page skeleton up-front (every page card marked
+    // "detecting…") so the user can start reviewing each page the moment its
+    // detection finishes, instead of waiting for the whole PDF.
+    if (mode === 'review') {
+        renderReview({ pending: true });
+        btnCommit.classList.toggle('d-none', isGeneric());
+        btnZip.classList.toggle('d-none', !isGeneric());
+        reviewCard.classList.remove('d-none');
+        reviewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
@@ -699,12 +795,14 @@ function startDetect() {
             const idx = ev.page.index;
             plan[kind] = plan[kind].filter(it => it.page !== idx);
             (ev.page.boxes || []).forEach(b => {
-                plan[kind].push({ page: idx, qno: b.qno, box: b.box, _uid: nextUid() });
+                plan[kind].push({ page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() });
             });
             if (ev.page.raw !== undefined) {
                 rawByPage[kind][idx] = ev.page.raw;
                 logRaw(kind, idx, ev.page.raw);
             }
+            // Live: fill this page's card as soon as its result arrives.
+            if (mode === 'review') fillPageCard(kind, idx);
         }
 
         if (ev.type === 'done') {
@@ -732,32 +830,50 @@ function finishDetect() {
         startCommit();   // server reads the plan it just saved
     } else {
         setStatus('Review', 'bg-primary');
-        renderReview();
+        // Cards were filled live during detection; just clear any page cards
+        // still marked pending (e.g. if the stream closed early) and finalise.
+        document.querySelectorAll('.page-card').forEach(card => {
+            const k = card.dataset.kind, i = parseInt(card.dataset.page, 10);
+            if (card.dataset.pending === '1') fillPageCard(k, i);
+        });
+        updateReviewSummary();
+        // Toggle the commit / ZIP action for the active task.
+        btnCommit.classList.toggle('d-none', isGeneric());
+        btnZip.classList.toggle('d-none', !isGeneric());
         reviewCard.classList.remove('d-none');
         btnReset.classList.remove('d-none');
-        reviewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
 
 // ----- Review rendering -----
-function renderReview() {
+// `opts.pending` builds the skeleton during live detection (every card shows
+// a "detecting…" badge until its page result arrives).
+function renderReview(opts) {
+    opts = opts || {};
     reviewBody.innerHTML = '';
-    let qCount = plan.que.length, sCount = plan.sol.length;
-    reviewSummary.textContent = `${qCount} question region(s), ${sCount} solution region(s)`;
+    updateReviewSummary();
 
+    const generic = isGeneric();
     ['que', 'sol'].forEach(kind => {
         const info = staging[kind];
         if (!info || !info.pages || !info.pages.length) return;
-        const header = document.createElement('h6');
-        header.className = 'mt-2 mb-2 fw-bold';
-        header.textContent = kind === 'que' ? 'Question pages' : 'Solution pages';
+        const header = document.createElement('div');
+        header.className = 'd-flex justify-content-between align-items-center mt-2 mb-2 flex-wrap gap-2';
+        const title = generic ? 'Pages' : (kind === 'que' ? 'Question pages' : 'Solution pages');
+        const dlLabel = staging.deskew ? 'Download deskewed PDF' : 'Download processed PDF';
+        header.innerHTML = `<h6 class="fw-bold mb-0">${title}</h6>
+            <a class="btn btn-sm btn-outline-secondary" href="${IMPORT_BASE}/processed/${staging.token}/${kind}.pdf">
+                <i class="bi bi-file-earmark-arrow-down"></i> ${dlLabel}</a>`;
         reviewBody.appendChild(header);
-        info.pages.forEach(p => reviewBody.appendChild(buildPageCard(kind, p.index)));
+        info.pages.forEach(p => reviewBody.appendChild(buildPageCard(kind, p.index, opts.pending)));
     });
 }
 
 function methodOptionsHtml(selected) {
-    return ['llm', 'refine', 'segment'].map(m =>
+    // 'segment' (question-anchor) is exam-specific; omit it for generic.
+    const methods = isGeneric() ? ['llm', 'refine'] : ['llm', 'refine', 'segment'];
+    if (!methods.includes(selected)) selected = 'llm';
+    return methods.map(m =>
         `<option value="${m}"${m === selected ? ' selected' : ''}>${METHOD_LABELS[m]}</option>`).join('');
 }
 function endpointOptionsHtml(selectedId) {
@@ -765,14 +881,16 @@ function endpointOptionsHtml(selectedId) {
         `<option value="${e.id}"${String(e.id) === String(selectedId) ? ' selected' : ''}>${e.name}</option>`).join('');
 }
 
-function buildPageCard(kind, pageIndex) {
+function buildPageCard(kind, pageIndex, pending) {
     const card = document.createElement('div');
     card.className = 'card page-card';
     card.dataset.kind = kind;
     card.dataset.page = pageIndex;
+    const headLabel = isGeneric() ? `Page ${pageIndex + 1}` : `${kind.toUpperCase()} — page ${pageIndex + 1}`;
     card.innerHTML = `
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <span><i class="bi bi-file-earmark-image"></i> ${kind.toUpperCase()} — page ${pageIndex + 1}</span>
+            <span><i class="bi bi-file-earmark-image"></i> ${headLabel}
+                <span class="page-status badge bg-secondary ms-1 d-none"></span></span>
             <div class="d-flex align-items-center gap-1 flex-wrap">
                 <select class="form-select form-select-sm page-method" style="width:auto;" title="Detection method for this page">
                     ${methodOptionsHtml(staging.method || DEFAULT_METHOD)}
@@ -819,6 +937,11 @@ function buildPageCard(kind, pageIndex) {
     plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
     toggleEmpty(card);
 
+    if (pending) {
+        card.dataset.pending = '1';
+        setPageStatus(card, 'pending');
+    }
+
     // Debug: show the verbatim model reply captured during detection.
     const raw = rawByPage[kind] && rawByPage[kind][pageIndex];
     if (raw !== undefined) {
@@ -826,6 +949,42 @@ function buildPageCard(kind, pageIndex) {
         card.querySelector('.pdf-raw').classList.remove('d-none');
     }
     return card;
+}
+
+function setPageStatus(card, state) {
+    const badge = card.querySelector('.page-status');
+    if (!badge) return;
+    badge.classList.remove('d-none', 'bg-secondary', 'bg-success', 'bg-warning', 'text-dark');
+    if (state === 'pending') {
+        badge.classList.add('bg-secondary');
+        badge.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> detecting…';
+    } else if (state === 'done') {
+        const n = card.querySelectorAll('.box-row').length;
+        badge.classList.add(n ? 'bg-success' : 'bg-warning', n ? '' : 'text-dark');
+        badge.textContent = n ? `${n} region(s)` : 'no regions';
+    } else {
+        badge.classList.add('d-none');
+    }
+}
+
+// Live fill (or refresh) one page card from the accumulated plan once its
+// detection result has arrived. Mirrors rerunPage's DOM-swap.
+function fillPageCard(kind, pageIndex) {
+    const card = document.querySelector(`.page-card[data-kind="${kind}"][data-page="${pageIndex}"]`);
+    if (!card) return;
+    // Clear any previously rendered boxes for this page, then re-add.
+    card.querySelectorAll('.pdf-overlay .pdf-box').forEach(el => el.remove());
+    card.querySelector('.pdf-box-list').innerHTML = '';
+    plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
+    toggleEmpty(card);
+    card.dataset.pending = '0';
+    setPageStatus(card, 'done');
+    const raw = rawByPage[kind] && rawByPage[kind][pageIndex];
+    if (raw !== undefined) {
+        card.querySelector('.pdf-raw-content').textContent = raw || '(empty)';
+        card.querySelector('.pdf-raw').classList.remove('d-none');
+    }
+    updateReviewSummary();
 }
 
 function clamp01(v) { return Math.min(1, Math.max(0, v)); }
@@ -852,7 +1011,7 @@ function addBoxDom(card, kind, item) {
     const lbl = document.createElement('span');
     lbl.className = 'pdf-box-label';
     lbl.id = 'lbl-' + item._uid;
-    lbl.textContent = 'Q' + (item.qno ?? '?');
+    lbl.textContent = boxLabelText(item);
     boxEl.appendChild(lbl);
 
     const selectThis = () => {
@@ -876,26 +1035,34 @@ function addBoxDom(card, kind, item) {
     });
     overlay.appendChild(boxEl);
 
-    // List row (thumbnail + question-number input + delete)
+    // List row (thumbnail + label/question-number input + delete)
+    const generic = isGeneric();
     const row = document.createElement('div');
     row.className = 'box-row';
     row.id = 'row-' + item._uid;
     const canvas = document.createElement('canvas');
     canvas.title = 'Click to enlarge this crop';
-    canvas.addEventListener('click', () => showCropPreview(img, item.box, kind, item.qno));
+    canvas.addEventListener('click', () => showCropPreview(img, item.box, kind, boxLabelText(item)));
     const qInput = document.createElement('input');
-    qInput.type = 'number';
-    qInput.min = '1';
-    qInput.className = 'form-control form-control-sm qno-input';
-    qInput.value = (item.qno ?? '');
-    qInput.placeholder = 'Q#';
+    if (generic) {
+        qInput.type = 'text';
+        qInput.className = 'form-control form-control-sm label-input';
+        qInput.value = (item.label ?? '');
+        qInput.placeholder = 'label (filename)';
+    } else {
+        qInput.type = 'number';
+        qInput.min = '1';
+        qInput.className = 'form-control form-control-sm qno-input';
+        qInput.value = (item.qno ?? '');
+        qInput.placeholder = 'Q#';
+    }
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-outline-danger';
     delBtn.innerHTML = '<i class="bi bi-trash"></i>';
 
     const qLabel = document.createElement('span');
     qLabel.className = 'small text-muted';
-    qLabel.textContent = 'Q';
+    qLabel.textContent = generic ? 'Name' : 'Q';
 
     row.appendChild(canvas);
     row.appendChild(qLabel);
@@ -905,16 +1072,19 @@ function addBoxDom(card, kind, item) {
 
     row.addEventListener('mouseenter', selectThis);
     qInput.addEventListener('change', () => {
-        const v = parseInt(qInput.value, 10);
-        item.qno = Number.isFinite(v) ? v : null;
-        lbl.textContent = 'Q' + (item.qno ?? '?');
+        if (generic) {
+            item.label = qInput.value.trim() || null;
+        } else {
+            const v = parseInt(qInput.value, 10);
+            item.qno = Number.isFinite(v) ? v : null;
+        }
+        lbl.textContent = boxLabelText(item);
     });
     delBtn.addEventListener('click', () => {
         plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
         boxEl.remove();
         row.remove();
-        renumberAfterDelete(kind, item);
-        refreshNumbersUI(kind);
+        if (!generic) { renumberAfterDelete(kind, item); refreshNumbersUI(kind); }
         toggleEmpty(card);
         updateReviewSummary();
     });
@@ -1012,18 +1182,23 @@ function finishDraw(d) {
         appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning');
         return;
     }
-    // qno is assigned by renumberAfterInsert (relative shift) once the box is
-    // placed in reading order.
-    const item = { page: d.pageIndex, qno: null, box, _uid: nextUid() };
+    // Exam: qno is assigned by renumberAfterInsert (relative shift) once the
+    // box is placed in reading order. Generic: a free-text label, no cascade.
+    const item = { page: d.pageIndex, qno: null, label: null, box, _uid: nextUid() };
     plan[d.kind].push(item);
-    renumberAfterInsert(d.kind, item);
+    if (!isGeneric()) { renumberAfterInsert(d.kind, item); }
     addBoxDom(d.card, d.kind, item);
-    refreshNumbersUI(d.kind);
+    if (!isGeneric()) refreshNumbersUI(d.kind);
     toggleEmpty(d.card);
     updateReviewSummary();
     const row = document.getElementById('row-' + item._uid);
-    if (row) { const inp = row.querySelector('.qno-input'); inp.focus(); inp.select(); }
+    if (row) { const inp = row.querySelector('input'); inp.focus(); inp.select(); }
     document.getElementById('box-' + item._uid)?.classList.add('selected');
+}
+
+function boxLabelText(item) {
+    if (isGeneric()) return item.label || 'region';
+    return 'Q' + (item.qno ?? '?');
 }
 
 // ----- Auto-renumber (relative shift) -----
@@ -1092,7 +1267,9 @@ function toggleEmpty(card) {
     card.querySelector('.box-empty').classList.toggle('d-none', has);
 }
 function updateReviewSummary() {
-    reviewSummary.textContent = `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
+    reviewSummary.textContent = isGeneric()
+        ? `${plan.que.length} region(s)`
+        : `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
 }
 
 function redrawPreviews(card) {
@@ -1123,7 +1300,7 @@ function drawPreview(canvas, img, box) {
 // Enlarge the crop region of a box to a full-size overlay (mirrors the asset
 // modal's full-size preview). Draws the current box region from the high-res
 // page image at native resolution; click anywhere or press Esc to close.
-function showCropPreview(img, box, kind, qno) {
+function showCropPreview(img, box, kind, label) {
     if (!img || !img.naturalWidth || !img.naturalHeight) return;
     const nw = img.naturalWidth, nh = img.naturalHeight;
     const x1 = clamp01(box[0]), y1 = clamp01(box[1]), x2 = clamp01(box[2]), y2 = clamp01(box[3]);
@@ -1141,7 +1318,7 @@ function showCropPreview(img, box, kind, qno) {
     overlay.className = 'pdf-fullsize-overlay';
     const cap = document.createElement('div');
     cap.className = 'pdf-fullsize-cap';
-    cap.textContent = `${(kind || '').toUpperCase()} Q${qno ?? '?'} — ${canvas.width}×${canvas.height}px · click or press Esc to close`;
+    cap.textContent = `${(kind || '').toUpperCase()} ${label ?? ''} — ${canvas.width}×${canvas.height}px · click or press Esc to close`;
     overlay.appendChild(canvas);
     overlay.appendChild(cap);
 
@@ -1177,11 +1354,13 @@ async function rerunPage(card, kind, pageIndex) {
         });
         plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
         (data.boxes || []).forEach(b => {
-            const item = { page: pageIndex, qno: b.qno, box: b.box, _uid: nextUid() };
+            const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() };
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });
         toggleEmpty(card);
+        card.dataset.pending = '0';
+        setPageStatus(card, 'done');
         updateReviewSummary();
         appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
         if (data.raw !== undefined) {
@@ -1235,7 +1414,8 @@ async function startCommit() {
     appendLog('Cropping and saving images...', 'info');
 
     const url = `${IMPORT_BASE}/commit?token=${encodeURIComponent(staging.token)}`
-        + `&version=${encodeURIComponent(staging.version)}`
+        + `&que_version=${encodeURIComponent(staging.que_version || staging.version)}`
+        + `&sol_version=${encodeURIComponent(staging.sol_version || staging.version)}`
         + `&overwrite=${overwriteChk.checked ? '1' : '0'}`;
     eventSource = new EventSource(url);
 
@@ -1269,6 +1449,47 @@ function finishCommit(ev) {
     }
 }
 
+// ----- Generic Extraction: download crops as ZIP -----
+async function downloadZip() {
+    if (!staging) return;
+    const items = plan.que
+        .filter(it => it.box)
+        .sort((a, b) => (a.page * 2 + a.box[1]) - (b.page * 2 + b.box[1]))
+        .map(it => ({ page: it.page, label: it.label, box: it.box }));
+    if (!items.length) { alert('No regions to export. Detect or draw some boxes first.'); return; }
+
+    btnZip.disabled = true;
+    const orig = btnZip.innerHTML;
+    btnZip.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Building ZIP…';
+    appendLog(`Building ZIP of ${items.length} region(s)…`, 'info');
+    try {
+        const r = await fetch(`${IMPORT_BASE}/export-zip`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: staging.token, kind: 'que', items })
+        });
+        if (!r.ok) {
+            let msg = 'HTTP ' + r.status;
+            try { msg = (await r.json()).error || msg; } catch {}
+            throw new Error(msg);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = cd.match(/filename="?([^"]+)"?/);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (m && m[1]) || 'extraction.zip';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        appendLog(`ZIP downloaded (${items.length} image(s)).`, 'success');
+    } catch (err) {
+        appendLog('ZIP export failed: ' + err.message, 'error');
+        alert('ZIP export failed: ' + err.message);
+    } finally {
+        btnZip.disabled = false;
+        btnZip.innerHTML = orig;
+    }
+}
+
 // ----- Stop / reset / discard -----
 function closeStream() {
     if (eventSource) { eventSource.close(); eventSource = null; }
@@ -1294,9 +1515,12 @@ function resetAll() {
     progressSection.classList.add('d-none');
     reviewBody.innerHTML = '';
     btnReset.classList.add('d-none');
+    btnCommit.classList.remove('d-none');
+    btnZip.classList.add('d-none');
     quePdf.value = ''; solPdf.value = '';
     serverPdf.que = null; serverPdf.sol = null;
     document.querySelectorAll('#queServerPick, #solServerPick').forEach(el => el.classList.add('d-none'));
+    applyTaskUI();
     setRunning(false);
     setStatus('Idle', 'bg-secondary');
     appendLog('Ready for a new import.', 'info');
@@ -1309,5 +1533,8 @@ function discardRun() {
         body: JSON.stringify({ token: staging.token })
     }).catch(() => {}).finally(() => { appendLog('Discarded staging data.', 'warning'); resetAll(); });
 }
+
+// Initialise setup visibility for the default task.
+applyTaskUI();
 </script>
 {% endblock %}
