@@ -77,6 +77,42 @@ def resolve_api_key(config) -> str:
     return os.getenv(env_name, '')
 
 
+def resolve_default_endpoint(setting_key: str, vision_only: bool = True,
+                             named_vision_only: bool | None = None):
+    """Resolve a per-feature default LLM endpoint.
+
+    1. If ``current_app.config[setting_key]`` names an enabled endpoint, use
+       it (subject to ``named_vision_only`` — defaults to ``vision_only``).
+    2. Otherwise auto-pick the first enabled endpoint ordered by
+       ``sort_order, name`` (filtered to vision-capable when ``vision_only``).
+
+    The two flags are separable because the dashboard Explain tutor allows
+    naming a text-only endpoint (text-only questions still work) but auto-
+    picks a vision endpoint when nothing is configured. Other features
+    require vision in both branches and pass the default ``True / True``.
+
+    Returns the ``LLMConfig`` row or ``None`` when nothing matches. Must be
+    called inside an app context (typical Flask request).
+    """
+    from app.models import LLMConfig
+
+    if named_vision_only is None:
+        named_vision_only = vision_only
+
+    preferred = (current_app.config.get(setting_key) or '').strip()
+    if preferred:
+        q = LLMConfig.query.filter_by(name=preferred, enabled=True)
+        if named_vision_only:
+            q = q.filter_by(supports_vision=True)
+        cfg = q.first()
+        if cfg:
+            return cfg
+    q = LLMConfig.query.filter_by(enabled=True)
+    if vision_only:
+        q = q.filter_by(supports_vision=True)
+    return q.order_by(LLMConfig.sort_order, LLMConfig.name).first()
+
+
 # ==================== Image preparation ====================
 
 def prepare_image(abs_path: str, max_dim: int = 1600):

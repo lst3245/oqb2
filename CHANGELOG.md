@@ -4,6 +4,29 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ New Features
+
+#### Per-feature default LLM endpoints
+
+`EXPLAIN_DEFAULT_LLM` (the existing setting) now has siblings for every other AI feature, so each operation can target a different model out-of-the-box without the user having to pick from a dropdown each time. Four new System Settings keys (group **AI Tools**), each rendered as a `<select>` of enabled endpoints:
+
+| Setting | Used by |
+|---|---|
+| `AUTOTAG_DEFAULT_LLM` | Auto-tag (single-question + batch) |
+| `MD_DEFAULT_LLM` | Generate Markdown (per-slot + batch); also feeds the figure-bbox second pass during MD generation |
+| `CHECK_DEFAULT_LLM` | Proofread / Quick check (per-slot + batch) |
+| `PDF_IMPORT_DEFAULT_LLM` | PDF Batch Import bbox detection (global + per-page review re-runs); the paper-name auto-guess prefers this, falling back to `EXPLAIN_DEFAULT_LLM` for continuity |
+
+Blank = auto-pick the first enabled, vision-capable endpoint by `sort_order, name` (the previous behaviour). All five `*_DEFAULT_LLM` settings now share a single resolver, `app/llm_client.resolve_default_endpoint(setting_key, vision_only=True, named_vision_only=None)`, so the precedence rules and edge cases (named-but-disabled, named-but-non-vision, no rows at all) behave identically across features. Explain alone passes `named_vision_only=False` to preserve its existing semantics — naming a text-only endpoint there is allowed because text-only questions fall back to Markdown text.
+
+**Behaviour:**
+- Every dropdown across the AI surface now pre-selects the matching default when its modal opens — `#aiEndpointSelect` (admin AI Tools modal — re-applies on op switch), `#autoTagEndpoint` (single-question Auto-tag), `#aiSlotEndpoint` (per-slot Generate MD), `#qcEndpoint` (per-slot Quick check), and the PDF Import `#endpointSelect` (server-side `selected` on render).
+- The server now also accepts requests **without** an `endpoint_id` and falls back to the per-feature default. Previously every admin AI route 400'd on missing `endpoint_id`. New shared helpers `_ai_load_endpoint(default_setting_key)` and `_ai_load_endpoint_from_body(data, default_setting_key)` consolidate the validation; per-slot routes that previously had inline `LLMConfig.query.get(int(endpoint_id))` were refactored onto these.
+- `GET /admin/questions/ai/endpoints` now returns a `defaults: {tag, md, check}` map alongside the endpoint list, so the JS doesn't need a second round-trip per modal.
+- `_pdf_default_endpoint()` now resolves `PDF_IMPORT_DEFAULT_LLM` first, then falls back to `EXPLAIN_DEFAULT_LLM`, then to the first enabled vision endpoint — the bbox-detect SSE and `redo-page` route honour it when no `endpoint_id` is supplied.
+
+Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.py`, `app/admin.py`, `templates/admin_questions.html`, `templates/partials/edit_question_modal_js.html`, `templates/admin_pdf_import.html`.
+
 ### ✨ Enhanced Features
 
 #### Proofreading reaches MD/DOCX, per-slot Check & Gen-IMG buttons, typed-only status, and edit-modal Prev/Next

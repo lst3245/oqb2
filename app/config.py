@@ -89,6 +89,14 @@ class Config:
     # Empty string = auto-select the first enabled, vision-capable endpoint
     # by sort_order then name (original behaviour).
     EXPLAIN_DEFAULT_LLM = os.getenv('EXPLAIN_DEFAULT_LLM', '')
+    # Per-feature default LLM endpoints (by endpoint name). Empty = auto-pick
+    # the first enabled vision-capable endpoint by sort_order, name. These
+    # are pre-selected in the corresponding UI dropdowns and used as the
+    # server-side fallback when no `endpoint_id` is supplied.
+    AUTOTAG_DEFAULT_LLM = os.getenv('AUTOTAG_DEFAULT_LLM', '')
+    MD_DEFAULT_LLM = os.getenv('MD_DEFAULT_LLM', '')
+    CHECK_DEFAULT_LLM = os.getenv('CHECK_DEFAULT_LLM', '')
+    PDF_IMPORT_DEFAULT_LLM = os.getenv('PDF_IMPORT_DEFAULT_LLM', '')
     # Per-feature timeout override for interactive LLM chat (the dashboard
     # Explain tutor and the LLM Endpoints chat console). Reasoning models
     # can take several minutes thinking before they emit any visible output,

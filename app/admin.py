@@ -3119,18 +3119,19 @@ def _pdf_source_root():
 
 
 def _pdf_default_endpoint():
-    """Endpoint used for the auto paper-name guess: honour EXPLAIN_DEFAULT_LLM
-    by name first (it need not be vision-capable for filename guesses, but we
-    feed it the first page image so prefer vision), then fall back to the
-    first enabled vision endpoint."""
-    from app.models import LLMConfig
-    preferred = (current_app.config.get('EXPLAIN_DEFAULT_LLM') or '').strip()
-    if preferred:
-        cfg = LLMConfig.query.filter_by(name=preferred, enabled=True).first()
-        if cfg:
-            return cfg
-    endpoints = _pdf_vision_endpoints()
-    return endpoints[0] if endpoints else None
+    """Endpoint used for PDF Batch Import auto-fallbacks (paper-name guess
+    and the bbox detector when no `endpoint_id` is supplied).
+
+    Honours ``PDF_IMPORT_DEFAULT_LLM`` first (vision-only), then falls back
+    to ``EXPLAIN_DEFAULT_LLM`` for continuity with the previous behaviour,
+    then to the first enabled vision-capable endpoint."""
+    from app import llm_client
+    cfg = llm_client.resolve_default_endpoint('PDF_IMPORT_DEFAULT_LLM',
+                                              vision_only=True)
+    if cfg:
+        return cfg
+    return llm_client.resolve_default_endpoint('EXPLAIN_DEFAULT_LLM',
+                                               vision_only=True)
 
 
 class _ServerPDF:
@@ -3291,6 +3292,7 @@ def pdf_import_page():
     if default_method not in pdf_import.DETECT_METHODS:
         default_method = 'llm'
     pdf_source_root = _pdf_source_root()
+    default_endpoint = _pdf_default_endpoint()
     return render_template(
         'admin_pdf_import.html',
         subjects=subjects,
@@ -3301,6 +3303,7 @@ def pdf_import_page():
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
         deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
         default_method=default_method,
+        default_endpoint_id=(default_endpoint.id if default_endpoint else None),
         pdf_source_path=pdf_source_root,
         pdf_source_available=bool(pdf_source_root and os.path.isdir(pdf_source_root)),
     )
@@ -3435,11 +3438,17 @@ def pdf_import_detect():
         endpoint_id = int(request.args.get('endpoint_id', '0'))
     except (ValueError, TypeError):
         endpoint_id = 0
-    cfg = LLMConfig.query.get(endpoint_id)
-    if cfg is None or not cfg.enabled:
-        return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
-    if not cfg.supports_vision:
-        return _pdf_sse_error('The selected endpoint is not vision-capable.')
+    if endpoint_id <= 0:
+        cfg = _pdf_default_endpoint()
+        if cfg is None:
+            return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
+        endpoint_id = cfg.id
+    else:
+        cfg = LLMConfig.query.get(endpoint_id)
+        if cfg is None or not cfg.enabled:
+            return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+        if not cfg.supports_vision:
+            return _pdf_sse_error('The selected endpoint is not vision-capable.')
 
     debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     method = (request.args.get('method', 'llm') or 'llm').strip().lower()
@@ -3495,9 +3504,15 @@ def pdf_import_redo_page():
     except (ValueError, TypeError):
         return jsonify({'error': 'invalid page index'}), 400
 
-    cfg = LLMConfig.query.get(data.get('endpoint_id') or 0)
-    if cfg is None or not cfg.enabled or not cfg.supports_vision:
-        return jsonify({'error': 'Selected LLM endpoint is unavailable or not vision-capable.'}), 400
+    raw_eid = data.get('endpoint_id')
+    if raw_eid in (None, '', 0, '0'):
+        cfg = _pdf_default_endpoint()
+        if cfg is None:
+            return jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+    else:
+        cfg = LLMConfig.query.get(raw_eid or 0)
+        if cfg is None or not cfg.enabled or not cfg.supports_vision:
+            return jsonify({'error': 'Selected LLM endpoint is unavailable or not vision-capable.'}), 400
 
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     debug = bool(data.get('debug'))
@@ -4284,11 +4299,33 @@ def _ai_parse_qs():
     return qs, None, None
 
 
-def _ai_load_endpoint():
-    """Load + validate the requested LLM endpoint. Returns (cfg, error, code)."""
+def _default_ai_endpoint(setting_key):
+    """Resolve the default vision LLM endpoint for an admin AI Tools feature.
+
+    Honours ``setting_key`` (e.g. ``AUTOTAG_DEFAULT_LLM`` /
+    ``MD_DEFAULT_LLM`` / ``CHECK_DEFAULT_LLM``); auto-picks the first enabled
+    vision-capable endpoint when blank. Returns the ``LLMConfig`` or None.
+    """
+    from app import llm_client
+    return llm_client.resolve_default_endpoint(setting_key, vision_only=True)
+
+
+def _ai_load_endpoint(default_setting_key=None):
+    """Load + validate the requested LLM endpoint for an admin AI route.
+
+    ``endpoint_id`` is read from the query string. When omitted (or 0/blank)
+    and ``default_setting_key`` is supplied, falls back to the per-feature
+    default (resolves :func:`_default_ai_endpoint`). Returns
+    ``(cfg, error_response, status)``.
+    """
     from app.models import LLMConfig
     raw = request.args.get('endpoint_id', '').strip()
-    if not raw:
+    if not raw or raw == '0':
+        if default_setting_key:
+            cfg = _default_ai_endpoint(default_setting_key)
+            if cfg is None:
+                return None, jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+            return cfg, None, None
         return None, jsonify({'error': 'endpoint_id is required'}), 400
     try:
         cfg = LLMConfig.query.get(int(raw))
@@ -4298,6 +4335,30 @@ def _ai_load_endpoint():
         return None, jsonify({'error': 'Endpoint not found or disabled'}), 404
     if not cfg.supports_vision:
         return None, jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable; image operations require a vision model.'}), 400
+    return cfg, None, None
+
+
+def _ai_load_endpoint_from_body(data, default_setting_key=None):
+    """JSON-body counterpart of :func:`_ai_load_endpoint`. Reads
+    ``endpoint_id`` from ``data`` and falls back to the per-feature default
+    when blank/missing. Returns ``(cfg, error_response, status)``."""
+    from app.models import LLMConfig
+    raw = data.get('endpoint_id') if isinstance(data, dict) else None
+    if raw in (None, '', 0, '0'):
+        if default_setting_key:
+            cfg = _default_ai_endpoint(default_setting_key)
+            if cfg is None:
+                return None, jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+            return cfg, None, None
+        return None, jsonify({'error': 'endpoint_id is required'}), 400
+    try:
+        cfg = LLMConfig.query.get(int(raw))
+    except (TypeError, ValueError):
+        return None, jsonify({'error': 'endpoint_id must be an integer'}), 400
+    if not cfg or not cfg.enabled:
+        return None, jsonify({'error': 'Endpoint not found or disabled'}), 404
+    if not cfg.supports_vision:
+        return None, jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
     return cfg, None, None
 
 
@@ -4317,15 +4378,32 @@ def _ai_atypes():
 @login_required
 @admin_required
 def ai_endpoints():
-    """List enabled LLM endpoints for the AI Tools modal dropdown (admins)."""
+    """List enabled LLM endpoints for the AI Tools modal dropdowns (admins).
+
+    Also returns a ``defaults`` map giving the resolved default endpoint id
+    for each per-feature setting so the UI can pre-select the right one for
+    the operation in progress (tag / md / check). ``null`` when nothing is
+    configured AND no endpoint qualifies as a fallback."""
     from app.models import LLMConfig
     rows = (LLMConfig.query.filter_by(enabled=True)
             .order_by(LLMConfig.sort_order, LLMConfig.name).all())
-    return jsonify({'endpoints': [
-        {'id': c.id, 'name': c.name, 'model_name': c.model_name,
-         'supports_vision': bool(c.supports_vision)}
-        for c in rows
-    ]})
+
+    def _id(setting_key):
+        cfg = _default_ai_endpoint(setting_key)
+        return cfg.id if cfg else None
+
+    return jsonify({
+        'endpoints': [
+            {'id': c.id, 'name': c.name, 'model_name': c.model_name,
+             'supports_vision': bool(c.supports_vision)}
+            for c in rows
+        ],
+        'defaults': {
+            'tag': _id('AUTOTAG_DEFAULT_LLM'),
+            'md': _id('MD_DEFAULT_LLM'),
+            'check': _id('CHECK_DEFAULT_LLM'),
+        },
+    })
 
 
 @admin_bp.route('/questions/ai/cancel', methods=['POST'])
@@ -4381,7 +4459,7 @@ def ai_check():
     qs, err, code = _ai_parse_qs()
     if err:
         return err, code
-    cfg, err, code = _ai_load_endpoint()
+    cfg, err, code = _ai_load_endpoint('CHECK_DEFAULT_LLM')
     if err:
         return err, code
 
@@ -4425,7 +4503,7 @@ def ai_generate_md():
     qs, err, code = _ai_parse_qs()
     if err:
         return err, code
-    cfg, err, code = _ai_load_endpoint()
+    cfg, err, code = _ai_load_endpoint('MD_DEFAULT_LLM')
     if err:
         return err, code
 
@@ -4481,15 +4559,9 @@ def ai_generate_md_slot(question_id):
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
 
-    from app.models import LLMConfig
-    try:
-        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'endpoint_id is required'}), 400
-    if not cfg or not cfg.enabled:
-        return jsonify({'error': 'Endpoint not found or disabled'}), 404
-    if not cfg.supports_vision:
-        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+    cfg, err, code = _ai_load_endpoint_from_body(data, 'MD_DEFAULT_LLM')
+    if err:
+        return err, code
 
     embed_image = bool(data.get('embed_image', True))
     overwrite = bool(data.get('overwrite', False))
@@ -4543,15 +4615,9 @@ def ai_check_slot(question_id):
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
 
-    from app.models import LLMConfig
-    try:
-        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'endpoint_id is required'}), 400
-    if not cfg or not cfg.enabled:
-        return jsonify({'error': 'Endpoint not found or disabled'}), 404
-    if not cfg.supports_vision:
-        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+    cfg, err, code = _ai_load_endpoint_from_body(data, 'CHECK_DEFAULT_LLM')
+    if err:
+        return err, code
 
     recheck = bool(data.get('recheck', True))
 
@@ -4710,7 +4776,7 @@ def ai_auto_tag():
     qs, err, code = _ai_parse_qs()
     if err:
         return err, code
-    cfg, err, code = _ai_load_endpoint()
+    cfg, err, code = _ai_load_endpoint('AUTOTAG_DEFAULT_LLM')
     if err:
         return err, code
 
@@ -4764,15 +4830,9 @@ def ai_suggest_tags(question_id):
     if not versions:
         return jsonify({'error': 'Select at least one version.'}), 400
 
-    from app.models import LLMConfig
-    try:
-        cfg = LLMConfig.query.get(int(data.get('endpoint_id')))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'endpoint_id is required'}), 400
-    if not cfg or not cfg.enabled:
-        return jsonify({'error': 'Endpoint not found or disabled'}), 404
-    if not cfg.supports_vision:
-        return jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+    cfg, err, code = _ai_load_endpoint_from_body(data, 'AUTOTAG_DEFAULT_LLM')
+    if err:
+        return err, code
 
     from app import ai_tools
     from app.llm_client import LLMError

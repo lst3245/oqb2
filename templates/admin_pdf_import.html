@@ -172,7 +172,7 @@
                     <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
                     <select id="endpointSelect" class="form-select">
                         {% for e in endpoints %}
-                        <option value="{{ e.id }}">{{ e.name }} ({{ e.model_name }})</option>
+                        <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }} ({{ e.model_name }})</option>
                         {% endfor %}
                     </select>
                 </div>

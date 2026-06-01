@@ -1533,13 +1533,30 @@ let aiToolsRunning = false;
 let aiToolsJobId = null;
 let aiToolsOp = 'check';
 
+let _aiEndpointDefaults = { tag: null, md: null, check: null };
+
+function _aiApplyDefaultEndpoint() {
+    const sel = document.getElementById('aiEndpointSelect');
+    if (!sel || !sel.options.length) return;
+    const op = (document.querySelector('input[name="aiOp"]:checked') || {}).value;
+    const want = _aiEndpointDefaults[op];
+    if (want != null) {
+        const opt = sel.querySelector(`option[value="${want}"]`);
+        if (opt && !opt.disabled) { sel.value = String(want); return; }
+    }
+    // Fallback: first non-disabled option.
+    const firstUsable = Array.from(sel.options).find(o => !o.disabled && o.value);
+    if (firstUsable) sel.value = firstUsable.value;
+}
+
 function aiToolsToggleOp() {
     const op = document.querySelector('input[name="aiOp"]:checked').value;
     // Auto tag uses its own panel and doesn't need the per-type / version row.
     document.getElementById('aiTypeAndPanelRow').classList.toggle('d-none', op === 'tag');
-    document.getElementById('aiTagPanel').classList.toggle('d-none', op !== 'tag');
+    document.getElementById('aiTagPanel').classList.toggle('d-none', op === 'tag' ? false : true);
     document.getElementById('aiCheckPanel').classList.toggle('d-none', op !== 'check');
     document.getElementById('aiMdPanel').classList.toggle('d-none', op !== 'md');
+    _aiApplyDefaultEndpoint();
 }
 
 function openAiToolsModal(presetOp) {
@@ -1569,6 +1586,7 @@ function openAiToolsModal(presetOp) {
         .then(r => r.json())
         .then(data => {
             const eps = data.endpoints || [];
+            _aiEndpointDefaults = data.defaults || _aiEndpointDefaults;
             if (eps.length === 0) {
                 sel.innerHTML = '<option value="">No endpoints configured</option>';
                 return;
@@ -1577,9 +1595,8 @@ function openAiToolsModal(presetOp) {
                 const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
                 return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${escapeHtmlAi(ep.name)} — ${escapeHtmlAi(ep.model_name)}${vis}</option>`;
             }).join('');
-            // Select the first vision-capable endpoint.
-            const firstVision = eps.find(ep => ep.supports_vision);
-            if (firstVision) sel.value = firstVision.id;
+            // Pre-select the per-op default (or the first vision-capable endpoint as a fallback).
+            _aiApplyDefaultEndpoint();
         })
         .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
 

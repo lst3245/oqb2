@@ -905,22 +905,14 @@ EXPLAIN_MAX_IMAGES_TOTAL_BYTES = 32 * 1024 * 1024  # 32 MB across all turns
 def _default_explain_endpoint():
     """The endpoint used by the Explain tutor.
 
-    When ``EXPLAIN_DEFAULT_LLM`` names a specific enabled endpoint that
-    endpoint is used.  Otherwise falls back to the first enabled,
-    vision-capable endpoint ordered by sort_order then name.
-    Returns ``None`` when nothing is configured.
+    Honours ``EXPLAIN_DEFAULT_LLM`` (endpoint name; may be text-only — text-
+    only questions fall back to Markdown). Auto-pick falls back to the first
+    enabled, vision-capable endpoint by sort_order then name.
     """
-    from app.models import LLMConfig
-    from flask import current_app
-    preferred = (current_app.config.get('EXPLAIN_DEFAULT_LLM') or '').strip()
-    if preferred:
-        cfg = LLMConfig.query.filter_by(name=preferred, enabled=True).first()
-        if cfg:
-            return cfg
-    return (LLMConfig.query
-            .filter_by(enabled=True, supports_vision=True)
-            .order_by(LLMConfig.sort_order, LLMConfig.name)
-            .first())
+    from app import llm_client
+    return llm_client.resolve_default_endpoint(
+        'EXPLAIN_DEFAULT_LLM',
+        vision_only=True, named_vision_only=False)
 
 
 def _can_pick_explain_endpoint(question):

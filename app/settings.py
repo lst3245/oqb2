@@ -288,6 +288,49 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         choices_fn=_llm_endpoint_choices,
     )),
+    ('AUTOTAG_DEFAULT_LLM', _spec(
+        'AUTOTAG_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Auto-tag',
+        help=(
+            'LLM endpoint pre-selected for the Auto-tag operation (single-'
+            'question and batch). Leave blank to auto-pick the first enabled '
+            'vision-capable endpoint by sort order then name. Auto-tag sends '
+            'rendered question images, so a vision-capable endpoint is required.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
+    ('MD_DEFAULT_LLM', _spec(
+        'MD_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Markdown generation',
+        help=(
+            'LLM endpoint pre-selected for the Generate Markdown operation '
+            '(per-slot and batch). Also used for the figure-bbox second pass '
+            'when "embed image" is on. Leave blank to auto-pick the first '
+            'enabled vision-capable endpoint.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
+    ('CHECK_DEFAULT_LLM', _spec(
+        'CHECK_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Proofreading (Check)',
+        help=(
+            'LLM endpoint pre-selected for the Proofread / Quick check '
+            'operation (per-slot and batch). Leave blank to auto-pick the '
+            'first enabled vision-capable endpoint.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
+    ('PDF_IMPORT_DEFAULT_LLM', _spec(
+        'PDF_IMPORT_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for PDF Batch Import',
+        help=(
+            'LLM endpoint pre-selected for PDF Batch Import bounding-box '
+            'detection AND the paper-name auto-guess. Leave blank to auto-'
+            'pick the first enabled vision-capable endpoint. Per-page re-'
+            'runs in the review UI honour this default too.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
     ('LLM_CHAT_TIMEOUT_SECONDS', _spec(
         'LLM_CHAT_TIMEOUT_SECONDS', 'int', group='AI Tools',
         label='Interactive chat timeout (seconds)',

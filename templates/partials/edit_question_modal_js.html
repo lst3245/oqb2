@@ -346,8 +346,8 @@ function openAutoTagModal() {
                 const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
                 return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
             }).join('');
-            const fv = eps.find(ep => ep.supports_vision);
-            if (fv) sel.value = fv.id;
+            const id = _aiPickDefaultEndpointId(eps, data.defaults, 'tag');
+            if (id != null) sel.value = String(id);
         })
         .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
 
@@ -589,6 +589,20 @@ function _aiEscapeAttr(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
         .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Pick the right value to pre-select for an AI endpoint dropdown given the
+// per-feature defaults map returned by /admin/questions/ai/endpoints. Falls
+// back to the first vision-capable endpoint when the configured default is
+// missing or disabled (e.g. its row was deleted).
+function _aiPickDefaultEndpointId(eps, defaults, opKey) {
+    const want = (defaults || {})[opKey];
+    if (want != null) {
+        const cfg = (eps || []).find(ep => ep.id === want);
+        if (cfg && cfg.supports_vision) return cfg.id;
+    }
+    const fv = (eps || []).find(ep => ep.supports_vision);
+    return fv ? fv.id : null;
 }
 
 function renderCheckBadge(parts) {
@@ -1377,8 +1391,8 @@ function openAiSlotMdModal(questionId, version, atype, hasMd) {
                 const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
                 return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
             }).join('');
-            const fv = eps.find(ep => ep.supports_vision);
-            if (fv) sel.value = fv.id;
+            const id = _aiPickDefaultEndpointId(eps, data.defaults, 'md');
+            if (id != null) sel.value = String(id);
         })
         .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
 
@@ -1503,8 +1517,8 @@ function openQuickCheckModal(questionId, version, atype) {
                 const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
                 return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
             }).join('');
-            const fv = eps.find(ep => ep.supports_vision);
-            if (fv) sel.value = fv.id;
+            const id = _aiPickDefaultEndpointId(eps, data.defaults, 'check');
+            if (id != null) sel.value = String(id);
         })
         .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
 

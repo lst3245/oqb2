@@ -77,6 +77,26 @@ Routes mirror `batch_generate_images`: gather work in request context, stream in
 
 Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; carries `job_id`) / `info` / `skip` / `success` / `error` / `done`. The `done` event carries `stats` (`{ok, issues, skipped, errors}` for check; `{created, skipped, errors}` for MD).
 
+## Per-feature default LLM endpoints
+
+Every AI feature has its own `*_DEFAULT_LLM` System Setting (string = endpoint name, blank = auto-pick). Resolution is centralised in `app/llm_client.resolve_default_endpoint(setting_key, vision_only=True, named_vision_only=None)`:
+
+1. If `current_app.config[setting_key]` names an enabled endpoint (and is vision-capable when `named_vision_only`), use it.
+2. Else first enabled endpoint by `sort_order, name` (filtered to vision-capable when `vision_only`).
+3. Else `None`.
+
+| Setting | Resolver | `endpoint_id` request param required? |
+|---|---|---|
+| `EXPLAIN_DEFAULT_LLM` | `_default_explain_endpoint` (`named_vision_only=False`) | optional admin override |
+| `AUTOTAG_DEFAULT_LLM` | `_default_ai_endpoint('AUTOTAG_DEFAULT_LLM')` | optional (server falls back) |
+| `MD_DEFAULT_LLM` | `_default_ai_endpoint('MD_DEFAULT_LLM')` | optional |
+| `CHECK_DEFAULT_LLM` | `_default_ai_endpoint('CHECK_DEFAULT_LLM')` | optional |
+| `PDF_IMPORT_DEFAULT_LLM` | `_pdf_default_endpoint` (then falls through to `EXPLAIN_DEFAULT_LLM`) | optional |
+
+Server-side validation goes through `_ai_load_endpoint(default_setting_key)` (query) / `_ai_load_endpoint_from_body(data, default_setting_key)` (JSON body) — both return `(cfg, error_response, status)` and fall back to the per-feature default when `endpoint_id` is missing/blank/`0`.
+
+Client-side: `GET /admin/questions/ai/endpoints` returns `{endpoints: [...], defaults: {tag, md, check}}`. Edit-modal helpers use `_aiPickDefaultEndpointId(eps, defaults, opKey)` (in `templates/partials/edit_question_modal_js.html`) to pick the right id; the AI Tools modal in `admin_questions.html` re-applies the default whenever the op radio changes (`aiToolsToggleOp` → `_aiApplyDefaultEndpoint`). PDF Import pre-selects server-side (`default_endpoint_id` template var on the `<option selected>`).
+
 ## Cancellation (real server-side Stop)
 
 `app/ai_tools._AI_CANCEL: {job_id: threading.Event}`. Each generator checks the flag **between questions** and emits a final `done`. The frontend Stop posts the `job_id` (captured from the `job` event) and keeps the stream open so the final `done` arrives. Single-process assumption (same caveat as the settings hot-reload): the cancel POST must reach the worker running the stream.
