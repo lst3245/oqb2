@@ -654,7 +654,6 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     total = sum(len(meta[k]['pages']) for k in kinds)
 
     plan = {'que': [], 'sol': []}
-    auto_qno = {'que': 0, 'sol': 0}   # running counter for custom_prompt runs
     if total == 0:
         save_plan(token, plan)
         yield {'type': 'error', 'message': 'No pages to process.'}
@@ -694,7 +693,12 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 # qno assigned at the end in reading order (see _number_custom).
                 plan[kind].append({'page': idx, 'qno': None, 'box': b['box']})
             else:
-                plan[kind].append({'page': idx, 'qno': b.get('qno'), 'box': b['box']})
+                # Keep the continuation flags transiently so _stitch_continuations
+                # can re-link multi-page questions in reading order regardless of
+                # the (possibly parallel) page-completion order.
+                plan[kind].append({'page': idx, 'qno': b.get('qno'), 'box': b['box'],
+                                   '_cp': bool(b.get('continues_prev')),
+                                   '_cn': bool(b.get('continues_next'))})
 
     def _page_event(kind, atype, idx, boxes, raw):
         page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
@@ -707,12 +711,26 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 'message': f'{label} {idx + 1}: found {len(boxes)} {noun}.',
                 'page': page_ev}
 
-    def _number_custom():
-        """Assign 1..N question numbers per side in reading order (page, top-Y)."""
-        for kind in ('que', 'sol'):
-            ordered = sorted(plan[kind], key=lambda it: (it['page'], it['box'][1]))
-            for i, it in enumerate(ordered, 1):
-                it['qno'] = i
+    def _finalize_detect():
+        """Resolve question numbers once ALL pages are collected, so the result
+        is independent of the order pages finished detecting (critical under
+        parallel detection). For a custom-prompt run that means a clean 1..N
+        reading-order sequence; for a standard run it means re-linking
+        multi-page questions via the continuation flags. Generic mode keeps its
+        labels. Finally the transient continuation flags are dropped so
+        ``plan.json`` stays ``{page, qno, box}``.
+        """
+        if custom_prompt:
+            for kind in ('que', 'sol'):
+                ordered = sorted(plan[kind], key=lambda it: (it['page'], it['box'][1]))
+                for i, it in enumerate(ordered, 1):
+                    it['qno'] = i
+        elif not is_generic:
+            _stitch_continuations(plan)
+        for k in ('que', 'sol'):
+            for it in plan[k]:
+                it.pop('_cp', None)
+                it.pop('_cn', None)
 
     def _worker(item):
         png = page_png_path(token, item['kind'], item['idx'])
@@ -746,12 +764,11 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             ev = _page_event(kind, atype, idx, boxes, raw)
             ev['current'] = done; ev['total'] = total
             yield ev
-        if custom_prompt:
-            _number_custom()
     else:
         for item in work:
             kind, atype, idx = item['kind'], item['atype'], item['idx']
             if cancel.is_set():
+                _finalize_detect()
                 save_plan(token, plan)
                 yield {'type': 'done', 'message': 'Detection cancelled.',
                        'current': done, 'total': total,
@@ -772,26 +789,14 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        'current': done, 'total': total,
                        'page': {'kind': kind, 'index': idx, 'boxes': []}}
                 continue
-            for b in boxes:
-                if is_generic:
-                    plan[kind].append({'page': idx, 'label': b.get('label'),
-                                       'box': b['box']})
-                elif custom_prompt:
-                    # Auto-increment question numbers in detection (reading)
-                    # order across the whole side.
-                    auto_qno[kind] += 1
-                    qno = auto_qno[kind]
-                    b['qno'] = qno
-                    plan[kind].append({'page': idx, 'qno': qno, 'box': b['box']})
-                else:
-                    plan[kind].append({'page': idx, 'qno': b.get('qno'),
-                                       'box': b['box']})
+            _ingest(kind, idx, boxes)
             qcount += len(boxes)
             done += 1
             ev = _page_event(kind, atype, idx, boxes, raw)
             ev['current'] = done; ev['total'] = total
             yield ev
 
+    _finalize_detect()
     save_plan(token, plan)
     if cancel.is_set():
         yield {'type': 'done', 'message': 'Detection cancelled.',
@@ -823,6 +828,33 @@ def detect_single_page(config, token: str, kind: str, index: int,
                        mode=meta.get('mode', 'exam'),
                        instruction=meta.get('instruction', ''),
                        generic_prompt=custom_prompt)
+
+
+def _stitch_continuations(plan: dict):
+    """Re-link multi-page questions for a standard exam plan, in place.
+
+    The model sees ONE page at a time, so a question that spills onto the next
+    page is reported as a separate top-of-page region flagged ``continues_prev``
+    (and the page above is flagged ``continues_next``). Walking each side in
+    reading order ``(page, top-Y)``, the topmost region of a page that is a
+    continuation inherits the qno of the box immediately before it — so the
+    tail joins the right question regardless of the order pages were detected
+    (parallel detection returns pages out of order). The link only crosses a
+    page boundary (``cur.page > prev.page``); within-page boxes are untouched.
+    Chains (a question spanning 3+ pages) resolve because we process in order.
+
+    Relies on the transient ``_cp`` / ``_cn`` keys set by ``iter_detect``;
+    boxes without a usable predecessor qno are left as-is.
+    """
+    for kind in ('que', 'sol'):
+        items = sorted(plan.get(kind, []) or [],
+                       key=lambda it: (it.get('page', 0), it['box'][1]))
+        for i in range(1, len(items)):
+            cur, prev = items[i], items[i - 1]
+            if (cur.get('page', 0) > prev.get('page', 0)
+                    and (cur.get('_cp') or prev.get('_cn'))
+                    and prev.get('qno') is not None):
+                cur['qno'] = prev['qno']
 
 
 def _group_plan(plan: dict):

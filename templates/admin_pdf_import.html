@@ -331,6 +331,11 @@ Fill in the setup above and click "Start".
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
             </p>
+            <div id="orderWarning" class="alert alert-danger d-none border-2 fw-semibold" role="alert">
+                <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> Question numbers look out of order</h5>
+                <div id="orderWarningBody" class="small fw-normal"></div>
+                <div class="small fw-normal mt-2 text-muted">Numbers should only ever go up (or repeat for a question that spans pages) as you read down each side. A drop usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# fields or re-run the affected page before importing.</div>
+            </div>
             <div id="reviewBody"></div>
             <div class="d-flex gap-2 mt-3">
                 <button id="btnCommit" class="btn btn-success"><i class="bi bi-check2-circle"></i> Import to database</button>
@@ -478,6 +483,8 @@ const progressCount = document.getElementById('progressCount');
 const reviewCard = document.getElementById('reviewCard');
 const reviewBody = document.getElementById('reviewBody');
 const reviewSummary = document.getElementById('reviewSummary');
+const orderWarning = document.getElementById('orderWarning');
+const orderWarningBody = document.getElementById('orderWarningBody');
 const summaryPanel = document.getElementById('summaryPanel');
 
 // ----- State -----
@@ -909,8 +916,11 @@ function startDetect() {
             const idx = ev.page.index;
             plan[kind] = plan[kind].filter(it => it.page !== idx);
             (ev.page.boxes || []).forEach(b => {
-                const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() };
-                snapBoxToUniform(item, kind);
+                // Push the box at its NATURAL width — do NOT snap to the current
+                // shared width here, or a wider box would be shrunk before it can
+                // raise the max (the shared width only ever grows).
+                const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
+                               cp: !!b.continues_prev, cn: !!b.continues_next };
                 plan[kind].push(item);
             });
             if (ev.page.raw !== undefined) {
@@ -919,6 +929,11 @@ function startDetect() {
             }
             // Live: fill this page's card as soon as its result arrives.
             if (mode === 'review') fillPageCard(kind, idx);
+            // Live uniform width: re-lock the side to the widest box so far (max
+            // is monotonic, so re-conforming every box each page is safe and
+            // non-lossy). Also sets uniformWidth[kind] early so a resize can
+            // broadcast immediately, instead of only after the whole run.
+            if (mode === 'review' && uniformActive()) enableUniformWidth(kind);
         }
 
         if (ev.type === 'done') {
@@ -953,8 +968,11 @@ function finishDetect() {
             if (card.dataset.pending === '1') fillPageCard(k, i);
         });
         // Custom-prompt exam runs: normalise the auto-numbers into a clean
-        // 1..N reading-order sequence per side.
+        // 1..N reading-order sequence per side. Standard exam runs: re-link
+        // multi-page questions now that every page has arrived (the order they
+        // finished detecting no longer matters).
         if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
+        else if (!isGeneric()) { ['que', 'sol'].forEach(k => { stitchContinuations(k); refreshNumbersUI(k); }); }
         // If uniform width was pre-checked at setup, lock both sides now that
         // every box exists (live snapping only had a reference once set).
         if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
@@ -1201,6 +1219,7 @@ function addBoxDom(card, kind, item) {
             item.qno = Number.isFinite(v) ? v : null;
         }
         lbl.textContent = boxLabelText(item);
+        updateOrderWarning();
     });
     delBtn.addEventListener('click', () => {
         plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
@@ -1372,6 +1391,21 @@ function renumberAllSequential(kind) {
     readingOrder(kind).forEach((it, i) => { it.qno = i + 1; });
     refreshNumbersUI(kind);
 }
+// Re-link multi-page questions (standard exam): a page-top region flagged
+// continues_prev — or one whose previous page was flagged continues_next —
+// inherits the qno of the box before it in reading order, so a question that
+// spills onto the next page joins the right number. Order-independent (matters
+// because parallel detection returns pages out of order); only links across a
+// page boundary, never within a page.
+function stitchContinuations(kind) {
+    const items = readingOrder(kind);
+    for (let i = 1; i < items.length; i++) {
+        const cur = items[i], prev = items[i - 1];
+        if (cur.page > prev.page && (cur.cp || prev.cn) && Number.isFinite(prev.qno)) {
+            cur.qno = prev.qno;
+        }
+    }
+}
 function refreshNumbersUI(kind) {
     plan[kind].forEach(it => {
         const lbl = document.getElementById('lbl-' + it._uid);
@@ -1411,6 +1445,33 @@ function updateReviewSummary() {
     reviewSummary.textContent = isGeneric()
         ? `${plan.que.length} region(s)`
         : `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
+    updateOrderWarning();
+}
+
+// Big red banner if a side's question numbers don't read in ascending order
+// down the pages. A REPEAT is fine (a question that spans pages keeps its
+// number); a DROP (a smaller number after a larger one) is the red flag —
+// usually a mis-linked multi-page question or a mis-typed Q#. Generic mode
+// (free-text labels, no numbers) is exempt.
+function updateOrderWarning() {
+    if (!orderWarning) return;
+    if (isGeneric()) { orderWarning.classList.add('d-none'); return; }
+    const msgs = [];
+    ['que', 'sol'].forEach(kind => {
+        const order = readingOrder(kind).filter(it => Number.isFinite(it.qno));
+        const label = kind === 'que' ? 'Questions' : 'Solutions';
+        for (let i = 1; i < order.length; i++) {
+            if (order[i].qno < order[i - 1].qno) {
+                msgs.push(`<strong>${label}:</strong> Q${order[i].qno} (page ${order[i].page + 1}) appears after Q${order[i - 1].qno} (page ${order[i - 1].page + 1}).`);
+            }
+        }
+    });
+    if (msgs.length) {
+        orderWarningBody.innerHTML = msgs.map(m => `<div><i class="bi bi-arrow-down-right"></i> ${m}</div>`).join('');
+        orderWarning.classList.remove('d-none');
+    } else {
+        orderWarning.classList.add('d-none');
+    }
 }
 
 function redrawPreviews(card) {
@@ -1495,17 +1556,23 @@ async function rerunPage(card, kind, pageIndex) {
         });
         plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
         (data.boxes || []).forEach(b => {
-            const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() };
-            if (uniformActive()) snapBoxToUniform(item, kind);
+            const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
+                           cp: !!b.continues_prev, cn: !!b.continues_next };
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });
+        // Re-lock uniform width across the side (the re-detected page may carry
+        // the new widest box) — non-lossy because boxes were pushed natural.
+        if (uniformActive()) enableUniformWidth(kind);
         toggleEmpty(card);
         card.dataset.pending = '0';
         setPageStatus(card, 'done');
         // Custom-prompt exam: the re-detected page has no numbers — re-sequence
         // the whole side so question numbers stay 1..N in reading order.
+        // Standard exam: re-link multi-page questions across the whole side
+        // (the re-run page may have changed a continuation boundary).
         if (isCustomExam()) renumberAllSequential(kind);
+        else if (!isGeneric()) { stitchContinuations(kind); refreshNumbersUI(kind); }
         updateReviewSummary();
         appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
         if (data.raw !== undefined) {
@@ -1656,6 +1723,7 @@ function resetAll() {
     closeStream();
     staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
     uniformWidth = { que: null, sol: null };
+    if (orderWarning) orderWarning.classList.add('d-none');
     reviewCard.classList.add('d-none');
     summaryPanel.classList.add('d-none');
     progressSection.classList.add('d-none');
