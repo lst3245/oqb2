@@ -573,16 +573,15 @@ def figure_captions(md: str):
 _DEFAULT_FIGURE_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
-    '{"caption": "<short description>", "box": [x1, y1, x2, y2]}\n'
+    '{"caption": "<short description>", "box": {{box_array}}}\n'
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of the image. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
     "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
-    "the BOTTOM edge). The box is [x1, y1, x2, y2] where (x1,y1) is its "
-    "TOP-LEFT corner and (x2,y2) its BOTTOM-RIGHT corner, so always x1 < x2 "
-    "and y1 < y2. Draw a TIGHT box around each diagram only — exclude "
-    "surrounding question text, equations, tables, and multiple-choice "
-    "options. Example: a diagram in the upper-middle of the image might be "
-    '{"caption": "right triangle", "box": [120, 80, 520, 420]}. '
+    "the BOTTOM edge). The box is {{box_corner}}. Draw a TIGHT box around each "
+    "diagram only — exclude surrounding question text, equations, tables, and "
+    "multiple-choice options. Example: a diagram in the upper-middle of the "
+    "image might be "
+    '{"caption": "right triangle", "box": {{box_example}}}. '
     "If there are no figures, return []."
 )
 
@@ -597,8 +596,7 @@ _DEFAULT_FIGURE_BOX_SYSTEM = (
 _DEFAULT_FIGURE_BOX_USER = (
     "List the bounding boxes of the real figures/diagrams in this image as "
     "STRICT JSON. Use integer coordinates on a 0-1000 grid in the order "
-    "[x1, y1, x2, y2] = [left, top, right, bottom], measured from the "
-    "top-left corner. Return [] if none."
+    "{{box_pairs}}, measured from the top-left corner. Return [] if none."
 )
 
 
@@ -953,9 +951,14 @@ PROMPTS_REGISTRY = OrderedDict([
             'JSON-shape + 0-1000 coordinate contract appended to the figure '
             'bbox system prompt via {{json_contract}}. Uses the same grid as '
             'PDF batch import; parsed by parse_figure_boxes (honours '
-            'PDF_IMPORT_COORD_ORDER for y-first models like Gemini).'
+            'PDF_IMPORT_COORD_ORDER for y-first models like Gemini). '
+            'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
+            'are filled from the PDF_IMPORT_COORD_ORDER system setting (xyxy '
+            'vs yxyx) so the coordinate order is NOT hardcoded — matching '
+            'the parser exactly.'
         ),
         default=_DEFAULT_FIGURE_BOX_JSON_CONTRACT,
+        variables=['box_array', 'box_corner', 'box_example'],
         role='system',
     )),
     ('FIGURE_BOX_SYSTEM', _prompt(
@@ -975,8 +978,14 @@ PROMPTS_REGISTRY = OrderedDict([
     ('FIGURE_BOX_USER', _prompt(
         group='Figure Detection (MD Generation)',
         label='Figure bbox: User-turn instruction',
-        description='Accompanies the single source image to localise figures in.',
+        description=(
+            "Accompanies the single source image to localise figures in. "
+            "{{box_pairs}} is filled from the PDF_IMPORT_COORD_ORDER system "
+            "setting (xyxy vs yxyx) so the axis-order instruction matches the "
+            "parser."
+        ),
         default=_DEFAULT_FIGURE_BOX_USER,
+        variables=['box_pairs'],
         role='user',
     )),
     ('PDF_BOX_JSON_CONTRACT', _prompt(
@@ -1142,10 +1151,21 @@ PROMPTS_REGISTRY = OrderedDict([
 ])
 
 
-def build_figure_box_system() -> str:
-    """Resolved system prompt for figure localisation during MD generation."""
-    contract = get_prompt('FIGURE_BOX_JSON_CONTRACT')
+def build_figure_box_system(coord_order: str = 'xyxy') -> str:
+    """Resolved system prompt for figure localisation during MD generation.
+    ``coord_order`` (the ``PDF_IMPORT_COORD_ORDER`` setting) drives the
+    coordinate-order wording in the contract so the prompt matches what
+    ``parse_figure_boxes`` expects."""
+    contract = render_prompt('FIGURE_BOX_JSON_CONTRACT',
+                             **pdf_box_order_vars(coord_order))
     return render_prompt('FIGURE_BOX_SYSTEM', json_contract=contract)
+
+
+def build_figure_box_user_text(coord_order: str = 'xyxy') -> str:
+    """User-turn instruction for figure localisation during MD generation.
+    ``coord_order`` (the ``PDF_IMPORT_COORD_ORDER`` setting) fills the
+    axis-order wording so the instruction matches the parser."""
+    return render_prompt('FIGURE_BOX_USER', **pdf_box_order_vars(coord_order))
 
 
 def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:

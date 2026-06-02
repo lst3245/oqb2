@@ -55,6 +55,12 @@ The Markdown-generation prompt (`MD_SYSTEM` / `MD_USER`) and the Explain tutor p
 
 The detection prompt previously **hardcoded** the x-first (`[x1,y1,x2,y2]`) instruction even though `PDF_IMPORT_COORD_ORDER` lets an admin select `yxyx` (Gemma/Gemini/PaliGemma family, vertical-coordinate-first). The setting only drove the *parser*, so choosing `yxyx` made the prompt and parser disagree. The shared JSON contract (`PDF_BOX_JSON_CONTRACT`) and user-turn prompt now use `{{box_array}}` / `{{box_corner}}` / `{{box_example}}` / `{{box_pairs}}` placeholders filled from the setting via `ai_prompts.pdf_box_order_vars(coord_order)`; `build_pdf_box_system` / `build_pdf_box_user_text` take the order (passed from `detect_page`), so the wording the model sees matches what `parse_question_boxes` expects on both `xyxy` and `yxyx`.
 
+#### Figure bbox detection (MD generation) — coordinate order now honours the setting
+
+`build_figure_box_system()` and the `FIGURE_BOX_USER` prompt had **hardcoded `[x1,y1,x2,y2]` / `xyxy` instructions** even though `PDF_IMPORT_COORD_ORDER` controls the axis order for all vision LLM calls. The parser (`parse_figure_boxes`) already read `coord_order` from the setting and normalised correctly — but the *prompt* still asked for `xyxy`, so using a y-first model (Gemini/Gemma/PaliGemma with `yxyx`) caused the model to return `[y1,x1,y2,x2]` while the prompt said `[x1,y1,x2,y2]`, resulting in incorrect figure crops in MD generation.
+
+Fix: `_DEFAULT_FIGURE_BOX_JSON_CONTRACT` and `_DEFAULT_FIGURE_BOX_USER` now use the same `{{box_array}}` / `{{box_corner}}` / `{{box_example}}` / `{{box_pairs}}` placeholders as the PDF import contract, filled by `pdf_box_order_vars(coord_order)`. `build_figure_box_system(coord_order)` and the new `build_figure_box_user_text(coord_order)` accept the order; both are called from `ai_tools.py` with the `PDF_IMPORT_COORD_ORDER` config value (already read there). Prompt registry entries updated with `variables`.
+
 #### MD editor false "file changed on disk" on save
 
 `mtime_ns` from the MD content/save API is now returned and round-tripped as a **JSON string** so JavaScript does not corrupt nanosecond timestamps (they exceed `Number.MAX_SAFE_INTEGER`). This fixes spurious 409 conflict prompts when saving from the edit modal or fullscreen MD editor without anyone else touching the file.

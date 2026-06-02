@@ -435,8 +435,8 @@ def _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path):
             ).strip().lower()
             btext, _info = llm_client.chat(
                 config,
-                ai_prompts.build_figure_box_system(),
-                ai_prompts.get_prompt('FIGURE_BOX_USER'),
+                ai_prompts.build_figure_box_system(coord_order),
+                ai_prompts.build_figure_box_user_text(coord_order),
                 imgs,
             )
             boxes = ai_prompts.parse_figure_boxes(
