@@ -3310,7 +3310,8 @@ def pdf_import_page():
     """PDF Batch Import management page."""
     from app import pdf_import
     subjects = get_user_admin_subjects()
-    endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name}
+    endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name,
+                  'kind': c.kind or 'local', 'max_concurrency': c.max_concurrency or 1}
                  for c in _pdf_vision_endpoints()]
     default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
     if default_method not in pdf_import.DETECT_METHODS:
@@ -3510,6 +3511,7 @@ def pdf_import_detect():
     method = (request.args.get('method', 'llm') or 'llm').strip().lower()
     if method not in pdf_import.DETECT_METHODS:
         method = 'llm'
+    want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
@@ -3520,10 +3522,15 @@ def pdf_import_detect():
             try:
                 from app.models import LLMConfig as _Cfg
                 live_cfg = _Cfg.query.get(endpoint_id)
+                live_cfg._batch = True  # opt into service_tier_batch
                 image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+                workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
+                do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
                 for ev in pdf_import.iter_detect(app, cancel, token, live_cfg,
                                                  image_max_dim, debug=debug,
-                                                 method=method):
+                                                 method=method,
+                                                 parallel=do_par,
+                                                 max_workers=(workers if do_par else 1)):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import detect stream aborted')
@@ -4406,6 +4413,15 @@ def _ai_tools_guard():
     return None
 
 
+def _ai_parallel(cfg, want_parallel):
+    """Resolve the (parallel_on, max_workers) pair for a batch run. Parallel is
+    only allowed when the user asked for it AND the endpoint is a cloud endpoint
+    with a concurrency above 1 — local endpoints always stay sequential."""
+    workers = max(1, int(getattr(cfg, 'max_concurrency', 1) or 1))
+    on = bool(want_parallel and getattr(cfg, 'kind', 'local') == 'cloud' and workers > 1)
+    return on, (workers if on else 1)
+
+
 def _ai_parse_qs():
     """Parse + permission-scope question_ids. Returns (qs, error, code)."""
     raw_qids = request.args.get('question_ids', '').strip()
@@ -4523,7 +4539,8 @@ def ai_endpoints():
     return jsonify({
         'endpoints': [
             {'id': c.id, 'name': c.name, 'model_name': c.model_name,
-             'supports_vision': bool(c.supports_vision)}
+             'supports_vision': bool(c.supports_vision),
+             'kind': c.kind or 'local', 'max_concurrency': c.max_concurrency or 1}
             for c in rows
         ],
         'defaults': {
@@ -4601,6 +4618,7 @@ def ai_check():
     if not atypes:
         return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
     recheck = request.args.get('recheck', '0') in ('1', 'true', 'yes')
+    want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
     def factory(app, cancel):
         from app import ai_tools
@@ -4609,9 +4627,12 @@ def ai_check():
         render_opts = ai_tools.default_render_opts(app.config)
         from app.models import LLMConfig
         live_cfg = LLMConfig.query.get(cfg.id)
+        live_cfg._batch = True  # opt into service_tier_batch
+        do_par, workers = _ai_parallel(live_cfg, want_parallel)
         return ai_tools.iter_check(qs, typed_version, ref_version, atypes,
                                    recheck, live_cfg, image_max_dim, source_path,
-                                   cancel, render_opts=render_opts)
+                                   cancel, render_opts=render_opts,
+                                   parallel=do_par, app=app, max_workers=workers)
 
     return _ai_stream(factory)
 
@@ -4644,6 +4665,7 @@ def ai_generate_md():
         return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     embed_image = request.args.get('embed_image', '1') in ('1', 'true', 'yes')
+    want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
     def factory(app, cancel):
         from app import ai_tools
@@ -4652,9 +4674,12 @@ def ai_generate_md():
         source_path = app.config['SOURCE_PATH']
         from app.models import LLMConfig
         live_cfg = LLMConfig.query.get(cfg.id)
+        live_cfg._batch = True  # opt into service_tier_batch
+        do_par, workers = _ai_parallel(live_cfg, want_parallel)
         return ai_tools.iter_generate_md(qs, source_version, target_version, atypes,
                                          overwrite, embed_image, live_cfg, image_max_dim,
-                                         md_max_bytes, source_path, cancel)
+                                         md_max_bytes, source_path, cancel,
+                                         parallel=do_par, app=app, max_workers=workers)
 
     return _ai_stream(factory)
 
@@ -4919,6 +4944,7 @@ def ai_auto_tag():
     if not fields:
         return jsonify({'error': 'fields must include at least one tag field'}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
     def factory(app, cancel):
         from app import ai_tools
@@ -4926,8 +4952,11 @@ def ai_auto_tag():
         source_path = app.config['SOURCE_PATH']
         from app.models import LLMConfig
         live_cfg = LLMConfig.query.get(cfg.id)
+        live_cfg._batch = True  # opt into service_tier_batch
+        do_par, workers = _ai_parallel(live_cfg, want_parallel)
         return ai_tools.iter_auto_tag(qs, versions, fields, overwrite, live_cfg,
-                                      image_max_dim, source_path, cancel)
+                                      image_max_dim, source_path, cancel,
+                                      parallel=do_par, app=app, max_workers=workers)
 
     return _ai_stream(factory)
 
@@ -5374,6 +5403,10 @@ def _serialize_llm_config(c, *, include_secret=False):
         'has_stored_key': has_stored,
         'key_resolves': resolves,
         'supports_vision': bool(c.supports_vision),
+        'kind': c.kind or 'local',
+        'max_concurrency': c.max_concurrency or 1,
+        'service_tier': c.service_tier or '',
+        'service_tier_batch': c.service_tier_batch or '',
         'max_output_tokens': c.max_output_tokens,
         'temperature': c.temperature,
         'timeout_seconds': c.timeout_seconds,
@@ -5457,6 +5490,13 @@ def llm_endpoints_save():
         except (TypeError, ValueError):
             return default
 
+    cfg.kind = 'cloud' if (data.get('kind') or 'local').strip().lower() == 'cloud' else 'local'
+    cfg.max_concurrency = min(32, max(1, _int(data.get('max_concurrency'), 1)))
+    _ALLOWED_TIERS = ('flex', 'priority', 'auto', 'default')
+    _tier = (data.get('service_tier') or '').strip().lower()
+    cfg.service_tier = _tier if _tier in _ALLOWED_TIERS else ''
+    _tier_b = (data.get('service_tier_batch') or '').strip().lower()
+    cfg.service_tier_batch = _tier_b if _tier_b in _ALLOWED_TIERS else ''
     cfg.max_output_tokens = max(1, _int(data.get('max_output_tokens'), 4096))
     cfg.temperature = _float(data.get('temperature'), 0.0)
     cfg.timeout_seconds = max(5, _int(data.get('timeout_seconds'), 120))
@@ -5512,6 +5552,10 @@ def llm_endpoints_duplicate(cid):
         provider=src.provider,
         api_key_env=src.api_key_env,
         supports_vision=src.supports_vision,
+        kind=src.kind,
+        max_concurrency=src.max_concurrency,
+        service_tier=src.service_tier,
+        service_tier_batch=src.service_tier_batch,
         max_output_tokens=src.max_output_tokens,
         temperature=src.temperature,
         timeout_seconds=src.timeout_seconds,

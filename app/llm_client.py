@@ -308,6 +308,19 @@ def _image_block(b64, mime):
     return {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}}
 
 
+def _resolve_service_tier(config):
+    """Pick the service tier to send. Batch SSE ops set a transient
+    ``config._batch = True`` attribute (NOT a mapped column, so it's never
+    written to the DB) to opt into ``service_tier_batch``; everything else
+    (single / interactive calls) uses ``service_tier``. Blank ⇒ omit the param.
+    """
+    if getattr(config, '_batch', False):
+        tier = getattr(config, 'service_tier_batch', '') or ''
+    else:
+        tier = getattr(config, 'service_tier', '') or ''
+    return tier.strip()
+
+
 def _post_chat(config, messages, max_tokens=None, temperature=None, timeout=None):
     """POST a pre-built OpenAI ``messages`` array to
     ``{base_url}/chat/completions`` and return ``(text, info)``. Shared by
@@ -324,6 +337,9 @@ def _post_chat(config, messages, max_tokens=None, temperature=None, timeout=None
         'max_tokens': int(max_tokens or config.max_output_tokens or 4096),
         'temperature': float(config.temperature if temperature is None else temperature),
     }
+    tier = _resolve_service_tier(config)
+    if tier:
+        payload['service_tier'] = tier
 
     headers = {'Content-Type': 'application/json'}
     api_key = resolve_api_key(config)
@@ -423,6 +439,9 @@ def chat_messages_stream(config, messages, max_tokens=None, temperature=None,
         'temperature': float(config.temperature if temperature is None else temperature),
         'stream': True,
     }
+    tier = _resolve_service_tier(config)
+    if tier:
+        payload['service_tier'] = tier
 
     headers = {
         'Content-Type': 'application/json',

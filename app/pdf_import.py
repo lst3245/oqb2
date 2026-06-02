@@ -626,7 +626,8 @@ def _check_method_available(method: str):
 
 
 def iter_detect(app, cancel, token: str, config, image_max_dim: int,
-                debug: bool = False, method: str = 'llm'):
+                debug: bool = False, method: str = 'llm',
+                parallel: bool = False, max_workers: int = 1):
     """Generator yielding detection progress events (one LLM call per page).
 
     Accumulates the detected boxes into ``plan.json`` so a later commit can
@@ -635,6 +636,12 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     page event so coordinate problems can be diagnosed in the browser.
     ``method`` selects LLM-only vs an assisted CV method (see
     :func:`detect_page`).
+
+    When ``parallel`` is set (cloud endpoints) the per-page LLM round-trips fan
+    out across ``max_workers`` threads. Boxes are accumulated on the consumer
+    thread as results arrive; for custom-prompt exam runs the auto question
+    numbers are assigned once at the end in reading order (page, top-Y) so the
+    numbering is deterministic regardless of completion order.
     """
     meta = load_meta(token)
     is_generic = (meta.get('mode') == 'generic')
@@ -671,11 +678,79 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        f'{config.model_name} [{method_label}]...'),
            'current': 0, 'total': total}
 
-    done = 0
-    qcount = 0
+    # Flat work list (one LLM call per page) shared by both branches.
+    work = []
     for kind in kinds:
         atype = 'QUE' if kind == 'que' else 'SOL'
         for p in meta[kind]['pages']:
+            work.append({'kind': kind, 'atype': atype, 'idx': p['index']})
+
+    def _ingest(kind, idx, boxes):
+        """Accumulate one page's boxes into the plan (consumer-thread only)."""
+        for b in boxes:
+            if is_generic:
+                plan[kind].append({'page': idx, 'label': b.get('label'), 'box': b['box']})
+            elif custom_prompt:
+                # qno assigned at the end in reading order (see _number_custom).
+                plan[kind].append({'page': idx, 'qno': None, 'box': b['box']})
+            else:
+                plan[kind].append({'page': idx, 'qno': b.get('qno'), 'box': b['box']})
+
+    def _page_event(kind, atype, idx, boxes, raw):
+        page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
+        if debug:
+            logger.info('pdf-import raw (%s page %s):\n%s', kind, idx + 1, raw)
+            page_ev['raw'] = (raw or '')[:6000]
+        noun = 'region(s)' if is_generic else 'question region(s)'
+        label = 'Page' if is_generic else atype
+        return {'type': 'success',
+                'message': f'{label} {idx + 1}: found {len(boxes)} {noun}.',
+                'page': page_ev}
+
+    def _number_custom():
+        """Assign 1..N question numbers per side in reading order (page, top-Y)."""
+        for kind in ('que', 'sol'):
+            ordered = sorted(plan[kind], key=lambda it: (it['page'], it['box'][1]))
+            for i, it in enumerate(ordered, 1):
+                it['qno'] = i
+
+    def _worker(item):
+        png = page_png_path(token, item['kind'], item['idx'])
+        boxes, raw = detect_page(config, png, item['atype'], image_max_dim,
+                                 method, mode=meta.get('mode', 'exam'),
+                                 instruction=instruction,
+                                 generic_prompt=custom_prompt)
+        return {'boxes': boxes, 'raw': raw}
+
+    done = 0
+    qcount = 0
+    use_parallel = bool(parallel and max_workers and max_workers > 1)
+
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+        for r in run_parallel(app, cancel, work, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
+            done += 1
+            kind, atype, idx = r['item']['kind'], r['item']['atype'], r['item']['idx']
+            if r['error'] is not None:
+                logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, r['error'])
+                yield {'type': 'error',
+                       'message': f'{atype} page {idx + 1}: detection failed ({r["error"]}).',
+                       'current': done, 'total': total,
+                       'page': {'kind': kind, 'index': idx, 'boxes': []}}
+                continue
+            boxes, raw = r['result']['boxes'], r['result']['raw']
+            _ingest(kind, idx, boxes)
+            qcount += len(boxes)
+            ev = _page_event(kind, atype, idx, boxes, raw)
+            ev['current'] = done; ev['total'] = total
+            yield ev
+        if custom_prompt:
+            _number_custom()
+    else:
+        for item in work:
+            kind, atype, idx = item['kind'], item['atype'], item['idx']
             if cancel.is_set():
                 save_plan(token, plan)
                 yield {'type': 'done', 'message': 'Detection cancelled.',
@@ -683,7 +758,6 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        'stats': {'pages': done, 'questions': qcount},
                        'plan': plan}
                 return
-            idx = p['index']
             png = page_png_path(token, kind, idx)
             try:
                 boxes, raw = detect_page(config, png, atype, image_max_dim,
@@ -714,23 +788,22 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                                        'box': b['box']})
             qcount += len(boxes)
             done += 1
-            page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
-            if debug:
-                logger.info('pdf-import raw (%s page %s):\n%s', kind, idx + 1, raw)
-                page_ev['raw'] = (raw or '')[:6000]
-            noun = 'region(s)' if is_generic else 'question region(s)'
-            label = 'Page' if is_generic else atype
-            yield {'type': 'success',
-                   'message': f'{label} {idx + 1}: found {len(boxes)} {noun}.',
-                   'current': done, 'total': total,
-                   'page': page_ev}
+            ev = _page_event(kind, atype, idx, boxes, raw)
+            ev['current'] = done; ev['total'] = total
+            yield ev
 
     save_plan(token, plan)
-    yield {'type': 'done',
-           'message': f'Detection complete: {qcount} question region(s) across {total} page(s).',
-           'current': total, 'total': total,
-           'stats': {'pages': total, 'questions': qcount},
-           'plan': plan}
+    if cancel.is_set():
+        yield {'type': 'done', 'message': 'Detection cancelled.',
+               'current': done, 'total': total,
+               'stats': {'pages': done, 'questions': qcount},
+               'plan': plan}
+    else:
+        yield {'type': 'done',
+               'message': f'Detection complete: {qcount} question region(s) across {total} page(s).',
+               'current': total, 'total': total,
+               'stats': {'pages': total, 'questions': qcount},
+               'plan': plan}
 
 
 def detect_single_page(config, token: str, kind: str, index: int,

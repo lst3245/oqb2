@@ -41,6 +41,23 @@ Files: `app/config.py`, `app/settings.py`, `app/llm_client.py`, `app/dashboard.p
 
 ### ✨ Enhanced Features
 
+#### Uniform Width (PDF Batch Import) + parallel batch ops for cloud LLMs
+
+Two throughput / consistency upgrades:
+
+- **Uniform width per side (PDF Batch Import review).** A new **Uniform width per side** checkbox in the setup form locks every region on each side (QUE / SOL independently) to a single shared width, so short and long questions crop to a consistent scale. When on, resizing any one box's width (a `w`/`e` handle) re-broadcasts that width to every other box of the same side (their horizontal centres are kept); moving a box still translates it freely. Untick to fine-tune widths individually again. All client-side in `templates/admin_pdf_import.html` (in-memory only — the saved plan keeps the resulting box arrays, no backend change).
+- **Parallel batch operations for cloud endpoints.** Each `LLMConfig` is now tagged **local** or **cloud** with a `max_concurrency`. Batch operations that previously ran one item at a time — **Generate Markdown**, **Check Questions**, **Auto-tag** (Admin → Questions AI Tools) and **PDF Batch Import** detection — can now fan their per-item LLM round-trips across a thread pool when the selected endpoint is **cloud**. A **Run in parallel** checkbox (shown only for cloud endpoints, on by default) appears next to the endpoint pickers; each batch route accepts `parallel=1` and gates it on `endpoint.kind == 'cloud'`. For PDF detection in parallel, custom-prompt auto-numbering is assigned once at the end in reading order so it stays deterministic. Cancellation is unchanged (in-flight requests finish, pending ones short-circuit). Check's MD/DOC pre-rendering still serialises on the global Word COM lock (each parallel worker owns a short-lived Word session). New helper module `app/parallel.py` (`run_parallel`).
+
+#### LLM endpoint service tier (OpenAI / OpenRouter / Google)
+
+Each `LLMConfig` can now carry an optional **service tier** sent as the top-level `service_tier` request param — e.g. `flex` (cheaper, higher latency) to save on token cost, `priority` (faster, pricier), or `auto`/`default`. Blank = omit the param (provider default), so non-supporting endpoints are unaffected. The tier is **separate for single and batch operations** — e.g. run batch jobs (Check / Generate-MD / Auto-tag / PDF detect) on cheap `flex` while keeping single-question / interactive calls (Explain, Quick check, per-slot ops) on the normal tier. Set both per-endpoint in **Admin → LLM Endpoints** (*Service tier — single* / *— batch* selects). See [OpenRouter — Service Tiers](https://openrouter.ai/docs/guides/features/service-tiers). New `llm_configs.service_tier` + `service_tier_batch` columns (`VARCHAR(20)`, default `''`), added idempotently on start-up. The batch SSE routes set a transient `config._batch` flag so `llm_client` (`_post_chat` / `chat_messages_stream`) picks the batch tier; everything else uses the single tier.
+
+Files: `app/models.py`, `app/__init__.py`, `app/llm_client.py`, `app/admin.py`, `templates/admin_llm_endpoints.html`.
+
+**Database:** `llm_configs` gains `kind` (`local`/`cloud`, default `local`) and `max_concurrency` (default `1`). Added automatically on first start-up via an idempotent `ALTER TABLE`; existing rows whose `base_url` matches a well-known hosted API host (OpenAI, OpenRouter, Google, Anthropic, Groq, Together, DeepSeek, Mistral, xAI) are back-filled to `cloud` with `max_concurrency = 4`. Editable per-endpoint in **Admin → LLM Endpoints** (Kind + Max concurrency).
+
+Files: `app/models.py`, `app/__init__.py`, `app/parallel.py`, `app/ai_tools.py`, `app/pdf_import.py`, `app/admin.py`, `templates/admin_llm_endpoints.html`, `templates/admin_questions.html`, `templates/admin_pdf_import.html`. See [.cursor/rules/ai-tools.mdc](.cursor/rules/ai-tools.mdc) and [.cursor/rules/pdf-import.mdc](.cursor/rules/pdf-import.mdc).
+
 #### Markdown editor modal — dirty-state and close after save
 
 The inline Markdown editor no longer treats EasyMDE's init `change` events as edits (Close without changes no longer prompts). Dirty detection compares the current text to a baseline snapshot after load/save. A successful **Save** closes the modal automatically.

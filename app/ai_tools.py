@@ -336,12 +336,18 @@ def check_slot(question, asset_type, typed_version, ref_version, *, recheck,
 
 
 def iter_check(qs, typed_version, ref_version, asset_types, recheck,
-               config, image_max_dim, source_path, cancel, render_opts=None):
+               config, image_max_dim, source_path, cancel, render_opts=None,
+               parallel=False, app=None, max_workers=1):
     """Proofread each typed slot against the official reference slot.
 
     Yields event dicts. Delegates each slot to ``check_slot`` (which resolves
     images from IMG parts or renders MD/DOC on the fly) and writes
     ``check_state`` / ``check_result`` / ``checked_at`` to the typed slot rows.
+
+    When ``parallel`` is set (cloud endpoints) the per-slot LLM round-trips fan
+    out across ``max_workers`` threads. Each worker owns a short-lived Word
+    session so MD/DOC pre-rendering stays serialised on the global Word COM
+    lock while pure-IMG checks run fully concurrently.
     """
     render_opts = render_opts or {}
     work = [(q, atype) for q in qs for atype in asset_types]
@@ -352,37 +358,76 @@ def iter_check(qs, typed_version, ref_version, asset_types, recheck,
 
     ok = issues = skipped = errors = 0
     current = 0
-    word = _LazyWord(render_opts.get('lock_timeout', 600))
-    try:
-        for question, atype in work:
-            if cancel.is_set():
-                yield {'type': 'info', 'message': 'Cancelled by user.',
-                       'current': current, 'total': total}
-                break
+
+    def _shape(res):
+        nonlocal ok, issues, skipped, errors
+        status = res['status']
+        if status == 'ok':
+            ok += 1; return 'success'
+        if status == 'issues':
+            issues += 1; return 'success'
+        if status == 'skip':
+            skipped += 1; return 'skip'
+        errors += 1; return 'error'
+
+    use_parallel = bool(parallel and app is not None and max_workers and max_workers > 1)
+
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+
+        def _worker(item):
+            question, atype = item
+            # Re-fetch into this thread's scoped session — the original objects
+            # are bound to the request session and are unsafe to touch here.
+            question = db.session.get(Question, question.id) or question
+            # Per-worker Word session: opened lazily, released immediately so the
+            # next thread can take the global COM lock.
+            word = _LazyWord(render_opts.get('lock_timeout', 600))
+            try:
+                return check_slot(question, atype, typed_version, ref_version,
+                                  recheck=recheck, config=config, image_max_dim=image_max_dim,
+                                  source_path=source_path, render_opts=render_opts, word=word)
+            finally:
+                word.close()
+
+        for r in run_parallel(app, cancel, work, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
             current += 1
-            res = check_slot(question, atype, typed_version, ref_version,
-                             recheck=recheck, config=config, image_max_dim=image_max_dim,
-                             source_path=source_path, render_opts=render_opts, word=word)
-            status = res['status']
-            if status == 'ok':
-                ok += 1
-                ev_type = 'success'
-            elif status == 'issues':
-                issues += 1
-                ev_type = 'success'
-            elif status == 'skip':
-                skipped += 1
-                ev_type = 'skip'
-            else:
+            question, atype = r['item']
+            if r['error'] is not None:
                 errors += 1
-                ev_type = 'error'
+                label = f'{question.qid} / {atype} / {typed_version}'
+                yield {'type': 'error', 'message': f'{label} — {r["error"]}',
+                       'current': current, 'total': total}
+                continue
+            res = r['result']
+            ev_type = _shape(res)
             ev = {'type': ev_type, 'message': res['message'],
                   'current': current, 'total': total}
             if res.get('state'):
                 ev['state'] = res['state']
             yield ev
-    finally:
-        word.close()
+    else:
+        word = _LazyWord(render_opts.get('lock_timeout', 600))
+        try:
+            for question, atype in work:
+                if cancel.is_set():
+                    yield {'type': 'info', 'message': 'Cancelled by user.',
+                           'current': current, 'total': total}
+                    break
+                current += 1
+                res = check_slot(question, atype, typed_version, ref_version,
+                                 recheck=recheck, config=config, image_max_dim=image_max_dim,
+                                 source_path=source_path, render_opts=render_opts, word=word)
+                ev_type = _shape(res)
+                ev = {'type': ev_type, 'message': res['message'],
+                      'current': current, 'total': total}
+                if res.get('state'):
+                    ev['state'] = res['state']
+                yield ev
+        finally:
+            word.close()
 
     if not cancel.is_set():
         yield {
@@ -564,9 +609,13 @@ def generate_md_slot(question, asset_type, source_version, target_version, *,
 
 def iter_generate_md(qs, source_version, target_version, asset_types, overwrite,
                      embed_image, config, image_max_dim, md_max_bytes,
-                     source_path, cancel):
+                     source_path, cancel, parallel=False, app=None, max_workers=1):
     """Transcribe each source IMG slot into a Markdown asset for the target
-    slot. Yields event dicts; delegates each slot to ``generate_md_slot``."""
+    slot. Yields event dicts; delegates each slot to ``generate_md_slot``.
+
+    When ``parallel`` is set (cloud endpoints) the per-slot LLM round-trips fan
+    out across ``max_workers`` threads — slots are fully independent (each writes
+    its own MD file + DB row)."""
     work = [(q, atype) for q in qs for atype in asset_types]
     total = len(work)
     yield {'type': 'info',
@@ -575,30 +624,56 @@ def iter_generate_md(qs, source_version, target_version, asset_types, overwrite,
 
     created = skipped = errors = 0
     current = 0
-    for question, atype in work:
-        if cancel.is_set():
-            yield {'type': 'info', 'message': 'Cancelled by user.',
-                   'current': current, 'total': total}
-            break
-        current += 1
-        res = generate_md_slot(
+
+    def _shape(res):
+        nonlocal created, skipped, errors
+        status = res['status']
+        if status in ('created', 'updated'):
+            created += 1; return 'success'
+        if status == 'skip':
+            skipped += 1; return 'skip'
+        errors += 1; return 'error'
+
+    def _worker(item):
+        question, atype = item
+        # Re-fetch into this thread's scoped session (see iter_check note).
+        question = db.session.get(Question, question.id) or question
+        return generate_md_slot(
             question, atype, source_version, target_version,
             embed_image=embed_image, overwrite=overwrite, config=config,
             image_max_dim=image_max_dim, md_max_bytes=md_max_bytes,
             source_path=source_path,
         )
-        status = res['status']
-        if status in ('created', 'updated'):
-            created += 1
-            ev_type = 'success'
-        elif status == 'skip':
-            skipped += 1
-            ev_type = 'skip'
-        else:
-            errors += 1
-            ev_type = 'error'
-        yield {'type': ev_type, 'message': res['message'],
-               'current': current, 'total': total}
+
+    use_parallel = bool(parallel and app is not None and max_workers and max_workers > 1)
+
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+        for r in run_parallel(app, cancel, work, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
+            current += 1
+            question, atype = r['item']
+            if r['error'] is not None:
+                errors += 1
+                yield {'type': 'error',
+                       'message': f'{question.qid} / {atype} / {target_version} MD — {r["error"]}',
+                       'current': current, 'total': total}
+                continue
+            ev_type = _shape(r['result'])
+            yield {'type': ev_type, 'message': r['result']['message'],
+                   'current': current, 'total': total}
+    else:
+        for question, atype in work:
+            if cancel.is_set():
+                yield {'type': 'info', 'message': 'Cancelled by user.',
+                       'current': current, 'total': total}
+                break
+            current += 1
+            res = _worker((question, atype))
+            ev_type = _shape(res)
+            yield {'type': ev_type, 'message': res['message'],
+                   'current': current, 'total': total}
 
     if not cancel.is_set():
         yield {
@@ -982,11 +1057,53 @@ def apply_tags(question, suggestions, fields, overwrite):
     return applied
 
 
+def _auto_tag_one(question, versions, fields, overwrite, config, image_max_dim,
+                  source_path):
+    """Suggest + apply tags for a single question. Returns a normalised result
+    dict ``{status: 'tagged'|'skip'|'error', message}``. Pure per-item unit
+    shared by the sequential and parallel branches of ``iter_auto_tag``."""
+    label = question.qid
+    try:
+        res = suggest_tags(question, versions, fields, config,
+                           image_max_dim, source_path)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+    except Exception as e:
+        logger.exception('Auto-tag suggest failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — {e}'}
+
+    if not res.get('ok'):
+        return {'status': 'skip',
+                'message': f'{label} — {res.get("error") or "no suggestion"}'}
+
+    try:
+        applied = apply_tags(question, res['suggestions'], fields, overwrite)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Auto-tag apply failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — DB write failed: {e}'}
+
+    unmatched = res.get('unmatched') or []
+    unmatched_note = (f' (unmatched: {", ".join(u["name"] for u in unmatched)})'
+                      if unmatched else '')
+    if applied:
+        return {'status': 'tagged',
+                'message': f'{label} — applied: {", ".join(applied)}{unmatched_note}'}
+    extra = unmatched_note or (' (fields already filled; overwrite off)'
+                               if not overwrite else '')
+    return {'status': 'skip', 'message': f'{label} — nothing applied{extra}'}
+
+
 def iter_auto_tag(qs, versions, fields, overwrite, config, image_max_dim,
-                  source_path, cancel):
+                  source_path, cancel, parallel=False, app=None, max_workers=1):
     """SSE generator: auto-tag each question (suggest + apply). Mirrors
     ``iter_check`` (job/info/skip/success/error/done + cancel between
-    questions)."""
+    questions).
+
+    When ``parallel`` is set (cloud endpoints) the per-question LLM round-trips
+    fan out across ``max_workers`` threads; each question's ``apply_tags`` +
+    commit runs in its own thread-local session."""
     fields = [f for f in (fields or []) if f in ai_prompts.TAG_FIELDS]
     total = len(qs)
     yield {'type': 'info',
@@ -997,58 +1114,54 @@ def iter_auto_tag(qs, versions, fields, overwrite, config, image_max_dim,
 
     tagged = skipped = errors = 0
     current = 0
-    for question in qs:
-        if cancel.is_set():
-            yield {'type': 'info', 'message': 'Cancelled by user.',
-                   'current': current, 'total': total}
-            break
-        current += 1
-        label = question.qid
-        try:
-            res = suggest_tags(question, versions, fields, config,
-                               image_max_dim, source_path)
-        except llm_client.LLMError as e:
-            errors += 1
-            yield {'type': 'error', 'message': f'{label} — LLM error: {e}',
-                   'current': current, 'total': total}
-            continue
-        except Exception as e:
-            errors += 1
-            logger.exception('Auto-tag suggest failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — {e}',
-                   'current': current, 'total': total}
-            continue
 
-        if not res.get('ok'):
-            skipped += 1
-            yield {'type': 'skip', 'message': f'{label} — {res.get("error") or "no suggestion"}',
-                   'current': current, 'total': total}
-            continue
+    EV = {'tagged': 'success', 'skip': 'skip', 'error': 'error'}
 
-        try:
-            applied = apply_tags(question, res['suggestions'], fields, overwrite)
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            errors += 1
-            logger.exception('Auto-tag apply failed for %s', label)
-            yield {'type': 'error', 'message': f'{label} — DB write failed: {e}',
-                   'current': current, 'total': total}
-            continue
-
-        unmatched = res.get('unmatched') or []
-        unmatched_note = (f' (unmatched: {", ".join(u["name"] for u in unmatched)})'
-                          if unmatched else '')
-        if applied:
+    def _shape(res):
+        nonlocal tagged, skipped, errors
+        status = res['status']
+        if status == 'tagged':
             tagged += 1
-            yield {'type': 'success',
-                   'message': f'{label} — applied: {", ".join(applied)}{unmatched_note}',
-                   'current': current, 'total': total}
-        else:
+        elif status == 'skip':
             skipped += 1
-            extra = unmatched_note or (' (fields already filled; overwrite off)'
-                                       if not overwrite else '')
-            yield {'type': 'skip', 'message': f'{label} — nothing applied{extra}',
+        else:
+            errors += 1
+        return EV.get(status, 'error')
+
+    def _worker(question):
+        # Re-fetch into this thread's scoped session — apply_tags mutates the
+        # question and commits, so it must belong to this thread's session.
+        question = db.session.get(Question, question.id) or question
+        return _auto_tag_one(question, versions, fields, overwrite, config,
+                             image_max_dim, source_path)
+
+    use_parallel = bool(parallel and app is not None and max_workers and max_workers > 1)
+
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+        for r in run_parallel(app, cancel, qs, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
+            current += 1
+            if r['error'] is not None:
+                errors += 1
+                yield {'type': 'error',
+                       'message': f'{r["item"].qid} — {r["error"]}',
+                       'current': current, 'total': total}
+                continue
+            ev_type = _shape(r['result'])
+            yield {'type': ev_type, 'message': r['result']['message'],
+                   'current': current, 'total': total}
+    else:
+        for question in qs:
+            if cancel.is_set():
+                yield {'type': 'info', 'message': 'Cancelled by user.',
+                       'current': current, 'total': total}
+                break
+            current += 1
+            res = _worker(question)
+            ev_type = _shape(res)
+            yield {'type': ev_type, 'message': res['message'],
                    'current': current, 'total': total}
 
     if not cancel.is_set():

@@ -169,6 +169,59 @@ def create_app():
         except Exception:
             pass
 
+        # Parallel batch ops: add llm_configs.kind / max_concurrency if absent,
+        # then back-fill a 'cloud' classification (with a sane concurrency) for
+        # well-known hosted API hosts so existing endpoints light up parallel
+        # mode automatically. Admins can override per-endpoint afterwards.
+        try:
+            from sqlalchemy import text
+            _CLOUD_HOSTS = (
+                'api.openai.com', 'openrouter.ai',
+                'generativelanguage.googleapis.com', 'api.anthropic.com',
+                'api.groq.com', 'api.together.xyz', 'api.deepseek.com',
+                'api.mistral.ai', 'api.x.ai',
+            )
+            with db.engine.begin() as conn:
+                cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'llm_configs'"
+                ))}
+                added = False
+                if 'kind' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN kind VARCHAR(10) "
+                        "NOT NULL DEFAULT 'local'"
+                    ))
+                    added = True
+                if 'max_concurrency' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN max_concurrency INT "
+                        "NOT NULL DEFAULT 1"
+                    ))
+                    added = True
+                if 'service_tier' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN service_tier "
+                        "VARCHAR(20) NOT NULL DEFAULT ''"
+                    ))
+                if 'service_tier_batch' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN service_tier_batch "
+                        "VARCHAR(20) NOT NULL DEFAULT ''"
+                    ))
+                if added:
+                    for row in conn.execute(text(
+                        "SELECT id, base_url FROM llm_configs"
+                    )):
+                        base = (row[1] or '').lower()
+                        if any(h in base for h in _CLOUD_HOSTS):
+                            conn.execute(text(
+                                "UPDATE llm_configs SET kind = 'cloud', "
+                                "max_concurrency = 4 WHERE id = :id"
+                            ), {'id': row[0]})
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
         try:
             from sqlalchemy import text
             with db.engine.begin() as conn:

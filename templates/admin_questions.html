@@ -617,10 +617,16 @@
                     <div class="row g-3">
                         <div class="col-md-7">
                             <label class="form-label fw-bold" for="aiEndpointSelect">LLM endpoint</label>
-                            <select class="form-select form-select-sm" id="aiEndpointSelect">
+                            <select class="form-select form-select-sm" id="aiEndpointSelect" onchange="aiUpdateParallelUI()">
                                 <option value="">Loading…</option>
                             </select>
                             <small class="text-muted">Manage endpoints in <em>Admin → LLM Endpoints</em> (super-admin).</small>
+                            <div class="form-check mt-2 d-none" id="aiParallelWrap">
+                                <input class="form-check-input" type="checkbox" id="aiParallelChk" checked>
+                                <label class="form-check-label" for="aiParallelChk" title="Process several items at once. Available for cloud endpoints that allow concurrent requests.">
+                                    <i class="bi bi-lightning-charge"></i> Run in parallel <span id="aiParallelHint" class="text-muted"></span>
+                                </label>
+                            </div>
                         </div>
                         <div class="col-md-5">
                             <label class="form-label fw-bold">Operation</label>
@@ -1534,6 +1540,19 @@ let aiToolsJobId = null;
 let aiToolsOp = 'check';
 
 let _aiEndpointDefaults = { tag: null, md: null, check: null };
+let _aiEndpoints = [];
+
+// The "Run in parallel" checkbox only applies to cloud endpoints that allow
+// >1 concurrent request; hide it for local endpoints (always sequential).
+function aiUpdateParallelUI() {
+    const wrap = document.getElementById('aiParallelWrap');
+    const sel = document.getElementById('aiEndpointSelect');
+    const ep = _aiEndpoints.find(e => String(e.id) === String(sel.value));
+    const cloud = !!(ep && ep.kind === 'cloud' && (ep.max_concurrency || 1) > 1);
+    wrap.classList.toggle('d-none', !cloud);
+    if (cloud) document.getElementById('aiParallelHint').textContent =
+        `(up to ${ep.max_concurrency} at once)`;
+}
 
 function _aiApplyDefaultEndpoint() {
     const sel = document.getElementById('aiEndpointSelect');
@@ -1557,6 +1576,7 @@ function aiToolsToggleOp() {
     document.getElementById('aiCheckPanel').classList.toggle('d-none', op !== 'check');
     document.getElementById('aiMdPanel').classList.toggle('d-none', op !== 'md');
     _aiApplyDefaultEndpoint();
+    aiUpdateParallelUI();
 }
 
 function openAiToolsModal(presetOp) {
@@ -1586,6 +1606,7 @@ function openAiToolsModal(presetOp) {
         .then(r => r.json())
         .then(data => {
             const eps = data.endpoints || [];
+            _aiEndpoints = eps;
             _aiEndpointDefaults = data.defaults || _aiEndpointDefaults;
             if (eps.length === 0) {
                 sel.innerHTML = '<option value="">No endpoints configured</option>';
@@ -1597,6 +1618,7 @@ function openAiToolsModal(presetOp) {
             }).join('');
             // Pre-select the per-op default (or the first vision-capable endpoint as a fallback).
             _aiApplyDefaultEndpoint();
+            aiUpdateParallelUI();
         })
         .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
 
@@ -1638,6 +1660,10 @@ function runAiTools() {
     const params = new URLSearchParams();
     params.set('question_ids', Array.from(selectedQIds).join(','));
     params.set('endpoint_id', endpointId);
+    const parWrap = document.getElementById('aiParallelWrap');
+    if (!parWrap.classList.contains('d-none') && document.getElementById('aiParallelChk').checked) {
+        params.set('parallel', '1');
+    }
 
     let endpointUrl;
     if (aiToolsOp === 'tag') {

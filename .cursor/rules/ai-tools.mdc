@@ -17,7 +17,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | Prompt override storage | [app/models.py](mdc:app/models.py) `PromptOverride` (table `prompt_overrides`) |
 | Prompt admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html), [app/admin.py](mdc:app/admin.py) `prompts_*` |
 | SSE generators + cancel registry + `generate_md_slot` | [app/ai_tools.py](mdc:app/ai_tools.py) |
-| Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`) |
+| Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`); `kind` (`local`/`cloud`) + `max_concurrency` gate parallel batch ops |
+| Parallel executor | [app/parallel.py](mdc:app/parallel.py) `run_parallel(app, cancel, items, worker_fn, max_workers)` |
 | Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |
 | Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` (incl. `_duplicate`, `_chat` raw-chat console) |
 | SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_cancel`, `ai_endpoints` |
@@ -44,6 +45,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 
 All endpoints speak `POST {base_url}/chat/completions` (OpenAI shape). Images go in as base64 `image_url` content blocks. `base_url` must be the API root that exposes `/chat/completions` (e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1`). Local servers (Ollama, LM Studio, vLLM) and cloud (OpenAI, OpenRouter) all work; Anthropic/Gemini via an OpenAI-compat proxy.
 
+**Service tier**: `LLMConfig.service_tier` / `service_tier_batch` (blank/`flex`/`priority`/`auto`/`default`) are added to the request body as the top-level `service_tier` param by BOTH `_post_chat` and `chat_messages_stream` **only when non-empty** (blank = provider default, so non-supporting endpoints are untouched). The tier is **split single vs batch**: `_resolve_service_tier(config)` returns `service_tier_batch` when the caller set a transient `config._batch = True` (the four batch SSE route factories do this on their `live_cfg`), else `service_tier`. So batch can run on cheap `flex` while single/interactive calls stay normal. `_batch` is an unmapped instance attr — never flushed to the DB. Set per-endpoint in `templates/admin_llm_endpoints.html` (`#epServiceTier` / `#epServiceTierBatch`). See [OpenRouter — Service Tiers](https://openrouter.ai/docs/guides/features/service-tiers).
+
 - `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, raw}`; raises `LLMError`. `_extract_message_text` tolerates content-as-blocks, reasoning-only replies, and completion-style `text`; a 200 body carrying an `error` is raised as `LLMError`. Both `chat` and `chat_messages` share `_post_chat`.
 - `llm_client.chat_messages(config, messages, max_tokens?, temperature?, timeout?)` → `(text, info)` for **multi-turn** conversations with a pre-built OpenAI `messages` array. Used by the **AI Tools batch ops** (one-shot JSON is fine there). The optional `timeout` (seconds) overrides the endpoint's `timeout_seconds`.
 - `llm_client.chat_messages_stream(config, messages, ...)` → **generator** yielding `{type:'delta', content, reasoning}` chunks then a single `{type:'done', text, reasoning, finish_reason, usage}`. Asks for `"stream": true`, parses OpenAI SSE (`data: {...}\n\n` / `[DONE]`). Used by the dashboard **Explain** tutor and the admin **Chat** console — streaming bytes flow continuously so reverse proxies don't cut the connection on long reasoning runs. Servers that ignore `stream:true` and return one-shot JSON are detected by `Content-Type` and yielded as a single `done` event (graceful fallback). Interactive routes pass `LLM_CHAT_TIMEOUT_SECONDS` (default 600 s) as the timeout. `_image_block(b64, mime)` builds an `image_url` content block.
@@ -61,8 +64,8 @@ Per-endpoint key entered in the UI is stored **Fernet-encrypted** in `LLMConfig.
 
 Routes mirror `batch_generate_images`: gather work in request context, stream inside a pushed `app.app_context()`. Both ops are GET (EventSource) + `text/event-stream`.
 
-- `GET /admin/questions/ai/check` — params `question_ids`, `endpoint_id`, `typed_version`, `ref_version`, `atypes` (csv QUE/ANS/SOL), `recheck` (1/0).
-- `GET /admin/questions/ai/generate-md` — params `question_ids`, `endpoint_id`, `source_version`, `target_version`, `atypes`, `overwrite` (1/0), `embed_image` (1/0).
+- `GET /admin/questions/ai/check` — params `question_ids`, `endpoint_id`, `typed_version`, `ref_version`, `atypes` (csv QUE/ANS/SOL), `recheck` (1/0), `parallel` (1/0; cloud only).
+- `GET /admin/questions/ai/generate-md` — params `question_ids`, `endpoint_id`, `source_version`, `target_version`, `atypes`, `overwrite` (1/0), `embed_image` (1/0), `parallel` (1/0; cloud only).
 - `POST /admin/questions/ai/cancel` — body `{job_id}`.
 - `GET /admin/questions/ai/endpoints` — enabled endpoints for the modal dropdown (subject-admin OK).
 - `POST /admin/questions/<id>/assets/ai/generate-md` — **synchronous** (not SSE) per-slot MD generation for the edit-modal button; body `{version, asset_type, endpoint_id, embed_image?, overwrite?, source_version?}` (`source_version` defaults to `version`; UI shows the button when any version has IMG for that atype and offers a source-version picker); returns `{success, status, message, asset_id}`.
@@ -70,7 +73,7 @@ Routes mirror `batch_generate_images`: gather work in request context, stream in
 - `POST /admin/questions/<id>/assets/generate-img` — **synchronous** render of ONE slot's MD/DOC source into IMG part(s) for the edit-modal Gen-IMG button; body `{version, asset_type, source_format?, stitch?}` (`source_format` ∈ DOC|MD|'' auto). Reuses `batch_image_gen` (Word COM) + `replace_img_assets`. Returns `{success, message, wrote, deleted, source_format}`.
 - `POST /admin/questions/<id>/assets/check-state` — **manual** set/clear of a slot's proofread status; body `{version, asset_type, state, note?, severity?}` where `state ∈ ok|issues|error|clear`. Writes check fields to ALL rows in the slot; `clear` nulls them. Manual edits store `checked_by: "manual"` + `editor` username. Drives the editable status bar.
 - `POST /admin/questions/<id>/ai/suggest-tags` — **synchronous**, no DB write. Body `{versions[], fields[], endpoint_id?}` → returns `{suggestions, display_names, unmatched[], raw}` for the edit modal to populate + highlight (user clicks Save Tags to commit).
-- `GET /admin/questions/ai/auto-tag` — SSE batch tagging. Params `question_ids, endpoint_id, versions, fields, overwrite` → `iter_auto_tag` (suggest + apply + commit per question). Reuses `/admin/questions/ai/cancel`.
+- `GET /admin/questions/ai/auto-tag` — SSE batch tagging. Params `question_ids, endpoint_id, versions, fields, overwrite, parallel` (1/0; cloud only) → `iter_auto_tag` (suggest + apply + commit per question). Reuses `/admin/questions/ai/cancel`.
 - `POST /admin/questions/<id>/verify` — set the whole-question `verified` flag; body `{verified}`; response includes `unchecked_assets` so the modal can soft-warn.
 - `POST /admin/questions/batch-set-verified` — body `{question_ids[], verified}` (subject-scoped).
 - `POST /admin/questions/batch-set-check-state` — body `{question_ids[], versions[], atypes[], state, note?, severity?, overwrite?}`; applies the per-slot check write across the selection (skips empty slots; `overwrite=false` skips slots already carrying a status).
@@ -100,6 +103,18 @@ Client-side: `GET /admin/questions/ai/endpoints` returns `{endpoints: [...], def
 ## Cancellation (real server-side Stop)
 
 `app/ai_tools._AI_CANCEL: {job_id: threading.Event}`. Each generator checks the flag **between questions** and emits a final `done`. The frontend Stop posts the `job_id` (captured from the `job` event) and keeps the stream open so the final `done` arrives. Single-process assumption (same caveat as the settings hot-reload): the cancel POST must reach the worker running the stream.
+
+## Parallel batch ops (local vs cloud)
+
+Each `LLMConfig` carries `kind` (`'local'` | `'cloud'`) + `max_concurrency` (int, default 1). The four SSE batch generators — `iter_check`, `iter_generate_md`, `iter_auto_tag` (this file) and `iter_detect` ([app/pdf_import.py](mdc:app/pdf_import.py)) — take `parallel`, `app`, `max_workers` kwargs and **fan their per-item LLM round-trips across a thread pool only when the endpoint is cloud AND the route passed `parallel=1`**; otherwise they run the unchanged sequential loop. Local endpoints are always sequential.
+
+- **Executor**: `app/parallel.run_parallel(app, cancel, items, worker_fn, max_workers)` — generator yielding `{item, result, error}` in **completion order**; each worker runs inside `app.app_context()` (Flask-SQLAlchemy gives a thread-local scoped session). `max_workers<=1` ⇒ sequential fallback. A cancelled-before-start worker returns the `CANCELLED` sentinel (consumer skips it, no counter/event). In-flight requests finish naturally — same cancel semantics as the sequential loops.
+- **Per-item units**: `generate_md_slot` / `check_slot` / `_auto_tag_one` / `detect_page` — pure functions returning a result dict (or raising, which the consumer turns into an `error` event). **All counter updates + event shaping happen on the consumer thread**, never in workers.
+- **Word COM**: in parallel `iter_check`, each worker owns a **short-lived `_LazyWord`** (opened + closed inside the worker) so MD/DOC pre-rendering still serialises on the global `word_com._WORD_COM_LOCK` while pure-IMG checks run fully concurrently. The sequential path keeps the single reused session.
+- **PDF detect ordering**: in parallel `iter_detect`, custom-prompt (`generic_prompt`) auto-numbering is assigned **once at the end** in reading order `(page, box top-Y)` per side (`_number_custom`) so question numbers are deterministic regardless of completion order.
+- **Routes**: `_ai_parallel(cfg, want_parallel)` (in [app/admin.py](mdc:app/admin.py)) returns `(on, workers)` — `on` only when `want_parallel and cfg.kind=='cloud' and max_concurrency>1`. The PDF detect route inlines the same gate.
+- **Migration**: `app/__init__.py` adds the two columns idempotently on start-up and back-fills `kind='cloud', max_concurrency=4` for known hosted API hosts (OpenAI / OpenRouter / Google / Anthropic / Groq / Together / DeepSeek / Mistral / xAI).
+- **UI**: a **Run in parallel** checkbox (auto-shown only for cloud endpoints, default checked) sits by the endpoint pickers in `templates/admin_questions.html` (`aiUpdateParallelUI`) and `templates/admin_pdf_import.html` (`updateParallelUI`); both append `&parallel=1`. Per-endpoint `kind` + `max_concurrency` are edited in `templates/admin_llm_endpoints.html` (`#epKind` / `#epMaxConcurrency`, `onKindChange` pins local→1).
 
 ## Check-state semantics
 

@@ -525,6 +525,20 @@ class LLMConfig(db.Model):
     # Name of the .env var to read when no per-endpoint key is stored.
     api_key_env = db.Column(db.String(80), nullable=True)
     supports_vision = db.Column(db.Boolean, nullable=False, default=True)
+    # 'local' (single-threaded box) or 'cloud' (hosted API that tolerates
+    # concurrent requests). Only cloud endpoints may run batch ops in parallel.
+    kind = db.Column(db.String(10), nullable=False, default='local')
+    # Max in-flight requests when a batch op runs in parallel (cloud only).
+    max_concurrency = db.Column(db.Integer, nullable=False, default=1)
+    # Optional OpenAI/OpenRouter service tier sent as the top-level
+    # ``service_tier`` request param ('' = omit / provider default; e.g.
+    # 'flex' = cheaper+slower, 'priority' = faster+pricier, 'auto').
+    # ``service_tier`` applies to single / interactive calls; the batch SSE
+    # ops (check / generate-md / auto-tag / pdf-detect) use
+    # ``service_tier_batch`` instead, so e.g. batch can run on cheap 'flex'
+    # while a single question stays on the normal tier.
+    service_tier = db.Column(db.String(20), nullable=False, default='')
+    service_tier_batch = db.Column(db.String(20), nullable=False, default='')
     max_output_tokens = db.Column(db.Integer, nullable=False, default=4096)
     temperature = db.Column(db.Float, nullable=False, default=0.0)
     timeout_seconds = db.Column(db.Integer, nullable=False, default=120)

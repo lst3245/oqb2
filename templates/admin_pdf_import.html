@@ -54,21 +54,21 @@
     /* Resize handles (8) — only meaningfully visible/active on hover/selected. */
     .pdf-handle {
         position: absolute;
-        width: 11px; height: 11px;
+        width: 7px; height: 7px;
         background: #fff;
         border: 1px solid #333;
         box-sizing: border-box;
         z-index: 5;
         touch-action: none;
     }
-    .pdf-handle.h-nw { left: -6px;  top: -6px;    cursor: nwse-resize; }
-    .pdf-handle.h-n  { left: 50%;   top: -6px;    transform: translateX(-50%); cursor: ns-resize; }
-    .pdf-handle.h-ne { right: -6px; top: -6px;    cursor: nesw-resize; }
-    .pdf-handle.h-e  { right: -6px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
-    .pdf-handle.h-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
-    .pdf-handle.h-s  { left: 50%;   bottom: -6px; transform: translateX(-50%); cursor: ns-resize; }
-    .pdf-handle.h-sw { left: -6px;  bottom: -6px; cursor: nesw-resize; }
-    .pdf-handle.h-w  { left: -6px;  top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+    .pdf-handle.h-nw { left: -4px;  top: -4px;    cursor: nwse-resize; }
+    .pdf-handle.h-n  { left: 50%;   top: -4px;    transform: translateX(-50%); cursor: ns-resize; }
+    .pdf-handle.h-ne { right: -4px; top: -4px;    cursor: nesw-resize; }
+    .pdf-handle.h-e  { right: -4px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+    .pdf-handle.h-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+    .pdf-handle.h-s  { left: 50%;   bottom: -4px; transform: translateX(-50%); cursor: ns-resize; }
+    .pdf-handle.h-sw { left: -4px;  bottom: -4px; cursor: nesw-resize; }
+    .pdf-handle.h-w  { left: -4px;  top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
 
     /* Add-box (draw) mode: overlay captures the drag; boxes step aside. */
     .pdf-page-wrap.adding { cursor: crosshair; }
@@ -201,6 +201,12 @@
                         <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }} ({{ e.model_name }})</option>
                         {% endfor %}
                     </select>
+                    <div class="form-check mt-2 d-none" id="pdfParallelWrap">
+                        <input class="form-check-input" type="checkbox" id="pdfParallelChk" checked>
+                        <label class="form-check-label" for="pdfParallelChk" title="Detect multiple pages at once. Available for cloud endpoints that allow concurrent requests.">
+                            <i class="bi bi-lightning-charge"></i> Run in parallel <span id="pdfParallelHint" class="text-muted"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="col-md-4">
@@ -266,6 +272,12 @@
                     <div class="form-check exam-only">
                         <input class="form-check-input" type="checkbox" id="overwriteChk">
                         <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="uniformWidthChk">
+                        <label class="form-check-label" for="uniformWidthChk" title="Lock every region on each side (QUE / SOL) to a single shared width so short and long questions crop to a consistent scale. Resize any one box's width to change them all; untick to fine-tune individually again.">
+                            <i class="bi bi-arrows"></i> Uniform width per side
+                        </label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="debugChk">
@@ -376,11 +388,24 @@ const solVersionSelect = document.getElementById('solVersionSelect');
 const instructionInput = document.getElementById('instructionInput');
 const endpointSelect = document.getElementById('endpointSelect');
 const methodSelect = document.getElementById('methodSelect');
+const pdfParallelChk = document.getElementById('pdfParallelChk');
+const pdfParallelWrap = document.getElementById('pdfParallelWrap');
+
+// Show the "Run in parallel" toggle only for cloud endpoints (those that allow
+// >1 concurrent request); local endpoints stay sequential.
+function updateParallelUI() {
+    const ep = ENDPOINTS.find(e => String(e.id) === String(endpointSelect.value));
+    const cloud = !!(ep && ep.kind === 'cloud' && (ep.max_concurrency || 1) > 1);
+    pdfParallelWrap.classList.toggle('d-none', !cloud);
+    if (cloud) document.getElementById('pdfParallelHint').textContent =
+        `(up to ${ep.max_concurrency} pages at once)`;
+}
 const quePdf = document.getElementById('quePdf');
 const solPdf = document.getElementById('solPdf');
 const deskewChk = document.getElementById('deskewChk');
 const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
+const uniformWidthChk = document.getElementById('uniformWidthChk');
 const debugChk = document.getElementById('debugChk');
 const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
@@ -436,6 +461,14 @@ function applyTaskUI() {
 }
 document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListener('change', applyTaskUI));
 customPromptChk.addEventListener('change', updateInstructionVisibility);
+// Locking/unlocking uniform width is review-time: ON conforms every existing
+// box per side; OFF leaves geometry alone (boxes become independent again).
+uniformWidthChk.addEventListener('change', () => {
+    if (uniformWidthChk.checked) { ['que', 'sol'].forEach(enableUniformWidth); }
+    else { uniformWidth = { que: null, sol: null }; }
+});
+endpointSelect.addEventListener('change', updateParallelUI);
+updateParallelUI();
 const logConsole = document.getElementById('logConsole');
 const logStatus = document.getElementById('logStatus');
 const progressSection = document.getElementById('progressSection');
@@ -457,6 +490,52 @@ let currentJobId = null;
 let running = false;
 let uidCounter = 0;
 function nextUid() { return 'b' + (++uidCounter); }
+
+// ----- Uniform width (per-kind shared width, review-time only) -----
+// Fractional width shared by every box of a side; null = unlocked (free width).
+let uniformWidth = { que: null, sol: null };
+function uniformActive() { return !!(uniformWidthChk && uniformWidthChk.checked); }
+
+// Re-render one item's overlay rectangle + crop thumbnail from its current box.
+function restyleItem(item) {
+    const boxEl = document.getElementById('box-' + item._uid);
+    if (boxEl) applyBoxStyle(boxEl, item.box);
+    const row = document.getElementById('row-' + item._uid);
+    if (!row) return;
+    const card = row.closest('.page-card');
+    const img = card && card.querySelector('.pdf-page-img');
+    const canvas = row.querySelector('canvas');
+    if (img && canvas) drawPreview(canvas, img, item.box);
+}
+
+// Conform a single box to `width` by moving ONLY its right edge — the left
+// boundary (x1) never moves. x2 is clamped to 1 (so a box hard against the
+// right edge can't reach the full shared width, which is fine).
+function conformWidth(item, width) {
+    const [x1, y1, , y2] = item.box;
+    const nx2 = Math.min(1, x1 + width);
+    item.box = [x1, y1, nx2, y2];
+}
+
+// Broadcast the locked width of a side to every box (optionally skipping one).
+function applyUniformWidthToAll(kind, exceptItem) {
+    const w = uniformWidth[kind];
+    if (w == null) return;
+    plan[kind].forEach(it => { if (it !== exceptItem) { conformWidth(it, w); restyleItem(it); } });
+}
+
+// Lock a side: shared width = widest current box, then conform every box.
+function enableUniformWidth(kind) {
+    const widths = plan[kind].map(it => it.box[2] - it.box[0]);
+    if (!widths.length) { uniformWidth[kind] = null; return; }
+    uniformWidth[kind] = Math.max.apply(null, widths);
+    applyUniformWidthToAll(kind);
+}
+
+// Conform a newly-arrived/created box to the side's locked width (if any).
+function snapBoxToUniform(item, kind) {
+    if (uniformWidth[kind] != null) conformWidth(item, uniformWidth[kind]);
+}
 
 // ----- Server PDF picking + paper-name auto-guess -----
 const serverPdf = { que: null, sol: null };  // each: {rel_path, name}
@@ -702,8 +781,8 @@ function setRunning(on) {
     btnStart.classList.toggle('d-none', on);
     btnStop.classList.toggle('d-none', !on);
     [paperInput, queVersionSelect, solVersionSelect, instructionInput,
-     endpointSelect, methodSelect, quePdf, solPdf,
-     deskewChk, customPromptChk, overwriteChk, debugChk,
+     endpointSelect, methodSelect, pdfParallelChk, quePdf, solPdf,
+     deskewChk, customPromptChk, overwriteChk, uniformWidthChk, debugChk,
      document.getElementById('taskExam'), document.getElementById('taskGeneric'),
      document.getElementById('modeReview'), document.getElementById('modeAuto')]
         .forEach(el => { if (el) el.disabled = on; });
@@ -812,6 +891,7 @@ function startDetect() {
     const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
         + `&method=${encodeURIComponent(methodSelect.value)}`
+        + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '')
         + (debugChk.checked ? '&debug=1' : '');
     eventSource = new EventSource(url);
 
@@ -829,7 +909,9 @@ function startDetect() {
             const idx = ev.page.index;
             plan[kind] = plan[kind].filter(it => it.page !== idx);
             (ev.page.boxes || []).forEach(b => {
-                plan[kind].push({ page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() });
+                const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() };
+                snapBoxToUniform(item, kind);
+                plan[kind].push(item);
             });
             if (ev.page.raw !== undefined) {
                 rawByPage[kind][idx] = ev.page.raw;
@@ -873,6 +955,9 @@ function finishDetect() {
         // Custom-prompt exam runs: normalise the auto-numbers into a clean
         // 1..N reading-order sequence per side.
         if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
+        // If uniform width was pre-checked at setup, lock both sides now that
+        // every box exists (live snapping only had a reference once set).
+        if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
         updateReviewSummary();
         // Toggle the commit / ZIP action for the active task.
         btnCommit.classList.toggle('d-none', isGeneric());
@@ -1193,6 +1278,18 @@ function onDragMove(e) {
         if (d.dir.includes('n')) y1 = f.y;
         if (d.dir.includes('s')) y2 = f.y;
         d.item.box = [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+        // Uniform width: a horizontal resize redefines the side's shared width.
+        // The LEFT boundary never moves — we anchor on the original x1 and only
+        // the right edge tracks the pointer, then re-broadcast (left-anchored)
+        // to every other box of this side.
+        if (uniformActive() && uniformWidth[d.kind] != null &&
+            (d.dir.includes('w') || d.dir.includes('e'))) {
+            const leftX = d.startBox[0];
+            const newW = Math.max(0.012, clamp01(d.item.box[2]) - leftX);
+            uniformWidth[d.kind] = newW;
+            d.item.box = [leftX, d.item.box[1], Math.min(1, leftX + newW), d.item.box[3]];
+            applyUniformWidthToAll(d.kind, d.item);
+        }
     }
     applyBoxStyle(d.boxEl, d.item.box);
 }
@@ -1222,6 +1319,7 @@ function finishDraw(d) {
     // Exam: qno is assigned by renumberAfterInsert (relative shift) once the
     // box is placed in reading order. Generic: a free-text label, no cascade.
     const item = { page: d.pageIndex, qno: null, label: null, box, _uid: nextUid() };
+    if (uniformActive()) snapBoxToUniform(item, d.kind);
     plan[d.kind].push(item);
     if (!isGeneric()) { renumberAfterInsert(d.kind, item); }
     addBoxDom(d.card, d.kind, item);
@@ -1398,6 +1496,7 @@ async function rerunPage(card, kind, pageIndex) {
         plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
         (data.boxes || []).forEach(b => {
             const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid() };
+            if (uniformActive()) snapBoxToUniform(item, kind);
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });
@@ -1556,6 +1655,7 @@ function stopRun() {
 function resetAll() {
     closeStream();
     staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
+    uniformWidth = { que: null, sol: null };
     reviewCard.classList.add('d-none');
     summaryPanel.classList.add('d-none');
     progressSection.classList.add('d-none');

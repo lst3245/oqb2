@@ -115,6 +115,41 @@
                         <label class="form-label">Sort order</label>
                         <input type="number" class="form-control" id="epSortOrder" value="0">
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Kind</label>
+                        <select class="form-select" id="epKind" onchange="onKindChange()">
+                            <option value="local">Local (sequential)</option>
+                            <option value="cloud">Cloud (allows parallel)</option>
+                        </select>
+                        <div class="form-text">Only cloud endpoints can run batch ops in parallel.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Max concurrency</label>
+                        <input type="number" class="form-control" id="epMaxConcurrency" value="1" min="1" max="32">
+                        <div class="form-text">1 = sequential. Cloud APIs typically tolerate 4&ndash;8 concurrent requests.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Service tier — single</label>
+                        <select class="form-select" id="epServiceTier">
+                            <option value="">Provider default (don't send)</option>
+                            <option value="flex">flex — cheaper, slower</option>
+                            <option value="priority">priority — faster, pricier</option>
+                            <option value="auto">auto</option>
+                            <option value="default">default</option>
+                        </select>
+                        <div class="form-text">Single / interactive calls (Explain, Quick check, per-slot ops).</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Service tier — batch</label>
+                        <select class="form-select" id="epServiceTierBatch">
+                            <option value="">Provider default (don't send)</option>
+                            <option value="flex">flex — cheaper, slower</option>
+                            <option value="priority">priority — faster, pricier</option>
+                            <option value="auto">auto</option>
+                            <option value="default">default</option>
+                        </select>
+                        <div class="form-text">Batch ops (Check / Gen-MD / Auto-tag / PDF detect). <code>flex</code> trades latency for a lower price. <a href="https://openrouter.ai/docs/guides/features/service-tiers" target="_blank" rel="noopener">Docs</a></div>
+                    </div>
                     <div class="col-md-4 d-flex align-items-end gap-3">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="epVision" checked>
@@ -217,13 +252,19 @@ function renderEndpoints() {
         const enabledBadge = ep.enabled
             ? '<span class="badge bg-success">enabled</span>'
             : '<span class="badge bg-secondary">disabled</span>';
+        const kindBadge = (ep.kind === 'cloud')
+            ? `<span class="badge bg-primary" title="Batch ops may run up to ${ep.max_concurrency} requests in parallel">cloud &times;${ep.max_concurrency}</span>`
+            : '<span class="badge bg-dark">local</span>';
+        const tierBadge = (ep.service_tier || ep.service_tier_batch)
+            ? `<span class="badge bg-info text-dark" title="service_tier — single vs batch ops">tier: ${escapeHtml(ep.service_tier || '—')} / ${escapeHtml(ep.service_tier_batch || '—')}</span>`
+            : '';
         return `
         <div class="card mb-2 endpoint-card">
             <div class="card-body py-2">
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
                         <strong>${escapeHtml(ep.name)}</strong>
-                        ${enabledBadge} ${visionBadge} ${keyBadge}
+                        ${enabledBadge} ${visionBadge} ${kindBadge} ${tierBadge} ${keyBadge}
                         <div class="meta mt-1">
                             <code>${escapeHtml(ep.model_name)}</code> @ <code>${escapeHtml(ep.base_url)}</code>
                             &middot; provider: ${escapeHtml(ep.provider)}
@@ -260,6 +301,11 @@ function openEndpointModal(id) {
     document.getElementById('epTemperature').value = ep ? ep.temperature : 0;
     document.getElementById('epTimeout').value = ep ? ep.timeout_seconds : 120;
     document.getElementById('epSortOrder').value = ep ? ep.sort_order : 0;
+    document.getElementById('epKind').value = ep ? (ep.kind || 'local') : 'local';
+    document.getElementById('epMaxConcurrency').value = ep ? (ep.max_concurrency || 1) : 1;
+    document.getElementById('epServiceTier').value = ep ? (ep.service_tier || '') : '';
+    document.getElementById('epServiceTierBatch').value = ep ? (ep.service_tier_batch || '') : '';
+    onKindChange();
     document.getElementById('epVision').checked = ep ? ep.supports_vision : true;
     document.getElementById('epEnabled').checked = ep ? ep.enabled : true;
 
@@ -276,6 +322,16 @@ function openEndpointModal(id) {
     epModal.show();
 }
 
+// Local endpoints are always sequential: pin concurrency to 1 and disable the
+// field so the UI matches the parallel-only-on-cloud contract.
+function onKindChange() {
+    const isCloud = document.getElementById('epKind').value === 'cloud';
+    const conc = document.getElementById('epMaxConcurrency');
+    conc.disabled = !isCloud;
+    if (!isCloud) { conc.value = 1; }
+    else if (parseInt(conc.value, 10) <= 1) { conc.value = 4; }
+}
+
 function saveEndpoint() {
     const id = document.getElementById('epId').value;
     const payload = {
@@ -290,6 +346,10 @@ function saveEndpoint() {
         temperature: parseFloat(document.getElementById('epTemperature').value),
         timeout_seconds: parseInt(document.getElementById('epTimeout').value, 10),
         sort_order: parseInt(document.getElementById('epSortOrder').value, 10) || 0,
+        kind: document.getElementById('epKind').value,
+        max_concurrency: parseInt(document.getElementById('epMaxConcurrency').value, 10) || 1,
+        service_tier: document.getElementById('epServiceTier').value,
+        service_tier_batch: document.getElementById('epServiceTierBatch').value,
         supports_vision: document.getElementById('epVision').checked,
         enabled: document.getElementById('epEnabled').checked,
         clear_key: document.getElementById('epClearKey').checked,
