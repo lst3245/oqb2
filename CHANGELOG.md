@@ -6,6 +6,12 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### 🐛 Bug Fixes
 
+- **Question list refreshes when the edit modal closes.** Per-question work in the shared edit modal (AI proofread, Gen IMG, Generate MD, upload/delete assets, manual check-state marks) flags the host list as stale; closing the modal refreshes the admin table or dashboard cards so **Assets**, **Status**, and **Verified** stay in sync. Save Tags / verify / rename still refresh immediately.
+
+- **Question list refreshes after bulk asset jobs.** Completing **AI Tools** (check / Generate Markdown / auto-tag), **Generate IMG**, or **Set MCQ ANS** now reloads the table so **Assets**, **Status**, and **Verified** columns update without a manual refresh.
+
+- **Question Management filters persist across refresh.** Search QID, Show dashboard selections, Status, Verified, page size, sort, and page number are saved in `localStorage` and restored on reload until the user clears them (search ✕ or QID-list banner dismiss). The dashboard **Manage** button opens the page with `?from=dashboard`, which auto-enables **Show dashboard selections** once.
+
 - **Local timezone for admin question timestamps.** The Manage Questions **Created** column, edit-modal **Created** / **Verified** fields, and proofread tooltips now display in the browser's local timezone as `YYYY-MM-DD HH:mm` (24-hour, year-first). API datetimes are serialized as UTC ISO strings with a `Z` suffix; `window.oqbFormatLocalTime` in `base.html` parses them correctly (including legacy `YYYY-MM-DD HH:MM` values).
 
 ### ✨ Enhanced Features

@@ -44,6 +44,25 @@ const showToast = window.showToast;
 // ==================== STATE ====================
 let editQuestionData = null;     // current question being edited
 let currentAssetLang = 'EN';
+// Set when Assets-tab work changes list columns (counts / proofread / verified).
+let _editModalListStale = false;
+
+function markEditModalListStale() {
+    _editModalListStale = true;
+}
+
+/** Immediate refresh of the host list (admin table or dashboard cards). */
+function refreshOuterQuestionList() {
+    _editModalListStale = false;
+    if (typeof window.oqbAfterQuestionEdit === 'function') {
+        window.oqbAfterQuestionEdit();
+    }
+}
+
+function flushEditModalListRefresh() {
+    if (!_editModalListStale) return;
+    refreshOuterQuestionList();
+}
 let allTopicsCache = window.allTopicsCache || {};        // subjectId -> topics[]
 let allChaptersCache = window.allChaptersCache || {};    // subjectId -> chapters[]
 window.allTopicsCache = allTopicsCache;
@@ -136,6 +155,9 @@ function oqbEditNavGo(delta) {
 function openEditModal(questionId, opts) {
     opts = opts || {};
     const preserve = !!opts.preserveView;
+    if (!preserve) {
+        _editModalListStale = false;
+    }
 
     // When preserving, remember which main tab + version pill is active so we
     // can re-activate the same view after the new question's data loads.
@@ -246,9 +268,7 @@ function saveQuestionTags() {
     .then(data => {
         if (data.success) {
             showToast('Tags saved successfully');
-            if (typeof window.oqbAfterQuestionEdit === 'function') {
-                window.oqbAfterQuestionEdit();
-            }
+            refreshOuterQuestionList();
         } else {
             throw new Error(data.error || 'Error saving tags');
         }
@@ -307,7 +327,7 @@ function onEditVerifiedToggle() {
             editQuestionData.verified_at = d.verified_at;
             setVerifiedUI(d.verified, d.verified_at ? window.oqbFormatLocalTime(d.verified_at) : null, null);
             showToast(d.verified ? 'Marked verified' : 'Verification cleared', d.verified ? 'success' : 'info');
-            if (typeof window.oqbAfterQuestionEdit === 'function') window.oqbAfterQuestionEdit();
+            refreshOuterQuestionList();
         } else {
             toggle.checked = !want;  // revert on failure
             showToast((d && (d.error || d.message)) || 'Could not update verification', 'danger');
@@ -526,9 +546,7 @@ function executeRename() {
             document.getElementById('editQidTitle').textContent = data.new_qid;
             document.getElementById('renameStatus').innerHTML = `<div class="alert alert-success py-1">${data.message}</div>`;
             loadAssetsForEdit(qId);
-            if (typeof window.oqbAfterQuestionEdit === 'function') {
-                window.oqbAfterQuestionEdit();
-            }
+            refreshOuterQuestionList();
         } else {
             document.getElementById('renameStatus').innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
         }
@@ -734,6 +752,7 @@ function setSlotCheckState(questionId, lang, atype, state) {
             const labels = { ok: 'marked correct', issues: 'marked with an issue', clear: 'cleared', error: 'marked as error' };
             showToast(`${atype} (${lang}) — ${labels[state] || 'updated'}`, state === 'issues' ? 'warning' : 'success');
             refreshAssetsView(questionId);
+            markEditModalListStale();
         } else {
             showToast((d && (d.error || d.message)) || 'Could not update status', 'danger');
         }
@@ -832,6 +851,7 @@ function generateImgFromSlot(questionId, lang, atype, sourceFormat, imgCount) {
         if (ok && d.success) {
             showToast(d.message || 'IMG generated', 'success');
             refreshAssetsView(questionId);
+            markEditModalListStale();
         } else {
             showToast((d && (d.error || d.message)) || 'IMG generation failed', 'danger');
         }
@@ -1092,6 +1112,7 @@ function uploadAssetFiles(questionId, lang, atype, files) {
                 showToast('No files uploaded', 'warning');
             }
             refreshAssetsView(questionId);
+            if (data.uploaded_count > 0) markEditModalListStale();
         } else {
             showToast(data.error || 'Upload failed', 'danger');
         }
@@ -1111,6 +1132,7 @@ function deleteAssetPart(questionId, assetId, filename) {
         if (data.success) {
             showToast(data.message);
             refreshAssetsView(questionId);
+            markEditModalListStale();
         } else {
             showToast(data.error || 'Error', 'danger');
         }
@@ -1307,6 +1329,7 @@ function doSaveMdEditorModal(force) {
                 statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString();
                 statusEl.className = 'text-success';
                 refreshAssetsView(s.questionId);
+                markEditModalListStale();
                 if (s.isCreate && data.asset_id) {
                     s.isCreate = false;
                     s.assetId = data.asset_id;
@@ -1332,6 +1355,11 @@ function doSaveMdEditorModal(force) {
 
 // Warn before closing modal with unsaved changes.
 document.addEventListener('DOMContentLoaded', function() {
+    const editModalEl = document.getElementById('editQuestionModal');
+    if (editModalEl) {
+        editModalEl.addEventListener('hidden.bs.modal', flushEditModalListRefresh);
+    }
+
     const modalEl = document.getElementById('mdEditorModal');
     if (!modalEl) return;
     modalEl.addEventListener('hide.bs.modal', function(e) {
@@ -1583,6 +1611,7 @@ function runAiSlotMd(questionId, version, atype, hasMd, el) {
             showToast(d.message || 'Markdown generated', 'success');
             if (_aiSlotModalInstance) _aiSlotModalInstance.hide();
             refreshAssetsView(questionId);
+            markEditModalListStale();
         } else {
             status.innerHTML = `<span class="text-danger">${_aiEscapeAttr((d && (d.message || d.error)) || 'Generation failed')}</span>`;
             btn.disabled = false;
@@ -1708,6 +1737,7 @@ function runQuickCheck(questionId, version, atype, el) {
             showToast(d.message || 'Check complete', tone);
             if (_quickCheckModalInstance) _quickCheckModalInstance.hide();
             refreshAssetsView(questionId);
+            markEditModalListStale();
         } else {
             status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'Check failed')}</span>`;
             btn.disabled = false;

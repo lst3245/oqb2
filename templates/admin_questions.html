@@ -43,7 +43,7 @@
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" id="qidSearchInput"
                                placeholder="Search QID (use * as wildcard)">
-                        <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('qidSearchInput').value=''; loadQuestions();">
+                        <button class="btn btn-outline-secondary" type="button" onclick="clearQidSearch()" title="Clear search">
                             <i class="bi bi-x"></i>
                         </button>
                     </div>
@@ -980,6 +980,71 @@ function getDashboardSelectedIds() {
     } catch(e) { return []; }
 }
 
+const ADMIN_Q_FILTER_KEY = 'oqb_adminQuestionsFilters';
+
+function saveAdminQuestionFilters() {
+    try {
+        const data = {
+            qidSearch: document.getElementById('qidSearchInput').value,
+            showDashboardSelected: document.getElementById('showDashboardSelected').checked,
+            checkStatus: document.getElementById('checkStatusFilter')?.value || '',
+            verified: document.getElementById('verifiedFilter')?.value || '',
+            pageSize: document.getElementById('pageSizeSelect').value,
+            page: currentPage,
+            sortField: currentSort.field,
+            sortDir: currentSort.dir,
+        };
+        localStorage.setItem(ADMIN_Q_FILTER_KEY, JSON.stringify(data));
+    } catch (e) { /* private browsing / quota */ }
+}
+
+function restoreAdminQuestionFilters(opts) {
+    opts = opts || {};
+    try {
+        const raw = localStorage.getItem(ADMIN_Q_FILTER_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (!opts.skipQidSearch && data.qidSearch != null) {
+            document.getElementById('qidSearchInput').value = data.qidSearch;
+        }
+        if (data.showDashboardSelected != null) {
+            document.getElementById('showDashboardSelected').checked = !!data.showDashboardSelected;
+        }
+        if (data.checkStatus != null && document.getElementById('checkStatusFilter')) {
+            document.getElementById('checkStatusFilter').value = data.checkStatus;
+        }
+        if (data.verified != null && document.getElementById('verifiedFilter')) {
+            document.getElementById('verifiedFilter').value = data.verified;
+        }
+        if (data.pageSize && document.getElementById('pageSizeSelect')) {
+            document.getElementById('pageSizeSelect').value = String(data.pageSize);
+        }
+        if (data.page) currentPage = Math.max(1, parseInt(data.page, 10) || 1);
+        if (data.sortField) currentSort.field = data.sortField;
+        if (data.sortDir) currentSort.dir = data.sortDir;
+        _updateSortHeaderUI();
+    } catch (e) { /* ignore corrupt storage */ }
+}
+
+/** One-shot: dashboard Manage link passes ?from=dashboard */
+function applyFromDashboardUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('from') !== 'dashboard') return false;
+    document.getElementById('showDashboardSelected').checked = true;
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('from');
+    window.history.replaceState({}, document.title, cleanUrl.toString());
+    return true;
+}
+
+function clearQidSearch() {
+    document.getElementById('qidSearchInput').value = '';
+    _dropPinnedOnUserAction();
+    currentPage = 1;
+    saveAdminQuestionFilters();
+    loadQuestions();
+}
+
 // ===================== LOAD QUESTIONS =====================
 let searchDebounce = null;
 document.getElementById('qidSearchInput').addEventListener('input', function() {
@@ -1030,7 +1095,8 @@ function loadQuestions() {
         })
         .catch(err => {
             renderEmptyTable('Error loading questions: ' + err.message);
-        });
+        })
+        .finally(() => saveAdminQuestionFilters());
 }
 
 function renderEmptyTable(msg) {
@@ -1124,6 +1190,20 @@ function renderPagination(data) {
 function goToPage(p) { currentPage = p; loadQuestions(); }
 
 // ===================== SORTING =====================
+function _updateSortHeaderUI() {
+    document.querySelectorAll('.q-table th').forEach(th => {
+        th.classList.remove('sorted');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.className = 'bi bi-arrow-down-up sort-icon';
+    });
+    const th = document.querySelector(`.q-table th[data-sort="${currentSort.field}"]`);
+    if (th) {
+        th.classList.add('sorted');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.className = `bi bi-arrow-${currentSort.dir === 'asc' ? 'up' : 'down'} sort-icon`;
+    }
+}
+
 function sortBy(field) {
     if (currentSort.field === field) {
         currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
@@ -1131,18 +1211,7 @@ function sortBy(field) {
         currentSort.field = field;
         currentSort.dir = 'asc';
     }
-    // Update header indicators
-    document.querySelectorAll('.q-table th').forEach(th => {
-        th.classList.remove('sorted');
-        const icon = th.querySelector('.sort-icon');
-        if (icon) icon.className = 'bi bi-arrow-down-up sort-icon';
-    });
-    const th = document.querySelector(`.q-table th[data-sort="${field}"]`);
-    if (th) {
-        th.classList.add('sorted');
-        const icon = th.querySelector('.sort-icon');
-        if (icon) icon.className = `bi bi-arrow-${currentSort.dir === 'asc' ? 'up' : 'down'} sort-icon`;
-    }
+    _updateSortHeaderUI();
     currentPage = 1;
     loadQuestions();
 }
@@ -1530,10 +1599,8 @@ function finishBatchImg(event) {
         document.getElementById('batchImgSummary').classList.remove('d-none');
     }
 
-    // Refresh the question list so freshly-rendered IMG previews appear.
-    if (event && event.stats && event.stats.rendered > 0) {
-        loadQuestions();
-    }
+    // Refresh so asset counts / status reflect new IMG parts.
+    if (event) loadQuestions();
 }
 
 function stopBatchImg() {
@@ -1816,10 +1883,8 @@ function finishAiTools(event) {
         document.getElementById('aiToolsSummary').classList.remove('d-none');
     }
 
-    // Refresh the list so freshly-generated MD previews appear.
-    if (aiToolsOp === 'md' && event && event.stats && (event.stats.created || 0) > 0) {
-        loadQuestions();
-    }
+    // Refresh so asset counts, proofread status, and verified flags stay current.
+    if (event) loadQuestions();
 }
 
 function stopAiTools() {
@@ -2116,6 +2181,7 @@ function clearQidsFilter() {
     pinnedQids = [];
     document.getElementById('qidsFilterBanner').classList.add('d-none');
     currentPage = 1;
+    saveAdminQuestionFilters();
     loadQuestions();
 }
 
@@ -2228,7 +2294,7 @@ function runBatchMcqAns() {
                     document.getElementById('batchMcqAnsSummary').classList.remove('d-none');
                 }
 
-                if (ev.success > 0) loadQuestions();
+                loadQuestions();
             }
         } catch(err) {
             _appendMcqAnsLog('Parse error: ' + err.message, 'error');
@@ -2365,8 +2431,12 @@ document.addEventListener('DOMContentLoaded', function() {
         returnTagFormToEditModal();
     });
 
-    // Apply pinned QID filter from URL (if any) before initial load
-    applyPinnedQidsFromUrl();
+    const hasPinnedQids = applyPinnedQidsFromUrl();
+    const fromDashboard = applyFromDashboardUrl();
+    restoreAdminQuestionFilters({ skipQidSearch: hasPinnedQids });
+    if (fromDashboard) {
+        document.getElementById('showDashboardSelected').checked = true;
+    }
 
     // Initial load
     loadQuestions();

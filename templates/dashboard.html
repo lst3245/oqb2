@@ -420,7 +420,7 @@
                                 onclick="showBatchEditModal()" title="Batch edit selected questions">
                             <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
                         </button>
-                        <a href="{{ url_for('admin.questions_page') }}" class="btn btn-sm btn-outline-secondary" title="Manage questions (add, delete, edit assets)">
+                        <a href="{{ url_for('admin.questions_page') }}?from=dashboard" class="btn btn-sm btn-outline-secondary" title="Manage questions (add, delete, edit assets)">
                             <i class="bi bi-journal-text"></i> <span class="btn-text">Manage</span>
                         </a>
                         {% endif %}
