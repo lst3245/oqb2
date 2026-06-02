@@ -37,6 +37,13 @@ OFFICIAL_VERSIONS = ['ENO', 'CHO']
 DEFAULT_VERSION_PRIORITY = list(VERSIONS)
 
 
+def utc_iso(dt):
+    """Serialize a naive UTC ``datetime`` for JSON/API (ISO 8601 with ``Z``)."""
+    if dt is None:
+        return None
+    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 def parse_version_priority(raw, legacy_preferred=None):
     """Parse a comma-separated `version_priority` value into a complete ordered
     list of every known version (highest priority first).

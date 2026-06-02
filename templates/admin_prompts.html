@@ -316,12 +316,7 @@ function showToast(msg, level) {
 }
 
 function formatTimestamp(iso) {
-    if (!iso) return '';
-    try {
-        const d = new Date(iso);
-        if (isNaN(d.getTime())) return iso;
-        return d.toLocaleString();
-    } catch (_) { return iso; }
+    return window.oqbFormatLocalTime ? window.oqbFormatLocalTime(iso) : (iso || '');
 }
 
 function escapeHtml(s) {

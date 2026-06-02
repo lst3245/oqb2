@@ -1061,7 +1061,7 @@ function renderTable(data) {
             <td><span class="badge text-dark bg-light border">${q.asset_count}</span></td>
             <td>${renderCheckStatusIndicator(q.check_summary)}</td>
             <td>${renderVerifiedIndicator(q.verified)}</td>
-            <td><small>${q.created_at}</small></td>
+            <td><small>${window.oqbFormatLocalTime(q.created_at)}</small></td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(${q.id})" title="Edit">
                     <i class="bi bi-pencil"></i>

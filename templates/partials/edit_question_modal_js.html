@@ -181,7 +181,7 @@ function openEditModal(questionId, opts) {
             document.getElementById('editQId').value = data.id;
             document.getElementById('editQidTitle').textContent = data.qid;
             document.getElementById('editQidInput').value = data.qid;
-            document.getElementById('editCreatedAt').value = data.created_at;
+            document.getElementById('editCreatedAt').value = window.oqbFormatLocalTime(data.created_at);
 
             // Use shared populateTagForm to fill in tag fields
             populateTagForm(data);
@@ -191,7 +191,9 @@ function openEditModal(questionId, opts) {
             if (atBtn) atBtn.style.display = window.OQB_AI_TOOLS_ENABLED ? '' : 'none';
 
             // Whole-question verified state (Details tab).
-            setVerifiedUI(data.verified, data.verified_at, data.verified_by);
+            setVerifiedUI(data.verified,
+                data.verified_at ? window.oqbFormatLocalTime(data.verified_at) : null,
+                data.verified_by);
 
             // Load assets (deferred — Assets tab is hidden until user clicks)
             loadAssetsForEdit(data.id);
@@ -303,7 +305,7 @@ function onEditVerifiedToggle() {
         if (ok && d.success) {
             editQuestionData.verified = d.verified;
             editQuestionData.verified_at = d.verified_at;
-            setVerifiedUI(d.verified, d.verified_at ? new Date(d.verified_at).toLocaleString() : null, null);
+            setVerifiedUI(d.verified, d.verified_at ? window.oqbFormatLocalTime(d.verified_at) : null, null);
             showToast(d.verified ? 'Marked verified' : 'Verification cleared', d.verified ? 'success' : 'info');
             if (typeof window.oqbAfterQuestionEdit === 'function') window.oqbAfterQuestionEdit();
         } else {
@@ -629,7 +631,7 @@ function renderCheckBadge(parts) {
     if (!checked) return '';
     const st = checked.check_state;
     const res = checked.check_result || {};
-    const when = checked.checked_at ? new Date(checked.checked_at).toLocaleString() : '';
+    const when = checked.checked_at ? window.oqbFormatLocalTime(checked.checked_at) : '';
     const ref = res.ref_version ? ` vs ${res.ref_version}` : '';
     if (st === 'ok') {
         return `<span class="badge bg-success ms-2" title="Proofread OK${ref}${when ? ' · ' + when : ''}"><i class="bi bi-check-circle"></i> OK</span>`;
@@ -655,7 +657,7 @@ function renderCheckStatusBar(questionId, lang, atype, parts) {
     const checked = _worstCheckPart(parts);
     const st = checked ? checked.check_state : null;
     const res = (checked && checked.check_result) || {};
-    const when = (checked && checked.checked_at) ? new Date(checked.checked_at).toLocaleString() : '';
+    const when = (checked && checked.checked_at) ? window.oqbFormatLocalTime(checked.checked_at) : '';
     const who = res.checked_by === 'manual' ? 'manual' : (res.model ? `AI: ${res.model}` : (res.checked_by || ''));
     const ref = res.ref_version ? `vs ${res.ref_version}` : '';
 

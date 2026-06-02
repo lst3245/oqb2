@@ -4,6 +4,10 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **Local timezone for admin question timestamps.** The Manage Questions **Created** column, edit-modal **Created** / **Verified** fields, and proofread tooltips now display in the browser's local timezone as `YYYY-MM-DD HH:mm` (24-hour, year-first). API datetimes are serialized as UTC ISO strings with a `Z` suffix; `window.oqbFormatLocalTime` in `base.html` parses them correctly (including legacy `YYYY-MM-DD HH:MM` values).
+
 ### ✨ Enhanced Features
 
 #### AI proofreading — per-format checks + format filter in AI Tools

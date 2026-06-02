@@ -876,6 +876,24 @@
         const _OQB_THUMB_MAX_ATTEMPTS = 60;
         const _OQB_THUMB_INTERVAL_MS = 3000;
 
+        // Parse API datetimes stored as naive UTC (ISO with Z, or legacy forms).
+        window.oqbParseUtc = function(iso) {
+            if (!iso) return null;
+            const s = String(iso).trim();
+            if (!s) return null;
+            if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
+            if (s.includes(' ')) return new Date(s.replace(' ', 'T') + 'Z');
+            if (!s.includes('T')) return new Date(s + 'T00:00:00Z');
+            return new Date(s + 'Z');
+        };
+        window.oqbFormatLocalTime = function(iso) {
+            const d = window.oqbParseUtc(iso);
+            if (!d || isNaN(d.getTime())) return iso || '';
+            const p = (n) => String(n).padStart(2, '0');
+            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+                + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        };
+
         // True when the current user is an admin (any subject). Set by
         // base.html below using a Jinja conditional. Used to show/hide the
         // per-preview "Re-render" buttons.

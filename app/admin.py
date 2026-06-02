@@ -15,7 +15,8 @@ from app import db
 from app import word_com
 from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
                         User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
-from app.utils import admin_required, super_admin_required, get_user_admin_subjects, VERSIONS, VERSION_LABELS, TYPED_VERSIONS
+from app.utils import (admin_required, super_admin_required, get_user_admin_subjects,
+                       VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso)
 from app import md_render
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -1284,7 +1285,7 @@ def questions_api_list():
             'qno': q.qno,
             'q_type': q.q_type,
             'level': q.level,
-            'created_at': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
+            'created_at': utc_iso(q.created_at) or '',
             'asset_count': total_by_q.get(q.id, 0),
             'verified': bool(q.verified),
             'check_summary': _check_summary(typed_states_by_q.get(q.id, [])),
@@ -1332,9 +1333,9 @@ def question_details(question_id):
         'correct_percentage': question.correct_percentage,
         'answer': question.answer,
         'comment': question.comment,
-        'created_at': question.created_at.strftime('%Y-%m-%d %H:%M') if question.created_at else '',
+        'created_at': utc_iso(question.created_at) or '',
         'verified': bool(question.verified),
-        'verified_at': question.verified_at.strftime('%Y-%m-%d %H:%M') if question.verified_at else None,
+        'verified_at': utc_iso(question.verified_at),
         'verified_by': (question.verified_by_user.username if question.verified_by_user else None),
     })
 
@@ -1371,7 +1372,7 @@ def question_assets(question_id):
             'preview_url': url_for('dashboard.get_asset_preview', asset_id=a.id),
             'check_state': a.check_state,
             'check_result': check_result,
-            'checked_at': a.checked_at.isoformat() if a.checked_at else None,
+            'checked_at': utc_iso(a.checked_at),
         })
 
     return jsonify({'assets': result, 'qid': question.qid})
@@ -1458,7 +1459,7 @@ def set_asset_check_state(question_id):
         'version': version,
         'asset_type': asset_type,
         'check_state': new_state,
-        'checked_at': checked_at.isoformat() if checked_at else None,
+        'checked_at': utc_iso(checked_at),
     })
 
 
@@ -5094,7 +5095,7 @@ def set_question_verified(question_id):
     return jsonify({
         'success': True,
         'verified': question.verified,
-        'verified_at': question.verified_at.isoformat() if question.verified_at else None,
+        'verified_at': utc_iso(question.verified_at),
         'unchecked_assets': not_ok,
         'total_assets': len(assets),
     })
