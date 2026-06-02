@@ -684,11 +684,26 @@
                                     </select>
                                 </div>
                             </div>
+                            <label class="form-label fw-bold mt-2 mb-1">Formats to check</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input ai-check-fmt" type="checkbox" id="aiFmt_IMG" value="IMG" checked>
+                                    <label class="form-check-label" for="aiFmt_IMG">IMG</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-check-fmt" type="checkbox" id="aiFmt_MD" value="MD" checked>
+                                    <label class="form-check-label" for="aiFmt_MD">MD</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-check-fmt" type="checkbox" id="aiFmt_DOC" value="DOC" checked>
+                                    <label class="form-check-label" for="aiFmt_DOC">DOCX</label>
+                                </div>
+                            </div>
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="aiRecheck">
-                                <label class="form-check-label" for="aiRecheck">Re-check slots already checked</label>
+                                <label class="form-check-label" for="aiRecheck">Re-check formats already checked</label>
                             </div>
-                            <small class="text-muted d-block mt-1">Slots with only MD / DOCX (no IMG) are rendered to images automatically before checking.</small>
+                            <small class="text-muted d-block mt-1">Each selected format in a slot is proofread separately. MD and DOCX are rendered to images on the fly; all are compared against the reference version.</small>
                         </div>
 
                         <!-- Markdown panel -->
@@ -1692,6 +1707,12 @@ function runAiTools() {
             params.set('typed_version', typed);
             params.set('ref_version', ref);
             params.set('recheck', document.getElementById('aiRecheck').checked ? '1' : '0');
+            const formats = ['IMG', 'MD', 'DOC'].filter(f => document.getElementById('aiFmt_' + f).checked);
+            if (formats.length === 0) {
+                showToast('Pick at least one format (IMG / MD / DOCX).', 'warning');
+                return;
+            }
+            params.set('formats', formats.join(','));
             endpointUrl = '{{ url_for("admin.ai_check") }}';
         } else {
             const source = document.getElementById('aiSourceVersion').value;

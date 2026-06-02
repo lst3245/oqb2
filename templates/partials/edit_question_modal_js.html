@@ -591,8 +591,7 @@ function loadAssetsForEdit(questionId) {
 }
 
 // ctx = 'edit' or 'add' to avoid duplicate IDs when both modals exist in the DOM
-// AI Tools proofreading badge for an asset slot. Reads check_state /
-// check_result (set by app/ai_tools.iter_check) off the slot's IMG parts.
+// AI Tools proofreading badge. Reads check_state from the given part(s).
 function _aiEscapeAttr(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -613,8 +612,20 @@ function _aiPickDefaultEndpointId(eps, defaults, opKey) {
     return fv ? fv.id : null;
 }
 
+function _checkStatePriority(st) {
+    const order = { issues: 0, error: 1, checking: 2, ok: 4 };
+    return order[st] ?? 3;
+}
+
+function _worstCheckPart(parts) {
+    const withState = (parts || []).filter(p => p.check_state);
+    if (!withState.length) return null;
+    return withState.sort((a, b) =>
+        _checkStatePriority(a.check_state) - _checkStatePriority(b.check_state))[0];
+}
+
 function renderCheckBadge(parts) {
-    const checked = (parts || []).find(p => p.check_state);
+    const checked = _worstCheckPart(parts);
     if (!checked) return '';
     const st = checked.check_state;
     const res = checked.check_result || {};
@@ -637,15 +648,11 @@ function renderCheckBadge(parts) {
     return '';
 }
 
-// Prominent + EDITABLE proofread status bar for an asset slot. Shown at the
-// section level whenever the slot has ANY asset (IMG / MD / DOC) so an admin
-// can mark/AI-check it regardless of stored format. Reads check_state /
-// check_result off whichever slot row carries it (the state is written to
-// every row of the slot).
+// Prominent + EDITABLE proofread status bar for an asset slot (rollup across
+// IMG / MD / DOC formats — each format may carry its own check_state).
 function renderCheckStatusBar(questionId, lang, atype, parts) {
     if (!window.OQB_AI_TOOLS_ENABLED || !parts || parts.length === 0) return '';
-    const imgs = parts;
-    const checked = imgs.find(p => p.check_state) || null;
+    const checked = _worstCheckPart(parts);
     const st = checked ? checked.check_state : null;
     const res = (checked && checked.check_result) || {};
     const when = (checked && checked.checked_at) ? new Date(checked.checked_at).toLocaleString() : '';
@@ -866,6 +873,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
             <div class="asset-format-group asset-format-img mb-3">
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-images"></i> Images <span class="badge bg-secondary ms-1">${imgs.length} part(s)</span>
+                    ${renderCheckBadge(imgs)}
                 </div>
                 <div id="${ctx}_assetParts_${lang}_${atype}" class="oqb-img-parts">`;
 
@@ -904,6 +912,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
             <div class="asset-format-group asset-format-md mb-3">
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-markdown"></i> Markdown <span class="badge bg-secondary ms-1">${md ? '1' : '0'} / 1</span>
+                    ${md ? renderCheckBadge([md]) : ''}
                 </div>`;
         if (md) {
             const mdFname = md.file_path.split('/').pop();
@@ -947,6 +956,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
             <div class="asset-format-group asset-format-doc">
                 <div class="format-group-label small text-muted mb-1">
                     <i class="bi bi-file-word"></i> Word document <span class="badge bg-secondary ms-1">${doc ? '1' : '0'} / 1</span>
+                    ${doc ? renderCheckBadge([doc]) : ''}
                 </div>`;
         if (doc) {
             const docFname = doc.file_path.split('/').pop();
@@ -1586,8 +1596,8 @@ function runAiSlotMd(questionId, version, atype, hasMd, el) {
 
 // ============== Per-slot AI proofread ("Quick check") ==============
 //
-// Proofread one slot (its IMG, or rendered from MD/DOC) against a chosen
-// reference version. Mirrors the per-slot MD modal's dynamic-modal pattern.
+// Proofread every present format in the slot (IMG / MD / DOC — MD/DOC rendered
+// to images first) against a chosen reference version.
 let _quickCheckModalInstance = null;
 
 function _defaultRefVersion(typed) {
@@ -1617,7 +1627,7 @@ function openQuickCheckModal(questionId, version, atype) {
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <p class="small text-muted mb-2">Proofread <strong>${_aiEscapeAttr(atype)} / ${_aiEscapeAttr(version)}</strong> against a reference version. Slots with only MD / DOCX are rendered to images automatically.</p>
+            <p class="small text-muted mb-2">Proofread <strong>${_aiEscapeAttr(atype)} / ${_aiEscapeAttr(version)}</strong> against a reference version. Every present format (IMG, MD, DOCX) is checked separately; MD and DOCX are rendered to images first.</p>
             <div class="row g-2 mb-2">
               <div class="col-7">
                 <label class="form-label fw-bold mb-1" for="qcEndpoint">LLM endpoint</label>
@@ -1678,7 +1688,7 @@ function runQuickCheck(questionId, version, atype, el) {
     const status = el.querySelector('#qcStatus');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking…';
-    status.textContent = 'Calling the model — this can take a while (MD/DOC are rendered first)…';
+    status.textContent = 'Checking each present format (IMG / MD / DOCX) — MD/DOC are rendered first…';
 
     const url = `{{ url_for('admin.ai_check_slot', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
     fetch(url, {

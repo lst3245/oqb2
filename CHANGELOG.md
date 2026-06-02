@@ -4,6 +4,13 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### AI proofreading — per-format checks + format filter in AI Tools
+
+- **Each format is proofread separately.** For a typed slot that has IMG, Markdown, and DOCX, the checker now runs up to three vision comparisons against the official reference (ENO/CHO) — stored IMG parts as-is; MD and DOC rendered to page images via Word COM first. `check_state` is stored **per format** (all IMG part rows share one state). Quick Check in the edit modal runs all present formats in one go.
+- **AI Tools → Check** adds **Formats to check** checkboxes (IMG / MD / DOCX, default all on). The batch SSE route accepts `formats=IMG,MD,DOC` and schedules one LLM call per selected format that exists in each slot.
+
 ### ✨ New Features
 
 #### PDF Batch Import — per-side versions, live review, deskewed-PDF download & Generic Extraction

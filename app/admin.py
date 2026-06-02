@@ -4518,6 +4518,21 @@ def _ai_atypes():
     return {s.strip().upper() for s in raw.split(',') if s.strip()} & {'QUE', 'ANS', 'SOL'}
 
 
+def _ai_check_formats():
+    """Formats to proofread (IMG / MD / DOC). Default all three."""
+    raw = request.args.get('formats', '').strip()
+    if not raw:
+        return {'IMG', 'MD', 'DOC'}
+    out = set()
+    for s in raw.split(','):
+        v = s.strip().upper()
+        if v == 'DOCX':
+            v = 'DOC'
+        if v in ('IMG', 'MD', 'DOC'):
+            out.add(v)
+    return out
+
+
 @admin_bp.route('/questions/ai/endpoints')
 @login_required
 @admin_required
@@ -4593,10 +4608,11 @@ def _ai_stream(work_iter_factory):
 @login_required
 @admin_required
 def ai_check():
-    """SSE: proofread typed-version images against an official reference.
+    """SSE: proofread typed-version assets against an official reference.
 
     Query params: question_ids (csv), endpoint_id, typed_version, ref_version,
-    atypes (csv of QUE/ANS/SOL), recheck (1/0).
+    atypes (csv of QUE/ANS/SOL), formats (csv of IMG/MD/DOC; DOCX→DOC),
+    recheck (1/0).
     """
     guard = _ai_tools_guard()
     if guard:
@@ -4617,6 +4633,9 @@ def ai_check():
     atypes = _ai_atypes()
     if not atypes:
         return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
+    formats = _ai_check_formats()
+    if not formats:
+        return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
     recheck = request.args.get('recheck', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
@@ -4629,7 +4648,7 @@ def ai_check():
         live_cfg = LLMConfig.query.get(cfg.id)
         live_cfg._batch = True  # opt into service_tier_batch
         do_par, workers = _ai_parallel(live_cfg, want_parallel)
-        return ai_tools.iter_check(qs, typed_version, ref_version, atypes,
+        return ai_tools.iter_check(qs, typed_version, ref_version, atypes, formats,
                                    recheck, live_cfg, image_max_dim, source_path,
                                    cancel, render_opts=render_opts,
                                    parallel=do_par, app=app, max_workers=workers)
@@ -4745,12 +4764,13 @@ def ai_generate_md_slot(question_id):
 @login_required
 @admin_required
 def ai_check_slot(question_id):
-    """Synchronously proofread ONE (question, asset_type, version) slot against
-    a reference version — drives the per-slot "Quick check" button in the
-    edit-question modal. Images come from IMG parts, or are rendered from the
-    slot's MD/DOC source on the fly.
+    """Synchronously proofread ONE slot against a reference version — Quick check.
 
-    Body JSON: {version, asset_type, ref_version, endpoint_id, recheck?}.
+    Checks every present typed format (IMG / MD / DOC) unless ``formats`` is set.
+    MD/DOC are rendered to images on the fly before the vision call.
+
+    Body JSON: {version, asset_type, ref_version, endpoint_id, recheck?,
+    formats? (list of IMG/MD/DOC)}.
     """
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
@@ -4777,6 +4797,17 @@ def ai_check_slot(question_id):
         return err, code
 
     recheck = bool(data.get('recheck', True))
+    raw_fmts = data.get('formats')
+    if raw_fmts is None:
+        formats = None
+    else:
+        formats = set()
+        for f in raw_fmts:
+            v = str(f).strip().upper()
+            if v == 'DOCX':
+                v = 'DOC'
+            if v in ('IMG', 'MD', 'DOC'):
+                formats.add(v)
 
     from app import ai_tools
     word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
@@ -4788,6 +4819,7 @@ def ai_check_slot(question_id):
             source_path=current_app.config['SOURCE_PATH'],
             render_opts=ai_tools.default_render_opts(current_app.config),
             word=word,
+            formats=formats,
         )
     finally:
         word.close()
