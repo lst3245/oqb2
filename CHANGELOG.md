@@ -4,6 +4,12 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ## [Unreleased]
 
+### ✨ Enhanced Features
+
+#### PDF Batch Import — optional whitespace trim on import
+
+- **"Trim whitespace on import" is now a toggle** instead of being forced. Previously every imported crop was always tightened to its non-white content, so any blank margin you deliberately left in a bounding box (e.g. extra space on the left) was removed. A new per-run **Trim whitespace on import** checkbox in PDF Import Setup controls this: **ON** tightens each crop to its non-white content (drops trailing answer space / loose margins — good for DSE papers); **OFF** (default) crops to your **selected bounding box exactly** (only the small crop safety margin is applied), preserving any margin you left. Default tick-state = System Setting **`PDF_IMPORT_TRIM_WHITE_DEFAULT`** (default OFF). **Uniform width per side** now defaults **ON** via **`PDF_IMPORT_UNIFORM_WIDTH_DEFAULT`**. Overwrite existing images stays **OFF** by default.
+
 ### 🐛 Bug Fixes
 
 - **PDF Batch Import: Uniform Width now applies live during detection.** Previously the shared width was only computed once when the whole run finished, and an incoming box could be snapped down to a stale width mid-stream — so the lock often appeared to do nothing until you un-ticked and re-ticked the box. Boxes are now pushed at their natural width and the side is re-locked to the widest box after **each** page arrives (the max only ever grows, so this is non-lossy). This also sets the shared width early, so dragging a box's width re-broadcasts to the whole side immediately. Re-running a page re-locks the side too.

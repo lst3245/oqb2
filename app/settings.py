@@ -389,6 +389,16 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='For the LLM-assisted methods: padding kept around the detected content edges (% of page) after the CV tightens the box. A small value hugs the content; increase it for a little breathing room. Default 0.6.',
         min=0.0, max=10.0,
     )),
+    ('PDF_IMPORT_TRIM_WHITE_DEFAULT', _spec(
+        'PDF_IMPORT_TRIM_WHITE_DEFAULT', 'bool', group='PDF Import',
+        label='Trim whitespace on import by default',
+        help='Whether the "Trim whitespace" checkbox in PDF Import starts ticked. When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose left/right margins are removed (good for DSE papers). When OFF, the crop respects the selected bounding box exactly (only the crop safety margin is applied), so any margin you deliberately leave in the box is kept. Users can toggle it per run. Default OFF.',
+    )),
+    ('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', _spec(
+        'PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', 'bool', group='PDF Import',
+        label='Uniform width per side by default',
+        help='Whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Users can toggle it per run.',
+    )),
 ])
 
 

@@ -3328,6 +3328,8 @@ def pdf_import_page():
         ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
         deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
+        trim_white_default=bool(current_app.config.get('PDF_IMPORT_TRIM_WHITE_DEFAULT', False)),
+        uniform_width_default=bool(current_app.config.get('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', True)),
         default_method=default_method,
         default_endpoint_id=(default_endpoint.id if default_endpoint else None),
         pdf_source_path=pdf_source_root,
@@ -3666,6 +3668,9 @@ def pdf_import_commit():
         return _pdf_sse_error('version must be one of ' + '/'.join(VERSIONS))
     versions = {'que': que_version, 'sol': sol_version}
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    trim_default = bool(current_app.config.get('PDF_IMPORT_TRIM_WHITE_DEFAULT', False))
+    trim_arg = request.args.get('trim_white')
+    trim_white = trim_default if trim_arg is None else (trim_arg in ('1', 'true', 'yes'))
 
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
@@ -3677,7 +3682,8 @@ def pdf_import_commit():
                 plan = pdf_import.load_plan(token)
                 source_path = app.config['SOURCE_PATH']
                 for ev in pdf_import.iter_commit(app, cancel, token, plan,
-                                                 versions, overwrite, source_path):
+                                                 versions, overwrite, source_path,
+                                                 trim_white=trim_white):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import commit stream aborted')

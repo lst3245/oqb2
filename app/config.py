@@ -135,3 +135,12 @@ class Config:
     # PDF Batch Import — "refine"/"segment" methods: padding (% of page) kept
     # around the detected content edges.
     PDF_IMPORT_ASSIST_PAD_PCT = float(os.getenv('PDF_IMPORT_ASSIST_PAD_PCT', '0.6'))
+    # PDF Batch Import — whether the "Trim whitespace" checkbox starts ticked.
+    # When trimming is on, each imported crop is tightened to its non-white
+    # content (drops blank answer space / loose margins). When off, the crop
+    # respects the selected bounding box exactly (only the crop safety margin
+    # is applied). Users can toggle it per run.
+    PDF_IMPORT_TRIM_WHITE_DEFAULT = os.getenv('PDF_IMPORT_TRIM_WHITE_DEFAULT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # PDF Batch Import — whether the "Uniform width per side" checkbox starts
+    # ticked. Users can toggle it per run.
+    PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')

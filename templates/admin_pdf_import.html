@@ -273,8 +273,14 @@
                         <input class="form-check-input" type="checkbox" id="overwriteChk">
                         <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
                     </div>
+                    <div class="form-check exam-only">
+                        <input class="form-check-input" type="checkbox" id="trimWhiteChk" {% if trim_white_default %}checked{% endif %}>
+                        <label class="form-check-label" for="trimWhiteChk" title="When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose margins are removed. When OFF, the crop respects your selected box exactly (only the crop safety margin is applied), keeping any margin you deliberately leave.">
+                            <i class="bi bi-crop"></i> Trim whitespace on import
+                        </label>
+                    </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="uniformWidthChk">
+                        <input class="form-check-input" type="checkbox" id="uniformWidthChk" {% if uniform_width_default %}checked{% endif %}>
                         <label class="form-check-label" for="uniformWidthChk" title="Lock every region on each side (QUE / SOL) to a single shared width so short and long questions crop to a consistent scale. Resize any one box's width to change them all; untick to fine-tune individually again.">
                             <i class="bi bi-arrows"></i> Uniform width per side
                         </label>
@@ -410,6 +416,7 @@ const solPdf = document.getElementById('solPdf');
 const deskewChk = document.getElementById('deskewChk');
 const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
+const trimWhiteChk = document.getElementById('trimWhiteChk');
 const uniformWidthChk = document.getElementById('uniformWidthChk');
 const debugChk = document.getElementById('debugChk');
 const btnStart = document.getElementById('btnStart');
@@ -789,7 +796,7 @@ function setRunning(on) {
     btnStop.classList.toggle('d-none', !on);
     [paperInput, queVersionSelect, solVersionSelect, instructionInput,
      endpointSelect, methodSelect, pdfParallelChk, quePdf, solPdf,
-     deskewChk, customPromptChk, overwriteChk, uniformWidthChk, debugChk,
+     deskewChk, customPromptChk, overwriteChk, trimWhiteChk, uniformWidthChk, debugChk,
      document.getElementById('taskExam'), document.getElementById('taskGeneric'),
      document.getElementById('modeReview'), document.getElementById('modeAuto')]
         .forEach(el => { if (el) el.disabled = on; });
@@ -1628,7 +1635,8 @@ async function startCommit() {
     const url = `${IMPORT_BASE}/commit?token=${encodeURIComponent(staging.token)}`
         + `&que_version=${encodeURIComponent(staging.que_version || staging.version)}`
         + `&sol_version=${encodeURIComponent(staging.sol_version || staging.version)}`
-        + `&overwrite=${overwriteChk.checked ? '1' : '0'}`;
+        + `&overwrite=${overwriteChk.checked ? '1' : '0'}`
+        + `&trim_white=${trimWhiteChk.checked ? '1' : '0'}`;
     eventSource = new EventSource(url);
 
     eventSource.onmessage = (e) => {

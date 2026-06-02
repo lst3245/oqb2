@@ -84,7 +84,7 @@ Returns `(boxes, raw_text)`. Exam boxes are `{qno:int|None, box:[x1,y1,x2,y2] fr
 
 `_group_plan(plan)` groups boxes by `(kind, qno)`, ordered by (page, top-Y). For each group: find-or-create `Question` (QID `{subj}_{source}_{year}_{paper}_Q{qno}`, `q_type` via `ingestor.determine_question_type`); skip if `slot_has_img` and not `overwrite`; else `crop_page` each part and `replace_img_assets(question, atype, version, imgs, stitch=False, source_path)` (atomic; fires DOC-thumbnail lifecycle). Boxes with `qno is None` are skipped.
 
-`crop_page(png, box, pad_frac, trim_white, whiteness_threshold)`: pads the box by `pad_frac` (from `PDF_IMPORT_CROP_PAD_PCT`/100 — the "safety margin", larger = safer against clipping), crops, then white-trims back to content (keeps an 8px border; content never removed, so SOL side-notes stay). `whiteness_threshold` = `THUMBNAIL_WHITENESS_THRESHOLD`. The refine/segment CV params are `PDF_IMPORT_REFINE_GROW_PCT`/100 (`grow_frac`) + `PDF_IMPORT_ASSIST_PAD_PCT`/100 (`pad_frac`), read in `detect_page`.
+`crop_page(png, box, pad_frac, trim_white, whiteness_threshold)`: pads the box by `pad_frac` (from `PDF_IMPORT_CROP_PAD_PCT`/100 — the "safety margin", larger = safer against clipping), crops, then **if `trim_white`** white-trims back to content (keeps an 8px border; content never removed, so SOL side-notes stay). `whiteness_threshold` = `THUMBNAIL_WHITENESS_THRESHOLD`. **`trim_white` is a per-run toggle** ("Trim whitespace on import" checkbox → `&trim_white=` on the commit route → `iter_commit(..., trim_white=)`); default tick-state = setting `PDF_IMPORT_TRIM_WHITE_DEFAULT` (default OFF). OFF = crop respects the selected bbox exactly (only the safety margin applied), so deliberate margins are kept. ON = tighten to non-white content. (`export_zip_bytes` always passes `trim_white=False`.) The refine/segment CV params are `PDF_IMPORT_REFINE_GROW_PCT`/100 (`grow_frac`) + `PDF_IMPORT_ASSIST_PAD_PCT`/100 (`pad_frac`), read in `detect_page`.
 
 ## Staging
 
@@ -98,7 +98,7 @@ Reading order within a kind = `(page, box top-Y)`. **Add** (`finishDraw`→`renu
 
 ## Uniform Width (review, client-side, exam + generic)
 
-Per-side checkbox (`uniformWidthChk`): lock every box on a side to the **widest** box's width so crops scale consistently. Width grows only (monotonic), so it is recomputed **non-lossily after each page** as detection streams (`enableUniformWidth(kind)` in the SSE handler — boxes are pushed at natural width, never snapped down first) and again on re-run/finish. `conformWidth` is **left-anchored** (only the right edge moves). Resizing one box's width (`onDragMove`, when `uniformWidth[kind]!=null`) re-broadcasts to the side via `applyUniformWidthToAll`; moving a box does not. Untick to fine-tune individually (`uniformWidth` reset to `null`).
+Per-side checkbox (`uniformWidthChk`): lock every box on a side to the **widest** box's width so crops scale consistently. Default tick-state = setting `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` (default ON). Width grows only (monotonic), so it is recomputed **non-lossily after each page** as detection streams (`enableUniformWidth(kind)` in the SSE handler — boxes are pushed at natural width, never snapped down first) and again on re-run/finish. `conformWidth` is **left-anchored** (only the right edge moves). Resizing one box's width (`onDragMove`, when `uniformWidth[kind]!=null`) re-broadcasts to the side via `applyUniformWidthToAll`; moving a box does not. Untick to fine-tune individually (`uniformWidth` reset to `null`).
 
 ## Gotchas / invariants
 

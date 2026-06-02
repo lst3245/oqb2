@@ -888,7 +888,7 @@ def _group_plan(plan: dict):
 
 
 def iter_commit(app, cancel, token: str, plan: dict, versions,
-                overwrite: bool, source_path: str):
+                overwrite: bool, source_path: str, trim_white: bool = False):
     """Generator yielding commit progress events: crop each grouped question
     region and create ``Question`` + ``QuestionAsset`` (IMG) rows.
 
@@ -896,6 +896,11 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     ``{'que': 'ENO', 'sol': 'EN'}`` so question and solution images can be
     imported under different versions. A bare string is accepted for backward
     compatibility and applied to both kinds.
+
+    When ``trim_white`` is true (the default) each crop is tightened to its
+    non-white content (drops blank answer space / loose margins). When false
+    the crop respects the selected bounding box exactly (only the crop safety
+    margin ``PDF_IMPORT_CROP_PAD_PCT`` is applied).
     """
     if isinstance(versions, str):
         versions = {'que': versions, 'sol': versions}
@@ -965,7 +970,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
             for prt in parts:
                 png = page_png_path(token, kind, prt['page'])
                 imgs.append(crop_page(png, prt['box'], pad_frac=crop_pad,
-                                      trim_white=True,
+                                      trim_white=trim_white,
                                       whiteness_threshold=whiteness))
 
             res = replace_img_assets(question, atype, version, imgs,
