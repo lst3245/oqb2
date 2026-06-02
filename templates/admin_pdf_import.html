@@ -189,10 +189,10 @@
                     </div>
                     <div class="form-text">Question and solution images can use different versions.</div>
                 </div>
-                <div class="col-12 generic-only d-none" id="instructionCol">
-                    <label for="instructionInput" class="form-label fw-bold">What to extract</label>
+                <div class="col-12 d-none" id="instructionCol">
+                    <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">What to extract</label>
                     <textarea id="instructionInput" class="form-control" rows="2" placeholder="e.g. Extract every data table with its title. / Extract each chart and its caption."></textarea>
-                    <div class="form-text">Describe the regions you want cropped out. No exam-question context is sent to the model.</div>
+                    <div class="form-text" id="instructionHint">Describe the regions you want detected. No exam-question context is sent to the model.</div>
                 </div>
                 <div class="col-md-4">
                     <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
@@ -255,6 +255,12 @@
                         <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
                         <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
                             <i class="bi bi-rulers"></i> Auto-deskew scans
+                        </label>
+                    </div>
+                    <div class="form-check exam-only">
+                        <input class="form-check-input" type="checkbox" id="customPromptChk">
+                        <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
+                            <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
                         </label>
                     </div>
                     <div class="form-check exam-only">
@@ -373,6 +379,7 @@ const methodSelect = document.getElementById('methodSelect');
 const quePdf = document.getElementById('quePdf');
 const solPdf = document.getElementById('solPdf');
 const deskewChk = document.getElementById('deskewChk');
+const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
 const debugChk = document.getElementById('debugChk');
 const btnStart = document.getElementById('btnStart');
@@ -392,6 +399,24 @@ function currentTask() {
 function isGeneric() {
     return staging ? staging.mode === 'generic' : currentTask() === 'generic';
 }
+// Exam run that borrows the context-free prompt (textbook / non-standard
+// format): boxes are exam-shaped with auto-numbered question numbers.
+function isCustomExam() {
+    if (staging) return staging.mode === 'exam' && !!staging.custom_prompt;
+    return currentTask() === 'exam' && customPromptChk.checked;
+}
+// The instruction box is used by Generic extraction AND by a custom-prompt
+// exam run.
+function updateInstructionVisibility() {
+    const generic = currentTask() === 'generic';
+    const show = generic || (currentTask() === 'exam' && customPromptChk.checked);
+    document.getElementById('instructionCol').classList.toggle('d-none', !show);
+    document.getElementById('instructionLabel').textContent =
+        generic ? 'What to extract' : 'What does a question look like?';
+    document.getElementById('instructionHint').textContent = generic
+        ? 'Describe the regions you want detected. No exam-question context is sent to the model.'
+        : 'Describe what one question looks like so the model can find them (no DSE context is sent). Questions are auto-numbered 1, 2, 3… in reading order.';
+}
 function applyTaskUI() {
     const generic = currentTask() === 'generic';
     document.querySelectorAll('.exam-only').forEach(el => el.classList.toggle('d-none', generic));
@@ -407,8 +432,10 @@ function applyTaskUI() {
         segOpt.classList.toggle('d-none', generic);
         if (generic && methodSelect.value === 'segment') methodSelect.value = 'llm';
     }
+    updateInstructionVisibility();
 }
 document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListener('change', applyTaskUI));
+customPromptChk.addEventListener('change', updateInstructionVisibility);
 const logConsole = document.getElementById('logConsole');
 const logStatus = document.getElementById('logStatus');
 const progressSection = document.getElementById('progressSection');
@@ -676,7 +703,7 @@ function setRunning(on) {
     btnStop.classList.toggle('d-none', !on);
     [paperInput, queVersionSelect, solVersionSelect, instructionInput,
      endpointSelect, methodSelect, quePdf, solPdf,
-     deskewChk, overwriteChk, debugChk,
+     deskewChk, customPromptChk, overwriteChk, debugChk,
      document.getElementById('taskExam'), document.getElementById('taskGeneric'),
      document.getElementById('modeReview'), document.getElementById('modeAuto')]
         .forEach(el => { if (el) el.disabled = on; });
@@ -700,6 +727,9 @@ async function startRun() {
         if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
         if (!hasQue && !hasSol) {
             alert('Choose or pick a question PDF and/or a solution PDF.'); return;
+        }
+        if (customPromptChk.checked && !instruction) {
+            alert('Describe what a question looks like for the custom prompt.'); return;
         }
         mode = document.querySelector('input[name="mode"]:checked').value;
     }
@@ -725,6 +755,10 @@ async function startRun() {
         fd.append('paper', paper);
         fd.append('que_version', queVersionSelect.value);
         fd.append('sol_version', solVersionSelect.value);
+        if (customPromptChk.checked) {
+            fd.append('custom_prompt', '1');
+            fd.append('instruction', instruction);
+        }
     }
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     else if (serverPdf.que) fd.append('que_server_path', serverPdf.que.rel_path);
@@ -836,6 +870,9 @@ function finishDetect() {
             const k = card.dataset.kind, i = parseInt(card.dataset.page, 10);
             if (card.dataset.pending === '1') fillPageCard(k, i);
         });
+        // Custom-prompt exam runs: normalise the auto-numbers into a clean
+        // 1..N reading-order sequence per side.
+        if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
         updateReviewSummary();
         // Toggle the commit / ZIP action for the active task.
         btnCommit.classList.toggle('d-none', isGeneric());
@@ -1231,6 +1268,12 @@ function renumberAfterDelete(kind, removed) {
         }
     });
 }
+// Assign 1..N to every box in reading order (used by custom-prompt exam runs,
+// where the model returns no printed numbers — the numbers are ours).
+function renumberAllSequential(kind) {
+    readingOrder(kind).forEach((it, i) => { it.qno = i + 1; });
+    refreshNumbersUI(kind);
+}
 function refreshNumbersUI(kind) {
     plan[kind].forEach(it => {
         const lbl = document.getElementById('lbl-' + it._uid);
@@ -1361,6 +1404,9 @@ async function rerunPage(card, kind, pageIndex) {
         toggleEmpty(card);
         card.dataset.pending = '0';
         setPageStatus(card, 'done');
+        // Custom-prompt exam: the re-detected page has no numbers — re-sequence
+        // the whole side so question numbers stay 1..N in reading order.
+        if (isCustomExam()) renumberAllSequential(kind);
         updateReviewSummary();
         appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
         if (data.raw !== undefined) {

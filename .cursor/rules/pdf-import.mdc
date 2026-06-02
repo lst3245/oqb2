@@ -23,7 +23,7 @@ One **page image per LLM call** (keeps a small local model — e.g. `qwen3vl4b` 
 
 A top-of-form **Task** toggle (`task=exam|generic`, persisted as `meta['mode']`):
 
-- **Exam paper** (default): question/solution detection → import as `QUE`/`SOL` IMG assets. Question and solution images can target **different versions** — Setup has two selects (`que_version` / `sol_version`, defaults ENO/EN); `iter_commit(..., versions={'que':…,'sol':…}, …)`.
+- **Exam paper** (default): question/solution detection → import as `QUE`/`SOL` IMG assets. Question and solution images can target **different versions** — Setup has two selects (`que_version` / `sol_version`, defaults ENO/EN); `iter_commit(..., versions={'que':…,'sol':…}, …)`. **Custom detection prompt** (`meta['custom_prompt']` + `instruction`, Setup checkbox): borrow the context-free generic prompt (textbook / non-standard format) while still importing as `QUE`/`SOL` — `detect_page(..., generic_prompt=True)` returns exam-shaped boxes with `qno=None`, and `iter_detect` **auto-increments** qno per side (running counter); the review UI re-sequences with `renumberAllSequential` (also after a per-page re-run).
 - **Generic extraction**: NO exam context. A free-text **instruction** (`meta['instruction']`) drives `build_pdf_generic_system`/`build_pdf_generic_user_text` (+ `parse_generic_boxes` → `{label, box}`). No paper/subject/DB. Review uses a label textbox per region (no qno cascade); the action button is **Download all as ZIP** (`POST /export-zip` → `pdf_import.export_zip_bytes`, crops with `trim_white=False`). Only `que`/single-PDF + `llm`/`refine` (no `segment`).
 
 ## Files map
@@ -46,7 +46,7 @@ A top-of-form **Task** toggle (`task=exam|generic`, persisted as `meta['mode']`)
 ## Routes (all `@admin_required`, gated on `AI_TOOLS_ENABLED`)
 
 - `GET  /admin/pdf-import` — page (`pdf_import_page`). Passes `pdf_source_path` / `pdf_source_available` so the UI shows the "pick from server" links.
-- `POST /admin/pdf-import/stage` — multipart: `mode` (`exam`|`generic`), `deskew` (default on), `que_pdf`/`sol_pdf` **or** `que_server_path`/`sol_server_path` (≥1). Exam: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only) + `que_version`/`sol_version` (validates prefix + subject admin access). Generic: `instruction` (no paper/subject; sol side ignored). Server paths resolve under `PDF_SOURCE_PATH` via `_resolve_server_pdf` → duck-typed `_ServerPDF`; uploads win over server picks per side. Returns `{token, mode, instruction, que_version, sol_version, deskew, que:{pages}, sol:{pages}}`.
+- `POST /admin/pdf-import/stage` — multipart: `mode` (`exam`|`generic`), `deskew` (default on), `que_pdf`/`sol_pdf` **or** `que_server_path`/`sol_server_path` (≥1). Exam: `paper` (prefix `SUBJ_SOURCE_YEAR_PAPER`, PP only) + `que_version`/`sol_version` (validates prefix + subject admin access); optional `custom_prompt`+`instruction` (context-free prompt, auto-numbered Qs). Generic: `instruction` (no paper/subject; sol side ignored). Server paths resolve under `PDF_SOURCE_PATH` via `_resolve_server_pdf` → duck-typed `_ServerPDF`; uploads win over server picks per side. Returns `{token, mode, instruction, que_version, sol_version, deskew, que:{pages}, sol:{pages}}`.
 - `GET  /admin/pdf-import/source-list` — list every `.pdf` under `PDF_SOURCE_PATH` (recursive) → `{configured, root, files:[{rel_path,name,size,modified}]}`. Powers the "pick from server" modal.
 - `POST /admin/pdf-import/guess-paper` — multipart `pdf` (upload) **or** `server_path`. Rasterises the PDF's first page, sends it + the file name to the default LLM (`_pdf_default_endpoint`: `EXPLAIN_DEFAULT_LLM` by name, else first vision endpoint), returns `{paper, filename}` (`paper` validated against `PREFIX_PATTERN`, may be null). The UI calls this on file pick when **Paper name** is empty (never overwrites a typed value).
 - `GET  /admin/pdf-import/page/<token>/<kind>/<int:page>.png` — serve a staged page PNG (kind = `que`|`sol`).
@@ -63,9 +63,9 @@ A top-of-form **Task** toggle (`task=exam|generic`, persisted as `meta['mode']`)
 
 Same shape as the other admin streams: `data: {json}\n\n`, types `job` (first; carries `job_id`) / `info` / `success` / `skip` / `error` / `done`. `detect` page events carry `page:{kind,index,boxes}`; `done` carries `stats` + `plan`. `commit` `done` carries `stats:{questions_created, assets_written, skipped, errors}`. Cancellation mirrors `app/ai_tools`: per-job `threading.Event` in `_PDF_CANCEL`, checked between pages/questions.
 
-## Detection methods (`detect_page(config, png, atype, image_max_dim, method='llm', mode='exam', instruction='')`)
+## Detection methods (`detect_page(config, png, atype, image_max_dim, method='llm', mode='exam', instruction='', generic_prompt=False)`)
 
-Returns `(boxes, raw_text)`. Exam boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`; generic boxes are `{label:str|None, box}`. `DETECT_METHODS = ('llm','refine','segment')`; threaded through `iter_detect`/`detect_single_page` (which read `mode`/`instruction` from `meta`) and both routes. `_check_method_available` fails fast (one SSE error) when `refine`/`segment` are picked without NumPy. In `mode='generic'` the prompts carry no exam context and `segment` collapses to `llm`.
+Returns `(boxes, raw_text)`. Exam boxes are `{qno:int|None, box:[x1,y1,x2,y2] fractions 0..1, continues_prev, continues_next}`; generic boxes are `{label:str|None, box}`. `DETECT_METHODS = ('llm','refine','segment')`; threaded through `iter_detect`/`detect_single_page` (which read `mode`/`instruction`/`custom_prompt` from `meta`) and both routes. `_check_method_available` fails fast (one SSE error) when `refine`/`segment` are picked without NumPy. The context-free generic prompt is used when `mode='generic'` **or** `generic_prompt=True` (exam custom-prompt); `segment` collapses to `llm` there. With `generic_prompt=True` (exam) boxes come back `qno=None` and `iter_detect` assigns the running number.
 
 - **`llm`** (default, no NumPy): the model returns tight boxes via `build_pdf_box_system`/`parse_question_boxes`. QUE prompt = tight box excluding answer space + margins **but keeping the marks annotation** (e.g. `(4 marks)`); SOL prompt = full solution incl. right-hand notes.
 - **`refine`**: LLM boxes, then `pdf_layout.refine_box(gray, box, shrink_sides)` expands by `grow_frac` then trims to content via projection profiles (recovers chopped text / marks / figures, drops blank margins).
@@ -88,7 +88,7 @@ Returns `(boxes, raw_text)`. Exam boxes are `{qno:int|None, box:[x1,y1,x2,y2] fr
 
 ## Staging
 
-`OUTPUT_PATH/.pdf_import/<token>/` holds `meta.json` (`mode`, subject/source/year/paper + `que_version`/`sol_version` (exam) or `instruction` (generic), `deskew` flag + page dims), `plan.json`, and `que/`/`sol/` (`source.pdf` + `page_NNNN.png`). `cleanup_old()` (called on each `stage`) purges dirs older than ~6 h; Discard removes one immediately. Token is validated (`^[0-9a-f]{8,40}$`) before any filesystem join.
+`OUTPUT_PATH/.pdf_import/<token>/` holds `meta.json` (`mode`, subject/source/year/paper + `que_version`/`sol_version` (+ optional `custom_prompt`/`instruction`) for exam, or `instruction` (generic), `deskew` flag + page dims), `plan.json`, and `que/`/`sol/` (`source.pdf` + `page_NNNN.png`). `cleanup_old()` (called on each `stage`) purges dirs older than ~6 h; Discard removes one immediately. Token is validated (`^[0-9a-f]{8,40}$`) before any filesystem join.
 
 ## Auto-renumber (review, client-side)
 

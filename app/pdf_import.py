@@ -345,7 +345,8 @@ DETECT_METHODS = ('llm', 'refine', 'segment')
 
 
 def detect_page(config, png_path: str, atype: str, image_max_dim: int,
-                method: str = 'llm', mode: str = 'exam', instruction: str = ''):
+                method: str = 'llm', mode: str = 'exam', instruction: str = '',
+                generic_prompt: bool = False):
     """Detect the question/solution regions on one page.
 
     ``mode`` is ``'exam'`` (the default — question/solution detection) or
@@ -353,6 +354,12 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     matching the free-text ``instruction``). In generic mode the ``segment``
     method is not meaningful and falls back to ``llm``; returned boxes carry a
     ``label`` instead of a ``qno``.
+
+    ``generic_prompt`` lets EXAM mode borrow the context-free generic prompt
+    (driven by ``instruction``) while still returning exam-shaped boxes — used
+    to extract questions from non-exam material (e.g. a textbook) and import
+    them with auto-numbered question numbers. The returned boxes then carry
+    ``qno: None`` (the caller assigns the running number).
 
     ``method``:
       * ``'llm'``     - the model returns tight boxes (original behaviour).
@@ -388,26 +395,33 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     assist_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_ASSIST_PAD_PCT', 0.6))) / 100.0
     refine_grow = max(0.0, float(current_app.config.get('PDF_IMPORT_REFINE_GROW_PCT', 3.5))) / 100.0
 
-    if mode == 'generic':
-        # No exam context: the model finds regions matching the user request.
-        # 'segment' (anchor) detection is exam-specific, so collapse it to llm.
+    if mode == 'generic' or generic_prompt:
+        # Context-free prompt: the model finds regions matching the user
+        # request. 'segment' (anchor) detection is exam-specific, so it
+        # collapses to llm here. In generic MODE each box keeps its label; for
+        # an exam run borrowing this prompt the box is exam-shaped with
+        # qno=None (the caller assigns the running question number).
         system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
         user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
         text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
         gboxes = ai_prompts.parse_generic_boxes(text, img_w=sw, img_h=sh,
                                                 coord_order=coord_order)
-        boxes = [{'label': g.get('label'), 'box': g['box']} for g in gboxes]
         if method == 'refine':
             from app import pdf_layout
             gray = pdf_layout.load_gray(png_path)
-            for b in boxes:
+            for g in gboxes:
                 try:
-                    b['box'] = pdf_layout.refine_box(gray, b['box'],
-                                                     shrink_sides=False,
+                    g['box'] = pdf_layout.refine_box(gray, g['box'],
+                                                     shrink_sides=(shrink_sides and mode != 'generic'),
                                                      grow_frac=refine_grow,
                                                      pad_frac=assist_pad)
                 except Exception as e:  # pragma: no cover — keep the LLM box
                     logger.warning('pdf-import generic refine_box failed: %s', e)
+        if mode == 'generic':
+            boxes = [{'label': g.get('label'), 'box': g['box']} for g in gboxes]
+        else:
+            boxes = [{'qno': None, 'box': g['box'],
+                      'continues_prev': False, 'continues_next': False} for g in gboxes]
         return boxes, (text or '')
 
     if method == 'segment':
@@ -624,12 +638,16 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     """
     meta = load_meta(token)
     is_generic = (meta.get('mode') == 'generic')
+    # Exam runs may borrow the context-free prompt (custom_prompt) to extract
+    # questions from non-exam material, importing them with auto-numbered Qs.
+    custom_prompt = (not is_generic) and bool(meta.get('custom_prompt'))
     instruction = meta.get('instruction') or ''
     kinds = [k for k in ('que', 'sol')
              if meta.get(k) and meta[k].get('pages')]
     total = sum(len(meta[k]['pages']) for k in kinds)
 
     plan = {'que': [], 'sol': []}
+    auto_qno = {'que': 0, 'sol': 0}   # running counter for custom_prompt runs
     if total == 0:
         save_plan(token, plan)
         yield {'type': 'error', 'message': 'No pages to process.'}
@@ -670,7 +688,8 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             try:
                 boxes, raw = detect_page(config, png, atype, image_max_dim,
                                          method, mode=meta.get('mode', 'exam'),
-                                         instruction=instruction)
+                                         instruction=instruction,
+                                         generic_prompt=custom_prompt)
             except Exception as e:  # transport / parse failure for this page
                 done += 1
                 logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, e)
@@ -683,6 +702,13 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 if is_generic:
                     plan[kind].append({'page': idx, 'label': b.get('label'),
                                        'box': b['box']})
+                elif custom_prompt:
+                    # Auto-increment question numbers in detection (reading)
+                    # order across the whole side.
+                    auto_qno[kind] += 1
+                    qno = auto_qno[kind]
+                    b['qno'] = qno
+                    plan[kind].append({'page': idx, 'qno': qno, 'box': b['box']})
                 else:
                     plan[kind].append({'page': idx, 'qno': b.get('qno'),
                                        'box': b['box']})
@@ -719,9 +745,11 @@ def detect_single_page(config, token: str, kind: str, index: int,
     meta = load_meta(token)
     atype = 'QUE' if kind == 'que' else 'SOL'
     png = page_png_path(token, kind, index)
+    custom_prompt = (meta.get('mode') != 'generic') and bool(meta.get('custom_prompt'))
     return detect_page(config, png, atype, image_max_dim, method,
                        mode=meta.get('mode', 'exam'),
-                       instruction=meta.get('instruction', ''))
+                       instruction=meta.get('instruction', ''),
+                       generic_prompt=custom_prompt)
 
 
 def _group_plan(plan: dict):

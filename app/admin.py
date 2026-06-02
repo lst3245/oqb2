@@ -3379,6 +3379,15 @@ def pdf_import_stage():
         meta['que_version'] = que_version
         meta['sol_version'] = sol_version
         meta['version'] = que_version  # back-compat single value
+        # Optional: borrow the context-free prompt (e.g. textbook questions),
+        # importing with auto-numbered question numbers.
+        custom_prompt = (request.form.get('custom_prompt') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        meta['custom_prompt'] = custom_prompt
+        if custom_prompt:
+            instruction = (request.form.get('instruction') or '').strip()
+            if not instruction:
+                return jsonify({'error': 'Describe what to detect for the custom prompt.'}), 400
+            meta['instruction'] = instruction[:2000]
 
     que_file = request.files.get('que_pdf')
     sol_file = request.files.get('sol_pdf')
@@ -3431,6 +3440,7 @@ def pdf_import_stage():
     return jsonify({
         'token': token,
         'mode': saved_meta.get('mode', 'exam'),
+        'custom_prompt': bool(saved_meta.get('custom_prompt')),
         'instruction': saved_meta.get('instruction'),
         'subject': meta.get('subject'), 'source': meta.get('source'),
         'year': meta.get('year'), 'paper': meta.get('paper'),
