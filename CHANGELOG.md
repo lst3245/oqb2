@@ -6,6 +6,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Question edit modal keyboard navigation.** The edit modal's existing previous/next question arrows now also respond to the left/right arrow keys, preserving the active tab, version pill, and asset scroll position just like the buttons. Ctrl+Left / Ctrl+Right jumps between asset version tabs (EN / CH / BI / ENO / CHO) while keeping the same asset section in view. Shortcuts are ignored while typing in inputs, selects, textareas, contenteditable fields, Markdown editors, or stacked child modals.
+
 #### PDF Batch Import — optional whitespace trim on import
 
 - **"Trim whitespace on import" is now a toggle** instead of being forced. Previously every imported crop was always tightened to its non-white content, so any blank margin you deliberately left in a bounding box (e.g. extra space on the left) was removed. A new per-run **Trim whitespace on import** checkbox in PDF Import Setup controls this: **ON** tightens each crop to its non-white content (drops trailing answer space / loose margins — good for DSE papers); **OFF** (default) crops to your **selected bounding box exactly** (only the small crop safety margin is applied), preserving any margin you left. Default tick-state = System Setting **`PDF_IMPORT_TRIM_WHITE_DEFAULT`** (default OFF). **Uniform width per side** now defaults **ON** via **`PDF_IMPORT_UNIFORM_WIDTH_DEFAULT`**. Overwrite existing images stays **OFF** by default.

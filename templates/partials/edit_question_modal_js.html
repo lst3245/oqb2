@@ -148,8 +148,147 @@ function oqbEditNavGo(delta) {
     const target = nav.idx + delta;
     if (target < 0 || target >= nav.ids.length) return;
     // Preserve the currently active main tab + version pill across navigation.
-    openEditModal(nav.ids[target], { preserveView: true });
+    openEditModal(nav.ids[target], {
+        preserveView: true,
+        preserveAssetScroll: _oqbCaptureEditAssetScroll()
+    });
 }
+
+function _oqbEditNavShortcutTargetIsTyping(target) {
+    if (!target) return false;
+    if (target.isContentEditable) return true;
+    if (target.closest && target.closest('.EasyMDEContainer, .CodeMirror')) return true;
+    const tag = (target.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select';
+}
+
+function _oqbEditModalTopOwnsKeyboard() {
+    const editModal = document.getElementById('editQuestionModal');
+    if (!editModal || !editModal.classList.contains('show')) return false;
+
+    // Stacked child modals (Markdown editor, AI tools, etc.) own keyboard focus.
+    const shownModals = Array.from(document.querySelectorAll('.modal.show'));
+    return !shownModals.length || shownModals[shownModals.length - 1] === editModal;
+}
+
+function _oqbEditAssetsTabActive() {
+    return document.querySelector('#editQuestionModal .tab-pane.active')?.id === 'tabAssets';
+}
+
+function _oqbEditAssetPaneActive() {
+    return document.querySelector('#tabAssets > .tab-content > .tab-pane.active');
+}
+
+function _oqbEditScrollContainer() {
+    const body = document.querySelector('#editQuestionModal .modal-body');
+    if (body && body.scrollHeight > body.clientHeight + 2) return body;
+
+    const modal = document.getElementById('editQuestionModal');
+    if (modal && modal.scrollHeight > modal.clientHeight + 2) return modal;
+
+    return document.scrollingElement || document.documentElement;
+}
+
+function _oqbScrollContainerRect(container) {
+    if (container === document.scrollingElement || container === document.documentElement || container === document.body) {
+        return { top: 0, bottom: window.innerHeight };
+    }
+    return container.getBoundingClientRect();
+}
+
+function _oqbCaptureEditAssetScroll() {
+    if (!_oqbEditAssetsTabActive()) return null;
+    const pane = _oqbEditAssetPaneActive();
+    if (!pane) return null;
+
+    const scrollContainer = _oqbEditScrollContainer();
+    const containerRect = _oqbScrollContainerRect(scrollContainer);
+    const sections = Array.from(pane.querySelectorAll('.asset-section'));
+    let best = null;
+    let bestDistance = Infinity;
+    sections.forEach(section => {
+        const rect = section.getBoundingClientRect();
+        const distance = Math.abs(rect.top - containerRect.top);
+        if (rect.bottom >= containerRect.top && rect.top <= containerRect.bottom && distance < bestDistance) {
+            best = section;
+            bestDistance = distance;
+        }
+    });
+
+    const lang = pane.id.replace(/^lang/, '') || currentAssetLang;
+    const match = best ? best.id.match(/^edit_assetSection_([^_]+)_([^_]+)$/) : null;
+    return {
+        lang: match ? match[1] : lang,
+        atype: match ? match[2] : (activePasteTarget.atype || 'QUE'),
+        offsetTop: best ? best.getBoundingClientRect().top - containerRect.top : 0,
+        scrollTop: scrollContainer.scrollTop || window.scrollY || 0
+    };
+}
+
+function _oqbRestoreEditAssetScroll(snapshot) {
+    if (!snapshot || !_oqbEditAssetsTabActive()) return;
+    const scrollContainer = _oqbEditScrollContainer();
+
+    const activeLang = _oqbEditAssetPaneActive()?.id.replace(/^lang/, '') || snapshot.lang;
+    const section = document.getElementById(`edit_assetSection_${activeLang}_${snapshot.atype}`)
+        || document.getElementById(`edit_assetSection_${snapshot.lang}_${snapshot.atype}`);
+
+    if (section) {
+        const containerRect = _oqbScrollContainerRect(scrollContainer);
+        const sectionRect = section.getBoundingClientRect();
+        scrollContainer.scrollTop += sectionRect.top - containerRect.top - (snapshot.offsetTop || 0);
+        setActivePasteTarget(activeLang, snapshot.atype, 'edit');
+    } else {
+        scrollContainer.scrollTop = snapshot.scrollTop || 0;
+    }
+}
+
+function _oqbRestoreEditAssetScrollSoon(snapshot) {
+    if (!snapshot) return;
+    requestAnimationFrame(() => {
+        _oqbRestoreEditAssetScroll(snapshot);
+        // Image and Markdown preview cards can shift heights after paint; nudge once more.
+        setTimeout(() => _oqbRestoreEditAssetScroll(snapshot), 120);
+    });
+}
+
+function oqbEditVersionGo(delta) {
+    if (!_oqbEditModalTopOwnsKeyboard() || !_oqbEditAssetsTabActive()) return false;
+    const links = Array.from(document.querySelectorAll('#langTabs .nav-link'));
+    const currentIdx = links.findIndex(link => link.classList.contains('active'));
+    const targetIdx = currentIdx + delta;
+    if (currentIdx === -1 || targetIdx < 0 || targetIdx >= links.length) return false;
+
+    const snapshot = _oqbCaptureEditAssetScroll();
+    const targetLink = links[targetIdx];
+    const lang = targetLink.getAttribute('href').replace('#lang', '');
+    try { new bootstrap.Tab(targetLink).show(); } catch (e) {}
+    switchAssetLang(lang);
+    _oqbRestoreEditAssetScrollSoon(Object.assign({}, snapshot || {}, { lang: lang }));
+    return true;
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.defaultPrevented || e.altKey || e.metaKey) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (_oqbEditNavShortcutTargetIsTyping(e.target)) return;
+    if (!_oqbEditModalTopOwnsKeyboard()) return;
+
+    if (e.ctrlKey) {
+        if (oqbEditVersionGo(e.key === 'ArrowLeft' ? -1 : 1)) {
+            e.preventDefault();
+        }
+        return;
+    }
+
+    const nav = window.oqbEditNav || { ids: [], idx: -1 };
+    const delta = e.key === 'ArrowLeft' ? -1 : 1;
+    const target = nav.idx + delta;
+    if (nav.idx === -1 || target < 0 || target >= nav.ids.length) return;
+
+    e.preventDefault();
+    oqbEditNavGo(delta);
+});
 
 // ==================== EDIT MODAL ====================
 function openEditModal(questionId, opts) {
@@ -218,7 +357,10 @@ function openEditModal(questionId, opts) {
                 data.verified_by);
 
             // Load assets (deferred — Assets tab is hidden until user clicks)
-            loadAssetsForEdit(data.id);
+            const assetsPromise = loadAssetsForEdit(data.id);
+            if (preserve && opts.preserveAssetScroll) {
+                Promise.resolve(assetsPromise).then(() => _oqbRestoreEditAssetScrollSoon(opts.preserveAssetScroll));
+            }
 
             bootstrap.Modal.getOrCreateInstance(document.getElementById('editQuestionModal')).show();
             _oqbUpdateEditNavUI(data.id);
@@ -565,7 +707,7 @@ function switchAssetLang(lang) {
 }
 
 function loadAssetsForEdit(questionId) {
-    fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
+    return fetch(`{{ url_for('admin.question_assets', question_id=0) }}`.replace('/0/', `/${questionId}/`))
         .then(r => r.json())
         .then(data => {
             // Cache full per-version asset tree before rendering any tab so

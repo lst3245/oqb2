@@ -99,7 +99,7 @@ window.oqbAfterQuestionEdit = loadQuestions;       // admin questions page
 window.oqbAfterQuestionEdit = refreshCurrentPage;  // dashboard
 ```
 
-**Prev/Next navigation contract**: the modal header has Prev/Next arrows (`#editNavControls`) that step through the filtered question list keeping the current tab. Each host defines `window.oqbEditNavSource()` returning the ordered ID array (read fresh on open): admin → current page rows (`#questionTableBody tr.q-row`), dashboard → full filtered set (`#allQuestionIds`).
+**Prev/Next navigation contract**: the modal header has Prev/Next arrows (`#editNavControls`) and left/right arrow-key shortcuts that step through the filtered question list keeping the current tab, version pill, and asset scroll position. Ctrl+Left / Ctrl+Right switches between asset version tabs while keeping the same asset section in view. Keyboard shortcuts are ignored while typing/editing or when a stacked child modal is active. Each host defines `window.oqbEditNavSource()` returning the ordered ID array (read fresh on open): admin → current page rows (`#questionTableBody tr.q-row`), dashboard → full filtered set (`#allQuestionIds`).
 
 The Assets tab also exposes per-slot AI actions (gated on `window.OQB_AI_TOOLS_ENABLED`): a slot-level editable proofread bar (`renderCheckStatusBar`, now for IMG/MD/DOC), an **AI proofread** quick-check button (`openQuickCheckModal`), and **Gen IMG** on MD/DOC cards (`generateImgFromSlot`). Mutations call `markEditModalListStale()`; `#editQuestionModal` `hidden.bs.modal` → `flushEditModalListRefresh()` → host `window.oqbAfterQuestionEdit()` (admin: `loadQuestions`, dashboard: `refreshCurrentPage`). Save Tags / verify / rename call `refreshOuterQuestionList()` immediately.
 
