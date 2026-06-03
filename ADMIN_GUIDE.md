@@ -452,6 +452,7 @@ The **AI Tools** feature (proofreading, Markdown generation, solve-generation/ch
 - **Vision is required** for both AI Tools operations. Local models must be vision-capable (e.g. Qwen-VL, Llava, Llama-Vision).
 - API keys entered here are **encrypted at rest** (Fernet). The plaintext is never shown again — leave the key field blank when editing to keep the stored key, type a new value to replace it, or tick **Remove the stored key** to fall back to `.env`.
 - Use the **Test** button to send a tiny ping and confirm connectivity / auth / model name.
+- Use the **Chat** button for a raw direct conversation with the endpoint. Vision endpoints support pasted, dragged, or attached images in the chat console; text-only endpoints disable image attachment.
 - Cloud (OpenAI, OpenRouter) and local (Ollama, LM Studio, vLLM) endpoints all work, as do Anthropic/Gemini behind an OpenAI-compatible proxy.
 
 ### Settings that stay in `.env`

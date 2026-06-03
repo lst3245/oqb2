@@ -6359,9 +6359,11 @@ def llm_endpoints_chat(cid):
     management page so super-admins can probe a model in its raw form to
     verify behaviour, debug formatting, or check reasoning quality.
 
-    Body JSON: ``{turns: [{role, content}, ...]}`` — the full conversation.
-    The server passes it straight through to ``llm_client.chat_messages_stream``
-    with no other messages prepended.
+    Body JSON: ``{turns: [{role, content, images?}, ...]}`` — the full
+    conversation. User turns may include pasted/attached image data URLs, which
+    are normalised through the same server-side path as the dashboard Explain
+    modal. The server passes the resulting OpenAI messages straight through to
+    ``llm_client.chat_messages_stream`` with no other messages prepended.
 
     Response is ``text/event-stream`` (SSE). Same event shape as the dashboard
     Explain endpoint: ``preamble``, ``delta``, ``done``, ``error``. Streaming
@@ -6377,15 +6379,60 @@ def llm_endpoints_chat(cid):
 
     data = request.get_json(silent=True) or {}
     raw_turns = data.get('turns') or []
+    image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+    max_images_per_turn = 6
+    max_total_image_bytes = 32 * 1024 * 1024
 
     messages = []
+    total_image_bytes = 0
     for t in raw_turns[-40:]:
         if not isinstance(t, dict):
             continue
         role = t.get('role')
         content = t.get('content')
-        if role in ('user', 'assistant', 'system') and isinstance(content, str) and content.strip():
-            messages.append({'role': role, 'content': content[:16000]})
+        text = content[:16000] if isinstance(content, str) else ''
+        if role in ('assistant', 'system'):
+            if text.strip():
+                messages.append({'role': role, 'content': text})
+            continue
+        if role != 'user':
+            continue
+
+        raw_images = t.get('images') if isinstance(t.get('images'), list) else []
+        image_blocks = []
+        if raw_images:
+            if not cfg.supports_vision:
+                return jsonify({
+                    'error': "This endpoint is marked text-only and can't receive images.",
+                }), 400
+            for du in raw_images[:max_images_per_turn]:
+                if not isinstance(du, str):
+                    continue
+                try:
+                    b64, mime = llm_client.prepare_image_from_data_url(du, image_max_dim)
+                except (ValueError, OSError) as e:
+                    return jsonify({
+                        'error': f'Could not decode an attached image: {e}',
+                    }), 400
+                image_blocks.append((b64, mime))
+                total_image_bytes += (len(b64) * 3) // 4
+                if total_image_bytes > max_total_image_bytes:
+                    return jsonify({
+                        'error': 'Total attached-image size exceeds the 32 MB limit. '
+                                 'Drop a few images and try again.',
+                    }), 413
+
+        if not text.strip() and not image_blocks:
+            continue
+        if image_blocks:
+            parts = []
+            if text.strip():
+                parts.append({'type': 'text', 'text': text})
+            for b64, mime in image_blocks:
+                parts.append(llm_client._image_block(b64, mime))
+            messages.append({'role': 'user', 'content': parts})
+        elif text.strip():
+            messages.append({'role': 'user', 'content': text})
 
     if not messages:
         return jsonify({'error': 'No messages to send.'}), 400
