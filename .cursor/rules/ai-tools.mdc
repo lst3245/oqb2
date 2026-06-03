@@ -4,9 +4,9 @@ globs: app/ai_tools.py,app/llm_client.py,app/ai_prompts.py,templates/admin_llm_e
 alwaysApply: false
 ---
 
-# AI Tools (LLM proofreading + Markdown generation)
+# AI Tools (LLM proofreading + Markdown generation + solve ops)
 
-Admin batch feature that calls an OpenAI-compatible LLM over the selected questions to (a) **proofread** a typed version's images against an official scan, or (b) **transcribe** images into a Markdown asset. Runs stream a live SSE log with a real server-side Stop.
+Admin batch feature that calls an OpenAI-compatible LLM over selected questions to proofread typed assets, transcribe images into Markdown, auto-tag questions, or **solve** a QUE to generate/check ANS / SOL / Answer Text. Runs stream a live SSE log with a real server-side Stop.
 
 ## Files map
 
@@ -16,14 +16,15 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) — `PROMPTS_REGISTRY`, `get_prompt`, `render_prompt`, parsers |
 | Prompt override storage | [app/models.py](mdc:app/models.py) `PromptOverride` (table `prompt_overrides`) |
 | Prompt admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html), [app/admin.py](mdc:app/admin.py) `prompts_*` |
-| SSE generators + cancel registry + `generate_md_slot` | [app/ai_tools.py](mdc:app/ai_tools.py) |
+| SSE generators + cancel registry + `generate_md_slot` / solve workers | [app/ai_tools.py](mdc:app/ai_tools.py) |
 | Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`); `kind` (`local`/`cloud`) + `max_concurrency` gate parallel batch ops |
 | Parallel executor | [app/parallel.py](mdc:app/parallel.py) `run_parallel(app, cancel, items, worker_fn, max_workers)` |
 | Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |
 | Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` (incl. `_duplicate`, `_chat` raw-chat console) |
-| SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_cancel`, `ai_endpoints` |
+| SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_solve_generate`, `ai_solve_check`, `ai_auto_tag`, `ai_cancel`, `ai_endpoints` |
 | Per-slot sync MD route (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_generate_md_slot` |
 | Per-slot sync **proofread** route (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check_slot` |
+| Per-slot sync **solve** routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_solve_generate_slot`, `ai_solve_check_slot`, `ai_answer_text` |
 | Per-slot **render MD/DOC → IMG** route (subject-admin) | [app/admin.py](mdc:app/admin.py) `generate_img_slot` |
 | Shared per-slot check worker + lazy Word session | [app/ai_tools.py](mdc:app/ai_tools.py) `check_slot_format`, `check_slot`, `_resolve_format_images`, `_resolve_slot_images`, `_render_source_to_pages`, `_LazyWord`, `default_render_opts` |
 | Manual check-state route (subject-admin) | [app/admin.py](mdc:app/admin.py) `set_asset_check_state` |
@@ -32,8 +33,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over the selected questi
 | Verify / batch routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `verify_question`, `batch_set_verified`, `batch_set_check_state` |
 | Auto-Tag button + modal + review-populate JS | [templates/partials/edit_question_modal.html](mdc:templates/partials/edit_question_modal.html) `#autoTagModal`, [.../edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `openAutoTagModal`, `runAutoTag`, `applySuggestionsToForm` |
 | Endpoint management UI | [templates/admin_llm_endpoints.html](mdc:templates/admin_llm_endpoints.html) |
-| AI Tools modal + console | [templates/admin_questions.html](mdc:templates/admin_questions.html) `aiToolsModal` |
-| Per-slot check badge/bar + Gen-MD/Gen-IMG/Quick-Check buttons + slot modals | [templates/partials/edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `renderCheckBadge`, `renderCheckStatusBar`, `setSlotCheckState`, `aiSlotMdButtonHtml`, `openAiSlotMdModal`, `genImgButtonHtml`, `generateImgFromSlot`, `openQuickCheckModal`, `runQuickCheck` |
+| AI Tools modal + console | [templates/admin_questions.html](mdc:templates/admin_questions.html) `aiToolsModal` (check / MD / solvegen / solvecheck / tag) |
+| Per-slot check badge/bar + Gen-MD/Gen-IMG/Quick-Check/Solve buttons + slot modals | [templates/partials/edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `renderCheckBadge`, `renderCheckStatusBar`, `setSlotCheckState`, `aiSlotMdButtonHtml`, `openAiSlotMdModal`, `genImgButtonHtml`, `generateImgFromSlot`, `openQuickCheckModal`, `runQuickCheck`, `openAiSolveSlotModal`, `runAiSolveSlot`, `openAnswerTextAiModal`, `runAnswerTextAi` |
 | Edit-modal Prev/Next nav (preserve tab) | [templates/partials/edit_question_modal.html](mdc:templates/partials/edit_question_modal.html) `#editNavControls`, [.../edit_question_modal_js.html](mdc:templates/partials/edit_question_modal_js.html) `oqbEditNavGo`, `window.oqbEditNavSource` (host-defined) |
 | AI-Tools-enabled global (admin, any page) | [templates/base.html](mdc:templates/base.html) `window.OQB_AI_TOOLS_ENABLED` |
 | Explain tutor chat (route + helpers) | [app/dashboard.py](mdc:app/dashboard.py) `explain_question`, `explain_endpoints`, `_default_explain_endpoint`, `_can_pick_explain_endpoint`, `_explain_slot_context` |
@@ -66,10 +67,15 @@ Routes mirror `batch_generate_images`: gather work in request context, stream in
 
 - `GET /admin/questions/ai/check` — params `question_ids`, `endpoint_id`, `typed_version`, `ref_version`, `atypes` (csv QUE/ANS/SOL), `formats` (csv IMG/MD/DOC; `DOCX`→`DOC`, default all three), `recheck` (1/0), `parallel` (1/0; cloud only).
 - `GET /admin/questions/ai/generate-md` — params `question_ids`, `endpoint_id`, `source_version`, `target_version`, `atypes`, `overwrite` (1/0), `embed_image` (1/0), `parallel` (1/0; cloud only).
+- `GET /admin/questions/ai/solve-generate` — params `question_ids`, `endpoint_id`, `versions` (csv EN/CH/BI/ENO/CHO), `targets` (`ANS,SOL,ANS_TEXT`), `include_official_sol` (1/0), `overwrite` (1/0), `parallel` (1/0; cloud only). Writes ANS/SOL Markdown assets and/or version-independent `Question.answer`.
+- `GET /admin/questions/ai/solve-check` — params `question_ids`, `endpoint_id`, `versions`, `targets` (`ANS,SOL,ANS_TEXT`), `formats` (IMG/MD/DOC for asset targets), `include_official_sol`, `parallel`. Writes `QuestionAsset.check_state/check_result/checked_at` for ANS/SOL asset formats; ANS_TEXT checks are log-only and do not persist state.
 - `POST /admin/questions/ai/cancel` — body `{job_id}`.
 - `GET /admin/questions/ai/endpoints` — enabled endpoints for the modal dropdown (subject-admin OK).
 - `POST /admin/questions/<id>/assets/ai/generate-md` — **synchronous** (not SSE) per-slot MD generation for the edit-modal button; body `{version, asset_type, endpoint_id, embed_image?, overwrite?, source_version?}` (`source_version` defaults to `version`; UI shows the button when any version has IMG for that atype and offers a source-version picker); returns `{success, status, message, asset_id}`.
 - `POST /admin/questions/<id>/assets/ai/check` — **synchronous** per-slot proofread for the edit-modal Quick-Check button; body `{version, asset_type, ref_version, endpoint_id, recheck?, formats?}`; calls `check_slot` (all present formats by default) → `{success, status, state, message}` (status ∈ ok|issues|skip|error).
+- `POST /admin/questions/<id>/assets/ai/solve-generate` — sync ANS/SOL Markdown generation from QUE; body `{version, asset_type: ANS|SOL, endpoint_id?, include_official_sol?, overwrite?}`.
+- `POST /admin/questions/<id>/assets/ai/solve-check` — sync ANS/SOL solve-check; body `{version, asset_type: ANS|SOL, endpoint_id?, include_official_sol?, formats?}`.
+- `POST /admin/questions/<id>/ai/answer-text` — sync Answer Text solve op; body `{mode: "generate"|"check", source_versions[], endpoint_id?, include_official_sol?, overwrite?}`. Generate writes `Question.answer`; check returns findings only.
 - `POST /admin/questions/<id>/assets/generate-img` — **synchronous** render of ONE slot's MD/DOC source into IMG part(s) for the edit-modal Gen-IMG button; body `{version, asset_type, source_format?, stitch?}` (`source_format` ∈ DOC|MD|'' auto). Reuses `batch_image_gen` (Word COM) + `replace_img_assets`. Returns `{success, message, wrote, deleted, source_format}`.
 - `POST /admin/questions/<id>/assets/check-state` — **manual** set/clear of a slot's proofread status; body `{version, asset_type, state, note?, severity?}` where `state ∈ ok|issues|error|clear`. Writes check fields to ALL rows in the slot; `clear` nulls them. Manual edits store `checked_by: "manual"` + `editor` username. Drives the editable status bar.
 - `POST /admin/questions/<id>/ai/suggest-tags` — **synchronous**, no DB write. Body `{versions[], fields[], endpoint_id?}` → returns `{suggestions, display_names, unmatched[], raw}` for the edit modal to populate + highlight (user clicks Save Tags to commit).
@@ -78,7 +84,7 @@ Routes mirror `batch_generate_images`: gather work in request context, stream in
 - `POST /admin/questions/batch-set-verified` — body `{question_ids[], verified}` (subject-scoped).
 - `POST /admin/questions/batch-set-check-state` — body `{question_ids[], versions[], atypes[], state, note?, severity?, overwrite?}`; applies the per-slot check write across the selection (skips empty slots; `overwrite=false` skips slots already carrying a status).
 
-Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; carries `job_id`) / `info` / `skip` / `success` / `error` / `done`. The `done` event carries `stats` (`{ok, issues, skipped, errors}` for check; `{created, skipped, errors}` for MD).
+Event dicts: `{type, message, current?, total?, ...}`. `type` ∈ `job` (first; carries `job_id`) / `info` / `skip` / `success` / `error` / `done`. The `done` event carries `stats` (`{ok, issues, skipped, errors}` for check/solve-check; `{created, skipped, errors}` for MD; `{created, updated, skipped, errors}` for solve-generate).
 
 ## Per-feature default LLM endpoints
 
@@ -94,11 +100,13 @@ Every AI feature has its own `*_DEFAULT_LLM` System Setting (string = endpoint n
 | `AUTOTAG_DEFAULT_LLM` | `_default_ai_endpoint('AUTOTAG_DEFAULT_LLM')` | optional (server falls back) |
 | `MD_DEFAULT_LLM` | `_default_ai_endpoint('MD_DEFAULT_LLM')` | optional |
 | `CHECK_DEFAULT_LLM` | `_default_ai_endpoint('CHECK_DEFAULT_LLM')` | optional |
+| `SOLVEGEN_DEFAULT_LLM` | `_default_ai_endpoint('SOLVEGEN_DEFAULT_LLM')` | optional |
+| `SOLVECHECK_DEFAULT_LLM` | `_default_ai_endpoint('SOLVECHECK_DEFAULT_LLM')` | optional |
 | `PDF_IMPORT_DEFAULT_LLM` | `_pdf_default_endpoint` (then falls through to `EXPLAIN_DEFAULT_LLM`) | optional |
 
 Server-side validation goes through `_ai_load_endpoint(default_setting_key)` (query) / `_ai_load_endpoint_from_body(data, default_setting_key)` (JSON body) — both return `(cfg, error_response, status)` and fall back to the per-feature default when `endpoint_id` is missing/blank/`0`.
 
-Client-side: `GET /admin/questions/ai/endpoints` returns `{endpoints: [...], defaults: {tag, md, check}}`. Edit-modal helpers use `_aiPickDefaultEndpointId(eps, defaults, opKey)` (in `templates/partials/edit_question_modal_js.html`) to pick the right id; the AI Tools modal in `admin_questions.html` re-applies the default whenever the op radio changes (`aiToolsToggleOp` → `_aiApplyDefaultEndpoint`). PDF Import pre-selects server-side (`default_endpoint_id` template var on the `<option selected>`).
+Client-side: `GET /admin/questions/ai/endpoints` returns `{endpoints: [...], defaults: {tag, md, check, solvegen, solvecheck}}`. Edit-modal helpers use `_aiPickDefaultEndpointId(eps, defaults, opKey)` (in `templates/partials/edit_question_modal_js.html`) to pick the right id; the AI Tools modal in `admin_questions.html` re-applies the default whenever the op radio changes (`aiToolsToggleOp` → `_aiApplyDefaultEndpoint`). PDF Import pre-selects server-side (`default_endpoint_id` template var on the `<option selected>`).
 
 ## Cancellation (real server-side Stop)
 
@@ -106,10 +114,10 @@ Client-side: `GET /admin/questions/ai/endpoints` returns `{endpoints: [...], def
 
 ## Parallel batch ops (local vs cloud)
 
-Each `LLMConfig` carries `kind` (`'local'` | `'cloud'`) + `max_concurrency` (int, default 1). The four SSE batch generators — `iter_check`, `iter_generate_md`, `iter_auto_tag` (this file) and `iter_detect` ([app/pdf_import.py](mdc:app/pdf_import.py)) — take `parallel`, `app`, `max_workers` kwargs and **fan their per-item LLM round-trips across a thread pool only when the endpoint is cloud AND the route passed `parallel=1`**; otherwise they run the unchanged sequential loop. Local endpoints are always sequential.
+Each `LLMConfig` carries `kind` (`'local'` | `'cloud'`) + `max_concurrency` (int, default 1). The SSE batch generators — `iter_check`, `iter_generate_md`, `iter_solve_generate`, `iter_solve_check`, `iter_auto_tag` (this file) and `iter_detect` ([app/pdf_import.py](mdc:app/pdf_import.py)) — take `parallel`, `app`, `max_workers` kwargs and **fan their per-item LLM round-trips across a thread pool only when the endpoint is cloud AND the route passed `parallel=1`**; otherwise they run the unchanged sequential loop. Local endpoints are always sequential.
 
 - **Executor**: `app/parallel.run_parallel(app, cancel, items, worker_fn, max_workers)` — generator yielding `{item, result, error}` in **completion order**; each worker runs inside `app.app_context()` (Flask-SQLAlchemy gives a thread-local scoped session). `max_workers<=1` ⇒ sequential fallback. A cancelled-before-start worker returns the `CANCELLED` sentinel (consumer skips it, no counter/event). In-flight requests finish naturally — same cancel semantics as the sequential loops.
-- **Per-item units**: `generate_md_slot` / `check_slot` / `_auto_tag_one` / `detect_page` — pure functions returning a result dict (or raising, which the consumer turns into an `error` event). **All counter updates + event shaping happen on the consumer thread**, never in workers.
+- **Per-item units**: `generate_md_slot` / `check_slot` / `solve_generate_slot` / `generate_answer_text` / `solve_check_slot_format` / `check_answer_text` / `_auto_tag_one` / `detect_page` — pure functions returning a result dict (or raising, which the consumer turns into an `error` event). **All counter updates + event shaping happen on the consumer thread**, never in workers.
 - **Word COM**: in parallel `iter_check`, each worker owns a **short-lived `_LazyWord`** (opened + closed inside the worker) so MD/DOC pre-rendering still serialises on the global `word_com._WORD_COM_LOCK` while pure-IMG checks run fully concurrently. The sequential path keeps the single reused session.
 - **PDF detect ordering**: in parallel `iter_detect`, custom-prompt (`generic_prompt`) auto-numbering is assigned **once at the end** in reading order `(page, box top-Y)` per side (`_number_custom`) so question numbers are deterministic regardless of completion order.
 - **Routes**: `_ai_parallel(cfg, want_parallel)` (in [app/admin.py](mdc:app/admin.py)) returns `(on, workers)` — `on` only when `want_parallel and cfg.kind=='cloud' and max_concurrency>1`. The PDF detect route inlines the same gate.
@@ -150,6 +158,15 @@ Classify a question with a vision LLM and map returned **names** back to the sub
 Per slot: load source IMG parts → `MD_SYSTEM` LLM call → `strip_md_fences` → `normalize_inline_math` (tightens `$ x $` → `$x$` so pandoc/docx renders it — `tex_math_dollars` rejects spaced inline delimiters; the prompt also asks for tight `$x$`). **Figures are only embedded when the transcription actually contains a `[FIGURE: ...]` placeholder** (`ai_prompts.FIGURE_RE` / `figure_captions`) — pure-text questions yield Markdown only, no image. When figures exist and `embed_image` is on, `_embed_figures` runs a **second LLM "locate figures" pass** (`build_figure_box_system()` → `parse_figure_boxes` with 0–1000 grid + `PDF_IMPORT_COORD_ORDER`) for single-image slots and replaces each placeholder with a **cropped** base64 image (`crop_image_data_uri`); it falls back to the **whole** source image when the box is missing/degenerate/near-full-page (`_box_is_useful`) or the slot has multiple parts. Skips+logs if the result exceeds `MD_MAX_SIZE_BYTES`. Writes to the canonical MD path (`_md_rel_path`, mirrors `admin.create_md_asset`), upserts the target `QuestionAsset`, and calls `md_render.invalidate(asset.id)`.
 
 The prompt is strict that `[FIGURE]` is ONLY for real diagrams/graphs/drawings — never plain text, equations, tables, or MC options. Default `MD_SYSTEM` also requires escaped question numbers (`8\.`) and each MC option on its own line (GFM newline rules).
+
+## Solve generation/checking
+
+Solve ops are distinct from MD transcription and visual proofreading: the model is asked to work out the QUE itself.
+
+- **Inputs**: `_solve_gather_inputs` takes QUE content from the target version, preferring IMG parts, then MD text, then rendered DOC. If `include_official_sol` is true, ENO/CHO SOL content is appended when available. Answer Text is version-independent and uses the first selected version with usable QUE content.
+- **Generation**: `solve_generate_slot(question, kind, version, ...)` writes ANS/SOL Markdown assets using the same canonical `_md_rel_path` / `QuestionAsset(file_format='MD')` path and invalidates `md_render`. `generate_answer_text` writes plaintext to `Question.answer`.
+- **Checking**: `solve_check_slot_format` checks each existing ANS/SOL format separately and writes `check_state/check_result/checked_at` with `mode: "solve"` in `check_result`. `check_answer_text` returns `ok/issues/skip/error` only; it intentionally does not persist any check state because `Question.answer` has no check columns.
+- **Prompts**: `SOLVE_GEN_SYSTEM/USER` and `SOLVE_CHECK_SYSTEM/USER` live in the prompt registry. Solve-check reuses `parse_check_result`'s strict JSON shape so the existing status badge/bar can display issues.
 
 ## Explain (AI tutor chat — dashboard, all users)
 

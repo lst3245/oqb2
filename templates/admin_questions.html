@@ -642,6 +642,14 @@
                                 <label class="form-check-label" for="aiOpMd">Generate Markdown</label>
                             </div>
                             <div class="form-check">
+                                <input class="form-check-input" type="radio" name="aiOp" id="aiOpSolveGen" value="solvegen" onchange="aiToolsToggleOp()">
+                                <label class="form-check-label" for="aiOpSolveGen">Generate ANS/SOL (solve)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="aiOp" id="aiOpSolveCheck" value="solvecheck" onchange="aiToolsToggleOp()">
+                                <label class="form-check-label" for="aiOpSolveCheck">Check ANS/SOL (solve)</label>
+                            </div>
+                            <div class="form-check">
                                 <input class="form-check-input" type="radio" name="aiOp" id="aiOpTag" value="tag" onchange="aiToolsToggleOp()">
                                 <label class="form-check-label" for="aiOpTag">Auto tag (classify)</label>
                             </div>
@@ -737,6 +745,109 @@
                                 <input class="form-check-input" type="checkbox" id="aiMdOverwrite">
                                 <label class="form-check-label" for="aiMdOverwrite">Overwrite existing target MD</label>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Solve generation/check panels (shown for the solve ops) -->
+                    <div class="d-none" id="aiSolveGenPanel">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Target versions</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% for v in OQB_VERSIONS %}
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-solvegen-version" type="checkbox" value="{{ v }}" id="aiSolveGenVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                                        <label class="form-check-label" for="aiSolveGenVer_{{ v }}">{{ v }}</label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <small class="text-muted">ANS Text is generated once per question using the first selected version with QUE content.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Generate targets</label>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvegen-target" type="checkbox" value="ANS" id="aiSolveGenTarget_ANS" checked>
+                                    <label class="form-check-label" for="aiSolveGenTarget_ANS">ANS Markdown asset</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvegen-target" type="checkbox" value="SOL" id="aiSolveGenTarget_SOL" checked>
+                                    <label class="form-check-label" for="aiSolveGenTarget_SOL">SOL Markdown asset</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvegen-target" type="checkbox" value="ANS_TEXT" id="aiSolveGenTarget_TEXT">
+                                    <label class="form-check-label" for="aiSolveGenTarget_TEXT">ANS Text (database)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Options</label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="aiSolveGenOfficial">
+                                    <label class="form-check-label" for="aiSolveGenOfficial">Also send ENO/CHO SOL if available</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="aiSolveGenOverwrite">
+                                    <label class="form-check-label" for="aiSolveGenOverwrite">Overwrite existing target MD / ANS Text</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info py-2 small mt-2 mb-0">
+                            The model solves the QUE itself. This is different from Generate Markdown, which only transcribes images.
+                        </div>
+                    </div>
+
+                    <div class="d-none" id="aiSolveCheckPanel">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Versions to check</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% for v in OQB_VERSIONS %}
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-solvecheck-version" type="checkbox" value="{{ v }}" id="aiSolveCheckVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                                        <label class="form-check-label" for="aiSolveCheckVer_{{ v }}">{{ v }}</label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <small class="text-muted">ANS Text is checked once per question; asset checks run per selected version and format.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Check targets</label>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvecheck-target" type="checkbox" value="ANS" id="aiSolveCheckTarget_ANS" checked>
+                                    <label class="form-check-label" for="aiSolveCheckTarget_ANS">ANS assets</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvecheck-target" type="checkbox" value="SOL" id="aiSolveCheckTarget_SOL" checked>
+                                    <label class="form-check-label" for="aiSolveCheckTarget_SOL">SOL assets</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-solvecheck-target" type="checkbox" value="ANS_TEXT" id="aiSolveCheckTarget_TEXT">
+                                    <label class="form-check-label" for="aiSolveCheckTarget_TEXT">ANS Text (report only)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">Formats / context</label>
+                                <div class="d-flex flex-wrap gap-3 mb-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-solvecheck-fmt" type="checkbox" id="aiSolveFmt_IMG" value="IMG" checked>
+                                        <label class="form-check-label" for="aiSolveFmt_IMG">IMG</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-solvecheck-fmt" type="checkbox" id="aiSolveFmt_MD" value="MD" checked>
+                                        <label class="form-check-label" for="aiSolveFmt_MD">MD</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input ai-solvecheck-fmt" type="checkbox" id="aiSolveFmt_DOC" value="DOC" checked>
+                                        <label class="form-check-label" for="aiSolveFmt_DOC">DOCX</label>
+                                    </div>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="aiSolveCheckOfficial">
+                                    <label class="form-check-label" for="aiSolveCheckOfficial">Also send ENO/CHO SOL if available</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning py-2 small mt-2 mb-0">
+                            ANS/SOL asset issues are written to the existing proofread status fields. ANS Text findings are shown in the log only.
                         </div>
                     </div>
 
@@ -1702,7 +1813,7 @@ let aiToolsRunning = false;
 let aiToolsJobId = null;
 let aiToolsOp = 'check';
 
-let _aiEndpointDefaults = { tag: null, md: null, check: null };
+let _aiEndpointDefaults = { tag: null, md: null, check: null, solvegen: null, solvecheck: null };
 let _aiEndpoints = [];
 
 // The "Run in parallel" checkbox only applies to cloud endpoints that allow
@@ -1733,11 +1844,14 @@ function _aiApplyDefaultEndpoint() {
 
 function aiToolsToggleOp() {
     const op = document.querySelector('input[name="aiOp"]:checked').value;
-    // Auto tag uses its own panel and doesn't need the per-type / version row.
-    document.getElementById('aiTypeAndPanelRow').classList.toggle('d-none', op === 'tag');
-    document.getElementById('aiTagPanel').classList.toggle('d-none', op === 'tag' ? false : true);
+    // Tag/solve ops use their own panels and don't need the legacy asset-type row.
+    const legacy = (op === 'check' || op === 'md');
+    document.getElementById('aiTypeAndPanelRow').classList.toggle('d-none', !legacy);
+    document.getElementById('aiTagPanel').classList.toggle('d-none', op !== 'tag');
     document.getElementById('aiCheckPanel').classList.toggle('d-none', op !== 'check');
     document.getElementById('aiMdPanel').classList.toggle('d-none', op !== 'md');
+    document.getElementById('aiSolveGenPanel').classList.toggle('d-none', op !== 'solvegen');
+    document.getElementById('aiSolveCheckPanel').classList.toggle('d-none', op !== 'solvecheck');
     _aiApplyDefaultEndpoint();
     aiUpdateParallelUI();
 }
@@ -1747,7 +1861,11 @@ function openAiToolsModal(presetOp) {
     // Optional preset operation (e.g. the dedicated "Auto Tag" toolbar button).
     if (presetOp) {
         const radio = document.getElementById(
-            presetOp === 'tag' ? 'aiOpTag' : presetOp === 'md' ? 'aiOpMd' : 'aiOpCheck');
+            presetOp === 'tag' ? 'aiOpTag'
+            : presetOp === 'md' ? 'aiOpMd'
+            : presetOp === 'solvegen' ? 'aiOpSolveGen'
+            : presetOp === 'solvecheck' ? 'aiOpSolveCheck'
+            : 'aiOpCheck');
         if (radio) radio.checked = true;
     }
     document.getElementById('aiToolsCount').textContent = selectedQIds.size;
@@ -1838,6 +1956,31 @@ function runAiTools() {
         params.set('versions', versions.join(','));
         params.set('overwrite', document.getElementById('aiTagOverwrite').checked ? '1' : '0');
         endpointUrl = '{{ url_for("admin.ai_auto_tag") }}';
+    } else if (aiToolsOp === 'solvegen') {
+        const versions = Array.from(document.querySelectorAll('.ai-solvegen-version:checked')).map(cb => cb.value);
+        if (versions.length === 0) { showToast('Pick at least one target version.', 'warning'); return; }
+        const targets = Array.from(document.querySelectorAll('.ai-solvegen-target:checked')).map(cb => cb.value);
+        if (targets.length === 0) { showToast('Pick at least one generation target.', 'warning'); return; }
+        params.set('versions', versions.join(','));
+        params.set('targets', targets.join(','));
+        params.set('include_official_sol', document.getElementById('aiSolveGenOfficial').checked ? '1' : '0');
+        params.set('overwrite', document.getElementById('aiSolveGenOverwrite').checked ? '1' : '0');
+        endpointUrl = '{{ url_for("admin.ai_solve_generate") }}';
+    } else if (aiToolsOp === 'solvecheck') {
+        const versions = Array.from(document.querySelectorAll('.ai-solvecheck-version:checked')).map(cb => cb.value);
+        if (versions.length === 0) { showToast('Pick at least one version to check.', 'warning'); return; }
+        const targets = Array.from(document.querySelectorAll('.ai-solvecheck-target:checked')).map(cb => cb.value);
+        if (targets.length === 0) { showToast('Pick at least one check target.', 'warning'); return; }
+        const formats = Array.from(document.querySelectorAll('.ai-solvecheck-fmt:checked')).map(cb => cb.value);
+        if (formats.length === 0 && targets.some(t => t !== 'ANS_TEXT')) {
+            showToast('Pick at least one format (IMG / MD / DOCX).', 'warning');
+            return;
+        }
+        params.set('versions', versions.join(','));
+        params.set('targets', targets.join(','));
+        params.set('formats', formats.join(','));
+        params.set('include_official_sol', document.getElementById('aiSolveCheckOfficial').checked ? '1' : '0');
+        endpointUrl = '{{ url_for("admin.ai_solve_check") }}';
     } else {
         const atypes = ['QUE', 'ANS', 'SOL'].filter(t => document.getElementById('aiType_' + t).checked);
         if (atypes.length === 0) {
@@ -1886,7 +2029,10 @@ function runAiTools() {
     document.getElementById('aiToolsSummary').classList.add('d-none');
 
     const opLabel = aiToolsOp === 'check' ? 'image check'
-        : aiToolsOp === 'tag' ? 'auto tagging' : 'Markdown generation';
+        : aiToolsOp === 'tag' ? 'auto tagging'
+        : aiToolsOp === 'solvegen' ? 'solve generation'
+        : aiToolsOp === 'solvecheck' ? 'solve checking'
+        : 'Markdown generation';
     _appendAiLog(`Starting ${opLabel} (${selectedQIds.size} question(s))...`, 'info');
 
     const url = endpointUrl + '?' + params.toString();
@@ -1943,7 +2089,7 @@ function finishAiTools(event) {
     if (event && event.stats) {
         const s = event.stats;
         let html;
-        if (aiToolsOp === 'check') {
+        if (aiToolsOp === 'check' || aiToolsOp === 'solvecheck') {
             html = `
                 <div class="col"><div class="fs-5 fw-bold text-success">${s.ok ?? 0}</div><small class="text-muted">OK</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-warning">${s.issues ?? 0}</div><small class="text-muted">Issues</small></div>
@@ -1952,6 +2098,12 @@ function finishAiTools(event) {
         } else if (aiToolsOp === 'tag') {
             html = `
                 <div class="col"><div class="fs-5 fw-bold text-success">${s.tagged ?? 0}</div><small class="text-muted">Tagged</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
+        } else if (aiToolsOp === 'solvegen') {
+            html = `
+                <div class="col"><div class="fs-5 fw-bold text-success">${s.created ?? 0}</div><small class="text-muted">Created</small></div>
+                <div class="col"><div class="fs-5 fw-bold text-info">${s.updated ?? 0}</div><small class="text-muted">Updated</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
                 <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
         } else {

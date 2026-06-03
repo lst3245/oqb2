@@ -847,10 +847,15 @@ function renderCheckStatusBar(questionId, lang, atype, parts) {
 
     // Action buttons (always allow re-marking / clearing + an AI quick-check).
     const baseCall = `setSlotCheckState(${questionId}, '${lang}', '${atype}',`;
+    const solveCheckBtn = (atype === 'ANS' || atype === 'SOL')
+        ? `<button type="button" class="btn btn-outline-dark" title="Have AI solve the question and check this ${atype}"
+                    onclick="event.stopPropagation(); openAiSolveSlotModal(${questionId}, '${lang}', '${atype}', 'check')"><i class="bi bi-lightbulb"></i></button>`
+        : '';
     const btns = `
         <div class="btn-group btn-group-sm flex-shrink-0 ms-2" role="group">
             <button type="button" class="btn btn-outline-primary" title="Proofread with AI against a reference version"
                     onclick="event.stopPropagation(); openQuickCheckModal(${questionId}, '${lang}', '${atype}')"><i class="bi bi-robot"></i></button>
+            ${solveCheckBtn}
             <button type="button" class="btn btn-outline-success" title="Mark as correct"
                     onclick="event.stopPropagation(); ${baseCall} 'ok')"><i class="bi bi-check-lg"></i></button>
             <button type="button" class="btn btn-outline-danger" title="Mark as having an issue (add a note)"
@@ -1001,6 +1006,14 @@ function generateImgFromSlot(questionId, lang, atype, sourceFormat, imgCount) {
     .catch(err => showToast('Error: ' + err.message, 'danger'));
 }
 
+function aiSolveGenButtonHtml(questionId, lang, atype) {
+    if (!window.OQB_AI_TOOLS_ENABLED || (atype !== 'ANS' && atype !== 'SOL')) return '';
+    return `<button class="btn btn-sm btn-outline-dark" type="button"
+                title="Have AI solve the question and generate ${atype} Markdown"
+                onclick="event.stopPropagation(); openAiSolveSlotModal(${questionId}, '${lang}', '${atype}', 'generate')">
+                <i class="bi bi-lightbulb"></i> Solve Gen</button>`;
+}
+
 function renderAssetSections(questionId, lang, langAssets, ctx) {
     ctx = ctx || 'edit';
     let html = '';
@@ -1024,11 +1037,14 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <i class="bi bi-clipboard"></i> Ctrl+V image target
                     </span>
                 </h6>
-                <span class="text-muted small">
-                    <i class="bi bi-images"></i> ${imgs.length}
-                    &middot; <i class="bi bi-markdown"></i> ${md ? '1' : '0'}
-                    &middot; <i class="bi bi-file-word"></i> ${doc ? '1' : '0'}
-                </span>
+                <div class="d-flex align-items-center gap-2">
+                    ${aiSolveGenButtonHtml(questionId, lang, atype)}
+                    <span class="text-muted small">
+                        <i class="bi bi-images"></i> ${imgs.length}
+                        &middot; <i class="bi bi-markdown"></i> ${md ? '1' : '0'}
+                        &middot; <i class="bi bi-file-word"></i> ${doc ? '1' : '0'}
+                    </span>
+                </div>
             </div>
 
             ${renderCheckStatusBar(questionId, lang, atype, allParts)}
@@ -1767,6 +1783,142 @@ function runAiSlotMd(questionId, version, atype, hasMd, el) {
     });
 }
 
+// ============== Per-slot AI solve generation/checking ==============
+let _aiSolveSlotModalInstance = null;
+
+function openAiSolveSlotModal(questionId, version, atype, mode) {
+    if (atype !== 'ANS' && atype !== 'SOL') return;
+    const isGen = mode === 'generate';
+    let el = document.getElementById('aiSolveSlotModal');
+    if (el) el.remove();
+    el = document.createElement('div');
+    el.id = 'aiSolveSlotModal';
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('data-bs-backdrop', 'static');
+    el.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-lightbulb"></i> ${isGen ? 'Generate by Solving' : 'Check by Solving'}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-2">
+              Target: <strong>${_aiEscapeAttr(atype)}</strong> &middot; version <strong>${_aiEscapeAttr(version)}</strong>.
+              The model reads the QUE, works out the answer, then ${isGen ? 'writes Markdown for this slot.' : 'checks this slot and stores the proofread state.'}
+            </p>
+            <div class="mb-3">
+              <label class="form-label fw-bold" for="aiSolveSlotEndpoint">LLM endpoint</label>
+              <select class="form-select form-select-sm" id="aiSolveSlotEndpoint"><option value="">Loading…</option></select>
+            </div>
+            ${isGen ? `
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="aiSolveSlotOverwrite">
+              <label class="form-check-label" for="aiSolveSlotOverwrite">Overwrite existing ${atype} Markdown</label>
+            </div>` : `
+            <label class="form-label fw-bold mb-1">Formats to check</label>
+            <div class="d-flex flex-wrap gap-3 mb-2">
+              <div class="form-check"><input class="form-check-input ai-solve-slot-fmt" type="checkbox" value="IMG" id="aiSolveSlotFmt_IMG" checked><label class="form-check-label" for="aiSolveSlotFmt_IMG">IMG</label></div>
+              <div class="form-check"><input class="form-check-input ai-solve-slot-fmt" type="checkbox" value="MD" id="aiSolveSlotFmt_MD" checked><label class="form-check-label" for="aiSolveSlotFmt_MD">MD</label></div>
+              <div class="form-check"><input class="form-check-input ai-solve-slot-fmt" type="checkbox" value="DOC" id="aiSolveSlotFmt_DOC" checked><label class="form-check-label" for="aiSolveSlotFmt_DOC">DOCX</label></div>
+            </div>`}
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="aiSolveSlotOfficial">
+              <label class="form-check-label" for="aiSolveSlotOfficial">Also send ENO/CHO SOL if available</label>
+            </div>
+            <div id="aiSolveSlotStatus" class="small text-muted"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="aiSolveSlotRunBtn">
+              <i class="bi bi-lightbulb"></i> ${isGen ? 'Generate' : 'Run check'}
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+
+    const sel = el.querySelector('#aiSolveSlotEndpoint');
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
+            }).join('');
+            const id = _aiPickDefaultEndpointId(eps, data.defaults, isGen ? 'solvegen' : 'solvecheck');
+            if (id != null) sel.value = String(id);
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    el.querySelector('#aiSolveSlotRunBtn').onclick = () => runAiSolveSlot(questionId, version, atype, mode, el);
+    el.addEventListener('hidden.bs.modal', () => {
+        el.remove();
+        const editModal = document.getElementById('editQuestionModal');
+        if (editModal && editModal.classList.contains('show')) {
+            document.body.classList.add('modal-open');
+        }
+    });
+    _aiSolveSlotModalInstance = new bootstrap.Modal(el);
+    _aiSolveSlotModalInstance.show();
+}
+
+function runAiSolveSlot(questionId, version, atype, mode, el) {
+    const endpointId = el.querySelector('#aiSolveSlotEndpoint').value;
+    if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const isGen = mode === 'generate';
+    const btn = el.querySelector('#aiSolveSlotRunBtn');
+    const status = el.querySelector('#aiSolveSlotStatus');
+    const body = {
+        version: version,
+        asset_type: atype,
+        endpoint_id: parseInt(endpointId, 10),
+        include_official_sol: el.querySelector('#aiSolveSlotOfficial').checked
+    };
+    if (isGen) {
+        body.overwrite = el.querySelector('#aiSolveSlotOverwrite').checked;
+    } else {
+        const formats = Array.from(el.querySelectorAll('.ai-solve-slot-fmt:checked')).map(cb => cb.value);
+        if (formats.length === 0) { showToast('Pick at least one format.', 'warning'); return; }
+        body.formats = formats;
+    }
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${isGen ? 'Generating…' : 'Checking…'}`;
+    status.textContent = isGen ? 'Solving question and generating Markdown…' : 'Solving question and checking selected format(s)…';
+
+    const route = isGen
+        ? `{{ url_for('admin.ai_solve_generate_slot', question_id=0) }}`
+        : `{{ url_for('admin.ai_solve_check_slot', question_id=0) }}`;
+    const url = route.replace('/questions/0/', `/questions/${questionId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.success) {
+            const tone = d.state === 'issues' ? 'warning' : 'success';
+            showToast(d.message || (isGen ? 'Generated' : 'Check complete'), tone);
+            if (_aiSolveSlotModalInstance) _aiSolveSlotModalInstance.hide();
+            refreshAssetsView(questionId);
+            markEditModalListStale();
+        } else {
+            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'AI solve operation failed')}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = `<i class="bi bi-lightbulb"></i> ${isGen ? 'Generate' : 'Run check'}`;
+        }
+    })
+    .catch(err => {
+        status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-lightbulb"></i> ${isGen ? 'Generate' : 'Run check'}`;
+    });
+}
+
 // ============== Per-slot AI proofread ("Quick check") ==============
 //
 // Proofread every present format in the slot (IMG / MD / DOC — MD/DOC rendered
@@ -1890,5 +2042,150 @@ function runQuickCheck(questionId, version, atype, el) {
         status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-robot"></i> Run check';
+    });
+}
+
+// ============== ANS Text solve generation/checking ==============
+let _answerTextAiModalInstance = null;
+
+function openAnswerTextAiModal(mode) {
+    if (!window.OQB_AI_TOOLS_ENABLED) {
+        showToast('AI Tools are disabled.', 'warning');
+        return;
+    }
+    const qId = document.getElementById('editQId')?.value;
+    if (!qId) return;
+    const isGen = mode === 'generate';
+    const allVers = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    const checks = allVers.map(v => `
+        <div class="form-check">
+            <input class="form-check-input ai-answer-version" type="checkbox" value="${v}" id="aiAnswerVer_${v}"${v === 'EN' ? ' checked' : ''}>
+            <label class="form-check-label" for="aiAnswerVer_${v}">${v}</label>
+        </div>`).join('');
+
+    let el = document.getElementById('answerTextAiModal');
+    if (el) el.remove();
+    el = document.createElement('div');
+    el.id = 'answerTextAiModal';
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('data-bs-backdrop', 'static');
+    el.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-lightbulb"></i> ${isGen ? 'Generate Answer Text' : 'Check Answer Text'}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-2">
+              Answer Text is version-independent. The model uses the first selected version with usable QUE content.
+              ${isGen ? 'The generated text is saved to this question and copied into the field.' : 'Check findings are reported here only and are not saved as check state.'}
+            </p>
+            <div class="mb-3">
+              <label class="form-label fw-bold" for="answerTextAiEndpoint">LLM endpoint</label>
+              <select class="form-select form-select-sm" id="answerTextAiEndpoint"><option value="">Loading…</option></select>
+            </div>
+            <label class="form-label fw-bold d-block">Source versions</label>
+            <div class="d-flex flex-wrap gap-3 mb-2">${checks}</div>
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="answerTextAiOfficial">
+              <label class="form-check-label" for="answerTextAiOfficial">Also send ENO/CHO SOL if available</label>
+            </div>
+            ${isGen ? `
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="answerTextAiOverwrite"${(document.getElementById('editAnswer')?.value || '').trim() ? '' : ' checked'}>
+              <label class="form-check-label" for="answerTextAiOverwrite">Overwrite existing Answer Text</label>
+            </div>` : ''}
+            <div id="answerTextAiStatus" class="small text-muted"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="answerTextAiRunBtn">
+              <i class="bi ${isGen ? 'bi-lightbulb' : 'bi-robot'}"></i> ${isGen ? 'Generate' : 'Run check'}
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+
+    const sel = el.querySelector('#answerTextAiEndpoint');
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const eps = data.endpoints || [];
+            if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+            sel.innerHTML = eps.map(ep => {
+                const vis = ep.supports_vision ? '' : ' (text-only — not usable)';
+                return `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${_aiEscapeAttr(ep.name)} — ${_aiEscapeAttr(ep.model_name)}${vis}</option>`;
+            }).join('');
+            const id = _aiPickDefaultEndpointId(eps, data.defaults, isGen ? 'solvegen' : 'solvecheck');
+            if (id != null) sel.value = String(id);
+        })
+        .catch(() => { sel.innerHTML = '<option value="">Failed to load endpoints</option>'; });
+
+    el.querySelector('#answerTextAiRunBtn').onclick = () => runAnswerTextAi(mode, el);
+    el.addEventListener('hidden.bs.modal', () => {
+        el.remove();
+        const editModal = document.getElementById('editQuestionModal');
+        if (editModal && editModal.classList.contains('show')) {
+            document.body.classList.add('modal-open');
+        }
+    });
+    _answerTextAiModalInstance = new bootstrap.Modal(el);
+    _answerTextAiModalInstance.show();
+}
+
+function runAnswerTextAi(mode, el) {
+    const qId = document.getElementById('editQId')?.value;
+    const endpointId = el.querySelector('#answerTextAiEndpoint').value;
+    if (!endpointId) { showToast('Select a vision-capable endpoint first.', 'warning'); return; }
+    const versions = Array.from(el.querySelectorAll('.ai-answer-version:checked')).map(cb => cb.value);
+    if (!versions.length) { showToast('Pick at least one source version.', 'warning'); return; }
+    const isGen = mode === 'generate';
+    const btn = el.querySelector('#answerTextAiRunBtn');
+    const status = el.querySelector('#answerTextAiStatus');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${isGen ? 'Generating…' : 'Checking…'}`;
+    status.textContent = isGen ? 'Solving question and generating Answer Text…' : 'Solving question and checking Answer Text…';
+
+    const url = `{{ url_for('admin.ai_answer_text', question_id=0) }}`.replace('/questions/0/', `/questions/${qId}/`);
+    const body = {
+        mode: mode,
+        endpoint_id: parseInt(endpointId, 10),
+        source_versions: versions,
+        include_official_sol: el.querySelector('#answerTextAiOfficial').checked
+    };
+    if (isGen) body.overwrite = el.querySelector('#answerTextAiOverwrite').checked;
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        const inline = document.getElementById('editAnswerAiStatus');
+        if (ok && d.success) {
+            if (isGen && d.answer !== undefined && d.answer !== null) {
+                document.getElementById('editAnswer').value = d.answer;
+            }
+            const tone = d.state === 'issues' ? 'warning' : 'success';
+            showToast(d.message || (isGen ? 'Answer Text generated' : 'Answer Text check complete'), tone);
+            if (inline) inline.textContent = d.message || '';
+            if (_answerTextAiModalInstance) _answerTextAiModalInstance.hide();
+            markEditModalListStale();
+        } else {
+            const msg = (d && (d.message || d.error)) || 'Answer Text AI operation failed';
+            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr(msg)}</span>`;
+            if (inline) inline.textContent = msg;
+            btn.disabled = false;
+            btn.innerHTML = `<i class="bi ${isGen ? 'bi-lightbulb' : 'bi-robot'}"></i> ${isGen ? 'Generate' : 'Run check'}`;
+        }
+    })
+    .catch(err => {
+        status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi ${isGen ? 'bi-lightbulb' : 'bi-robot'}"></i> ${isGen ? 'Generate' : 'Run check'}`;
     });
 }

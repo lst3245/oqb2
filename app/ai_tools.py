@@ -879,6 +879,578 @@ def _resolve_tag_inputs(question, versions, source_path, image_max_dim):
     return images, text_blocks, found_que
 
 
+# ==================== Solve-based ANS / SOL / ANS Text ====================
+
+SOLVE_TARGETS = ('ANS', 'SOL', 'ANS_TEXT')
+SOLVE_ASSET_TARGETS = ('ANS', 'SOL')
+
+
+def _read_md_asset(asset, source_path, *, limit=12000):
+    with open(_abs(source_path, asset.file_path), 'r', encoding='utf-8') as f:
+        raw = f.read()
+    return _strip_data_uris(raw, limit=limit)
+
+
+def _solve_add_slot_content(question, asset_type, version, images, text_blocks,
+                            source_path, image_max_dim, render_opts, word,
+                            *, label_prefix=None, prefer_text_for_md=True):
+    """Append one slot's best available content to ``images`` / ``text_blocks``.
+
+    Returns True when any usable content was found.
+    """
+    label_prefix = label_prefix or f'{asset_type} ({version})'
+
+    img_parts = _slot_img_parts(question.id, asset_type, version)
+    if img_parts:
+        try:
+            for a in img_parts:
+                images.append(llm_client.prepare_image(_abs(source_path, a.file_path),
+                                                       image_max_dim))
+            text_blocks.append(f'{label_prefix}: attached as {len(img_parts)} image(s).')
+            return True
+        except Exception:
+            logger.exception('Solve input IMG prep failed for q%s %s/%s',
+                             question.id, asset_type, version)
+
+    md = (QuestionAsset.query
+          .filter_by(question_id=question.id, asset_type=asset_type,
+                     version=version, file_format='MD')
+          .first())
+    if md and prefer_text_for_md:
+        try:
+            text_blocks.append(f'{label_prefix} Markdown:\n{_read_md_asset(md, source_path)}')
+            return True
+        except Exception:
+            logger.exception('Solve input MD read failed for q%s %s/%s',
+                             question.id, asset_type, version)
+
+    doc = (QuestionAsset.query
+           .filter_by(question_id=question.id, asset_type=asset_type,
+                      version=version, file_format='DOC')
+           .first())
+    if doc:
+        try:
+            pages = _render_source_to_pages(doc, source_path, render_opts, word)
+            for im in pages:
+                images.append(llm_client.prepare_image_from_pil(im, image_max_dim))
+            text_blocks.append(f'{label_prefix}: attached as {len(pages)} rendered DOC page image(s).')
+            return bool(pages)
+        except _RenderUnavailable:
+            raise
+        except Exception:
+            logger.exception('Solve input DOC render failed for q%s %s/%s',
+                             question.id, asset_type, version)
+
+    if md and not prefer_text_for_md:
+        try:
+            pages = _render_source_to_pages(md, source_path, render_opts, word)
+            for im in pages:
+                images.append(llm_client.prepare_image_from_pil(im, image_max_dim))
+            text_blocks.append(f'{label_prefix}: attached as {len(pages)} rendered MD page image(s).')
+            return bool(pages)
+        except _RenderUnavailable:
+            raise
+        except Exception:
+            logger.exception('Solve input MD render failed for q%s %s/%s',
+                             question.id, asset_type, version)
+
+    return False
+
+
+def _solve_gather_inputs(question, version, *, include_official_sol,
+                         source_path, image_max_dim, render_opts, word):
+    """Gather QUE context for a target version, plus optional ENO/CHO SOL."""
+    images = []
+    text_blocks = []
+    found_que = _solve_add_slot_content(
+        question, 'QUE', version, images, text_blocks, source_path,
+        image_max_dim, render_opts, word,
+        label_prefix=f'QUESTION ({version})',
+    )
+    if not found_que:
+        return images, text_blocks, False
+
+    if include_official_sol:
+        for official in ('ENO', 'CHO'):
+            _solve_add_slot_content(
+                question, 'SOL', official, images, text_blocks, source_path,
+                image_max_dim, render_opts, word,
+                label_prefix=f'OFFICIAL SOLUTION ({official})',
+            )
+    return images, text_blocks, True
+
+
+def _solve_gather_first_question(question, versions, *, include_official_sol,
+                                 source_path, image_max_dim, render_opts, word):
+    """Version-independent ANS Text uses the first selected version with QUE."""
+    for version in versions:
+        images, text_blocks, found = _solve_gather_inputs(
+            question, version, include_official_sol=include_official_sol,
+            source_path=source_path, image_max_dim=image_max_dim,
+            render_opts=render_opts, word=word)
+        if found:
+            return version, images, text_blocks
+    return None, [], []
+
+
+def _solve_write_md_asset(question, asset_type, version, md, *, existing,
+                          source_path, md_max_bytes, label):
+    payload = ai_prompts.normalize_inline_math(ai_prompts.strip_md_fences(md)).encode('utf-8')
+    if not payload.strip():
+        return {'status': 'error', 'message': f'{label} — model returned empty Markdown'}
+    if len(payload) > md_max_bytes:
+        return {'status': 'skip',
+                'message': f'{label} — generated MD {len(payload)} bytes exceeds limit {md_max_bytes}'}
+    try:
+        rel_path = _md_rel_path(question, version, asset_type)
+        abs_path = _abs(source_path, rel_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, 'wb') as f:
+            f.write(payload)
+        if existing:
+            existing.file_path = rel_path
+            asset = existing
+        else:
+            asset = QuestionAsset(
+                question_id=question.id, asset_type=asset_type,
+                file_format='MD', version=version, file_path=rel_path,
+                part_number=1,
+            )
+            db.session.add(asset)
+        db.session.commit()
+        md_render.invalidate(asset.id)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Solve MD write failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — write failed: {e}'}
+    verb = 'updated' if existing else 'created'
+    return {'status': verb, 'message': f'{label} — {verb} MD ({len(payload)} bytes)',
+            'asset_id': asset.id}
+
+
+def solve_generate_slot(question, kind, version, *, include_official_sol,
+                        overwrite, config, image_max_dim, md_max_bytes,
+                        source_path, render_opts, word):
+    """Solve a question and persist ANS/SOL Markdown for one target version."""
+    kind = (kind or '').upper()
+    label = f'{question.qid} / {version} / {kind} solve-generate'
+    if kind not in SOLVE_ASSET_TARGETS:
+        return {'status': 'error', 'message': f'{label} — kind must be ANS or SOL'}
+
+    existing = (QuestionAsset.query
+                .filter_by(question_id=question.id, asset_type=kind,
+                           version=version, file_format='MD')
+                .first())
+    if existing and not overwrite:
+        return {'status': 'skip', 'message': f'{label} — MD exists (overwrite off)'}
+
+    try:
+        images, text_blocks, found_que = _solve_gather_inputs(
+            question, version, include_official_sol=include_official_sol,
+            source_path=source_path, image_max_dim=image_max_dim,
+            render_opts=render_opts, word=word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — render failed: {e}'}
+    if not found_que:
+        return {'status': 'skip', 'message': f'{label} — no usable {version} QUE content'}
+
+    user_text = ai_prompts.build_solve_gen_user_text(kind, version)
+    if text_blocks:
+        user_text += '\n\n' + '\n\n'.join(text_blocks)
+    try:
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_GEN_SYSTEM'),
+                                     user_text, images)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+    if not (text or '').strip():
+        hint = _empty_reply_hint(info)
+        return {'status': 'error', 'message': f'{label} — model returned empty Markdown{hint}'}
+
+    return _solve_write_md_asset(
+        question, kind, version, text, existing=existing, source_path=source_path,
+        md_max_bytes=md_max_bytes, label=label)
+
+
+def generate_answer_text(question, *, source_versions, include_official_sol,
+                         overwrite, config, image_max_dim, source_path,
+                         render_opts, word):
+    """Solve a question and write version-independent plaintext Question.answer."""
+    label = f'{question.qid} / ANS Text solve-generate'
+    if (question.answer or '').strip() and not overwrite:
+        return {'status': 'skip', 'message': f'{label} — Answer Text exists (overwrite off)'}
+    try:
+        source_version, images, text_blocks = _solve_gather_first_question(
+            question, source_versions, include_official_sol=include_official_sol,
+            source_path=source_path, image_max_dim=image_max_dim,
+            render_opts=render_opts, word=word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — render failed: {e}'}
+    if not source_version:
+        return {'status': 'skip', 'message': f'{label} — no usable QUE content in selected versions'}
+
+    user_text = ai_prompts.build_solve_gen_user_text('ANS_TEXT', source_version)
+    if text_blocks:
+        user_text += '\n\n' + '\n\n'.join(text_blocks)
+    try:
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_GEN_SYSTEM'),
+                                     user_text, images)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+    answer = ai_prompts.strip_md_fences(text).strip()
+    if not answer:
+        hint = _empty_reply_hint(info)
+        return {'status': 'error', 'message': f'{label} — model returned empty Answer Text{hint}'}
+    try:
+        was_existing = bool((question.answer or '').strip())
+        question.answer = answer
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Answer Text write failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — DB write failed: {e}'}
+    status = 'updated' if was_existing else 'created'
+    return {'status': status, 'message': f'{label} — {status}: {answer[:160]}',
+            'answer': answer, 'source_version': source_version}
+
+
+def _solve_existing_target(question, asset_type, version, file_format,
+                           source_path, image_max_dim, render_opts, word):
+    images = []
+    text_blocks = []
+    if file_format == 'IMG':
+        parts = _slot_img_parts(question.id, asset_type, version)
+        if not parts:
+            return images, text_blocks, False
+        for a in parts:
+            images.append(llm_client.prepare_image(_abs(source_path, a.file_path),
+                                                   image_max_dim))
+        text_blocks.append(f'EXISTING TARGET {asset_type} ({version}) IMG: attached as {len(parts)} image(s).')
+        return images, text_blocks, True
+    asset = (QuestionAsset.query
+             .filter_by(question_id=question.id, asset_type=asset_type,
+                        version=version, file_format=file_format)
+             .first())
+    if not asset:
+        return images, text_blocks, False
+    if file_format == 'MD':
+        text_blocks.append(f'EXISTING TARGET {asset_type} ({version}) Markdown:\n{_read_md_asset(asset, source_path)}')
+        return images, text_blocks, True
+    pages = _render_source_to_pages(asset, source_path, render_opts, word)
+    for im in pages:
+        images.append(llm_client.prepare_image_from_pil(im, image_max_dim))
+    text_blocks.append(f'EXISTING TARGET {asset_type} ({version}) DOC: attached as {len(pages)} rendered page image(s).')
+    return images, text_blocks, bool(pages)
+
+
+def solve_check_slot_format(question, asset_type, version, file_format, *,
+                            include_official_sol, config, image_max_dim,
+                            source_path, render_opts, word):
+    """Solve the QUE, then judge one existing ANS/SOL asset format."""
+    label = f'{question.qid} / {version} / {asset_type} / {file_format} solve-check'
+    if asset_type not in SOLVE_ASSET_TARGETS:
+        return {'status': 'error', 'message': f'{label} — asset_type must be ANS or SOL',
+                'file_format': file_format}
+    if file_format not in CHECK_FORMATS:
+        return {'status': 'error', 'message': f'{label} — invalid format',
+                'file_format': file_format}
+    if not _slot_has_format(question.id, asset_type, version, file_format):
+        return {'status': 'skip', 'message': f'{label} — no {file_format} asset',
+                'file_format': file_format}
+
+    try:
+        q_images, q_text_blocks, found_que = _solve_gather_inputs(
+            question, version, include_official_sol=include_official_sol,
+            source_path=source_path, image_max_dim=image_max_dim,
+            render_opts=render_opts, word=word)
+        target_images, target_text_blocks, found_target = _solve_existing_target(
+            question, asset_type, version, file_format, source_path,
+            image_max_dim, render_opts, word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — render failed: {e}',
+                'file_format': file_format}
+    except Exception as e:
+        logger.exception('Solve-check input prep failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — input prep failed: {e}',
+                'file_format': file_format}
+    if not found_que:
+        return {'status': 'skip', 'message': f'{label} — no usable {version} QUE content',
+                'file_format': file_format}
+    if not found_target:
+        return {'status': 'skip', 'message': f'{label} — no usable target content',
+                'file_format': file_format}
+
+    user_text = ai_prompts.build_solve_check_user_text(asset_type, version)
+    blocks = q_text_blocks + target_text_blocks
+    if blocks:
+        user_text += '\n\n' + '\n\n'.join(blocks)
+    try:
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_CHECK_SYSTEM'),
+                                     user_text, q_images + target_images)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}',
+                'file_format': file_format}
+    if not (text or '').strip():
+        hint = _empty_reply_hint(info)
+        return {'status': 'error', 'message': f'{label} — model returned empty check result{hint}',
+                'file_format': file_format}
+
+    parsed = ai_prompts.parse_check_result(text)
+    now = datetime.utcnow()
+    base_result = {'model': config.model_name, 'ref_version': None,
+                   'checked_by': 'ai', 'file_format': file_format,
+                   'mode': 'solve'}
+    if parsed is None:
+        state = 'error'
+        result = {**base_result, 'status': 'error', 'issues': [],
+                  'raw': (text or '')[:4000]}
+        msg = f'{label} — unparseable model reply (stored raw)'
+        out_status = 'error'
+    else:
+        state = parsed['status']
+        result = {**base_result, 'status': state, 'issues': parsed['issues']}
+        if state == 'ok':
+            msg = f'{label} — OK'
+            out_status = 'ok'
+        else:
+            n = len(parsed['issues'])
+            first = parsed['issues'][0]['description'] if parsed['issues'] else ''
+            msg = f'{label} — {n} issue(s): {first[:160]}'
+            out_status = 'issues'
+
+    try:
+        _write_format_check_state(question.id, asset_type, version, file_format,
+                                  state, result, now)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Solve-check DB write failed for %s', label)
+        return {'status': 'error', 'message': f'{label} — DB write failed: {e}',
+                'file_format': file_format}
+    return {'status': out_status, 'message': msg, 'state': state,
+            'file_format': file_format}
+
+
+def check_answer_text(question, *, source_versions, include_official_sol,
+                      config, image_max_dim, source_path, render_opts, word):
+    """Solve the QUE and check Question.answer. Does not persist check state."""
+    label = f'{question.qid} / ANS Text solve-check'
+    answer = (question.answer or '').strip()
+    if not answer:
+        return {'status': 'skip', 'message': f'{label} — no Answer Text'}
+    try:
+        source_version, images, text_blocks = _solve_gather_first_question(
+            question, source_versions, include_official_sol=include_official_sol,
+            source_path=source_path, image_max_dim=image_max_dim,
+            render_opts=render_opts, word=word)
+    except _RenderUnavailable as e:
+        return {'status': 'error', 'message': f'{label} — render failed: {e}'}
+    if not source_version:
+        return {'status': 'skip', 'message': f'{label} — no usable QUE content in selected versions'}
+    user_text = ai_prompts.build_solve_check_user_text('ANS_TEXT', source_version)
+    text_blocks.append(f'EXISTING TARGET ANS_TEXT:\n{answer}')
+    user_text += '\n\n' + '\n\n'.join(text_blocks)
+    try:
+        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_CHECK_SYSTEM'),
+                                     user_text, images)
+    except llm_client.LLMError as e:
+        return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
+    if not (text or '').strip():
+        hint = _empty_reply_hint(info)
+        return {'status': 'error', 'message': f'{label} — model returned empty check result{hint}'}
+    parsed = ai_prompts.parse_check_result(text)
+    if parsed is None:
+        return {'status': 'error',
+                'message': f'{label} — unparseable model reply: {(text or "")[:200]}'}
+    if parsed['status'] == 'ok':
+        return {'status': 'ok', 'message': f'{label} — OK', 'state': 'ok',
+                'issues': []}
+    first = parsed['issues'][0]['description'] if parsed['issues'] else ''
+    return {'status': 'issues',
+            'message': f'{label} — {len(parsed["issues"])} issue(s): {first[:160]}',
+            'state': 'issues', 'issues': parsed['issues']}
+
+
+def iter_solve_generate(qs, versions, targets, overwrite, include_official_sol,
+                        config, image_max_dim, md_max_bytes, source_path, cancel,
+                        render_opts=None, parallel=False, app=None, max_workers=1):
+    render_opts = render_opts or {}
+    targets = [t for t in targets if t in SOLVE_TARGETS]
+    work = []
+    for q in qs:
+        for target in targets:
+            if target == 'ANS_TEXT':
+                work.append((q, target, None))
+            else:
+                for version in versions:
+                    work.append((q, target, version))
+    total = len(work)
+    yield {'type': 'info',
+           'message': f'Solve-generating {", ".join(targets)} for {len(qs)} question(s), '
+                      f'{total} item(s); versions: {", ".join(versions)}.'}
+
+    created = updated = skipped = errors = current = 0
+
+    def _shape(res):
+        nonlocal created, updated, skipped, errors
+        status = res['status']
+        if status == 'created':
+            created += 1; return 'success'
+        if status == 'updated':
+            updated += 1; return 'success'
+        if status == 'skip':
+            skipped += 1; return 'skip'
+        errors += 1; return 'error'
+
+    def _worker(item):
+        question, target, version = item
+        question = db.session.get(Question, question.id) or question
+        word = _LazyWord(render_opts.get('lock_timeout', 600))
+        try:
+            if target == 'ANS_TEXT':
+                return generate_answer_text(
+                    question, source_versions=versions,
+                    include_official_sol=include_official_sol,
+                    overwrite=overwrite, config=config, image_max_dim=image_max_dim,
+                    source_path=source_path, render_opts=render_opts, word=word)
+            return solve_generate_slot(
+                question, target, version,
+                include_official_sol=include_official_sol, overwrite=overwrite,
+                config=config, image_max_dim=image_max_dim,
+                md_max_bytes=md_max_bytes, source_path=source_path,
+                render_opts=render_opts, word=word)
+        finally:
+            word.close()
+
+    use_parallel = bool(parallel and app is not None and max_workers and max_workers > 1)
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+        for r in run_parallel(app, cancel, work, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
+            current += 1
+            question, target, version = r['item']
+            if r['error'] is not None:
+                errors += 1
+                label = f'{question.qid} / {target}' + (f' / {version}' if version else '')
+                yield {'type': 'error', 'message': f'{label} — {r["error"]}',
+                       'current': current, 'total': total}
+                continue
+            ev_type = _shape(r['result'])
+            yield {'type': ev_type, 'message': r['result']['message'],
+                   'current': current, 'total': total}
+    else:
+        for item in work:
+            if cancel.is_set():
+                yield {'type': 'info', 'message': 'Cancelled by user.',
+                       'current': current, 'total': total}
+                break
+            current += 1
+            res = _worker(item)
+            ev_type = _shape(res)
+            yield {'type': ev_type, 'message': res['message'],
+                   'current': current, 'total': total}
+
+    stats = {'created': created, 'updated': updated, 'skipped': skipped, 'errors': errors}
+    msg = (f'Done. Created: {created}, updated: {updated}, skipped: {skipped}, '
+           f'errors: {errors}.') if not cancel.is_set() else 'Stopped.'
+    yield {'type': 'done', 'message': msg, 'current': current if cancel.is_set() else total,
+           'total': total, 'stats': stats}
+
+
+def iter_solve_check(qs, versions, targets, formats, include_official_sol,
+                     config, image_max_dim, source_path, cancel, render_opts=None,
+                     parallel=False, app=None, max_workers=1):
+    render_opts = render_opts or {}
+    targets = [t for t in targets if t in SOLVE_TARGETS]
+    fmts = set(formats or CHECK_FORMATS) & set(CHECK_FORMATS)
+    work = []
+    for q in qs:
+        for target in targets:
+            if target == 'ANS_TEXT':
+                work.append((q, target, None, None))
+                continue
+            for version in versions:
+                for fmt in CHECK_FORMATS:
+                    if fmt in fmts and _slot_has_format(q.id, target, version, fmt):
+                        work.append((q, target, version, fmt))
+    total = len(work)
+    yield {'type': 'info',
+           'message': f'Solve-checking {", ".join(targets)} for {len(qs)} question(s), '
+                      f'{total} item(s); versions: {", ".join(versions)}.'}
+
+    ok = issues = skipped = errors = current = 0
+
+    def _shape(res):
+        nonlocal ok, issues, skipped, errors
+        status = res['status']
+        if status == 'ok':
+            ok += 1; return 'success'
+        if status == 'issues':
+            issues += 1; return 'success'
+        if status == 'skip':
+            skipped += 1; return 'skip'
+        errors += 1; return 'error'
+
+    def _worker(item):
+        question, target, version, fmt = item
+        question = db.session.get(Question, question.id) or question
+        word = _LazyWord(render_opts.get('lock_timeout', 600))
+        try:
+            if target == 'ANS_TEXT':
+                return check_answer_text(
+                    question, source_versions=versions,
+                    include_official_sol=include_official_sol, config=config,
+                    image_max_dim=image_max_dim, source_path=source_path,
+                    render_opts=render_opts, word=word)
+            return solve_check_slot_format(
+                question, target, version, fmt,
+                include_official_sol=include_official_sol, config=config,
+                image_max_dim=image_max_dim, source_path=source_path,
+                render_opts=render_opts, word=word)
+        finally:
+            word.close()
+
+    use_parallel = bool(parallel and app is not None and max_workers and max_workers > 1)
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+        for r in run_parallel(app, cancel, work, _worker, max_workers):
+            if r['result'] is CANCELLED:
+                continue
+            current += 1
+            question, target, version, fmt = r['item']
+            if r['error'] is not None:
+                errors += 1
+                label = f'{question.qid} / {target}' + (f' / {version} / {fmt}' if version else '')
+                yield {'type': 'error', 'message': f'{label} — {r["error"]}',
+                       'current': current, 'total': total}
+                continue
+            ev_type = _shape(r['result'])
+            ev = {'type': ev_type, 'message': r['result']['message'],
+                  'current': current, 'total': total}
+            if r['result'].get('state'):
+                ev['state'] = r['result']['state']
+            yield ev
+    else:
+        for item in work:
+            if cancel.is_set():
+                yield {'type': 'info', 'message': 'Cancelled by user.',
+                       'current': current, 'total': total}
+                break
+            current += 1
+            res = _worker(item)
+            ev_type = _shape(res)
+            ev = {'type': ev_type, 'message': res['message'],
+                  'current': current, 'total': total}
+            if res.get('state'):
+                ev['state'] = res['state']
+            yield ev
+
+    stats = {'ok': ok, 'issues': issues, 'skipped': skipped, 'errors': errors}
+    msg = (f'Done. OK: {ok}, with issues: {issues}, skipped: {skipped}, '
+           f'errors: {errors}.') if not cancel.is_set() else 'Stopped.'
+    yield {'type': 'done', 'message': msg, 'current': current if cancel.is_set() else total,
+           'total': total, 'stats': stats}
+
+
 def _map_tag_names(question, parsed, fields):
     """Map the LLM's returned NAMES back to the subject's Topic / Subtopic /
     Chapter / Subchapter IDs (case-insensitive). Returns

@@ -343,6 +343,99 @@ def build_md_user_text(source_version, asset_type):
     )
 
 
+# ==================== Solve-based ANS / SOL generation + checking ============
+
+_DEFAULT_SOLVE_GEN_SYSTEM = (
+    "You are an expert bilingual (English/Chinese) exam solver and answer-key "
+    "writer. You are given the QUESTION content, and may also be given an "
+    "official ENO/CHO SOLUTION to use as supporting context. Work out the "
+    "problem carefully and generate ONLY the requested output.\n"
+    "\n"
+    "Output modes:\n"
+    "- ANS: produce a concise Markdown answer. Include the final answer and "
+    "only the minimum justification needed to make it unambiguous. For MC "
+    "questions, start with the option letter and answer text when possible.\n"
+    "- SOL: produce a complete worked Markdown solution, with clear reasoning "
+    "and final answer.\n"
+    "- ANS_TEXT: produce plaintext only, suitable for the database Answer Text "
+    "field. For MC questions this should normally be A/B/C/D (optionally with "
+    "a short answer after it if needed). Do not use Markdown headings, bullets, "
+    "or code fences for ANS_TEXT.\n"
+    "\n"
+    "Language and formatting:\n"
+    "- Match the requested target version/language when possible. EN should be "
+    "English, CH should be Chinese, BI should be bilingual. ENO/CHO targets "
+    "should follow the visible official language.\n"
+    "- For Markdown outputs, use LaTeX for mathematics: inline math as $...$ "
+    "and display math as $$...$$, with NO spaces just inside the dollar signs "
+    "(write $x+1$, never $ x+1 $).\n"
+    "- Escape literal dollar signs as \\$.\n"
+    "- Output only the requested content. No preamble, no self-commentary, no "
+    "markdown code fence around the whole response."
+)
+
+
+_DEFAULT_SOLVE_GEN_USER = (
+    "Generate {{kind}} for target version {{target_version}}. The attached "
+    "content contains the QUESTION first. If official ENO/CHO solution content "
+    "is supplied, use it only as assistance; still produce the requested "
+    "{{kind}} yourself. Output only the requested {{kind}} content."
+)
+
+
+_DEFAULT_SOLVE_CHECK_SYSTEM = (
+    "You are a meticulous bilingual (English/Chinese) exam answer checker. "
+    "You are given the QUESTION content and an existing answer/solution to "
+    "check. You may also be given an official ENO/CHO SOLUTION as supporting "
+    "context. Independently work out the correct answer/solution first, then "
+    "judge whether the existing target is mathematically and conceptually "
+    "correct, complete enough for its type, and not misleading.\n"
+    "\n"
+    "Check expectations:\n"
+    "- ANS should contain the correct final answer, and for MC should identify "
+    "the correct option.\n"
+    "- SOL should contain a correct worked solution. It may use different valid "
+    "methods, but must not have wrong steps, missing critical reasoning, or a "
+    "wrong final answer.\n"
+    "- ANS_TEXT should be a concise plaintext final answer, often just A/B/C/D "
+    "for MC questions.\n"
+    "- Ignore harmless wording/style/layout differences. Report only issues "
+    "that affect correctness, completeness, or clarity.\n\n"
+    "Respond with STRICT JSON only (no prose, no markdown fences) of the form:\n"
+    '{"status": "ok"} when the target is correct, OR\n'
+    '{"status": "issues", "issues": [{"location": "<where>", '
+    '"description": "<what is wrong>", "severity": "minor|major"}]}\n'
+    "Use \"major\" when the issue changes the answer or invalidates the "
+    "solution."
+)
+
+
+_DEFAULT_SOLVE_CHECK_USER = (
+    "Check {{kind}} for target version {{target_version}}. The attached "
+    "content contains the QUESTION first, then the EXISTING TARGET to check. "
+    "If official ENO/CHO solution content is supplied, use it as supporting "
+    "context. Return STRICT JSON only."
+)
+
+
+def build_solve_gen_user_text(kind, target_version):
+    return render_prompt(
+        'SOLVE_GEN_USER',
+        kind=kind,
+        target_version=target_version,
+        asset_type=kind,
+    )
+
+
+def build_solve_check_user_text(kind, target_version):
+    return render_prompt(
+        'SOLVE_CHECK_USER',
+        kind=kind,
+        target_version=target_version,
+        asset_type=kind,
+    )
+
+
 # ==================== Auto question tagging ====================
 
 _DEFAULT_TAG_SYSTEM = (
@@ -904,6 +997,44 @@ PROMPTS_REGISTRY = OrderedDict([
         description='Accompanies the source image(s) sent each call.',
         default=_DEFAULT_MD_USER,
         variables=['asset_type', 'source_version'],
+        role='user',
+    )),
+    ('SOLVE_GEN_SYSTEM', _prompt(
+        group='AI Tools — Solve',
+        label='Solve generation: System prompt',
+        description=(
+            'Rules for LLM-generated ANS / SOL Markdown and ANS Text. Unlike '
+            'Markdown generation, this prompt asks the model to solve the '
+            'question rather than transcribe a source image.'
+        ),
+        default=_DEFAULT_SOLVE_GEN_SYSTEM,
+        role='system',
+    )),
+    ('SOLVE_GEN_USER', _prompt(
+        group='AI Tools — Solve',
+        label='Solve generation: User-turn instruction',
+        description='Accompanies the question content and optional official solution context.',
+        default=_DEFAULT_SOLVE_GEN_USER,
+        variables=['kind', 'target_version', 'asset_type'],
+        role='user',
+    )),
+    ('SOLVE_CHECK_SYSTEM', _prompt(
+        group='AI Tools — Solve',
+        label='Solve check: System prompt',
+        description=(
+            'Strict JSON checker for ANS / SOL / ANS Text correctness after '
+            'the model independently works out the question. Keep the JSON '
+            'shape compatible with parse_check_result.'
+        ),
+        default=_DEFAULT_SOLVE_CHECK_SYSTEM,
+        role='system',
+    )),
+    ('SOLVE_CHECK_USER', _prompt(
+        group='AI Tools — Solve',
+        label='Solve check: User-turn instruction',
+        description='Accompanies the question content, existing target, and optional official solution context.',
+        default=_DEFAULT_SOLVE_CHECK_USER,
+        variables=['kind', 'target_version', 'asset_type'],
         role='user',
     )),
     ('TAG_SYSTEM', _prompt(

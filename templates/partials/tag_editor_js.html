@@ -516,6 +516,10 @@ function populateTagForm(questionData) {
     document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null && questionData.correct_percentage !== undefined ? questionData.correct_percentage : '';
     document.getElementById('editAnswer').value = questionData.answer || '';
     document.getElementById('editComment').value = questionData.comment || '';
+    const answerAiBtns = document.getElementById('editAnswerAiBtns');
+    if (answerAiBtns) answerAiBtns.classList.toggle('d-none', !window.OQB_AI_TOOLS_ENABLED);
+    const answerAiStatus = document.getElementById('editAnswerAiStatus');
+    if (answerAiStatus) answerAiStatus.textContent = '';
 
     // Reset search fields
     ['editMajorTopicSearch', 'editMinorTopicsSearch', 'editMajorSubtopicSearch',

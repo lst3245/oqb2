@@ -41,9 +41,20 @@
                   rows="2" placeholder="Optional description"></textarea>
     </div>
     <div class="col-lg-4 col-md-6">
-        <label class="form-label">Answer Text</label>
+        <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0">Answer Text</label>
+            <div class="btn-group btn-group-sm" id="editAnswerAiBtns">
+                <button type="button" class="btn btn-outline-dark" onclick="openAnswerTextAiModal('generate')">
+                    <i class="bi bi-lightbulb"></i> Generate
+                </button>
+                <button type="button" class="btn btn-outline-primary" onclick="openAnswerTextAiModal('check')">
+                    <i class="bi bi-robot"></i> Check
+                </button>
+            </div>
+        </div>
         <textarea class="form-control" id="editAnswer" name="answer" 
                   rows="2" placeholder="Plain text answer (alt to ANS image)"></textarea>
+        <div id="editAnswerAiStatus" class="form-text"></div>
     </div>
     <div class="col-lg-4 col-md-6">
         <label class="form-label">Comment</label>

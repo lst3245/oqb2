@@ -320,6 +320,26 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         choices_fn=_llm_endpoint_choices,
     )),
+    ('SOLVEGEN_DEFAULT_LLM', _spec(
+        'SOLVEGEN_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Solve generation',
+        help=(
+            'LLM endpoint pre-selected for generating ANS / SOL / Answer Text '
+            'by having the model solve the question. Leave blank to auto-pick '
+            'the first enabled vision-capable endpoint.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
+    ('SOLVECHECK_DEFAULT_LLM', _spec(
+        'SOLVECHECK_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Solve checking',
+        help=(
+            'LLM endpoint pre-selected for checking ANS / SOL / Answer Text by '
+            'having the model solve the question and compare the target. Leave '
+            'blank to auto-pick the first enabled vision-capable endpoint.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
     ('PDF_IMPORT_DEFAULT_LLM', _spec(
         'PDF_IMPORT_DEFAULT_LLM', 'string', group='AI Tools',
         label='Default LLM for PDF Batch Import',

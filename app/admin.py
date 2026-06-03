@@ -4982,6 +4982,20 @@ def _ai_check_formats():
     return out
 
 
+def _ai_solve_targets_from_raw(raw):
+    valid = {'ANS', 'SOL', 'ANS_TEXT'}
+    out = []
+    for s in (raw or '').split(','):
+        v = s.strip().upper()
+        if v in valid and v not in out:
+            out.append(v)
+    return out
+
+
+def _ai_solve_targets(name='targets'):
+    return _ai_solve_targets_from_raw(request.args.get(name, ''))
+
+
 @admin_bp.route('/questions/ai/endpoints')
 @login_required
 @admin_required
@@ -5011,6 +5025,8 @@ def ai_endpoints():
             'tag': _id('AUTOTAG_DEFAULT_LLM'),
             'md': _id('MD_DEFAULT_LLM'),
             'check': _id('CHECK_DEFAULT_LLM'),
+            'solvegen': _id('SOLVEGEN_DEFAULT_LLM'),
+            'solvecheck': _id('SOLVECHECK_DEFAULT_LLM'),
         },
     })
 
@@ -5152,6 +5168,99 @@ def ai_generate_md():
     return _ai_stream(factory)
 
 
+@admin_bp.route('/questions/ai/solve-generate')
+@login_required
+@admin_required
+def ai_solve_generate():
+    """SSE: solve questions and generate ANS/SOL Markdown or Answer Text.
+
+    Query params: question_ids, endpoint_id, versions, targets
+    (ANS,SOL,ANS_TEXT), overwrite, include_official_sol, parallel.
+    """
+    guard = _ai_tools_guard()
+    if guard:
+        return guard
+    qs, err, code = _ai_parse_qs()
+    if err:
+        return err, code
+    cfg, err, code = _ai_load_endpoint('SOLVEGEN_DEFAULT_LLM')
+    if err:
+        return err, code
+
+    versions = _ai_versions_list('versions')
+    if not versions:
+        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+    targets = _ai_solve_targets('targets')
+    if not targets:
+        return jsonify({'error': 'targets must include at least one of ANS/SOL/ANS_TEXT'}), 400
+    overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
+    include_official_sol = request.args.get('include_official_sol', '0') in ('1', 'true', 'yes')
+    want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
+
+    def factory(app, cancel):
+        from app import ai_tools
+        image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        md_max_bytes = int(app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024))
+        source_path = app.config['SOURCE_PATH']
+        render_opts = ai_tools.default_render_opts(app.config)
+        from app.models import LLMConfig
+        live_cfg = LLMConfig.query.get(cfg.id)
+        live_cfg._batch = True
+        do_par, workers = _ai_parallel(live_cfg, want_parallel)
+        return ai_tools.iter_solve_generate(
+            qs, versions, targets, overwrite, include_official_sol,
+            live_cfg, image_max_dim, md_max_bytes, source_path, cancel,
+            render_opts=render_opts, parallel=do_par, app=app,
+            max_workers=workers)
+
+    return _ai_stream(factory)
+
+
+@admin_bp.route('/questions/ai/solve-check')
+@login_required
+@admin_required
+def ai_solve_check():
+    """SSE: solve questions and check existing ANS/SOL/Answer Text."""
+    guard = _ai_tools_guard()
+    if guard:
+        return guard
+    qs, err, code = _ai_parse_qs()
+    if err:
+        return err, code
+    cfg, err, code = _ai_load_endpoint('SOLVECHECK_DEFAULT_LLM')
+    if err:
+        return err, code
+
+    versions = _ai_versions_list('versions')
+    if not versions:
+        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+    targets = _ai_solve_targets('targets')
+    if not targets:
+        return jsonify({'error': 'targets must include at least one of ANS/SOL/ANS_TEXT'}), 400
+    formats = _ai_check_formats()
+    if not formats:
+        return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
+    include_official_sol = request.args.get('include_official_sol', '0') in ('1', 'true', 'yes')
+    want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
+
+    def factory(app, cancel):
+        from app import ai_tools
+        image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+        source_path = app.config['SOURCE_PATH']
+        render_opts = ai_tools.default_render_opts(app.config)
+        from app.models import LLMConfig
+        live_cfg = LLMConfig.query.get(cfg.id)
+        live_cfg._batch = True
+        do_par, workers = _ai_parallel(live_cfg, want_parallel)
+        return ai_tools.iter_solve_check(
+            qs, versions, targets, formats, include_official_sol,
+            live_cfg, image_max_dim, source_path, cancel,
+            render_opts=render_opts, parallel=do_par, app=app,
+            max_workers=workers)
+
+    return _ai_stream(factory)
+
+
 @admin_bp.route('/questions/<int:question_id>/assets/ai/generate-md', methods=['POST'])
 @login_required
 @admin_required
@@ -5280,6 +5389,187 @@ def ai_check_slot(question_id):
         'status': status,
         'state': res.get('state'),
         'message': res.get('message', ''),
+    }), http
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/ai/solve-generate', methods=['POST'])
+@login_required
+@admin_required
+def ai_solve_generate_slot(question_id):
+    """Synchronously solve and generate ANS/SOL Markdown for one target slot."""
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    if version not in set(VERSIONS):
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if asset_type not in ('ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be ANS / SOL'}), 400
+
+    cfg, err, code = _ai_load_endpoint_from_body(data, 'SOLVEGEN_DEFAULT_LLM')
+    if err:
+        return err, code
+
+    from app import ai_tools
+    word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
+    try:
+        res = ai_tools.solve_generate_slot(
+            question, asset_type, version,
+            include_official_sol=bool(data.get('include_official_sol', False)),
+            overwrite=bool(data.get('overwrite', False)),
+            config=cfg,
+            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+            md_max_bytes=int(current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)),
+            source_path=current_app.config['SOURCE_PATH'],
+            render_opts=ai_tools.default_render_opts(current_app.config),
+            word=word,
+        )
+    finally:
+        word.close()
+
+    status = res.get('status')
+    http = 200 if status in ('created', 'updated') else (409 if status == 'skip' else 502)
+    return jsonify({
+        'success': status in ('created', 'updated'),
+        'status': status,
+        'message': res.get('message', ''),
+        'asset_id': res.get('asset_id'),
+    }), http
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/ai/solve-check', methods=['POST'])
+@login_required
+@admin_required
+def ai_solve_check_slot(question_id):
+    """Synchronously solve and check one ANS/SOL slot across selected formats."""
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    version = (data.get('version') or '').strip().upper()
+    asset_type = (data.get('asset_type') or '').strip().upper()
+    if version not in set(VERSIONS):
+        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+    if asset_type not in ('ANS', 'SOL'):
+        return jsonify({'error': 'asset_type must be ANS / SOL'}), 400
+    cfg, err, code = _ai_load_endpoint_from_body(data, 'SOLVECHECK_DEFAULT_LLM')
+    if err:
+        return err, code
+    raw_fmts = data.get('formats')
+    formats = None
+    if raw_fmts is not None:
+        formats = set()
+        for f in raw_fmts:
+            v = str(f).strip().upper()
+            if v == 'DOCX':
+                v = 'DOC'
+            if v in ('IMG', 'MD', 'DOC'):
+                formats.add(v)
+        if not formats:
+            return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
+
+    from app import ai_tools
+    word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
+    results = []
+    try:
+        fmts = formats or ai_tools.CHECK_FORMATS
+        for fmt in ai_tools.CHECK_FORMATS:
+            if fmt in fmts:
+                results.append(ai_tools.solve_check_slot_format(
+                    question, asset_type, version, fmt,
+                    include_official_sol=bool(data.get('include_official_sol', False)),
+                    config=cfg,
+                    image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+                    source_path=current_app.config['SOURCE_PATH'],
+                    render_opts=ai_tools.default_render_opts(current_app.config),
+                    word=word,
+                ))
+        res = ai_tools._aggregate_check_results(results)
+    finally:
+        word.close()
+
+    status = res.get('status')
+    http = 200 if status in ('ok', 'issues') else (409 if status == 'skip' else 502)
+    return jsonify({
+        'success': status in ('ok', 'issues'),
+        'status': status,
+        'state': res.get('state'),
+        'message': res.get('message', ''),
+    }), http
+
+
+@admin_bp.route('/questions/<int:question_id>/ai/answer-text', methods=['POST'])
+@login_required
+@admin_required
+def ai_answer_text(question_id):
+    """Generate or check the version-independent Question.answer field."""
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+
+    question = Question.query.get_or_404(question_id)
+    if not current_user.is_super_admin:
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        if question.subject not in admin_subject_ids:
+            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    mode = (data.get('mode') or '').strip().lower()
+    if mode not in ('generate', 'check'):
+        return jsonify({'error': 'mode must be generate or check'}), 400
+    versions = [str(v).strip().upper() for v in (data.get('source_versions') or data.get('versions') or [])]
+    versions = [v for v in versions if v in set(VERSIONS)]
+    if not versions:
+        versions = list(VERSIONS)
+
+    setting = 'SOLVEGEN_DEFAULT_LLM' if mode == 'generate' else 'SOLVECHECK_DEFAULT_LLM'
+    cfg, err, code = _ai_load_endpoint_from_body(data, setting)
+    if err:
+        return err, code
+
+    from app import ai_tools
+    word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
+    try:
+        common = dict(
+            source_versions=versions,
+            include_official_sol=bool(data.get('include_official_sol', False)),
+            config=cfg,
+            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)),
+            source_path=current_app.config['SOURCE_PATH'],
+            render_opts=ai_tools.default_render_opts(current_app.config),
+            word=word,
+        )
+        if mode == 'generate':
+            res = ai_tools.generate_answer_text(
+                question, overwrite=bool(data.get('overwrite', False)), **common)
+        else:
+            res = ai_tools.check_answer_text(question, **common)
+    finally:
+        word.close()
+
+    status = res.get('status')
+    success = status in ('created', 'updated', 'ok', 'issues')
+    http = 200 if success else (409 if status == 'skip' else 502)
+    return jsonify({
+        'success': success,
+        'status': status,
+        'state': res.get('state'),
+        'message': res.get('message', ''),
+        'answer': res.get('answer'),
+        'issues': res.get('issues', []),
     }), http
 
 
