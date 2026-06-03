@@ -6,6 +6,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Question Management: batch Copy/Move Assets.** Selected questions now have a **Copy/Move Assets** batch operation. Admins can add multiple sequential operations that copy or move matching assets between version/type/format slots within each question, e.g. `ENO` `QUE/ANS/SOL` `IMG` → `EN/BI` `QUE/ANS/SOL` `IMG`. If an operation selects one source version or asset type, it can map to any target version/type; selecting multiple source versions/types locks that target axis and maps by name. Formats are always same-format only. The modal streams progress live, requires an explicit cannot-undo confirmation before running, shows a large warning for batches over 100 questions, supports overwrite control, preserves IMG multi-part order, keeps MD/DOC single-slot rules, and updates Markdown render caches / DOC thumbnail lifecycle hooks as assets are created, overwritten, or moved.
+
 - **Question edit modal keyboard navigation.** The edit modal's existing previous/next question arrows now also respond to the left/right arrow keys, preserving the active tab, version pill, and asset scroll position just like the buttons. Ctrl+Left / Ctrl+Right jumps between asset version tabs (EN / CH / BI / ENO / CHO) while keeping the same asset section in view. Shortcuts are ignored while typing in inputs, selects, textareas, contenteditable fields, Markdown editors, or stacked child modals.
 
 #### PDF Batch Import — optional whitespace trim on import

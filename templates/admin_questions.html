@@ -72,6 +72,9 @@
                     <button class="btn btn-sm btn-info text-dark" id="bulkMcqAnsBtn" style="display:none" onclick="openBatchMcqAnsModal()" title="Set MCQ ANS images from answer tag (A/B/C/D)">
                         <i class="bi bi-check-circle"></i> Set MCQ ANS (<span id="selCountBadgeMcq">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-outline-warning" id="bulkAssetOpsBtn" style="display:none" onclick="openBatchAssetOpsModal()" title="Copy or move assets between slots for the selected questions">
+                        <i class="bi bi-files"></i> Copy/Move Assets (<span id="selCountBadgeAssetOps">0</span>)
+                    </button>
                     {% if ai_tools_enabled %}
                     <button class="btn btn-sm btn-primary" id="bulkAiToolsBtn" style="display:none" onclick="openAiToolsModal()" title="Run AI proofreading or Markdown generation on the selected questions">
                         <i class="bi bi-robot"></i> AI Tools (<span id="selCountBadgeAi">0</span>)
@@ -881,6 +884,80 @@
     </div>
 </div>
 
+<!-- ===================== Batch Asset Copy/Move Modal ===================== -->
+<div class="modal fade" id="batchAssetOpsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-files"></i> Copy/Move Assets</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="batchAssetOpsCloseBtn"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    Add one or more operations. They run sequentially for every selected question.
+                    Assets are copied/moved within each question from source slots to target slots.
+                    Single source versions/types can be mapped freely. Multiple source versions/types lock the matching target choices and map by name.
+                    Format conversion is not performed.
+                </div>
+
+                <div id="batchAssetOpsOptions">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <p class="mb-0"><strong>Selected questions:</strong> <span id="batchAssetOpsCount" class="badge bg-secondary">0</span></p>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBatchAssetOp()">
+                            <i class="bi bi-plus-lg"></i> Add operation
+                        </button>
+                    </div>
+                    <div id="batchAssetOpsList"></div>
+                    <div id="batchAssetOpsValidation" class="small mt-2"></div>
+                </div>
+
+                <hr class="my-3">
+
+                <div id="batchAssetOpsLargeWarning" class="alert alert-danger d-none py-2">
+                    <div class="fw-bold"><i class="bi bi-exclamation-triangle-fill"></i> Large batch warning</div>
+                    More than 100 questions are selected. This can copy, move, overwrite, or delete many asset files.
+                    Review every operation carefully before running.
+                </div>
+                <div class="alert alert-warning py-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="batchAssetOpsConfirm" onchange="updateBatchAssetOpsRunButton()">
+                        <label class="form-check-label fw-semibold" for="batchAssetOpsConfirm">
+                            I have double-checked the operations and understand this cannot be undone.
+                        </label>
+                    </div>
+                </div>
+
+                <div id="batchAssetOpsConsoleWrap" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <small class="text-muted" id="batchAssetOpsProgressLabel">Starting...</small>
+                        <small id="batchAssetOpsStatus" class="badge bg-secondary">Idle</small>
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
+                        <div id="batchAssetOpsProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%;"></div>
+                    </div>
+                    <div id="batchAssetOpsLog"
+                         style="max-height: 300px; overflow-y: auto; font-size: 0.8rem; background: #1e1e1e;
+                                color: #ddd; padding: 0.5rem; font-family: monospace; border-radius: 4px;"></div>
+                    <div id="batchAssetOpsSummary" class="mt-2 d-none">
+                        <div class="row text-center small" id="batchAssetOpsSummaryStats"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="batchAssetOpsCancelBtn">Close</button>
+                <button class="btn btn-outline-danger d-none" id="batchAssetOpsStopBtn" onclick="stopBatchAssetOps()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+                <button class="btn btn-warning text-dark" id="batchAssetOpsRunBtn" onclick="runBatchAssetOps()" disabled>
+                    <i class="bi bi-play-fill"></i> Run Operations
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ===================== Batch Set Check State Modal ===================== -->
 <div class="modal fade" id="batchCheckStateModal" tabindex="-1">
     <div class="modal-dialog">
@@ -1258,6 +1335,10 @@ function updateSelectionUI() {
     const mcqBadge = document.getElementById('selCountBadgeMcq');
     if (mcqBtn) mcqBtn.style.display = count > 0 ? '' : 'none';
     if (mcqBadge) mcqBadge.textContent = count;
+    const assetOpsBtn = document.getElementById('bulkAssetOpsBtn');
+    const assetOpsBadge = document.getElementById('selCountBadgeAssetOps');
+    if (assetOpsBtn) assetOpsBtn.style.display = count > 0 ? '' : 'none';
+    if (assetOpsBadge) assetOpsBadge.textContent = count;
     const aiBtn = document.getElementById('bulkAiToolsBtn');
     const aiBadge = document.getElementById('selCountBadgeAi');
     if (aiBtn) aiBtn.style.display = count > 0 ? '' : 'none';
@@ -2329,6 +2410,332 @@ function stopBatchMcqAns() {
     document.getElementById('batchMcqAnsStatus').className = 'badge bg-warning text-dark';
     document.getElementById('batchMcqAnsOptions').classList.remove('opacity-50');
     _appendMcqAnsLog('Stopped by user.', 'warning');
+}
+
+// ==================== BATCH ASSET COPY/MOVE ====================
+
+let batchAssetOpsEventSource = null;
+let batchAssetOpsRunning = false;
+let batchAssetOpsNextId = 1;
+
+function _assetOpsVersionChoices(opId, side, defaults) {
+    const versions = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+    const labels = window.OQB_VERSION_LABELS || {};
+    const wanted = new Set(defaults || []);
+    return versions.map(v => `
+        <div class="form-check">
+            <input class="form-check-input bao-${side}-version" type="checkbox" value="${v}" id="bao_${opId}_${side}_ver_${v}" ${wanted.has(v) ? 'checked' : ''}>
+            <label class="form-check-label" for="bao_${opId}_${side}_ver_${v}">${v}${labels[v] ? ' (' + labels[v] + ')' : ''}</label>
+        </div>`).join('');
+}
+
+function _assetOpsATypeChoices(opId, side, defaults) {
+    const labels = { QUE: 'QUE (Question)', ANS: 'ANS (Answer)', SOL: 'SOL (Solution)' };
+    const wanted = new Set(defaults || []);
+    return ['QUE', 'ANS', 'SOL'].map(v => `
+        <div class="form-check">
+            <input class="form-check-input bao-${side}-atype" type="checkbox" value="${v}" id="bao_${opId}_${side}_atype_${v}" ${wanted.has(v) ? 'checked' : ''}>
+            <label class="form-check-label" for="bao_${opId}_${side}_atype_${v}">${labels[v]}</label>
+        </div>`).join('');
+}
+
+function _assetOpsFormatChoices(opId, side, defaults) {
+    const labels = { IMG: 'IMG', MD: 'MD', DOC: 'DOC/DOCX' };
+    const wanted = new Set(defaults || []);
+    return ['IMG', 'MD', 'DOC'].map(v => `
+        <div class="form-check">
+            <input class="form-check-input bao-${side}-format" type="checkbox" value="${v}" id="bao_${opId}_${side}_fmt_${v}" ${wanted.has(v) ? 'checked' : ''}>
+            <label class="form-check-label" for="bao_${opId}_${side}_fmt_${v}">${labels[v]}</label>
+        </div>`).join('');
+}
+
+function _assetOpsCardHtml(opId) {
+    return `
+        <div class="card mb-3 batch-asset-op" data-op-id="${opId}">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-bold">Operation <span class="bao-op-number"></span></span>
+                    <select class="form-select form-select-sm w-auto bao-action" title="Copy keeps source assets; Move removes source assets after all targets succeed">
+                        <option value="copy">Copy</option>
+                        <option value="move">Move</option>
+                    </select>
+                    <div class="form-check form-switch mb-0 ms-1">
+                        <input class="form-check-input bao-overwrite" type="checkbox" id="bao_${opId}_overwrite">
+                        <label class="form-check-label small" for="bao_${opId}_overwrite">Overwrite targets</label>
+                    </div>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary" onclick="moveBatchAssetOp(${opId}, -1)" title="Move up"><i class="bi bi-arrow-up"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="moveBatchAssetOp(${opId}, 1)" title="Move down"><i class="bi bi-arrow-down"></i></button>
+                    <button type="button" class="btn btn-outline-danger" onclick="removeBatchAssetOp(${opId})" title="Remove"><i class="bi bi-x-lg"></i></button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold mb-2"><i class="bi bi-box-arrow-up-right"></i> Source</div>
+                            <div class="row g-2">
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Versions</label>${_assetOpsVersionChoices(opId, 'src', ['ENO'])}</div>
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Asset types</label>${_assetOpsATypeChoices(opId, 'src', ['QUE', 'ANS', 'SOL'])}</div>
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Formats</label>${_assetOpsFormatChoices(opId, 'src', ['IMG'])}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold mb-2"><i class="bi bi-box-arrow-in-down-right"></i> Target</div>
+                            <div class="row g-2">
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Versions</label>${_assetOpsVersionChoices(opId, 'tgt', ['EN', 'BI'])}</div>
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Asset types</label>${_assetOpsATypeChoices(opId, 'tgt', ['QUE', 'ANS', 'SOL'])}</div>
+                                <div class="col-sm-4"><label class="form-label small fw-bold">Formats</label>${_assetOpsFormatChoices(opId, 'tgt', ['IMG'])}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-text mt-2">If one source version/type is selected, choose any target version/type. If multiple are selected, the target axis is locked and mirrored automatically. Formats are always same-format only.</div>
+            </div>
+        </div>`;
+}
+
+function renumberBatchAssetOps() {
+    document.querySelectorAll('#batchAssetOpsList .batch-asset-op').forEach((card, idx) => {
+        const n = card.querySelector('.bao-op-number');
+        if (n) n.textContent = String(idx + 1);
+    });
+}
+
+function _syncBatchAssetOpAxis(card, axis) {
+    const srcSelector = axis === 'version' ? '.bao-src-version' : '.bao-src-atype';
+    const tgtSelector = axis === 'version' ? '.bao-tgt-version' : '.bao-tgt-atype';
+    const srcValues = _baoCheckedValues(card, srcSelector);
+    const locked = srcValues.length > 1;
+    card.querySelectorAll(tgtSelector).forEach(cb => {
+        if (locked) cb.checked = srcValues.includes(cb.value);
+        cb.disabled = locked;
+        cb.closest('.form-check')?.classList.toggle('opacity-50', locked);
+    });
+}
+
+function syncBatchAssetOpLocks(card) {
+    if (!card) return;
+    _syncBatchAssetOpAxis(card, 'version');
+    _syncBatchAssetOpAxis(card, 'atype');
+}
+
+function addBatchAssetOp() {
+    const id = batchAssetOpsNextId++;
+    document.getElementById('batchAssetOpsList').insertAdjacentHTML('beforeend', _assetOpsCardHtml(id));
+    syncBatchAssetOpLocks(document.querySelector(`#batchAssetOpsList .batch-asset-op[data-op-id="${id}"]`));
+    renumberBatchAssetOps();
+}
+
+function removeBatchAssetOp(opId) {
+    document.querySelector(`#batchAssetOpsList .batch-asset-op[data-op-id="${opId}"]`)?.remove();
+    renumberBatchAssetOps();
+}
+
+function moveBatchAssetOp(opId, delta) {
+    const card = document.querySelector(`#batchAssetOpsList .batch-asset-op[data-op-id="${opId}"]`);
+    if (!card) return;
+    if (delta < 0 && card.previousElementSibling) {
+        card.parentNode.insertBefore(card, card.previousElementSibling);
+    } else if (delta > 0 && card.nextElementSibling) {
+        card.parentNode.insertBefore(card.nextElementSibling, card);
+    }
+    renumberBatchAssetOps();
+}
+
+function _baoCheckedValues(card, selector) {
+    return Array.from(card.querySelectorAll(selector + ':checked')).map(cb => cb.value);
+}
+
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.matches('.bao-src-version, .bao-src-atype')) {
+        syncBatchAssetOpLocks(e.target.closest('.batch-asset-op'));
+    }
+});
+
+function collectBatchAssetOps() {
+    const errors = [];
+    const ops = Array.from(document.querySelectorAll('#batchAssetOpsList .batch-asset-op')).map((card, idx) => {
+        const sourceFormats = _baoCheckedValues(card, '.bao-src-format');
+        const targetFormats = _baoCheckedValues(card, '.bao-tgt-format');
+        const commonFormats = sourceFormats.filter(f => targetFormats.includes(f));
+        const sourceAtypes = _baoCheckedValues(card, '.bao-src-atype');
+        const targetAtypes = _baoCheckedValues(card, '.bao-tgt-atype');
+        const op = {
+            action: card.querySelector('.bao-action').value,
+            source_versions: _baoCheckedValues(card, '.bao-src-version'),
+            source_atypes: sourceAtypes,
+            source_formats: sourceFormats,
+            target_versions: _baoCheckedValues(card, '.bao-tgt-version'),
+            target_atypes: targetAtypes,
+            target_formats: targetFormats,
+            overwrite: card.querySelector('.bao-overwrite').checked
+        };
+        const prefix = `Operation ${idx + 1}`;
+        if (!op.source_versions.length) errors.push(`${prefix}: pick at least one source version.`);
+        if (!op.source_atypes.length) errors.push(`${prefix}: pick at least one source asset type.`);
+        if (!op.source_formats.length) errors.push(`${prefix}: pick at least one source format.`);
+        if (!op.target_versions.length) errors.push(`${prefix}: pick at least one target version.`);
+        if (!op.target_atypes.length) errors.push(`${prefix}: pick at least one target asset type.`);
+        if (!op.target_formats.length) errors.push(`${prefix}: pick at least one target format.`);
+        if (!commonFormats.length) errors.push(`${prefix}: source and target formats must overlap (no conversion is performed).`);
+        return op;
+    });
+    if (!ops.length) errors.push('Add at least one operation.');
+    return { ops, errors };
+}
+
+function updateBatchAssetOpsRunButton() {
+    const btn = document.getElementById('batchAssetOpsRunBtn');
+    const confirm = document.getElementById('batchAssetOpsConfirm');
+    if (btn && confirm) btn.disabled = batchAssetOpsRunning || !confirm.checked;
+}
+
+function openBatchAssetOpsModal() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('batchAssetOpsCount').textContent = selectedQIds.size;
+    document.getElementById('batchAssetOpsLargeWarning').classList.toggle('d-none', selectedQIds.size <= 100);
+    document.getElementById('batchAssetOpsConsoleWrap').classList.add('d-none');
+    document.getElementById('batchAssetOpsLog').innerHTML = '';
+    document.getElementById('batchAssetOpsSummary').classList.add('d-none');
+    document.getElementById('batchAssetOpsValidation').innerHTML = '';
+    document.getElementById('batchAssetOpsProgressBar').style.width = '0%';
+    document.getElementById('batchAssetOpsConfirm').checked = false;
+    document.getElementById('batchAssetOpsRunBtn').classList.remove('d-none');
+    document.getElementById('batchAssetOpsStopBtn').classList.add('d-none');
+    document.getElementById('batchAssetOpsCancelBtn').textContent = 'Close';
+    document.getElementById('batchAssetOpsOptions').classList.remove('opacity-50');
+    if (!document.querySelector('#batchAssetOpsList .batch-asset-op')) {
+        addBatchAssetOp();
+    }
+    document.querySelectorAll('#batchAssetOpsList .batch-asset-op').forEach(syncBatchAssetOpLocks);
+    updateBatchAssetOpsRunButton();
+    new bootstrap.Modal(document.getElementById('batchAssetOpsModal')).show();
+}
+
+function _appendBatchAssetOpsLog(message, type) {
+    const logEl = document.getElementById('batchAssetOpsLog');
+    const ts = new Date().toLocaleTimeString();
+    const colours = {
+        info: '#9bb6c9', success: '#5cd35c', skip: '#cccc66',
+        warning: '#cccc66', error: '#ff6b6b', done: '#92e1c5'
+    };
+    const span = document.createElement('span');
+    span.style.color = colours[type] || '#ddd';
+    span.style.display = 'block';
+    span.textContent = `[${ts}] ${message}`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function runBatchAssetOps() {
+    if (batchAssetOpsRunning || selectedQIds.size === 0) return;
+    const validation = document.getElementById('batchAssetOpsValidation');
+    if (!document.getElementById('batchAssetOpsConfirm').checked) {
+        validation.innerHTML = '<div class="text-danger">Please confirm that you have double-checked the operations before running.</div>';
+        updateBatchAssetOpsRunButton();
+        return;
+    }
+    const { ops, errors } = collectBatchAssetOps();
+    if (errors.length) {
+        validation.innerHTML = `<div class="text-danger">${errors.map(e => `<div>${escapeHtmlAi(e)}</div>`).join('')}</div>`;
+        return;
+    }
+    validation.innerHTML = '';
+
+    const params = new URLSearchParams({
+        question_ids: Array.from(selectedQIds).join(','),
+        ops: JSON.stringify(ops),
+    });
+    const url = '{{ url_for("admin.batch_asset_ops") }}?' + params.toString();
+    if (url.length > 7000) {
+        validation.innerHTML = '<div class="text-danger">Too many operations for one request. Remove a few operations and run again.</div>';
+        return;
+    }
+
+    batchAssetOpsRunning = true;
+    document.getElementById('batchAssetOpsRunBtn').classList.add('d-none');
+    document.getElementById('batchAssetOpsRunBtn').disabled = true;
+    document.getElementById('batchAssetOpsStopBtn').classList.remove('d-none');
+    document.getElementById('batchAssetOpsCancelBtn').textContent = 'Hide';
+    document.getElementById('batchAssetOpsOptions').classList.add('opacity-50');
+    document.getElementById('batchAssetOpsConsoleWrap').classList.remove('d-none');
+    document.getElementById('batchAssetOpsStatus').textContent = 'Running...';
+    document.getElementById('batchAssetOpsStatus').className = 'badge bg-success';
+    document.getElementById('batchAssetOpsProgressBar').className =
+        'progress-bar progress-bar-striped progress-bar-animated';
+    document.getElementById('batchAssetOpsSummary').classList.add('d-none');
+    document.getElementById('batchAssetOpsLog').innerHTML = '';
+    _appendBatchAssetOpsLog(`Starting ${ops.length} operation(s) for ${selectedQIds.size} question(s)...`, 'info');
+
+    batchAssetOpsEventSource = new EventSource(url);
+    batchAssetOpsEventSource.onmessage = function(e) {
+        try {
+            const ev = JSON.parse(e.data);
+            _appendBatchAssetOpsLog(ev.message, ev.type);
+            if (typeof ev.current === 'number' && ev.total > 0) {
+                const pct = Math.round((ev.current / ev.total) * 100);
+                document.getElementById('batchAssetOpsProgressBar').style.width = pct + '%';
+                document.getElementById('batchAssetOpsProgressLabel').textContent = `${ev.current} / ${ev.total}`;
+            }
+            if (ev.type === 'done') {
+                batchAssetOpsEventSource.close();
+                batchAssetOpsEventSource = null;
+                batchAssetOpsRunning = false;
+                document.getElementById('batchAssetOpsRunBtn').classList.remove('d-none');
+                updateBatchAssetOpsRunButton();
+                document.getElementById('batchAssetOpsStopBtn').classList.add('d-none');
+                document.getElementById('batchAssetOpsCancelBtn').textContent = 'Close';
+                document.getElementById('batchAssetOpsOptions').classList.remove('opacity-50');
+                document.getElementById('batchAssetOpsProgressBar').classList.remove('progress-bar-animated');
+                document.getElementById('batchAssetOpsStatus').textContent = 'Complete';
+                document.getElementById('batchAssetOpsStatus').className = 'badge bg-primary';
+                const s = ev.stats || {};
+                document.getElementById('batchAssetOpsSummaryStats').innerHTML = `
+                    <div class="col"><div class="fs-5 fw-bold text-success">${s.copied ?? 0}</div><small class="text-muted">Copied</small></div>
+                    <div class="col"><div class="fs-5 fw-bold text-success">${s.moved ?? 0}</div><small class="text-muted">Moved</small></div>
+                    <div class="col"><div class="fs-5 fw-bold text-secondary">${s.skipped ?? 0}</div><small class="text-muted">Skipped</small></div>
+                    <div class="col"><div class="fs-5 fw-bold text-danger">${s.errors ?? 0}</div><small class="text-muted">Errors</small></div>`;
+                document.getElementById('batchAssetOpsSummary').classList.remove('d-none');
+                loadQuestions();
+            }
+        } catch(err) {
+            _appendBatchAssetOpsLog('Parse error: ' + err.message, 'error');
+        }
+    };
+    batchAssetOpsEventSource.onerror = function() {
+        if (!batchAssetOpsRunning) return;
+        batchAssetOpsEventSource.close();
+        batchAssetOpsEventSource = null;
+        batchAssetOpsRunning = false;
+        document.getElementById('batchAssetOpsRunBtn').classList.remove('d-none');
+        updateBatchAssetOpsRunButton();
+        document.getElementById('batchAssetOpsStopBtn').classList.add('d-none');
+        document.getElementById('batchAssetOpsCancelBtn').textContent = 'Close';
+        document.getElementById('batchAssetOpsOptions').classList.remove('opacity-50');
+        document.getElementById('batchAssetOpsStatus').textContent = 'Error';
+        document.getElementById('batchAssetOpsStatus').className = 'badge bg-danger';
+        _appendBatchAssetOpsLog('SSE connection error.', 'error');
+    };
+}
+
+function stopBatchAssetOps() {
+    if (batchAssetOpsEventSource) {
+        batchAssetOpsEventSource.close();
+        batchAssetOpsEventSource = null;
+    }
+    batchAssetOpsRunning = false;
+    document.getElementById('batchAssetOpsRunBtn').classList.remove('d-none');
+    updateBatchAssetOpsRunButton();
+    document.getElementById('batchAssetOpsStopBtn').classList.add('d-none');
+    document.getElementById('batchAssetOpsCancelBtn').textContent = 'Close';
+    document.getElementById('batchAssetOpsStatus').textContent = 'Stopped';
+    document.getElementById('batchAssetOpsStatus').className = 'badge bg-warning text-dark';
+    document.getElementById('batchAssetOpsOptions').classList.remove('opacity-50');
+    _appendBatchAssetOpsLog('Stopped by user.', 'warning');
 }
 
 // ===================== BATCH SET CHECK STATE =====================

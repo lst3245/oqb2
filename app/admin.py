@@ -7,6 +7,7 @@ import os
 import re
 import json
 import shutil
+import uuid
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file
 from flask_login import login_required, current_user
@@ -1094,6 +1095,430 @@ def _build_asset_file_path(question, asset):
         folder = '/'.join([question.subject, 'QB', detail])
     
     return f"{folder}/{filename}"
+
+
+_ASSET_OP_FORMATS = ('IMG', 'MD', 'DOC')
+_ASSET_OP_ATYPES = ('QUE', 'ANS', 'SOL')
+
+
+def _assetop_abs(source_path, rel_path):
+    return os.path.normpath(os.path.join(source_path, *str(rel_path).split('/')))
+
+
+def _assetop_sse(event):
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _assetop_clean_list(values, allowed, preserve_order=None):
+    if not isinstance(values, list):
+        return []
+    allowed_set = set(allowed)
+    seen = set()
+    out = []
+    for raw in values:
+        value = str(raw).strip().upper()
+        if value in allowed_set and value not in seen:
+            seen.add(value)
+            out.append(value)
+    if preserve_order:
+        order = {v: i for i, v in enumerate(preserve_order)}
+        out.sort(key=lambda v: order.get(v, len(order)))
+    return out
+
+
+def _normalize_asset_ops(raw_ops):
+    if not isinstance(raw_ops, list) or not raw_ops:
+        raise ValueError('Add at least one operation.')
+    if len(raw_ops) > 25:
+        raise ValueError('Too many operations; please run at most 25 at a time.')
+
+    ops = []
+    for idx, raw in enumerate(raw_ops, start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f'Operation {idx} is invalid.')
+        action = str(raw.get('action', '')).strip().lower()
+        if action not in ('copy', 'move'):
+            raise ValueError(f'Operation {idx}: action must be copy or move.')
+
+        source_versions = _assetop_clean_list(raw.get('source_versions'), VERSIONS, VERSIONS)
+        target_versions = _assetop_clean_list(raw.get('target_versions'), VERSIONS, VERSIONS)
+        source_atypes = _assetop_clean_list(raw.get('source_atypes'), _ASSET_OP_ATYPES, _ASSET_OP_ATYPES)
+        target_atypes = _assetop_clean_list(raw.get('target_atypes'), _ASSET_OP_ATYPES, _ASSET_OP_ATYPES)
+        source_formats = _assetop_clean_list(raw.get('source_formats'), _ASSET_OP_FORMATS, _ASSET_OP_FORMATS)
+        target_formats = _assetop_clean_list(raw.get('target_formats'), _ASSET_OP_FORMATS, _ASSET_OP_FORMATS)
+        common_formats = [f for f in source_formats if f in target_formats]
+
+        missing = []
+        if not source_versions:
+            missing.append('source version')
+        if len(source_versions) == 1 and not target_versions:
+            missing.append('target version')
+        if not source_atypes:
+            missing.append('source asset type')
+        if len(source_atypes) == 1 and not target_atypes:
+            missing.append('target asset type')
+        if not source_formats:
+            missing.append('source format')
+        if not target_formats:
+            missing.append('target format')
+        if missing:
+            raise ValueError(f'Operation {idx}: missing {", ".join(missing)}.')
+        if not common_formats:
+            raise ValueError(f'Operation {idx}: source and target formats must overlap; conversion is not supported.')
+
+        version_targets = (
+            [(source_versions[0], target_versions)]
+            if len(source_versions) == 1 else
+            [(v, [v]) for v in source_versions]
+        )
+        atype_targets = (
+            [(source_atypes[0], target_atypes)]
+            if len(source_atypes) == 1 else
+            [(t, [t]) for t in source_atypes]
+        )
+
+        ops.append({
+            'label': f'Operation {idx}',
+            'action': action,
+            'version_targets': version_targets,
+            'atype_targets': atype_targets,
+            'formats': common_formats,
+            'overwrite': bool(raw.get('overwrite')),
+        })
+    return ops
+
+
+def _assetop_slot_assets(question_id, version, atype, fmt):
+    return (
+        QuestionAsset.query
+        .filter_by(question_id=question_id, version=version,
+                   asset_type=atype, file_format=fmt)
+        .order_by(QuestionAsset.part_number.asc())
+        .all()
+    )
+
+
+def _assetop_deleted_meta(asset):
+    return {
+        'id': asset.id,
+        'file_format': asset.file_format,
+        'question_id': asset.question_id,
+        'asset_type': asset.asset_type,
+        'version': asset.version,
+        'file_path': asset.file_path,
+    }
+
+
+def _assetop_run_deleted_hooks(deleted):
+    from app import doc_thumbnails
+    for meta in deleted:
+        if meta['file_format'] == 'MD':
+            md_render.invalidate(meta['id'])
+        elif meta['file_format'] == 'DOC':
+            doc_thumbnails.on_doc_asset_deleted(meta['id'])
+        elif meta['file_format'] == 'IMG':
+            class _Stub:
+                pass
+            stub = _Stub()
+            stub.file_format = 'IMG'
+            stub.question_id = meta['question_id']
+            stub.asset_type = meta['asset_type']
+            stub.version = meta['version']
+            doc_thumbnails.on_img_asset_deleted(stub)
+
+
+def _assetop_run_created_hooks(created):
+    from app import doc_thumbnails
+    for asset in created:
+        if asset.file_format == 'MD':
+            md_render.invalidate(asset.id)
+        elif asset.file_format == 'DOC':
+            doc_thumbnails.on_doc_asset_created(asset)
+        elif asset.file_format == 'IMG':
+            doc_thumbnails.on_img_asset_created(asset)
+
+
+def _assetop_copy_slot(question, source_assets, src_version, src_atype,
+                       target_version, target_atype, fmt, overwrite, source_path):
+    """Copy one source slot to one target slot. Returns (status, count, message)."""
+    if src_version == target_version and src_atype == target_atype:
+        return 'skip', 0, 'source and target are the same slot'
+
+    existing = _assetop_slot_assets(question.id, target_version, target_atype, fmt)
+    if existing and not overwrite:
+        return 'skip', 0, f'target {target_version}/{target_atype}/{fmt} already has asset(s)'
+
+    if fmt != 'IMG' and len(source_assets) > 1:
+        return 'error', 0, f'source {src_version}/{src_atype}/{fmt} has multiple rows but should be single-slot'
+
+    temp_items = []
+    dest_rels = set()
+    try:
+        for src in source_assets:
+            src_full = _assetop_abs(source_path, src.file_path)
+            if not os.path.isfile(src_full):
+                return 'error', 0, f'source file missing: {src.file_path}'
+
+            part_number = src.part_number if fmt == 'IMG' else 1
+            stub = QuestionAsset(
+                question_id=question.id,
+                version=target_version,
+                asset_type=target_atype,
+                file_format=fmt,
+                file_path=src.file_path,
+                part_number=part_number,
+            )
+            dest_rel = _build_asset_file_path(question, stub)
+            dest_full = _assetop_abs(source_path, dest_rel)
+            tmp_full = dest_full + f'.tmp_assetop_{uuid.uuid4().hex}'
+            os.makedirs(os.path.dirname(dest_full), exist_ok=True)
+            shutil.copy2(src_full, tmp_full)
+            temp_items.append({
+                'src': src,
+                'tmp_full': tmp_full,
+                'dest_full': dest_full,
+                'dest_rel': dest_rel,
+                'part_number': part_number,
+            })
+            dest_rels.add(dest_rel)
+
+        deleted = [_assetop_deleted_meta(a) for a in existing] if overwrite else []
+        for asset in existing:
+            db.session.delete(asset)
+        if existing:
+            db.session.flush()
+
+        created = []
+        for item in temp_items:
+            asset = QuestionAsset(
+                question_id=question.id,
+                asset_type=target_atype,
+                version=target_version,
+                file_format=fmt,
+                part_number=item['part_number'],
+                file_path=item['dest_rel'],
+            )
+            db.session.add(asset)
+            created.append(asset)
+        db.session.flush()
+
+        for item in temp_items:
+            os.replace(item['tmp_full'], item['dest_full'])
+
+        # If overwrite removed more target parts than the new source provides,
+        # delete those now-obsolete files. Paths replaced above must be kept.
+        for meta in deleted:
+            if meta['file_path'] in dest_rels:
+                continue
+            old_full = _assetop_abs(source_path, meta['file_path'])
+            if os.path.isfile(old_full):
+                try:
+                    os.remove(old_full)
+                except OSError:
+                    pass
+
+        db.session.commit()
+        _assetop_run_deleted_hooks(deleted)
+        _assetop_run_created_hooks(created)
+        return 'success', len(created), f'copied {len(created)} asset(s) to {target_version}/{target_atype}/{fmt}'
+
+    except Exception as exc:
+        db.session.rollback()
+        for item in temp_items:
+            tmp = item.get('tmp_full')
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        return 'error', 0, str(exc)
+
+
+def _assetop_delete_source_slot(source_assets, source_path):
+    deleted = [_assetop_deleted_meta(a) for a in source_assets]
+    paths = [a.file_path for a in source_assets]
+    try:
+        for asset in source_assets:
+            db.session.delete(asset)
+        db.session.commit()
+        for rel_path in paths:
+            full_path = _assetop_abs(source_path, rel_path)
+            if os.path.isfile(full_path):
+                try:
+                    os.remove(full_path)
+                except OSError:
+                    pass
+        _assetop_run_deleted_hooks(deleted)
+        return 'success', len(deleted), f'moved {len(deleted)} asset(s) from source slot'
+    except Exception as exc:
+        db.session.rollback()
+        return 'error', 0, str(exc)
+
+
+@admin_bp.route('/questions/batch-asset-ops')
+@login_required
+@admin_required
+def batch_asset_ops():
+    """SSE: sequentially copy/move selected question assets between slots."""
+    raw_qids = request.args.get('question_ids', '').strip()
+    raw_ops = request.args.get('ops', '').strip()
+    if not raw_qids:
+        return jsonify({'error': 'question_ids is required'}), 400
+    if not raw_ops:
+        return jsonify({'error': 'ops is required'}), 400
+
+    try:
+        question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
+    except ValueError:
+        return jsonify({'error': 'question_ids must be integers'}), 400
+    if not question_ids:
+        return jsonify({'error': 'question_ids is empty'}), 400
+
+    try:
+        ops = _normalize_asset_ops(json.loads(raw_ops))
+    except (json.JSONDecodeError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
+    if not current_user.is_super_admin:
+        qs = [q for q in qs if q.subject in admin_subject_ids]
+    qs.sort(key=lambda q: question_ids.index(q.id) if q.id in question_ids else len(question_ids))
+    if not qs:
+        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+
+    app = current_app._get_current_object()
+    accessible_ids = [q.id for q in qs]
+
+    def generate():
+        with app.app_context():
+            source_path = app.config['SOURCE_PATH']
+            questions = Question.query.filter(Question.id.in_(accessible_ids)).all()
+            questions.sort(key=lambda q: accessible_ids.index(q.id))
+            total = sum(
+                len(questions)
+                * len(op['formats'])
+                * sum(len(targets) for _, targets in op['version_targets'])
+                * sum(len(targets) for _, targets in op['atype_targets'])
+                for op in ops
+            )
+            current = 0
+            stats = {'copied': 0, 'moved': 0, 'skipped': 0, 'errors': 0}
+
+            yield _assetop_sse({
+                'type': 'info',
+                'message': f'Processing {len(questions)} question(s), {len(ops)} operation(s), {total} target slot attempt(s).',
+                'current': current,
+                'total': total,
+            })
+
+            for op_idx, op in enumerate(ops, start=1):
+                yield _assetop_sse({
+                    'type': 'info',
+                    'message': f"{op['label']}: {op['action'].upper()} overwrite={'on' if op['overwrite'] else 'off'}",
+                    'current': current,
+                    'total': total,
+                })
+                for q in questions:
+                    for src_version, target_versions in op['version_targets']:
+                        for src_atype, target_atypes in op['atype_targets']:
+                            for fmt in op['formats']:
+                                source_assets = _assetop_slot_assets(q.id, src_version, src_atype, fmt)
+                                target_count = len(target_versions) * len(target_atypes)
+                                src_label = f'{q.qid} [{src_version}/{src_atype}/{fmt}]'
+                                if not source_assets:
+                                    current += target_count
+                                    stats['skipped'] += target_count
+                                    yield _assetop_sse({
+                                        'type': 'skip',
+                                        'message': f'{op_idx}. {src_label}: no source assets.',
+                                        'current': current,
+                                        'total': total,
+                                    })
+                                    continue
+
+                                target_success = 0
+                                target_skipped_or_error = 0
+                                move_created_assets = 0
+                                for target_version in target_versions:
+                                    for target_atype in target_atypes:
+                                        current += 1
+                                        status, count, detail = _assetop_copy_slot(
+                                            q, source_assets, src_version, src_atype,
+                                            target_version, target_atype, fmt,
+                                            op['overwrite'], source_path
+                                        )
+                                        target_label = f'{target_version}/{target_atype}/{fmt}'
+                                        if status == 'success':
+                                            target_success += 1
+                                            if op['action'] == 'copy':
+                                                stats['copied'] += count
+                                            else:
+                                                move_created_assets += count
+                                            yield _assetop_sse({
+                                                'type': 'success',
+                                                'message': f'{op_idx}. {src_label} -> {target_label}: {detail}.',
+                                                'current': current,
+                                                'total': total,
+                                            })
+                                        elif status == 'skip':
+                                            target_skipped_or_error += 1
+                                            stats['skipped'] += 1
+                                            yield _assetop_sse({
+                                                'type': 'skip',
+                                                'message': f'{op_idx}. {src_label} -> {target_label}: {detail}.',
+                                                'current': current,
+                                                'total': total,
+                                            })
+                                        else:
+                                            target_skipped_or_error += 1
+                                            stats['errors'] += 1
+                                            yield _assetop_sse({
+                                                'type': 'error',
+                                                'message': f'{op_idx}. {src_label} -> {target_label}: {detail}.',
+                                                'current': current,
+                                                'total': total,
+                                            })
+
+                                if op['action'] == 'move' and target_success == target_count and target_count > 0:
+                                    status, count, detail = _assetop_delete_source_slot(source_assets, source_path)
+                                    if status == 'success':
+                                        stats['moved'] += count
+                                        yield _assetop_sse({
+                                            'type': 'success',
+                                            'message': f'{op_idx}. {src_label}: {detail}.',
+                                            'current': current,
+                                            'total': total,
+                                        })
+                                    else:
+                                        stats['copied'] += move_created_assets
+                                        stats['errors'] += 1
+                                        yield _assetop_sse({
+                                            'type': 'error',
+                                            'message': f'{op_idx}. {src_label}: source cleanup failed after target copy: {detail}.',
+                                            'current': current,
+                                            'total': total,
+                                        })
+                                elif op['action'] == 'move' and target_success > 0 and target_skipped_or_error > 0:
+                                    stats['copied'] += move_created_assets
+                                    stats['skipped'] += 1
+                                    yield _assetop_sse({
+                                        'type': 'warning',
+                                        'message': f'{op_idx}. {src_label}: source kept because not every requested target succeeded.',
+                                        'current': current,
+                                        'total': total,
+                                    })
+
+            yield _assetop_sse({
+                'type': 'done',
+                'message': f"Done. {stats['copied']} copied, {stats['moved']} moved, {stats['skipped']} skipped, {stats['errors']} error(s).",
+                'stats': stats,
+                'current': total,
+                'total': total,
+            })
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @admin_bp.route('/questions')
