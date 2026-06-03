@@ -3660,6 +3660,17 @@ def pdf_import_commit():
         return _pdf_sse_error('Generic Extraction does not import to the '
                               'database — use "Download all as ZIP" instead.')
 
+    paper_override = (request.args.get('paper') or '').strip().upper()
+    if paper_override:
+        parsed, parse_err = pdf_import.parse_paper_prefix(paper_override)
+        if parse_err:
+            return _pdf_sse_error(parse_err)
+        if parsed['subject'] != meta.get('subject'):
+            return _pdf_sse_error('Paper subject cannot be changed after staging. '
+                                  'Start a new import if you need a different subject/PDF.')
+        meta.update(parsed)
+        meta['paper_name'] = paper_override
+
     que_version = (request.args.get('que_version')
                    or meta.get('que_version') or meta.get('version') or '').strip().upper()
     sol_version = (request.args.get('sol_version')
@@ -3667,6 +3678,12 @@ def pdf_import_commit():
     if que_version not in VERSIONS or sol_version not in VERSIONS:
         return _pdf_sse_error('version must be one of ' + '/'.join(VERSIONS))
     versions = {'que': que_version, 'sol': sol_version}
+    meta['que_version'] = que_version
+    meta['sol_version'] = sol_version
+    try:
+        pdf_import.save_meta(token, meta)
+    except (ValueError, OSError) as e:
+        return _pdf_sse_error(f'Could not update import settings: {e}')
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     trim_default = bool(current_app.config.get('PDF_IMPORT_TRIM_WHITE_DEFAULT', False))
     trim_arg = request.args.get('trim_white')

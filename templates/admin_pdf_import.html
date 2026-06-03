@@ -1107,7 +1107,8 @@ function setPageStatus(card, state) {
         badge.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> detecting…';
     } else if (state === 'done') {
         const n = card.querySelectorAll('.box-row').length;
-        badge.classList.add(n ? 'bg-success' : 'bg-warning', n ? '' : 'text-dark');
+        badge.classList.add(n ? 'bg-success' : 'bg-warning');
+        if (!n) badge.classList.add('text-dark');
         badge.textContent = n ? `${n} region(s)` : 'no regions';
     } else {
         badge.classList.add('d-none');
@@ -1600,6 +1601,14 @@ async function rerunPage(card, kind, pageIndex) {
 // ----- Commit (SSE) -----
 async function startCommit() {
     if (!staging) return;
+    const paperNow = paperInput.value.trim();
+    const queVersionNow = queVersionSelect.value;
+    const solVersionNow = solVersionSelect.value;
+    if (!isGeneric() && !paperNow) {
+        alert('Enter a paper name before importing.');
+        paperInput.focus();
+        return;
+    }
 
     // In review mode, persist the (edited) plan first. In auto mode the
     // server already saved the detected plan, so commit reads it directly.
@@ -1631,10 +1640,12 @@ async function startCommit() {
     showProgress('Importing question images...');
     summaryPanel.classList.add('d-none');
     appendLog('Cropping and saving images...', 'info');
+    progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     const url = `${IMPORT_BASE}/commit?token=${encodeURIComponent(staging.token)}`
-        + `&que_version=${encodeURIComponent(staging.que_version || staging.version)}`
-        + `&sol_version=${encodeURIComponent(staging.sol_version || staging.version)}`
+        + `&paper=${encodeURIComponent(paperNow)}`
+        + `&que_version=${encodeURIComponent(queVersionNow)}`
+        + `&sol_version=${encodeURIComponent(solVersionNow)}`
         + `&overwrite=${overwriteChk.checked ? '1' : '0'}`
         + `&trim_white=${trimWhiteChk.checked ? '1' : '0'}`;
     eventSource = new EventSource(url);

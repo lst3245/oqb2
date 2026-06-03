@@ -195,6 +195,15 @@ def load_meta(token: str) -> dict:
         return json.load(f)
 
 
+def save_meta(token: str, meta: dict) -> None:
+    """Persist staging metadata atomically."""
+    path = _meta_path(token)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(meta, f)
+    os.replace(tmp, path)
+
+
 def save_plan(token: str, plan: dict) -> None:
     with open(_plan_path(token), 'w', encoding='utf-8') as f:
         json.dump(plan, f)
