@@ -132,7 +132,7 @@
     .pdf-magnifier {
         position: fixed;
         z-index: 1090;
-        width: 208px;
+        width: auto;
         padding: 8px;
         border-radius: 10px;
         background: rgba(20, 20, 20, 0.92);
@@ -143,8 +143,10 @@
     }
     .pdf-magnifier canvas {
         display: block;
-        width: 190px;
-        height: 190px;
+        width: auto;
+        height: auto;
+        max-width: min(980px, 78vw);
+        max-height: min(760px, 78vh);
         background: #fff;
         border-radius: 6px;
         border: 1px solid rgba(255, 255, 255, 0.45);
@@ -1310,6 +1312,83 @@ function hideDragMagnifier() {
     if (dragMagnifier) dragMagnifier.wrap.classList.add('d-none');
 }
 
+function clampSourceWindow(v, max, size) {
+    return Math.max(0, Math.min(Math.max(0, max - size), v));
+}
+
+function setMagnifierCanvasSize(canvas, w, h) {
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+}
+
+function magnifierSourceWindow(d, f, img, imgRect, box) {
+    const natW = img.naturalWidth, natH = img.naturalHeight;
+    const nx = clamp01(f.x) * natW;
+    const ny = clamp01(f.y) * natH;
+    const zoom = 3;
+    const defaultW = Math.min(natW, Math.max(36, (520 / zoom) * (natW / Math.max(1, imgRect.width))));
+    const defaultH = Math.min(natH, Math.max(36, (420 / zoom) * (natH / Math.max(1, imgRect.height))));
+    let canvasW = 520, canvasH = 420;
+    let srcW = defaultW, srcH = defaultH;
+    let sx = nx - srcW / 2, sy = ny - srcH / 2;
+    let caption = d.type === 'resize'
+        ? 'Zoomed edge/handle placement'
+        : (d.type === 'draw' ? 'Zoomed new box corner' : 'Zoomed box position');
+
+    if (box && d.type === 'resize') {
+        const [x1, y1, x2, y2] = box;
+        const bx1 = clamp01(x1) * natW, bx2 = clamp01(x2) * natW;
+        const by1 = clamp01(y1) * natH, by2 = clamp01(y2) * natH;
+        const boxW = Math.max(24, bx2 - bx1);
+        const boxH = Math.max(24, by2 - by1);
+        const hasN = d.dir && d.dir.includes('n');
+        const hasS = d.dir && d.dir.includes('s');
+        const hasW = d.dir && d.dir.includes('w');
+        const hasE = d.dir && d.dir.includes('e');
+        const horizontalEdge = hasN || hasS;
+        const verticalEdge = hasW || hasE;
+
+        if (horizontalEdge && !verticalEdge) {
+            // Bottom/top handle: show the full selected width and a band around
+            // the dragged horizontal edge.
+            canvasW = 920; canvasH = 420;
+            srcW = Math.min(natW, Math.max(boxW, 120));
+            srcH = Math.min(natH, Math.max(48, srcW * canvasH / canvasW));
+            sx = bx1 - Math.max(0, (srcW - boxW) / 2);
+            sy = ny - srcH * (hasS ? 0.68 : 0.32);
+            caption = hasS ? 'Full width near bottom edge' : 'Full width near top edge';
+        } else if (verticalEdge && !horizontalEdge) {
+            // Right/left handle: show the full selected height and a vertical
+            // strip around the dragged side edge.
+            canvasW = 460; canvasH = 720;
+            srcH = Math.min(natH, Math.max(boxH, 120));
+            srcW = Math.min(natW, Math.max(54, srcH * canvasW / canvasH));
+            sx = nx - srcW * (hasE ? 0.68 : 0.32);
+            sy = by1 - Math.max(0, (srcH - boxH) / 2);
+            caption = hasE ? 'Full height near right edge' : 'Full height near left edge';
+        } else if (horizontalEdge && verticalEdge) {
+            // Corner handle: show a broad context containing the whole selected
+            // box, so both the bottom/top and right/left boundaries are visible.
+            canvasW = 900; canvasH = 620;
+            const aspect = canvasW / canvasH;
+            srcW = Math.max(boxW, boxH * aspect, 120);
+            srcH = srcW / aspect;
+            if (srcH < boxH) { srcH = boxH; srcW = srcH * aspect; }
+            srcW = Math.min(natW, srcW);
+            srcH = Math.min(natH, srcH);
+            sx = bx1 - Math.max(0, (srcW - boxW) * (hasE ? 0.35 : 0.65));
+            sy = by1 - Math.max(0, (srcH - boxH) * (hasS ? 0.35 : 0.65));
+            caption = 'Wide corner context';
+        }
+    }
+
+    srcW = Math.min(natW, srcW);
+    srcH = Math.min(natH, srcH);
+    sx = clampSourceWindow(sx, natW, srcW);
+    sy = clampSourceWindow(sy, natH, srcH);
+    return { sx, sy, srcW, srcH, canvasW, canvasH, nx, ny, caption };
+}
+
 function positionDragMagnifier(e) {
     if (!dragMagnifier) return;
     const pad = 12;
@@ -1329,14 +1408,10 @@ function updateDragMagnifier(d, f, e) {
     const canvas = mag.canvas;
     const ctx = canvas.getContext('2d');
     const imgRect = img.getBoundingClientRect();
-    const nx = clamp01(f.x) * img.naturalWidth;
-    const ny = clamp01(f.y) * img.naturalHeight;
-    // 3x zoom relative to the displayed page, scaled back to native pixels.
-    const zoom = 3;
-    const srcW = Math.min(img.naturalWidth, Math.max(24, (canvas.width / zoom) * (img.naturalWidth / Math.max(1, imgRect.width))));
-    const srcH = Math.min(img.naturalHeight, Math.max(24, (canvas.height / zoom) * (img.naturalHeight / Math.max(1, imgRect.height))));
-    const sx = Math.max(0, Math.min(img.naturalWidth - srcW, nx - srcW / 2));
-    const sy = Math.max(0, Math.min(img.naturalHeight - srcH, ny - srcH / 2));
+    const box = activeBoxForMagnifier(d, f);
+    const view = magnifierSourceWindow(d, f, img, imgRect, box);
+    const { sx, sy, srcW, srcH, canvasW, canvasH, nx, ny, caption } = view;
+    setMagnifierCanvasSize(canvas, canvasW, canvasH);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = true;
@@ -1350,7 +1425,6 @@ function updateDragMagnifier(d, f, e) {
     const tx = (x) => (x - sx) * canvas.width / srcW;
     const ty = (y) => (y - sy) * canvas.height / srcH;
     const cx = tx(nx), cy = ty(ny);
-    const box = activeBoxForMagnifier(d, f);
     if (box) {
         const [x1, y1, x2, y2] = box;
         const edgeColor = d.kind === 'sol' ? '#0d6efd' : '#d63384';
@@ -1376,9 +1450,7 @@ function updateDragMagnifier(d, f, e) {
     ctx.stroke();
     ctx.restore();
 
-    mag.cap.textContent = d.type === 'resize'
-        ? 'Zoomed edge/handle placement'
-        : (d.type === 'draw' ? 'Zoomed new box corner' : 'Zoomed box position');
+    mag.cap.textContent = caption;
     mag.wrap.classList.remove('d-none');
     positionDragMagnifier(e);
 }

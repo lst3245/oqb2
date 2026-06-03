@@ -96,7 +96,7 @@ Commit uses the **current** Setup controls, not just staging-time metadata: `sta
 
 Reading order within a kind = `(page, box top-Y)`. **Add** (`finishDraw`→`renumberAfterInsert`): the new box's qno = predecessor+1 (or 1), then every later box +1. **Delete** (`renumberAfterDelete`): every later box −1 (clamped ≥1). `refreshNumbersUI` rewrites labels + qno inputs from the plan. Re-detecting a page replaces its boxes with the model's authoritative numbers and does **not** cascade. Manual qno edits + move/resize never cascade (deliberate).
 
-**Live magnifier**: during draw/move/resize, `updateDragMagnifier` shows a fixed floating canvas (`.pdf-magnifier`) drawn from the original page image pixels, with cursor crosshairs and the active crop rectangle overlaid. It is created lazily by `ensureDragMagnifier` and hidden on pointer-up.
+**Live magnifier**: during draw/move/resize, `updateDragMagnifier` shows a fixed floating canvas (`.pdf-magnifier`) drawn from the original page image pixels, with cursor crosshairs and the active crop rectangle overlaid. Resize previews are handle-aware via `magnifierSourceWindow`: horizontal handles show the full selected width near the dragged edge, vertical handles show the full selected height near that side, and corner handles show a broader context containing both edges. It is created lazily by `ensureDragMagnifier` and hidden on pointer-up.
 
 **Out-of-order warning** (`updateOrderWarning`, called from `updateReviewSummary` + the qno-edit handler): a big red banner if a side's qnos aren't ascending in reading order (a repeat = spanning question is fine; a *drop* is flagged with the offending Q#/pages). Exam only.
 
