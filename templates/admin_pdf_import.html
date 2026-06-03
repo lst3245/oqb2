@@ -129,6 +129,34 @@
         color: #fff; font-size: 0.85rem; opacity: 0.85;
         background: rgba(0, 0, 0, 0.35); padding: 0.25rem 0.75rem; border-radius: 4px;
     }
+    .pdf-magnifier {
+        position: fixed;
+        z-index: 1090;
+        width: 208px;
+        padding: 8px;
+        border-radius: 10px;
+        background: rgba(20, 20, 20, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+        pointer-events: none;
+        user-select: none;
+    }
+    .pdf-magnifier canvas {
+        display: block;
+        width: 190px;
+        height: 190px;
+        background: #fff;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+    }
+    .pdf-magnifier .pdf-mag-caption {
+        margin-top: 5px;
+        color: #f8f9fa;
+        font-size: 0.74rem;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+    }
 </style>
 {% endblock %}
 
@@ -1243,6 +1271,7 @@ function addBoxDom(card, kind, item) {
 
 // ----- Box drag/resize/draw (review fine-tuning) -----
 let activeDrag = null;
+let dragMagnifier = null;
 
 function fracFromEvent(overlay, e) {
     const rect = overlay.getBoundingClientRect();
@@ -1252,6 +1281,108 @@ function fracFromEvent(overlay, e) {
     };
 }
 
+function activeBoxForMagnifier(d, f) {
+    if (!d) return null;
+    if (d.type === 'draw') {
+        return [Math.min(d.startFx, f.x), Math.min(d.startFy, f.y),
+                Math.max(d.startFx, f.x), Math.max(d.startFy, f.y)];
+    }
+    return d.item && d.item.box ? d.item.box : null;
+}
+
+function ensureDragMagnifier() {
+    if (dragMagnifier) return dragMagnifier;
+    const wrap = document.createElement('div');
+    wrap.className = 'pdf-magnifier d-none';
+    const canvas = document.createElement('canvas');
+    canvas.width = 190;
+    canvas.height = 190;
+    const cap = document.createElement('div');
+    cap.className = 'pdf-mag-caption';
+    wrap.appendChild(canvas);
+    wrap.appendChild(cap);
+    document.body.appendChild(wrap);
+    dragMagnifier = { wrap, canvas, cap };
+    return dragMagnifier;
+}
+
+function hideDragMagnifier() {
+    if (dragMagnifier) dragMagnifier.wrap.classList.add('d-none');
+}
+
+function positionDragMagnifier(e) {
+    if (!dragMagnifier) return;
+    const pad = 12;
+    const rect = dragMagnifier.wrap.getBoundingClientRect();
+    let left = e.clientX + 22;
+    let top = e.clientY + 22;
+    if (left + rect.width + pad > window.innerWidth) left = e.clientX - rect.width - 22;
+    if (top + rect.height + pad > window.innerHeight) top = e.clientY - rect.height - 22;
+    dragMagnifier.wrap.style.left = Math.max(pad, left) + 'px';
+    dragMagnifier.wrap.style.top = Math.max(pad, top) + 'px';
+}
+
+function updateDragMagnifier(d, f, e) {
+    const img = d.card && d.card.querySelector('.pdf-page-img');
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const mag = ensureDragMagnifier();
+    const canvas = mag.canvas;
+    const ctx = canvas.getContext('2d');
+    const imgRect = img.getBoundingClientRect();
+    const nx = clamp01(f.x) * img.naturalWidth;
+    const ny = clamp01(f.y) * img.naturalHeight;
+    // 3x zoom relative to the displayed page, scaled back to native pixels.
+    const zoom = 3;
+    const srcW = Math.min(img.naturalWidth, Math.max(24, (canvas.width / zoom) * (img.naturalWidth / Math.max(1, imgRect.width))));
+    const srcH = Math.min(img.naturalHeight, Math.max(24, (canvas.height / zoom) * (img.naturalHeight / Math.max(1, imgRect.height))));
+    const sx = Math.max(0, Math.min(img.naturalWidth - srcW, nx - srcW / 2));
+    const sy = Math.max(0, Math.min(img.naturalHeight - srcH, ny - srcH / 2));
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    try {
+        ctx.drawImage(img, sx, sy, srcW, srcH, 0, 0, canvas.width, canvas.height);
+    } catch (err) {
+        return;
+    }
+
+    const tx = (x) => (x - sx) * canvas.width / srcW;
+    const ty = (y) => (y - sy) * canvas.height / srcH;
+    const cx = tx(nx), cy = ty(ny);
+    const box = activeBoxForMagnifier(d, f);
+    if (box) {
+        const [x1, y1, x2, y2] = box;
+        const edgeColor = d.kind === 'sol' ? '#0d6efd' : '#d63384';
+        ctx.save();
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([7, 4]);
+        const bx1 = tx(x1 * img.naturalWidth), by1 = ty(y1 * img.naturalHeight);
+        const bx2 = tx(x2 * img.naturalWidth), by2 = ty(y2 * img.naturalHeight);
+        ctx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
+        ctx.restore();
+    }
+    // Pointer crosshair: shows the exact handle/cursor point being dragged.
+    ctx.save();
+    ctx.strokeStyle = '#ffc107';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height);
+    ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    mag.cap.textContent = d.type === 'resize'
+        ? 'Zoomed edge/handle placement'
+        : (d.type === 'draw' ? 'Zoomed new box corner' : 'Zoomed box position');
+    mag.wrap.classList.remove('d-none');
+    positionDragMagnifier(e);
+}
+
 function startDrag(e, type, ctx) {
     e.preventDefault();
     const f = fracFromEvent(ctx.overlay, e);
@@ -1259,6 +1390,7 @@ function startDrag(e, type, ctx) {
         startFx: f.x, startFy: f.y,
         startBox: ctx.item ? ctx.item.box.slice() : null,
     });
+    updateDragMagnifier(activeDrag, f, e);
     document.body.style.userSelect = 'none';
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragEnd, { once: true });
@@ -1276,6 +1408,7 @@ function startDraw(e, card, kind, pageIndex) {
     overlay.appendChild(draftEl);
     activeDrag = { type: 'draw', card, kind, pageIndex, overlay, draftEl,
                    startFx: f.x, startFy: f.y, curX: f.x, curY: f.y };
+    updateDragMagnifier(activeDrag, f, e);
     document.body.style.userSelect = 'none';
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragEnd, { once: true });
@@ -1290,6 +1423,7 @@ function onDragMove(e) {
         d.curX = f.x; d.curY = f.y;
         applyBoxStyle(d.draftEl, [Math.min(d.startFx, f.x), Math.min(d.startFy, f.y),
                                  Math.max(d.startFx, f.x), Math.max(d.startFy, f.y)]);
+        updateDragMagnifier(d, f, e);
         return;
     }
     if (d.type === 'move') {
@@ -1319,11 +1453,13 @@ function onDragMove(e) {
         }
     }
     applyBoxStyle(d.boxEl, d.item.box);
+    updateDragMagnifier(d, f, e);
 }
 
 function onDragEnd() {
     document.removeEventListener('pointermove', onDragMove);
     document.body.style.userSelect = '';
+    hideDragMagnifier();
     const d = activeDrag;
     activeDrag = null;
     if (!d) return;
