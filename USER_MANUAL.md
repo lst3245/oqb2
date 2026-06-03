@@ -108,6 +108,7 @@ Each card shows:
 - Topic and subtopic
 - Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page. Word thumbnails appear shortly after the first card load (a small "preview rendering…" placeholder is replaced live with the rendered PNG once the server has it).
 - Answer/Solution buttons (if assets exist)
+- **Explain** opens an AI tutor chat. Its modal includes small QUE / ANS / SOL preview buttons for any assets that exist, so you can inspect the source material without leaving the chat.
 - Comment text (if set)
 - Correct percentage (if recorded, e.g. "75% correct")
 - An edit button (admins only)

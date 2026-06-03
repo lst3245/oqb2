@@ -589,6 +589,8 @@
     .explain-attach-thumb .remove { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.65); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; cursor: pointer; border: none; padding: 0; }
     .explain-attach-thumb .remove:hover { background: rgba(220,53,69,0.85); }
     .explain-attach-msg { font-size: 0.85em; color: #842029; padding: 0.3rem 0.5rem; background: #f8d7da; border-radius: 0.35rem; }
+    .explain-preview-buttons { gap: 0.25rem; }
+    .explain-preview-buttons .btn { padding: 0.1rem 0.4rem; font-size: 0.75rem; line-height: 1.2; }
     /* Endpoint picker in the modal header (desktop width; mobile is full-width row 2). */
     @media (min-width: 768px) {
         .explain-endpoint-picker { min-width: 220px; max-width: 320px; flex-shrink: 0; }
@@ -647,6 +649,21 @@
                 <div class="oqb-explain-header-title">
                     <h5 class="modal-title mb-0"><i class="bi bi-stars"></i> Explain <span id="explainQid" class="text-muted fw-normal small"></span></h5>
                     <small class="text-muted d-block text-truncate" id="explainMeta"></small>
+                    <div id="explainPreviewButtons" class="explain-preview-buttons d-flex d-none flex-wrap align-items-center mt-1">
+                        <span class="text-muted small me-1">Preview:</span>
+                        <button type="button" id="explainPreviewQUEBtn" class="btn btn-sm btn-outline-secondary"
+                                title="Preview question" onclick="_explainPreviewAsset('QUE')">
+                            <i class="bi bi-eye"></i> QUE
+                        </button>
+                        <button type="button" id="explainPreviewANSBtn" class="btn btn-sm btn-outline-primary"
+                                title="Preview answer" onclick="_explainPreviewAsset('ANS')">
+                            <i class="bi bi-eye"></i> ANS
+                        </button>
+                        <button type="button" id="explainPreviewSOLBtn" class="btn btn-sm btn-outline-success"
+                                title="Preview solution" onclick="_explainPreviewAsset('SOL')">
+                            <i class="bi bi-eye"></i> SOL
+                        </button>
+                    </div>
                 </div>
                 <div id="explainEndpointPickerWrap" class="explain-endpoint-picker d-none">
                     <select id="explainEndpointPicker" class="form-select form-select-sm"
@@ -1252,6 +1269,10 @@
 /* Keep the caret visible */
 .filter-btn-active.dropdown-toggle::after {
     border-top-color: #1a56db;
+}
+/* Let the shared preview modal open above another dashboard modal, e.g. Explain. */
+#previewModal.oqb-stacked-preview-modal {
+    z-index: 1065;
 }
 /* Reorder-blocks modal list */
 .reorder-blocks-list .reorder-block-item {
@@ -3887,16 +3908,82 @@ document.getElementById('sectionSelect').addEventListener('change', function() {
 
 // Topic change is now handled by onTopicChange() via checkbox onclick handlers
 
+let previewModalStackToken = 0;
+
+function _cleanupPreviewModalStacking(modalEl, opts) {
+    opts = opts || {};
+    const previewOpen = !!(modalEl && modalEl.classList.contains('show'));
+
+    if (modalEl && (!previewOpen || opts.force)) {
+        modalEl.classList.remove('oqb-stacked-preview-modal');
+        modalEl.removeAttribute('data-preview-stack-token');
+    }
+    // Older page code briefly created a second, raised backdrop for nested
+    // previews. Strip it defensively in case a user upgrades mid-session.
+    document.querySelectorAll('.modal-backdrop.oqb-stacked-preview-backdrop').forEach((bd) => bd.remove());
+
+    if (document.querySelector('.modal.show')) {
+        document.body.classList.add('modal-open');
+        return;
+    }
+
+    // If Bootstrap's stacked-modal timing leaves any backdrop behind, it blocks
+    // the dashboard until refresh. With no open modal, every backdrop is stale.
+    document.body.classList.remove('modal-open');
+    document.querySelectorAll('.modal-backdrop').forEach((bd) => bd.remove());
+}
+
+function _showPreviewModal(modalEl) {
+    const alreadyOpen = modalEl.classList.contains('show');
+    if (!alreadyOpen) _cleanupPreviewModalStacking(modalEl, { force: true });
+
+    const hasOtherOpenModal = !!document.querySelector('.modal.show:not(#previewModal)');
+    const token = String(++previewModalStackToken);
+    modalEl.dataset.previewStackToken = token;
+    modalEl.classList.toggle('oqb-stacked-preview-modal', hasOtherOpenModal);
+
+    modalEl.addEventListener('shown.bs.modal', () => {
+        if (modalEl.dataset.previewStackToken !== token) return;
+        _cleanupPreviewModalStacking(modalEl);
+    }, { once: true });
+
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        if (modalEl.dataset.previewStackToken !== token && modalEl.classList.contains('show')) return;
+        _cleanupPreviewModalStacking(modalEl, { force: true });
+    }, { once: true });
+
+    if (hasOtherOpenModal) {
+        modalEl.addEventListener('click', (e) => {
+            if (modalEl.dataset.previewStackToken !== token) return;
+            if (e.target !== modalEl) return;
+            bootstrap.Modal.getInstance(modalEl)?.hide();
+        }, { once: true });
+    }
+
+    let modal = bootstrap.Modal.getInstance(modalEl);
+    if (!alreadyOpen && modal) {
+        modal.dispose();
+        modal = null;
+    }
+    modal = modal || new bootstrap.Modal(modalEl, {
+        backdrop: hasOtherOpenModal ? false : true,
+        keyboard: true,
+        focus: true,
+    });
+    if (!alreadyOpen) modal.show();
+    return modal;
+}
+
 // Preview asset (unified for IMG / MD / DOC via /preview/ resolver)
 function previewAsset(questionId, assetType) {
-    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    const modalEl = document.getElementById('previewModal');
     const modalBody = document.getElementById('previewModalBody');
     const modalLabel = document.getElementById('previewModalLabel');
 
     modalLabel.textContent = `Preview ${assetType}`;
     modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
 
-    modal.show();
+    _showPreviewModal(modalEl);
 
     const vp = (typeof getVersionPriority === 'function') ? getVersionPriority()
         : (window.OQB_DEFAULT_VERSION_PRIORITY || []).join(',');
@@ -3980,7 +4067,7 @@ function previewAsset(questionId, assetType) {
 
 // Preview text content (Answer Text / Comment) in the existing preview modal
 function previewText(title, textContent) {
-    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    const modalEl = document.getElementById('previewModal');
     const modalBody = document.getElementById('previewModalBody');
     const modalLabel = document.getElementById('previewModalLabel');
     
@@ -3993,7 +4080,7 @@ function previewText(title, textContent) {
         .replace(/\n/g, '<br>');
     modalBody.innerHTML = `<div class="text-start p-3" style="font-size: 1rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">${escaped}</div>`;
     
-    modal.show();
+    _showPreviewModal(modalEl);
 }
 
 // ============== Explain (AI tutor chat) ==============
@@ -4013,7 +4100,8 @@ let explainModalInstance = null;
 // explainState shape:
 //   { questionId, qid, turns: [{role, content, images?: [dataUrl,...]}],
 //     busy: bool, endpointId: int|null, endpoints: [{id, name, model,
-//     supports_vision}], canPick: bool, supportsVision: bool, staged: [dataUrl,...] }
+//     supports_vision}], canPick: bool, supportsVision: bool, staged: [dataUrl,...],
+//     previewSlots: {QUE?: bool, ANS?: bool, SOL?: bool} }
 let explainState = null;
 
 const EXPLAIN_MAX_IMAGES_PER_TURN = 6;
@@ -4023,6 +4111,27 @@ const EXPLAIN_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/web
 
 function _explainEscape(s) {
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _explainSetPreviewButtons(slots) {
+    const wrap = document.getElementById('explainPreviewButtons');
+    if (!wrap) return;
+    const safeSlots = slots || {};
+    let any = false;
+    ['QUE', 'ANS', 'SOL'].forEach((atype) => {
+        const btn = document.getElementById('explainPreview' + atype + 'Btn');
+        if (!btn) return;
+        const show = !!safeSlots[atype];
+        btn.classList.toggle('d-none', !show);
+        any = any || show;
+    });
+    wrap.classList.toggle('d-none', !any);
+}
+
+function _explainPreviewAsset(assetType) {
+    if (!explainState || !explainState.questionId) return;
+    if (!explainState.previewSlots || !explainState.previewSlots[assetType]) return;
+    previewAsset(explainState.questionId, assetType);
 }
 
 function _explainAppendBubble(role, html, opts) {
@@ -4297,7 +4406,7 @@ function _explainSyncVisionFromPicker() {
     }
 }
 
-function openExplainModal(questionId, qid) {
+function openExplainModal(questionId, qid, previewSlots) {
     explainState = {
         questionId: questionId,
         qid: qid || '',
@@ -4308,6 +4417,7 @@ function openExplainModal(questionId, qid) {
         canPick: false,
         supportsVision: true,
         staged: [],
+        previewSlots: Object.assign({ QUE: false, ANS: false, SOL: false }, previewSlots || {}),
     };
     const modalEl = document.getElementById('explainModal');
     if (!modalEl) return;
@@ -4315,6 +4425,7 @@ function openExplainModal(questionId, qid) {
     document.getElementById('explainQid').textContent = qid ? ('· ' + qid) : '';
     document.getElementById('explainMeta').textContent = '';
     document.getElementById('explainTranscript').innerHTML = '';
+    _explainSetPreviewButtons(explainState.previewSlots);
     _explainShowAttachMsg('');
     _explainRenderStaged();
     const input = document.getElementById('explainInput');

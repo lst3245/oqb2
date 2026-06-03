@@ -430,6 +430,7 @@ def filter_questions():
             'preview_doc_asset_id': preview_doc_asset_id,
             'preview_doc_filename': preview_doc_filename,
             'preview_doc_file_path': preview_doc_file_path,
+            'has_que': bool(que_assets),
             'has_ans': has_ans,
             'has_sol': has_sol,
             'answer': q.answer,

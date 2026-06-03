@@ -203,7 +203,7 @@
                         {# AI tutor: sends the question (+ solution) image to the default
                            LLM and opens a follow-up chat. Gated by AI_TOOLS_ENABLED. #}
                         <button type="button" class="btn btn-sm btn-outline-dark"
-                                onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }})'>
+                                onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'>
                             <i class="bi bi-stars"></i> Explain
                         </button>
                         {% endif %}
