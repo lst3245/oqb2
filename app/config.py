@@ -150,7 +150,13 @@ class Config:
     TOOLBOX_RASTER_WIDTH = int(os.getenv('TOOLBOX_RASTER_WIDTH', '1700'))
     # PDF Toolbox — width (px) of rasterised pages on EXPORT (only pages that
     # carry a raster-only op are rasterised; vector pages stay lossless).
+    # Used only as a fallback for pages staged before the per-page DPI existed.
     TOOLBOX_EXPORT_WIDTH = int(os.getenv('TOOLBOX_EXPORT_WIDTH', '2200'))
+    # PDF Toolbox — default processing/export resolution in DPI, chosen per
+    # batch in step 2. DPI is page-size independent, so it gives a predictable
+    # quality for both A4 and A3 (e.g. 200 DPI → A4 ≈ 1654 px wide, A3 ≈ 2339
+    # px wide). 150 = draft/screen, 200 = normal (recommended), 300 = print.
+    TOOLBOX_DEFAULT_DPI = int(os.getenv('TOOLBOX_DEFAULT_DPI', '200'))
     # PDF Toolbox — subfolder (under PDF_SOURCE_PATH) where "Save to server"
     # writes assembled PDFs/ZIPs so Batch PDF Import can pick them.
     TOOLBOX_SAVE_SUBDIR = os.getenv('TOOLBOX_SAVE_SUBDIR', 'Saved')

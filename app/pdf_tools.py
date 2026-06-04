@@ -74,19 +74,24 @@ def is_vector_safe(ops) -> bool:
 
 # ==================== Rasterisation + filters ====================
 
-def rasterize_page(fitz_page, width_px: int):
-    """Rasterise one PyMuPDF page to a PIL RGB Image at ``width_px`` wide.
+def rasterize_page(fitz_page, width_px: int = None, dpi: int = None):
+    """Rasterise one PyMuPDF page to a PIL RGB Image.
 
-    Mirrors the zoom/pixmap pattern used across the project
-    (``pdf_import.rasterize_pdf`` / ``batch_image_gen._pdf_to_cropped_images``)
-    so all rasterisation looks identical. The page's own ``/Rotate`` is
-    honoured by PyMuPDF.
+    Supply EITHER ``dpi`` (page-size independent — preferred for export /
+    processing, so A4 and A3 render at the same physical quality) OR
+    ``width_px`` (fixed pixel width — used for small preview thumbnails).
+    Mirrors the zoom/pixmap pattern used across the project so all
+    rasterisation looks identical. The page's own ``/Rotate`` is honoured by
+    PyMuPDF.
     """
     import fitz  # type: ignore
     from PIL import Image
 
-    base_width = fitz_page.rect.width or 595.0  # A4 width pts fallback
-    zoom = max(0.1, float(width_px) / base_width)
+    if dpi:
+        zoom = max(0.05, float(dpi) / 72.0)  # PDF user space is 72 dpi
+    else:
+        base_width = fitz_page.rect.width or 595.0  # A4 width pts fallback
+        zoom = max(0.1, float(width_px or 1700) / base_width)
     pix = fitz_page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
     img = Image.frombytes('RGB', (pix.width, pix.height), pix.samples)
     return img
@@ -253,10 +258,11 @@ def filters_to_ops(filters):
 
 # ==================== Single-page render (thumbnails + raster export) ====================
 
-def render_page_image(pdf_path: str, page_index: int, ops, width_px: int):
-    """Open ``pdf_path``, rasterise page ``page_index`` at ``width_px`` and
-    apply ``ops``. Returns a PIL RGB Image. Used by the thumbnail route and the
-    raster export path."""
+def render_page_image(pdf_path: str, page_index: int, ops, width_px: int = None,
+                      dpi: int = None):
+    """Open ``pdf_path``, rasterise page ``page_index`` (by ``dpi`` or
+    ``width_px``) and apply ``ops``. Returns a PIL RGB Image. Used by the
+    thumbnail route (width) and the raster export path (dpi)."""
     import fitz  # type: ignore
 
     doc = fitz.open(pdf_path)
@@ -264,7 +270,7 @@ def render_page_image(pdf_path: str, page_index: int, ops, width_px: int):
         if page_index < 0 or page_index >= doc.page_count:
             raise ValueError('page index out of range')
         page = doc.load_page(page_index)
-        img = rasterize_page(page, width_px)
+        img = rasterize_page(page, width_px=width_px, dpi=dpi)
     finally:
         doc.close()
     return apply_ops(img, ops)
@@ -297,15 +303,14 @@ def process_pdf_to_images(pdf_path: str, width_px: int, pre_rotate: int = 0,
 
 # ==================== Export (hybrid vector / raster) ====================
 
-def _pil_image_to_pdf_reader(img):
-    """Save a PIL Image as a one-page PDF (sized ~A4-width) and return a fresh
-    pypdf PdfReader over its bytes."""
+def _pil_image_to_pdf_reader(img, dpi: float = None):
+    """Save a PIL Image as a one-page PDF at ``dpi`` (so the page lands at a
+    sensible physical size) and return a fresh pypdf PdfReader over its bytes.
+    When ``dpi`` is None, fall back to assuming the image is ~A4 wide."""
     import pypdf  # type: ignore
 
     buf = io.BytesIO()
-    # ~8.27in (A4 width) so pages land at a sensible physical size regardless
-    # of pixel width.
-    res = max(72.0, img.size[0] / 8.27)
+    res = float(dpi) if dpi else max(72.0, img.size[0] / 8.27)
     img.save(buf, format='PDF', resolution=res)
     return pypdf.PdfReader(io.BytesIO(buf.getvalue()))
 
@@ -330,11 +335,13 @@ def _apply_vector_crop(page, box):
     page.cropbox.upper_right = (new_right, new_top)
 
 
-def export_pages(pages, resolve_path, fmt: str = 'pdf', width_px: int = 2200,
+def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
                  split_every=None) -> bytes:
     """Assemble ``pages`` (page descriptors) into a downloadable artefact.
 
-    ``resolve_path(src_id) -> abs pdf path``. ``fmt``:
+    ``resolve_path(src_id) -> abs pdf path``. Each descriptor may carry its own
+    ``dpi`` (chosen when the page was added); ``default_dpi`` is the fallback
+    for pages without one. ``fmt``:
 
     * ``'pdf'``  — one combined PDF (hybrid vector/raster). When ``split_every``
       is a positive int, instead returns a ZIP of N-page PDFs (Mode-1
@@ -348,7 +355,7 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', width_px: int = 2200,
         raise ValueError('no pages to export')
 
     if fmt == 'zip':
-        return _export_png_zip(pages, resolve_path, width_px)
+        return _export_png_zip(pages, resolve_path, default_dpi)
 
     try:
         import pypdf  # type: ignore  # noqa: F401
@@ -358,19 +365,28 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', width_px: int = 2200,
 
     if not have_pypdf:
         logger.warning('pypdf unavailable — exporting an all-raster PDF.')
-        return _export_raster_pdf(pages, resolve_path, width_px)
+        return _export_raster_pdf(pages, resolve_path, default_dpi)
 
     if split_every and int(split_every) > 0:
-        return _export_split_pdf_zip(pages, resolve_path, width_px,
+        return _export_split_pdf_zip(pages, resolve_path, default_dpi,
                                      int(split_every))
 
     writer = _new_writer()
     src_bytes_cache: dict = {}
     for desc in pages:
-        _add_page(writer, desc, resolve_path, width_px, src_bytes_cache)
+        _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache)
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()
+
+
+def _page_dpi(desc, default_dpi: int) -> int:
+    """Resolution for one page descriptor (its own ``dpi`` or the fallback)."""
+    try:
+        d = int(desc.get('dpi') or 0)
+    except (TypeError, ValueError):
+        d = 0
+    return d if d > 0 else int(default_dpi or 200)
 
 
 def _new_writer():
@@ -385,9 +401,9 @@ def _src_bytes(resolve_path, src_id, cache):
     return cache[src_id]
 
 
-def _add_page(writer, desc, resolve_path, width_px, src_bytes_cache):
+def _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache):
     """Add one descriptor to ``writer`` as a vector page when safe, else as a
-    rasterised image page."""
+    rasterised image page (at the page's chosen DPI)."""
     import pypdf  # type: ignore
 
     ops = desc.get('ops') or []
@@ -416,9 +432,10 @@ def _add_page(writer, desc, resolve_path, width_px, src_bytes_cache):
             logger.warning('vector add failed for %s p%s (%s) — rasterising.',
                            desc.get('src'), desc.get('page'), e)
 
+    dpi = _page_dpi(desc, default_dpi)
     img = render_page_image(resolve_path(desc['src']), int(desc['page']),
-                            ops, width_px)
-    reader = _pil_image_to_pdf_reader(img)
+                            ops, dpi=dpi)
+    reader = _pil_image_to_pdf_reader(img, dpi=dpi)
     writer.add_page(reader.pages[0])
 
 
@@ -426,33 +443,37 @@ class _RasterFallback(Exception):
     """Internal signal: this page must be rasterised, not added as vector."""
 
 
-def _export_raster_pdf(pages, resolve_path, width_px) -> bytes:
+def _export_raster_pdf(pages, resolve_path, default_dpi) -> bytes:
     """All-raster PDF via Pillow (pypdf-free fallback)."""
     from PIL import Image  # noqa: F401
 
-    imgs = [render_page_image(resolve_path(d['src']), int(d['page']),
-                              d.get('ops') or [], width_px) for d in pages]
+    imgs, first_dpi = [], None
+    for d in pages:
+        dpi = _page_dpi(d, default_dpi)
+        if first_dpi is None:
+            first_dpi = dpi
+        imgs.append(render_page_image(resolve_path(d['src']), int(d['page']),
+                                      d.get('ops') or [], dpi=dpi))
     buf = io.BytesIO()
-    res = max(72.0, width_px / 8.27)
     imgs[0].save(buf, format='PDF', save_all=True, append_images=imgs[1:],
-                 resolution=res)
+                 resolution=float(first_dpi or 200))
     return buf.getvalue()
 
 
-def _export_png_zip(pages, resolve_path, width_px) -> bytes:
+def _export_png_zip(pages, resolve_path, default_dpi) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for i, desc in enumerate(pages):
             img = render_page_image(resolve_path(desc['src']),
                                     int(desc['page']), desc.get('ops') or [],
-                                    width_px)
+                                    dpi=_page_dpi(desc, default_dpi))
             img_buf = io.BytesIO()
             img.save(img_buf, format='PNG')
             zf.writestr(f'page_{i + 1:03d}.png', img_buf.getvalue())
     return buf.getvalue()
 
 
-def _export_split_pdf_zip(pages, resolve_path, width_px, split_every) -> bytes:
+def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every) -> bytes:
     """ZIP of PDFs, ``split_every`` pages each (Mode-1 per-student output)."""
     buf = io.BytesIO()
     src_bytes_cache: dict = {}
@@ -464,7 +485,8 @@ def _export_split_pdf_zip(pages, resolve_path, width_px, split_every) -> bytes:
             group = pages[idx:idx + split_every]
             writer = _new_writer()
             for desc in group:
-                _add_page(writer, desc, resolve_path, width_px, src_bytes_cache)
+                _add_page(writer, desc, resolve_path, default_dpi,
+                          src_bytes_cache)
             pdf_buf = io.BytesIO()
             writer.write(pdf_buf)
             zf.writestr(f'part_{chunk:03d}.pdf', pdf_buf.getvalue())

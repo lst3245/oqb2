@@ -5,9 +5,12 @@
 {% block extra_css %}
 <style>
     .tb-preview-grid {
+        position: relative;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
         gap: .75rem;
+        min-height: 220px;
+        user-select: none;
     }
     .tb-page-card {
         border: 1px solid var(--bs-border-color);
@@ -15,8 +18,13 @@
         background: var(--bs-body-bg);
         overflow: hidden;
         position: relative;
+        cursor: pointer;
+        transition: outline-color .1s, box-shadow .1s;
+        outline: 3px solid transparent;
     }
+    .tb-page-card:hover { box-shadow: 0 0 0 1px var(--bs-primary); }
     .tb-page-card.tb-selected { outline: 3px solid var(--bs-primary); }
+    .tb-page-card.tb-cut { opacity: .45; outline-style: dashed; outline-color: var(--bs-warning); }
     .tb-thumb-wrap {
         background: #f3f3f3;
         min-height: 120px;
@@ -24,22 +32,29 @@
         align-items: center;
         justify-content: center;
     }
-    .tb-thumb-wrap img { width: 100%; height: auto; display: block; }
+    .tb-thumb-wrap img { width: 100%; height: auto; display: block; pointer-events: none; }
     .tb-page-head {
         display: flex; align-items: center; gap: .35rem;
-        padding: .25rem .4rem; font-size: .8rem;
+        padding: .2rem .45rem; font-size: .78rem;
         border-bottom: 1px solid var(--bs-border-color);
     }
-    .tb-page-tools {
-        display: flex; flex-wrap: wrap; gap: .15rem;
-        padding: .3rem; border-top: 1px solid var(--bs-border-color);
-    }
-    .tb-page-tools .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .35rem; font-size: .75rem; }
-    .tb-drag-handle { cursor: grab; touch-action: none; color: var(--bs-secondary); }
+    .tb-page-badges { position: absolute; top: 26px; left: 4px; display: flex; flex-wrap: wrap; gap: 2px; }
+    .tb-page-badges .badge { font-size: .6rem; }
     .tb-src-strip { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .35rem; }
     .tb-src-strip img { height: 90px; width: auto; border: 1px solid var(--bs-border-color); border-radius: .25rem; }
     .sortable-ghost { opacity: .4; }
+    .sortable-chosen { box-shadow: 0 0 0 2px var(--bs-primary); }
     .tb-log { font-size: .8rem; max-height: 140px; overflow-y: auto; }
+    .tb-rubber {
+        position: absolute;
+        border: 1px solid var(--bs-primary);
+        background: rgba(13,110,253,.12);
+        pointer-events: none;
+        z-index: 5;
+        display: none;
+    }
+    .tb-ops-bar { position: sticky; top: 0; z-index: 6; }
+    #previewModalImg { max-width: 100%; height: auto; }
 </style>
 {% endblock %}
 
@@ -53,12 +68,13 @@
     </div>
     <p class="text-muted small">
         Upload a PDF, process it (split A3 booklets, deskew, rotate, adjust image), then add the pages to the
-        preview. Drag to reorder, tweak individual pages, upload more PDFs to merge, and export the selection.
+        preview. Select, drag to reorder, tweak pages, upload more PDFs to merge, and export the selection.
     </p>
 
     <div class="row g-3">
         <!-- ===== Left: source + process ===== -->
         <div class="col-lg-4">
+            <!-- Step 1: upload -->
             <div class="card mb-3">
                 <div class="card-header py-2"><strong><i class="bi bi-1-circle"></i> Upload source PDF</strong></div>
                 <div class="card-body">
@@ -72,16 +88,28 @@
                     </button>
                     {% endif %}
                     <div id="sourceList" class="small text-muted">No PDF loaded yet.</div>
-                    <div id="srcStrip" class="tb-src-strip mt-2"></div>
                 </div>
             </div>
 
+            <!-- Step 2: process & add -->
             <div class="card mb-3" id="processCard" style="display:none;">
                 <div class="card-header py-2"><strong><i class="bi bi-2-circle"></i> Process &amp; add to preview</strong></div>
                 <div class="card-body">
                     <div class="mb-2">
                         <label class="form-label small mb-1">Active source</label>
                         <select id="activeSource" class="form-select form-select-sm"></select>
+                    </div>
+                    <!-- active source preview lives here (step 2) -->
+                    <div id="srcStrip" class="tb-src-strip mb-2"></div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">Resolution (DPI)</label>
+                        <select id="procDpi" class="form-select form-select-sm">
+                            <option value="150">150 DPI — draft / screen</option>
+                            <option value="200">200 DPI — normal (recommended)</option>
+                            <option value="300">300 DPI — high / print</option>
+                            <option value="400">400 DPI — very high</option>
+                        </select>
+                        <div class="form-text">Page-size independent: A4 @200 ≈ 1654px, A3 @200 ≈ 2339px wide. Higher = sharper but larger files.</div>
                     </div>
                     <div class="mb-2">
                         <label class="form-label small mb-1">Rotate whole page first</label>
@@ -145,15 +173,37 @@
                 <div class="card-header py-2 d-flex flex-wrap align-items-center gap-2">
                     <strong><i class="bi bi-3-circle"></i> Preview &amp; assemble</strong>
                     <span class="badge bg-secondary" id="pageCount">0 pages</span>
-                    <div class="ms-auto d-flex gap-1">
-                        <button class="btn btn-sm btn-outline-secondary" id="selectAllBtn" type="button">Select all</button>
-                        <button class="btn btn-sm btn-outline-secondary" id="clearSelBtn" type="button">Clear</button>
-                        <button class="btn btn-sm btn-outline-danger" id="deleteSelBtn" type="button"><i class="bi bi-trash"></i> Delete selected</button>
-                    </div>
+                    <span class="badge bg-primary" id="selCount" style="display:none;">0 selected</span>
                 </div>
                 <div class="card-body">
+                    <!-- Operations toolbar (acts on the current selection) -->
+                    <div class="tb-ops-bar bg-body border rounded p-2 mb-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary" id="selAllBtn" type="button" title="Select all (Ctrl+A)"><i class="bi bi-check2-square"></i> All</button>
+                                <button class="btn btn-outline-secondary" id="selClearBtn" type="button" title="Clear selection (Esc)">None</button>
+                            </div>
+                            <div class="vr"></div>
+                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
+                                <button class="btn btn-outline-secondary" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                <button class="btn btn-outline-secondary" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
+                                <button class="btn btn-outline-secondary" data-op="deskew" type="button" title="Toggle deskew" {% if not numpy_available %}disabled{% endif %}><i class="bi bi-rulers"></i> Deskew</button>
+                                <button class="btn btn-outline-secondary" data-op="bw" type="button" title="Toggle black &amp; white"><i class="bi bi-circle-half"></i> B&amp;W</button>
+                                <button class="btn btn-outline-secondary" data-op="brUp" type="button" title="Brighter"><i class="bi bi-brightness-high"></i></button>
+                                <button class="btn btn-outline-secondary" data-op="brDn" type="button" title="Darker"><i class="bi bi-brightness-low"></i></button>
+                                <button class="btn btn-outline-secondary" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i></button>
+                            </div>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="copy" type="button" title="Copy (Ctrl+C)"><i class="bi bi-files"></i></button>
+                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="cut" type="button" title="Cut (Ctrl+X)"><i class="bi bi-scissors"></i></button>
+                                <button class="btn btn-outline-secondary" id="pasteBtn" data-op="paste" type="button" title="Paste (Ctrl+V)" disabled><i class="bi bi-clipboard-plus"></i></button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger tb-needs-sel ms-auto" data-op="del" type="button" title="Delete selected (Del)"><i class="bi bi-trash"></i> Delete</button>
+                        </div>
+                    </div>
+
                     <!-- Export bar -->
-                    <div class="row g-2 align-items-end mb-3">
+                    <div class="row g-2 align-items-end mb-2">
                         <div class="col-auto">
                             <label class="form-label small mb-0">Format</label>
                             <select id="exportFmt" class="form-select form-select-sm" style="width:auto;">
@@ -168,23 +218,28 @@
                             </div>
                         </div>
                         <div class="col">
-                            <label class="form-label small mb-0">File name</label>
-                            <input type="text" class="form-control form-control-sm" id="exportName" value="toolbox_export">
+                            <label class="form-label small mb-0">File name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm" id="exportName" placeholder="Enter a file name" required>
                         </div>
                         <div class="col-auto">
-                            <button class="btn btn-primary btn-sm" id="exportBtn" type="button"><i class="bi bi-download"></i> Export selected</button>
+                            <button class="btn btn-primary btn-sm" id="exportBtn" type="button" disabled><i class="bi bi-download"></i> Export selected</button>
                         </div>
                         {% if pdf_source_available %}
                         <div class="col-auto">
-                            <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button"
+                            <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button" disabled
                                     title="Save under PDF_SOURCE_PATH/{{ save_subdir }} so Batch PDF Import can pick it">
                                 <i class="bi bi-hdd"></i> Save to server
                             </button>
                         </div>
                         {% endif %}
                     </div>
-                    <div class="text-muted small mb-2">Tip: drag pages by the <i class="bi bi-grip-vertical"></i> handle to reorder. With nothing selected, all pages export.</div>
+                    <div class="text-muted small mb-2">
+                        Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
+                        Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
+                    </div>
+
                     <div id="previewGrid" class="tb-preview-grid">
+                        <div class="tb-rubber" id="rubberBand"></div>
                         <div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>
                     </div>
                 </div>
@@ -208,6 +263,38 @@
         </div>
     </div>
 </div>
+
+<!-- Large page preview modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title" id="previewModalTitle">Page preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="previewModalImg" alt="Page preview">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overwrite-on-save modal -->
+<div class="modal fade" id="overwriteModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-warning"></i> File already exists</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body"><p id="overwriteMsg" class="mb-0"></p></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="overwriteRenameBtn">Rename</button>
+                <button type="button" class="btn btn-danger" id="overwriteConfirmBtn"><i class="bi bi-exclamation-octagon"></i> Overwrite</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -215,11 +302,16 @@
 const BASE = "{{ url_for('toolbox.pdf_tool') }}";
 const SOURCE_LIST_URL = "{{ url_for('admin.pdf_import_source_list') }}";
 const THUMB_W = 360;
+const PREVIEW_W = 1100;
+const DEFAULT_DPI = {{ default_dpi }};
 let TOKEN = null;
 let activeSrc = null;
 const sources = {};          // srcid -> {filename, page_count}
-let pages = [];              // [{id, src, page, baseOps, edit:{type->op}, nonce}]
+let pages = [];              // [{id, src, page, mode, baseOps, edit:{type->op}, dpi, nonce}]
 let sortable = null;
+let selected = new Set();     // selected page ids
+let lastClickedId = null;     // for shift-range select
+let clipboard = null;         // {mode:'copy'|'cut', ids:[]}
 
 const SPLIT_HELP = {
     none: 'Pages are added as-is.',
@@ -245,7 +337,7 @@ async function postJSON(url, body) {
         body: JSON.stringify(body),
     });
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    if (!r.ok) { const e = new Error(data.error || ('HTTP ' + r.status)); e.data = data; e.status = r.status; throw e; }
     return data;
 }
 
@@ -255,8 +347,21 @@ function fullOps(p) {
     return p.baseOps.concat(edits);
 }
 
-function thumbUrl(p) {
-    return `${BASE}/thumb/${TOKEN}/${p.id}.png?w=${THUMB_W}&t=${p.nonce}`;
+function thumbUrl(p, w) {
+    return `${BASE}/thumb/${TOKEN}/${p.id}.png?w=${w || THUMB_W}&t=${p.nonce}`;
+}
+
+function setBtnLoading(btn, on) {
+    if (!btn) return;
+    if (on) {
+        btn.dataset.html = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Working...';
+    } else {
+        btn.disabled = false;
+        if (btn.dataset.html !== undefined) { btn.innerHTML = btn.dataset.html; delete btn.dataset.html; }
+        updateExportButtons();
+    }
 }
 
 // ---------- upload ----------
@@ -297,6 +402,7 @@ function renderSourceList() {
 function renderSrcStrip(srcid, count) {
     const strip = document.getElementById('srcStrip');
     strip.innerHTML = '';
+    if (!srcid) return;
     const max = Math.min(count, 12);
     for (let i = 0; i < max; i++) {
         const img = document.createElement('img');
@@ -332,11 +438,14 @@ function gatherFilters() {
 
 async function addPages() {
     if (!activeSrc) { log('Load a PDF first.', 'error'); return; }
+    const btn = document.getElementById('addPagesBtn');
+    setBtnLoading(btn, true);
     const body = {
         token: TOKEN,
         srcid: activeSrc,
         mode: document.getElementById('splitMode').value,
         pre_rotate: parseInt(document.getElementById('preRotate').value, 10),
+        dpi: parseInt(document.getElementById('procDpi').value, 10),
         filters: gatherFilters(),
     };
     let data;
@@ -344,29 +453,47 @@ async function addPages() {
         data = await postJSON(`${BASE}/add-pages`, body);
     } catch (e) {
         log('Add failed: ' + e.message, 'error');
+        setBtnLoading(btn, false);
         return;
     }
     data.pages.forEach(sp => {
         pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                    baseOps: sp.ops || [], edit: {}, nonce: Date.now()});
+                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {}, nonce: Date.now()});
     });
     log(`Added ${data.added} page(s).`, 'success');
+    setBtnLoading(btn, false);
     renderPreview();
 }
 
-// ---------- preview ----------
+// ---------- preview render ----------
 function renderPreview() {
     const grid = document.getElementById('previewGrid');
-    grid.innerHTML = '';
+    // Keep the rubber-band element; rebuild cards.
+    grid.querySelectorAll('.tb-page-card').forEach(c => c.remove());
+    const empty = document.getElementById('previewEmpty');
     if (!pages.length) {
-        grid.innerHTML = '<div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>';
-        updateCount();
+        if (empty) empty.style.display = '';
+        if (sortable) { sortable.destroy(); sortable = null; }
+        updateCount(); updateSelectionUI(); updateSplitEveryVisibility(); updateExportButtons();
         return;
     }
+    if (empty) empty.style.display = 'none';
     pages.forEach((p, i) => grid.appendChild(buildCard(p, i)));
     initSortable();
     updateCount();
+    updateSelectionUI();
     updateSplitEveryVisibility();
+    updateExportButtons();
+}
+
+function editBadges(p) {
+    const labels = [];
+    if (p.edit.rotate) labels.push(`${p.edit.rotate.deg}°`);
+    if (p.edit.deskew) labels.push('deskew');
+    if (p.edit.bw) labels.push('B&W');
+    if (p.edit.brightness) labels.push('bright');
+    if (p.edit.grayscale) labels.push('gray');
+    return labels.map(l => `<span class="badge bg-info text-dark">${l}</span>`).join('');
 }
 
 function buildCard(p, idx) {
@@ -375,63 +502,102 @@ function buildCard(p, idx) {
     card.dataset.pageId = p.id;
     card.innerHTML = `
         <div class="tb-page-head">
-            <i class="bi bi-grip-vertical tb-drag-handle"></i>
-            <input type="checkbox" class="form-check-input tb-sel" data-id="${p.id}">
-            <span class="text-muted">#${idx + 1}</span>
+            <span class="text-muted">#<span class="tb-num">${idx + 1}</span></span>
         </div>
-        <div class="tb-thumb-wrap"><img src="${thumbUrl(p)}" loading="lazy"></div>
-        <div class="tb-page-tools">
-            <button class="btn btn-outline-secondary" data-act="rotL" title="Rotate left"><i class="bi bi-arrow-counterclockwise"></i></button>
-            <button class="btn btn-outline-secondary" data-act="rotR" title="Rotate right"><i class="bi bi-arrow-clockwise"></i></button>
-            <button class="btn btn-outline-secondary" data-act="deskew" title="Toggle deskew"><i class="bi bi-rulers"></i></button>
-            <button class="btn btn-outline-secondary" data-act="bw" title="Toggle B&amp;W"><i class="bi bi-circle-half"></i></button>
-            <button class="btn btn-outline-secondary" data-act="brUp" title="Brighter"><i class="bi bi-brightness-high"></i></button>
-            <button class="btn btn-outline-secondary" data-act="brDn" title="Darker"><i class="bi bi-brightness-low"></i></button>
-            <button class="btn btn-outline-secondary" data-act="reset" title="Reset edits"><i class="bi bi-eraser"></i></button>
-            <button class="btn btn-outline-danger" data-act="del" title="Delete page"><i class="bi bi-trash"></i></button>
-        </div>`;
-    card.querySelectorAll('button[data-act]').forEach(btn => {
-        btn.addEventListener('click', () => pageAction(p, btn.dataset.act));
-    });
-    const cb = card.querySelector('.tb-sel');
-    cb.addEventListener('change', () => card.classList.toggle('tb-selected', cb.checked));
+        <div class="tb-page-badges">${editBadges(p)}</div>
+        <div class="tb-thumb-wrap"><img src="${thumbUrl(p)}" loading="lazy"></div>`;
+    card.addEventListener('click', (e) => onCardClick(e, p.id));
+    card.addEventListener('dblclick', (e) => { e.preventDefault(); openPreview(p); });
     return card;
 }
 
-async function pageAction(p, act) {
-    if (act === 'del') {
-        try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: [p.id]}); } catch (e) { log(e.message, 'error'); }
-        pages = pages.filter(x => x.id !== p.id);
-        renderPreview();
-        return;
+function cardEl(id) { return document.querySelector(`.tb-page-card[data-page-id="${id}"]`); }
+
+// ---------- selection ----------
+function onCardClick(e, id) {
+    if (e.shiftKey && lastClickedId) {
+        selectRange(lastClickedId, id, e.ctrlKey || e.metaKey);
+    } else if (e.ctrlKey || e.metaKey) {
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        lastClickedId = id;
+    } else {
+        selected = new Set([id]);
+        lastClickedId = id;
     }
-    if (act === 'rotL') rotateBy(p, -90);
-    else if (act === 'rotR') rotateBy(p, 90);
-    else if (act === 'deskew') toggleEdit(p, 'deskew', {type: 'deskew'});
-    else if (act === 'bw') toggleEdit(p, 'bw', {type: 'bw', threshold: 160});
-    else if (act === 'brUp') adjustBrightness(p, 0.1);
-    else if (act === 'brDn') adjustBrightness(p, -0.1);
-    else if (act === 'reset') p.edit = {};
-    await saveOps(p);
+    updateSelectionUI();
+}
+
+function selectRange(fromId, toId, additive) {
+    const ids = pages.map(p => p.id);
+    let a = ids.indexOf(fromId), b = ids.indexOf(toId);
+    if (a < 0 || b < 0) return;
+    if (a > b) [a, b] = [b, a];
+    if (!additive) selected = new Set();
+    for (let i = a; i <= b; i++) selected.add(ids[i]);
+    updateSelectionUI();
+}
+
+function setSelection(ids) { selected = new Set(ids); lastClickedId = ids.length ? ids[ids.length - 1] : null; updateSelectionUI(); }
+function selectAll() { selected = new Set(pages.map(p => p.id)); updateSelectionUI(); }
+function clearSelection() { selected = new Set(); updateSelectionUI(); }
+
+function updateSelectionUI() {
+    const cutIds = (clipboard && clipboard.mode === 'cut') ? new Set(clipboard.ids) : new Set();
+    document.querySelectorAll('.tb-page-card').forEach(c => {
+        const id = c.dataset.pageId;
+        c.classList.toggle('tb-selected', selected.has(id));
+        c.classList.toggle('tb-cut', cutIds.has(id));
+    });
+    const n = selected.size;
+    const badge = document.getElementById('selCount');
+    badge.style.display = n ? '' : 'none';
+    badge.textContent = `${n} selected`;
+    document.querySelectorAll('.tb-needs-sel').forEach(b => b.disabled = (n === 0));
+    document.getElementById('pasteBtn').disabled = !(clipboard && clipboard.ids.length);
+}
+
+function selectedPagesInOrder() {
+    return pages.filter(p => selected.has(p.id));
+}
+
+// ---------- operations on selection ----------
+async function opAction(op) {
+    if (op === 'paste') { return pasteClipboard(); }
+    const sel = selectedPagesInOrder();
+    if (op === 'copy') { return copySel(sel); }
+    if (op === 'cut') { return cutSel(sel); }
+    if (!sel.length) return;
+    if (op === 'del') { return deleteSelected(); }
+
+    if (op === 'rotL') sel.forEach(p => rotateBy(p, -90));
+    else if (op === 'rotR') sel.forEach(p => rotateBy(p, 90));
+    else if (op === 'brUp') sel.forEach(p => adjustBrightness(p, 0.1));
+    else if (op === 'brDn') sel.forEach(p => adjustBrightness(p, -0.1));
+    else if (op === 'reset') sel.forEach(p => p.edit = {});
+    else if (op === 'deskew') {
+        const allOn = sel.every(p => p.edit.deskew);
+        sel.forEach(p => { if (allOn) delete p.edit.deskew; else p.edit.deskew = {type: 'deskew'}; });
+    } else if (op === 'bw') {
+        const allOn = sel.every(p => p.edit.bw);
+        sel.forEach(p => { if (allOn) delete p.edit.bw; else p.edit.bw = {type: 'bw', threshold: 160}; });
+    }
+    await saveMany(sel);
 }
 
 function rotateBy(p, delta) {
     const cur = p.edit.rotate ? p.edit.rotate.deg : 0;
     const deg = ((cur + delta) % 360 + 360) % 360;
-    if (deg === 0) delete p.edit.rotate;
-    else p.edit.rotate = {type: 'rotate', deg};
-}
-
-function toggleEdit(p, key, op) {
-    if (p.edit[key]) delete p.edit[key];
-    else p.edit[key] = op;
+    if (deg === 0) delete p.edit.rotate; else p.edit.rotate = {type: 'rotate', deg};
 }
 
 function adjustBrightness(p, delta) {
     const cur = p.edit.brightness ? p.edit.brightness.factor : 1.0;
     const f = Math.max(0.3, Math.min(2.0, +(cur + delta).toFixed(2)));
-    if (Math.abs(f - 1.0) < 1e-6) delete p.edit.brightness;
-    else p.edit.brightness = {type: 'brightness', factor: f};
+    if (Math.abs(f - 1.0) < 1e-6) delete p.edit.brightness; else p.edit.brightness = {type: 'brightness', factor: f};
+}
+
+async function saveMany(arr) {
+    await Promise.all(arr.map(p => saveOps(p)));
 }
 
 async function saveOps(p) {
@@ -439,8 +605,85 @@ async function saveOps(p) {
         await postJSON(`${BASE}/page-ops`, {token: TOKEN, page_id: p.id, ops: fullOps(p)});
     } catch (e) { log(e.message, 'error'); return; }
     p.nonce = Date.now();
-    const card = document.querySelector(`.tb-page-card[data-page-id="${p.id}"] img`);
-    if (card) card.src = thumbUrl(p);
+    const card = cardEl(p.id);
+    if (card) {
+        const img = card.querySelector('img');
+        if (img) img.src = thumbUrl(p);
+        const badges = card.querySelector('.tb-page-badges');
+        if (badges) badges.innerHTML = editBadges(p);
+    }
+}
+
+async function deleteSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: ids}); } catch (e) { log(e.message, 'error'); return; }
+    pages = pages.filter(p => !selected.has(p.id));
+    selected = new Set();
+    renderPreview();
+}
+
+// ---------- clipboard (copy / cut / paste) ----------
+function copySel(sel) {
+    if (!sel.length) return;
+    clipboard = {mode: 'copy', ids: sel.map(p => p.id)};
+    log(`Copied ${sel.length} page(s).`);
+    updateSelectionUI();
+}
+function cutSel(sel) {
+    if (!sel.length) return;
+    clipboard = {mode: 'cut', ids: sel.map(p => p.id)};
+    log(`Cut ${sel.length} page(s) — paste to move them.`);
+    updateSelectionUI();
+}
+
+function pasteAnchorId() {
+    // Paste after the last selected page (in order), else at the end.
+    const sel = selectedPagesInOrder();
+    if (sel.length) return sel[sel.length - 1].id;
+    return pages.length ? pages[pages.length - 1].id : null;
+}
+
+async function pasteClipboard() {
+    if (!clipboard || !clipboard.ids.length) return;
+    const afterId = pasteAnchorId();
+    if (clipboard.mode === 'copy') {
+        let data;
+        try { data = await postJSON(`${BASE}/duplicate`, {token: TOKEN, page_ids: clipboard.ids, after_id: afterId}); }
+        catch (e) { log('Paste failed: ' + e.message, 'error'); return; }
+        const byId = {}; pages.forEach(p => byId[p.id] = p);
+        data.pages.forEach(sp => {
+            byId[sp.id] = {id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
+                           dpi: sp.dpi, baseOps: sp.ops || [], edit: {}, nonce: Date.now()};
+        });
+        pages = data.order.map(id => byId[id]).filter(Boolean);
+        setSelection(data.pages.map(p => p.id));
+        log(`Pasted ${data.pages.length} copied page(s).`, 'success');
+        renderPreview();
+    } else {
+        // cut = move
+        const moving = clipboard.ids.filter(id => pages.some(p => p.id === id));
+        const movingSet = new Set(moving);
+        const byId = {}; pages.forEach(p => byId[p.id] = p);
+        const remaining = pages.filter(p => !movingSet.has(p.id));
+        let ins = remaining.length;
+        if (afterId && !movingSet.has(afterId)) {
+            const idx = remaining.findIndex(p => p.id === afterId);
+            if (idx >= 0) ins = idx + 1;
+        }
+        const movingPages = moving.map(id => byId[id]);
+        pages = remaining.slice(0, ins).concat(movingPages, remaining.slice(ins));
+        clipboard = null;
+        setSelection(moving);
+        persistOrder();
+        log(`Moved ${moving.length} page(s).`, 'success');
+        renderPreview();
+    }
+}
+
+// ---------- reorder (group-aware drag) ----------
+function persistOrder() {
+    postJSON(`${BASE}/reorder`, {token: TOKEN, order: pages.map(p => p.id)}).catch(e => log(e.message, 'error'));
 }
 
 function initSortable() {
@@ -448,59 +691,152 @@ function initSortable() {
     if (sortable) { sortable.destroy(); sortable = null; }
     if (typeof Sortable === 'undefined') return;
     sortable = Sortable.create(grid, {
-        handle: '.tb-drag-handle', animation: 150, ghostClass: 'sortable-ghost',
+        draggable: '.tb-page-card',
+        animation: 150, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
         forceFallback: true, fallbackTolerance: 4, delay: 80, delayOnTouchOnly: true,
-        onEnd() {
-            const order = Array.from(grid.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
+        onStart(evt) {
+            const id = evt.item.dataset.pageId;
+            if (!selected.has(id)) setSelection([id]);
+        },
+        onEnd(evt) {
+            const draggedId = evt.item.dataset.pageId;
+            const movingSet = new Set(selected.size ? selected : [draggedId]);
+            const domIds = Array.from(grid.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
+            const pos = domIds.indexOf(draggedId);
             const byId = {}; pages.forEach(p => byId[p.id] = p);
-            pages = order.map(id => byId[id]).filter(Boolean);
-            postJSON(`${BASE}/reorder`, {token: TOKEN, order}).catch(e => log(e.message, 'error'));
-            renumber();
+            const movingIds = pages.map(p => p.id).filter(id => movingSet.has(id));
+            const remaining = pages.filter(p => !movingSet.has(p.id));
+            let ins = 0;
+            for (let i = pos - 1; i >= 0; i--) {
+                if (!movingSet.has(domIds[i])) {
+                    ins = remaining.findIndex(p => p.id === domIds[i]) + 1;
+                    break;
+                }
+            }
+            pages = remaining.slice(0, ins).concat(movingIds.map(id => byId[id]), remaining.slice(ins));
+            // Defer the rebuild so we don't destroy this Sortable from inside its own onEnd.
+            setTimeout(() => { renderPreview(); persistOrder(); }, 0);
         }
     });
 }
 
-function renumber() {
-    document.querySelectorAll('.tb-page-card').forEach((c, i) => {
-        const span = c.querySelector('.tb-page-head .text-muted');
-        if (span) span.textContent = '#' + (i + 1);
+// ---------- rubber-band selection ----------
+let rubber = null;
+function initRubberBand() {
+    const grid = document.getElementById('previewGrid');
+    grid.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.tb-page-card')) return;   // let cards/sortable handle
+        if (e.button !== 0) return;
+        const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+        const startX = e.clientX, startY = e.clientY;
+        const band = document.getElementById('rubberBand');
+        const gridRect = grid.getBoundingClientRect();
+        const base = additive ? new Set(selected) : new Set();
+        let moved = false;
+        function onMove(ev) {
+            moved = true;
+            band.style.display = 'block';
+            const x = Math.min(ev.clientX, startX), y = Math.min(ev.clientY, startY);
+            const w = Math.abs(ev.clientX - startX), h = Math.abs(ev.clientY - startY);
+            band.style.left = (x - gridRect.left + grid.scrollLeft) + 'px';
+            band.style.top = (y - gridRect.top + grid.scrollTop) + 'px';
+            band.style.width = w + 'px';
+            band.style.height = h + 'px';
+            const rb = {left: x, top: y, right: x + w, bottom: y + h};
+            const next = new Set(base);
+            document.querySelectorAll('.tb-page-card').forEach(c => {
+                const r = c.getBoundingClientRect();
+                const hit = !(r.right < rb.left || r.left > rb.right || r.bottom < rb.top || r.top > rb.bottom);
+                if (hit) next.add(c.dataset.pageId);
+            });
+            selected = next;
+            updateSelectionUI();
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            band.style.display = 'none';
+            if (!moved && !additive) { selected = new Set(); updateSelectionUI(); }
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
     });
 }
 
+// ---------- keyboard ----------
+function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+}
+
+function initKeyboard() {
+    document.addEventListener('keydown', (e) => {
+        if (isTypingTarget(document.activeElement)) return;
+        const ctrl = e.ctrlKey || e.metaKey;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selected.size) { e.preventDefault(); deleteSelected(); }
+        } else if (ctrl && (e.key === 'a' || e.key === 'A')) {
+            if (pages.length) { e.preventDefault(); selectAll(); }
+        } else if (ctrl && (e.key === 'c' || e.key === 'C')) {
+            if (selected.size) { e.preventDefault(); copySel(selectedPagesInOrder()); }
+        } else if (ctrl && (e.key === 'x' || e.key === 'X')) {
+            if (selected.size) { e.preventDefault(); cutSel(selectedPagesInOrder()); }
+        } else if (ctrl && (e.key === 'v' || e.key === 'V')) {
+            if (clipboard) { e.preventDefault(); pasteClipboard(); }
+        } else if (e.key === 'Escape') {
+            clearSelection();
+        }
+    });
+}
+
+// ---------- preview modal ----------
+let previewModal = null;
+function openPreview(p) {
+    if (!previewModal) previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+    const idx = pages.findIndex(x => x.id === p.id);
+    document.getElementById('previewModalTitle').textContent = `Page #${idx + 1} preview`;
+    document.getElementById('previewModalImg').src = thumbUrl(p, PREVIEW_W);
+    previewModal.show();
+}
+
+// ---------- counts / visibility ----------
 function updateCount() {
     document.getElementById('pageCount').textContent = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
 }
-
-function selectedIds() {
-    const ids = Array.from(document.querySelectorAll('.tb-sel:checked')).map(cb => cb.dataset.id);
-    // Preserve current DOM order.
-    const order = Array.from(document.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
-    return order.filter(id => ids.includes(id));
-}
-
-function orderedAllIds() {
-    return Array.from(document.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
-}
-
 function updateSplitEveryVisibility() {
     const hasMode1 = pages.some(p => p.mode === 'mode1');
-    document.getElementById('splitEveryWrap').style.display = hasMode1 ? '' : 'none';
+    const fmtPdf = document.getElementById('exportFmt').value === 'pdf';
+    document.getElementById('splitEveryWrap').style.display = (hasMode1 && fmtPdf) ? '' : 'none';
+}
+function updateExportButtons() {
+    const hasName = document.getElementById('exportName').value.trim().length > 0;
+    const ok = pages.length > 0 && hasName;
+    const ex = document.getElementById('exportBtn');
+    if (ex && ex.dataset.html === undefined) ex.disabled = !ok;
+    const sv = document.getElementById('saveServerBtn');
+    if (sv && sv.dataset.html === undefined) sv.disabled = !ok;
 }
 
 // ---------- export ----------
+function exportSelectionIds() {
+    const sel = selectedPagesInOrder().map(p => p.id);
+    return sel.length ? sel : pages.map(p => p.id);
+}
 function exportBody() {
-    let ids = selectedIds();
-    if (!ids.length) ids = orderedAllIds();
     const fmt = document.getElementById('exportFmt').value;
     const splitEvery = (fmt === 'pdf' && document.getElementById('splitEveryChk').checked
                         && document.getElementById('splitEveryWrap').style.display !== 'none') ? 4 : 0;
-    return {token: TOKEN, page_ids: ids, fmt, split_every: splitEvery,
-            filename: document.getElementById('exportName').value || 'toolbox_export'};
+    return {token: TOKEN, page_ids: exportSelectionIds(), fmt, split_every: splitEvery,
+            filename: document.getElementById('exportName').value.trim()};
 }
 
 async function doExport() {
     if (!pages.length) { log('Nothing to export.', 'error'); return; }
     const body = exportBody();
+    if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
+    const btn = document.getElementById('exportBtn');
+    setBtnLoading(btn, true);
     log(`Exporting ${body.page_ids.length} page(s)...`);
     try {
         const r = await fetch(`${BASE}/export`, {
@@ -516,16 +852,32 @@ async function doExport() {
         URL.revokeObjectURL(url);
         log('Export ready — download started.', 'success');
     } catch (e) { log('Export failed: ' + e.message, 'error'); }
+    setBtnLoading(btn, false);
 }
 
-async function doSaveServer() {
+let overwriteModal = null;
+async function doSaveServer(overwrite) {
     if (!pages.length) { log('Nothing to save.', 'error'); return; }
     const body = exportBody();
+    if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
+    if (overwrite) body.overwrite = true;
+    const btn = document.getElementById('saveServerBtn');
+    setBtnLoading(btn, true);
     log('Saving to server...');
     try {
         const data = await postJSON(`${BASE}/export-save`, body);
         log(`Saved to server: ${data.saved}`, 'success');
-    } catch (e) { log('Save failed: ' + e.message, 'error'); }
+    } catch (e) {
+        if (e.status === 409 && e.data && e.data.exists) {
+            setBtnLoading(btn, false);
+            if (!overwriteModal) overwriteModal = new bootstrap.Modal(document.getElementById('overwriteModal'));
+            document.getElementById('overwriteMsg').textContent = e.data.error + ' Overwrite it, or rename and try again?';
+            overwriteModal.show();
+            return;
+        }
+        log('Save failed: ' + e.message, 'error');
+    }
+    setBtnLoading(btn, false);
 }
 
 // ---------- server picker ----------
@@ -546,7 +898,6 @@ async function loadServerDir(path) {
     } catch (e) { entries.innerHTML = '<div class="text-danger p-2">' + e.message + '</div>'; return; }
     if (data.configured === false) { entries.innerHTML = '<div class="text-warning p-2">' + (data.message || 'Not configured') + '</div>'; return; }
 
-    // breadcrumbs
     const crumbs = document.getElementById('serverCrumbs');
     crumbs.innerHTML = '';
     const parts = (data.current_path || '').split('/').filter(Boolean);
@@ -573,11 +924,7 @@ async function loadServerDir(path) {
         const a = document.createElement('a');
         a.href = '#'; a.className = 'list-group-item list-group-item-action';
         a.innerHTML = `<i class="bi bi-file-earmark-pdf text-danger"></i> ${f.name}`;
-        a.onclick = (e) => {
-            e.preventDefault();
-            serverModal.hide();
-            uploadSource(null, f.rel_path);
-        };
+        a.onclick = (e) => { e.preventDefault(); serverModal.hide(); uploadSource(null, f.rel_path); };
         entries.appendChild(a);
     });
     if (!(data.dirs || []).length && !(data.files || []).length) {
@@ -587,6 +934,13 @@ async function loadServerDir(path) {
 
 // ---------- wiring ----------
 document.addEventListener('DOMContentLoaded', () => {
+    // default DPI
+    const dpiSel = document.getElementById('procDpi');
+    if (![...dpiSel.options].some(o => parseInt(o.value, 10) === DEFAULT_DPI)) {
+        const o = document.createElement('option'); o.value = DEFAULT_DPI; o.textContent = DEFAULT_DPI + ' DPI'; dpiSel.appendChild(o);
+    }
+    dpiSel.value = String(DEFAULT_DPI);
+
     document.getElementById('uploadBtn').addEventListener('click', () => {
         const f = document.getElementById('pdfFile').files[0];
         if (!f) { log('Choose a PDF file first.', 'error'); return; }
@@ -608,19 +962,30 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('fBw').addEventListener('change', e => { document.getElementById('fBwThreshold').disabled = !e.target.checked; });
     document.getElementById('fBwThreshold').addEventListener('input', e => { document.getElementById('fBwVal').textContent = e.target.value; });
 
-    document.getElementById('selectAllBtn').addEventListener('click', () => document.querySelectorAll('.tb-sel').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); }));
-    document.getElementById('clearSelBtn').addEventListener('click', () => document.querySelectorAll('.tb-sel').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); }));
-    document.getElementById('deleteSelBtn').addEventListener('click', async () => {
-        const ids = selectedIds();
-        if (!ids.length) { log('Select pages to delete.', 'error'); return; }
-        try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: ids}); } catch (e) { log(e.message, 'error'); return; }
-        pages = pages.filter(p => !ids.includes(p.id));
-        renderPreview();
-    });
-    document.getElementById('exportFmt').addEventListener('change', updateSplitEveryVisibility);
+    // operations toolbar
+    document.querySelectorAll('[data-op]').forEach(btn => btn.addEventListener('click', () => opAction(btn.dataset.op)));
+    document.getElementById('selAllBtn').addEventListener('click', selectAll);
+    document.getElementById('selClearBtn').addEventListener('click', clearSelection);
+
+    // export
+    document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
+    document.getElementById('exportName').addEventListener('input', updateExportButtons);
     document.getElementById('exportBtn').addEventListener('click', doExport);
     const saveBtn = document.getElementById('saveServerBtn');
-    if (saveBtn) saveBtn.addEventListener('click', doSaveServer);
+    if (saveBtn) saveBtn.addEventListener('click', () => doSaveServer(false));
+    document.getElementById('overwriteConfirmBtn').addEventListener('click', () => {
+        if (overwriteModal) overwriteModal.hide();
+        doSaveServer(true);
+    });
+    document.getElementById('overwriteRenameBtn').addEventListener('click', () => {
+        if (overwriteModal) overwriteModal.hide();
+        document.getElementById('exportName').focus();
+        document.getElementById('exportName').select();
+    });
+
+    initRubberBand();
+    initKeyboard();
+    updateExportButtons();
 });
 </script>
 {% endblock %}

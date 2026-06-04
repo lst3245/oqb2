@@ -13,8 +13,10 @@ A home for self-service admin utilities (`@admin_required` = subject admins + su
 The working set is an ordered list of **page descriptors**, each pointing at one source-PDF page plus an ordered op chain:
 
 ```
-{"id": <uuid12>, "src": <srcid>, "page": <0-based>, "ops": [ {op}, ... ], "mode": <split mode>}
+{"id": <uuid12>, "src": <srcid>, "page": <0-based>, "ops": [ {op}, ... ], "mode": <split mode>, "dpi": <int>}
 ```
+
+`dpi` is chosen per batch in step 2 (default `TOOLBOX_DEFAULT_DPI`); it is page-size independent (zoom = dpi/72), so A4 and A3 export at the same physical quality. Export uses each page's `dpi` (fallback `default_dpi`) for raster pages and as the PDF `resolution`.
 
 Ops (applied in order by `pdf_tools.apply_ops`):
 - Vector-safe: `rotate`(deg 90/180/270), `crop`(box `[x1,y1,x2,y2]` fractional 0..1, y down).
@@ -24,7 +26,7 @@ Op order built by `build_op_chain(pre_rotate, frag_ops, filters)` = pre-rotate �
 
 ## Hybrid export (`pdf_tools.export_pages`)
 
-Per page, `is_vector_safe(ops)` is true when there's no raster-only op AND not a crop+rotate combo. Vector-safe pages are cloned via `pypdf` (set `cropbox`/`mediabox` from the fractional box + `/Rotate`); a crop on a page with inherent `/Rotate` falls back to raster too. Everything else rasterises (`render_page_image` → Pillow → one-page PDF → `add_page`). Preview thumbnails ALWAYS rasterise via the same `render_page_image`. `pypdf` missing → all-raster PDF fallback (logged). `fmt='zip'` → ZIP of PNGs; `split_every=N` (Mode 1) → ZIP of N-page PDFs.
+Per page, `is_vector_safe(ops)` is true when there's no raster-only op AND not a crop+rotate combo. Vector-safe pages are cloned via `pypdf` (set `cropbox`/`mediabox` from the fractional box + `/Rotate`); a crop on a page with inherent `/Rotate` falls back to raster too. Everything else rasterises (`render_page_image(..., dpi=)` → Pillow → one-page PDF → `add_page`). Preview thumbnails ALWAYS rasterise via the same `render_page_image` but use a small fixed `width_px` (DPI is for export). `rasterize_page`/`render_page_image` accept EITHER `dpi` (export/processing) OR `width_px` (thumbnails). `pypdf` missing → all-raster PDF fallback (logged). `fmt='zip'` → ZIP of PNGs; `split_every=N` (Mode 1) → ZIP of N-page PDFs.
 
 ## A3 split / reorder (`split_descriptors(num_pages, mode)`)
 
@@ -44,25 +46,35 @@ Math ported from a standalone pypdf script; reorder happens on the rotated page 
 - `GET  /admin/toolbox` — tool landing (`admin_toolbox.html`).
 - `GET  /admin/toolbox/pdf` — PDF Tool (`admin_toolbox_pdf.html`).
 - `POST /pdf/upload` — multipart `pdf` OR `server_path` (+ optional `token`); stages one source, returns `{token, srcid, filename, page_count}`.
-- `POST /pdf/add-pages` — `{token, srcid, mode, pre_rotate, filters}` → expands to descriptors, appends, returns them.
+- `POST /pdf/add-pages` — `{token, srcid, mode, pre_rotate, dpi, filters}` → expands to descriptors (each tagged with `dpi`), appends, returns them.
 - `POST /pdf/reorder` — `{token, order:[id]}`.
 - `POST /pdf/page-ops` — `{token, page_id, ops}` replace one page's chain (sanitised).
 - `POST /pdf/page-delete` — `{token, page_ids}`.
+- `POST /pdf/duplicate` — `{token, page_ids, after_id?}` clone pages (new ids, same src/page/ops/dpi) inserted after `after_id` (or end). Powers copy/paste. Returns `{pages:[clones], order:[id]}`.
 - `GET  /pdf/thumb/<token>/<page_id>.png?w=` — working-set page thumbnail (ops applied).
 - `GET  /pdf/src-thumb/<token>/<srcid>/<int:idx>.png?w=` — raw source page thumbnail.
 - `POST /pdf/export` — `{token, page_ids?, fmt:'pdf'|'zip', split_every?, filename?}` → file download.
-- `POST /pdf/export-save` — same body → saves under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, returns rel path.
+- `POST /pdf/export-save` — `{token, page_ids?, fmt, split_every?, filename, overwrite?}` → saves under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`. Filename is **required**. Existence is checked **before** building the bytes: if the target exists and `overwrite` is not set, returns **409** `{exists:true, filename, error}` so the client can prompt Overwrite/Rename. No silent auto-suffix.
 - `POST /pdf/discard` — delete the staging dir.
 
 Export is synchronous (no SSE) — fast enough for typical jobs.
 
 ## Frontend ([templates/admin_toolbox_pdf.html](mdc:templates/admin_toolbox_pdf.html))
 
-Plain `fetch()` JSON + a client `pages[]` array (`{id, src, page, mode, baseOps, edit:{type→op}, nonce}`). `fullOps(p)` = `baseOps` + per-page `edit` ops in a fixed order; `nonce` cache-busts the thumb after edits. SortableJS drag-reorder (handle `.tb-drag-handle`) → `/reorder`. Server PDF picker reuses `admin.pdf_import_source_list` (`?path=` → `{configured, current_path, dirs, files}`). With no page selected, export uses all pages in DOM order. "Separate file every 4 pages" shows only when any Mode-1 page exists.
+Plain `fetch()` JSON + a client `pages[]` array (`{id, src, page, mode, dpi, baseOps, edit:{type→op}, nonce}`). `fullOps(p)` = `baseOps` + per-page `edit` ops in a fixed order; `nonce` cache-busts the thumb after edits.
+
+- **Layout**: step 1 = upload only; step 2 = "Process & add" holds the **active-source page strip**, the **Resolution (DPI)** selector, rotate/split/filters; step 3 = preview/assemble.
+- **Selection model**: `selected` Set + `lastClickedId`. Click = single, Ctrl/Cmd-click = toggle, Shift-click = range (`selectRange`), rubber-band drag on the grid background (`initRubberBand`, rect-intersection; Shift/Ctrl = additive). A single **operations toolbar** (`[data-op]` buttons, `.tb-needs-sel` auto-disabled when nothing selected) acts on the selection — rotate/deskew/bw/brightness/reset apply to all selected (toggles use "all-on? → turn off, else on"), each persisted via `/page-ops` (`saveMany`). Keyboard (`initKeyboard`, ignored while typing): Del, Ctrl+A/C/X/V, Esc.
+- **Clipboard**: `copySel`/`cutSel` set `clipboard={mode,ids}`; `pasteClipboard` → copy uses `/duplicate` (inserts clones after the last selected), cut moves locally + `/reorder`. Cut pages get a `.tb-cut` style.
+- **Reorder**: SortableJS on `.tb-page-card` (whole card draggable). `onStart` selects the dragged card if not already selected; `onEnd` moves the **whole selection** as a contiguous block to the drop point (computed from DOM anchor), then re-renders (deferred via `setTimeout` so it doesn't destroy Sortable inside its own callback).
+- **Preview**: double-click a card → `#previewModal` with a larger-DPI thumbnail.
+- **Export**: file name is **required** (`updateExportButtons` disables both buttons when empty); buttons show a spinner via `setBtnLoading`. Save-to-server 409 → `#overwriteModal` (Overwrite re-POSTs with `overwrite:true`; Rename focuses the name field). With no page selected, export uses all pages in order. "Separate file every 4 pages" shows only when any Mode-1 page exists and format is PDF.
+
+Server PDF picker reuses `admin.pdf_import_source_list` (`?path=` → `{configured, current_path, dirs, files}`).
 
 ## Config
 
-`TOOLBOX_RASTER_WIDTH` (preview, default 1700), `TOOLBOX_EXPORT_WIDTH` (export raster, default 2200), `TOOLBOX_SAVE_SUBDIR` (default `Saved`) — all in [app/config.py](mdc:app/config.py). Dependency `pypdf>=4.0` (vector export; degrades to raster if absent). Deskew needs NumPy (shared with `pdf_layout`); the deskew control is disabled when NumPy is missing.
+`TOOLBOX_RASTER_WIDTH` (preview width, default 1700), `TOOLBOX_EXPORT_WIDTH` (legacy raster width fallback, default 2200), `TOOLBOX_DEFAULT_DPI` (processing/export DPI, default 200 — **registered in System Settings**, group "Toolbox"), `TOOLBOX_SAVE_SUBDIR` (default `Saved`) — all in [app/config.py](mdc:app/config.py). Dependency `pypdf>=4.0` (vector export; degrades to raster if absent). Deskew needs NumPy (shared with `pdf_layout`); the deskew control is disabled when NumPy is missing.
 
 ## Batch PDF Import reuse
 

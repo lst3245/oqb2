@@ -146,6 +146,7 @@ def pdf_tool():
         'admin_toolbox_pdf.html',
         raster_width=int(current_app.config.get('TOOLBOX_RASTER_WIDTH', 1700)),
         export_width=int(current_app.config.get('TOOLBOX_EXPORT_WIDTH', 2200)),
+        default_dpi=int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200)),
         save_subdir=str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved')),
         pdf_source_available=bool(root and os.path.isdir(root)),
         numpy_available=_numpy_ok(),
@@ -250,6 +251,12 @@ def pdf_add_pages():
         pre_rotate = int(data.get('pre_rotate') or 0) % 360
     except (TypeError, ValueError):
         pre_rotate = 0
+    default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
+    try:
+        dpi = int(data.get('dpi') or default_dpi)
+    except (TypeError, ValueError):
+        dpi = default_dpi
+    dpi = max(72, min(600, dpi))
     filters = data.get('filters') or {}
 
     frags = pdf_tools.split_descriptors(src['page_count'], mode)
@@ -257,7 +264,8 @@ def pdf_add_pages():
     for frag in frags:
         ops = pdf_tools.build_op_chain(pre_rotate, frag['ops'], filters)
         page = {'id': uuid.uuid4().hex[:12], 'src': srcid,
-                'page': int(frag['page']), 'ops': ops, 'mode': mode}
+                'page': int(frag['page']), 'ops': ops, 'mode': mode,
+                'dpi': dpi}
         session['pages'].append(page)
         appended.append(page)
 
@@ -330,6 +338,48 @@ def pdf_page_delete():
     session['pages'] = [p for p in session['pages'] if p['id'] not in page_ids]
     _save_session(token, session)
     return jsonify({'ok': True, 'total': len(session['pages'])})
+
+
+@toolbox_bp.route('/pdf/duplicate', methods=['POST'])
+@login_required
+@admin_required
+def pdf_duplicate():
+    """Copy/paste: clone the given pages (new ids, same src/page/ops/dpi) and
+    insert them right after ``after_id`` (or at the end). Body: ``{token,
+    page_ids, after_id?}``. Returns the new descriptors + the full order."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    page_ids = list(data.get('page_ids') or [])
+    after_id = (data.get('after_id') or '').strip() or None
+    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
+        return jsonify({'error': 'Session expired — reload the page.'}), 400
+    session = _load_session(token)
+    by_id = {p['id']: p for p in session['pages']}
+    # Clone in the requested order (which the client sends in reading order).
+    clones = []
+    for pid in page_ids:
+        src = by_id.get(pid)
+        if not src:
+            continue
+        clone = {'id': uuid.uuid4().hex[:12], 'src': src['src'],
+                 'page': src['page'], 'ops': list(src.get('ops') or []),
+                 'mode': src.get('mode', 'none'), 'dpi': src.get('dpi')}
+        clones.append(clone)
+    if not clones:
+        return jsonify({'error': 'Nothing to paste.'}), 400
+
+    pages = session['pages']
+    insert_at = len(pages)
+    if after_id:
+        for i, p in enumerate(pages):
+            if p['id'] == after_id:
+                insert_at = i + 1
+                break
+    session['pages'] = pages[:insert_at] + clones + pages[insert_at:]
+    _save_session(token, session)
+    return jsonify({'ok': True, 'pages': clones,
+                    'order': [p['id'] for p in session['pages']],
+                    'total': len(session['pages'])})
 
 
 _ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
@@ -429,9 +479,10 @@ def _build_export_bytes(token, session, page_ids, fmt, split_every):
     pages = _select_pages(session, page_ids)
     if not pages:
         raise ValueError('No pages selected to export.')
-    width = int(current_app.config.get('TOOLBOX_EXPORT_WIDTH', 2200))
+    default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
     return pdf_tools.export_pages(pages, _resolver(token), fmt=fmt,
-                                  width_px=width, split_every=split_every)
+                                  default_dpi=default_dpi,
+                                  split_every=split_every)
 
 
 def _export_meta(fmt, split_every):
@@ -506,16 +557,24 @@ def pdf_export_save():
         split_every = 0
     ext, _mime = _export_meta(fmt, split_every)
 
-    stem = _safe_filename(data.get('filename'), 'toolbox_export')
+    raw_name = (data.get('filename') or '').strip()
+    if not raw_name:
+        return jsonify({'error': 'Enter a file name.'}), 400
+    stem = _safe_filename(raw_name, '')
+    if not stem:
+        return jsonify({'error': 'Enter a valid file name.'}), 400
     dest = _safe_join(save_dir, f'{stem}.{ext}')
     if not dest:
         return jsonify({'error': 'Invalid filename.'}), 400
-    # Don't clobber an existing file — suffix _2, _3, ...
-    if os.path.exists(dest):
-        n = 2
-        while os.path.exists(_safe_join(save_dir, f'{stem}_{n}.{ext}')):
-            n += 1
-        dest = _safe_join(save_dir, f'{stem}_{n}.{ext}')
+
+    # Existence check happens BEFORE the (potentially slow) build so a conflict
+    # is reported instantly. The client then asks the user to overwrite/rename.
+    overwrite = str(data.get('overwrite') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+    if os.path.exists(dest) and not overwrite:
+        return jsonify({'exists': True,
+                        'filename': f'{stem}.{ext}',
+                        'subdir': subdir,
+                        'error': f'"{stem}.{ext}" already exists in {subdir}.'}), 409
 
     session = _load_session(token)
     try:

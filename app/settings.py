@@ -419,6 +419,14 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Uniform width per side by default',
         help='Whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Users can toggle it per run.',
     )),
+
+    # Toolbox (PDF Tool)
+    ('TOOLBOX_DEFAULT_DPI', _spec(
+        'TOOLBOX_DEFAULT_DPI', 'int', group='Toolbox',
+        label='PDF Tool default resolution (DPI)',
+        help='Default resolution pre-selected in the Toolbox PDF Tool "Process & add" step, used to rasterise pages for export and any image processing. DPI is page-size independent, so it gives predictable quality for both A4 and A3 (200 DPI → A4 ≈ 1654 px wide, A3 ≈ 2339 px). 150 = draft/screen, 200 = normal (recommended), 300 = print. Pages that only need lossless ops (crop / 90° rotate) stay vector regardless. Users can change it per batch.',
+        min=72, max=600,
+    )),
 ])
 
 

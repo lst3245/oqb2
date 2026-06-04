@@ -427,16 +427,16 @@ Navigate to **Admin → Toolbox** (subject admins and super admins). The Toolbox
 A workbench for preparing scanned PDFs:
 
 1. **Load a PDF** — upload a file, or **Pick from server** to choose one under `PDF_SOURCE_PATH`.
-2. **Process & add to preview** — choose a *Rotate first* angle, an *A3 split mode*, and image adjustments (deskew, brightness, contrast, sharpen, grayscale, black & white), then add the resulting pages to the preview grid.
+2. **Process & add to preview** — pick the active source, set the **Resolution (DPI)** (page-size independent: 200 DPI ≈ A4 1654 px / A3 2339 px wide; 150 draft, 300 print), choose a *Rotate first* angle, an *A3 split mode*, and image adjustments (deskew, brightness, contrast, sharpen, grayscale, black & white), then add the resulting pages to the preview grid. The active-source page strip is shown here.
    - **Split modes**: *None* (whole pages); *Split each A3 down the middle* (left then right half); *Mode 1 — folded individual copies* (2 A3 sheets per student scanned folded → 4 ordered pages per student); *Mode 2 — destapled A4 booklet stack* (the split halves are reordered back into reading order; assumes an even number of A3 pages).
-3. **Assemble** — drag pages by the handle to reorder, tick pages to select, and use each page's mini-toolbar to rotate / toggle deskew / toggle B&W / brighten / darken / reset / delete. Load more PDFs to **merge** them into the same preview.
-4. **Export** — choose *Combined PDF* or *ZIP of page images*, then **Export selected** (download) or **Save to server** (writes under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, default `Saved`, so Batch PDF Import can pick it up). For Mode 1, tick *Separate file every 4 pages* to get one file per student. With nothing selected, all pages export.
+3. **Assemble** — **select** pages (click; Ctrl/Cmd-click to toggle; Shift-click for a range; or drag a box over them) and act on them with the **operations toolbar** (rotate, deskew, B&W, brighter/darker, reset, delete, copy/cut/paste). Keyboard shortcuts: **Del**, **Ctrl+A**, **Ctrl+C/X/V**, **Esc**. Drag selected pages to **reorder** them together, **double-click** a page for a large preview, and load more PDFs to **merge** them into the same preview.
+4. **Export** — enter a **file name** (required), choose *Combined PDF* or *ZIP of page images*, then **Export selected** (download) or **Save to server** (writes under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, default `Saved`, so Batch PDF Import can pick it up). If the server file name already exists you are asked to **Overwrite** or **Rename**. For Mode 1, tick *Separate file every 4 pages* to get one file per student. With nothing selected, all pages export.
 
 **Notes**:
-- Pages with only lossless operations (a single 90° rotate, or a crop) are exported without re-rasterising via `pypdf`; any pixel adjustment (deskew / brightness / sharpen / B&W) rasterises that page.
+- Pages with only lossless operations (a single 90° rotate, or a crop) are exported without re-rasterising via `pypdf`; any pixel adjustment (deskew / brightness / sharpen / B&W) rasterises that page at the chosen DPI.
 - Deskew requires NumPy (the control is disabled if NumPy is unavailable).
 - The same processing controls appear in **PDF Batch Import → Setup → Pre-process scans**, so scans can be rotated / split / cleaned up as they are staged for import.
-- Config keys: `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`. Dependency: `pypdf>=4.0`.
+- Config keys: `TOOLBOX_DEFAULT_DPI` (default resolution; also in Admin → System Settings), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`. Dependency: `pypdf>=4.0`.
 
 ---
 
