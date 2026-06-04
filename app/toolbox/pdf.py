@@ -1,13 +1,8 @@
 """
-Admin **Toolbox** — a home for self-service utilities (subject-admins + super
-admins). The first tool is the **PDF Tool**: upload PDF(s), apply A3-booklet
-splitting / deskew / rotation / brightness-sharpen-B&W, assemble pages in a
-drag-reorder preview, then export (PDF or ZIP, download or save-to-server).
+PDF Tool — routes and session staging for the Toolbox.
 
-Processing primitives live in :mod:`app.pdf_tools`; this module is the Flask
-blueprint + per-session staging on disk. Staging mirrors the PDF Batch Import
-layout: ``OUTPUT_PATH/.toolbox/<token>/`` holds ``session.json`` and
-``sources/<srcid>.pdf``. Tokens are regex-validated before any filesystem join.
+Staging: ``OUTPUT_PATH/.toolbox/<token>/`` (``session.json`` + ``sources/*.pdf``).
+Processing primitives live in :mod:`app.pdf_tools`.
 """
 from __future__ import annotations
 
@@ -21,22 +16,21 @@ import time
 import uuid
 from datetime import datetime
 
-from flask import (Blueprint, abort, current_app, jsonify, render_template,
-                   request, send_file)
+from flask import abort, current_app, jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from app import pdf_tools
+from app.toolbox import toolbox_bp
+from app.toolbox.common import pdf_source_root, safe_filename, safe_join
 from app.utils import admin_required
 
 logger = logging.getLogger(__name__)
-
-toolbox_bp = Blueprint('toolbox', __name__, url_prefix='/admin/toolbox')
 
 _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
 _ID_RE = re.compile(r'^[0-9a-f]{6,40}$')
 
 
-# ==================== Staging helpers ====================
+# ==================== Staging ====================
 
 def _staging_root() -> str:
     return os.path.join(current_app.config['OUTPUT_PATH'], '.toolbox')
@@ -102,46 +96,77 @@ def _cleanup_old(max_age_hours: float = 12.0) -> None:
 
 
 def _resolver(token: str):
-    """Return a ``resolve_path(srcid) -> abs pdf path`` closure for export."""
     return lambda srcid: _source_path(token, srcid)
 
 
-# ==================== Server-PDF picking (under PDF_SOURCE_PATH) ====================
-
-def _pdf_source_root() -> str:
-    return os.path.abspath(current_app.config.get('PDF_SOURCE_PATH', ''))
-
-
-def _safe_join(base: str, *paths) -> str | None:
-    base = os.path.abspath(base)
-    target = os.path.abspath(os.path.join(base, *paths))
-    if not os.path.normcase(target).startswith(os.path.normcase(base)):
-        return None
-    return target
+def _numpy_ok() -> bool:
+    try:
+        from app import pdf_layout
+        return pdf_layout.numpy_available()
+    except Exception:
+        return False
 
 
-def _safe_filename(name: str, fallback: str) -> str:
-    name = re.sub(r'[^\w\-. ]+', '_', (name or '').strip())
-    name = re.sub(r'\s+', '_', name).strip('._')
-    return name[:80] or fallback
+_ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
+                'contrast', 'sharpen', 'grayscale', 'bw'}
+
+
+def _sanitize_ops(ops):
+    clean = []
+    for op in ops or []:
+        if not isinstance(op, dict):
+            continue
+        t = op.get('type')
+        if t not in _ALLOWED_OPS:
+            continue
+        if t == 'rotate':
+            clean.append({'type': t, 'deg': int(op.get('deg', 0)) % 360})
+        elif t == 'rotate_fine':
+            clean.append({'type': t, 'deg': float(op.get('deg', 0.0))})
+        elif t == 'crop':
+            box = op.get('box')
+            if isinstance(box, (list, tuple)) and len(box) == 4:
+                clean.append({'type': t, 'box': [float(v) for v in box]})
+        elif t in ('brightness', 'contrast', 'sharpen'):
+            clean.append({'type': t, 'factor': float(op.get('factor', 1.0))})
+        elif t == 'bw':
+            clean.append({'type': t,
+                          'threshold': max(0, min(255, int(op.get('threshold', 160))))})
+        else:
+            clean.append({'type': t})
+    return clean
+
+
+def _select_pages(session, page_ids):
+    by_id = {p['id']: p for p in session['pages']}
+    if page_ids:
+        return [by_id[i] for i in page_ids if i in by_id]
+    return list(session['pages'])
+
+
+def _build_export_bytes(token, session, page_ids, fmt, split_every):
+    pages = _select_pages(session, page_ids)
+    if not pages:
+        raise ValueError('No pages selected to export.')
+    default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
+    return pdf_tools.export_pages(pages, _resolver(token), fmt=fmt,
+                                  default_dpi=default_dpi,
+                                  split_every=split_every)
+
+
+def _export_meta(fmt, split_every):
+    if fmt == 'zip' or (split_every and int(split_every) > 0):
+        return 'zip', 'application/zip'
+    return 'pdf', 'application/pdf'
 
 
 # ==================== Pages ====================
-
-@toolbox_bp.route('/')
-@login_required
-@admin_required
-def index():
-    """Toolbox landing page — a grid of available tools."""
-    return render_template('admin_toolbox.html')
-
 
 @toolbox_bp.route('/pdf')
 @login_required
 @admin_required
 def pdf_tool():
-    """The PDF Tool page."""
-    root = _pdf_source_root()
+    root = pdf_source_root()
     return render_template(
         'admin_toolbox_pdf.html',
         raster_width=int(current_app.config.get('TOOLBOX_RASTER_WIDTH', 1700)),
@@ -153,26 +178,12 @@ def pdf_tool():
     )
 
 
-def _numpy_ok() -> bool:
-    try:
-        from app import pdf_layout
-        return pdf_layout.numpy_available()
-    except Exception:
-        return False
-
-
-# ==================== API: upload a source PDF ====================
+# ==================== API ====================
 
 @toolbox_bp.route('/pdf/upload', methods=['POST'])
 @login_required
 @admin_required
 def pdf_upload():
-    """Stage one source PDF (uploaded or picked from PDF_SOURCE_PATH).
-
-    Form fields: ``token`` (optional — created when absent), ``pdf`` (file)
-    OR ``server_path`` (relative to PDF_SOURCE_PATH). Returns the source id +
-    page count.
-    """
     token = (request.form.get('token') or '').strip()
     if token:
         if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
@@ -192,10 +203,10 @@ def pdf_upload():
         filename = upload.filename
     else:
         rel = (request.form.get('server_path') or '').strip().strip('/').strip('\\')
-        root = _pdf_source_root()
+        root = pdf_source_root()
         if not root or not os.path.isdir(root):
             return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
-        full = _safe_join(root, rel) if rel else None
+        full = safe_join(root, rel) if rel else None
         if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
             return jsonify({'error': 'Select a PDF (upload one or pick from the server).'}), 400
         shutil.copyfile(full, dest)
@@ -224,15 +235,10 @@ def pdf_upload():
                     'pages': [{'index': i} for i in range(page_count)]})
 
 
-# ==================== API: add processed pages to the preview ====================
-
 @toolbox_bp.route('/pdf/add-pages', methods=['POST'])
 @login_required
 @admin_required
 def pdf_add_pages():
-    """Expand a source into page descriptors (split + op chain) and append
-    them to the working set. Body: ``{token, srcid, mode, pre_rotate,
-    filters}``."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     srcid = (data.get('srcid') or '').strip()
@@ -274,8 +280,6 @@ def pdf_add_pages():
                     'total': len(session['pages'])})
 
 
-# ==================== API: reorder / edit / delete pages ====================
-
 @toolbox_bp.route('/pdf/reorder', methods=['POST'])
 @login_required
 @admin_required
@@ -288,7 +292,6 @@ def pdf_reorder():
     session = _load_session(token)
     by_id = {p['id']: p for p in session['pages']}
     new_pages = [by_id[i] for i in order if i in by_id]
-    # Keep any pages the client did not mention (defensive) at the end.
     for p in session['pages']:
         if p['id'] not in order:
             new_pages.append(p)
@@ -301,8 +304,6 @@ def pdf_reorder():
 @login_required
 @admin_required
 def pdf_page_ops():
-    """Replace one page's op chain (per-page processing). Body: ``{token,
-    page_id, ops}``."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     page_id = (data.get('page_id') or '').strip()
@@ -344,9 +345,6 @@ def pdf_page_delete():
 @login_required
 @admin_required
 def pdf_duplicate():
-    """Copy/paste: clone the given pages (new ids, same src/page/ops/dpi) and
-    insert them right after ``after_id`` (or at the end). Body: ``{token,
-    page_ids, after_id?}``. Returns the new descriptors + the full order."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     page_ids = list(data.get('page_ids') or [])
@@ -355,7 +353,6 @@ def pdf_duplicate():
         return jsonify({'error': 'Session expired — reload the page.'}), 400
     session = _load_session(token)
     by_id = {p['id']: p for p in session['pages']}
-    # Clone in the requested order (which the client sends in reading order).
     clones = []
     for pid in page_ids:
         src = by_id.get(pid)
@@ -386,12 +383,6 @@ def pdf_duplicate():
 @login_required
 @admin_required
 def pdf_set_pages():
-    """Replace the whole working set with a client-supplied descriptor list.
-
-    Powers Undo: the client is authoritative for the working set (the source
-    PDFs stay on disk), so restoring a previous snapshot is just an overwrite.
-    Body: ``{token, pages:[{id, src, page, ops, mode, dpi}]}``. Each entry is
-    validated against the session's sources; bad entries are dropped."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     incoming = data.get('pages')
@@ -434,53 +425,16 @@ def pdf_set_pages():
     return jsonify({'ok': True, 'total': len(clean)})
 
 
-_ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
-                'contrast', 'sharpen', 'grayscale', 'bw'}
-
-
-def _sanitize_ops(ops):
-    """Validate/normalise a client-supplied op list (defensive — never trust
-    raw JSON for the renderer)."""
-    clean = []
-    for op in ops or []:
-        if not isinstance(op, dict):
-            continue
-        t = op.get('type')
-        if t not in _ALLOWED_OPS:
-            continue
-        if t == 'rotate':
-            clean.append({'type': t, 'deg': int(op.get('deg', 0)) % 360})
-        elif t == 'rotate_fine':
-            clean.append({'type': t, 'deg': float(op.get('deg', 0.0))})
-        elif t == 'crop':
-            box = op.get('box')
-            if isinstance(box, (list, tuple)) and len(box) == 4:
-                clean.append({'type': t, 'box': [float(v) for v in box]})
-        elif t in ('brightness', 'contrast', 'sharpen'):
-            clean.append({'type': t, 'factor': float(op.get('factor', 1.0))})
-        elif t == 'bw':
-            clean.append({'type': t,
-                          'threshold': max(0, min(255, int(op.get('threshold', 160))))})
-        else:  # deskew / grayscale
-            clean.append({'type': t})
-    return clean
-
-
-# ==================== API: thumbnails ====================
-
 @toolbox_bp.route('/pdf/thumb/<token>/<page_id>.png')
 @login_required
 @admin_required
 def pdf_thumb(token, page_id):
-    """Render a working-set page (with its op chain) to a PNG for the preview."""
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return abort(404)
     session = _load_session(token)
     page = next((p for p in session['pages'] if p['id'] == page_id), None)
     if not page:
         return abort(404)
-    # ``dpi`` (page-size independent, used by the full-resolution enlarged
-    # preview) takes precedence over a fixed ``w`` pixel width (grid thumbs).
     width = None
     dpi = None
     dpi_arg = request.args.get('dpi')
@@ -511,7 +465,6 @@ def pdf_thumb(token, page_id):
 @login_required
 @admin_required
 def pdf_src_thumb(token, srcid, idx):
-    """Render a raw source page (no ops) for the upload preview strip."""
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return abort(404)
     try:
@@ -519,7 +472,8 @@ def pdf_src_thumb(token, srcid, idx):
     except (TypeError, ValueError):
         width = 300
     try:
-        img = pdf_tools.render_page_image(_source_path(token, srcid), idx, [], width)
+        img = pdf_tools.render_page_image(_source_path(token, srcid), idx, [],
+                                          width_px=width)
     except Exception as e:
         logger.warning('toolbox src-thumb render failed: %s', e)
         return abort(404)
@@ -529,38 +483,10 @@ def pdf_src_thumb(token, srcid, idx):
     return send_file(buf, mimetype='image/png')
 
 
-# ==================== API: export ====================
-
-def _select_pages(session, page_ids):
-    by_id = {p['id']: p for p in session['pages']}
-    if page_ids:
-        return [by_id[i] for i in page_ids if i in by_id]
-    return list(session['pages'])
-
-
-def _build_export_bytes(token, session, page_ids, fmt, split_every):
-    pages = _select_pages(session, page_ids)
-    if not pages:
-        raise ValueError('No pages selected to export.')
-    default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
-    return pdf_tools.export_pages(pages, _resolver(token), fmt=fmt,
-                                  default_dpi=default_dpi,
-                                  split_every=split_every)
-
-
-def _export_meta(fmt, split_every):
-    """Return ``(extension, mimetype)`` for the export request."""
-    if fmt == 'zip' or (split_every and int(split_every) > 0):
-        return 'zip', 'application/zip'
-    return 'pdf', 'application/pdf'
-
-
 @toolbox_bp.route('/pdf/export', methods=['POST'])
 @login_required
 @admin_required
 def pdf_export():
-    """Build and download the assembled pages. Body: ``{token, page_ids?,
-    fmt:'pdf'|'zip', split_every?, filename?}``."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
@@ -583,7 +509,7 @@ def pdf_export():
         return jsonify({'error': f'Export failed: {e}'}), 500
 
     ext, mime = _export_meta(fmt, split_every)
-    stem = _safe_filename(data.get('filename'), 'toolbox_export')
+    stem = safe_filename(data.get('filename'), 'toolbox_export')
     buf = io.BytesIO(blob)
     buf.seek(0)
     return send_file(buf, mimetype=mime, as_attachment=True,
@@ -594,23 +520,18 @@ def pdf_export():
 @login_required
 @admin_required
 def pdf_export_save():
-    """Build the assembled pages and save them under
-    ``PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>/``. Body: ``{token, page_ids?,
-    fmt, split_every?, filename}``."""
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return jsonify({'error': 'Session expired — reload the page.'}), 400
 
-    root = _pdf_source_root()
+    root = pdf_source_root()
     if not root or not os.path.isdir(root):
         return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
-    # Destination folder, relative to PDF_SOURCE_PATH. Falls back to the default
-    # save subdir when the client doesn't pass one.
     subdir = (data.get('dest') or '').strip().strip('/').strip('\\')
     if not subdir:
         subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
-    save_dir = _safe_join(root, subdir) if subdir else root
+    save_dir = safe_join(root, subdir) if subdir else root
     if not save_dir:
         return jsonify({'error': 'Invalid save directory.'}), 400
     os.makedirs(save_dir, exist_ok=True)
@@ -628,15 +549,13 @@ def pdf_export_save():
     raw_name = (data.get('filename') or '').strip()
     if not raw_name:
         return jsonify({'error': 'Enter a file name.'}), 400
-    stem = _safe_filename(raw_name, '')
+    stem = safe_filename(raw_name, '')
     if not stem:
         return jsonify({'error': 'Enter a valid file name.'}), 400
-    dest = _safe_join(save_dir, f'{stem}.{ext}')
+    dest = safe_join(save_dir, f'{stem}.{ext}')
     if not dest:
         return jsonify({'error': 'Invalid filename.'}), 400
 
-    # Existence check happens BEFORE the (potentially slow) build so a conflict
-    # is reported instantly. The client then asks the user to overwrite/rename.
     overwrite = str(data.get('overwrite') or '').strip().lower() in ('1', 'true', 'yes', 'on')
     if os.path.exists(dest) and not overwrite:
         return jsonify({'exists': True,
@@ -665,23 +584,19 @@ def pdf_export_save():
 @login_required
 @admin_required
 def pdf_mkdir():
-    """Create a sub-folder under ``PDF_SOURCE_PATH`` for the save-destination
-    picker. Body: ``{path, name}`` (both relative to PDF_SOURCE_PATH; ``path``
-    is the parent dir, ``name`` the new folder). Returns the new rel path."""
     data = request.get_json(silent=True) or {}
-    root = _pdf_source_root()
+    root = pdf_source_root()
     if not root or not os.path.isdir(root):
         return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
     parent_rel = (data.get('path') or '').strip().strip('/').strip('\\')
     name = (data.get('name') or '').strip()
-    # Single path segment only — no separators or traversal in the new name.
     name = re.sub(r'[^\w\-. ]+', '_', name).strip('. ')
     if not name:
         return jsonify({'error': 'Enter a folder name.'}), 400
-    parent = _safe_join(root, parent_rel) if parent_rel else root
+    parent = safe_join(root, parent_rel) if parent_rel else root
     if not parent or not os.path.isdir(parent):
         return jsonify({'error': 'Parent folder not found.'}), 400
-    target = _safe_join(parent, name)
+    target = safe_join(parent, name)
     if not target:
         return jsonify({'error': 'Invalid folder name.'}), 400
     try:

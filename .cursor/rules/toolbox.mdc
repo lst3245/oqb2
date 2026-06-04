@@ -1,12 +1,14 @@
 ---
 description: Admin Toolbox + PDF Tool — upload/process/merge PDFs (A3 split, deskew, rotate, image filters) and export
-globs: app/toolbox.py,app/pdf_tools.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html
+globs: app/toolbox/**,app/pdf_tools.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html
 alwaysApply: false
 ---
 
 # Toolbox (Admin)
 
-A home for self-service admin utilities (`@admin_required` = subject admins + super admins). First tool is the **PDF Tool**. Blueprint [app/toolbox.py](mdc:app/toolbox.py) (`url_prefix=/admin/toolbox`), processing primitives in [app/pdf_tools.py](mdc:app/pdf_tools.py) (shared with Batch PDF Import). Linked from the Admin navbar dropdown and an Admin Panel card.
+A home for self-service admin utilities (`@admin_required` = subject admins + super admins). First tool is the **PDF Tool**.
+
+**Layout:** thin blueprint hub [app/toolbox/__init__.py](mdc:app/toolbox/__init__.py) (`toolbox_bp`, landing `GET /`), shared path helpers [app/toolbox/common.py](mdc:app/toolbox/common.py), PDF Tool routes + staging [app/toolbox/pdf.py](mdc:app/toolbox/pdf.py). Processing primitives in [app/pdf_tools.py](mdc:app/pdf_tools.py) (shared with Batch PDF Import). New tools → add `app/toolbox/<tool>.py` and import it from `__init__.py` after the blueprint is created. Linked from the Admin navbar dropdown and an Admin Panel card.
 
 ## Page descriptor model (the core idea)
 

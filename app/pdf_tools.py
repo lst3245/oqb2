@@ -1,5 +1,5 @@
 """
-Shared PDF processing primitives for the **PDF Toolbox** (``app/toolbox.py``)
+Shared PDF processing primitives for the **PDF Toolbox** (``app/toolbox/pdf.py``)
 and the **Batch PDF Import** (``app/pdf_import.py``).
 
 The unit of work is a **page descriptor** — a pointer to one source-PDF page
