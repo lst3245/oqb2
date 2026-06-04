@@ -16,11 +16,12 @@
 8. [File Ingestion](#8-file-ingestion)
 9. [Export & Import](#9-export--import)
 10. [Database Health & Sync](#10-database-health--sync)
-11. [File Browser](#11-file-browser)
-12. [System Settings](#12-system-settings-super-admin)
-13. [Backup & Recovery](#13-backup--recovery)
-14. [Production Deployment](#14-production-deployment)
-15. [Troubleshooting](#15-troubleshooting)
+11. [Toolbox (PDF Tool)](#11-toolbox-pdf-tool)
+12. [File Browser](#12-file-browser)
+13. [System Settings](#13-system-settings-super-admin)
+14. [Backup & Recovery](#14-backup--recovery)
+15. [Production Deployment](#15-production-deployment)
+16. [Troubleshooting](#16-troubleshooting)
 
 ---
 
@@ -417,7 +418,29 @@ Click **Delete Mode** (or run `python cli.py sync --no-dry-run`) to execute the 
 
 ---
 
-## 11. File Browser
+## 11. Toolbox (PDF Tool)
+
+Navigate to **Admin → Toolbox** (subject admins and super admins). The Toolbox is a home for self-service utilities; the first tool is the **PDF Tool**.
+
+### PDF Tool (`/admin/toolbox/pdf`)
+
+A workbench for preparing scanned PDFs:
+
+1. **Load a PDF** — upload a file, or **Pick from server** to choose one under `PDF_SOURCE_PATH`.
+2. **Process & add to preview** — choose a *Rotate first* angle, an *A3 split mode*, and image adjustments (deskew, brightness, contrast, sharpen, grayscale, black & white), then add the resulting pages to the preview grid.
+   - **Split modes**: *None* (whole pages); *Split each A3 down the middle* (left then right half); *Mode 1 — folded individual copies* (2 A3 sheets per student scanned folded → 4 ordered pages per student); *Mode 2 — destapled A4 booklet stack* (the split halves are reordered back into reading order; assumes an even number of A3 pages).
+3. **Assemble** — drag pages by the handle to reorder, tick pages to select, and use each page's mini-toolbar to rotate / toggle deskew / toggle B&W / brighten / darken / reset / delete. Load more PDFs to **merge** them into the same preview.
+4. **Export** — choose *Combined PDF* or *ZIP of page images*, then **Export selected** (download) or **Save to server** (writes under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, default `Saved`, so Batch PDF Import can pick it up). For Mode 1, tick *Separate file every 4 pages* to get one file per student. With nothing selected, all pages export.
+
+**Notes**:
+- Pages with only lossless operations (a single 90° rotate, or a crop) are exported without re-rasterising via `pypdf`; any pixel adjustment (deskew / brightness / sharpen / B&W) rasterises that page.
+- Deskew requires NumPy (the control is disabled if NumPy is unavailable).
+- The same processing controls appear in **PDF Batch Import → Setup → Pre-process scans**, so scans can be rotated / split / cleaned up as they are staged for import.
+- Config keys: `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`. Dependency: `pypdf>=4.0`.
+
+---
+
+## 12. File Browser
 
 Navigate to **Admin → Files** (Super Admin only).
 
@@ -427,7 +450,7 @@ Provides a web interface to browse, upload, download, rename, delete files and c
 
 ---
 
-## 12. System Settings (Super Admin)
+## 13. System Settings (Super Admin)
 
 Navigate to **Admin → System Settings**.
 
@@ -475,7 +498,7 @@ Edit these in `.env` and restart the server.
 
 ---
 
-## 13. Backup & Recovery
+## 14. Backup & Recovery
 
 ### Database Backup
 ```bash
@@ -496,7 +519,7 @@ python cli.py ingest
 
 ---
 
-## 14. Production Deployment
+## 15. Production Deployment
 
 ### Security Checklist
 - [ ] Change default `admin` password
@@ -531,7 +554,7 @@ location / {
 
 ---
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|

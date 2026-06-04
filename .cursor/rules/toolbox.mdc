@@ -1,0 +1,76 @@
+---
+description: Admin Toolbox + PDF Tool — upload/process/merge PDFs (A3 split, deskew, rotate, image filters) and export
+globs: app/toolbox.py,app/pdf_tools.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html
+alwaysApply: false
+---
+
+# Toolbox (Admin)
+
+A home for self-service admin utilities (`@admin_required` = subject admins + super admins). First tool is the **PDF Tool**. Blueprint [app/toolbox.py](mdc:app/toolbox.py) (`url_prefix=/admin/toolbox`), processing primitives in [app/pdf_tools.py](mdc:app/pdf_tools.py) (shared with Batch PDF Import). Linked from the Admin navbar dropdown and an Admin Panel card.
+
+## Page descriptor model (the core idea)
+
+The working set is an ordered list of **page descriptors**, each pointing at one source-PDF page plus an ordered op chain:
+
+```
+{"id": <uuid12>, "src": <srcid>, "page": <0-based>, "ops": [ {op}, ... ], "mode": <split mode>}
+```
+
+Ops (applied in order by `pdf_tools.apply_ops`):
+- Vector-safe: `rotate`(deg 90/180/270), `crop`(box `[x1,y1,x2,y2]` fractional 0..1, y down).
+- Raster-only (`RASTER_ONLY_OPS`): `deskew`, `rotate_fine`(deg float), `brightness`/`contrast`/`sharpen`(factor), `grayscale`, `bw`(threshold 0..255).
+
+Op order built by `build_op_chain(pre_rotate, frag_ops, filters)` = pre-rotate → split crop → image filters. `filters_to_ops` maps the UI dict `{deskew, rotate_fine, brightness, contrast, sharpen, grayscale, bw, bw_threshold}` to ops (skips no-op values).
+
+## Hybrid export (`pdf_tools.export_pages`)
+
+Per page, `is_vector_safe(ops)` is true when there's no raster-only op AND not a crop+rotate combo. Vector-safe pages are cloned via `pypdf` (set `cropbox`/`mediabox` from the fractional box + `/Rotate`); a crop on a page with inherent `/Rotate` falls back to raster too. Everything else rasterises (`render_page_image` → Pillow → one-page PDF → `add_page`). Preview thumbnails ALWAYS rasterise via the same `render_page_image`. `pypdf` missing → all-raster PDF fallback (logged). `fmt='zip'` → ZIP of PNGs; `split_every=N` (Mode 1) → ZIP of N-page PDFs.
+
+## A3 split / reorder (`split_descriptors(num_pages, mode)`)
+
+Half boxes `LEFT_HALF=[0,0,.5,1]` / `RIGHT_HALF=[.5,0,1,1]`. `SPLIT_MODES = ('none','simple','mode1','mode2')`:
+- `simple`: each page → `[left, right]`.
+- `mode1` (folded individual, 2 A3/student → 4 pages): per chunk `(i,i+1)` emit `p(i)_R, p(i+1)_L, p(i+1)_R, p(i)_L`; trailing odd page dropped (warned). Pair with `split_every=4` for per-student files.
+- `mode2` (destapled booklet): `total=2n`; for `i in range(n)`: even `i` → `ordered[total-i-1]=L_i, ordered[i]=R_i`; odd `i` → `ordered[i]=L_i, ordered[total-i-1]=R_i`. Assumes even page count.
+
+Math ported from a standalone pypdf script; reorder happens on the rotated page (pre-rotate is applied before the crop in the op chain).
+
+## Staging
+
+`OUTPUT_PATH/.toolbox/<token>/` holds `session.json` (`{sources:{srcid:{filename,page_count}}, pages:[descriptor]}`) + `sources/<srcid>.pdf`. Token regex `^[0-9a-f]{8,40}$`, srcid `^[0-9a-f]{6,40}$`, validated before any join. `_cleanup_old()` (~12 h) runs on each new session. Server-PDF picks resolve under `PDF_SOURCE_PATH` via `_safe_join`; save-to-server writes under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>` with non-clobbering `_2`, `_3`… suffixes. Client op lists are re-validated server-side by `_sanitize_ops`.
+
+## Routes (all `@login_required @admin_required`)
+
+- `GET  /admin/toolbox` — tool landing (`admin_toolbox.html`).
+- `GET  /admin/toolbox/pdf` — PDF Tool (`admin_toolbox_pdf.html`).
+- `POST /pdf/upload` — multipart `pdf` OR `server_path` (+ optional `token`); stages one source, returns `{token, srcid, filename, page_count}`.
+- `POST /pdf/add-pages` — `{token, srcid, mode, pre_rotate, filters}` → expands to descriptors, appends, returns them.
+- `POST /pdf/reorder` — `{token, order:[id]}`.
+- `POST /pdf/page-ops` — `{token, page_id, ops}` replace one page's chain (sanitised).
+- `POST /pdf/page-delete` — `{token, page_ids}`.
+- `GET  /pdf/thumb/<token>/<page_id>.png?w=` — working-set page thumbnail (ops applied).
+- `GET  /pdf/src-thumb/<token>/<srcid>/<int:idx>.png?w=` — raw source page thumbnail.
+- `POST /pdf/export` — `{token, page_ids?, fmt:'pdf'|'zip', split_every?, filename?}` → file download.
+- `POST /pdf/export-save` — same body → saves under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, returns rel path.
+- `POST /pdf/discard` — delete the staging dir.
+
+Export is synchronous (no SSE) — fast enough for typical jobs.
+
+## Frontend ([templates/admin_toolbox_pdf.html](mdc:templates/admin_toolbox_pdf.html))
+
+Plain `fetch()` JSON + a client `pages[]` array (`{id, src, page, mode, baseOps, edit:{type→op}, nonce}`). `fullOps(p)` = `baseOps` + per-page `edit` ops in a fixed order; `nonce` cache-busts the thumb after edits. SortableJS drag-reorder (handle `.tb-drag-handle`) → `/reorder`. Server PDF picker reuses `admin.pdf_import_source_list` (`?path=` → `{configured, current_path, dirs, files}`). With no page selected, export uses all pages in DOM order. "Separate file every 4 pages" shows only when any Mode-1 page exists.
+
+## Config
+
+`TOOLBOX_RASTER_WIDTH` (preview, default 1700), `TOOLBOX_EXPORT_WIDTH` (export raster, default 2200), `TOOLBOX_SAVE_SUBDIR` (default `Saved`) — all in [app/config.py](mdc:app/config.py). Dependency `pypdf>=4.0` (vector export; degrades to raster if absent). Deskew needs NumPy (shared with `pdf_layout`); the deskew control is disabled when NumPy is missing.
+
+## Batch PDF Import reuse
+
+[app/pdf_import.py](mdc:app/pdf_import.py) `rasterize_pdf` / `stage` now call `pdf_tools` (`split_descriptors`, `build_op_chain`, `rasterize_page`, `apply_ops`) and accept `pre_rotate` / `split_mode` / `filters` (stored in `meta.json`). The legacy `deskew` flag is merged into `filters`. UI controls live in the **"Pre-process scans"** `<details>` in [templates/admin_pdf_import.html](mdc:templates/admin_pdf_import.html) (`ppRotate`/`ppSplit`/`ppBrightness`/`ppContrast`/`ppSharpen`/`ppGray`/`ppBw`/`ppBwThreshold` → form fields `pre_rotate`/`split_mode`/`f_*`). See [pdf-import.mdc](mdc:.cursor/rules/pdf-import.mdc).
+
+## Gotchas
+
+1. Vector crop on a page that already carries `/Rotate` is ambiguous in mediabox space → rasterise (handled in `_add_page`).
+2. Heavy libs (`fitz`/`PIL`/`pypdf`) are imported lazily so importing `pdf_tools` never fails on a box missing one.
+3. `rotate` deg is clockwise (negated for PIL's CCW positive angle) to match pypdf `/Rotate`.
+4. Splitting in Batch PDF Import renumbers staged PNGs contiguously in final reading order; downstream page indices stay valid.

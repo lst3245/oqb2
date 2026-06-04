@@ -3850,11 +3850,53 @@ def pdf_import_stage():
     raster_width = int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700))
     deskew = (request.form.get('deskew', '1').strip().lower()
               in ('1', 'true', 'yes', 'on'))
+
+    # Shared Toolbox pre-processing (optional; defaults off so existing
+    # behaviour is unchanged). Pre-rotate + A3 split + image filters run during
+    # rasterisation via app.pdf_tools.
+    def _truthy(name):
+        return (request.form.get(name) or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+    def _float(name, default):
+        try:
+            return float(request.form.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    try:
+        pre_rotate = int(request.form.get('pre_rotate') or 0) % 360
+    except (TypeError, ValueError):
+        pre_rotate = 0
+    split_mode = (request.form.get('split_mode') or 'none').strip().lower()
+    if split_mode not in ('none', 'simple', 'mode1', 'mode2'):
+        split_mode = 'none'
+    filters = {}
+    if _truthy('f_deskew'):
+        filters['deskew'] = True
+    b = _float('f_brightness', 1.0)
+    if abs(b - 1.0) > 1e-6:
+        filters['brightness'] = b
+    c = _float('f_contrast', 1.0)
+    if abs(c - 1.0) > 1e-6:
+        filters['contrast'] = c
+    s = _float('f_sharpen', 1.0)
+    if abs(s - 1.0) > 1e-6:
+        filters['sharpen'] = s
+    if _truthy('f_grayscale'):
+        filters['grayscale'] = True
+    if _truthy('f_bw'):
+        filters['bw'] = True
+        try:
+            filters['bw_threshold'] = int(request.form.get('f_bw_threshold') or 160)
+        except (TypeError, ValueError):
+            filters['bw_threshold'] = 160
+
     try:
         token, saved_meta = pdf_import.stage(
             que_file if has_que else None,
             sol_file if has_sol else None,
-            meta, raster_width, deskew=deskew)
+            meta, raster_width, deskew=deskew,
+            pre_rotate=pre_rotate, split_mode=split_mode, filters=filters)
     except Exception as e:
         current_app.logger.exception('PDF import staging failed')
         return jsonify({'error': f'Could not process PDF: {e}'}), 500

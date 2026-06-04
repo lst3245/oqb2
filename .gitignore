@@ -40,18 +40,12 @@ ENV/
 instance/
 .webassets-cache
 
-# Output — generated artifacts that should never be committed
-output/*.docx
-output/*.zip
-output/*.pdf
-# DOC asset thumbnail cache (default location for DOC_THUMBNAIL_PATH).
-output/.doc_thumbnails/
-# Catch-all in case the user reconfigures DOC_THUMBNAIL_PATH or output paths.
+# Output — generated documents, caches, and staging (default OUTPUT_PATH)
+output/
+# Catch-all if OUTPUT_PATH / DOC_THUMBNAIL_PATH are set outside output/
 .doc_thumbnails/
-# PDF Batch Import staging (uploaded PDFs + rasterised page PNGs, under OUTPUT_PATH).
-output/.pdf_import/
-# Catch-all in case OUTPUT_PATH is reconfigured.
 .pdf_import/
+.toolbox/
 ingest_errors.log
 
 # Database

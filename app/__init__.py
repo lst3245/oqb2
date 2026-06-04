@@ -42,12 +42,14 @@ def create_app():
     from app.admin import admin_bp
     from app.generator import generator_bp
     from app.user import user_bp
+    from app.toolbox import toolbox_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(generator_bp)
     app.register_blueprint(user_bp)
+    app.register_blueprint(toolbox_bp)
 
     # Expose the canonical asset-version list to every template (including
     # viewer.html, which does not extend base.html). Templates build their

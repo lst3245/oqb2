@@ -501,6 +501,7 @@
                                 <li><a class="dropdown-item" href="{{ url_for('admin.export_import') }}"><i class="bi bi-arrow-left-right"></i> Export / Import</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.ingestion') }}"><i class="bi bi-cloud-upload"></i> Ingestion</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.pdf_import_page') }}"><i class="bi bi-filetype-pdf"></i> PDF Import</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('toolbox.index') }}"><i class="bi bi-tools"></i> Toolbox</a></li>
                                 {% if current_user.is_super_admin %}
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> Manage Subjects</a></li>

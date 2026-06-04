@@ -33,3 +33,7 @@ PyMuPDF>=1.24.10
 # deskew + whitespace-based box refinement / segmentation (app/pdf_layout.py).
 # Pure-LLM detection and the rest of the app work without it.
 numpy>=1.26
+# pypdf gives the PDF Toolbox lossless ("vector") export — split / rotate / merge
+# without rasterising born-digital PDFs (cropbox + /Rotate). Optional: if absent,
+# the Toolbox falls back to an all-raster PDF export (app/pdf_tools.py).
+pypdf>=4.0

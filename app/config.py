@@ -144,3 +144,13 @@ class Config:
     # PDF Batch Import — whether the "Uniform width per side" checkbox starts
     # ticked. Users can toggle it per run.
     PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+
+    # PDF Toolbox — width (px) used to rasterise pages for the preview thumbnails
+    # and any raster-only processing in the working set.
+    TOOLBOX_RASTER_WIDTH = int(os.getenv('TOOLBOX_RASTER_WIDTH', '1700'))
+    # PDF Toolbox — width (px) of rasterised pages on EXPORT (only pages that
+    # carry a raster-only op are rasterised; vector pages stay lossless).
+    TOOLBOX_EXPORT_WIDTH = int(os.getenv('TOOLBOX_EXPORT_WIDTH', '2200'))
+    # PDF Toolbox — subfolder (under PDF_SOURCE_PATH) where "Save to server"
+    # writes assembled PDFs/ZIPs so Batch PDF Import can pick them.
+    TOOLBOX_SAVE_SUBDIR = os.getenv('TOOLBOX_SAVE_SUBDIR', 'Saved')

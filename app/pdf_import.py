@@ -245,75 +245,73 @@ def cleanup_old(max_age_hours: float = 6.0) -> None:
 # ==================== Rasterisation ====================
 
 def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
-                  deskew: bool = False) -> list:
+                  deskew: bool = False, pre_rotate: int = 0,
+                  split_mode: str = 'none', filters: dict = None) -> list:
     """Rasterise every page of ``pdf_path`` to ``page_NNNN.png`` in
     ``out_dir``. Returns a list of ``{index, filename, width, height}``.
 
-    Mirrors the zoom/pixmap pattern in
-    ``app/batch_image_gen._pdf_to_cropped_images`` but keeps the full page
-    (no cropping) so the LLM sees the whole layout and we can crop precisely
-    later.
+    Rasterisation + all per-page processing is delegated to the shared
+    :mod:`app.pdf_tools` primitives (the same ones the PDF Toolbox uses), so
+    Batch PDF Import gets A3 splitting / pre-rotate / image filters for free:
 
-    When ``deskew`` is set, each rendered page is straightened in place via
-    :func:`app.pdf_layout.deskew_image` (skew/rotation fix for scans). The
-    rotation uses ``expand=False`` so the cached width/height stay valid. If
-    NumPy isn't available the deskew is silently skipped (a warning is logged).
+    * ``deskew``      — straighten scanned pages (legacy flag; merged into
+      ``filters``). Needs NumPy; silently skipped (warned) if absent.
+    * ``pre_rotate``  — rotate every page 90/180/270° before splitting.
+    * ``split_mode``  — ``'none'`` / ``'simple'`` / ``'mode1'`` / ``'mode2'``
+      A3-booklet split; splitting just yields more staged pages (the LLM
+      detector runs per page, so this is transparent downstream).
+    * ``filters``     — ``{deskew, brightness, contrast, sharpen, grayscale,
+      bw, bw_threshold}`` image adjustments.
+
+    Output pages are renumbered contiguously in final reading order so the
+    rest of the pipeline (page PNG paths, meta indices) is unaffected.
     """
     import fitz  # type: ignore
-    from PIL import Image
+
+    from app import pdf_tools
 
     os.makedirs(out_dir, exist_ok=True)
 
-    do_deskew = bool(deskew)
-    if do_deskew:
-        try:
-            from app import pdf_layout
-            if not pdf_layout.numpy_available():
-                logger.warning('PDF import deskew requested but NumPy is '
-                               'unavailable — staging without deskew.')
-                do_deskew = False
-        except Exception:  # pragma: no cover
-            do_deskew = False
+    filt = dict(filters or {})
+    if deskew:
+        filt['deskew'] = True
+
+    pre_rotate = int(pre_rotate or 0) % 360
+    split_mode = (split_mode or 'none').strip().lower()
 
     pages: list = []
     pdf = fitz.open(pdf_path)
     try:
-        for i in range(pdf.page_count):
-            page = pdf.load_page(i)
-            base_width = page.rect.width or 595.0  # A4 width pts fallback
-            zoom = max(0.1, width_px / base_width)
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            fname = f'page_{i + 1:04d}.png'
+        frags = pdf_tools.split_descriptors(pdf.page_count, split_mode)
+        for out_index, frag in enumerate(frags):
+            ops = pdf_tools.build_op_chain(pre_rotate, frag['ops'], filt)
+            page = pdf.load_page(int(frag['page']))
+            img = pdf_tools.rasterize_page(page, width_px)
+            try:
+                img = pdf_tools.apply_ops(img, ops)
+            except Exception as e:  # pragma: no cover — best-effort processing
+                logger.warning('PDF import page processing failed for page %s: %s',
+                               frag['page'] + 1, e)
+            fname = f'page_{out_index + 1:04d}.png'
             out_path = os.path.join(out_dir, fname)
-            pix.save(out_path)
-            if do_deskew:
-                try:
-                    from app import pdf_layout
-                    with Image.open(out_path) as im:
-                        im.load()
-                        straight = pdf_layout.deskew_image(im)
-                    tmp = out_path + '.tmp'
-                    straight.save(tmp, format='PNG')  # ext is .tmp; tell PIL the format
-                    os.replace(tmp, out_path)
-                except Exception as e:  # pragma: no cover — deskew is best-effort
-                    logger.warning('PDF import deskew failed for page %s: %s',
-                                   i + 1, e)
-            pages.append({'index': i, 'filename': fname,
-                          'width': pix.width, 'height': pix.height})
+            img.save(out_path, format='PNG')
+            pages.append({'index': out_index, 'filename': fname,
+                          'width': img.width, 'height': img.height})
     finally:
         pdf.close()
     return pages
 
 
 def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
-          deskew: bool = False):
+          deskew: bool = False, pre_rotate: int = 0,
+          split_mode: str = 'none', filters: dict = None):
     """Save the uploaded PDFs and rasterise their pages.
 
     ``que_storage`` / ``sol_storage`` are Werkzeug ``FileStorage`` objects (or
-    None). ``meta_in`` carries the parsed paper prefix + version. ``deskew``
-    straightens scanned pages during rasterisation. Returns ``(token, meta)``
-    where ``meta`` is the persisted JSON.
+    None). ``meta_in`` carries the parsed paper prefix + version. ``deskew`` /
+    ``pre_rotate`` / ``split_mode`` / ``filters`` drive the shared pre-processing
+    (see :func:`rasterize_pdf`). Returns ``(token, meta)`` where ``meta`` is the
+    persisted JSON.
     """
     cleanup_old()
     token = uuid.uuid4().hex
@@ -323,6 +321,9 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
     meta = dict(meta_in)
     meta['created_at'] = datetime.utcnow().isoformat()
     meta['deskew'] = bool(deskew)
+    meta['pre_rotate'] = int(pre_rotate or 0) % 360
+    meta['split_mode'] = (split_mode or 'none').strip().lower()
+    meta['filters'] = dict(filters or {})
     meta['que'] = None
     meta['sol'] = None
 
@@ -333,7 +334,9 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
         os.makedirs(kind_dir, exist_ok=True)
         pdf_path = os.path.join(kind_dir, 'source.pdf')
         storage.save(pdf_path)
-        pages = rasterize_pdf(pdf_path, kind_dir, raster_width, deskew=deskew)
+        pages = rasterize_pdf(pdf_path, kind_dir, raster_width, deskew=deskew,
+                              pre_rotate=pre_rotate, split_mode=split_mode,
+                              filters=filters)
         meta[kind] = {'filename': storage.filename, 'pages': pages}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:

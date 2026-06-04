@@ -1,0 +1,626 @@
+{% extends "base.html" %}
+
+{% block title %}PDF Tool - Toolbox{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tb-preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: .75rem;
+    }
+    .tb-page-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: .4rem;
+        background: var(--bs-body-bg);
+        overflow: hidden;
+        position: relative;
+    }
+    .tb-page-card.tb-selected { outline: 3px solid var(--bs-primary); }
+    .tb-thumb-wrap {
+        background: #f3f3f3;
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .tb-thumb-wrap img { width: 100%; height: auto; display: block; }
+    .tb-page-head {
+        display: flex; align-items: center; gap: .35rem;
+        padding: .25rem .4rem; font-size: .8rem;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .tb-page-tools {
+        display: flex; flex-wrap: wrap; gap: .15rem;
+        padding: .3rem; border-top: 1px solid var(--bs-border-color);
+    }
+    .tb-page-tools .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .35rem; font-size: .75rem; }
+    .tb-drag-handle { cursor: grab; touch-action: none; color: var(--bs-secondary); }
+    .tb-src-strip { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .35rem; }
+    .tb-src-strip img { height: 90px; width: auto; border: 1px solid var(--bs-border-color); border-radius: .25rem; }
+    .sortable-ghost { opacity: .4; }
+    .tb-log { font-size: .8rem; max-height: 140px; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center mb-2">
+        <h3 class="mb-0"><i class="bi bi-filetype-pdf"></i> PDF Tool</h3>
+        <a href="{{ url_for('toolbox.index') }}" class="btn btn-sm btn-outline-secondary ms-auto">
+            <i class="bi bi-arrow-left"></i> Toolbox
+        </a>
+    </div>
+    <p class="text-muted small">
+        Upload a PDF, process it (split A3 booklets, deskew, rotate, adjust image), then add the pages to the
+        preview. Drag to reorder, tweak individual pages, upload more PDFs to merge, and export the selection.
+    </p>
+
+    <div class="row g-3">
+        <!-- ===== Left: source + process ===== -->
+        <div class="col-lg-4">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong><i class="bi bi-1-circle"></i> Upload source PDF</strong></div>
+                <div class="card-body">
+                    <div class="input-group input-group-sm mb-2">
+                        <input type="file" class="form-control" id="pdfFile" accept="application/pdf,.pdf">
+                        <button class="btn btn-primary" id="uploadBtn" type="button"><i class="bi bi-upload"></i> Load</button>
+                    </div>
+                    {% if pdf_source_available %}
+                    <button class="btn btn-outline-secondary btn-sm w-100 mb-2" id="pickServerBtn" type="button">
+                        <i class="bi bi-hdd-network"></i> Pick from server
+                    </button>
+                    {% endif %}
+                    <div id="sourceList" class="small text-muted">No PDF loaded yet.</div>
+                    <div id="srcStrip" class="tb-src-strip mt-2"></div>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="processCard" style="display:none;">
+                <div class="card-header py-2"><strong><i class="bi bi-2-circle"></i> Process &amp; add to preview</strong></div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">Active source</label>
+                        <select id="activeSource" class="form-select form-select-sm"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">Rotate whole page first</label>
+                        <select id="preRotate" class="form-select form-select-sm">
+                            <option value="0">No rotation</option>
+                            <option value="90">90° clockwise</option>
+                            <option value="180">180°</option>
+                            <option value="270">270° (90° anti-clockwise)</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">A3 split mode</label>
+                        <select id="splitMode" class="form-select form-select-sm">
+                            <option value="none">None (keep whole pages)</option>
+                            <option value="simple">Split each A3 down the middle (L, R)</option>
+                            <option value="mode1">Mode 1 — folded individual copies (4 pages / student)</option>
+                            <option value="mode2">Mode 2 — destapled A4 booklet stack (reorder)</option>
+                        </select>
+                        <div class="form-text" id="splitHelp"></div>
+                    </div>
+                    <hr class="my-2">
+                    <div class="form-check form-check-sm mb-1">
+                        <input class="form-check-input" type="checkbox" id="fDeskew" {% if not numpy_available %}disabled{% endif %}>
+                        <label class="form-check-label small" for="fDeskew">
+                            Deskew (straighten){% if not numpy_available %} <span class="text-danger">— needs NumPy</span>{% endif %}
+                        </label>
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label small mb-0">Brightness <span id="fBrightnessVal">1.0</span></label>
+                        <input type="range" class="form-range" id="fBrightness" min="0.4" max="1.8" step="0.05" value="1.0">
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label small mb-0">Contrast <span id="fContrastVal">1.0</span></label>
+                        <input type="range" class="form-range" id="fContrast" min="0.4" max="1.8" step="0.05" value="1.0">
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label small mb-0">Sharpen <span id="fSharpenVal">1.0</span></label>
+                        <input type="range" class="form-range" id="fSharpen" min="0" max="3" step="0.1" value="1.0">
+                    </div>
+                    <div class="form-check form-check-sm mb-1">
+                        <input class="form-check-input" type="checkbox" id="fGray">
+                        <label class="form-check-label small" for="fGray">Grayscale</label>
+                    </div>
+                    <div class="form-check form-check-sm mb-1">
+                        <input class="form-check-input" type="checkbox" id="fBw">
+                        <label class="form-check-label small" for="fBw">Black &amp; white (threshold <span id="fBwVal">160</span>)</label>
+                    </div>
+                    <input type="range" class="form-range mb-2" id="fBwThreshold" min="60" max="230" step="5" value="160" disabled>
+                    <button class="btn btn-success btn-sm w-100" id="addPagesBtn" type="button">
+                        <i class="bi bi-plus-lg"></i> Process &amp; add to preview
+                    </button>
+                </div>
+            </div>
+
+            <div id="logBox" class="alert alert-secondary tb-log d-none"></div>
+        </div>
+
+        <!-- ===== Right: preview + export ===== -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header py-2 d-flex flex-wrap align-items-center gap-2">
+                    <strong><i class="bi bi-3-circle"></i> Preview &amp; assemble</strong>
+                    <span class="badge bg-secondary" id="pageCount">0 pages</span>
+                    <div class="ms-auto d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" id="selectAllBtn" type="button">Select all</button>
+                        <button class="btn btn-sm btn-outline-secondary" id="clearSelBtn" type="button">Clear</button>
+                        <button class="btn btn-sm btn-outline-danger" id="deleteSelBtn" type="button"><i class="bi bi-trash"></i> Delete selected</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Export bar -->
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-auto">
+                            <label class="form-label small mb-0">Format</label>
+                            <select id="exportFmt" class="form-select form-select-sm" style="width:auto;">
+                                <option value="pdf">Combined PDF</option>
+                                <option value="zip">ZIP of page images</option>
+                            </select>
+                        </div>
+                        <div class="col-auto" id="splitEveryWrap" style="display:none;">
+                            <div class="form-check mt-3">
+                                <input class="form-check-input" type="checkbox" id="splitEveryChk">
+                                <label class="form-check-label small" for="splitEveryChk">Separate file every 4 pages (per student)</label>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <label class="form-label small mb-0">File name</label>
+                            <input type="text" class="form-control form-control-sm" id="exportName" value="toolbox_export">
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary btn-sm" id="exportBtn" type="button"><i class="bi bi-download"></i> Export selected</button>
+                        </div>
+                        {% if pdf_source_available %}
+                        <div class="col-auto">
+                            <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button"
+                                    title="Save under PDF_SOURCE_PATH/{{ save_subdir }} so Batch PDF Import can pick it">
+                                <i class="bi bi-hdd"></i> Save to server
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small mb-2">Tip: drag pages by the <i class="bi bi-grip-vertical"></i> handle to reorder. With nothing selected, all pages export.</div>
+                    <div id="previewGrid" class="tb-preview-grid">
+                        <div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Server PDF picker modal -->
+<div class="modal fade" id="serverPickModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-hdd-network"></i> Pick a PDF from the server</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2" id="serverCrumbs"></ol></nav>
+                <div id="serverEntries" class="list-group small"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const BASE = "{{ url_for('toolbox.pdf_tool') }}";
+const SOURCE_LIST_URL = "{{ url_for('admin.pdf_import_source_list') }}";
+const THUMB_W = 360;
+let TOKEN = null;
+let activeSrc = null;
+const sources = {};          // srcid -> {filename, page_count}
+let pages = [];              // [{id, src, page, baseOps, edit:{type->op}, nonce}]
+let sortable = null;
+
+const SPLIT_HELP = {
+    none: 'Pages are added as-is.',
+    simple: 'Each page is cut into a left and a right half (in that order).',
+    mode1: 'Two A3 sheets per student, scanned folded. Produces pages 1–4 per student. Use "Separate file every 4 pages" on export for one file per student.',
+    mode2: 'A whole booklet was destapled and the A3 sheets scanned as a stack. The split halves are reordered back into reading order. Assumes an even number of A3 pages.',
+};
+
+// ---------- helpers ----------
+function log(msg, kind) {
+    const box = document.getElementById('logBox');
+    box.classList.remove('d-none');
+    const cls = kind === 'error' ? 'text-danger' : (kind === 'success' ? 'text-success' : '');
+    const ts = new Date().toLocaleTimeString();
+    box.innerHTML += `<div class="${cls}">[${ts}] ${msg}</div>`;
+    box.scrollTop = box.scrollHeight;
+}
+
+async function postJSON(url, body) {
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    return data;
+}
+
+function fullOps(p) {
+    const order = ['rotate', 'deskew', 'rotate_fine', 'brightness', 'contrast', 'sharpen', 'grayscale', 'bw'];
+    const edits = order.filter(t => p.edit[t]).map(t => p.edit[t]);
+    return p.baseOps.concat(edits);
+}
+
+function thumbUrl(p) {
+    return `${BASE}/thumb/${TOKEN}/${p.id}.png?w=${THUMB_W}&t=${p.nonce}`;
+}
+
+// ---------- upload ----------
+async function uploadSource(file, serverPath) {
+    const fd = new FormData();
+    if (TOKEN) fd.append('token', TOKEN);
+    if (file) fd.append('pdf', file);
+    if (serverPath) fd.append('server_path', serverPath);
+    log('Uploading PDF...');
+    let data;
+    try {
+        const r = await fetch(`${BASE}/upload`, {method: 'POST', body: fd});
+        data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    } catch (e) {
+        log('Upload failed: ' + e.message, 'error');
+        return;
+    }
+    TOKEN = data.token;
+    sources[data.srcid] = {filename: data.filename, page_count: data.page_count};
+    activeSrc = data.srcid;
+    log(`Loaded "${data.filename}" (${data.page_count} page(s)).`, 'success');
+    renderSourceList();
+    renderSrcStrip(data.srcid, data.page_count);
+    document.getElementById('processCard').style.display = '';
+}
+
+function renderSourceList() {
+    const el = document.getElementById('sourceList');
+    const ids = Object.keys(sources);
+    if (!ids.length) { el.textContent = 'No PDF loaded yet.'; return; }
+    el.innerHTML = ids.map(id => `<div><i class="bi bi-file-earmark-pdf"></i> ${sources[id].filename} <span class="text-muted">(${sources[id].page_count}p)</span></div>`).join('');
+    const sel = document.getElementById('activeSource');
+    sel.innerHTML = ids.map(id => `<option value="${id}">${sources[id].filename}</option>`).join('');
+    sel.value = activeSrc;
+}
+
+function renderSrcStrip(srcid, count) {
+    const strip = document.getElementById('srcStrip');
+    strip.innerHTML = '';
+    const max = Math.min(count, 12);
+    for (let i = 0; i < max; i++) {
+        const img = document.createElement('img');
+        img.src = `${BASE}/src-thumb/${TOKEN}/${srcid}/${i}.png?w=160`;
+        img.loading = 'lazy';
+        strip.appendChild(img);
+    }
+    if (count > max) {
+        const more = document.createElement('span');
+        more.className = 'align-self-center text-muted small';
+        more.textContent = `+${count - max} more`;
+        strip.appendChild(more);
+    }
+}
+
+// ---------- process & add ----------
+function gatherFilters() {
+    const f = {};
+    if (document.getElementById('fDeskew').checked) f.deskew = true;
+    const b = parseFloat(document.getElementById('fBrightness').value);
+    if (Math.abs(b - 1.0) > 1e-6) f.brightness = b;
+    const c = parseFloat(document.getElementById('fContrast').value);
+    if (Math.abs(c - 1.0) > 1e-6) f.contrast = c;
+    const s = parseFloat(document.getElementById('fSharpen').value);
+    if (Math.abs(s - 1.0) > 1e-6) f.sharpen = s;
+    if (document.getElementById('fGray').checked) f.grayscale = true;
+    if (document.getElementById('fBw').checked) {
+        f.bw = true;
+        f.bw_threshold = parseInt(document.getElementById('fBwThreshold').value, 10);
+    }
+    return f;
+}
+
+async function addPages() {
+    if (!activeSrc) { log('Load a PDF first.', 'error'); return; }
+    const body = {
+        token: TOKEN,
+        srcid: activeSrc,
+        mode: document.getElementById('splitMode').value,
+        pre_rotate: parseInt(document.getElementById('preRotate').value, 10),
+        filters: gatherFilters(),
+    };
+    let data;
+    try {
+        data = await postJSON(`${BASE}/add-pages`, body);
+    } catch (e) {
+        log('Add failed: ' + e.message, 'error');
+        return;
+    }
+    data.pages.forEach(sp => {
+        pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
+                    baseOps: sp.ops || [], edit: {}, nonce: Date.now()});
+    });
+    log(`Added ${data.added} page(s).`, 'success');
+    renderPreview();
+}
+
+// ---------- preview ----------
+function renderPreview() {
+    const grid = document.getElementById('previewGrid');
+    grid.innerHTML = '';
+    if (!pages.length) {
+        grid.innerHTML = '<div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>';
+        updateCount();
+        return;
+    }
+    pages.forEach((p, i) => grid.appendChild(buildCard(p, i)));
+    initSortable();
+    updateCount();
+    updateSplitEveryVisibility();
+}
+
+function buildCard(p, idx) {
+    const card = document.createElement('div');
+    card.className = 'tb-page-card';
+    card.dataset.pageId = p.id;
+    card.innerHTML = `
+        <div class="tb-page-head">
+            <i class="bi bi-grip-vertical tb-drag-handle"></i>
+            <input type="checkbox" class="form-check-input tb-sel" data-id="${p.id}">
+            <span class="text-muted">#${idx + 1}</span>
+        </div>
+        <div class="tb-thumb-wrap"><img src="${thumbUrl(p)}" loading="lazy"></div>
+        <div class="tb-page-tools">
+            <button class="btn btn-outline-secondary" data-act="rotL" title="Rotate left"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button class="btn btn-outline-secondary" data-act="rotR" title="Rotate right"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="btn btn-outline-secondary" data-act="deskew" title="Toggle deskew"><i class="bi bi-rulers"></i></button>
+            <button class="btn btn-outline-secondary" data-act="bw" title="Toggle B&amp;W"><i class="bi bi-circle-half"></i></button>
+            <button class="btn btn-outline-secondary" data-act="brUp" title="Brighter"><i class="bi bi-brightness-high"></i></button>
+            <button class="btn btn-outline-secondary" data-act="brDn" title="Darker"><i class="bi bi-brightness-low"></i></button>
+            <button class="btn btn-outline-secondary" data-act="reset" title="Reset edits"><i class="bi bi-eraser"></i></button>
+            <button class="btn btn-outline-danger" data-act="del" title="Delete page"><i class="bi bi-trash"></i></button>
+        </div>`;
+    card.querySelectorAll('button[data-act]').forEach(btn => {
+        btn.addEventListener('click', () => pageAction(p, btn.dataset.act));
+    });
+    const cb = card.querySelector('.tb-sel');
+    cb.addEventListener('change', () => card.classList.toggle('tb-selected', cb.checked));
+    return card;
+}
+
+async function pageAction(p, act) {
+    if (act === 'del') {
+        try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: [p.id]}); } catch (e) { log(e.message, 'error'); }
+        pages = pages.filter(x => x.id !== p.id);
+        renderPreview();
+        return;
+    }
+    if (act === 'rotL') rotateBy(p, -90);
+    else if (act === 'rotR') rotateBy(p, 90);
+    else if (act === 'deskew') toggleEdit(p, 'deskew', {type: 'deskew'});
+    else if (act === 'bw') toggleEdit(p, 'bw', {type: 'bw', threshold: 160});
+    else if (act === 'brUp') adjustBrightness(p, 0.1);
+    else if (act === 'brDn') adjustBrightness(p, -0.1);
+    else if (act === 'reset') p.edit = {};
+    await saveOps(p);
+}
+
+function rotateBy(p, delta) {
+    const cur = p.edit.rotate ? p.edit.rotate.deg : 0;
+    const deg = ((cur + delta) % 360 + 360) % 360;
+    if (deg === 0) delete p.edit.rotate;
+    else p.edit.rotate = {type: 'rotate', deg};
+}
+
+function toggleEdit(p, key, op) {
+    if (p.edit[key]) delete p.edit[key];
+    else p.edit[key] = op;
+}
+
+function adjustBrightness(p, delta) {
+    const cur = p.edit.brightness ? p.edit.brightness.factor : 1.0;
+    const f = Math.max(0.3, Math.min(2.0, +(cur + delta).toFixed(2)));
+    if (Math.abs(f - 1.0) < 1e-6) delete p.edit.brightness;
+    else p.edit.brightness = {type: 'brightness', factor: f};
+}
+
+async function saveOps(p) {
+    try {
+        await postJSON(`${BASE}/page-ops`, {token: TOKEN, page_id: p.id, ops: fullOps(p)});
+    } catch (e) { log(e.message, 'error'); return; }
+    p.nonce = Date.now();
+    const card = document.querySelector(`.tb-page-card[data-page-id="${p.id}"] img`);
+    if (card) card.src = thumbUrl(p);
+}
+
+function initSortable() {
+    const grid = document.getElementById('previewGrid');
+    if (sortable) { sortable.destroy(); sortable = null; }
+    if (typeof Sortable === 'undefined') return;
+    sortable = Sortable.create(grid, {
+        handle: '.tb-drag-handle', animation: 150, ghostClass: 'sortable-ghost',
+        forceFallback: true, fallbackTolerance: 4, delay: 80, delayOnTouchOnly: true,
+        onEnd() {
+            const order = Array.from(grid.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
+            const byId = {}; pages.forEach(p => byId[p.id] = p);
+            pages = order.map(id => byId[id]).filter(Boolean);
+            postJSON(`${BASE}/reorder`, {token: TOKEN, order}).catch(e => log(e.message, 'error'));
+            renumber();
+        }
+    });
+}
+
+function renumber() {
+    document.querySelectorAll('.tb-page-card').forEach((c, i) => {
+        const span = c.querySelector('.tb-page-head .text-muted');
+        if (span) span.textContent = '#' + (i + 1);
+    });
+}
+
+function updateCount() {
+    document.getElementById('pageCount').textContent = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
+}
+
+function selectedIds() {
+    const ids = Array.from(document.querySelectorAll('.tb-sel:checked')).map(cb => cb.dataset.id);
+    // Preserve current DOM order.
+    const order = Array.from(document.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
+    return order.filter(id => ids.includes(id));
+}
+
+function orderedAllIds() {
+    return Array.from(document.querySelectorAll('.tb-page-card')).map(c => c.dataset.pageId);
+}
+
+function updateSplitEveryVisibility() {
+    const hasMode1 = pages.some(p => p.mode === 'mode1');
+    document.getElementById('splitEveryWrap').style.display = hasMode1 ? '' : 'none';
+}
+
+// ---------- export ----------
+function exportBody() {
+    let ids = selectedIds();
+    if (!ids.length) ids = orderedAllIds();
+    const fmt = document.getElementById('exportFmt').value;
+    const splitEvery = (fmt === 'pdf' && document.getElementById('splitEveryChk').checked
+                        && document.getElementById('splitEveryWrap').style.display !== 'none') ? 4 : 0;
+    return {token: TOKEN, page_ids: ids, fmt, split_every: splitEvery,
+            filename: document.getElementById('exportName').value || 'toolbox_export'};
+}
+
+async function doExport() {
+    if (!pages.length) { log('Nothing to export.', 'error'); return; }
+    const body = exportBody();
+    log(`Exporting ${body.page_ids.length} page(s)...`);
+    try {
+        const r = await fetch(`${BASE}/export`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || ('HTTP ' + r.status)); }
+        const blob = await r.blob();
+        const disp = r.headers.get('Content-Disposition') || '';
+        const m = disp.match(/filename="?([^"]+)"?/);
+        const name = m ? m[1] : (body.filename + (body.fmt === 'zip' || body.split_every ? '.zip' : '.pdf'));
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+        log('Export ready — download started.', 'success');
+    } catch (e) { log('Export failed: ' + e.message, 'error'); }
+}
+
+async function doSaveServer() {
+    if (!pages.length) { log('Nothing to save.', 'error'); return; }
+    const body = exportBody();
+    log('Saving to server...');
+    try {
+        const data = await postJSON(`${BASE}/export-save`, body);
+        log(`Saved to server: ${data.saved}`, 'success');
+    } catch (e) { log('Save failed: ' + e.message, 'error'); }
+}
+
+// ---------- server picker ----------
+let serverModal = null;
+async function openServerPicker(path) {
+    if (!serverModal) serverModal = new bootstrap.Modal(document.getElementById('serverPickModal'));
+    serverModal.show();
+    await loadServerDir(path || '');
+}
+
+async function loadServerDir(path) {
+    const entries = document.getElementById('serverEntries');
+    entries.innerHTML = '<div class="text-muted p-2">Loading...</div>';
+    let data;
+    try {
+        const r = await fetch(`${SOURCE_LIST_URL}?path=${encodeURIComponent(path)}`);
+        data = await r.json();
+    } catch (e) { entries.innerHTML = '<div class="text-danger p-2">' + e.message + '</div>'; return; }
+    if (data.configured === false) { entries.innerHTML = '<div class="text-warning p-2">' + (data.message || 'Not configured') + '</div>'; return; }
+
+    // breadcrumbs
+    const crumbs = document.getElementById('serverCrumbs');
+    crumbs.innerHTML = '';
+    const parts = (data.current_path || '').split('/').filter(Boolean);
+    const rootLi = document.createElement('li'); rootLi.className = 'breadcrumb-item';
+    const rootA = document.createElement('a'); rootA.href = '#'; rootA.textContent = 'root';
+    rootA.onclick = (e) => { e.preventDefault(); loadServerDir(''); }; rootLi.appendChild(rootA); crumbs.appendChild(rootLi);
+    let acc = '';
+    parts.forEach(part => {
+        acc = acc ? acc + '/' + part : part;
+        const li = document.createElement('li'); li.className = 'breadcrumb-item';
+        const a = document.createElement('a'); a.href = '#'; a.textContent = part; const cur = acc;
+        a.onclick = (e) => { e.preventDefault(); loadServerDir(cur); }; li.appendChild(a); crumbs.appendChild(li);
+    });
+
+    entries.innerHTML = '';
+    (data.dirs || []).forEach(d => {
+        const a = document.createElement('a');
+        a.href = '#'; a.className = 'list-group-item list-group-item-action';
+        a.innerHTML = `<i class="bi bi-folder"></i> ${d.name}`;
+        a.onclick = (e) => { e.preventDefault(); loadServerDir(d.rel_path); };
+        entries.appendChild(a);
+    });
+    (data.files || []).forEach(f => {
+        const a = document.createElement('a');
+        a.href = '#'; a.className = 'list-group-item list-group-item-action';
+        a.innerHTML = `<i class="bi bi-file-earmark-pdf text-danger"></i> ${f.name}`;
+        a.onclick = (e) => {
+            e.preventDefault();
+            serverModal.hide();
+            uploadSource(null, f.rel_path);
+        };
+        entries.appendChild(a);
+    });
+    if (!(data.dirs || []).length && !(data.files || []).length) {
+        entries.innerHTML = '<div class="text-muted p-2">Empty folder.</div>';
+    }
+}
+
+// ---------- wiring ----------
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('uploadBtn').addEventListener('click', () => {
+        const f = document.getElementById('pdfFile').files[0];
+        if (!f) { log('Choose a PDF file first.', 'error'); return; }
+        uploadSource(f, null);
+        document.getElementById('pdfFile').value = '';
+    });
+    const pickBtn = document.getElementById('pickServerBtn');
+    if (pickBtn) pickBtn.addEventListener('click', () => openServerPicker(''));
+
+    document.getElementById('activeSource').addEventListener('change', e => { activeSrc = e.target.value; renderSrcStrip(activeSrc, sources[activeSrc].page_count); });
+    document.getElementById('splitMode').addEventListener('change', e => { document.getElementById('splitHelp').textContent = SPLIT_HELP[e.target.value] || ''; });
+    document.getElementById('splitHelp').textContent = SPLIT_HELP.none;
+    document.getElementById('addPagesBtn').addEventListener('click', addPages);
+
+    ['fBrightness', 'fContrast', 'fSharpen'].forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('input', () => { document.getElementById(id + 'Val').textContent = parseFloat(el.value).toFixed(2); });
+    });
+    document.getElementById('fBw').addEventListener('change', e => { document.getElementById('fBwThreshold').disabled = !e.target.checked; });
+    document.getElementById('fBwThreshold').addEventListener('input', e => { document.getElementById('fBwVal').textContent = e.target.value; });
+
+    document.getElementById('selectAllBtn').addEventListener('click', () => document.querySelectorAll('.tb-sel').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); }));
+    document.getElementById('clearSelBtn').addEventListener('click', () => document.querySelectorAll('.tb-sel').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); }));
+    document.getElementById('deleteSelBtn').addEventListener('click', async () => {
+        const ids = selectedIds();
+        if (!ids.length) { log('Select pages to delete.', 'error'); return; }
+        try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: ids}); } catch (e) { log(e.message, 'error'); return; }
+        pages = pages.filter(p => !ids.includes(p.id));
+        renderPreview();
+    });
+    document.getElementById('exportFmt').addEventListener('change', updateSplitEveryVisibility);
+    document.getElementById('exportBtn').addEventListener('click', doExport);
+    const saveBtn = document.getElementById('saveServerBtn');
+    if (saveBtn) saveBtn.addEventListener('click', doSaveServer);
+});
+</script>
+{% endblock %}
