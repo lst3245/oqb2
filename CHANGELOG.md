@@ -23,6 +23,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Toolbox PDF Tool: image filters only in Step 3.** Brightness, contrast, sharpen, grayscale, and black & white were removed from the Step 2 "Process & add" panel; use the preview toolbar (or enlarged preview) after pages are added. Step 2 still offers rotate, A3 split, DPI, and optional deskew.
+
 - **LLM Endpoints direct chat: image-capable console.** The super-admin direct chat console now mirrors the dashboard Explain modal's multimodal UX: vision endpoints can receive pasted, dragged, or attached images; staged/user images show thumbnails with full-size overlay; responses keep the same streaming Markdown/reasoning rendering.
 
 - **Dashboard Explain modal: quick asset previews.** The Explain tutor modal now shows compact QUE / ANS / SOL preview buttons for any slots that exist on the question, reusing the dashboard preview modal so users can inspect the source assets while chatting with the AI tutor.

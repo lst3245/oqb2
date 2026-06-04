@@ -168,33 +168,13 @@
                         <div class="form-text" id="splitHelp"></div>
                     </div>
                     <hr class="my-2">
-                    <div class="form-check form-check-sm mb-1">
+                    <div class="form-check form-check-sm mb-2">
                         <input class="form-check-input" type="checkbox" id="fDeskew" {% if not numpy_available %}disabled{% endif %}>
                         <label class="form-check-label small" for="fDeskew">
                             Deskew (straighten){% if not numpy_available %} <span class="text-danger">— needs NumPy</span>{% endif %}
                         </label>
                     </div>
-                    <div class="mb-1">
-                        <label class="form-label small mb-0">Brightness <span id="fBrightnessVal">1.0</span></label>
-                        <input type="range" class="form-range" id="fBrightness" min="0.4" max="1.8" step="0.05" value="1.0">
-                    </div>
-                    <div class="mb-1">
-                        <label class="form-label small mb-0">Contrast <span id="fContrastVal">1.0</span></label>
-                        <input type="range" class="form-range" id="fContrast" min="0.4" max="1.8" step="0.05" value="1.0">
-                    </div>
-                    <div class="mb-1">
-                        <label class="form-label small mb-0">Sharpen <span id="fSharpenVal">1.0</span></label>
-                        <input type="range" class="form-range" id="fSharpen" min="0" max="3" step="0.1" value="1.0">
-                    </div>
-                    <div class="form-check form-check-sm mb-1">
-                        <input class="form-check-input" type="checkbox" id="fGray">
-                        <label class="form-check-label small" for="fGray">Grayscale</label>
-                    </div>
-                    <div class="form-check form-check-sm mb-1">
-                        <input class="form-check-input" type="checkbox" id="fBw">
-                        <label class="form-check-label small" for="fBw">Black &amp; white (threshold <span id="fBwVal">160</span>)</label>
-                    </div>
-                    <input type="range" class="form-range mb-2" id="fBwThreshold" min="60" max="230" step="5" value="160" disabled>
+                    <p class="form-text small mb-2">Brightness, contrast, sharpen, grayscale, and B&amp;W are in the Step 3 toolbar after pages are added.</p>
                     <button class="btn btn-success btn-sm w-100" id="addPagesBtn" type="button">
                         <i class="bi bi-plus-lg"></i> Process &amp; add to preview
                     </button>
@@ -544,17 +524,6 @@ function renderSrcStrip(srcid, count) {
 function gatherFilters() {
     const f = {};
     if (document.getElementById('fDeskew').checked) f.deskew = true;
-    const b = parseFloat(document.getElementById('fBrightness').value);
-    if (Math.abs(b - 1.0) > 1e-6) f.brightness = b;
-    const c = parseFloat(document.getElementById('fContrast').value);
-    if (Math.abs(c - 1.0) > 1e-6) f.contrast = c;
-    const s = parseFloat(document.getElementById('fSharpen').value);
-    if (Math.abs(s - 1.0) > 1e-6) f.sharpen = s;
-    if (document.getElementById('fGray').checked) f.grayscale = true;
-    if (document.getElementById('fBw').checked) {
-        f.bw = true;
-        f.bw_threshold = parseInt(document.getElementById('fBwThreshold').value, 10);
-    }
     return f;
 }
 
@@ -1423,13 +1392,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('splitMode').addEventListener('change', e => { document.getElementById('splitHelp').textContent = SPLIT_HELP[e.target.value] || ''; });
     document.getElementById('splitHelp').textContent = SPLIT_HELP.none;
     document.getElementById('addPagesBtn').addEventListener('click', addPages);
-
-    ['fBrightness', 'fContrast', 'fSharpen'].forEach(id => {
-        const el = document.getElementById(id);
-        el.addEventListener('input', () => { document.getElementById(id + 'Val').textContent = parseFloat(el.value).toFixed(2); });
-    });
-    document.getElementById('fBw').addEventListener('change', e => { document.getElementById('fBwThreshold').disabled = !e.target.checked; });
-    document.getElementById('fBwThreshold').addEventListener('input', e => { document.getElementById('fBwVal').textContent = e.target.value; });
 
     // operations toolbar (built once, shared by main + modal)
     buildToolbars();
