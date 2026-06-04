@@ -475,18 +475,29 @@ def pdf_thumb(token, page_id):
     """Render a working-set page (with its op chain) to a PNG for the preview."""
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return abort(404)
-    try:
-        width = max(120, min(2400, int(request.args.get('w', 360))))
-    except (TypeError, ValueError):
-        width = 360
     session = _load_session(token)
     page = next((p for p in session['pages'] if p['id'] == page_id), None)
     if not page:
         return abort(404)
+    # ``dpi`` (page-size independent, used by the full-resolution enlarged
+    # preview) takes precedence over a fixed ``w`` pixel width (grid thumbs).
+    width = None
+    dpi = None
+    dpi_arg = request.args.get('dpi')
+    if dpi_arg:
+        try:
+            dpi = max(72, min(600, int(dpi_arg)))
+        except (TypeError, ValueError):
+            dpi = int(page.get('dpi') or current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
+    else:
+        try:
+            width = max(120, min(2400, int(request.args.get('w', 360))))
+        except (TypeError, ValueError):
+            width = 360
     try:
         img = pdf_tools.render_page_image(_source_path(token, page['src']),
                                           int(page['page']), page.get('ops') or [],
-                                          width)
+                                          width_px=width, dpi=dpi)
     except Exception as e:
         logger.warning('toolbox thumb render failed: %s', e)
         return abort(404)
@@ -594,11 +605,16 @@ def pdf_export_save():
     root = _pdf_source_root()
     if not root or not os.path.isdir(root):
         return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
-    subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
-    save_dir = _safe_join(root, subdir)
+    # Destination folder, relative to PDF_SOURCE_PATH. Falls back to the default
+    # save subdir when the client doesn't pass one.
+    subdir = (data.get('dest') or '').strip().strip('/').strip('\\')
+    if not subdir:
+        subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
+    save_dir = _safe_join(root, subdir) if subdir else root
     if not save_dir:
         return jsonify({'error': 'Invalid save directory.'}), 400
     os.makedirs(save_dir, exist_ok=True)
+    subdir = os.path.relpath(save_dir, root).replace('\\', '/')
 
     fmt = (data.get('fmt') or 'pdf').strip().lower()
     if fmt not in ('pdf', 'zip'):
@@ -643,6 +659,37 @@ def pdf_export_save():
     rel = os.path.relpath(dest, root).replace('\\', '/')
     return jsonify({'ok': True, 'saved': rel,
                     'path': dest, 'subdir': subdir})
+
+
+@toolbox_bp.route('/pdf/mkdir', methods=['POST'])
+@login_required
+@admin_required
+def pdf_mkdir():
+    """Create a sub-folder under ``PDF_SOURCE_PATH`` for the save-destination
+    picker. Body: ``{path, name}`` (both relative to PDF_SOURCE_PATH; ``path``
+    is the parent dir, ``name`` the new folder). Returns the new rel path."""
+    data = request.get_json(silent=True) or {}
+    root = _pdf_source_root()
+    if not root or not os.path.isdir(root):
+        return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
+    parent_rel = (data.get('path') or '').strip().strip('/').strip('\\')
+    name = (data.get('name') or '').strip()
+    # Single path segment only — no separators or traversal in the new name.
+    name = re.sub(r'[^\w\-. ]+', '_', name).strip('. ')
+    if not name:
+        return jsonify({'error': 'Enter a folder name.'}), 400
+    parent = _safe_join(root, parent_rel) if parent_rel else root
+    if not parent or not os.path.isdir(parent):
+        return jsonify({'error': 'Parent folder not found.'}), 400
+    target = _safe_join(parent, name)
+    if not target:
+        return jsonify({'error': 'Invalid folder name.'}), 400
+    try:
+        os.makedirs(target, exist_ok=True)
+    except OSError as e:
+        return jsonify({'error': f'Could not create folder: {e}'}), 400
+    rel = os.path.relpath(target, root).replace('\\', '/')
+    return jsonify({'ok': True, 'rel_path': rel, 'name': name})
 
 
 @toolbox_bp.route('/pdf/discard', methods=['POST'])

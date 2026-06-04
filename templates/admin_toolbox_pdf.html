@@ -64,20 +64,34 @@
     }
     .tb-ops-bar { position: sticky; top: 0; z-index: 6; }
     #previewModalImg { max-width: 100%; height: auto; }
-    /* Multi-drag: the other selected pages "lift out" while one is dragged.
-       Opacity only (no transform) so SortableJS hit-testing rects stay intact. */
+    /* Multi-drag: the other selected pages collapse away (scale to 0) so the
+       whole selection visually merges into the single dragged "stack". */
     .tb-page-card.tb-drag-collapsing {
-        opacity: .3;
-        transition: opacity .15s ease;
+        opacity: 0;
+        transform: scale(0);
+        transition: transform .18s ease, opacity .18s ease;
+        pointer-events: none;
     }
     .tb-drag-badge {
-        position: absolute; top: -8px; right: -8px;
-        min-width: 22px; height: 22px; padding: 0 6px;
-        border-radius: 11px; background: var(--bs-primary); color: #fff;
-        font-size: .75rem; font-weight: 600; line-height: 22px; text-align: center;
+        position: absolute; top: -10px; right: -10px;
+        min-width: 24px; height: 24px; padding: 0 7px;
+        border-radius: 12px; background: var(--bs-primary); color: #fff;
+        font-size: .78rem; font-weight: 700; line-height: 24px; text-align: center;
         box-shadow: 0 1px 4px rgba(0,0,0,.4); z-index: 10000;
     }
+    /* The drag image looks like a stack of papers (offset layers behind it). */
     .sortable-fallback .tb-thumb-wrap { box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .sortable-fallback.tb-multi-drag { overflow: visible; }
+    .sortable-fallback.tb-multi-drag::before,
+    .sortable-fallback.tb-multi-drag::after {
+        content: ""; position: absolute; inset: 0;
+        border: 1px solid var(--bs-border-color); border-radius: .4rem;
+        background: var(--bs-body-bg); z-index: -1;
+    }
+    .sortable-fallback.tb-multi-drag::before { transform: translate(6px, 6px); }
+    .sortable-fallback.tb-multi-drag::after  { transform: translate(12px, 12px); }
+    .tb-modal-imgwrap { display: inline-block; max-width: 100%; }
+    .tb-adjust-menu { min-width: 250px; }
 </style>
 {% endblock %}
 
@@ -208,26 +222,7 @@
                             </div>
                             <button class="btn btn-sm btn-outline-secondary" id="undoBtn" type="button" title="Undo (Ctrl+Z)" disabled><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
                             <div class="vr"></div>
-                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
-                                <button class="btn btn-outline-secondary" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                <button class="btn btn-outline-secondary" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
-                                <button class="btn btn-outline-secondary" data-op="deskew" type="button" title="Toggle deskew" {% if not numpy_available %}disabled{% endif %}><i class="bi bi-rulers"></i> Deskew</button>
-                                <button class="btn btn-outline-secondary" data-op="bw" type="button" title="Toggle black &amp; white"><i class="bi bi-circle-half"></i> B&amp;W</button>
-                                <button class="btn btn-outline-secondary" data-op="gray" type="button" title="Toggle grayscale"><i class="bi bi-palette"></i></button>
-                            </div>
-                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
-                                <button class="btn btn-outline-secondary" data-op="brDn" type="button" title="Less brightness"><i class="bi bi-brightness-low"></i>−</button>
-                                <button class="btn btn-outline-secondary" data-op="brUp" type="button" title="More brightness"><i class="bi bi-brightness-high"></i>+</button>
-                            </div>
-                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
-                                <button class="btn btn-outline-secondary" data-op="ctDn" type="button" title="Less contrast">Ct−</button>
-                                <button class="btn btn-outline-secondary" data-op="ctUp" type="button" title="More contrast">Ct+</button>
-                            </div>
-                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
-                                <button class="btn btn-outline-secondary" data-op="shDn" type="button" title="Less sharpen">Sh−</button>
-                                <button class="btn btn-outline-secondary" data-op="shUp" type="button" title="More sharpen">Sh+</button>
-                            </div>
-                            <button class="btn btn-sm btn-outline-secondary tb-needs-sel" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i></button>
+                            <span id="mainImageOps" class="d-flex flex-wrap align-items-center gap-2"></span>
                             <div class="vr"></div>
                             <div class="btn-group btn-group-sm" role="group">
                                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" title="Reorder selected pages (or all if none selected)">
@@ -235,10 +230,12 @@
                                 </button>
                                 <ul class="dropdown-menu">
                                     <li><h6 class="dropdown-header">Acts on selection, else all pages</h6></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="interleave"><i class="bi bi-distribute-vertical"></i> Interleave</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="deinterleave"><i class="bi bi-distribute-horizontal"></i> Deinterleave</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="alt_interleave"><i class="bi bi-distribute-vertical"></i> Alternate interleave</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="alt_deinterleave"><i class="bi bi-distribute-horizontal"></i> Alternate deinterleave</a></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item" href="#" data-reorder="reverse"><i class="bi bi-arrow-down-up"></i> Reverse order</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="interleave"><i class="bi bi-distribute-vertical"></i> Interleave (weave two halves)</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="interleave_rev"><i class="bi bi-distribute-vertical"></i> Interleave (reverse 2nd half)</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="deinterleave"><i class="bi bi-distribute-horizontal"></i> Deinterleave (split alternating)</a></li>
                                 </ul>
                             </div>
                             <div class="btn-group btn-group-sm" role="group">
@@ -315,14 +312,45 @@
 
 <!-- Large page preview modal -->
 <div class="modal fade" id="previewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2 d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="prevPageBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="nextPageBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
+                <h5 class="modal-title mb-0" id="previewModalTitle">Page preview</h5>
+                <span class="badge bg-secondary" id="previewModalRes"></span>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="tb-ops-bar bg-body border-bottom p-2">
+                <div id="modalImageOps" class="d-flex flex-wrap align-items-center gap-2"></div>
+            </div>
+            <div class="modal-body text-center" id="previewModalBody">
+                <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="Page preview"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save destination picker modal -->
+<div class="modal fade" id="saveDestModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title" id="previewModalTitle">Page preview</h5>
+                <h5 class="modal-title"><i class="bi bi-folder2-open"></i> Choose save destination</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body text-center">
-                <img id="previewModalImg" alt="Page preview">
+            <div class="modal-body">
+                <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2" id="destCrumbs"></ol></nav>
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="newFolderName" placeholder="New folder name">
+                    <button class="btn btn-outline-secondary" id="newFolderBtn" type="button"><i class="bi bi-folder-plus"></i> Create folder</button>
+                </div>
+                <div id="destEntries" class="list-group small"></div>
+            </div>
+            <div class="modal-footer">
+                <div class="me-auto small text-muted text-truncate">Saving into: <code id="destCurrent">/</code></div>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="destSaveBtn"><i class="bi bi-hdd"></i> Save here</button>
             </div>
         </div>
     </div>
@@ -353,6 +381,8 @@ const SOURCE_LIST_URL = "{{ url_for('admin.pdf_import_source_list') }}";
 const THUMB_W = 360;
 const PREVIEW_W = 1100;
 const DEFAULT_DPI = {{ default_dpi }};
+const NUMPY_OK = {{ 'true' if numpy_available else 'false' }};
+const DEFAULT_SAVE_SUBDIR = {{ save_subdir | tojson }};
 let TOKEN = null;
 let activeSrc = null;
 const sources = {};          // srcid -> {filename, page_count}
@@ -655,55 +685,67 @@ function selectedPagesInOrder() {
     return pages.filter(p => selected.has(p.id));
 }
 
-// ---------- operations on selection ----------
+// Operations act on the enlarged page when the preview modal is open, else on
+// the grid selection. This lets the SAME toolbar work in both places.
+function currentTargets() {
+    if (modalActive && currentPreviewPage) return [currentPreviewPage];
+    return selectedPagesInOrder();
+}
+
+// ---------- operations ----------
 async function opAction(op) {
     if (op === 'paste') { return pasteClipboard(); }
-    const sel = selectedPagesInOrder();
-    if (op === 'copy') { return copySel(sel); }
-    if (op === 'cut') { return cutSel(sel); }
-    if (!sel.length) return;
+    const targets = currentTargets();
+    if (op === 'copy') { return copySel(targets); }
+    if (op === 'cut') { return cutSel(targets); }
+    if (!targets.length) return;
     if (op === 'del') { return deleteSelected(); }
 
     pushUndo();
-    if (op === 'rotL') sel.forEach(p => rotateBy(p, -90));
-    else if (op === 'rotR') sel.forEach(p => rotateBy(p, 90));
-    else if (op === 'brUp') sel.forEach(p => adjustFactor(p, 'brightness', 0.1));
-    else if (op === 'brDn') sel.forEach(p => adjustFactor(p, 'brightness', -0.1));
-    else if (op === 'ctUp') sel.forEach(p => adjustFactor(p, 'contrast', 0.1));
-    else if (op === 'ctDn') sel.forEach(p => adjustFactor(p, 'contrast', -0.1));
-    else if (op === 'shUp') sel.forEach(p => adjustFactor(p, 'sharpen', 0.3));
-    else if (op === 'shDn') sel.forEach(p => adjustFactor(p, 'sharpen', -0.3));
-    else if (op === 'reset') sel.forEach(p => p.edit = {});
+    if (op === 'rotL') targets.forEach(p => rotateBy(p, -90));
+    else if (op === 'rotR') targets.forEach(p => rotateBy(p, 90));
+    else if (op === 'reset') targets.forEach(p => p.edit = {});
     else if (op === 'deskew') {
-        const allOn = sel.every(p => p.edit.deskew);
-        sel.forEach(p => { if (allOn) delete p.edit.deskew; else p.edit.deskew = {type: 'deskew'}; });
-    } else if (op === 'bw') {
-        const allOn = sel.every(p => p.edit.bw);
-        sel.forEach(p => { if (allOn) delete p.edit.bw; else p.edit.bw = {type: 'bw', threshold: 160}; });
+        const allOn = targets.every(p => p.edit.deskew);
+        targets.forEach(p => { if (allOn) delete p.edit.deskew; else p.edit.deskew = {type: 'deskew'}; });
     } else if (op === 'gray') {
-        const allOn = sel.every(p => p.edit.grayscale);
-        sel.forEach(p => { if (allOn) delete p.edit.grayscale; else p.edit.grayscale = {type: 'grayscale'}; });
+        const allOn = targets.every(p => p.edit.grayscale);
+        targets.forEach(p => { if (allOn) delete p.edit.grayscale; else p.edit.grayscale = {type: 'grayscale'}; });
     }
-    await saveMany(sel);
+    await saveMany(targets);
+    refreshModalImg();
+}
+
+// Slider-driven adjustments (brightness/contrast/sharpen as %; bw threshold).
+async function applyAdjust(type, pct) {
+    const targets = currentTargets();
+    if (!targets.length) return;
+    const factor = +(pct / 100).toFixed(2);
+    pushUndo();
+    targets.forEach(p => {
+        if (Math.abs(factor - 1.0) < 1e-6) delete p.edit[type];
+        else p.edit[type] = {type, factor};
+    });
+    await saveMany(targets);
+    refreshModalImg();
+}
+
+async function applyBw(enabled, threshold) {
+    const targets = currentTargets();
+    if (!targets.length) return;
+    pushUndo();
+    targets.forEach(p => {
+        if (enabled) p.edit.bw = {type: 'bw', threshold};
+        else delete p.edit.bw;
+    });
+    await saveMany(targets);
+    refreshModalImg();
 }
 
 function rotateBy(p, delta) {
     const cur = p.edit.rotate ? p.edit.rotate.deg : 0;
     const deg = ((cur + delta) % 360 + 360) % 360;
     if (deg === 0) delete p.edit.rotate; else p.edit.rotate = {type: 'rotate', deg};
-}
-
-// Brightness/contrast (default 1.0, range 0.3–2.0) and sharpen (range 0–3).
-const FACTOR_SPEC = {
-    brightness: {min: 0.3, max: 2.0},
-    contrast:   {min: 0.3, max: 2.0},
-    sharpen:    {min: 0.0, max: 3.0},
-};
-function adjustFactor(p, type, delta) {
-    const spec = FACTOR_SPEC[type];
-    const cur = p.edit[type] ? p.edit[type].factor : 1.0;
-    const f = Math.max(spec.min, Math.min(spec.max, +(cur + delta).toFixed(2)));
-    if (Math.abs(f - 1.0) < 1e-6) delete p.edit[type]; else p.edit[type] = {type, factor: f};
 }
 
 function refreshCard(p) {
@@ -800,16 +842,19 @@ function arrangeIds(ids, kind) {
     const half = Math.ceil(n / 2);
     const A = ids.slice(0, half);
     let B = ids.slice(half);
-    if (kind === 'interleave' || kind === 'interleave_rev') {
-        if (kind === 'interleave_rev') B = B.slice().reverse();
+    if (kind === 'interleave' || kind === 'alt_interleave') {
+        // Weave the two halves: A0,B0,A1,B1,...  "alternate" reverses the 2nd
+        // half first (for reversed duplex back-side stacks).
+        if (kind === 'alt_interleave') B = B.slice().reverse();
         const out = [];
         for (let i = 0; i < half; i++) { out.push(A[i]); if (i < B.length) out.push(B[i]); }
         return out;
     }
-    if (kind === 'deinterleave') {
+    if (kind === 'deinterleave' || kind === 'alt_deinterleave') {
+        // Inverse of (alt_)interleave: even-index group then odd-index group.
         const ev = [], od = [];
         ids.forEach((id, i) => (i % 2 === 0 ? ev : od).push(id));
-        return ev.concat(od);
+        return ev.concat(kind === 'alt_deinterleave' ? od.reverse() : od);
     }
     return ids;
 }
@@ -861,6 +906,7 @@ function initSortable() {
                 requestAnimationFrame(() => {
                     const fb = document.querySelector('.sortable-fallback');
                     if (fb && !fb.querySelector('.tb-drag-badge')) {
+                        fb.classList.add('tb-multi-drag');
                         const b = document.createElement('div');
                         b.className = 'tb-drag-badge';
                         b.textContent = movingIds.length;
@@ -948,6 +994,13 @@ function isTypingTarget(el) {
 function initKeyboard() {
     document.addEventListener('keydown', (e) => {
         if (isTypingTarget(document.activeElement)) return;
+        // When the enlarged preview is open, arrows page through; grid shortcuts
+        // are suppressed to avoid acting on the hidden selection.
+        if (modalActive) {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); stepPreview(-1); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); stepPreview(1); }
+            return;
+        }
         const ctrl = e.ctrlKey || e.metaKey;
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selected.size) { e.preventDefault(); deleteSelected(); }
@@ -969,12 +1022,180 @@ function initKeyboard() {
 
 // ---------- preview modal ----------
 let previewModal = null;
+let modalActive = false;
+let currentPreviewPage = null;
+
+function fullResUrl(p) {
+    return `${BASE}/thumb/${TOKEN}/${p.id}.png?dpi=${p.dpi || DEFAULT_DPI}&t=${p.nonce}`;
+}
+
 function openPreview(p) {
-    if (!previewModal) previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
-    const idx = pages.findIndex(x => x.id === p.id);
-    document.getElementById('previewModalTitle').textContent = `Page #${idx + 1} preview`;
-    document.getElementById('previewModalImg').src = thumbUrl(p, PREVIEW_W);
+    if (!previewModal) {
+        previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+        document.getElementById('previewModal').addEventListener('hidden.bs.modal', () => {
+            modalActive = false; currentPreviewPage = null;
+        });
+    }
+    currentPreviewPage = p;
+    modalActive = true;
+    renderModalPage();
     previewModal.show();
+}
+
+function renderModalPage() {
+    const p = currentPreviewPage;
+    if (!p) return;
+    const idx = pages.findIndex(x => x.id === p.id);
+    document.getElementById('previewModalTitle').textContent = `Page #${idx + 1} of ${pages.length}`;
+    const img = document.getElementById('previewModalImg');
+    const resBadge = document.getElementById('previewModalRes');
+    resBadge.textContent = `${p.dpi || DEFAULT_DPI} DPI`;
+    img.onload = () => { resBadge.textContent = `${img.naturalWidth} × ${img.naturalHeight} px @ ${p.dpi || DEFAULT_DPI} DPI`; };
+    img.src = fullResUrl(p);
+    document.getElementById('prevPageBtn').disabled = idx <= 0;
+    document.getElementById('nextPageBtn').disabled = idx >= pages.length - 1;
+}
+
+function refreshModalImg() {
+    if (modalActive && currentPreviewPage) renderModalPage();
+}
+
+function stepPreview(delta) {
+    if (!currentPreviewPage) return;
+    const idx = pages.findIndex(x => x.id === currentPreviewPage.id);
+    const next = idx + delta;
+    if (next < 0 || next >= pages.length) return;
+    currentPreviewPage = pages[next];
+    renderModalPage();
+}
+
+// ---------- operations toolbar (built once, shared by main + modal) ----------
+function adjustDropdownHTML(type, label, icon, min, max, ns) {
+    return `
+    <div class="btn-group btn-group-sm" role="group">
+      <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
+              data-bs-auto-close="outside" data-adjust="${type}" title="${label}">
+        <i class="bi ${icon}"></i> ${label}
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu">
+        <label class="form-label small mb-1">${label}: <span class="tb-adj-val fw-bold">100%</span></label>
+        <div class="d-flex align-items-center gap-2">
+          <input type="range" class="form-range tb-adj-range" min="${min}" max="${max}" step="1" value="100">
+          <input type="number" class="form-control form-control-sm tb-adj-num" style="width:80px;" min="${min}" max="${max}" step="1" value="100">
+          <span class="small text-muted">%</span>
+        </div>
+        <div class="d-flex justify-content-end mt-2">
+          <button class="btn btn-sm btn-link p-0 tb-adj-reset" type="button">Reset to 100%</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bwDropdownHTML(ns) {
+    return `
+    <div class="btn-group btn-group-sm" role="group">
+      <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
+              data-bs-auto-close="outside" data-bw="1" title="Black &amp; white">
+        <i class="bi bi-circle-half"></i> B&amp;W
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu tb-bw-menu">
+        <div class="form-check mb-2">
+          <input class="form-check-input tb-bw-enable" type="checkbox">
+          <label class="form-check-label small">Enable black &amp; white</label>
+        </div>
+        <label class="form-label small mb-1">Threshold: <span class="tb-bw-val fw-bold">160</span></label>
+        <div class="d-flex align-items-center gap-2">
+          <input type="range" class="form-range tb-bw-range" min="0" max="255" step="1" value="160">
+          <input type="number" class="form-control form-control-sm tb-bw-num" style="width:80px;" min="0" max="255" step="1" value="160">
+        </div>
+      </div>
+    </div>`;
+}
+
+function imageOpsHTML(needsSel) {
+    const ns = needsSel ? ' tb-needs-sel' : '';
+    return `
+      <div class="btn-group btn-group-sm" role="group">
+        <button class="btn btn-outline-secondary${ns}" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
+        <button class="btn btn-outline-secondary${ns}" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
+        <button class="btn btn-outline-secondary${ns}" data-op="deskew" type="button" title="Toggle deskew" ${NUMPY_OK ? '' : 'disabled'}><i class="bi bi-rulers"></i> Deskew</button>
+        <button class="btn btn-outline-secondary${ns}" data-op="gray" type="button" title="Toggle grayscale"><i class="bi bi-palette"></i></button>
+      </div>
+      ${adjustDropdownHTML('brightness', 'Brightness', 'bi-brightness-high', 30, 200, ns)}
+      ${adjustDropdownHTML('contrast', 'Contrast', 'bi-circle-square', 30, 200, ns)}
+      ${adjustDropdownHTML('sharpen', 'Sharpen', 'bi-triangle-half', 0, 300, ns)}
+      ${bwDropdownHTML(ns)}
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i> Reset</button>`;
+}
+
+function buildToolbars() {
+    document.getElementById('mainImageOps').innerHTML = imageOpsHTML(true);
+    document.getElementById('modalImageOps').innerHTML = imageOpsHTML(false);
+    document.querySelectorAll('[data-op]').forEach(btn => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        btn.addEventListener('click', () => opAction(btn.dataset.op));
+    });
+    initAdjustDropdowns();
+    initBwDropdowns();
+}
+
+function initAdjustDropdowns() {
+    document.querySelectorAll('[data-adjust]').forEach(btn => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        const type = btn.dataset.adjust;
+        const menu = btn.parentElement.querySelector('.tb-adjust-menu');
+        const range = menu.querySelector('.tb-adj-range');
+        const num = menu.querySelector('.tb-adj-num');
+        const val = menu.querySelector('.tb-adj-val');
+        const reset = menu.querySelector('.tb-adj-reset');
+        const lo = parseInt(range.min, 10), hi = parseInt(range.max, 10);
+        const show = (v) => { range.value = v; num.value = v; val.textContent = v + '%'; };
+        btn.addEventListener('show.bs.dropdown', () => {
+            const t = currentTargets()[0];
+            const f = (t && t.edit[type]) ? t.edit[type].factor : 1.0;
+            show(Math.round(f * 100));
+        });
+        range.addEventListener('input', () => { num.value = range.value; val.textContent = range.value + '%'; });
+        num.addEventListener('input', () => { val.textContent = num.value + '%'; });
+        range.addEventListener('change', () => applyAdjust(type, parseInt(range.value, 10)));
+        num.addEventListener('change', () => {
+            let v = parseInt(num.value, 10); if (isNaN(v)) v = 100;
+            v = Math.max(lo, Math.min(hi, v)); show(v); applyAdjust(type, v);
+        });
+        reset.addEventListener('click', () => { show(100); applyAdjust(type, 100); });
+        menu.addEventListener('click', (e) => e.stopPropagation());
+    });
+}
+
+function initBwDropdowns() {
+    document.querySelectorAll('[data-bw]').forEach(btn => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        const menu = btn.parentElement.querySelector('.tb-bw-menu');
+        const en = menu.querySelector('.tb-bw-enable');
+        const range = menu.querySelector('.tb-bw-range');
+        const num = menu.querySelector('.tb-bw-num');
+        const val = menu.querySelector('.tb-bw-val');
+        btn.addEventListener('show.bs.dropdown', () => {
+            const t = currentTargets()[0];
+            const on = !!(t && t.edit.bw);
+            en.checked = on;
+            const thr = on ? t.edit.bw.threshold : 160;
+            range.value = thr; num.value = thr; val.textContent = thr;
+        });
+        range.addEventListener('input', () => { num.value = range.value; val.textContent = range.value; });
+        num.addEventListener('input', () => { val.textContent = num.value; });
+        en.addEventListener('change', () => applyBw(en.checked, parseInt(range.value, 10)));
+        range.addEventListener('change', () => { if (en.checked) applyBw(true, parseInt(range.value, 10)); });
+        num.addEventListener('change', () => {
+            let v = parseInt(num.value, 10); if (isNaN(v)) v = 160;
+            v = Math.max(0, Math.min(255, v)); range.value = v; val.textContent = v;
+            if (en.checked) applyBw(true, v);
+        });
+        menu.addEventListener('click', (e) => e.stopPropagation());
+    });
 }
 
 // ---------- counts / visibility ----------
@@ -1037,6 +1258,7 @@ async function doSaveServer(overwrite) {
     if (!pages.length) { log('Nothing to save.', 'error'); return; }
     const body = exportBody();
     if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
+    body.dest = saveDest;
     if (overwrite) body.overwrite = true;
     const btn = document.getElementById('saveServerBtn');
     setBtnLoading(btn, true);
@@ -1055,6 +1277,76 @@ async function doSaveServer(overwrite) {
         log('Save failed: ' + e.message, 'error');
     }
     setBtnLoading(btn, false);
+}
+
+// ---------- save destination picker ----------
+let saveDestModal = null;
+let destPath = '';                              // folder currently being browsed
+let saveDest = DEFAULT_SAVE_SUBDIR;             // chosen destination (rel to PDF_SOURCE_PATH)
+
+function openSaveDest() {
+    if (!document.getElementById('exportName').value.trim()) {
+        log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
+    }
+    if (!saveDestModal) saveDestModal = new bootstrap.Modal(document.getElementById('saveDestModal'));
+    saveDestModal.show();
+    loadDestDir(saveDest || DEFAULT_SAVE_SUBDIR, true);
+}
+
+async function loadDestDir(path, allowRootFallback) {
+    const entries = document.getElementById('destEntries');
+    entries.innerHTML = '<div class="text-muted p-2">Loading...</div>';
+    let r, data;
+    try { r = await fetch(`${SOURCE_LIST_URL}?path=${encodeURIComponent(path || '')}`); data = await r.json(); }
+    catch (e) { entries.innerHTML = '<div class="text-danger p-2">' + e.message + '</div>'; return; }
+    if (!r.ok || data.error) {
+        if (allowRootFallback && (path || '')) { return loadDestDir('', false); }
+        entries.innerHTML = '<div class="text-danger p-2">' + (data.error || 'Could not open folder.') + '</div>';
+        return;
+    }
+    if (data.configured === false) { entries.innerHTML = '<div class="text-warning p-2">' + (data.message || 'Not configured') + '</div>'; return; }
+
+    destPath = data.current_path || '';
+    document.getElementById('destCurrent').textContent = '/' + destPath;
+
+    const crumbs = document.getElementById('destCrumbs'); crumbs.innerHTML = '';
+    const rootLi = document.createElement('li'); rootLi.className = 'breadcrumb-item';
+    const rootA = document.createElement('a'); rootA.href = '#'; rootA.textContent = 'root';
+    rootA.onclick = (e) => { e.preventDefault(); loadDestDir('', false); }; rootLi.appendChild(rootA); crumbs.appendChild(rootLi);
+    let acc = '';
+    (destPath ? destPath.split('/').filter(Boolean) : []).forEach(part => {
+        acc = acc ? acc + '/' + part : part; const cur = acc;
+        const li = document.createElement('li'); li.className = 'breadcrumb-item';
+        const a = document.createElement('a'); a.href = '#'; a.textContent = part;
+        a.onclick = (e) => { e.preventDefault(); loadDestDir(cur, false); }; li.appendChild(a); crumbs.appendChild(li);
+    });
+
+    entries.innerHTML = '';
+    (data.dirs || []).forEach(d => {
+        const a = document.createElement('a');
+        a.href = '#'; a.className = 'list-group-item list-group-item-action';
+        a.innerHTML = `<i class="bi bi-folder"></i> ${d.name}`;
+        a.onclick = (e) => { e.preventDefault(); loadDestDir(d.rel_path, false); };
+        entries.appendChild(a);
+    });
+    if (!(data.dirs || []).length) entries.innerHTML = '<div class="text-muted p-2">No sub-folders here. Use "Save here" or create one.</div>';
+}
+
+async function createFolder() {
+    const input = document.getElementById('newFolderName');
+    const name = input.value.trim();
+    if (!name) { log('Enter a folder name.', 'error'); input.focus(); return; }
+    let data;
+    try { data = await postJSON(`${BASE}/mkdir`, {path: destPath, name}); }
+    catch (e) { log('Create folder failed: ' + e.message, 'error'); return; }
+    input.value = '';
+    loadDestDir(data.rel_path, false);   // navigate into the new folder
+}
+
+function confirmSaveDest() {
+    saveDest = destPath;
+    if (saveDestModal) saveDestModal.hide();
+    doSaveServer(false);
 }
 
 // ---------- server picker ----------
@@ -1139,19 +1431,26 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('fBw').addEventListener('change', e => { document.getElementById('fBwThreshold').disabled = !e.target.checked; });
     document.getElementById('fBwThreshold').addEventListener('input', e => { document.getElementById('fBwVal').textContent = e.target.value; });
 
-    // operations toolbar
-    document.querySelectorAll('[data-op]').forEach(btn => btn.addEventListener('click', () => opAction(btn.dataset.op)));
+    // operations toolbar (built once, shared by main + modal)
+    buildToolbars();
     document.getElementById('selAllBtn').addEventListener('click', selectAll);
     document.getElementById('selClearBtn').addEventListener('click', clearSelection);
     document.getElementById('undoBtn').addEventListener('click', doUndo);
     document.querySelectorAll('[data-reorder]').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); reorderOp(a.dataset.reorder); }));
+
+    // enlarged-preview navigation
+    document.getElementById('prevPageBtn').addEventListener('click', () => stepPreview(-1));
+    document.getElementById('nextPageBtn').addEventListener('click', () => stepPreview(1));
 
     // export
     document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
     document.getElementById('exportName').addEventListener('input', updateExportButtons);
     document.getElementById('exportBtn').addEventListener('click', doExport);
     const saveBtn = document.getElementById('saveServerBtn');
-    if (saveBtn) saveBtn.addEventListener('click', () => doSaveServer(false));
+    if (saveBtn) saveBtn.addEventListener('click', openSaveDest);
+    document.getElementById('newFolderBtn').addEventListener('click', createFolder);
+    document.getElementById('newFolderName').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); createFolder(); } });
+    document.getElementById('destSaveBtn').addEventListener('click', confirmSaveDest);
     document.getElementById('overwriteConfirmBtn').addEventListener('click', () => {
         if (overwriteModal) overwriteModal.hide();
         doSaveServer(true);
@@ -1165,6 +1464,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initRubberBand();
     initKeyboard();
     updateExportButtons();
+    updateSelectionUI();
 });
 </script>
 {% endblock %}
