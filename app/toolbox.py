@@ -382,6 +382,58 @@ def pdf_duplicate():
                     'total': len(session['pages'])})
 
 
+@toolbox_bp.route('/pdf/set-pages', methods=['POST'])
+@login_required
+@admin_required
+def pdf_set_pages():
+    """Replace the whole working set with a client-supplied descriptor list.
+
+    Powers Undo: the client is authoritative for the working set (the source
+    PDFs stay on disk), so restoring a previous snapshot is just an overwrite.
+    Body: ``{token, pages:[{id, src, page, ops, mode, dpi}]}``. Each entry is
+    validated against the session's sources; bad entries are dropped."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    incoming = data.get('pages')
+    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
+        return jsonify({'error': 'Session expired — reload the page.'}), 400
+    if not isinstance(incoming, list):
+        return jsonify({'error': 'pages must be a list'}), 400
+    session = _load_session(token)
+    srcs = session.get('sources') or {}
+    default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
+    clean = []
+    for it in incoming:
+        if not isinstance(it, dict):
+            continue
+        srcid = (it.get('src') or '').strip()
+        src = srcs.get(srcid)
+        if not src:
+            continue
+        try:
+            page = int(it.get('page'))
+        except (TypeError, ValueError):
+            continue
+        if page < 0 or page >= int(src.get('page_count') or 0):
+            continue
+        pid = (it.get('id') or '').strip()
+        if not _ID_RE.match(pid):
+            pid = uuid.uuid4().hex[:12]
+        mode = (it.get('mode') or 'none').strip().lower()
+        if mode not in pdf_tools.SPLIT_MODES:
+            mode = 'none'
+        try:
+            dpi = max(72, min(600, int(it.get('dpi') or default_dpi)))
+        except (TypeError, ValueError):
+            dpi = default_dpi
+        clean.append({'id': pid, 'src': srcid, 'page': page,
+                      'ops': _sanitize_ops(it.get('ops') or []),
+                      'mode': mode, 'dpi': dpi})
+    session['pages'] = clean
+    _save_session(token, session)
+    return jsonify({'ok': True, 'total': len(clean)})
+
+
 _ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
                 'contrast', 'sharpen', 'grayscale', 'bw'}
 

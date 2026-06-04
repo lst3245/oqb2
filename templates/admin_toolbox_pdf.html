@@ -4,12 +4,21 @@
 
 {% block extra_css %}
 <style>
-    .tb-preview-grid {
+    /* Canvas wraps the grid so the empty space below the last row is a large
+       "white" area where a rubber-band selection can be started. */
+    .tb-canvas {
         position: relative;
+        min-height: 62vh;
+        padding: .25rem;
+        border: 1px dashed var(--bs-border-color);
+        border-radius: .4rem;
+    }
+    .tb-canvas.tb-rubber-active { cursor: crosshair; }
+    .tb-preview-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: .75rem;
-        min-height: 220px;
+        grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+        gap: 1.6rem;
+        padding: .5rem;
         user-select: none;
     }
     .tb-page-card {
@@ -55,6 +64,20 @@
     }
     .tb-ops-bar { position: sticky; top: 0; z-index: 6; }
     #previewModalImg { max-width: 100%; height: auto; }
+    /* Multi-drag: the other selected pages "lift out" while one is dragged.
+       Opacity only (no transform) so SortableJS hit-testing rects stay intact. */
+    .tb-page-card.tb-drag-collapsing {
+        opacity: .3;
+        transition: opacity .15s ease;
+    }
+    .tb-drag-badge {
+        position: absolute; top: -8px; right: -8px;
+        min-width: 22px; height: 22px; padding: 0 6px;
+        border-radius: 11px; background: var(--bs-primary); color: #fff;
+        font-size: .75rem; font-weight: 600; line-height: 22px; text-align: center;
+        box-shadow: 0 1px 4px rgba(0,0,0,.4); z-index: 10000;
+    }
+    .sortable-fallback .tb-thumb-wrap { box-shadow: 0 6px 18px rgba(0,0,0,.35); }
 </style>
 {% endblock %}
 
@@ -183,15 +206,40 @@
                                 <button class="btn btn-outline-secondary" id="selAllBtn" type="button" title="Select all (Ctrl+A)"><i class="bi bi-check2-square"></i> All</button>
                                 <button class="btn btn-outline-secondary" id="selClearBtn" type="button" title="Clear selection (Esc)">None</button>
                             </div>
+                            <button class="btn btn-sm btn-outline-secondary" id="undoBtn" type="button" title="Undo (Ctrl+Z)" disabled><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
                             <div class="vr"></div>
                             <div class="btn-group btn-group-sm tb-needs-sel" role="group">
                                 <button class="btn btn-outline-secondary" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
                                 <button class="btn btn-outline-secondary" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
                                 <button class="btn btn-outline-secondary" data-op="deskew" type="button" title="Toggle deskew" {% if not numpy_available %}disabled{% endif %}><i class="bi bi-rulers"></i> Deskew</button>
                                 <button class="btn btn-outline-secondary" data-op="bw" type="button" title="Toggle black &amp; white"><i class="bi bi-circle-half"></i> B&amp;W</button>
-                                <button class="btn btn-outline-secondary" data-op="brUp" type="button" title="Brighter"><i class="bi bi-brightness-high"></i></button>
-                                <button class="btn btn-outline-secondary" data-op="brDn" type="button" title="Darker"><i class="bi bi-brightness-low"></i></button>
-                                <button class="btn btn-outline-secondary" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i></button>
+                                <button class="btn btn-outline-secondary" data-op="gray" type="button" title="Toggle grayscale"><i class="bi bi-palette"></i></button>
+                            </div>
+                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
+                                <button class="btn btn-outline-secondary" data-op="brDn" type="button" title="Less brightness"><i class="bi bi-brightness-low"></i>−</button>
+                                <button class="btn btn-outline-secondary" data-op="brUp" type="button" title="More brightness"><i class="bi bi-brightness-high"></i>+</button>
+                            </div>
+                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
+                                <button class="btn btn-outline-secondary" data-op="ctDn" type="button" title="Less contrast">Ct−</button>
+                                <button class="btn btn-outline-secondary" data-op="ctUp" type="button" title="More contrast">Ct+</button>
+                            </div>
+                            <div class="btn-group btn-group-sm tb-needs-sel" role="group">
+                                <button class="btn btn-outline-secondary" data-op="shDn" type="button" title="Less sharpen">Sh−</button>
+                                <button class="btn btn-outline-secondary" data-op="shUp" type="button" title="More sharpen">Sh+</button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary tb-needs-sel" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i></button>
+                            <div class="vr"></div>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" title="Reorder selected pages (or all if none selected)">
+                                    <i class="bi bi-arrow-left-right"></i> Reorder
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><h6 class="dropdown-header">Acts on selection, else all pages</h6></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="reverse"><i class="bi bi-arrow-down-up"></i> Reverse order</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="interleave"><i class="bi bi-distribute-vertical"></i> Interleave (weave two halves)</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="interleave_rev"><i class="bi bi-distribute-vertical"></i> Interleave (reverse 2nd half)</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="deinterleave"><i class="bi bi-distribute-horizontal"></i> Deinterleave (split alternating)</a></li>
+                                </ul>
                             </div>
                             <div class="btn-group btn-group-sm" role="group">
                                 <button class="btn btn-outline-secondary tb-needs-sel" data-op="copy" type="button" title="Copy (Ctrl+C)"><i class="bi bi-files"></i></button>
@@ -238,8 +286,9 @@
                         Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
                     </div>
 
-                    <div id="previewGrid" class="tb-preview-grid">
+                    <div id="previewCanvas" class="tb-canvas">
                         <div class="tb-rubber" id="rubberBand"></div>
+                        <div id="previewGrid" class="tb-preview-grid"></div>
                         <div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>
                     </div>
                 </div>
@@ -312,6 +361,9 @@ let sortable = null;
 let selected = new Set();     // selected page ids
 let lastClickedId = null;     // for shift-range select
 let clipboard = null;         // {mode:'copy'|'cut', ids:[]}
+const undoStack = [];         // snapshots of `pages` taken before each mutation
+const UNDO_MAX = 60;
+let dragPreSnapshot = null;    // snapshot captured at drag start
 
 const SPLIT_HELP = {
     none: 'Pages are added as-is.',
@@ -345,6 +397,46 @@ function fullOps(p) {
     const order = ['rotate', 'deskew', 'rotate_fine', 'brightness', 'contrast', 'sharpen', 'grayscale', 'bw'];
     const edits = order.filter(t => p.edit[t]).map(t => p.edit[t]);
     return p.baseOps.concat(edits);
+}
+
+// ---------- undo ----------
+function snapshotPages() {
+    return pages.map(p => ({
+        id: p.id, src: p.src, page: p.page, mode: p.mode, dpi: p.dpi,
+        baseOps: JSON.parse(JSON.stringify(p.baseOps || [])),
+        edit: JSON.parse(JSON.stringify(p.edit || {})),
+    }));
+}
+function pushUndo(snap) {
+    undoStack.push(snap || snapshotPages());
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+    updateUndoButton();
+}
+function updateUndoButton() {
+    const b = document.getElementById('undoBtn');
+    if (b && b.dataset.html === undefined) b.disabled = undoStack.length === 0;
+}
+async function pushServerPages() {
+    // Mirror the current working set to the server (authoritative for thumbs/export).
+    return postJSON(`${BASE}/set-pages`, {
+        token: TOKEN,
+        pages: pages.map(p => ({id: p.id, src: p.src, page: p.page,
+                                mode: p.mode, dpi: p.dpi, ops: fullOps(p)})),
+    });
+}
+async function doUndo() {
+    if (!undoStack.length) { log('Nothing to undo.'); return; }
+    const snap = undoStack.pop();
+    pages = snap.map(p => ({id: p.id, src: p.src, page: p.page, mode: p.mode,
+                            dpi: p.dpi, baseOps: p.baseOps, edit: p.edit,
+                            nonce: Date.now()}));
+    const ids = new Set(pages.map(p => p.id));
+    selected = new Set([...selected].filter(id => ids.has(id)));
+    clipboard = null;
+    try { await pushServerPages(); } catch (e) { log('Undo sync failed: ' + e.message, 'error'); }
+    renderPreview();
+    updateUndoButton();
+    log('Undid last action.');
 }
 
 function thumbUrl(p, w) {
@@ -456,6 +548,7 @@ async function addPages() {
         setBtnLoading(btn, false);
         return;
     }
+    pushUndo();
     data.pages.forEach(sp => {
         pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
                     dpi: sp.dpi, baseOps: sp.ops || [], edit: {}, nonce: Date.now()});
@@ -492,6 +585,8 @@ function editBadges(p) {
     if (p.edit.deskew) labels.push('deskew');
     if (p.edit.bw) labels.push('B&W');
     if (p.edit.brightness) labels.push('bright');
+    if (p.edit.contrast) labels.push('contrast');
+    if (p.edit.sharpen) labels.push('sharpen');
     if (p.edit.grayscale) labels.push('gray');
     return labels.map(l => `<span class="badge bg-info text-dark">${l}</span>`).join('');
 }
@@ -569,10 +664,15 @@ async function opAction(op) {
     if (!sel.length) return;
     if (op === 'del') { return deleteSelected(); }
 
+    pushUndo();
     if (op === 'rotL') sel.forEach(p => rotateBy(p, -90));
     else if (op === 'rotR') sel.forEach(p => rotateBy(p, 90));
-    else if (op === 'brUp') sel.forEach(p => adjustBrightness(p, 0.1));
-    else if (op === 'brDn') sel.forEach(p => adjustBrightness(p, -0.1));
+    else if (op === 'brUp') sel.forEach(p => adjustFactor(p, 'brightness', 0.1));
+    else if (op === 'brDn') sel.forEach(p => adjustFactor(p, 'brightness', -0.1));
+    else if (op === 'ctUp') sel.forEach(p => adjustFactor(p, 'contrast', 0.1));
+    else if (op === 'ctDn') sel.forEach(p => adjustFactor(p, 'contrast', -0.1));
+    else if (op === 'shUp') sel.forEach(p => adjustFactor(p, 'sharpen', 0.3));
+    else if (op === 'shDn') sel.forEach(p => adjustFactor(p, 'sharpen', -0.3));
     else if (op === 'reset') sel.forEach(p => p.edit = {});
     else if (op === 'deskew') {
         const allOn = sel.every(p => p.edit.deskew);
@@ -580,6 +680,9 @@ async function opAction(op) {
     } else if (op === 'bw') {
         const allOn = sel.every(p => p.edit.bw);
         sel.forEach(p => { if (allOn) delete p.edit.bw; else p.edit.bw = {type: 'bw', threshold: 160}; });
+    } else if (op === 'gray') {
+        const allOn = sel.every(p => p.edit.grayscale);
+        sel.forEach(p => { if (allOn) delete p.edit.grayscale; else p.edit.grayscale = {type: 'grayscale'}; });
     }
     await saveMany(sel);
 }
@@ -590,33 +693,41 @@ function rotateBy(p, delta) {
     if (deg === 0) delete p.edit.rotate; else p.edit.rotate = {type: 'rotate', deg};
 }
 
-function adjustBrightness(p, delta) {
-    const cur = p.edit.brightness ? p.edit.brightness.factor : 1.0;
-    const f = Math.max(0.3, Math.min(2.0, +(cur + delta).toFixed(2)));
-    if (Math.abs(f - 1.0) < 1e-6) delete p.edit.brightness; else p.edit.brightness = {type: 'brightness', factor: f};
+// Brightness/contrast (default 1.0, range 0.3–2.0) and sharpen (range 0–3).
+const FACTOR_SPEC = {
+    brightness: {min: 0.3, max: 2.0},
+    contrast:   {min: 0.3, max: 2.0},
+    sharpen:    {min: 0.0, max: 3.0},
+};
+function adjustFactor(p, type, delta) {
+    const spec = FACTOR_SPEC[type];
+    const cur = p.edit[type] ? p.edit[type].factor : 1.0;
+    const f = Math.max(spec.min, Math.min(spec.max, +(cur + delta).toFixed(2)));
+    if (Math.abs(f - 1.0) < 1e-6) delete p.edit[type]; else p.edit[type] = {type, factor: f};
+}
+
+function refreshCard(p) {
+    p.nonce = Date.now();
+    const card = cardEl(p.id);
+    if (!card) return;
+    const img = card.querySelector('img');
+    if (img) img.src = thumbUrl(p);
+    const badges = card.querySelector('.tb-page-badges');
+    if (badges) badges.innerHTML = editBadges(p);
 }
 
 async function saveMany(arr) {
-    await Promise.all(arr.map(p => saveOps(p)));
-}
-
-async function saveOps(p) {
-    try {
-        await postJSON(`${BASE}/page-ops`, {token: TOKEN, page_id: p.id, ops: fullOps(p)});
-    } catch (e) { log(e.message, 'error'); return; }
-    p.nonce = Date.now();
-    const card = cardEl(p.id);
-    if (card) {
-        const img = card.querySelector('img');
-        if (img) img.src = thumbUrl(p);
-        const badges = card.querySelector('.tb-page-badges');
-        if (badges) badges.innerHTML = editBadges(p);
-    }
+    // Persist the WHOLE working set in one atomic request. (Per-page POSTs ran
+    // concurrently and raced on session.json — read-modify-write clobbered each
+    // other so only one page's edit survived.)
+    try { await pushServerPages(); } catch (e) { log(e.message, 'error'); return; }
+    arr.forEach(refreshCard);
 }
 
 async function deleteSelected() {
     const ids = [...selected];
     if (!ids.length) return;
+    pushUndo();
     try { await postJSON(`${BASE}/page-delete`, {token: TOKEN, page_ids: ids}); } catch (e) { log(e.message, 'error'); return; }
     pages = pages.filter(p => !selected.has(p.id));
     selected = new Set();
@@ -646,6 +757,7 @@ function pasteAnchorId() {
 
 async function pasteClipboard() {
     if (!clipboard || !clipboard.ids.length) return;
+    pushUndo();
     const afterId = pasteAnchorId();
     if (clipboard.mode === 'copy') {
         let data;
@@ -681,6 +793,47 @@ async function pasteClipboard() {
     }
 }
 
+// ---------- reorder operations (toolbar) ----------
+function arrangeIds(ids, kind) {
+    const n = ids.length;
+    if (kind === 'reverse') return ids.slice().reverse();
+    const half = Math.ceil(n / 2);
+    const A = ids.slice(0, half);
+    let B = ids.slice(half);
+    if (kind === 'interleave' || kind === 'interleave_rev') {
+        if (kind === 'interleave_rev') B = B.slice().reverse();
+        const out = [];
+        for (let i = 0; i < half; i++) { out.push(A[i]); if (i < B.length) out.push(B[i]); }
+        return out;
+    }
+    if (kind === 'deinterleave') {
+        const ev = [], od = [];
+        ids.forEach((id, i) => (i % 2 === 0 ? ev : od).push(id));
+        return ev.concat(od);
+    }
+    return ids;
+}
+
+function reorderOp(kind) {
+    // Act on the current selection (in document order) if 2+ are selected,
+    // otherwise on the whole working set.
+    const useSel = selected.size >= 2;
+    const positions = [];
+    pages.forEach((p, i) => { if (!useSel || selected.has(p.id)) positions.push(i); });
+    if (positions.length < 2) { log('Select at least 2 pages, or load more pages.', 'error'); return; }
+    const subsetIds = positions.map(i => pages[i].id);
+    const arranged = arrangeIds(subsetIds, kind);
+    if (arranged.join(',') === subsetIds.join(',')) return;
+    pushUndo();
+    const byId = {}; pages.forEach(p => byId[p.id] = p);
+    const next = pages.slice();
+    positions.forEach((pos, k) => { next[pos] = byId[arranged[k]]; });
+    pages = next;
+    persistOrder();
+    renderPreview();
+    log(`Reordered ${subsetIds.length} page(s): ${kind}.`, 'success');
+}
+
 // ---------- reorder (group-aware drag) ----------
 function persistOrder() {
     postJSON(`${BASE}/reorder`, {token: TOKEN, order: pages.map(p => p.id)}).catch(e => log(e.message, 'error'));
@@ -697,6 +850,24 @@ function initSortable() {
         onStart(evt) {
             const id = evt.item.dataset.pageId;
             if (!selected.has(id)) setSelection([id]);
+            dragPreSnapshot = snapshotPages();
+            const movingIds = [...selected];
+            if (movingIds.length > 1) {
+                // "Lift out" the other selected pages so the whole group reads
+                // as travelling together, and badge the drag image with a count.
+                movingIds.forEach(pid => {
+                    if (pid !== id) { const c = cardEl(pid); if (c) c.classList.add('tb-drag-collapsing'); }
+                });
+                requestAnimationFrame(() => {
+                    const fb = document.querySelector('.sortable-fallback');
+                    if (fb && !fb.querySelector('.tb-drag-badge')) {
+                        const b = document.createElement('div');
+                        b.className = 'tb-drag-badge';
+                        b.textContent = movingIds.length;
+                        fb.appendChild(b);
+                    }
+                });
+            }
         },
         onEnd(evt) {
             const draggedId = evt.item.dataset.pageId;
@@ -713,9 +884,13 @@ function initSortable() {
                     break;
                 }
             }
+            const before = pages.map(p => p.id).join(',');
             pages = remaining.slice(0, ins).concat(movingIds.map(id => byId[id]), remaining.slice(ins));
+            const changed = pages.map(p => p.id).join(',') !== before;
+            if (changed && dragPreSnapshot) pushUndo(dragPreSnapshot);
+            dragPreSnapshot = null;
             // Defer the rebuild so we don't destroy this Sortable from inside its own onEnd.
-            setTimeout(() => { renderPreview(); persistOrder(); }, 0);
+            setTimeout(() => { renderPreview(); if (changed) persistOrder(); }, 0);
         }
     });
 }
@@ -723,14 +898,14 @@ function initSortable() {
 // ---------- rubber-band selection ----------
 let rubber = null;
 function initRubberBand() {
-    const grid = document.getElementById('previewGrid');
-    grid.addEventListener('mousedown', (e) => {
+    const canvas = document.getElementById('previewCanvas');
+    canvas.addEventListener('mousedown', (e) => {
         if (e.target.closest('.tb-page-card')) return;   // let cards/sortable handle
         if (e.button !== 0) return;
         const additive = e.shiftKey || e.ctrlKey || e.metaKey;
         const startX = e.clientX, startY = e.clientY;
         const band = document.getElementById('rubberBand');
-        const gridRect = grid.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
         const base = additive ? new Set(selected) : new Set();
         let moved = false;
         function onMove(ev) {
@@ -738,8 +913,8 @@ function initRubberBand() {
             band.style.display = 'block';
             const x = Math.min(ev.clientX, startX), y = Math.min(ev.clientY, startY);
             const w = Math.abs(ev.clientX - startX), h = Math.abs(ev.clientY - startY);
-            band.style.left = (x - gridRect.left + grid.scrollLeft) + 'px';
-            band.style.top = (y - gridRect.top + grid.scrollTop) + 'px';
+            band.style.left = (x - canvasRect.left) + 'px';
+            band.style.top = (y - canvasRect.top) + 'px';
             band.style.width = w + 'px';
             band.style.height = h + 'px';
             const rb = {left: x, top: y, right: x + w, bottom: y + h};
@@ -784,6 +959,8 @@ function initKeyboard() {
             if (selected.size) { e.preventDefault(); cutSel(selectedPagesInOrder()); }
         } else if (ctrl && (e.key === 'v' || e.key === 'V')) {
             if (clipboard) { e.preventDefault(); pasteClipboard(); }
+        } else if (ctrl && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault(); doUndo();
         } else if (e.key === 'Escape') {
             clearSelection();
         }
@@ -966,6 +1143,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-op]').forEach(btn => btn.addEventListener('click', () => opAction(btn.dataset.op)));
     document.getElementById('selAllBtn').addEventListener('click', selectAll);
     document.getElementById('selClearBtn').addEventListener('click', clearSelection);
+    document.getElementById('undoBtn').addEventListener('click', doUndo);
+    document.querySelectorAll('[data-reorder]').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); reorderOp(a.dataset.reorder); }));
 
     // export
     document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
