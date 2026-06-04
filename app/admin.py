@@ -3770,17 +3770,11 @@ def pdf_import_stage():
     token and per-kind page lists."""
     from app import pdf_import
 
-    if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
-
     is_generic = (request.form.get('mode') or 'exam').strip().lower() == 'generic'
 
     if is_generic:
-        # Generic Extraction: no paper/subject/version — just an instruction.
-        instruction = (request.form.get('instruction') or '').strip()
-        if not instruction:
-            return jsonify({'error': 'Describe what to extract before starting.'}), 400
-        meta = {'mode': 'generic', 'instruction': instruction[:2000],
+        # Generic Extraction: instruction is supplied at detect time (Step 2).
+        meta = {'mode': 'generic', 'instruction': '',
                 'subject': None, 'source': None, 'year': None, 'paper': None}
         que_version = sol_version = None
     else:
@@ -3797,26 +3791,20 @@ def pdf_import_stage():
             if subject not in admin_ids:
                 return jsonify({'error': f'You do not have admin access to subject {subject}.'}), 403
 
-        # Question and solution images may target different versions. Accept
-        # the legacy single `version` field as a fallback for both sides.
+        # Versions are chosen at import time (Step 3); staging defaults match UI.
         legacy = (request.form.get('version') or '').strip().upper()
-        que_version = (request.form.get('que_version') or legacy or '').strip().upper()
-        sol_version = (request.form.get('sol_version') or legacy or '').strip().upper()
-        if que_version not in VERSIONS or sol_version not in VERSIONS:
-            return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        que_version = (request.form.get('que_version') or legacy or 'ENO').strip().upper()
+        sol_version = (request.form.get('sol_version') or legacy or 'EN').strip().upper()
+        if que_version not in VERSIONS:
+            que_version = 'ENO'
+        if sol_version not in VERSIONS:
+            sol_version = 'EN'
         meta['mode'] = 'exam'
         meta['que_version'] = que_version
         meta['sol_version'] = sol_version
         meta['version'] = que_version  # back-compat single value
-        # Optional: borrow the context-free prompt (e.g. textbook questions),
-        # importing with auto-numbered question numbers.
-        custom_prompt = (request.form.get('custom_prompt') or '').strip().lower() in ('1', 'true', 'yes', 'on')
-        meta['custom_prompt'] = custom_prompt
-        if custom_prompt:
-            instruction = (request.form.get('instruction') or '').strip()
-            if not instruction:
-                return jsonify({'error': 'Describe what to detect for the custom prompt.'}), 400
-            meta['instruction'] = instruction[:2000]
+        meta['custom_prompt'] = False
+        meta['instruction'] = ''
 
     que_file = request.files.get('que_pdf')
     sol_file = request.files.get('sol_pdf')
@@ -3983,6 +3971,27 @@ def pdf_import_detect():
         method = 'llm'
     want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
+    instruction = (request.args.get('instruction') or '').strip()[:2000]
+    custom_prompt = (request.args.get('custom_prompt') or '').strip().lower() in (
+        '1', 'true', 'yes', 'on')
+    if meta.get('mode') == 'generic':
+        if not instruction:
+            return _pdf_sse_error('Describe what to extract before running detection.')
+        meta['instruction'] = instruction
+        meta['custom_prompt'] = False
+    elif custom_prompt:
+        if not instruction:
+            return _pdf_sse_error('Describe what to detect for the custom prompt.')
+        meta['custom_prompt'] = True
+        meta['instruction'] = instruction
+    else:
+        meta['custom_prompt'] = False
+        meta['instruction'] = ''
+    try:
+        pdf_import.save_meta(token, meta)
+    except (ValueError, OSError) as e:
+        return _pdf_sse_error(str(e))
+
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
 
@@ -4052,6 +4061,33 @@ def pdf_import_redo_page():
     method = (data.get('method') or 'llm').strip().lower()
     if method not in pdf_import.DETECT_METHODS:
         method = 'llm'
+
+    instruction = (data.get('instruction') or '').strip()[:2000]
+    if 'custom_prompt' in data:
+        custom_prompt = bool(data.get('custom_prompt'))
+    else:
+        custom_prompt = (meta.get('mode') != 'generic') and bool(meta.get('custom_prompt'))
+    if meta.get('mode') == 'generic':
+        if not instruction:
+            instruction = (meta.get('instruction') or '').strip()
+        if not instruction:
+            return jsonify({'error': 'Describe what to extract first.'}), 400
+        meta['instruction'] = instruction
+    elif custom_prompt:
+        if not instruction:
+            instruction = (meta.get('instruction') or '').strip()
+        if not instruction:
+            return jsonify({'error': 'Describe what to detect for the custom prompt.'}), 400
+        meta['custom_prompt'] = True
+        meta['instruction'] = instruction
+    else:
+        meta['custom_prompt'] = False
+        meta['instruction'] = ''
+    try:
+        pdf_import.save_meta(token, meta)
+    except (ValueError, OSError) as e:
+        return jsonify({'error': str(e)}), 400
+
     try:
         boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index,
                                                    image_max_dim, method=method)

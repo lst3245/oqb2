@@ -435,7 +435,13 @@ A workbench for preparing scanned PDFs:
 **Notes**:
 - Pages with only lossless operations (a single 90° rotate, or a crop) are exported without re-rasterising via `pypdf`; any pixel adjustment (deskew / brightness / sharpen / B&W) rasterises that page at the chosen DPI.
 - Deskew requires NumPy (the control is disabled if NumPy is unavailable).
-- The same processing controls appear in **PDF Batch Import → Setup → Pre-process scans**, so scans can be rotated / split / cleaned up as they are staged for import.
+- The same processing controls appear in **PDF Batch Import → Step 1 → Pre-process scans**, so scans can be rotated / split / cleaned up as they are staged for import.
+
+### PDF Batch Import (3 steps)
+
+1. **Setup** — choose Exam paper or Generic extraction, enter the paper name (exam), upload or pick question/solution PDFs, set deskew/pre-process, then **Load PDF**.
+2. **Bounding boxes** — optionally **Run LLM detection**, or draw/edit boxes on each page (drag, resize, Add box, per-page Re-run). Set detection method, custom prompt, uniform width, and debug here.
+3. **Import** — exam: pick QUE/SOL versions, overwrite/trim options, **Import to database**; generic: **Download all as ZIP**.
 - Config keys: `TOOLBOX_DEFAULT_DPI` (default resolution; also in Admin → System Settings), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`. Dependency: `pypdf>=4.0`.
 
 ---

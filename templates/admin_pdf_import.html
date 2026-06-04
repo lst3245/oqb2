@@ -170,13 +170,13 @@
             <i class="bi bi-arrow-left"></i> Back to Admin
         </a>
     </div>
-    <p class="text-muted mt-1">Upload a question and/or solution PDF, let a vision model detect each question region, then crop and save them as image assets. Only subjects you have admin access to are allowed.</p>
+    <p class="text-muted mt-1">Load your PDF(s), define bounding boxes (manually or with a vision model), then import crops as image assets. Exam import requires admin access to the paper&rsquo;s subject.</p>
     <hr>
 
     {% if not ai_enabled %}
-    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> AI Tools are disabled. Enable them in <a href="{{ url_for('admin.settings_page') }}">System Settings</a> to use PDF Import.</div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> AI Tools are disabled. Enable them in <a href="{{ url_for('admin.settings_page') }}">System Settings</a> to use LLM detection.</div>
     {% elif not endpoints %}
-    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> No vision-capable LLM endpoint is configured. Add one under <a href="{{ url_for('admin.llm_endpoints_page') }}">Admin &rarr; LLM Endpoints</a> first.</div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> No vision-capable LLM endpoint is configured. You can still load PDFs and draw boxes manually; add an endpoint under <a href="{{ url_for('admin.llm_endpoints_page') }}">Admin &rarr; LLM Endpoints</a> to run detection.</div>
     {% endif %}
 
     <!-- ===== Step 1: Setup ===== -->
@@ -199,56 +199,6 @@
                     <input type="text" id="paperInput" class="form-control" placeholder="MATC_DSE_2012_P1" autocomplete="off">
                     <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages. <span id="paperGuessHint" class="text-info d-none"><span class="spinner-border spinner-border-sm"></span> Guessing from PDF…</span></div>
                 </div>
-                <div class="col-md-4 exam-only" id="versionCol">
-                    <label class="form-label fw-bold">Versions</label>
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <select id="queVersionSelect" class="form-select form-select-sm" title="Version for QUESTION images">
-                                {% for v in versions %}
-                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>QUE → {{ v }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <select id="solVersionSelect" class="form-select form-select-sm" title="Version for SOLUTION images">
-                                {% for v in versions %}
-                                <option value="{{ v }}" {% if v == 'EN' %}selected{% endif %}>SOL → {{ v }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-text">Question and solution images can use different versions.</div>
-                </div>
-                <div class="col-12 d-none" id="instructionCol">
-                    <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">What to extract</label>
-                    <textarea id="instructionInput" class="form-control" rows="2" placeholder="e.g. Extract every data table with its title. / Extract each chart and its caption."></textarea>
-                    <div class="form-text" id="instructionHint">Describe the regions you want detected. No exam-question context is sent to the model.</div>
-                </div>
-                <div class="col-md-4">
-                    <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
-                    <select id="endpointSelect" class="form-select">
-                        {% for e in endpoints %}
-                        <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }} ({{ e.model_name }})</option>
-                        {% endfor %}
-                    </select>
-                    <div class="form-check mt-2 d-none" id="pdfParallelWrap">
-                        <input class="form-check-input" type="checkbox" id="pdfParallelChk" checked>
-                        <label class="form-check-label" for="pdfParallelChk" title="Detect multiple pages at once. Available for cloud endpoints that allow concurrent requests.">
-                            <i class="bi bi-lightning-charge"></i> Run in parallel <span id="pdfParallelHint" class="text-muted"></span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="col-md-4">
-                    <label for="methodSelect" class="form-label fw-bold">Detection method</label>
-                    <select id="methodSelect" class="form-select">
-                        <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
-                        <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
-                        <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
-                    </select>
-                    <div class="form-text"><strong>Refine</strong>: model boxes snapped to content by CV. <strong>Segment</strong>: model marks where each question starts, CV derives the boxes. Both need NumPy; you can retry per page in review.</div>
-                </div>
-
                 <div class="col-md-4" id="quePdfCol">
                     <label for="quePdf" class="form-label fw-bold"><span id="quePdfLabel">Question PDF</span> <span class="text-muted fw-normal">(optional)</span></label>
                     <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
@@ -275,18 +225,7 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="col-md-4 d-flex flex-column justify-content-end">
-                    <div class="mb-2 exam-only" id="modeCol">
-                        <span class="fw-bold me-2">Mode:</span>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="mode" id="modeReview" value="review" checked>
-                            <label class="form-check-label" for="modeReview">Review</label>
-                        </div>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="mode" id="modeAuto" value="auto">
-                            <label class="form-check-label" for="modeAuto">Automatic</label>
-                        </div>
-                    </div>
+                <div class="col-12">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
                         <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
@@ -342,43 +281,13 @@
                             <div class="form-text">Shared with the Toolbox PDF Tool. Defaults leave pages unchanged.</div>
                         </div>
                     </details>
-                    <div class="form-check exam-only">
-                        <input class="form-check-input" type="checkbox" id="customPromptChk">
-                        <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
-                            <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
-                        </label>
-                    </div>
-                    <div class="form-check exam-only">
-                        <input class="form-check-input" type="checkbox" id="overwriteChk">
-                        <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
-                    </div>
-                    <div class="form-check exam-only">
-                        <input class="form-check-input" type="checkbox" id="trimWhiteChk" {% if trim_white_default %}checked{% endif %}>
-                        <label class="form-check-label" for="trimWhiteChk" title="When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose margins are removed. When OFF, the crop respects your selected box exactly (only the crop safety margin is applied), keeping any margin you deliberately leave.">
-                            <i class="bi bi-crop"></i> Trim whitespace on import
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="uniformWidthChk" {% if uniform_width_default %}checked{% endif %}>
-                        <label class="form-check-label" for="uniformWidthChk" title="Lock every region on each side (QUE / SOL) to a single shared width so short and long questions crop to a consistent scale. Resize any one box's width to change them all; untick to fine-tune individually again.">
-                            <i class="bi bi-arrows"></i> Uniform width per side
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="debugChk">
-                        <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
-                            <i class="bi bi-bug"></i> Debug: show raw model output
-                        </label>
-                    </div>
                 </div>
             </div>
 
             <div class="mt-3 d-flex gap-2">
-                <button id="btnStart" class="btn btn-warning" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
-                    <i class="bi bi-play-fill"></i> Start
+                <button id="btnLoadPdf" class="btn btn-warning">
+                    <i class="bi bi-file-earmark-arrow-up"></i> Load PDF
                 </button>
-                <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
-                <button id="btnReset" class="btn btn-outline-secondary d-none"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
             </div>
         </div>
     </div>
@@ -401,18 +310,79 @@
             <span id="logStatus" class="badge bg-secondary">Idle</span>
         </div>
         <div id="logConsole" class="log-console">Welcome to PDF Batch Import.
-Fill in the setup above and click "Start".
+Step 1: choose your task and PDF(s), then click "Load PDF".
 </div>
     </div>
 
-    <!-- ===== Step 2: Review ===== -->
-    <div class="card mb-3 d-none" id="reviewCard">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-2-circle"></i> Review detected regions</span>
+    <!-- ===== Step 2: Bounding boxes ===== -->
+    <div class="card mb-3 d-none" id="bboxCard">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><i class="bi bi-2-circle"></i> Defining bounding boxes</span>
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Each coloured box is one detected question. <strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong> if a page came out badly. <strong>Click a crop preview</strong> to enlarge it full-size. When you're happy, click <strong>Import</strong>.
+            <div class="row g-3 mb-3" id="detectControls">
+                <div class="col-md-4">
+                    <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
+                    <select id="endpointSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
+                        {% for e in endpoints %}
+                        <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }} ({{ e.model_name }})</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-check mt-2 d-none" id="pdfParallelWrap">
+                        <input class="form-check-input" type="checkbox" id="pdfParallelChk" checked>
+                        <label class="form-check-label" for="pdfParallelChk" title="Detect multiple pages at once. Available for cloud endpoints that allow concurrent requests.">
+                            <i class="bi bi-lightning-charge"></i> Run in parallel <span id="pdfParallelHint" class="text-muted"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label for="methodSelect" class="form-label fw-bold">Detection method</label>
+                    <select id="methodSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
+                        <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
+                        <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
+                        <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
+                    </select>
+                    <div class="form-text"><strong>Refine</strong>: model boxes snapped to content by CV. <strong>Segment</strong>: model marks where each question starts, CV derives the boxes. Both need NumPy; you can retry per page below.</div>
+                </div>
+                <div class="col-md-4 d-flex flex-column justify-content-end">
+                    <div class="form-check exam-only">
+                        <input class="form-check-input" type="checkbox" id="customPromptChk">
+                        <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
+                            <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="uniformWidthChk" {% if uniform_width_default %}checked{% endif %}>
+                        <label class="form-check-label" for="uniformWidthChk" title="Lock every region on each side (QUE / SOL) to a single shared width so short and long questions crop to a consistent scale. Resize any one box's width to change them all; untick to fine-tune individually again.">
+                            <i class="bi bi-arrows"></i> Uniform width per side
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="debugChk">
+                        <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
+                            <i class="bi bi-bug"></i> Debug: show raw model output
+                        </label>
+                    </div>
+                </div>
+                <div class="col-12 d-none" id="instructionCol">
+                    <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">What to extract</label>
+                    <textarea id="instructionInput" class="form-control" rows="2" placeholder="e.g. Extract every data table with its title. / Extract each chart and its caption."></textarea>
+                    <div class="form-text" id="instructionHint">Describe the regions you want detected. No exam-question context is sent to the model.</div>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+                <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
+                    <i class="bi bi-robot"></i> Run LLM detection
+                </button>
+                <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
+                <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
+                <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
+                {% if not ai_enabled or not endpoints %}
+                <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
+                {% endif %}
+            </div>
+            <p class="text-muted small mb-3">Optional: run detection above, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong>. <strong>Click a crop preview</strong> to enlarge it full-size. When boxes are ready, use Step 3 to import.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
             </p>
@@ -422,10 +392,50 @@ Fill in the setup above and click "Start".
                 <div class="small fw-normal mt-2 text-muted">Numbers should only ever go up (or repeat for a question that spans pages) as you read down each side. A drop usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# fields or re-run the affected page before importing.</div>
             </div>
             <div id="reviewBody"></div>
-            <div class="d-flex gap-2 mt-3">
-                <button id="btnCommit" class="btn btn-success"><i class="bi bi-check2-circle"></i> Import to database</button>
-                <button id="btnZip" class="btn btn-success d-none"><i class="bi bi-file-earmark-zip"></i> Download all as ZIP</button>
-                <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
+        </div>
+    </div>
+
+    <!-- ===== Step 3: Import ===== -->
+    <div class="card mb-3 d-none" id="importCard">
+        <div class="card-header bg-light"><i class="bi bi-3-circle"></i> Import to question bank</div>
+        <div class="card-body">
+            <div class="row g-3 exam-only" id="importExamOpts">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Versions</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <select id="queVersionSelect" class="form-select form-select-sm" title="Version for QUESTION images">
+                                {% for v in versions %}
+                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>QUE → {{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <select id="solVersionSelect" class="form-select form-select-sm" title="Version for SOLUTION images">
+                                {% for v in versions %}
+                                <option value="{{ v }}" {% if v == 'EN' %}selected{% endif %}>SOL → {{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-text">Question and solution images can use different versions.</div>
+                </div>
+                <div class="col-md-6 d-flex flex-column justify-content-center">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="overwriteChk">
+                        <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="trimWhiteChk" {% if trim_white_default %}checked{% endif %}>
+                        <label class="form-check-label" for="trimWhiteChk" title="When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose margins are removed. When OFF, the crop respects your selected box exactly (only the crop safety margin is applied), keeping any margin you deliberately leave.">
+                            <i class="bi bi-crop"></i> Trim whitespace on import
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2 mt-2">
+                <button id="btnCommit" class="btn btn-success exam-only"><i class="bi bi-check2-circle"></i> Import to database</button>
+                <button id="btnZip" class="btn btn-success d-none generic-only"><i class="bi bi-file-earmark-zip"></i> Download all as ZIP</button>
             </div>
         </div>
     </div>
@@ -502,12 +512,17 @@ const overwriteChk = document.getElementById('overwriteChk');
 const trimWhiteChk = document.getElementById('trimWhiteChk');
 const uniformWidthChk = document.getElementById('uniformWidthChk');
 const debugChk = document.getElementById('debugChk');
-const btnStart = document.getElementById('btnStart');
+const btnLoadPdf = document.getElementById('btnLoadPdf');
+const btnRunDetect = document.getElementById('btnRunDetect');
 const btnStop = document.getElementById('btnStop');
 const btnReset = document.getElementById('btnReset');
 const btnCommit = document.getElementById('btnCommit');
 const btnZip = document.getElementById('btnZip');
 const btnDiscard = document.getElementById('btnDiscard');
+const bboxCard = document.getElementById('bboxCard');
+const importCard = document.getElementById('importCard');
+const AI_ENABLED = {{ ai_enabled|tojson }};
+const HAS_ENDPOINTS = {{ (endpoints|length > 0)|tojson }};
 
 // ----- Task (exam vs generic) -----
 function currentTask() {
@@ -522,8 +537,8 @@ function isGeneric() {
 // Exam run that borrows the context-free prompt (textbook / non-standard
 // format): boxes are exam-shaped with auto-numbered question numbers.
 function isCustomExam() {
-    if (staging) return staging.mode === 'exam' && !!staging.custom_prompt;
-    return currentTask() === 'exam' && customPromptChk.checked;
+    if (isGeneric()) return false;
+    return customPromptChk.checked;
 }
 // The instruction box is used by Generic extraction AND by a custom-prompt
 // exam run.
@@ -553,8 +568,19 @@ function applyTaskUI() {
         if (generic && methodSelect.value === 'segment') methodSelect.value = 'llm';
     }
     updateInstructionVisibility();
+    updateImportActions();
 }
-document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListener('change', applyTaskUI));
+function updateImportActions() {
+    if (!importCard) return;
+    const generic = staging ? isGeneric() : currentTask() === 'generic';
+    btnCommit.classList.toggle('d-none', generic);
+    btnZip.classList.toggle('d-none', !generic);
+    document.getElementById('importExamOpts')?.classList.toggle('d-none', generic);
+}
+document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListener('change', () => {
+    if (staging) return;
+    applyTaskUI();
+}));
 customPromptChk.addEventListener('change', updateInstructionVisibility);
 // Locking/unlocking uniform width is review-time: ON conforms every existing
 // box per side; OFF leaves geometry alone (boxes become independent again).
@@ -570,7 +596,6 @@ const progressSection = document.getElementById('progressSection');
 const progressBar = document.getElementById('progressBar');
 const progressLabel = document.getElementById('progressLabel');
 const progressCount = document.getElementById('progressCount');
-const reviewCard = document.getElementById('reviewCard');
 const reviewBody = document.getElementById('reviewBody');
 const reviewSummary = document.getElementById('reviewSummary');
 const orderWarning = document.getElementById('orderWarning');
@@ -581,7 +606,6 @@ const summaryPanel = document.getElementById('summaryPanel');
 let staging = null;        // {token, version, que:{pages}, sol:{pages}}
 let plan = { que: [], sol: [] };  // each item: {page, qno, box:[x1,y1,x2,y2], _uid}
 let rawByPage = { que: {}, sol: {} };  // debug: verbatim model reply per page index
-let mode = 'review';
 let eventSource = null;
 let currentJobId = null;
 let running = false;
@@ -865,59 +889,103 @@ function showProgress(label) {
     progressCount.textContent = '0 / 0';
 }
 
-// ----- Start -----
-btnStart.addEventListener('click', startRun);
+// ----- Step flow -----
+btnLoadPdf.addEventListener('click', loadPdf);
+btnRunDetect.addEventListener('click', runDetect);
 btnStop.addEventListener('click', stopRun);
 btnReset.addEventListener('click', resetAll);
 btnCommit.addEventListener('click', startCommit);
 btnZip.addEventListener('click', downloadZip);
 btnDiscard.addEventListener('click', discardRun);
 
-function setRunning(on) {
-    running = on;
-    btnStart.classList.toggle('d-none', on);
-    btnStop.classList.toggle('d-none', !on);
-    [paperInput, queVersionSelect, solVersionSelect, instructionInput,
-     endpointSelect, methodSelect, pdfParallelChk, quePdf, solPdf,
-     deskewChk, customPromptChk, overwriteChk, trimWhiteChk, uniformWidthChk, debugChk,
-     document.getElementById('taskExam'), document.getElementById('taskGeneric'),
-     document.getElementById('modeReview'), document.getElementById('modeAuto')]
-        .forEach(el => { if (el) el.disabled = on; });
-    btnCommit.disabled = on;
-    btnZip.disabled = on;
-    btnDiscard.disabled = on;
+function planRegionCount() {
+    return plan.que.length + plan.sol.length;
 }
 
-async function startRun() {
+function detectUrlExtras() {
+    const instruction = instructionInput.value.trim();
+    let qs = '';
+    if (isGeneric() || customPromptChk.checked) {
+        qs += `&instruction=${encodeURIComponent(instruction)}`;
+    }
+    if (!isGeneric() && customPromptChk.checked) {
+        qs += '&custom_prompt=1';
+    }
+    return qs;
+}
+
+function validateDetectOptions() {
+    const instruction = instructionInput.value.trim();
+    if (isGeneric()) {
+        if (!instruction) { alert('Describe what to extract before running detection.'); return false; }
+    } else if (customPromptChk.checked && !instruction) {
+        alert('Describe what a question looks like for the custom prompt.'); return false;
+    }
+    return true;
+}
+
+function showStepsAfterLoad() {
+    bboxCard.classList.remove('d-none');
+    importCard.classList.remove('d-none');
+    updateImportActions();
+    document.querySelectorAll('input[name="task"]').forEach(el => { el.disabled = true; });
+}
+
+function setRunning(on, phase) {
+    running = on;
+    phase = phase || 'idle';
+    const lockSetup = on;
+    const lockDetect = on && phase === 'detect';
+    const lockImport = on && phase === 'import';
+    [paperInput, quePdf, solPdf, deskewChk,
+     document.getElementById('ppRotate'), document.getElementById('ppSplit'),
+     document.getElementById('ppBrightness'), document.getElementById('ppContrast'),
+     document.getElementById('ppSharpen'), document.getElementById('ppGray'),
+     document.getElementById('ppBw'), document.getElementById('ppBwThreshold'),
+     document.getElementById('taskExam'), document.getElementById('taskGeneric')]
+        .forEach(el => { if (el) el.disabled = lockSetup; });
+    [endpointSelect, methodSelect, pdfParallelChk, instructionInput,
+     customPromptChk, uniformWidthChk, debugChk]
+        .forEach(el => { if (el) el.disabled = lockDetect || !staging; });
+    if (btnRunDetect) {
+        btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
+    }
+    [queVersionSelect, solVersionSelect, overwriteChk, trimWhiteChk]
+        .forEach(el => { if (el) el.disabled = lockImport || !staging; });
+    btnLoadPdf.disabled = lockSetup;
+    btnStop.classList.toggle('d-none', !on || phase === 'import');
+    btnCommit.disabled = lockImport || !staging;
+    btnZip.disabled = lockImport || !staging;
+    btnDiscard.disabled = lockDetect || lockImport;
+    btnReset.disabled = lockDetect || lockImport;
+}
+
+async function loadPdf() {
     const generic = currentTask() === 'generic';
     const paper = paperInput.value.trim();
-    const instruction = instructionInput.value.trim();
     const hasQue = quePdf.files.length || serverPdf.que;
     const hasSol = solPdf.files.length || serverPdf.sol;
 
-    if (generic) {
-        if (!instruction) { alert('Describe what to extract first.'); return; }
-        if (!hasQue) { alert('Choose or pick a PDF to extract from.'); return; }
-        mode = 'review';   // generic always reviews then downloads a ZIP
-    } else {
-        if (!paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
-        if (!hasQue && !hasSol) {
-            alert('Choose or pick a question PDF and/or a solution PDF.'); return;
-        }
-        if (customPromptChk.checked && !instruction) {
-            alert('Describe what a question looks like for the custom prompt.'); return;
-        }
-        mode = document.querySelector('input[name="mode"]:checked').value;
+    if (!generic && !paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
+    if (!hasQue && !hasSol) {
+        alert('Choose or pick a question PDF and/or a solution PDF.'); return;
     }
 
-    // Reset any previous run UI
-    reviewCard.classList.add('d-none');
+    if (staging) {
+        if (!confirm('Loading again will discard the current session and any boxes you drew. Continue?')) return;
+        await fetch(`${IMPORT_BASE}/discard`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: staging.token })
+        }).catch(() => {});
+    }
+
     summaryPanel.classList.add('d-none');
     reviewBody.innerHTML = '';
     plan = { que: [], sol: [] };
     rawByPage = { que: {}, sol: {} };
+    uniformWidth = { que: null, sol: null };
 
-    setRunning(true);
+    setRunning(true, 'stage');
     setStatus('Uploading', 'bg-info');
     appendLog(generic ? 'Uploading PDF for generic extraction...'
                       : `Uploading PDF(s) for ${paper}...`, 'info');
@@ -925,7 +993,6 @@ async function startRun() {
     const fd = new FormData();
     fd.append('mode', generic ? 'generic' : 'exam');
     fd.append('deskew', deskewChk.checked ? '1' : '0');
-    // Shared Toolbox pre-processing (rotate / A3 split / image filters).
     fd.append('pre_rotate', document.getElementById('ppRotate').value);
     fd.append('split_mode', document.getElementById('ppSplit').value);
     fd.append('f_brightness', document.getElementById('ppBrightness').value);
@@ -934,17 +1001,7 @@ async function startRun() {
     fd.append('f_grayscale', document.getElementById('ppGray').checked ? '1' : '0');
     fd.append('f_bw', document.getElementById('ppBw').checked ? '1' : '0');
     fd.append('f_bw_threshold', document.getElementById('ppBwThreshold').value);
-    if (generic) {
-        fd.append('instruction', instruction);
-    } else {
-        fd.append('paper', paper);
-        fd.append('que_version', queVersionSelect.value);
-        fd.append('sol_version', solVersionSelect.value);
-        if (customPromptChk.checked) {
-            fd.append('custom_prompt', '1');
-            fd.append('instruction', instruction);
-        }
-    }
+    if (!generic) fd.append('paper', paper);
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     else if (serverPdf.que) fd.append('que_server_path', serverPdf.que.rel_path);
     if (!generic) {
@@ -965,40 +1022,51 @@ async function startRun() {
     }
 
     staging = data;
-    staging.method = methodSelect.value;   // remember the run's detection method
-    const qn = (data.que.pages || []).length;
-    const sn = (data.sol.pages || []).length;
+    staging.method = methodSelect.value;
+    staging.custom_prompt = false;
+    const qn = (data.que && data.que.pages || []).length;
+    const sn = (data.sol && data.sol.pages || []).length;
     if (isGeneric()) {
-        appendLog(`Staged: ${qn} page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
+        appendLog(`Loaded: ${qn} page(s)${data.deskew ? ', deskewed' : ''}. Draw boxes or run LLM detection.`, 'success');
     } else {
-        appendLog(`Staged: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Token ${data.token.slice(0, 8)}.`, 'success');
+        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Draw boxes or run LLM detection.`, 'success');
     }
 
+    setRunning(false);
+    setStatus('Ready', 'bg-primary');
+    showStepsAfterLoad();
+    renderReview({ pending: false });
+    updateReviewSummary();
+    bboxCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function runDetect() {
+    if (!staging) { alert('Load a PDF first.'); return; }
+    if (!AI_ENABLED || !HAS_ENDPOINTS) {
+        alert('Configure a vision-capable LLM endpoint to run detection.');
+        return;
+    }
+    if (!validateDetectOptions()) return;
+    staging.custom_prompt = !isGeneric() && customPromptChk.checked;
     startDetect();
 }
 
 // ----- Detect (SSE) -----
 function startDetect() {
+    setRunning(true, 'detect');
     setStatus('Detecting', 'bg-success');
     showProgress('Detecting regions...');
     appendLog('Starting detection (one page at a time)...', 'info');
 
-    // Live review: render the page skeleton up-front (every page card marked
-    // "detecting…") so the user can start reviewing each page the moment its
-    // detection finishes, instead of waiting for the whole PDF.
-    if (mode === 'review') {
-        renderReview({ pending: true });
-        btnCommit.classList.toggle('d-none', isGeneric());
-        btnZip.classList.toggle('d-none', !isGeneric());
-        reviewCard.classList.remove('d-none');
-        reviewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    renderReview({ pending: true });
+    updateImportActions();
 
     const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
         + `&method=${encodeURIComponent(methodSelect.value)}`
         + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '')
-        + (debugChk.checked ? '&debug=1' : '');
+        + (debugChk.checked ? '&debug=1' : '')
+        + detectUrlExtras();
     eventSource = new EventSource(url);
 
     eventSource.onmessage = (e) => {
@@ -1026,13 +1094,8 @@ function startDetect() {
                 rawByPage[kind][idx] = ev.page.raw;
                 logRaw(kind, idx, ev.page.raw);
             }
-            // Live: fill this page's card as soon as its result arrives.
-            if (mode === 'review') fillPageCard(kind, idx);
-            // Live uniform width: re-lock the side to the widest box so far (max
-            // is monotonic, so re-conforming every box each page is safe and
-            // non-lossy). Also sets uniformWidth[kind] early so a resize can
-            // broadcast immediately, instead of only after the whole run.
-            if (mode === 'review' && uniformActive()) enableUniformWidth(kind);
+            fillPageCard(kind, idx);
+            if (uniformActive()) enableUniformWidth(kind);
         }
 
         if (ev.type === 'done') {
@@ -1048,39 +1111,17 @@ function startDetect() {
 function finishDetect() {
     progressBar.classList.remove('progress-bar-animated');
     setRunning(false);
-    const total = plan.que.length + plan.sol.length;
-    if (mode === 'auto') {
-        if (total === 0) {
-            setStatus('No regions', 'bg-warning text-dark');
-            appendLog('No question regions detected — nothing to import.', 'warning');
-            btnReset.classList.remove('d-none');
-            return;
-        }
-        appendLog('Automatic mode: importing detected regions...', 'info');
-        startCommit();   // server reads the plan it just saved
-    } else {
-        setStatus('Review', 'bg-primary');
-        // Cards were filled live during detection; just clear any page cards
-        // still marked pending (e.g. if the stream closed early) and finalise.
-        document.querySelectorAll('.page-card').forEach(card => {
-            const k = card.dataset.kind, i = parseInt(card.dataset.page, 10);
-            if (card.dataset.pending === '1') fillPageCard(k, i);
-        });
-        // Custom-prompt exam runs: normalise the auto-numbers into a clean
-        // 1..N reading-order sequence per side. Standard exam runs: re-link
-        // multi-page questions now that every page has arrived (the order they
-        // finished detecting no longer matters).
-        if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
-        else if (!isGeneric()) { ['que', 'sol'].forEach(k => { stitchContinuations(k); refreshNumbersUI(k); }); }
-        // If uniform width was pre-checked at setup, lock both sides now that
-        // every box exists (live snapping only had a reference once set).
-        if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
-        updateReviewSummary();
-        // Toggle the commit / ZIP action for the active task.
-        btnCommit.classList.toggle('d-none', isGeneric());
-        btnZip.classList.toggle('d-none', !isGeneric());
-        reviewCard.classList.remove('d-none');
-        btnReset.classList.remove('d-none');
+    setStatus('Review', 'bg-primary');
+    document.querySelectorAll('.page-card').forEach(card => {
+        const k = card.dataset.kind, i = parseInt(card.dataset.page, 10);
+        if (card.dataset.pending === '1') fillPageCard(k, i);
+    });
+    if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
+    else if (!isGeneric()) { ['que', 'sol'].forEach(k => { stitchContinuations(k); refreshNumbersUI(k); }); }
+    if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+    updateReviewSummary();
+    if (planRegionCount() === 0) {
+        appendLog('No regions detected — draw boxes manually or re-run detection.', 'warning');
     }
 }
 
@@ -1099,7 +1140,7 @@ function renderReview(opts) {
         const header = document.createElement('div');
         header.className = 'd-flex justify-content-between align-items-center mt-2 mb-2 flex-wrap gap-2';
         const title = generic ? 'Pages' : (kind === 'que' ? 'Question pages' : 'Solution pages');
-        const dlLabel = staging.deskew ? 'Download deskewed PDF' : 'Download processed PDF';
+        const dlLabel = 'Download Processed PDF';
         header.innerHTML = `<h6 class="fw-bold mb-0">${title}</h6>
             <a class="btn btn-sm btn-outline-secondary" href="${IMPORT_BASE}/processed/${staging.token}/${kind}.pdf">
                 <i class="bi bi-file-earmark-arrow-down"></i> ${dlLabel}</a>`;
@@ -1816,12 +1857,16 @@ async function rerunPage(card, kind, pageIndex) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Re-running';
     try {
+        const body = { token: staging.token, kind, index: pageIndex,
+                       endpoint_id: pageEndpoint, method: pageMethod,
+                       debug: debugChk.checked };
+        const instr = instructionInput.value.trim();
+        if (isGeneric() || customPromptChk.checked) body.instruction = instr;
+        if (!isGeneric()) body.custom_prompt = customPromptChk.checked;
         const r = await fetch(`${IMPORT_BASE}/redo-page`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: staging.token, kind, index: pageIndex,
-                                   endpoint_id: pageEndpoint, method: pageMethod,
-                                   debug: debugChk.checked })
+            body: JSON.stringify(body)
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
@@ -1871,6 +1916,10 @@ async function rerunPage(card, kind, pageIndex) {
 // ----- Commit (SSE) -----
 async function startCommit() {
     if (!staging) return;
+    if (planRegionCount() === 0) {
+        alert('No regions to import. Run detection or draw boxes first.');
+        return;
+    }
     const paperNow = paperInput.value.trim();
     const queVersionNow = queVersionSelect.value;
     const solVersionNow = solVersionSelect.value;
@@ -1880,32 +1929,28 @@ async function startCommit() {
         return;
     }
 
-    // In review mode, persist the (edited) plan first. In auto mode the
-    // server already saved the detected plan, so commit reads it directly.
-    if (mode === 'review') {
-        const payload = {
-            token: staging.token,
-            plan: {
-                que: plan.que.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
-                sol: plan.sol.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
-            }
-        };
-        const missing = [...plan.que, ...plan.sol].filter(it => it.qno == null).length;
-        if (missing > 0 && !confirm(`${missing} region(s) have no question number and will be skipped. Continue?`)) return;
-        try {
-            const r = await fetch(`${IMPORT_BASE}/plan`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-        } catch (err) {
-            appendLog('Could not save plan: ' + err.message, 'error');
-            return;
+    const payload = {
+        token: staging.token,
+        plan: {
+            que: plan.que.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
+            sol: plan.sol.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
         }
+    };
+    const missing = [...plan.que, ...plan.sol].filter(it => it.qno == null).length;
+    if (missing > 0 && !confirm(`${missing} region(s) have no question number and will be skipped. Continue?`)) return;
+    try {
+        const r = await fetch(`${IMPORT_BASE}/plan`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    } catch (err) {
+        appendLog('Could not save plan: ' + err.message, 'error');
+        return;
     }
 
-    setRunning(true);
+    setRunning(true, 'import');
     setStatus('Importing', 'bg-success');
     showProgress('Importing question images...');
     summaryPanel.classList.add('d-none');
@@ -1953,6 +1998,10 @@ function finishCommit(ev) {
 // ----- Generic Extraction: download crops as ZIP -----
 async function downloadZip() {
     if (!staging) return;
+    if (planRegionCount() === 0) {
+        alert('No regions to export. Run detection or draw boxes first.');
+        return;
+    }
     const items = plan.que
         .filter(it => it.box)
         .sort((a, b) => (a.page * 2 + a.box[1]) - (b.page * 2 + b.box[1]))
@@ -2013,20 +2062,19 @@ function resetAll() {
     staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
     uniformWidth = { que: null, sol: null };
     if (orderWarning) orderWarning.classList.add('d-none');
-    reviewCard.classList.add('d-none');
+    bboxCard.classList.add('d-none');
+    importCard.classList.add('d-none');
     summaryPanel.classList.add('d-none');
     progressSection.classList.add('d-none');
     reviewBody.innerHTML = '';
-    btnReset.classList.add('d-none');
-    btnCommit.classList.remove('d-none');
-    btnZip.classList.add('d-none');
     quePdf.value = ''; solPdf.value = '';
     serverPdf.que = null; serverPdf.sol = null;
     document.querySelectorAll('#queServerPick, #solServerPick').forEach(el => el.classList.add('d-none'));
+    document.querySelectorAll('input[name="task"]').forEach(el => { el.disabled = false; });
     applyTaskUI();
     setRunning(false);
     setStatus('Idle', 'bg-secondary');
-    appendLog('Ready for a new import.', 'info');
+    appendLog('Ready — Step 1: load a PDF.', 'info');
 }
 function discardRun() {
     if (!staging) { resetAll(); return; }
