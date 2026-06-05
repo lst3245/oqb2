@@ -18,9 +18,9 @@ try:
     # 1. Test Server Connection
     print("\nAttempting to connect to MariaDB server...")
     conn = pymysql.connect(
-        host="192.168.5.25",
-        user="root",
-        password="FDh3MjT*qA"
+        host=host,
+        user=user,
+        password=password,
     )
     print("✅ SUCCESS: Credentials are correct! Connected to server.")
     
