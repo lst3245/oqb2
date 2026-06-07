@@ -557,6 +557,171 @@ def build_tag_user_text(subject_name, fields, taxonomy):
                          fields=labels, taxonomy=taxonomy)
 
 
+# ==================== Robust JSON extraction helpers ====================
+#
+# Reasoning VLMs (Qwen-VL "thinking", etc.) often wrap their chain-of-thought
+# in <think>...</think> (or similar) tags BEFORE the JSON answer, and those
+# blocks routinely contain bracketed coordinate examples. A naive "first '['
+# to last ']'" extraction then spans the reasoning junk and json.loads fails,
+# making detection look like a random/timing failure: the raw reply clearly
+# shows regions, yet parsing returns none, and re-running (a differently
+# formatted reply) sometimes works. These helpers strip the reasoning and pull
+# *balanced* JSON spans so the real payload is recovered deterministically.
+_REASONING_TAGS = r'think|thinking|reason|reasoning|analysis|scratchpad'
+
+
+def _strip_reasoning(text: str) -> str:
+    """Remove reasoning/think blocks some models emit before the JSON answer."""
+    if not text:
+        return text or ''
+    # Fully-paired blocks: <think> ... </think>.
+    text = re.sub(r'<(' + _REASONING_TAGS + r')\b[^>]*>.*?</\1>', ' ',
+                  text, flags=re.DOTALL | re.IGNORECASE)
+    # Stray closing tag with no surviving opener: the answer is whatever
+    # follows the LAST such tag.
+    closes = list(re.finditer(r'</(?:' + _REASONING_TAGS + r')>', text,
+                              re.IGNORECASE))
+    if closes:
+        text = text[closes[-1].end():]
+    return text
+
+
+def _balanced_spans(text: str, open_ch: str, close_ch: str):
+    """Return every top-level balanced ``open_ch..close_ch`` substring, string-
+    and escape-aware so brackets inside JSON string values don't miscount."""
+    spans = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == close_ch and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                spans.append(text[start:i + 1])
+                start = -1
+    return spans
+
+
+def _json_candidates(text: str, prefer: str = '['):
+    """Ordered, de-duplicated list of candidate strings to try with
+    ``json.loads``. Robust to reasoning blocks, code fences, and surrounding
+    prose. ``prefer`` is the opening bracket of the expected top-level
+    container (``'['`` for a list, ``'{'`` for an object). Balanced spans are
+    tried longest-first so the real payload wins over stray bracketed examples
+    left in prose.
+
+    Only ``prefer``-type spans are emitted: a wrapped list ``{"boxes": [...]}``
+    is still recovered because the inner ``[...]`` is itself a balanced span,
+    while mixing single ``{...}`` object spans into a list parser would let one
+    object short-circuit the loop with an empty result.
+    """
+    text = _strip_reasoning(text or '')
+    cands = []
+
+    def add(s):
+        s = (s or '').strip()
+        if s and s not in cands:
+            cands.append(s)
+
+    add(text)
+    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
+        add(m.group(1))
+    close = ']' if prefer == '[' else '}'
+    for s in sorted(_balanced_spans(text, prefer, close), key=len, reverse=True):
+        add(s)
+    return cands
+
+
+def _as_item_list(data, wrapper_keys):
+    """Coerce a parsed JSON value into a list of item dicts: a bare list, a
+    ``{wrapper_key: [...]}`` object, or a single item dict (one carrying a
+    ``box``). Returns ``[]`` for a dict that matches none of these (so the
+    caller keeps trying other candidates rather than short-circuiting) and
+    ``None`` for a non-list/non-dict value."""
+    if isinstance(data, dict):
+        for k in wrapper_keys:
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+        if any(k in data for k in ('box', 'bbox', 'bounding_box')):
+            return [data]
+        return []
+    if isinstance(data, list):
+        return data
+    return None
+
+
+# ---- Tolerant salvage for malformed model JSON ----
+#
+# Vision models occasionally emit *almost*-JSON that ``json.loads`` rejects
+# wholesale — e.g. a stray duplicate key: ``"box": [...], "label": "continues_prev":
+# false``. That single corrupt object used to take its valid neighbours down
+# with it (the whole array fails → empty → "no regions"), which looks random
+# because the model only corrupts the reply some of the time. As a last resort
+# we recover each brace-balanced object that contains a 4-number box and read
+# its other fields with targeted regexes, so one broken object can't drop the
+# rest.
+_SALVAGE_NUM_RE = re.compile(r'-?\d+(?:\.\d+)?')
+_SALVAGE_BOX_RE = re.compile(
+    r'"(?:box|bbox|bounding_box)"\s*:\s*\[([^\[\]]*)\]', re.DOTALL)
+
+
+def _salvage_box_objects(text: str):
+    """Return ``[(raw_object_str, [x1,y1,x2,y2]), ...]`` for every brace-
+    balanced object carrying a 4-number box, even when the surrounding JSON is
+    invalid. Coordinates are raw (un-normalised); the caller normalises."""
+    out = []
+    for obj in _balanced_spans(_strip_reasoning(text or ''), '{', '}'):
+        m = _SALVAGE_BOX_RE.search(obj)
+        if not m:
+            continue
+        nums = _SALVAGE_NUM_RE.findall(m.group(1))
+        if len(nums) != 4:
+            continue
+        try:
+            box = [float(n) for n in nums]
+        except (ValueError, TypeError):
+            continue
+        out.append((obj, box))
+    return out
+
+
+def _salvage_int(raw: str, *keys):
+    for k in keys:
+        m = re.search(r'"' + k + r'"\s*:\s*"?\s*(-?\d+)', raw)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _salvage_bool(raw: str, key: str) -> bool:
+    m = re.search(r'"' + key + r'"\s*:\s*(true|false)', raw, re.IGNORECASE)
+    return bool(m and m.group(1).lower() == 'true')
+
+
+def _salvage_str(raw: str, *keys):
+    for k in keys:
+        m = re.search(r'"' + k + r'"\s*:\s*"([^"]*)"', raw)
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    return None
+
+
 def parse_tag_result(text: str):
     """Parse the Auto Tag model output into a normalised dict:
     ``{q_type, level, section, major_topic, major_subtopic, minor_topics[],
@@ -567,12 +732,7 @@ def parse_tag_result(text: str):
     """
     if not text:
         return None
-    candidates = [text.strip()]
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    brace = re.search(r'\{.*\}', text, re.DOTALL)
-    if brace:
-        candidates.append(brace.group(0))
+    candidates = _json_candidates(text, '{')
 
     def _clean_str(v):
         if v is None:
@@ -713,24 +873,10 @@ def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     """
     if not text:
         return []
-    candidates = [text.strip()]
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    arr = re.search(r'\[.*\]', text, re.DOTALL)
-    if arr:
-        candidates.append(arr.group(0))
 
-    for c in candidates:
-        try:
-            data = json.loads(c)
-        except (ValueError, TypeError):
-            continue
-        if isinstance(data, dict):
-            data = data.get('figures') or data.get('boxes') or []
-        if not isinstance(data, list):
-            continue
+    def _emit(items):
         out = []
-        for it in data:
+        for it in items:
             if not isinstance(it, dict):
                 continue
             box = it.get('box') or it.get('bbox') or it.get('bounding_box')
@@ -744,7 +890,25 @@ def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
             out.append({'caption': str(it.get('caption', '') or ''),
                         'box': [x1, y1, x2, y2]})
         return out
-    return []
+
+    for c in _json_candidates(text, '['):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        items = _as_item_list(data, ('figures', 'boxes'))
+        if items is None:
+            continue
+        parsed = _emit(items)
+        if parsed:
+            return parsed
+
+    out = []
+    for raw, box in _salvage_box_objects(text):
+        x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)
+        out.append({'caption': _salvage_str(raw, 'caption') or '',
+                    'box': [x1, y1, x2, y2]})
+    return out
 
 
 # ==================== PDF batch import (question region detection) ====================
@@ -1467,14 +1631,7 @@ def parse_question_anchors(text: str, img_h=None, coord_order='xyxy'):
     on total failure."""
     if not text:
         return []
-    candidates = [text.strip()]
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    arr = re.search(r'\[.*\]', text, re.DOTALL)
-    if arr:
-        candidates.append(arr.group(0))
-
-    for c in candidates:
+    for c in _json_candidates(text, '['):
         try:
             data = json.loads(c)
         except (ValueError, TypeError):
@@ -1553,24 +1710,10 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     """
     if not text:
         return []
-    candidates = [text.strip()]
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    arr = re.search(r'\[.*\]', text, re.DOTALL)
-    if arr:
-        candidates.append(arr.group(0))
 
-    for c in candidates:
-        try:
-            data = json.loads(c)
-        except (ValueError, TypeError):
-            continue
-        if isinstance(data, dict):
-            data = data.get('questions') or data.get('boxes') or data.get('regions') or []
-        if not isinstance(data, list):
-            continue
+    def _emit(items):
         out = []
-        for it in data:
+        for it in items:
             if not isinstance(it, dict):
                 continue
             box = it.get('box') or it.get('bbox') or it.get('bounding_box')
@@ -1581,14 +1724,12 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
             except (ValueError, TypeError):
                 continue
             x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
-
             qno_raw = it.get('qno', it.get('question_number', it.get('number')))
             qno = None
             if qno_raw is not None:
                 mqn = re.search(r'\d+', str(qno_raw))
                 if mqn:
                     qno = int(mqn.group(0))
-
             out.append({
                 'qno': qno,
                 'box': [x1, y1, x2, y2],
@@ -1596,7 +1737,31 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
                 'continues_next': bool(it.get('continues_next', False)),
             })
         return out
-    return []
+
+    for c in _json_candidates(text, '['):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        items = _as_item_list(data, ('questions', 'boxes', 'regions'))
+        if items is None:
+            continue
+        parsed = _emit(items)
+        if parsed:
+            return parsed
+
+    # Strict parse failed (or yielded nothing). Salvage individual objects from
+    # malformed JSON so one corrupt object can't drop the whole page.
+    out = []
+    for raw, box in _salvage_box_objects(text):
+        x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)
+        out.append({
+            'qno': _salvage_int(raw, 'qno', 'question_number', 'number'),
+            'box': [x1, y1, x2, y2],
+            'continues_prev': _salvage_bool(raw, 'continues_prev'),
+            'continues_next': _salvage_bool(raw, 'continues_next'),
+        })
+    return out
 
 
 def parse_generic_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
@@ -1609,25 +1774,10 @@ def parse_generic_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     """
     if not text:
         return []
-    candidates = [text.strip()]
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    arr = re.search(r'\[.*\]', text, re.DOTALL)
-    if arr:
-        candidates.append(arr.group(0))
 
-    for c in candidates:
-        try:
-            data = json.loads(c)
-        except (ValueError, TypeError):
-            continue
-        if isinstance(data, dict):
-            data = (data.get('regions') or data.get('boxes')
-                    or data.get('items') or [])
-        if not isinstance(data, list):
-            continue
+    def _emit(items):
         out = []
-        for it in data:
+        for it in items:
             if not isinstance(it, dict):
                 continue
             box = it.get('box') or it.get('bbox') or it.get('bounding_box')
@@ -1644,7 +1794,25 @@ def parse_generic_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
                 label = str(label_raw).strip()[:80]
             out.append({'label': label, 'box': [x1, y1, x2, y2]})
         return out
-    return []
+
+    for c in _json_candidates(text, '['):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        items = _as_item_list(data, ('regions', 'boxes', 'items'))
+        if items is None:
+            continue
+        parsed = _emit(items)
+        if parsed:
+            return parsed
+
+    out = []
+    for raw, box in _salvage_box_objects(text):
+        x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)
+        lbl = _salvage_str(raw, 'label', 'name', 'title')
+        out.append({'label': lbl[:80] if lbl else None, 'box': [x1, y1, x2, y2]})
+    return out
 
 
 def strip_md_fences(text: str) -> str:
@@ -1689,18 +1857,7 @@ def parse_check_result(text: str):
     """
     if not text:
         return None
-    candidates = []
-    s = text.strip()
-    candidates.append(s)
-    # fenced ```json ... ```
-    for m in re.finditer(r'```(?:json)?\s*(.*?)```', s, re.DOTALL):
-        candidates.append(m.group(1).strip())
-    # first {...} balanced-ish blob
-    brace = re.search(r'\{.*\}', s, re.DOTALL)
-    if brace:
-        candidates.append(brace.group(0))
-
-    for c in candidates:
+    for c in _json_candidates(text, '{'):
         try:
             data = json.loads(c)
         except (ValueError, TypeError):
