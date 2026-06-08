@@ -757,6 +757,11 @@
             highlighter: { color: '#facc15', size: 28 }
         };
 
+        // Imported images are normalized so their longest edge maps to this many world
+        // units, regardless of source resolution. Keeps the fit zoom level and pen-size
+        // scale consistent whether you import a tiny 400px photo or a 4000px scan.
+        const NORMALIZED_MAX_DIM = 1600;
+
         let activeTool = 'pen';
         let lockSize = true;
         let snapShapes = true;
@@ -1019,11 +1024,10 @@
             sizePreviewTimer = setTimeout(() => sizePreview.classList.remove('show'), 850);
         }
 
-        function autoConfigureSizes(img) {
+        function autoConfigureSizes(maxWorldDim) {
             if (sizeAutoConfigured) return;
-            const maxDim = Math.max(img.naturalWidth || img.width || 0, img.naturalHeight || img.height || 0);
-            if (!maxDim) return;
-            const pen = clamp(Math.round(maxDim * 0.0045), 3, 60);
+            if (!maxWorldDim) return;
+            const pen = clamp(Math.round(maxWorldDim * 0.0045), 3, 60);
             toolSettings.pen.size = pen;
             toolSettings.highlighter.size = clamp(Math.round(pen * 3.4), 12, 140);
             sizeAutoConfigured = true;
@@ -1913,6 +1917,15 @@
 
         async function loadBackgroundImage(src, opts = {}) {
             const img = await loadImageElement(src);
+            const nativeW = img.naturalWidth || img.width || 1;
+            const nativeH = img.naturalHeight || img.height || 1;
+            const maxNative = Math.max(nativeW, nativeH);
+            // Normalize the on-canvas size so every import occupies a consistent world
+            // space — low-res images no longer force a huge zoom-in (which made pen-size
+            // steps feel enormous), and high-res scans are no longer oversized.
+            const normScale = maxNative > 0 ? NORMALIZED_MAX_DIM / maxNative : 1;
+            const worldW = (opts.width ?? nativeW * normScale);
+            const worldH = (opts.height ?? nativeH * normScale);
             const offset = imageCounter * 36;
             imageCounter += 1;
             const node = new Konva.Image({
@@ -1922,13 +1935,13 @@
                 image: img,
                 x: opts.x ?? offset,
                 y: opts.y ?? offset,
-                width: img.naturalWidth || img.width,
-                height: img.naturalHeight || img.height
+                width: worldW,
+                height: worldH
             });
             wireNode(node);
             bgLayer.add(node);
             bgLayer.batchDraw();
-            autoConfigureSizes(img);
+            autoConfigureSizes(Math.max(worldW, worldH));
             pushOp({ type: 'add', nodes: [serializeNode(node)] });
             if (opts.fit !== false) fitContent();
         }
