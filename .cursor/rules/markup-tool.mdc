@@ -1,0 +1,34 @@
+---
+description: Markup PWA drawing tool architecture and mobile/PWA constraints
+globs: app/toolbox/markup.py,app/pwa.py,templates/markup.html,templates/viewer.html,static/markup/**
+alwaysApply: false
+---
+
+# Markup Tool
+
+`GET /admin/toolbox/markup` renders `templates/markup.html`, a standalone full-screen page for all logged-in users. It does not extend `base.html` so the canvas can own the viewport and touch gestures.
+
+## Frontend
+
+- Engine: Konva from CDN, `perfect-freehand` from ESM CDN, `idb-keyval` from CDN. There is no bundler.
+- Layers: background images (`bgLayer`), drawing nodes (`drawLayer`), selection UI (`uiLayer`).
+- Infinite canvas = stage position + scale. One pointer draws; two pointers pan/pinch-zoom. Hand tool pans with one pointer.
+- Tools: pen, highlighter, stroke eraser, lasso select/move/delete, text, line/rect/ellipse. Pen and highlighter keep independent size/color settings; lock-size starts enabled. Highlighter defaults to a larger yellow-first palette. Brush size auto-defaults relative to the first imported image (`autoConfigureSizes`); the size slider shows a live on-screen preview circle (`showSizePreview`).
+- Eraser and lasso must hit-test **actual geometry**, not bounding boxes: eraser uses point-to-segment / shape-outline distance (`eraserHitsNode`); lasso uses `nodeIntersectsPolygon` and supports tap-to-select. Selection draws a visible highlight rect (`updateSelectionRect`) in addition to the transformer.
+- Snap mode shows a grey preview after the hold threshold, then replaces held pen strokes with recognized perfect shapes on release. `buildSnappedShape` chooses the better fit of rectangle vs ellipse (compare `rectangleScore` vs `ellipseScore`) so squares stay squares and circles stay circles; it returns `null` (keep freehand) when neither fits.
+- Undo/redo is operation-based (`add`, `remove`, `modify`) using serialized Konva node attrs.
+- Local autosave uses IndexedDB key `oqb:markup:autosave:v1`; no server-side persistence.
+- Export (`exportMarkup`) computes a union bounding box over image + drawing nodes via `contentBounds()`, then renders the crop directly from the live stage (save transform → reset to identity → add a white background rect → hide `uiLayer` → `stage.toDataURL({x,y,width,height})` → restore), and shares/downloads a cropped PNG. Do **not** call `node.isDestroyed()` (not a function on Konva nodes in this build) — use `node.getLayer()` truthiness to test attachment.
+
+## Imports
+
+- Android share target: service worker stores the POSTed image in Cache API (`markup-share-v1`, `/__oqb_markup_shared_image__`), then opens `?shared=1`.
+- Upload/paste: read image files as data URLs.
+- Present mode: `templates/viewer.html` opens `/admin/toolbox/markup?img=<same-origin-url>` for IMG assets or DOC thumbnails. MD assets have no image URL and should not show a Markup button.
+- Reject external `?img=` URLs to avoid canvas-tainting export failures.
+
+## PWA
+
+`app/pwa.py` serves `/manifest.webmanifest` and `/sw.js` from `static/markup/`. Keep `/sw.js` root-scoped with `Service-Worker-Allowed: /` so Web Share Target POSTs can be intercepted.
+
+Android Chrome supports installed-PWA Web Share Target. iOS Safari does not; iOS must use installed PWA + upload/paste, with Shortcuts only as a documented workaround.

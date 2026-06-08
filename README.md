@@ -65,6 +65,7 @@ python run.py
 - Custom Word styles (OQB Section Heading, OQB Question ID, OQB Question Info, OQB Body Text)
 - **Background generation** — non-blocking; progress tracked in database
 - **Viewer / Presentation Mode** — slide-style question review with version-priority and ANS/SOL toggle (DOC assets show a server-rendered first-page thumbnail)
+- **Markup PWA** — mobile-friendly infinite canvas for handwritten solutions, image annotation, local autosave, and cropped PNG share/export (Android Share target; iOS install/upload/paste fallback)
 - Regenerate previous documents with saved options
 
 ### My Files & Saved Profiles
@@ -116,6 +117,8 @@ oqb2/
 │   ├── admin.py           # Admin panel (admin_bp) — ~2500 lines
 │   ├── generator.py       # Word doc generation + viewer (generator_bp)
 │   ├── user.py            # My Files + Saved Profiles (user_bp)
+│   ├── pwa.py             # Root-scope PWA manifest/service-worker routes
+│   ├── toolbox/           # Toolbox hub: Markup + admin PDF Tool
 │   ├── ingestor.py        # File scanner, sync, health stats
 │   ├── llm_client.py      # OpenAI-compatible LLM client + Fernet key crypto (AI Tools)
 │   ├── ai_prompts.py      # AI Tools prompts + output parsing

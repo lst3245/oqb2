@@ -16,7 +16,7 @@
 8. [File Ingestion](#8-file-ingestion)
 9. [Export & Import](#9-export--import)
 10. [Database Health & Sync](#10-database-health--sync)
-11. [Toolbox (PDF Tool)](#11-toolbox-pdf-tool)
+11. [Toolbox](#11-toolbox)
 12. [File Browser](#12-file-browser)
 13. [System Settings](#13-system-settings-super-admin)
 14. [Backup & Recovery](#14-backup--recovery)
@@ -418,13 +418,29 @@ Click **Delete Mode** (or run `python cli.py sync --no-dry-run`) to execute the 
 
 ---
 
-## 11. Toolbox (PDF Tool)
+## 11. Toolbox
 
-Navigate to **Admin → Toolbox** (subject admins and super admins). The Toolbox is a home for self-service utilities; the first tool is the **PDF Tool**.
+Navigate to **My Stuff → Toolbox**. The Toolbox is a home for self-service utilities. The landing page is available to all logged-in users; individual tools apply their own permissions.
+
+### Markup (`/admin/toolbox/markup`)
+
+Markup is available to all logged-in users. It is a mobile-friendly infinite white canvas for handwritten solutions and image annotation:
+
+1. Open from **Toolbox → Markup**, from Present mode's QUE/SOL panel pencil button, by uploading/pasting an image inside the tool, or by sharing an image to the installed PWA on Android.
+2. Draw with pen or highlighter. Use one finger/stylus to draw and two fingers to pan/pinch-zoom. The Hand tool pans with one finger.
+3. Use lasso to select strokes and move/delete them. Add text or perfect line/rectangle/ellipse shapes from the toolbar.
+4. Export/share creates a white-background PNG cropped to the regions containing the imported image or drawings.
+
+Markup autosaves locally in the browser's IndexedDB so an in-progress drawing can be restored on the same device. It does not save drawings on the server.
+
+**PWA notes**:
+- Android Chrome can install Markup and expose it as a Share target for image files after the PWA has been opened once.
+- iOS Safari can install the PWA and use upload/paste/photo-picker workflows, but iOS does not support Web Share Target. Use an iOS Shortcut workaround only as a manual fallback.
+- PWA install/share features require HTTPS in production (localhost also works for development).
 
 ### PDF Tool (`/admin/toolbox/pdf`)
 
-A workbench for preparing scanned PDFs:
+The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
 
 1. **Load a PDF** — upload a file, or **Pick from server** to choose one under `PDF_SOURCE_PATH`.
 2. **Process & add to preview** — pick the active source, set the **Resolution (DPI)** (page-size independent: 200 DPI ≈ A4 1654 px / A3 2339 px wide; 150 draft, 300 print), choose a *Rotate first* angle, an *A3 split mode*, and optional **deskew**, then add the resulting pages to the preview grid. Brightness, contrast, sharpen, grayscale, and black & white are applied in Step 3 (preview toolbar). The active-source page strip is shown here.

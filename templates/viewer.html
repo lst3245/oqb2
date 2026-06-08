@@ -199,6 +199,29 @@
             align-items: center;
             gap: 0.5rem;
         }
+
+        .markup-panel-btn {
+            width: 34px;
+            height: 34px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #dee2e6;
+            background: #ffffff;
+            color: #0d6efd;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+        }
+
+        .markup-panel-btn.available {
+            display: flex;
+        }
+
+        .markup-panel-btn:hover {
+            background: #e7f1ff;
+            border-color: #0d6efd;
+        }
         
         .zoom-control {
             display: flex;
@@ -1082,6 +1105,9 @@
                     Question
                 </span>
                 <div class="panel-controls">
+                    <button class="markup-panel-btn" id="queMarkupBtn" onclick="openMarkupForPanel('que')" title="Open question image in Markup">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
                     <div class="zoom-control">
                         <button onclick="zoomQue(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
                         <div class="zoom-dropdown">
@@ -1124,6 +1150,9 @@
                     Solution
                 </span>
                 <div class="panel-controls">
+                    <button class="markup-panel-btn" id="ansMarkupBtn" onclick="openMarkupForPanel('ans')" title="Open solution image in Markup">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
                     <div class="zoom-control">
                         <button onclick="zoomAns(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
                         <div class="zoom-dropdown">
@@ -1286,6 +1315,8 @@
         let preferredLanguage = (window.OQB_DEFAULT_VERSION_PRIORITY || ['EN','CH','BI','ENO','CHO']).join(',');
         let showAnswerText = false;
         let showComment = false;
+        let queMarkupUrl = null;
+        let ansMarkupUrl = null;
         
         // Base width for 100% zoom - depends on layout mode
         let baseZoomWidth = 0;
@@ -1397,10 +1428,38 @@
             document.getElementById('prevBtnMobile').disabled = isFirst;
             document.getElementById('nextBtnMobile').disabled = isLast;
         }
+
+        function markupUrlFromAsset(data) {
+            if (!data) return null;
+            if (data.format === 'IMG') {
+                const parts = data.parts || [data];
+                return parts[0]?.url || data.url || null;
+            }
+            if (data.format === 'DOC' && data.thumbnail_url) return data.thumbnail_url;
+            return null;
+        }
+
+        function setMarkupUrl(panel, url) {
+            if (panel === 'que') {
+                queMarkupUrl = url;
+                document.getElementById('queMarkupBtn')?.classList.toggle('available', Boolean(url));
+            } else {
+                ansMarkupUrl = url;
+                document.getElementById('ansMarkupBtn')?.classList.toggle('available', Boolean(url));
+            }
+        }
+
+        function openMarkupForPanel(panel) {
+            const url = panel === 'que' ? queMarkupUrl : ansMarkupUrl;
+            if (!url) return;
+            const target = "{{ url_for('toolbox.markup_tool') }}" + "?img=" + encodeURIComponent(url);
+            window.open(target, '_blank');
+        }
         
         // Load assets (supports multi-part images)
         async function loadAsset(type, questionId) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
+            setMarkupUrl(type === 'QUE' ? 'que' : 'ans', null);
             
             container.innerHTML = `
                 <div class="loading-spinner">
@@ -1420,6 +1479,7 @@
                 }
                 
                 const data = await response.json();
+                setMarkupUrl(type === 'QUE' ? 'que' : 'ans', markupUrlFromAsset(data));
                 
                 if (data.format === 'IMG') {
                     // Render all parts stacked vertically
@@ -1500,6 +1560,7 @@
             const primaryType = answerPreference;
             
             const container = document.getElementById('ansContainer');
+            setMarkupUrl('ans', null);
             container.innerHTML = `
                 <div class="loading-spinner">
                     <div class="spinner-border text-primary" role="status">
@@ -1518,6 +1579,7 @@
                 }
                 
                 const data = await response.json();
+                setMarkupUrl('ans', markupUrlFromAsset(data));
                 
                 if (data.format === 'IMG') {
                     // Render all parts stacked vertically

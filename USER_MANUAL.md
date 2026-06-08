@@ -11,13 +11,14 @@
 3. [Sorting Questions](#3-sorting-questions)
 4. [Selecting Questions](#4-selecting-questions)
 5. [Viewer / Presentation Mode](#5-viewer--presentation-mode)
-6. [Generating Word Documents](#6-generating-word-documents)
-7. [My Generated Files](#7-my-generated-files)
-8. [Saved Search Profiles](#8-saved-search-profiles)
-9. [Saved Generation Presets](#9-saved-generation-presets)
-10. [Question Sets](#10-question-sets)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Quick Reference](#12-quick-reference)
+6. [Toolbox / Markup](#6-toolbox--markup)
+7. [Generating Word Documents](#7-generating-word-documents)
+8. [My Generated Files](#8-my-generated-files)
+9. [Saved Search Profiles](#9-saved-search-profiles)
+10. [Saved Generation Presets](#10-saved-generation-presets)
+11. [Question Sets](#11-question-sets)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Quick Reference](#13-quick-reference)
 
 ---
 
@@ -50,6 +51,7 @@ The top navigation bar has:
 - **Viewer** — presentation/review mode for selected questions
 - **My Files** — download or manage your generated documents
 - **Profiles** — saved search presets
+- **Toolbox** — utilities such as Markup
 - **Admin** — visible to admins only
 
 ---
@@ -192,9 +194,48 @@ The viewer lets you review questions one by one in a large, clean layout — use
 
 The viewer automatically falls back to ANS if SOL is not available and vice versa.
 
+In each Question or Solution panel, a pencil button appears when the displayed asset is an image or a Word thumbnail. Click it to open that image in **Markup** in a new tab.
+
 ---
 
-## 6. Generating Word Documents
+## 6. Toolbox / Markup
+
+Open **My Stuff → Toolbox → Markup** to handwrite solutions or annotate an image on an infinite white canvas.
+
+### Markup Basics
+
+- **Draw**: use Pen or Highlighter. One finger or stylus draws.
+- **Move around**: use two fingers to pan and pinch-zoom. The Hand tool pans with one finger.
+- **Erase**: the eraser removes whole strokes/shapes.
+- **Select**: use Lasso to draw around strokes, then drag the selection or delete it.
+- **Text and shapes**: add text, straight lines, rectangles, or ellipses from the toolbar.
+- **Lock size**: when enabled, new strokes keep a constant size in the final exported image. When disabled, the stroke feels constant on screen while zoomed.
+- **Snap**: with Snap enabled, hold briefly at the end of a pen stroke to snap simple shapes such as straight lines.
+- **Undo/Redo**: toolbar buttons or `Ctrl+Z` / `Ctrl+Y`.
+
+### Adding Images
+
+You can start with a blank canvas or import an image by:
+- tapping **Import image** inside Markup,
+- pasting an image from the clipboard,
+- opening a QUE/SOL asset from Viewer / Presentation Mode,
+- sharing an image to the installed Markup PWA on Android.
+
+Markup autosaves locally on the same device and offers to restore the previous drawing when you open it again. It does not save drawings to the server.
+
+### Exporting
+
+Tap **Share** to create a PNG. The export is automatically cropped to the imported image and drawn regions, with a white background. If the device supports file sharing, the system Share sheet opens; otherwise the PNG downloads.
+
+### Installing on Mobile
+
+On Android Chrome, open Markup once and choose **Add to Home screen** / **Install app**. After installation, Android can show Markup as a target when sharing image files.
+
+On iPhone/iPad, use Safari's **Add to Home Screen**. iOS does not support native Web Share Target for PWAs, so use Markup's in-app upload/paste/photo-picker. If needed, create an iOS Shortcut that opens the Markup URL from the Share sheet, then use the Upload button to pick the shared image.
+
+---
+
+## 7. Generating Word Documents
 
 ### Getting There
 
@@ -282,7 +323,7 @@ Enter a name (without extension). A timestamp is appended automatically. Leave b
 
 ---
 
-## 7. My Generated Files
+## 8. My Generated Files
 
 Navigate to **My Files** (top navigation).
 
@@ -335,7 +376,7 @@ The top-bar **Filter files by name** box filters across **every page of every se
 
 ---
 
-## 8. Saved Search Profiles
+## 9. Saved Search Profiles
 
 Navigate to **Profiles** (top navigation).
 
@@ -372,7 +413,7 @@ Super admins can mark any profile as **Shared** so it appears in every user's dr
 
 ---
 
-## 9. Saved Generation Presets
+## 10. Saved Generation Presets
 
 Generation presets are reusable templates of the **generation options** (answer mode, spacing, info/section/split fields, version priority, sort, etc.). They are independent of any specific question selection — load a preset to instantly restore all the options without changing which questions are selected.
 
@@ -410,7 +451,7 @@ Super admins can mark any preset as **Shared** so it appears in every user's pre
 
 ---
 
-## 10. Question Sets
+## 11. Question Sets
 
 A **Question Set** is a saved, named list of questions for a single subject. Sets let you build up a custom collection of questions across multiple searches and combine them with **set algebra** — Union (∪), Intersection (∩), Difference (\\) — to produce arbitrary groupings.
 
@@ -473,7 +514,7 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
@@ -486,7 +527,7 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 
 ---
 
-## 12. Quick Reference
+## 13. Quick Reference
 
 ### Keyboard Shortcuts (Viewer)
 | Key | Action |

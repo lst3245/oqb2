@@ -460,6 +460,21 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | `/gen-profiles/save` | POST | Save/upsert a preset (by `(user_id, name)`) |
 | `/gen-profiles/<id>/data` | GET | Get options data (owner / super admin / any user if `is_shared`) |
 | `/gen-profiles/<id>` | DELETE | Delete preset |
+
+### `toolbox_bp` — `app/toolbox/__init__.py` — prefix: `/admin/toolbox`
+| Route | Method | Description |
+|---|---|---|
+| `/` | GET | Toolbox landing page for all logged-in users; individual cards/routes apply per-tool gating |
+| `/markup` | GET | Standalone Markup PWA canvas for logged-in users |
+| `/markup/share-target` | POST | Web Share Target fallback redirect when the service worker is not active |
+| `/pdf` | GET | Admin-only PDF Tool |
+| `/pdf/*` | GET, POST | Admin-only PDF Tool staging, processing, preview, export, and save APIs |
+
+### `pwa_bp` — `app/pwa.py` — prefix: `/`
+| Route | Method | Description |
+|---|---|---|
+| `/manifest.webmanifest` | GET | Root-scope PWA manifest for Markup install/share-target metadata |
+| `/sw.js` | GET | Root-scope service worker with `Service-Worker-Allowed: /` for Android Share Target interception |
 | `/gen-profiles/bulk-delete` | POST | Delete multiple presets |
 | `/gen-profiles/<id>/star` | POST | Toggle starred status (owner / super admin) |
 | `/gen-profiles/<id>/share` | POST | Toggle shared status (**super admin only**) |
@@ -628,9 +643,11 @@ A4 (`21cm × 29.7cm`) with 1.27cm margins on all sides.
   - Generation status polling (setInterval + fetch)
   - SSE consumption (ingestion, health sync) via `EventSource`
   - My Files / Profiles auto-refresh (setInterval)
+- **Standalone tool pages** may avoid `base.html` when they need full-screen control. `templates/markup.html` is the first PWA-style tool page: Konva + perfect-freehand + idb-keyval from CDN, full viewport touch handling, IndexedDB autosave, and crop-to-content PNG export.
 - **Tag editor** shared partial: `templates/partials/tag_editor_form.html` + `tag_editor_js.html`
   - Used in both the admin question edit modal and admin question management page
 - `base.html` includes Bootstrap, Bootstrap Icons, and HTMX from CDN
+- PWA files live under `static/markup/` and are exposed at root scope by `app/pwa.py`; Android Web Share Target requires HTTPS (or localhost) and an active service worker. iOS Safari does not support Web Share Target.
 
 ---
 

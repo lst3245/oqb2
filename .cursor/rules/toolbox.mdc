@@ -1,14 +1,29 @@
 ---
-description: Admin Toolbox + PDF Tool — upload/process/merge PDFs (A3 split, deskew, rotate, image filters) and export
-globs: app/toolbox/**,app/pdf_tools.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html
+description: Toolbox tools — Markup PWA plus admin-only PDF processing/export
+globs: app/toolbox/**,app/pdf_tools.py,app/pwa.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html,templates/markup.html,static/markup/**
 alwaysApply: false
 ---
 
-# Toolbox (Admin)
+# Toolbox
 
-A home for self-service admin utilities (`@admin_required` = subject admins + super admins). First tool is the **PDF Tool**.
+A home for self-service utilities. The landing page is `GET /admin/toolbox` and is `@login_required` only. Individual tools apply their own permission gates:
+- **Markup** (`GET /admin/toolbox/markup`) is available to every logged-in user.
+- **PDF Tool** (`GET /admin/toolbox/pdf` plus `/pdf/*` API routes) stays `@admin_required`.
 
-**Layout:** thin blueprint hub [app/toolbox/__init__.py](mdc:app/toolbox/__init__.py) (`toolbox_bp`, landing `GET /`), shared path helpers [app/toolbox/common.py](mdc:app/toolbox/common.py), PDF Tool routes + staging [app/toolbox/pdf.py](mdc:app/toolbox/pdf.py). Processing primitives in [app/pdf_tools.py](mdc:app/pdf_tools.py) (shared with Batch PDF Import). New tools → add `app/toolbox/<tool>.py` and import it from `__init__.py` after the blueprint is created. Linked from the Admin navbar dropdown and an Admin Panel card.
+**Layout:** thin blueprint hub [app/toolbox/__init__.py](mdc:app/toolbox/__init__.py) (`toolbox_bp`, landing `GET /`), shared path helpers [app/toolbox/common.py](mdc:app/toolbox/common.py), Markup route [app/toolbox/markup.py](mdc:app/toolbox/markup.py), PDF Tool routes + staging [app/toolbox/pdf.py](mdc:app/toolbox/pdf.py). Processing primitives in [app/pdf_tools.py](mdc:app/pdf_tools.py) are shared with Batch PDF Import. New tools → add `app/toolbox/<tool>.py`, import it from `__init__.py` after the blueprint is created, and add a card to `templates/admin_toolbox.html`. The Toolbox is linked from the all-user **My Stuff** navbar dropdown; admin-only tools should hide their cards for non-admin users.
+
+## Markup PWA
+
+Standalone page [templates/markup.html](mdc:templates/markup.html), not `base.html`, to maximise drawing space. It uses Konva from CDN, `perfect-freehand` from ESM CDN, and `idb-keyval` from CDN; no build step.
+
+PWA files:
+- [app/pwa.py](mdc:app/pwa.py) serves `/manifest.webmanifest` and `/sw.js` at root scope. `/sw.js` must keep `Service-Worker-Allowed: /`.
+- [static/markup/manifest.webmanifest](mdc:static/markup/manifest.webmanifest) declares the Android Web Share Target at `/admin/toolbox/markup/share-target`.
+- [static/markup/sw.js](mdc:static/markup/sw.js) intercepts share-target POSTs, stores the image in Cache API, then redirects to `/admin/toolbox/markup?shared=1`.
+
+Markup is client-side and does not save drawings server-side. Autosave is per-device IndexedDB (`oqb:markup:autosave:v1`). Export unions image/drawing bounds and writes a white-background PNG cropped to content. Present mode passes images via `?img=<same-origin-url>`; external URLs are intentionally rejected to avoid canvas-taint export failures. iOS Safari cannot register Web Share Target, so iOS relies on installed PWA + upload/paste and an optional Shortcut workflow.
+
+## PDF Tool
 
 ## Page descriptor model (the core idea)
 

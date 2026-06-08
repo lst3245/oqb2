@@ -29,6 +29,11 @@ Flask web app for managing, browsing, tagging, and generating exam question pape
 | `admin_bp` | `app/admin.py` | `/admin` | Admin panel (topics, questions, users, ingest, export) |
 | `generator_bp` | `app/generator.py` | `/generate` | Word doc generation + viewer mode |
 | `user_bp` | `app/user.py` | `/user` | My Files + Saved Filter Profiles |
+| `toolbox_bp` | `app/toolbox/` | `/admin/toolbox` | Toolbox hub: Markup for all logged-in users + admin-only PDF Tool |
+| `pwa_bp` | `app/pwa.py` | `/` | Root-scope Markup PWA manifest and service worker |
+
+## Toolbox / Markup
+Toolbox index is available to all logged-in users; each tool gates itself. **Markup** is a standalone mobile-first PWA at `/admin/toolbox/markup` for handwriting solutions on an infinite canvas (Konva + perfect-freehand, local IndexedDB autosave, crop-to-content PNG export/share). Android installed PWA can receive image shares via Web Share Target (`/manifest.webmanifest` + `/sw.js`); iOS cannot natively support Web Share Target, so use install + upload/paste/Shortcuts fallback. The **PDF Tool** remains admin-only.
 
 ## Key Files to Read for Context
 - `app/models.py` — **source of truth** for DB schema and all model relationships

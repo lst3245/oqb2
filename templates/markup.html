@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Markup">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='markup/icon.svg') }}">
+    <title>Markup - OQB</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
+    <style>
+        :root {
+            --toolbar-bg: rgba(255, 255, 255, 0.95);
+            --toolbar-border: rgba(15, 23, 42, 0.14);
+            --toolbar-shadow: 0 12px 36px rgba(15, 23, 42, 0.14);
+            --accent: #0d6efd;
+        }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            overscroll-behavior: none;
+            touch-action: none;
+            background: #ffffff;
+            color: #0f172a;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        #stageWrap {
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(circle at center, rgba(13, 110, 253, 0.08) 0 1px, transparent 1px) 0 0 / 32px 32px,
+                #ffffff;
+            touch-action: none;
+            cursor: crosshair;
+        }
+        #stageWrap.hand-mode {
+            cursor: grab;
+        }
+        #stageWrap.hand-mode:active {
+            cursor: grabbing;
+        }
+        .topbar {
+            position: fixed;
+            top: max(10px, env(safe-area-inset-top));
+            left: max(10px, env(safe-area-inset-left));
+            right: max(10px, env(safe-area-inset-right));
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .tool-strip,
+        .panel {
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px;
+            border: 1px solid var(--toolbar-border);
+            border-radius: 999px;
+            background: var(--toolbar-bg);
+            box-shadow: var(--toolbar-shadow);
+            backdrop-filter: blur(12px);
+        }
+        .tool-strip {
+            max-width: min(840px, 100%);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .tool-strip::-webkit-scrollbar {
+            display: none;
+        }
+        .tool-btn,
+        .round-btn {
+            width: 38px;
+            height: 38px;
+            border: 0;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            color: #1f2937;
+            font-size: 18px;
+            flex: 0 0 auto;
+        }
+        .tool-btn:hover,
+        .round-btn:hover {
+            background: rgba(13, 110, 253, 0.1);
+        }
+        .tool-btn.active,
+        .round-btn.active {
+            background: var(--accent);
+            color: #ffffff;
+        }
+        .round-btn.danger:hover {
+            background: rgba(220, 53, 69, 0.14);
+            color: #dc3545;
+        }
+        .separator {
+            width: 1px;
+            height: 26px;
+            background: rgba(15, 23, 42, 0.14);
+            flex: 0 0 auto;
+        }
+        .settings-panel {
+            position: fixed;
+            left: max(10px, env(safe-area-inset-left));
+            bottom: max(10px, env(safe-area-inset-bottom));
+            z-index: 20;
+            display: flex;
+            align-items: stretch;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .settings-panel > * {
+            pointer-events: auto;
+        }
+        .size-card,
+        .status-card {
+            min-width: 180px;
+            padding: 10px 12px;
+            border: 1px solid var(--toolbar-border);
+            border-radius: 18px;
+            background: var(--toolbar-bg);
+            box-shadow: var(--toolbar-shadow);
+            backdrop-filter: blur(12px);
+        }
+        .size-card label,
+        .toggle-line {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 13px;
+            color: #475569;
+            margin-bottom: 8px;
+        }
+        .size-card input[type="range"] {
+            width: 100%;
+        }
+        .color-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .color-btn {
+            width: 28px;
+            height: 28px;
+            border: 2px solid transparent;
+            border-radius: 999px;
+            background: var(--c);
+        }
+        .color-btn.active {
+            border-color: #0f172a;
+        }
+        #customColor {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+        }
+        .status-card {
+            min-width: 150px;
+            font-size: 12px;
+            color: #475569;
+        }
+        .status-card strong {
+            color: #0f172a;
+        }
+        .restore-card {
+            position: fixed;
+            top: 72px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 30;
+            width: min(440px, calc(100vw - 24px));
+            padding: 14px;
+            border: 1px solid var(--toolbar-border);
+            border-radius: 18px;
+            background: #ffffff;
+            box-shadow: var(--toolbar-shadow);
+            display: none;
+        }
+        .restore-card.show {
+            display: block;
+        }
+        .restore-card p {
+            margin: 0 0 12px;
+            color: #334155;
+            font-size: 14px;
+        }
+        .restore-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .small-btn {
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #0f172a;
+            padding: 7px 12px;
+            font-size: 13px;
+        }
+        .small-btn.primary {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #ffffff;
+        }
+        .size-preview {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 28;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.35);
+            opacity: 0;
+            transition: opacity 140ms ease;
+            pointer-events: none;
+        }
+        .size-preview.show {
+            opacity: 0.85;
+        }
+        .toast-line {
+            position: fixed;
+            right: max(10px, env(safe-area-inset-right));
+            bottom: max(10px, env(safe-area-inset-bottom));
+            z-index: 30;
+            max-width: min(360px, calc(100vw - 20px));
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #ffffff;
+            font-size: 13px;
+            box-shadow: var(--toolbar-shadow);
+            opacity: 0;
+            transform: translateY(12px);
+            transition: opacity 160ms ease, transform 160ms ease;
+            pointer-events: none;
+        }
+        .toast-line.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .hidden {
+            display: none !important;
+        }
+        textarea.text-editor {
+            position: fixed;
+            z-index: 40;
+            min-width: 140px;
+            min-height: 44px;
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            padding: 6px;
+            outline: none;
+            resize: both;
+            background: rgba(255, 255, 255, 0.96);
+            color: #0f172a;
+            font-family: inherit;
+            box-shadow: var(--toolbar-shadow);
+            -webkit-user-select: text;
+            user-select: text;
+            white-space: pre;
+            overflow-wrap: normal;
+        }
+        @media (max-width: 720px) {
+            .topbar {
+                align-items: flex-start;
+            }
+            .panel {
+                flex-direction: column;
+                border-radius: 22px;
+            }
+            .settings-panel {
+                right: max(10px, env(safe-area-inset-right));
+                align-items: flex-end;
+            }
+            .size-card {
+                min-width: 160px;
+                max-width: calc(100vw - 20px);
+            }
+            .status-card {
+                display: none;
+            }
+            .tool-btn,
+            .round-btn {
+                width: 40px;
+                height: 40px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="stageWrap"></div>
+
+    <div class="topbar">
+        <div class="tool-strip" aria-label="Markup tools">
+            <button class="tool-btn" data-tool="hand" title="Pan"><i class="bi bi-hand-index-thumb"></i></button>
+            <button class="tool-btn active" data-tool="pen" title="Pen"><i class="bi bi-pencil"></i></button>
+            <button class="tool-btn" data-tool="highlighter" title="Highlighter"><i class="bi bi-highlighter"></i></button>
+            <button class="tool-btn" data-tool="eraser" title="Eraser"><i class="bi bi-eraser"></i></button>
+            <button class="tool-btn" data-tool="lasso" title="Lasso"><i class="bi bi-bounding-box-circles"></i></button>
+            <button class="tool-btn" data-tool="text" title="Text"><i class="bi bi-fonts"></i></button>
+            <span class="separator"></span>
+            <button class="tool-btn" data-tool="line" title="Straight line"><i class="bi bi-slash-lg"></i></button>
+            <button class="tool-btn" data-tool="rect" title="Rectangle"><i class="bi bi-square"></i></button>
+            <button class="tool-btn" data-tool="ellipse" title="Ellipse"><i class="bi bi-circle"></i></button>
+            <span class="separator"></span>
+            <button class="tool-btn active" id="lockSizeBtn" title="Lock pen size in exported result"><i class="bi bi-rulers"></i></button>
+            <button class="tool-btn active" id="snapBtn" title="Snap held strokes to shapes"><i class="bi bi-magic"></i></button>
+            <button class="tool-btn" id="deleteSelBtn" title="Delete selected"><i class="bi bi-trash3"></i></button>
+        </div>
+        <div class="panel" aria-label="Actions">
+            <button class="round-btn" id="undoBtn" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button class="round-btn" id="redoBtn" title="Redo"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="round-btn" id="importBtn" title="Import image"><i class="bi bi-image"></i></button>
+            <button class="round-btn" id="fitBtn" title="Fit content"><i class="bi bi-arrows-fullscreen"></i></button>
+            <button class="round-btn active" id="exportBtn" title="Export or share"><i class="bi bi-share"></i></button>
+            <button class="round-btn danger" id="clearBtn" title="Clear"><i class="bi bi-x-circle"></i></button>
+        </div>
+    </div>
+
+    <div class="settings-panel">
+        <div class="size-card">
+            <label for="brushSize">
+                <span>Size</span>
+                <strong><span id="brushSizeValue">8</span> px</strong>
+            </label>
+            <input id="brushSize" type="range" min="1" max="160" value="8">
+            <div class="toggle-line">
+                <span id="modeText">Pen</span>
+                <span id="zoomText">100%</span>
+            </div>
+            <div class="color-row" aria-label="Colors">
+                <button class="color-btn active" data-color-index="0" data-color="#111827" style="--c:#111827" title="Black"></button>
+                <button class="color-btn" data-color-index="1" data-color="#dc2626" style="--c:#dc2626" title="Red"></button>
+                <button class="color-btn" data-color-index="2" data-color="#2563eb" style="--c:#2563eb" title="Blue"></button>
+                <button class="color-btn" data-color-index="3" data-color="#16a34a" style="--c:#16a34a" title="Green"></button>
+                <button class="color-btn" data-color-index="4" data-color="#f59e0b" style="--c:#f59e0b" title="Amber"></button>
+                <button class="color-btn" data-color-index="5" data-color="#e879f9" style="--c:#e879f9" title="Pink"></button>
+                <input id="customColor" type="color" value="#111827" title="Custom color">
+            </div>
+        </div>
+        <div class="status-card">
+            <div><strong>Touch</strong>: 1 finger draws, 2 fingers pan/zoom</div>
+            <div><strong>Import</strong>: share, upload, paste, or Present mode</div>
+            <div id="autosaveText">Autosave ready</div>
+        </div>
+    </div>
+
+    <div class="restore-card" id="restoreCard">
+        <p>A previous Markup drawing was autosaved on this device.</p>
+        <div class="restore-actions">
+            <button class="small-btn" id="discardRestoreBtn">Start new</button>
+            <button class="small-btn primary" id="restoreBtn">Restore</button>
+        </div>
+    </div>
+
+    <input id="imageInput" class="hidden" type="file" accept="image/*" multiple>
+    <div class="size-preview" id="sizePreview"></div>
+    <div class="toast-line" id="toastLine"></div>
+
+    <script type="module">
+        import { getStroke } from 'https://esm.sh/perfect-freehand@1.2.2';
+
+        const SHARE_CACHE = 'markup-share-v1';
+        const SHARE_KEY = '/__oqb_markup_shared_image__';
+        const AUTOSAVE_KEY = 'oqb:markup:autosave:v1';
+
+        const idb = window.idbKeyval;
+        const stageWrap = document.getElementById('stageWrap');
+        const imageInput = document.getElementById('imageInput');
+        const toastLine = document.getElementById('toastLine');
+        const zoomText = document.getElementById('zoomText');
+        const modeText = document.getElementById('modeText');
+        const autosaveText = document.getElementById('autosaveText');
+        const brushSize = document.getElementById('brushSize');
+        const brushSizeValue = document.getElementById('brushSizeValue');
+        const sizePreview = document.getElementById('sizePreview');
+
+        const TOOL_PALETTES = {
+            pen: [
+                ['#111827', 'Black'],
+                ['#dc2626', 'Red'],
+                ['#2563eb', 'Blue'],
+                ['#16a34a', 'Green'],
+                ['#f59e0b', 'Amber'],
+                ['#e879f9', 'Pink']
+            ],
+            highlighter: [
+                ['#facc15', 'Yellow'],
+                ['#22c55e', 'Green'],
+                ['#38bdf8', 'Blue'],
+                ['#fb923c', 'Orange'],
+                ['#f472b6', 'Pink'],
+                ['#a3e635', 'Lime']
+            ]
+        };
+        const toolSettings = {
+            pen: { color: '#111827', size: 8 },
+            highlighter: { color: '#facc15', size: 28 }
+        };
+
+        let activeTool = 'pen';
+        let lockSize = true;
+        let snapShapes = true;
+        let nodeCounter = 0;
+        let imageCounter = 0;
+        let autosaveTimer = null;
+        let selectedNodes = [];
+        let lastMoveBefore = null;
+        let activePointers = new Map();
+        let interaction = null;
+        let gesture = null;
+        let drawing = null;
+        let snapTimer = null;
+        let snapPreview = null;
+        let toastTimer = null;
+        let sizePreviewTimer = null;
+        let sizeAutoConfigured = false;
+        let selectionRect = null;
+
+        const undoStack = [];
+        const redoStack = [];
+
+        const stage = new Konva.Stage({
+            container: 'stageWrap',
+            width: window.innerWidth,
+            height: window.innerHeight,
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            scaleX: 1,
+            scaleY: 1
+        });
+        const bgLayer = new Konva.Layer();
+        const drawLayer = new Konva.Layer();
+        const uiLayer = new Konva.Layer();
+        stage.add(bgLayer, drawLayer, uiLayer);
+
+        const transformer = new Konva.Transformer({
+            rotateEnabled: false,
+            resizeEnabled: false,
+            borderStroke: '#0d6efd',
+            borderDash: [6, 6],
+            anchorSize: 0,
+            padding: 10
+        });
+        uiLayer.add(transformer);
+
+        function nextId(prefix = 'mk') {
+            nodeCounter += 1;
+            return `${prefix}_${Date.now().toString(36)}_${nodeCounter.toString(36)}`;
+        }
+
+        function screenPoint(evt) {
+            const rect = stageWrap.getBoundingClientRect();
+            return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+        }
+
+        function worldPointFromScreen(pt) {
+            const scale = stage.scaleX();
+            return {
+                x: (pt.x - stage.x()) / scale,
+                y: (pt.y - stage.y()) / scale
+            };
+        }
+
+        function worldPoint(evt) {
+            return worldPointFromScreen(screenPoint(evt));
+        }
+
+        function settingsKeyForTool(tool = activeTool) {
+            return tool === 'highlighter' ? 'highlighter' : 'pen';
+        }
+
+        function activeSettings() {
+            return toolSettings[settingsKeyForTool()];
+        }
+
+        function activeColor() {
+            return activeSettings().color;
+        }
+
+        function currentWorldWidth() {
+            const scale = stage.scaleX() || 1;
+            const screenSize = activeSettings().size;
+            return lockSize ? screenSize : screenSize / scale;
+        }
+
+        function stageZoomPercent() {
+            return Math.round(stage.scaleX() * 100);
+        }
+
+        function updateStatus() {
+            zoomText.textContent = `${stageZoomPercent()}%`;
+            modeText.textContent = toolLabel(activeTool);
+            brushSize.value = String(activeSettings().size);
+            brushSizeValue.textContent = String(activeSettings().size);
+            stageWrap.classList.toggle('hand-mode', activeTool === 'hand');
+            document.getElementById('lockSizeBtn').classList.toggle('active', lockSize);
+            document.getElementById('snapBtn').classList.toggle('active', snapShapes);
+            document.getElementById('undoBtn').disabled = undoStack.length === 0;
+            document.getElementById('redoBtn').disabled = redoStack.length === 0;
+            document.getElementById('deleteSelBtn').disabled = selectedNodes.length === 0;
+        }
+
+        function toolLabel(tool) {
+            return {
+                hand: 'Pan',
+                pen: 'Pen',
+                highlighter: 'Highlighter',
+                eraser: 'Eraser',
+                lasso: 'Lasso',
+                text: 'Text',
+                line: 'Line',
+                rect: 'Rectangle',
+                ellipse: 'Ellipse'
+            }[tool] || tool;
+        }
+
+        function setTool(tool) {
+            activeTool = tool;
+            document.querySelectorAll('[data-tool]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tool === tool);
+            });
+            if (tool !== 'lasso') setSelected([]);
+            syncToolControls();
+            updateStatus();
+        }
+
+        function syncToolControls() {
+            const key = settingsKeyForTool();
+            const palette = TOOL_PALETTES[key];
+            document.querySelectorAll('[data-color-index]').forEach(btn => {
+                const entry = palette[Number(btn.dataset.colorIndex)] || palette[0];
+                btn.dataset.color = entry[0];
+                btn.title = entry[1];
+                btn.style.setProperty('--c', entry[0]);
+                btn.classList.toggle('active', entry[0].toLowerCase() === activeSettings().color.toLowerCase());
+            });
+            document.getElementById('customColor').value = activeSettings().color;
+        }
+
+        function setActiveColor(nextColor) {
+            activeSettings().color = nextColor;
+            syncToolControls();
+        }
+
+        function showToast(message) {
+            toastLine.textContent = message;
+            toastLine.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toastLine.classList.remove('show'), 2200);
+        }
+
+        function showSizePreview() {
+            const scale = stage.scaleX() || 1;
+            const onScreen = currentWorldWidth() * scale;
+            const diameter = clamp(onScreen, 2, Math.min(window.innerWidth, window.innerHeight) * 0.7);
+            sizePreview.style.width = `${diameter}px`;
+            sizePreview.style.height = `${diameter}px`;
+            sizePreview.style.color = activeColor();
+            sizePreview.classList.add('show');
+            clearTimeout(sizePreviewTimer);
+            sizePreviewTimer = setTimeout(() => sizePreview.classList.remove('show'), 850);
+        }
+
+        function autoConfigureSizes(img) {
+            if (sizeAutoConfigured) return;
+            const maxDim = Math.max(img.naturalWidth || img.width || 0, img.naturalHeight || img.height || 0);
+            if (!maxDim) return;
+            const pen = clamp(Math.round(maxDim * 0.0045), 3, 60);
+            toolSettings.pen.size = pen;
+            toolSettings.highlighter.size = clamp(Math.round(pen * 3.4), 12, 140);
+            sizeAutoConfigured = true;
+            syncToolControls();
+            updateStatus();
+        }
+
+        function scheduleAutosave() {
+            clearTimeout(autosaveTimer);
+            autosaveText.textContent = 'Autosave pending...';
+            autosaveTimer = setTimeout(saveScene, 800);
+        }
+
+        async function saveScene() {
+            if (!idb) return;
+            const scene = {
+                version: 1,
+                stage: { x: stage.x(), y: stage.y(), scale: stage.scaleX() },
+                bg: bgLayer.getChildren().map(serializeNode),
+                draw: drawLayer.getChildren().map(serializeNode)
+            };
+            await idb.set(AUTOSAVE_KEY, scene);
+            autosaveText.textContent = 'Autosaved';
+        }
+
+        async function clearAutosave() {
+            if (idb) await idb.del(AUTOSAVE_KEY);
+            autosaveText.textContent = 'Autosave cleared';
+        }
+
+        function pushOp(op) {
+            undoStack.push(op);
+            redoStack.length = 0;
+            updateStatus();
+            scheduleAutosave();
+        }
+
+        function applyAdd(datas) {
+            datas.forEach(data => addSerializedNode(data));
+        }
+
+        function applyRemove(datas) {
+            datas.forEach(data => {
+                const node = findNode(data.id);
+                if (node) node.destroy();
+            });
+            setSelected(selectedNodes.filter(n => n.getLayer()));
+            drawAll();
+        }
+
+        function applyModify(items, side) {
+            items.forEach(item => {
+                const attrs = side === 'before' ? item.before : item.after;
+                const node = findNode(item.id);
+                if (node) node.setAttrs({ ...attrs });
+            });
+            drawAll();
+        }
+
+        function undo() {
+            const op = undoStack.pop();
+            if (!op) return;
+            if (op.type === 'add') applyRemove(op.nodes);
+            if (op.type === 'remove') applyAdd(op.nodes);
+            if (op.type === 'modify') applyModify(op.items, 'before');
+            redoStack.push(op);
+            updateStatus();
+            scheduleAutosave();
+        }
+
+        function redo() {
+            const op = redoStack.pop();
+            if (!op) return;
+            if (op.type === 'add') applyAdd(op.nodes);
+            if (op.type === 'remove') applyRemove(op.nodes);
+            if (op.type === 'modify') applyModify(op.items, 'after');
+            undoStack.push(op);
+            updateStatus();
+            scheduleAutosave();
+        }
+
+        function drawAll() {
+            bgLayer.batchDraw();
+            drawLayer.batchDraw();
+            uiLayer.batchDraw();
+        }
+
+        function findNode(id) {
+            return bgLayer.findOne(`#${id}`) || drawLayer.findOne(`#${id}`);
+        }
+
+        function serializeNode(node) {
+            const attrs = { ...node.attrs };
+            delete attrs.image;
+            if (node.getClassName() === 'Image') attrs.imageSrc = node.attrs.imageSrc || '';
+            return {
+                id: node.id(),
+                className: node.getClassName(),
+                attrs
+            };
+        }
+
+        function serialAttrs(node) {
+            const attrs = { ...node.attrs };
+            delete attrs.image;
+            return attrs;
+        }
+
+        function addSerializedNode(data) {
+            const layer = data.attrs.markupType === 'image' ? bgLayer : drawLayer;
+            if (data.className === 'Image') {
+                if (!data.attrs.imageSrc) return;
+                loadImageElement(data.attrs.imageSrc).then(img => {
+                    const node = new Konva.Image({ ...data.attrs, image: img });
+                    wireNode(node);
+                    layer.add(node);
+                    layer.batchDraw();
+                });
+                return;
+            }
+            let node;
+            if (data.className === 'Line') node = new Konva.Line(data.attrs);
+            if (data.className === 'Rect') node = new Konva.Rect(data.attrs);
+            if (data.className === 'Ellipse') node = new Konva.Ellipse(data.attrs);
+            if (data.className === 'Text') node = new Konva.Text(data.attrs);
+            if (!node) return;
+            wireNode(node);
+            layer.add(node);
+            layer.batchDraw();
+        }
+
+        function wireNode(node) {
+            node.listening(node.attrs.markupType !== 'image');
+            node.on('dblclick dbltap', () => {
+                if (node.attrs.markupType === 'text') editTextNode(node);
+            });
+        }
+
+        function setSelected(nodes) {
+            selectedNodes = nodes.filter(Boolean).filter(node => node.getLayer());
+            transformer.nodes(selectedNodes);
+            updateSelectionRect();
+            uiLayer.batchDraw();
+            updateStatus();
+        }
+
+        function updateSelectionRect() {
+            if (selectionRect) {
+                selectionRect.destroy();
+                selectionRect = null;
+            }
+            if (selectedNodes.length === 0) return;
+            let box = null;
+            selectedNodes.forEach(node => {
+                const rect = node.getClientRect({ relativeTo: drawLayer });
+                box = box ? unionRect(box, rect) : rect;
+            });
+            if (!box) return;
+            const pad = 8 / stage.scaleX();
+            selectionRect = new Konva.Rect({
+                x: box.x - pad,
+                y: box.y - pad,
+                width: box.width + pad * 2,
+                height: box.height + pad * 2,
+                fill: 'rgba(13, 110, 253, 0.10)',
+                stroke: '#0d6efd',
+                strokeWidth: 1.5 / stage.scaleX(),
+                dash: [8 / stage.scaleX(), 6 / stage.scaleX()],
+                listening: false
+            });
+            uiLayer.add(selectionRect);
+            selectionRect.moveToBottom();
+        }
+
+        function hitDrawNode(screen) {
+            const node = stage.getIntersection(screen);
+            if (!node) return null;
+            let cur = node;
+            while (cur && cur !== stage) {
+                if (cur.getLayer && cur.getLayer() === drawLayer && cur.attrs.markupType) return cur;
+                cur = cur.getParent();
+            }
+            return null;
+        }
+
+        function beginFreehand(type, point) {
+            const width = currentWorldWidth();
+            const strokeColor = activeColor();
+            const node = type === 'highlighter'
+                ? new Konva.Line({
+                    id: nextId('hl'),
+                    markupType: 'highlighter',
+                    points: [point.x, point.y],
+                    stroke: strokeColor,
+                    strokeWidth: width,
+                    opacity: 0.35,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    globalCompositeOperation: 'multiply'
+                })
+                : new Konva.Line({
+                    id: nextId('pen'),
+                    markupType: 'pen',
+                    points: [point.x, point.y],
+                    fill: strokeColor,
+                    stroke: strokeColor,
+                    strokeWidth: 0,
+                    closed: true,
+                    tension: 0,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                });
+            wireNode(node);
+            drawLayer.add(node);
+            drawing = {
+                kind: type,
+                node,
+                points: [point],
+                width,
+                startedAt: Date.now(),
+                lastMoveAt: Date.now()
+            };
+            drawLayer.batchDraw();
+        }
+
+        function updateFreehand(point) {
+            if (!drawing) return;
+            const last = drawing.points[drawing.points.length - 1];
+            if (distance(last, point) < 0.4) return;
+            drawing.points.push(point);
+            drawing.lastMoveAt = Date.now();
+            clearSnapPreview();
+            scheduleSnapPreview();
+            if (drawing.kind === 'highlighter') {
+                drawing.node.points(flattenPoints(drawing.points));
+            } else {
+                drawing.node.points(outlineFromPoints(drawing.points, drawing.width));
+            }
+            drawLayer.batchDraw();
+        }
+
+        function finishFreehand() {
+            if (!drawing) return;
+            clearSnapPreview();
+            const heldStill = Date.now() - drawing.lastMoveAt > 520;
+            if (snapShapes && heldStill && drawing.kind === 'pen' && drawing.points.length > 3) {
+                const snapped = buildSnappedShape(drawing.points, drawing.width);
+                if (snapped) {
+                    drawing.node.destroy();
+                    wireNode(snapped);
+                    drawLayer.add(snapped);
+                    drawing.node = snapped;
+                    showToast('Snapped to shape');
+                }
+            }
+            if (drawing.points.length < 2) {
+                drawing.node.destroy();
+            } else {
+                pushOp({ type: 'add', nodes: [serializeNode(drawing.node)] });
+            }
+            drawing = null;
+            drawLayer.batchDraw();
+        }
+
+        function scheduleSnapPreview() {
+            clearTimeout(snapTimer);
+            if (!snapShapes || !drawing || drawing.kind !== 'pen' || drawing.points.length < 4) return;
+            snapTimer = setTimeout(() => {
+                if (!drawing || drawing.kind !== 'pen') return;
+                const snapped = buildSnappedShape(drawing.points, drawing.width, { preview: true });
+                if (!snapped) return;
+                if (snapPreview) snapPreview.destroy();
+                snapPreview = snapped;
+                applySnapPreviewStyle(snapPreview);
+                uiLayer.add(snapPreview);
+                uiLayer.batchDraw();
+            }, 520);
+        }
+
+        function clearSnapPreview() {
+            clearTimeout(snapTimer);
+            snapTimer = null;
+            if (snapPreview) {
+                snapPreview.destroy();
+                snapPreview = null;
+                uiLayer.batchDraw();
+            }
+        }
+
+        function applySnapPreviewStyle(node) {
+            node.setAttrs({
+                stroke: '#6b7280',
+                fill: node.getClassName() === 'Line' && node.closed() ? '#6b7280' : undefined,
+                opacity: 0.45,
+                dash: [10 / stage.scaleX(), 8 / stage.scaleX()],
+                listening: false
+            });
+        }
+
+        function outlineFromPoints(points, width) {
+            const stroke = getStroke(points.map(p => [p.x, p.y, 0.5]), {
+                size: width,
+                thinning: 0.35,
+                smoothing: 0.55,
+                streamline: 0.45,
+                simulatePressure: true
+            });
+            return stroke.flatMap(p => [p[0], p[1]]);
+        }
+
+        function buildSnappedShape(points, width, opts = {}) {
+            const first = points[0];
+            const last = points[points.length - 1];
+            const box = boundsOfPoints(points);
+            const directness = distance(first, last) / Math.max(1, pathLength(points));
+            const closed = distance(first, last) < Math.max(box.width, box.height) * 0.18;
+            const color = opts.preview ? '#6b7280' : activeColor();
+
+            if (directness > 0.86) {
+                return new Konva.Line({
+                    id: nextId('line'),
+                    markupType: 'shape',
+                    shapeKind: 'line',
+                    points: [first.x, first.y, last.x, last.y],
+                    stroke: color,
+                    strokeWidth: width,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                });
+            }
+            if (!closed || box.width < width * 3 || box.height < width * 3) return null;
+
+            const rectScore = rectangleScore(points, box);
+            const ovalScore = ellipseScore(points, box);
+            const aspect = box.width / Math.max(1, box.height);
+            const ACCEPT = 0.22;
+            const preferRect = rectScore <= ovalScore;
+            if (preferRect && rectScore < ACCEPT) {
+                return new Konva.Rect({
+                    id: nextId('rect'),
+                    markupType: 'shape',
+                    shapeKind: 'rect',
+                    x: box.x,
+                    y: box.y,
+                    width: box.width,
+                    height: box.height,
+                    stroke: color,
+                    strokeWidth: width
+                });
+            }
+            if (ovalScore < ACCEPT) {
+                return new Konva.Ellipse({
+                    id: nextId('ellipse'),
+                    markupType: 'shape',
+                    shapeKind: Math.abs(aspect - 1) < 0.2 ? 'circle' : 'ellipse',
+                    x: box.x + box.width / 2,
+                    y: box.y + box.height / 2,
+                    radiusX: box.width / 2,
+                    radiusY: box.height / 2,
+                    stroke: color,
+                    strokeWidth: width
+                });
+            }
+            return null;
+        }
+
+        function beginShape(kind, point) {
+            const width = currentWorldWidth();
+            let node;
+            if (kind === 'line') {
+                node = new Konva.Line({
+                    id: nextId('line'),
+                    markupType: 'shape',
+                    shapeKind: 'line',
+                    points: [point.x, point.y, point.x, point.y],
+                    stroke: activeColor(),
+                    strokeWidth: width,
+                    lineCap: 'round'
+                });
+            } else if (kind === 'rect') {
+                node = new Konva.Rect({
+                    id: nextId('rect'),
+                    markupType: 'shape',
+                    shapeKind: 'rect',
+                    x: point.x,
+                    y: point.y,
+                    width: 1,
+                    height: 1,
+                    stroke: activeColor(),
+                    strokeWidth: width
+                });
+            } else {
+                node = new Konva.Ellipse({
+                    id: nextId('ellipse'),
+                    markupType: 'shape',
+                    shapeKind: 'ellipse',
+                    x: point.x,
+                    y: point.y,
+                    radiusX: 1,
+                    radiusY: 1,
+                    stroke: activeColor(),
+                    strokeWidth: width
+                });
+            }
+            wireNode(node);
+            drawLayer.add(node);
+            drawing = { kind, node, start: point, width, points: [point] };
+            drawLayer.batchDraw();
+        }
+
+        function updateShape(point) {
+            if (!drawing) return;
+            drawing.points.push(point);
+            const s = drawing.start;
+            if (drawing.kind === 'line') {
+                drawing.node.points([s.x, s.y, point.x, point.y]);
+            } else if (drawing.kind === 'rect') {
+                const x = Math.min(s.x, point.x);
+                const y = Math.min(s.y, point.y);
+                drawing.node.setAttrs({
+                    x,
+                    y,
+                    width: Math.abs(point.x - s.x),
+                    height: Math.abs(point.y - s.y)
+                });
+            } else if (drawing.kind === 'ellipse') {
+                drawing.node.setAttrs({
+                    x: (s.x + point.x) / 2,
+                    y: (s.y + point.y) / 2,
+                    radiusX: Math.abs(point.x - s.x) / 2,
+                    radiusY: Math.abs(point.y - s.y) / 2
+                });
+            }
+            drawLayer.batchDraw();
+        }
+
+        function finishShape() {
+            if (!drawing) return;
+            const box = drawing.node.getClientRect({ relativeTo: drawLayer });
+            if (box.width < 2 && box.height < 2) {
+                drawing.node.destroy();
+            } else {
+                pushOp({ type: 'add', nodes: [serializeNode(drawing.node)] });
+            }
+            drawing = null;
+            drawLayer.batchDraw();
+        }
+
+        function pointInSelection(point) {
+            return selectedNodes.some(node => {
+                const rect = node.getClientRect({ relativeTo: drawLayer });
+                const pad = 6 / stage.scaleX();
+                return point.x >= rect.x - pad && point.x <= rect.x + rect.width + pad
+                    && point.y >= rect.y - pad && point.y <= rect.y + rect.height + pad;
+            });
+        }
+
+        function beginLasso(point, screen) {
+            if (selectedNodes.length && pointInSelection(point)) {
+                lastMoveBefore = selectedNodes.map(node => ({ id: node.id(), before: serialAttrs(node) }));
+                interaction = {
+                    type: 'move-selection',
+                    start: point,
+                    initial: selectedNodes.map(node => ({ node, x: node.x(), y: node.y() }))
+                };
+                return;
+            }
+            const node = new Konva.Line({
+                points: [point.x, point.y],
+                stroke: '#0d6efd',
+                strokeWidth: 1.5 / stage.scaleX(),
+                dash: [8 / stage.scaleX(), 8 / stage.scaleX()],
+                closed: true,
+                fill: 'rgba(13, 110, 253, 0.08)',
+                listening: false
+            });
+            uiLayer.add(node);
+            interaction = { type: 'lasso', points: [point], start: point, screen, node };
+            uiLayer.batchDraw();
+        }
+
+        function updateLasso(point) {
+            if (!interaction) return;
+            if (interaction.type === 'move-selection') {
+                const dx = point.x - interaction.start.x;
+                const dy = point.y - interaction.start.y;
+                interaction.initial.forEach(item => item.node.position({ x: item.x + dx, y: item.y + dy }));
+                updateSelectionRect();
+                drawAll();
+                return;
+            }
+            if (interaction.type !== 'lasso') return;
+            interaction.points.push(point);
+            interaction.node.points(flattenPoints(interaction.points));
+            uiLayer.batchDraw();
+        }
+
+        function finishLasso() {
+            if (!interaction) return;
+            if (interaction.type === 'move-selection') {
+                const after = selectedNodes.map(node => ({ id: node.id(), after: serialAttrs(node) }));
+                const items = after.map(item => {
+                    const before = lastMoveBefore.find(b => b.id === item.id);
+                    return { id: item.id, before: before.before, after: item.after };
+                });
+                if (items.some(item => JSON.stringify(item.before) !== JSON.stringify(item.after))) {
+                    pushOp({ type: 'modify', items });
+                }
+                lastMoveBefore = null;
+                interaction = null;
+                return;
+            }
+            const polygon = interaction.points;
+            const screen = interaction.screen;
+            const span = boundsOfPoints(polygon);
+            interaction.node.destroy();
+            const isTap = Math.max(span.width, span.height) < 8 / stage.scaleX();
+            if (isTap) {
+                const hit = hitDrawNode(screen);
+                setSelected(hit ? [hit] : []);
+            } else if (polygon.length > 2) {
+                const found = drawLayer.getChildren().filter(node => nodeIntersectsPolygon(node, polygon));
+                setSelected(found);
+                if (!found.length) showToast('No strokes inside selection');
+            }
+            interaction = null;
+            uiLayer.batchDraw();
+        }
+
+        function eraseAt(point) {
+            if (!interaction || interaction.type !== 'erase') return;
+            const radius = Math.max(toolSettings.pen.size * 0.9, 10) / stage.scaleX();
+            drawLayer.getChildren().forEach(node => {
+                if (!node.attrs.markupType || interaction.removed.has(node.id())) return;
+                if (eraserHitsNode(node, point, radius)) {
+                    interaction.removed.set(node.id(), serializeNode(node));
+                    node.destroy();
+                }
+            });
+            drawLayer.batchDraw();
+        }
+
+        function finishErase() {
+            if (!interaction || interaction.type !== 'erase') return;
+            const removed = [...interaction.removed.values()];
+            interaction = null;
+            if (removed.length) pushOp({ type: 'remove', nodes: removed });
+        }
+
+        function createTextAt(point) {
+            const node = new Konva.Text({
+                id: nextId('txt'),
+                markupType: 'text',
+                x: point.x,
+                y: point.y,
+                text: '',
+                fontSize: Math.max(currentWorldWidth() * 3.2, 16 / stage.scaleX()),
+                fontFamily: 'Arial, sans-serif',
+                fill: activeColor(),
+                width: 520 / stage.scaleX(),
+                wrap: 'none',
+                padding: 4 / stage.scaleX()
+            });
+            wireNode(node);
+            drawLayer.add(node);
+            editTextNode(node, true);
+        }
+
+        function editTextNode(node, isNew = false) {
+            const oldAttrs = serialAttrs(node);
+            const scale = stage.scaleX();
+            const rect = stageWrap.getBoundingClientRect();
+            const textarea = document.createElement('textarea');
+            textarea.className = 'text-editor';
+            textarea.value = node.text();
+            textarea.style.left = `${rect.left + stage.x() + node.x() * scale}px`;
+            textarea.style.top = `${rect.top + stage.y() + node.y() * scale}px`;
+            textarea.style.width = `${Math.max(260, node.width() * scale)}px`;
+            textarea.style.height = `${Math.max(48, node.height() * scale + 20)}px`;
+            textarea.style.fontSize = `${Math.max(14, node.fontSize() * scale)}px`;
+            textarea.style.color = node.fill();
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+
+            const commit = () => {
+                textarea.removeEventListener('blur', commit);
+                const value = textarea.value.trim();
+                textarea.remove();
+                if (!value) {
+                    node.destroy();
+                    drawLayer.batchDraw();
+                    return;
+                }
+                node.text(value);
+                node.wrap('none');
+                node.width(Math.max(220 / scale, (textarea.scrollWidth + 24) / scale));
+                node.height(undefined);
+                drawLayer.batchDraw();
+                if (isNew) {
+                    pushOp({ type: 'add', nodes: [serializeNode(node)] });
+                } else {
+                    pushOp({
+                        type: 'modify',
+                        items: [{ id: node.id(), before: oldAttrs, after: serialAttrs(node) }]
+                    });
+                }
+            };
+            textarea.addEventListener('blur', commit);
+            textarea.addEventListener('keydown', evt => {
+                if (evt.key === 'Enter' && (evt.ctrlKey || evt.metaKey)) textarea.blur();
+                if (evt.key === 'Escape') {
+                    textarea.removeEventListener('blur', commit);
+                    textarea.remove();
+                    if (isNew) node.destroy();
+                    else node.setAttrs(oldAttrs);
+                    drawLayer.batchDraw();
+                }
+            });
+        }
+
+        function onPointerDown(evt) {
+            if (evt.button !== undefined && evt.button !== 0) return;
+            evt.preventDefault();
+            try { stageWrap.setPointerCapture?.(evt.pointerId); } catch (_) {}
+            const sp = screenPoint(evt);
+            activePointers.set(evt.pointerId, sp);
+
+            if (activePointers.size === 2) {
+                cancelTransientDrawing();
+                beginGesture();
+                return;
+            }
+            if (activePointers.size > 1) return;
+
+            const wp = worldPointFromScreen(sp);
+            if (activeTool === 'hand' || evt.altKey) {
+                interaction = { type: 'pan', last: sp };
+                return;
+            }
+            if (activeTool === 'text') {
+                createTextAt(wp);
+                return;
+            }
+            if (activeTool === 'lasso') {
+                beginLasso(wp, sp);
+                return;
+            }
+            if (activeTool === 'eraser') {
+                interaction = { type: 'erase', removed: new Map() };
+                eraseAt(wp);
+                return;
+            }
+            if (['line', 'rect', 'ellipse'].includes(activeTool)) {
+                beginShape(activeTool, wp);
+                return;
+            }
+            beginFreehand(activeTool, wp);
+        }
+
+        function onPointerMove(evt) {
+            const sp = screenPoint(evt);
+            if (activePointers.has(evt.pointerId)) activePointers.set(evt.pointerId, sp);
+
+            if (gesture && activePointers.size >= 2) {
+                evt.preventDefault();
+                updateGesture();
+                return;
+            }
+            if (interaction?.type === 'pan') {
+                evt.preventDefault();
+                const dx = sp.x - interaction.last.x;
+                const dy = sp.y - interaction.last.y;
+                stage.position({ x: stage.x() + dx, y: stage.y() + dy });
+                interaction.last = sp;
+                updateStatus();
+                stage.batchDraw();
+                return;
+            }
+
+            const wp = worldPointFromScreen(sp);
+            if (drawing && ['pen', 'highlighter'].includes(drawing.kind)) updateFreehand(wp);
+            else if (drawing) updateShape(wp);
+            else if (interaction?.type === 'lasso' || interaction?.type === 'move-selection') updateLasso(wp);
+            else if (interaction?.type === 'erase') eraseAt(wp);
+        }
+
+        function onPointerUp(evt) {
+            activePointers.delete(evt.pointerId);
+            if (gesture && activePointers.size < 2) gesture = null;
+
+            if (drawing && ['pen', 'highlighter'].includes(drawing.kind)) finishFreehand();
+            else if (drawing) finishShape();
+            else if (interaction?.type === 'lasso' || interaction?.type === 'move-selection') finishLasso();
+            else if (interaction?.type === 'erase') finishErase();
+            else if (interaction?.type === 'pan') interaction = null;
+        }
+
+        function cancelTransientDrawing() {
+            clearSnapPreview();
+            if (drawing) {
+                drawing.node.destroy();
+                drawing = null;
+                drawLayer.batchDraw();
+            }
+            if (interaction?.node) interaction.node.destroy();
+            if (interaction?.type !== 'move-selection') interaction = null;
+        }
+
+        function beginGesture() {
+            const pts = [...activePointers.values()];
+            gesture = {
+                startDistance: distance(pts[0], pts[1]),
+                startMid: midpoint(pts[0], pts[1]),
+                startScale: stage.scaleX(),
+                startPos: { x: stage.x(), y: stage.y() }
+            };
+        }
+
+        function updateGesture() {
+            const pts = [...activePointers.values()].slice(0, 2);
+            const dist = distance(pts[0], pts[1]);
+            const mid = midpoint(pts[0], pts[1]);
+            const oldScale = gesture.startScale;
+            const newScale = clamp(oldScale * (dist / Math.max(1, gesture.startDistance)), 0.05, 40);
+            const worldAtStart = {
+                x: (gesture.startMid.x - gesture.startPos.x) / oldScale,
+                y: (gesture.startMid.y - gesture.startPos.y) / oldScale
+            };
+            stage.scale({ x: newScale, y: newScale });
+            stage.position({
+                x: mid.x - worldAtStart.x * newScale,
+                y: mid.y - worldAtStart.y * newScale
+            });
+            updateStatus();
+            stage.batchDraw();
+        }
+
+        function zoomAt(screen, factor) {
+            const oldScale = stage.scaleX();
+            const newScale = clamp(oldScale * factor, 0.05, 40);
+            const mousePointTo = {
+                x: (screen.x - stage.x()) / oldScale,
+                y: (screen.y - stage.y()) / oldScale
+            };
+            stage.scale({ x: newScale, y: newScale });
+            stage.position({
+                x: screen.x - mousePointTo.x * newScale,
+                y: screen.y - mousePointTo.y * newScale
+            });
+            updateStatus();
+            stage.batchDraw();
+        }
+
+        function deleteSelection() {
+            if (!selectedNodes.length) return;
+            const nodes = selectedNodes.map(serializeNode);
+            selectedNodes.forEach(node => node.destroy());
+            setSelected([]);
+            pushOp({ type: 'remove', nodes });
+            drawLayer.batchDraw();
+        }
+
+        function loadImageElement(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                try {
+                    const url = new URL(src, location.href);
+                    if (url.origin !== location.origin && !src.startsWith('data:') && !src.startsWith('blob:')) {
+                        img.crossOrigin = 'anonymous';
+                    }
+                } catch (_) {}
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        async function fileToDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function loadBackgroundImage(src, opts = {}) {
+            const img = await loadImageElement(src);
+            const offset = imageCounter * 36;
+            imageCounter += 1;
+            const node = new Konva.Image({
+                id: nextId('img'),
+                markupType: 'image',
+                imageSrc: src,
+                image: img,
+                x: opts.x ?? offset,
+                y: opts.y ?? offset,
+                width: img.naturalWidth || img.width,
+                height: img.naturalHeight || img.height,
+                listening: false
+            });
+            bgLayer.add(node);
+            bgLayer.batchDraw();
+            autoConfigureSizes(img);
+            pushOp({ type: 'add', nodes: [serializeNode(node)] });
+            if (opts.fit !== false) fitContent();
+        }
+
+        async function importFiles(files) {
+            const images = [...files].filter(file => file.type.startsWith('image/'));
+            for (const file of images) {
+                const src = await fileToDataUrl(file);
+                await loadBackgroundImage(src);
+            }
+            if (images.length) showToast(`Imported ${images.length} image${images.length === 1 ? '' : 's'}`);
+        }
+
+        async function loadSharedImage() {
+            if (!('caches' in window)) return false;
+            const cache = await caches.open(SHARE_CACHE);
+            const response = await cache.match(SHARE_KEY);
+            if (!response) return false;
+            const blob = await response.blob();
+            await cache.delete(SHARE_KEY);
+            const src = await fileToDataUrl(new File([blob], 'shared-image', { type: blob.type || 'image/png' }));
+            await loadBackgroundImage(src);
+            showToast('Shared image loaded');
+            return true;
+        }
+
+        async function maybeLoadIncomingImage() {
+            const params = new URLSearchParams(location.search);
+            let loaded = false;
+            if (params.get('shared') === '1') loaded = await loadSharedImage();
+            const imgUrl = params.get('img');
+            if (imgUrl) {
+                const src = new URL(imgUrl, location.href);
+                if (src.origin !== location.origin) {
+                    showToast('Only same-origin images can be imported safely');
+                } else {
+                    await loadBackgroundImage(src.href);
+                    loaded = true;
+                }
+            }
+            return loaded;
+        }
+
+        async function offerRestoreIfAvailable() {
+            if (!idb) return;
+            const scene = await idb.get(AUTOSAVE_KEY);
+            if (!scene) return;
+            const card = document.getElementById('restoreCard');
+            card.classList.add('show');
+            document.getElementById('restoreBtn').onclick = async () => {
+                card.classList.remove('show');
+                await restoreScene(scene);
+                showToast('Restored previous drawing');
+            };
+            document.getElementById('discardRestoreBtn').onclick = async () => {
+                card.classList.remove('show');
+                await clearAutosave();
+            };
+        }
+
+        async function restoreScene(scene) {
+            setSelected([]);
+            bgLayer.destroyChildren();
+            drawLayer.destroyChildren();
+            uiLayer.getChildren().forEach(node => {
+                if (node !== transformer) node.destroy();
+            });
+            for (const data of scene.bg || []) addSerializedNode(data);
+            for (const data of scene.draw || []) addSerializedNode(data);
+            if (scene.stage) {
+                stage.position({ x: scene.stage.x ?? stage.x(), y: scene.stage.y ?? stage.y() });
+                stage.scale({ x: scene.stage.scale ?? 1, y: scene.stage.scale ?? 1 });
+            }
+            updateStatus();
+            setTimeout(drawAll, 80);
+        }
+
+        function contentBounds() {
+            const nodes = [...bgLayer.getChildren(), ...drawLayer.getChildren()]
+                .filter(node => node.attrs.markupType);
+            if (!nodes.length) return null;
+            let box = null;
+            nodes.forEach(node => {
+                const layer = node.getLayer();
+                const rect = node.getClientRect({ relativeTo: layer });
+                if (!isFinite(rect.x) || !isFinite(rect.y) || rect.width <= 0 || rect.height <= 0) return;
+                box = box ? unionRect(box, rect) : rect;
+            });
+            return box;
+        }
+
+        function fitContent() {
+            const box = contentBounds();
+            if (!box) {
+                stage.position({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+                stage.scale({ x: 1, y: 1 });
+                stage.batchDraw();
+                updateStatus();
+                return;
+            }
+            const pad = 80;
+            const scale = clamp(Math.min(
+                (stage.width() - pad) / Math.max(1, box.width),
+                (stage.height() - pad) / Math.max(1, box.height)
+            ), 0.05, 4);
+            stage.scale({ x: scale, y: scale });
+            stage.position({
+                x: (stage.width() - box.width * scale) / 2 - box.x * scale,
+                y: (stage.height() - box.height * scale) / 2 - box.y * scale
+            });
+            stage.batchDraw();
+            updateStatus();
+            showToast('Fit to content');
+        }
+
+        async function exportMarkup() {
+            const box = contentBounds();
+            if (!box) {
+                showToast('Nothing to export yet');
+                return;
+            }
+            showToast('Preparing PNG...');
+
+            const pad = 40;
+            const region = {
+                x: box.x - pad,
+                y: box.y - pad,
+                width: box.width + pad * 2,
+                height: box.height + pad * 2
+            };
+
+            const savedPos = stage.position();
+            const savedScale = stage.scaleX();
+            const uiWasVisible = uiLayer.visible();
+            const whiteBg = new Konva.Rect({
+                x: region.x,
+                y: region.y,
+                width: region.width,
+                height: region.height,
+                fill: '#ffffff',
+                listening: false
+            });
+
+            let dataUrl;
+            try {
+                bgLayer.add(whiteBg);
+                whiteBg.moveToBottom();
+                uiLayer.hide();
+                stage.scale({ x: 1, y: 1 });
+                stage.position({ x: 0, y: 0 });
+                stage.draw();
+
+                const maxSide = Math.max(region.width, region.height);
+                const pixelRatio = maxSide > 4000 ? 1 : maxSide > 2000 ? 1.5 : 2;
+                dataUrl = stage.toDataURL({
+                    x: region.x,
+                    y: region.y,
+                    width: Math.ceil(region.width),
+                    height: Math.ceil(region.height),
+                    pixelRatio,
+                    mimeType: 'image/png'
+                });
+            } catch (err) {
+                console.error('Markup export failed', err);
+                const tainted = err && (err.name === 'SecurityError' || /tainted|insecure/i.test(err.message || ''));
+                showToast(tainted
+                    ? 'Export blocked: image is cross-origin. Re-import via Upload.'
+                    : `Export failed: ${err && err.message ? err.message : err}`);
+                return;
+            } finally {
+                whiteBg.destroy();
+                uiLayer.visible(uiWasVisible);
+                stage.scale({ x: savedScale, y: savedScale });
+                stage.position(savedPos);
+                stage.draw();
+            }
+
+            try {
+                const blob = await (await fetch(dataUrl)).blob();
+                const file = new File([blob], `markup_${new Date().toISOString().replace(/[:.]/g, '-')}.png`, { type: 'image/png' });
+                if (navigator.canShare?.({ files: [file] })) {
+                    try {
+                        await navigator.share({ files: [file], title: 'Markup' });
+                        showToast('Shared PNG');
+                    } catch (err) {
+                        if (err?.name !== 'AbortError') downloadBlob(blob, file.name);
+                    }
+                } else {
+                    downloadBlob(blob, file.name);
+                }
+            } catch (err) {
+                console.error('Markup export delivery failed', err);
+                showToast(`Export failed: ${err && err.message ? err.message : err}`);
+            }
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            showToast('Downloaded PNG');
+        }
+
+        function clearCanvas() {
+            if (!confirm('Clear this Markup canvas?')) return;
+            setSelected([]);
+            bgLayer.destroyChildren();
+            drawLayer.destroyChildren();
+            undoStack.length = 0;
+            redoStack.length = 0;
+            drawAll();
+            clearAutosave();
+            updateStatus();
+        }
+
+        function flattenPoints(points) {
+            return points.flatMap(p => [p.x, p.y]);
+        }
+
+        function distance(a, b) {
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        }
+
+        function midpoint(a, b) {
+            return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        }
+
+        function clamp(n, min, max) {
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function pathLength(points) {
+            let total = 0;
+            for (let i = 1; i < points.length; i += 1) total += distance(points[i - 1], points[i]);
+            return total;
+        }
+
+        function boundsOfPoints(points) {
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+        }
+
+        function rectangleScore(points, box) {
+            const sides = points.map(p => {
+                const dx = Math.min(Math.abs(p.x - box.x), Math.abs(p.x - (box.x + box.width)));
+                const dy = Math.min(Math.abs(p.y - box.y), Math.abs(p.y - (box.y + box.height)));
+                return Math.min(dx / Math.max(1, box.width), dy / Math.max(1, box.height));
+            });
+            return sides.reduce((a, b) => a + b, 0) / sides.length;
+        }
+
+        function ellipseScore(points, box) {
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            const rx = Math.max(1, box.width / 2);
+            const ry = Math.max(1, box.height / 2);
+            const deviations = points.map(p => Math.abs(Math.hypot((p.x - cx) / rx, (p.y - cy) / ry) - 1));
+            return deviations.reduce((a, b) => a + b, 0) / deviations.length;
+        }
+
+        function nodeIntersectsPolygon(node, polygon) {
+            if (!node.attrs.markupType) return false;
+            const rect = node.getClientRect({ relativeTo: drawLayer });
+            const samples = [
+                { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+                { x: rect.x, y: rect.y },
+                { x: rect.x + rect.width, y: rect.y },
+                { x: rect.x + rect.width, y: rect.y + rect.height },
+                { x: rect.x, y: rect.y + rect.height }
+            ];
+            if (samples.some(point => pointInPolygon(point, polygon))) return true;
+
+            if (node.getClassName() === 'Line') {
+                const pts = node.points();
+                const transform = node.getTransform();
+                for (let i = 0; i < pts.length; i += 2) {
+                    const point = transform.point({ x: pts[i], y: pts[i + 1] });
+                    if (pointInPolygon(point, polygon)) return true;
+                }
+            }
+            return false;
+        }
+
+        function pointInPolygon(point, polygon) {
+            let inside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i].x;
+                const yi = polygon[i].y;
+                const xj = polygon[j].x;
+                const yj = polygon[j].y;
+                const intersect = ((yi > point.y) !== (yj > point.y))
+                    && (point.x < (xj - xi) * (point.y - yi) / ((yj - yi) || 1e-9) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function rectCircleHit(rect, point, radius) {
+            const cx = clamp(point.x, rect.x, rect.x + rect.width);
+            const cy = clamp(point.y, rect.y, rect.y + rect.height);
+            return Math.hypot(point.x - cx, point.y - cy) <= radius;
+        }
+
+        function pointToSegment(p, a, b) {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const len2 = dx * dx + dy * dy;
+            if (len2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+            let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+            t = clamp(t, 0, 1);
+            return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+        }
+
+        function worldPointsOfLine(node) {
+            const pts = node.points();
+            const transform = node.getTransform();
+            const out = [];
+            for (let i = 0; i + 1 < pts.length; i += 2) {
+                out.push(transform.point({ x: pts[i], y: pts[i + 1] }));
+            }
+            return out;
+        }
+
+        function polylineDistance(point, worldPts, closed) {
+            let min = Infinity;
+            for (let i = 0; i + 1 < worldPts.length; i += 1) {
+                min = Math.min(min, pointToSegment(point, worldPts[i], worldPts[i + 1]));
+            }
+            if (closed && worldPts.length > 2) {
+                min = Math.min(min, pointToSegment(point, worldPts[worldPts.length - 1], worldPts[0]));
+            }
+            return min;
+        }
+
+        function ellipseOutlineWorldPoints(node) {
+            const cx = node.x();
+            const cy = node.y();
+            const rx = node.radiusX();
+            const ry = node.radiusY();
+            const out = [];
+            for (let i = 0; i <= 48; i += 1) {
+                const a = (i / 48) * Math.PI * 2;
+                out.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+            }
+            return out;
+        }
+
+        function rectOutlineWorldPoints(node) {
+            const x = node.x();
+            const y = node.y();
+            const w = node.width();
+            const h = node.height();
+            return [
+                { x, y },
+                { x: x + w, y },
+                { x: x + w, y: y + h },
+                { x, y: y + h }
+            ];
+        }
+
+        function eraserHitsNode(node, point, radius) {
+            const cls = node.getClassName();
+            const slack = radius + (node.strokeWidth ? (node.strokeWidth() || 0) / 2 : 0);
+            if (cls === 'Line') {
+                return polylineDistance(point, worldPointsOfLine(node), node.closed()) <= slack;
+            }
+            if (cls === 'Ellipse') {
+                return polylineDistance(point, ellipseOutlineWorldPoints(node), true) <= slack;
+            }
+            if (cls === 'Rect') {
+                return polylineDistance(point, rectOutlineWorldPoints(node), true) <= slack;
+            }
+            const rect = node.getClientRect({ relativeTo: drawLayer });
+            return point.x >= rect.x && point.x <= rect.x + rect.width
+                && point.y >= rect.y && point.y <= rect.y + rect.height;
+        }
+
+        function unionRect(a, b) {
+            const x1 = Math.min(a.x, b.x);
+            const y1 = Math.min(a.y, b.y);
+            const x2 = Math.max(a.x + a.width, b.x + b.width);
+            const y2 = Math.max(a.y + a.height, b.y + b.height);
+            return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+        }
+
+        function bindUi() {
+            document.querySelectorAll('[data-tool]').forEach(btn => {
+                btn.addEventListener('click', () => setTool(btn.dataset.tool));
+            });
+            document.querySelectorAll('[data-color-index]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setActiveColor(btn.dataset.color);
+                });
+            });
+            document.getElementById('customColor').addEventListener('input', evt => {
+                setActiveColor(evt.target.value);
+            });
+            brushSize.addEventListener('input', evt => {
+                activeSettings().size = Number(evt.target.value);
+                updateStatus();
+                showSizePreview();
+            });
+            document.getElementById('lockSizeBtn').addEventListener('click', () => {
+                lockSize = !lockSize;
+                updateStatus();
+            });
+            document.getElementById('snapBtn').addEventListener('click', () => {
+                snapShapes = !snapShapes;
+                updateStatus();
+            });
+            document.getElementById('undoBtn').addEventListener('click', undo);
+            document.getElementById('redoBtn').addEventListener('click', redo);
+            document.getElementById('deleteSelBtn').addEventListener('click', deleteSelection);
+            document.getElementById('importBtn').addEventListener('click', () => imageInput.click());
+            document.getElementById('fitBtn').addEventListener('click', fitContent);
+            document.getElementById('exportBtn').addEventListener('click', exportMarkup);
+            document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+            imageInput.addEventListener('change', async evt => {
+                await importFiles(evt.target.files || []);
+                imageInput.value = '';
+            });
+
+            stageWrap.addEventListener('pointerdown', onPointerDown, { passive: false });
+            stageWrap.addEventListener('pointermove', onPointerMove, { passive: false });
+            stageWrap.addEventListener('pointerup', onPointerUp, { passive: false });
+            stageWrap.addEventListener('pointercancel', onPointerUp, { passive: false });
+            stageWrap.addEventListener('wheel', evt => {
+                evt.preventDefault();
+                zoomAt(screenPoint(evt), evt.deltaY < 0 ? 1.08 : 1 / 1.08);
+            }, { passive: false });
+            stageWrap.addEventListener('contextmenu', evt => {
+                evt.preventDefault();
+            });
+
+            window.addEventListener('resize', () => {
+                stage.size({ width: window.innerWidth, height: window.innerHeight });
+                stage.batchDraw();
+            });
+            window.addEventListener('paste', async evt => {
+                const files = [...(evt.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
+                if (files.length) {
+                    evt.preventDefault();
+                    await importFiles(files);
+                }
+            });
+            window.addEventListener('keydown', evt => {
+                const target = evt.target;
+                if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+                if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'z') {
+                    evt.preventDefault();
+                    evt.shiftKey ? redo() : undo();
+                } else if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'y') {
+                    evt.preventDefault();
+                    redo();
+                } else if (evt.key === 'Delete' || evt.key === 'Backspace') {
+                    if (selectedNodes.length) {
+                        evt.preventDefault();
+                        deleteSelection();
+                    }
+                } else if (evt.key === 'Escape') {
+                    setSelected([]);
+                }
+            });
+        }
+
+        async function init() {
+            bindUi();
+            syncToolControls();
+            updateStatus();
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+            }
+            const hasIncoming = await maybeLoadIncomingImage();
+            if (!hasIncoming) await offerRestoreIfAvailable();
+            showToast('Markup ready');
+        }
+
+        init();
+    </script>
+</body>
+</html>
