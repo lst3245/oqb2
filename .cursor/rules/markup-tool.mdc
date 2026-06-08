@@ -10,14 +10,14 @@ alwaysApply: false
 
 ## Frontend
 
-- Engine: Konva from CDN, `perfect-freehand` from ESM CDN, `idb-keyval` from CDN. There is no bundler.
+- Engine: Konva from CDN, `perfect-freehand` from jsDelivr via **non-blocking** dynamic `import()` (never block init on external ESM), `idb-keyval` from CDN. There is no bundler.
 - Layers: background images (`bgLayer`), drawing nodes (`drawLayer`), selection UI (`uiLayer`).
 - Infinite canvas = stage position + scale. One pointer draws; two pointers pan/pinch-zoom. Hand tool pans with one pointer.
 - Tools: pen, highlighter, stroke eraser, lasso select/move/delete, text, line/rect/ellipse. Pen and highlighter keep independent size/color settings; lock-size starts enabled. Highlighter defaults to a larger yellow-first palette. Brush size auto-defaults relative to the first imported image (`autoConfigureSizes`); the size slider shows a live on-screen preview circle (`showSizePreview`).
 - Eraser and lasso must hit-test **actual geometry**, not bounding boxes: eraser uses point-to-segment / shape-outline distance (`eraserHitsNode`); lasso uses `nodeIntersectsPolygon` and supports tap-to-select. Stroke selections draw a dashed highlight rect (`updateSelectionRect`); image-only selections use the Konva `Transformer` with resize anchors (`syncSelectionUi`, `selectionIsImageOnly`).
 - Snap mode shows a grey preview after the hold threshold, then replaces held pen strokes with recognized perfect shapes on release. `buildSnappedShape` chooses the better fit of rectangle vs ellipse (compare `rectangleScore` vs `ellipseScore`) so squares stay squares and circles stay circles; it returns `null` (keep freehand) when neither fits.
 - Undo/redo is operation-based (`add`, `remove`, `modify`) using serialized Konva node attrs.
-- Local autosave uses IndexedDB key `oqb:markup:autosave:v1`; no server-side persistence. Saves immediately after each edit and on tab close/hide. On load, if a non-empty autosave exists, show the restore card **before** loading any `?img=` / share-target import — user picks **Restore** or **Start new** (Start new clears autosave and then loads the incoming image if present).
+- Local autosave uses IndexedDB key `oqb:markup:autosave:v1`; no server-side persistence. Saves are debounced (400 ms) and serialized (`saveInFlight`); `readAutosave()` waits for pending writes and times out after 5 s so rapid mobile reload cannot hang init. Flushes on tab close/hide. On load, if a non-empty autosave exists, show the restore card **before** loading any `?img=` / share-target import — user picks **Restore** or **Start new**.
 - Imported background images live on `bgLayer`, are listening-enabled, and can be selected/moved/resized/deleted with the lasso tool (tap or loop-select; resize via transformer handles when image-only selection).
 - Export (`exportMarkup`) computes a union bounding box over image + drawing nodes via `contentBounds()`, then renders the crop directly from the live stage (save transform → reset to identity → add a white background rect → hide `uiLayer` → `stage.toDataURL({x,y,width,height})` → restore), and shares/downloads a cropped PNG. Do **not** call `node.isDestroyed()` (not a function on Konva nodes in this build) — use `node.getLayer()` truthiness to test attachment.
 

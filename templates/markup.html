@@ -712,12 +712,16 @@
         </div>
     </div>
 
-    <script type="module">
-        import { getStroke } from 'https://esm.sh/perfect-freehand@1.2.2';
-
+    <script>
         const SHARE_CACHE = 'markup-share-v1';
         const SHARE_KEY = '/__oqb_markup_shared_image__';
         const AUTOSAVE_KEY = 'oqb:markup:autosave:v1';
+
+        /** Loaded in background — must not block page init (esm.sh caused random mobile hangs). */
+        let getStroke = null;
+        const freehandLibReady = import('https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.2/+esm')
+            .then(mod => { getStroke = mod.getStroke; })
+            .catch(() => {});
 
         const idb = window.idbKeyval;
         const stageWrap = document.getElementById('stageWrap');
@@ -1030,24 +1034,53 @@
         function scheduleAutosave() {
             clearTimeout(autosaveTimer);
             autosaveText.textContent = 'Autosave pending...';
-            autosaveTimer = setTimeout(saveScene, 400);
+            autosaveTimer = setTimeout(() => { saveScene().catch(() => {}); }, 400);
         }
 
         function flushAutosave() {
             clearTimeout(autosaveTimer);
-            saveScene();
+            saveScene().catch(() => {});
         }
+
+        let saveInFlight = null;
 
         async function saveScene() {
             if (!idb) return;
-            const scene = {
-                version: 1,
-                stage: { x: stage.x(), y: stage.y(), scale: stage.scaleX() },
-                bg: bgLayer.getChildren().map(serializeNode),
-                draw: drawLayer.getChildren().map(serializeNode)
-            };
-            await idb.set(AUTOSAVE_KEY, scene);
-            autosaveText.textContent = 'Autosaved';
+            if (saveInFlight) {
+                try { await saveInFlight; } catch (_) {}
+            }
+            saveInFlight = (async () => {
+                const scene = {
+                    version: 1,
+                    stage: { x: stage.x(), y: stage.y(), scale: stage.scaleX() },
+                    bg: bgLayer.getChildren().map(serializeNode),
+                    draw: drawLayer.getChildren().map(serializeNode)
+                };
+                await idb.set(AUTOSAVE_KEY, scene);
+                autosaveText.textContent = 'Autosaved';
+            })();
+            try {
+                await saveInFlight;
+            } catch (_) {
+                autosaveText.textContent = 'Autosave failed';
+            } finally {
+                saveInFlight = null;
+            }
+        }
+
+        async function readAutosave() {
+            if (!idb) return null;
+            if (saveInFlight) {
+                try { await saveInFlight; } catch (_) {}
+            }
+            try {
+                return await Promise.race([
+                    idb.get(AUTOSAVE_KEY),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('autosave-timeout')), 5000))
+                ]);
+            } catch (_) {
+                return null;
+            }
         }
 
         function sceneHasContent(scene) {
@@ -1066,7 +1099,7 @@
             undoStack.push(op);
             redoStack.length = 0;
             updateStatus();
-            saveScene();
+            scheduleAutosave();
         }
 
         function applyAdd(datas) {
@@ -1099,7 +1132,7 @@
             if (op.type === 'modify') applyModify(op.items, 'before');
             redoStack.push(op);
             updateStatus();
-            saveScene();
+            scheduleAutosave();
         }
 
         function redo() {
@@ -1110,7 +1143,7 @@
             if (op.type === 'modify') applyModify(op.items, 'after');
             undoStack.push(op);
             updateStatus();
-            saveScene();
+            scheduleAutosave();
         }
 
         function drawAll() {
@@ -1373,6 +1406,9 @@
         }
 
         function outlineFromPoints(points, width) {
+            if (!getStroke) {
+                return points.flatMap(p => [p.x, p.y]);
+            }
             const stroke = getStroke(points.map(p => [p.x, p.y, 0.5]), {
                 size: width,
                 thinning: 0.35,
@@ -1770,6 +1806,7 @@
 
         function onPointerUp(evt) {
             activePointers.delete(evt.pointerId);
+            try { stageWrap.releasePointerCapture?.(evt.pointerId); } catch (_) {}
             if (gesture && activePointers.size < 2) {
                 gesture = null;
                 scheduleAutosave();
@@ -2072,9 +2109,7 @@
             return loaded;
         }
 
-        async function offerRestoreIfAvailable(onDiscard) {
-            if (!idb) return false;
-            const scene = await idb.get(AUTOSAVE_KEY);
+        async function offerRestoreIfAvailable(scene, onDiscard) {
             if (!scene || !sceneHasContent(scene)) return false;
             const card = document.getElementById('restoreCard');
             card.classList.add('show');
@@ -2532,6 +2567,15 @@
             window.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'hidden') flushAutosave();
             });
+            window.addEventListener('pageshow', evt => {
+                if (!evt.persisted) return;
+                interaction = null;
+                drawing = null;
+                gesture = null;
+                activePointers.clear();
+                applyTransformerUiScale();
+                drawAll();
+            });
             window.addEventListener('keydown', evt => {
                 const target = evt.target;
                 if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
@@ -2563,28 +2607,40 @@
             syncToolControls();
             updateStatus();
             updateInstallHelpUi();
+            freehandLibReady.catch(() => {});
             window.matchMedia('(display-mode: standalone)').addEventListener?.('change', updateInstallHelpUi);
             if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+                navigator.serviceWorker.getRegistration('/').then(reg => {
+                    if (!reg) {
+                        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+                    }
+                }).catch(() => {});
             }
-            const params = new URLSearchParams(location.search);
-            if (params.get('ios-share')) {
-                await maybeLoadIncomingImage();
-                showToast('Markup ready');
-                return;
-            }
-            const savedScene = idb ? await idb.get(AUTOSAVE_KEY) : null;
-            if (sceneHasContent(savedScene)) {
-                await offerRestoreIfAvailable(async () => {
+            try {
+                const params = new URLSearchParams(location.search);
+                if (params.get('ios-share')) {
                     await maybeLoadIncomingImage();
-                });
-            } else {
-                await maybeLoadIncomingImage();
+                    showToast('Markup ready');
+                    return;
+                }
+                const savedScene = await readAutosave();
+                if (sceneHasContent(savedScene)) {
+                    await offerRestoreIfAvailable(savedScene, async () => {
+                        await maybeLoadIncomingImage();
+                    });
+                } else {
+                    await maybeLoadIncomingImage();
+                }
+                showToast('Markup ready');
+            } catch (err) {
+                console.error('Markup init failed', err);
+                showToast('Markup started with limited recovery');
             }
-            showToast('Markup ready');
         }
 
-        init();
+        init().catch(err => {
+            console.error('Markup failed to start', err);
+        });
     </script>
 </body>
 </html>
