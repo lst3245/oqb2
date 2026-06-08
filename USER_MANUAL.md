@@ -207,7 +207,7 @@ Open **My Stuff → Toolbox → Markup** to handwrite solutions or annotate an i
 - **Draw**: use Pen or Highlighter. One finger or stylus draws.
 - **Move around**: use two fingers to pan and pinch-zoom. The Hand tool pans with one finger.
 - **Erase**: the eraser removes whole strokes/shapes.
-- **Select**: use Lasso to draw around strokes, then drag the selection or delete it.
+- **Select**: use Lasso to draw around strokes or tap an imported image, then drag the selection or delete it.
 - **Text and shapes**: add text, straight lines, rectangles, or ellipses from the toolbar.
 - **Lock size**: when enabled, new strokes keep a constant size in the final exported image. When disabled, the stroke feels constant on screen while zoomed.
 - **Snap**: with Snap enabled, hold briefly at the end of a pen stroke to snap simple shapes such as straight lines.
@@ -221,7 +221,7 @@ You can start with a blank canvas or import an image by:
 - opening a QUE/SOL asset from Viewer / Presentation Mode,
 - sharing an image to the installed Markup PWA on Android.
 
-Markup autosaves locally on the same device and offers to restore the previous drawing when you open it again. It does not save drawings to the server.
+Markup autosaves locally on the same device after each edit and offers to restore the previous drawing when you refresh or reopen the page. If you arrive with a shared/import URL (`?img=…`), you still get the restore prompt first — choose **Restore** to continue the saved drawing, or **Start new** to discard it and load the incoming image. It does not save drawings to the server.
 
 ### Exporting
 

@@ -602,7 +602,12 @@
         function scheduleAutosave() {
             clearTimeout(autosaveTimer);
             autosaveText.textContent = 'Autosave pending...';
-            autosaveTimer = setTimeout(saveScene, 800);
+            autosaveTimer = setTimeout(saveScene, 400);
+        }
+
+        function flushAutosave() {
+            clearTimeout(autosaveTimer);
+            saveScene();
         }
 
         async function saveScene() {
@@ -617,6 +622,13 @@
             autosaveText.textContent = 'Autosaved';
         }
 
+        function sceneHasContent(scene) {
+            return Boolean(
+                (scene?.draw && scene.draw.length) ||
+                (scene?.bg && scene.bg.length)
+            );
+        }
+
         async function clearAutosave() {
             if (idb) await idb.del(AUTOSAVE_KEY);
             autosaveText.textContent = 'Autosave cleared';
@@ -626,7 +638,7 @@
             undoStack.push(op);
             redoStack.length = 0;
             updateStatus();
-            scheduleAutosave();
+            saveScene();
         }
 
         function applyAdd(datas) {
@@ -659,7 +671,7 @@
             if (op.type === 'modify') applyModify(op.items, 'before');
             redoStack.push(op);
             updateStatus();
-            scheduleAutosave();
+            saveScene();
         }
 
         function redo() {
@@ -670,7 +682,7 @@
             if (op.type === 'modify') applyModify(op.items, 'after');
             undoStack.push(op);
             updateStatus();
-            scheduleAutosave();
+            saveScene();
         }
 
         function drawAll() {
@@ -724,10 +736,14 @@
         }
 
         function wireNode(node) {
-            node.listening(node.attrs.markupType !== 'image');
+            node.listening(true);
             node.on('dblclick dbltap', () => {
                 if (node.attrs.markupType === 'text') editTextNode(node);
             });
+        }
+
+        function nodeStageRect(node) {
+            return node.getClientRect({ relativeTo: stage });
         }
 
         function setSelected(nodes) {
@@ -746,7 +762,7 @@
             if (selectedNodes.length === 0) return;
             let box = null;
             selectedNodes.forEach(node => {
-                const rect = node.getClientRect({ relativeTo: drawLayer });
+                const rect = nodeStageRect(node);
                 box = box ? unionRect(box, rect) : rect;
             });
             if (!box) return;
@@ -767,11 +783,20 @@
         }
 
         function hitDrawNode(screen) {
+            return hitMarkupNode(screen, drawLayer);
+        }
+
+        function hitMarkupNode(screen, layerFilter = null) {
             const node = stage.getIntersection(screen);
             if (!node) return null;
             let cur = node;
             while (cur && cur !== stage) {
-                if (cur.getLayer && cur.getLayer() === drawLayer && cur.attrs.markupType) return cur;
+                if (cur.getLayer && cur.attrs.markupType) {
+                    const layer = cur.getLayer();
+                    if (!layerFilter || layer === layerFilter) {
+                        if (layer === drawLayer || layer === bgLayer) return cur;
+                    }
+                }
                 cur = cur.getParent();
             }
             return null;
@@ -1042,7 +1067,7 @@
 
         function pointInSelection(point) {
             return selectedNodes.some(node => {
-                const rect = node.getClientRect({ relativeTo: drawLayer });
+                const rect = nodeStageRect(node);
                 const pad = 6 / stage.scaleX();
                 return point.x >= rect.x - pad && point.x <= rect.x + rect.width + pad
                     && point.y >= rect.y - pad && point.y <= rect.y + rect.height + pad;
@@ -1110,10 +1135,13 @@
             interaction.node.destroy();
             const isTap = Math.max(span.width, span.height) < 8 / stage.scaleX();
             if (isTap) {
-                const hit = hitDrawNode(screen);
+                const hit = hitMarkupNode(screen);
                 setSelected(hit ? [hit] : []);
             } else if (polygon.length > 2) {
-                const found = drawLayer.getChildren().filter(node => nodeIntersectsPolygon(node, polygon));
+                const found = [
+                    ...drawLayer.getChildren(),
+                    ...bgLayer.getChildren().filter(node => node.attrs.markupType === 'image')
+                ].filter(node => nodeIntersectsPolygon(node, polygon));
                 setSelected(found);
                 if (!found.length) showToast('No strokes inside selection');
             }
@@ -1281,13 +1309,19 @@
 
         function onPointerUp(evt) {
             activePointers.delete(evt.pointerId);
-            if (gesture && activePointers.size < 2) gesture = null;
+            if (gesture && activePointers.size < 2) {
+                gesture = null;
+                scheduleAutosave();
+            }
 
             if (drawing && ['pen', 'highlighter'].includes(drawing.kind)) finishFreehand();
             else if (drawing) finishShape();
             else if (interaction?.type === 'lasso' || interaction?.type === 'move-selection') finishLasso();
             else if (interaction?.type === 'erase') finishErase();
-            else if (interaction?.type === 'pan') interaction = null;
+            else if (interaction?.type === 'pan') {
+                interaction = null;
+                scheduleAutosave();
+            }
         }
 
         function cancelTransientDrawing() {
@@ -1391,9 +1425,9 @@
                 x: opts.x ?? offset,
                 y: opts.y ?? offset,
                 width: img.naturalWidth || img.width,
-                height: img.naturalHeight || img.height,
-                listening: false
+                height: img.naturalHeight || img.height
             });
+            wireNode(node);
             bgLayer.add(node);
             bgLayer.batchDraw();
             autoConfigureSizes(img);
@@ -1440,21 +1474,29 @@
             return loaded;
         }
 
-        async function offerRestoreIfAvailable() {
-            if (!idb) return;
+        async function offerRestoreIfAvailable(onDiscard) {
+            if (!idb) return false;
             const scene = await idb.get(AUTOSAVE_KEY);
-            if (!scene) return;
+            if (!scene || !sceneHasContent(scene)) return false;
             const card = document.getElementById('restoreCard');
             card.classList.add('show');
-            document.getElementById('restoreBtn').onclick = async () => {
-                card.classList.remove('show');
-                await restoreScene(scene);
-                showToast('Restored previous drawing');
-            };
-            document.getElementById('discardRestoreBtn').onclick = async () => {
-                card.classList.remove('show');
-                await clearAutosave();
-            };
+            return new Promise(resolve => {
+                document.getElementById('restoreBtn').onclick = async () => {
+                    card.classList.remove('show');
+                    undoStack.length = 0;
+                    redoStack.length = 0;
+                    await restoreScene(scene);
+                    updateStatus();
+                    showToast('Restored previous drawing');
+                    resolve(true);
+                };
+                document.getElementById('discardRestoreBtn').onclick = async () => {
+                    card.classList.remove('show');
+                    await clearAutosave();
+                    if (onDiscard) await onDiscard();
+                    resolve(false);
+                };
+            });
         }
 
         async function restoreScene(scene) {
@@ -1667,7 +1709,7 @@
 
         function nodeIntersectsPolygon(node, polygon) {
             if (!node.attrs.markupType) return false;
-            const rect = node.getClientRect({ relativeTo: drawLayer });
+            const rect = nodeStageRect(node);
             const samples = [
                 { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
                 { x: rect.x, y: rect.y },
@@ -1850,6 +1892,10 @@
                     await importFiles(files);
                 }
             });
+            window.addEventListener('pagehide', flushAutosave);
+            window.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') flushAutosave();
+            });
             window.addEventListener('keydown', evt => {
                 const target = evt.target;
                 if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
@@ -1877,8 +1923,14 @@
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
             }
-            const hasIncoming = await maybeLoadIncomingImage();
-            if (!hasIncoming) await offerRestoreIfAvailable();
+            const savedScene = idb ? await idb.get(AUTOSAVE_KEY) : null;
+            if (sceneHasContent(savedScene)) {
+                await offerRestoreIfAvailable(async () => {
+                    await maybeLoadIncomingImage();
+                });
+            } else {
+                await maybeLoadIncomingImage();
+            }
             showToast('Markup ready');
         }
 

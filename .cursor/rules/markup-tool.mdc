@@ -17,7 +17,8 @@ alwaysApply: false
 - Eraser and lasso must hit-test **actual geometry**, not bounding boxes: eraser uses point-to-segment / shape-outline distance (`eraserHitsNode`); lasso uses `nodeIntersectsPolygon` and supports tap-to-select. Selection draws a visible highlight rect (`updateSelectionRect`) in addition to the transformer.
 - Snap mode shows a grey preview after the hold threshold, then replaces held pen strokes with recognized perfect shapes on release. `buildSnappedShape` chooses the better fit of rectangle vs ellipse (compare `rectangleScore` vs `ellipseScore`) so squares stay squares and circles stay circles; it returns `null` (keep freehand) when neither fits.
 - Undo/redo is operation-based (`add`, `remove`, `modify`) using serialized Konva node attrs.
-- Local autosave uses IndexedDB key `oqb:markup:autosave:v1`; no server-side persistence.
+- Local autosave uses IndexedDB key `oqb:markup:autosave:v1`; no server-side persistence. Saves immediately after each edit and on tab close/hide. On load, if a non-empty autosave exists, show the restore card **before** loading any `?img=` / share-target import — user picks **Restore** or **Start new** (Start new clears autosave and then loads the incoming image if present).
+- Imported background images live on `bgLayer`, are listening-enabled, and can be selected/moved with the lasso tool (tap or loop-select, then drag).
 - Export (`exportMarkup`) computes a union bounding box over image + drawing nodes via `contentBounds()`, then renders the crop directly from the live stage (save transform → reset to identity → add a white background rect → hide `uiLayer` → `stage.toDataURL({x,y,width,height})` → restore), and shares/downloads a cropped PNG. Do **not** call `node.isDestroyed()` (not a function on Konva nodes in this build) — use `node.getLayer()` truthiness to test attachment.
 
 ## Imports
