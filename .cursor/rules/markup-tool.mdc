@@ -33,3 +33,5 @@ alwaysApply: false
 `app/pwa.py` serves `/manifest.webmanifest` and `/sw.js` from `static/markup/`. Keep `/sw.js` root-scoped with `Service-Worker-Allowed: /` so Web Share Target POSTs can be intercepted.
 
 Android Chrome supports installed-PWA Web Share Target. iOS Safari does not; iOS must use installed PWA + upload/paste, with Shortcuts only as a documented workaround.
+
+When not in standalone mode, show floating `#installInfoBtn` (bottom-right). It opens `#installHelpBackdrop` with platform-highlighted instructions (`detectInstallPlatform`, `isStandaloneApp`). Hide the button once installed (`display-mode: standalone` or `navigator.standalone`).

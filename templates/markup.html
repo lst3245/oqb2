@@ -266,6 +266,127 @@
         .hidden {
             display: none !important;
         }
+        .install-info-btn {
+            position: fixed;
+            right: max(12px, env(safe-area-inset-right));
+            bottom: max(12px, env(safe-area-inset-bottom));
+            z-index: 25;
+            width: 42px;
+            height: 42px;
+            border: 1px solid var(--toolbar-border);
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--toolbar-bg);
+            color: var(--accent);
+            box-shadow: var(--toolbar-shadow);
+            backdrop-filter: blur(12px);
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .install-info-btn:active {
+            transform: scale(0.96);
+        }
+        .install-help-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+            background: rgba(15, 23, 42, 0.45);
+        }
+        .install-help-backdrop.hidden {
+            display: none !important;
+        }
+        .install-help-sheet {
+            width: min(520px, 100%);
+            max-height: min(82vh, 720px);
+            overflow: auto;
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: var(--toolbar-shadow);
+            padding: 18px 18px 14px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .install-help-sheet h2 {
+            margin: 0 0 6px;
+            font-size: 18px;
+        }
+        .install-help-sheet .help-lead {
+            margin: 0 0 14px;
+            color: #475569;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+        .install-help-sheet .help-platform {
+            margin: 0 0 12px;
+            padding: 12px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            background: #f8fafc;
+        }
+        .install-help-sheet .help-platform.active {
+            border-color: #93c5fd;
+            background: #eff6ff;
+        }
+        .install-help-sheet .help-platform h3 {
+            margin: 0 0 8px;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .install-help-sheet ol {
+            margin: 0;
+            padding-left: 18px;
+            color: #334155;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .install-help-sheet ol li + li {
+            margin-top: 6px;
+        }
+        .install-help-sheet .help-note {
+            margin: 10px 0 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #fff7ed;
+            color: #9a3412;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .install-help-sheet .help-url {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: #ffffff;
+            border: 1px dashed #cbd5e1;
+            font-size: 12px;
+            word-break: break-all;
+            color: #0f172a;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .install-help-close {
+            width: 100%;
+            margin-top: 14px;
+            padding: 12px;
+            border: 0;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        @media (min-width: 721px) {
+            .install-help-backdrop {
+                align-items: center;
+            }
+        }
         textarea.text-editor {
             position: fixed;
             z-index: 40;
@@ -381,6 +502,53 @@
     <input id="imageInput" class="hidden" type="file" accept="image/*" multiple>
     <div class="size-preview" id="sizePreview"></div>
     <div class="toast-line" id="toastLine"></div>
+
+    <button class="install-info-btn hidden" id="installInfoBtn" type="button" title="Install app &amp; share tips" aria-label="Install app instructions">
+        <i class="bi bi-info-circle"></i>
+    </button>
+
+    <div class="install-help-backdrop hidden" id="installHelpBackdrop" aria-hidden="true">
+        <div class="install-help-sheet" role="dialog" aria-modal="true" aria-labelledby="installHelpTitle">
+            <h2 id="installHelpTitle">Install Markup as an app</h2>
+            <p class="help-lead" id="installHelpLead">Install once for a full-screen drawing experience. After installation you can open images faster — especially on Android.</p>
+
+            <div class="help-platform" id="helpAndroid">
+                <h3><i class="bi bi-android2"></i> Android (Chrome)</h3>
+                <ol>
+                    <li>Open this page in <strong>Chrome</strong>.</li>
+                    <li>Tap the browser menu (<strong>⋮</strong>) → <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+                    <li>Launch <strong>Markup</strong> from your home screen.</li>
+                    <li>To annotate a photo: open it in Gallery/Photos → <strong>Share</strong> → choose <strong>Markup</strong>.</li>
+                </ol>
+            </div>
+
+            <div class="help-platform" id="helpIos">
+                <h3><i class="bi bi-apple"></i> iPhone / iPad (Safari)</h3>
+                <ol>
+                    <li>Open this page in <strong>Safari</strong> (required for install).</li>
+                    <li>Tap <strong>Share</strong> (<i class="bi bi-box-arrow-up"></i>) → <strong>Add to Home Screen</strong> → <strong>Add</strong>.</li>
+                    <li>Launch <strong>Markup</strong> from your home screen.</li>
+                    <li>To bring in an image: use <strong>Import</strong>, paste from clipboard, or pick from Photos inside Markup.</li>
+                </ol>
+                <p class="help-note"><strong>iOS note:</strong> Apple does not let installed web apps appear in the system Share menu with an image attached. Share → Markup directly is an Android feature.</p>
+            </div>
+
+            <div class="help-platform" id="helpIosShortcut">
+                <h3><i class="bi bi-link-45deg"></i> iOS workaround (Shortcuts)</h3>
+                <ol>
+                    <li>Open the <strong>Shortcuts</strong> app → <strong>New Shortcut</strong>.</li>
+                    <li>Add <strong>Open URLs</strong> and paste this Markup link:</li>
+                </ol>
+                <div class="help-url" id="installHelpUrl"></div>
+                <ol start="3">
+                    <li>Tap <strong>Shortcut name</strong> → enable <strong>Show in Share Sheet</strong>.</li>
+                    <li>When you share an image to the shortcut, Markup opens — tap <strong>Import</strong> and pick the image.</li>
+                </ol>
+            </div>
+
+            <button class="install-help-close" id="installHelpClose" type="button">Got it</button>
+        </div>
+    </div>
 
     <script type="module">
         import { getStroke } from 'https://esm.sh/perfect-freehand@1.2.2';
@@ -573,6 +741,51 @@
             toastLine.classList.add('show');
             clearTimeout(toastTimer);
             toastTimer = setTimeout(() => toastLine.classList.remove('show'), 2200);
+        }
+
+        function isStandaloneApp() {
+            return window.matchMedia('(display-mode: standalone)').matches
+                || window.matchMedia('(display-mode: fullscreen)').matches
+                || navigator.standalone === true;
+        }
+
+        function detectInstallPlatform() {
+            const ua = navigator.userAgent || '';
+            if (/android/i.test(ua)) return 'android';
+            if (/iphone|ipad|ipod/i.test(ua)) return 'ios';
+            return 'other';
+        }
+
+        function updateInstallHelpUi() {
+            const btn = document.getElementById('installInfoBtn');
+            if (!btn) return;
+            btn.classList.toggle('hidden', isStandaloneApp());
+        }
+
+        function openInstallHelp() {
+            const backdrop = document.getElementById('installHelpBackdrop');
+            const platform = detectInstallPlatform();
+            const markupUrl = `${location.origin}{{ url_for('toolbox.markup_tool') }}`;
+            document.getElementById('installHelpUrl').textContent = markupUrl;
+            document.getElementById('helpAndroid').classList.toggle('active', platform === 'android');
+            document.getElementById('helpIos').classList.toggle('active', platform === 'ios');
+            document.getElementById('helpIosShortcut').classList.toggle('active', platform === 'ios');
+            const lead = document.getElementById('installHelpLead');
+            if (platform === 'ios') {
+                lead.textContent = 'Install Markup to your home screen for a full-screen app. On iPhone/iPad, import images inside Markup (Share → Markup with the image is Android-only).';
+            } else if (platform === 'android') {
+                lead.textContent = 'Install Markup once, then open photos from the system Share menu straight into the canvas.';
+            } else {
+                lead.textContent = 'On mobile, install Markup for a full-screen app. Android can receive shared images; iOS uses in-app import or a Shortcuts workaround.';
+            }
+            backdrop.classList.remove('hidden');
+            backdrop.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeInstallHelp() {
+            const backdrop = document.getElementById('installHelpBackdrop');
+            backdrop.classList.add('hidden');
+            backdrop.setAttribute('aria-hidden', 'true');
         }
 
         function showSizePreview() {
@@ -1864,6 +2077,11 @@
             document.getElementById('fitBtn').addEventListener('click', fitContent);
             document.getElementById('exportBtn').addEventListener('click', exportMarkup);
             document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+            document.getElementById('installInfoBtn').addEventListener('click', openInstallHelp);
+            document.getElementById('installHelpClose').addEventListener('click', closeInstallHelp);
+            document.getElementById('installHelpBackdrop').addEventListener('click', evt => {
+                if (evt.target.id === 'installHelpBackdrop') closeInstallHelp();
+            });
             imageInput.addEventListener('change', async evt => {
                 await importFiles(evt.target.files || []);
                 imageInput.value = '';
@@ -1911,7 +2129,11 @@
                         deleteSelection();
                     }
                 } else if (evt.key === 'Escape') {
-                    setSelected([]);
+                    if (!document.getElementById('installHelpBackdrop').classList.contains('hidden')) {
+                        closeInstallHelp();
+                    } else {
+                        setSelected([]);
+                    }
                 }
             });
         }
@@ -1920,6 +2142,8 @@
             bindUi();
             syncToolControls();
             updateStatus();
+            updateInstallHelpUi();
+            window.matchMedia('(display-mode: standalone)').addEventListener?.('change', updateInstallHelpUi);
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
             }

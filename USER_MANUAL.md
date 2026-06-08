@@ -229,9 +229,11 @@ Tap **Share** to create a PNG. The export is automatically cropped to the import
 
 ### Installing on Mobile
 
-On Android Chrome, open Markup once and choose **Add to Home screen** / **Install app**. After installation, Android can show Markup as a target when sharing image files.
+When Markup is opened in a normal browser tab (not yet installed), a floating **ℹ️ info** button appears at the bottom-right. Tap it for step-by-step install and share instructions for your device.
 
-On iPhone/iPad, use Safari's **Add to Home Screen**. iOS does not support native Web Share Target for PWAs, so use Markup's in-app upload/paste/photo-picker. If needed, create an iOS Shortcut that opens the Markup URL from the Share sheet, then use the Upload button to pick the shared image.
+On **Android Chrome**, open Markup once and choose **Add to Home screen** / **Install app**. After installation, Android can show Markup as a target when sharing image files from Gallery/Photos.
+
+On **iPhone/iPad**, open Markup in **Safari**, tap **Share** → **Add to Home Screen**. iOS does not support native Web Share Target for PWAs, so you cannot Share → Markup with an image attached the way Android can. Instead, open the installed Markup app and use **Import**, paste, or the photo picker. The in-app info sheet also describes an optional **Shortcuts** workaround that opens Markup from the Share sheet (you still pick the image inside Markup).
 
 ---
 
