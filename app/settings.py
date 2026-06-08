@@ -427,6 +427,20 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Default resolution pre-selected in the Toolbox PDF Tool "Process & add" step, used to rasterise pages for export and any image processing. DPI is page-size independent, so it gives predictable quality for both A4 and A3 (200 DPI → A4 ≈ 1654 px wide, A3 ≈ 2339 px). 150 = draft/screen, 200 = normal (recommended), 300 = print. Pages that only need lossless ops (crop / 90° rotate) stay vector regardless. Users can change it per batch.',
         min=72, max=600,
     )),
+
+    # Markup
+    ('MARKUP_NORMALIZED_MAX_DIM', _spec(
+        'MARKUP_NORMALIZED_MAX_DIM', 'int', group='Markup',
+        label='Import normalize size (world units)',
+        help=(
+            'When an image is imported into Markup, its longest edge is scaled to '
+            'this many canvas world units regardless of source pixel resolution. '
+            'Larger values make imports appear bigger at the default fit zoom and '
+            'increase default pen/highlighter sizes; smaller values do the opposite. '
+            'Default 2400.'
+        ),
+        min=400, max=8000,
+    )),
 ])
 
 

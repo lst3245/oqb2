@@ -488,6 +488,7 @@ A DB-backed page for runtime tunables. Changes apply immediately to the running 
 | Thumbnails | `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX` | Apply to new renders only — after changing, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply to existing cache. |
 | Batch IMG Generation | `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` | Pre-fill the **Generate IMG** modal in Question Management. |
 | AI Tools | `AI_TOOLS_ENABLED`, `LLM_IMAGE_MAX_DIM`, `*_DEFAULT_LLM` | Master on/off switch, image downscale size, and per-feature default LLM endpoints (`AUTOTAG`, `MD`, `CHECK`, `SOLVEGEN`, `SOLVECHECK`, `PDF_IMPORT`, `EXPLAIN`). |
+| Markup | `MARKUP_NORMALIZED_MAX_DIM` | Longest-edge canvas size (world units) for imported Markup images (default 2400). Larger = bigger default fit view and thicker default pen sizes. |
 
 ### LLM Endpoints (AI Tools)
 

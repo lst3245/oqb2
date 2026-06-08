@@ -160,3 +160,6 @@ class Config:
     # PDF Toolbox — subfolder (under PDF_SOURCE_PATH) where "Save to server"
     # writes assembled PDFs/ZIPs so Batch PDF Import can pick them.
     TOOLBOX_SAVE_SUBDIR = os.getenv('TOOLBOX_SAVE_SUBDIR', 'Saved')
+
+    # Markup — longest edge (world units) for resolution-normalized image imports.
+    MARKUP_NORMALIZED_MAX_DIM = int(os.getenv('MARKUP_NORMALIZED_MAX_DIM', '2400'))

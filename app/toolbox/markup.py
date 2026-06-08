@@ -88,6 +88,7 @@ def markup_tool():
     return render_template(
         'markup.html',
         ios_shortcut_download_url=_shortcut_download_url(),
+        markup_normalized_max_dim=int(current_app.config.get('MARKUP_NORMALIZED_MAX_DIM', 2400)),
     )
 
 

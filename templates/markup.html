@@ -758,9 +758,9 @@
         };
 
         // Imported images are normalized so their longest edge maps to this many world
-        // units, regardless of source resolution. Keeps the fit zoom level and pen-size
-        // scale consistent whether you import a tiny 400px photo or a 4000px scan.
-        const NORMALIZED_MAX_DIM = 1600;
+        // units (Admin → System Settings → Markup). Keeps fit zoom and pen-size scale
+        // consistent whether you import a tiny 400px photo or a 4000px scan.
+        const NORMALIZED_MAX_DIM = {{ markup_normalized_max_dim | int }};
 
         let activeTool = 'pen';
         let lockSize = true;

@@ -64,6 +64,8 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | AI Tools | `CHECK_DEFAULT_LLM` | string | `''` | Default LLM for **Proofread / Quick check** (per-slot + batch). Blank = first enabled+vision. |
 | AI Tools | `PDF_IMPORT_DEFAULT_LLM` | string | `''` | Default LLM for **PDF Batch Import** bbox detect + paper-name guess. Blank = first enabled+vision (via `_pdf_default_endpoint`, which also falls back to `EXPLAIN_DEFAULT_LLM` for continuity). |
 | AI Tools | `LLM_CHAT_TIMEOUT_SECONDS` | int 0–3600 | 600 | Per-feature timeout override for **interactive** LLM chat (dashboard Explain + admin Chat console). 0 = use the endpoint's own `timeout_seconds`. Reasoning models can think for several minutes. |
+| Toolbox | `TOOLBOX_DEFAULT_DPI` | int | 200 | PDF Tool default resolution (DPI) |
+| Markup | `MARKUP_NORMALIZED_MAX_DIM` | int 400–8000 | 2400 | Longest-edge world units for imported Markup images |
 | PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int | 1700 | PDF page raster width (px) |
 | PDF Import | `PDF_IMPORT_COORD_ORDER` | string | `xyxy` | Bounding-box coordinate order (`xyxy` or `yxyx`); also used by MD figure cropping (`parse_figure_boxes`) |
 
