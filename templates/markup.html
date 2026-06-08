@@ -110,6 +110,11 @@
             background: var(--accent);
             color: #ffffff;
         }
+        .tool-btn .tool-icon {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
         .round-btn.danger:hover {
             background: rgba(220, 53, 69, 0.14);
             color: #dc3545;
@@ -570,7 +575,13 @@
             <button class="tool-btn active" data-tool="pen" title="Pen"><i class="bi bi-pencil"></i></button>
             <button class="tool-btn" data-tool="highlighter" title="Highlighter"><i class="bi bi-highlighter"></i></button>
             <button class="tool-btn" data-tool="eraser" title="Eraser"><i class="bi bi-eraser"></i></button>
-            <button class="tool-btn" data-tool="lasso" title="Lasso"><i class="bi bi-bounding-box-circles"></i></button>
+            <button class="tool-btn" data-tool="lasso" title="Lasso">
+                <svg class="tool-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M10.4 2.8c2.1.3 3.7 2.3 3.2 4.5-.4 1.8-2 3.1-3.8 3.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    <path d="M9.7 10.5C7.7 10.8 5.5 9.7 4.4 7.9 3.2 6 3.5 3.4 5.5 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    <path d="M9.7 10.5 13 14.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+            </button>
             <button class="tool-btn" data-tool="text" title="Text"><i class="bi bi-fonts"></i></button>
             <span class="separator"></span>
             <button class="tool-btn" data-tool="line" title="Straight line"><i class="bi bi-slash-lg"></i></button>
@@ -783,10 +794,34 @@
             resizeEnabled: false,
             borderStroke: '#0d6efd',
             borderDash: [6, 6],
+            anchorFill: '#ffffff',
+            anchorStroke: '#0d6efd',
+            anchorStrokeWidth: 1.5,
             anchorSize: 0,
-            padding: 10
+            anchorCornerRadius: 2,
+            padding: 4,
+            ignoreStroke: true
         });
         uiLayer.add(transformer);
+
+        let transformBefore = null;
+
+        transformer.on('transformstart', () => {
+            transformBefore = selectedNodes.map(node => ({ id: node.id(), before: serialAttrs(node) }));
+        });
+
+        transformer.on('transformend', () => {
+            if (!transformBefore) return;
+            const items = transformBefore.map(item => {
+                const node = findNode(item.id);
+                return node ? { id: item.id, before: item.before, after: serialAttrs(node) } : null;
+            }).filter(Boolean);
+            transformBefore = null;
+            if (items.some(item => JSON.stringify(item.before) !== JSON.stringify(item.after))) {
+                pushOp({ type: 'modify', items });
+            }
+            uiLayer.batchDraw();
+        });
 
         function nextId(prefix = 'mk') {
             nodeCounter += 1;
@@ -832,6 +867,28 @@
             return Math.round(stage.scaleX() * 100);
         }
 
+        /** ~1.4% of the shorter viewport edge, clamped for phone/tablet/desktop. */
+        function transformerScreenPx(ratio = 0.014, minPx = 10, maxPx = 16) {
+            const minDim = Math.min(window.innerWidth, window.innerHeight);
+            return clamp(minDim * ratio, minPx, maxPx);
+        }
+
+        /** Fixed on-screen transformer chrome (Konva uses absolute/screen units, not world units). */
+        function applyTransformerUiScale() {
+            if (!selectionIsImageOnly() || !selectedNodes.length) {
+                transformer.anchorSize(0);
+                return;
+            }
+            const px = transformerScreenPx();
+            transformer.anchorSize(px);
+            transformer.anchorStrokeWidth(1.25);
+            transformer.borderStrokeWidth(1.5);
+            transformer.padding(4);
+            transformer.anchorCornerRadius(2);
+            transformer.borderDash([6, 4]);
+            transformer.forceUpdate();
+        }
+
         function updateStatus() {
             zoomText.textContent = `${stageZoomPercent()}%`;
             modeText.textContent = toolLabel(activeTool);
@@ -843,6 +900,7 @@
             document.getElementById('undoBtn').disabled = undoStack.length === 0;
             document.getElementById('redoBtn').disabled = redoStack.length === 0;
             document.getElementById('deleteSelBtn').disabled = selectedNodes.length === 0;
+            applyTransformerUiScale();
         }
 
         function toolLabel(tool) {
@@ -1116,12 +1174,39 @@
             return node.getClientRect({ relativeTo: stage });
         }
 
-        function setSelected(nodes) {
-            selectedNodes = nodes.filter(Boolean).filter(node => node.getLayer());
+        function selectionIsImageOnly() {
+            return selectedNodes.length > 0
+                && selectedNodes.every(node => node.attrs.markupType === 'image');
+        }
+
+        function isTransformerTarget(screen) {
+            const target = stage.getIntersection(screen);
+            if (!target) return false;
+            let cur = target;
+            while (cur && cur !== stage) {
+                const name = cur.name?.() || '';
+                if (name.includes('_anchor') || cur.getClassName?.() === 'Transformer') return true;
+                cur = cur.getParent();
+            }
+            return false;
+        }
+
+        function syncSelectionUi() {
+            const imageOnly = selectionIsImageOnly();
+            transformer.resizeEnabled(imageOnly);
+            transformer.enabledAnchors(imageOnly
+                ? ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']
+                : []);
             transformer.nodes(selectedNodes);
+            applyTransformerUiScale();
             updateSelectionRect();
             uiLayer.batchDraw();
             updateStatus();
+        }
+
+        function setSelected(nodes) {
+            selectedNodes = nodes.filter(Boolean).filter(node => node.getLayer());
+            syncSelectionUi();
         }
 
         function updateSelectionRect() {
@@ -1130,6 +1215,7 @@
                 selectionRect = null;
             }
             if (selectedNodes.length === 0) return;
+            if (selectionIsImageOnly()) return;
             let box = null;
             selectedNodes.forEach(node => {
                 const rect = nodeStageRect(node);
@@ -1613,10 +1699,15 @@
 
         function onPointerDown(evt) {
             if (evt.button !== undefined && evt.button !== 0) return;
-            evt.preventDefault();
-            try { stageWrap.setPointerCapture?.(evt.pointerId); } catch (_) {}
             const sp = screenPoint(evt);
             activePointers.set(evt.pointerId, sp);
+
+            if (activeTool === 'lasso' && selectionIsImageOnly() && isTransformerTarget(sp)) {
+                return;
+            }
+
+            evt.preventDefault();
+            try { stageWrap.setPointerCapture?.(evt.pointerId); } catch (_) {}
 
             if (activePointers.size === 2) {
                 cancelTransientDrawing();
@@ -1756,7 +1847,7 @@
             selectedNodes.forEach(node => node.destroy());
             setSelected([]);
             pushOp({ type: 'remove', nodes });
-            drawLayer.batchDraw();
+            drawAll();
         }
 
         function loadImageElement(src) {
@@ -2427,6 +2518,7 @@
 
             window.addEventListener('resize', () => {
                 stage.size({ width: window.innerWidth, height: window.innerHeight });
+                applyTransformerUiScale();
                 stage.batchDraw();
             });
             window.addEventListener('paste', async evt => {

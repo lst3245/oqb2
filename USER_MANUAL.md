@@ -207,7 +207,7 @@ Open **My Stuff → Toolbox → Markup** to handwrite solutions or annotate an i
 - **Draw**: use Pen or Highlighter. One finger or stylus draws.
 - **Move around**: use two fingers to pan and pinch-zoom. The Hand tool pans with one finger.
 - **Erase**: the eraser removes whole strokes/shapes.
-- **Select**: use Lasso to draw around strokes or tap an imported image, then drag the selection or delete it.
+- **Select**: use Lasso to draw around strokes or tap an imported image, then drag to move, use resize handles on images, or delete with the trash button / Delete key.
 - **Text and shapes**: add text, straight lines, rectangles, or ellipses from the toolbar.
 - **Lock size**: when enabled, new strokes keep a constant size in the final exported image. When disabled, the stroke feels constant on screen while zoomed.
 - **Snap**: with Snap enabled, hold briefly at the end of a pen stroke to snap simple shapes such as straight lines.
