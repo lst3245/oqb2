@@ -24,7 +24,8 @@ alwaysApply: false
 ## Imports
 
 - Android share target: service worker stores the POSTed image in Cache API (`markup-share-v1`, `/__oqb_markup_shared_image__`), then opens `?shared=1`.
-- Upload/paste: read image files as data URLs.
+- Upload/paste: **Import** opens `#importBackdrop` with file picker, **Paste from clipboard** (`readClipboardAsImageBlob`: `clipboard.read()` image types, else `readText` + base64), and a tap-to-paste zone. Global paste still works on the canvas.
+- iOS Share Shortcut: `GET /admin/toolbox/markup/ios-shortcut.shortcut` + `?ios-share=paste` (opens import sheet in share mode) or `?ios-share=hash#…` (inline base64). Prefer signed file at `static/markup/Markup-OQB-signed.shortcut` when available — iOS 15+ rejects unsigned downloads.
 - Present mode: `templates/viewer.html` opens `/admin/toolbox/markup?img=<same-origin-url>` for IMG assets or DOC thumbnails. MD assets have no image URL and should not show a Markup button.
 - Reject external `?img=` URLs to avoid canvas-tainting export failures.
 
@@ -35,3 +36,5 @@ alwaysApply: false
 Android Chrome supports installed-PWA Web Share Target. iOS Safari does not; iOS must use installed PWA + upload/paste, with Shortcuts only as a documented workaround.
 
 When not in standalone mode, show floating `#installInfoBtn` (bottom-right). It opens `#installHelpBackdrop` with platform-highlighted instructions (`detectInstallPlatform`, `isStandaloneApp`). Hide the button once installed (`display-mode: standalone` or `navigator.standalone`).
+
+**iOS Share Shortcut (PairDrop-style):** `GET /admin/toolbox/markup/ios-shortcut.shortcut` (`build_ios_share_shortcut` in `app/toolbox/markup.py`) generates an unsigned Shortcuts action extension: convert image → JPEG, base64 encode, copy to clipboard, open `{base}/admin/toolbox/markup?ios-share=paste`. That URL opens `#importBackdrop` in share mode; paste uses `readClipboardAsImageBlob` (image blob or base64 text). Also supports `?ios-share=hash#BASE64` for small images. iOS share import skips the autosave-restore prompt. Unsigned files fail on iOS 15+ unless replaced by `Markup-OQB-signed.shortcut` or imported via `shortcuts://import-shortcut/?url=…`.

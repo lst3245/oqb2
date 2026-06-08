@@ -387,6 +387,134 @@
                 align-items: center;
             }
         }
+        .ios-share-backdrop,
+        .import-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 55;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+            background: rgba(15, 23, 42, 0.5);
+        }
+        .ios-share-backdrop.hidden,
+        .import-backdrop.hidden {
+            display: none !important;
+        }
+        .ios-share-sheet,
+        .import-sheet {
+            width: min(420px, 100%);
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: var(--toolbar-shadow);
+            padding: 18px;
+            text-align: center;
+        }
+        .ios-share-sheet h2,
+        .import-sheet h2 {
+            margin: 0 0 8px;
+            font-size: 18px;
+        }
+        .ios-share-sheet p,
+        .import-sheet p {
+            margin: 0 0 14px;
+            color: #475569;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+        .import-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .import-action-btn,
+        .ios-share-paste-btn {
+            width: 100%;
+            padding: 14px 16px;
+            border: 0;
+            border-radius: 14px;
+            background: var(--accent);
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .import-action-btn.secondary {
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        .import-action-btn:disabled,
+        .ios-share-paste-btn:disabled {
+            opacity: 0.65;
+            cursor: default;
+        }
+        .import-paste-zone {
+            margin-top: 10px;
+            padding: 18px 14px;
+            border: 2px dashed #93c5fd;
+            border-radius: 14px;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 14px;
+            line-height: 1.45;
+            outline: none;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .import-paste-zone:focus {
+            border-color: var(--accent);
+            background: #eff6ff;
+        }
+        .ios-share-fallback,
+        .import-paste-fallback {
+            width: 100%;
+            min-height: 88px;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 10px;
+            font-size: 13px;
+            resize: vertical;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .help-download-btn,
+        .help-link-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            margin-right: 8px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            border: 0;
+            cursor: pointer;
+        }
+        .help-link-btn.secondary {
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .help-manual-steps {
+            margin: 10px 0 0;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            text-align: left;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #334155;
+        }
+        .help-manual-steps code {
+            font-size: 12px;
+            word-break: break-all;
+        }
         textarea.text-editor {
             position: fixed;
             z-index: 40;
@@ -528,25 +656,48 @@
                     <li>Open this page in <strong>Safari</strong> (required for install).</li>
                     <li>Tap <strong>Share</strong> (<i class="bi bi-box-arrow-up"></i>) → <strong>Add to Home Screen</strong> → <strong>Add</strong>.</li>
                     <li>Launch <strong>Markup</strong> from your home screen.</li>
-                    <li>To bring in an image: use <strong>Import</strong>, paste from clipboard, or pick from Photos inside Markup.</li>
+                    <li>To bring in an image: use the <strong>Share shortcut</strong> (below), <strong>Import</strong>, or paste inside Markup.</li>
                 </ol>
-                <p class="help-note"><strong>iOS note:</strong> Apple does not let installed web apps appear in the system Share menu with an image attached. Share → Markup directly is an Android feature.</p>
+                <p class="help-note"><strong>iOS note:</strong> Native Share → Markup with an image only works on Android. On iOS, use <strong>Import → Paste from clipboard</strong> or the optional Share shortcut below.</p>
             </div>
 
             <div class="help-platform" id="helpIosShortcut">
-                <h3><i class="bi bi-link-45deg"></i> iOS workaround (Shortcuts)</h3>
-                <ol>
-                    <li>Open the <strong>Shortcuts</strong> app → <strong>New Shortcut</strong>.</li>
-                    <li>Add <strong>Open URLs</strong> and paste this Markup link:</li>
+                <h3><i class="bi bi-share"></i> Share images via Shortcut (like PairDrop)</h3>
+                <p class="help-note" style="margin-top:0"><strong>iOS 15+:</strong> Apple blocks unsigned shortcut files (“Shortcut Cannot Be Opened”). Build manually below, or use <strong>Import → Paste from clipboard</strong> after copying a photo.</p>
+                <p><strong>Recommended:</strong> copy a photo, open Markup, tap <strong>Import</strong>, then <strong>Paste from clipboard</strong>.</p>
+                <p><strong>Optional Share shortcut</strong> (Photos → Share → Markup): create in the Shortcuts app:</p>
+                <ol class="help-manual-steps">
+                    <li><strong>Convert Image</strong> → JPEG</li>
+                    <li><strong>Base64 Encode</strong></li>
+                    <li><strong>Copy to Clipboard</strong></li>
+                    <li><strong>URL</strong> → <code id="iosShortcutPasteUrl"></code></li>
+                    <li><strong>Open URLs</strong></li>
+                    <li>Shortcut settings → enable <strong>Share Sheet</strong> → accept <strong>Images</strong></li>
                 </ol>
-                <div class="help-url" id="installHelpUrl"></div>
-                <ol start="3">
-                    <li>Tap <strong>Shortcut name</strong> → enable <strong>Show in Share Sheet</strong>.</li>
-                    <li>When you share an image to the shortcut, Markup opens — tap <strong>Import</strong> and pick the image.</li>
-                </ol>
+                <a class="help-link-btn" id="iosShortcutImportLink" href="#">
+                    <i class="bi bi-box-arrow-up-right"></i> Try “Add to Shortcuts” link
+                </a>
+                <a class="help-download-btn secondary" id="iosShortcutDownload" href="{{ ios_shortcut_download_url }}">
+                    <i class="bi bi-download"></i> Download unsigned shortcut
+                </a>
+                <p class="help-note">The download is for Mac signing (<code>shortcuts sign</code>) or the import link above. PairDrop publishes via RoutineHub because Apple signs those copies.</p>
             </div>
 
             <button class="install-help-close" id="installHelpClose" type="button">Got it</button>
+        </div>
+    </div>
+
+    <div class="import-backdrop hidden" id="importBackdrop" aria-hidden="true">
+        <div class="import-sheet" role="dialog" aria-modal="true" aria-labelledby="importSheetTitle">
+            <h2 id="importSheetTitle">Import image</h2>
+            <p id="importSheetLead">Choose a photo/file, paste from the clipboard, or tap the box below and paste.</p>
+            <div class="import-actions">
+                <button class="import-action-btn secondary" id="importChooseBtn" type="button">Choose photo / file</button>
+                <button class="import-action-btn" id="importPasteBtn" type="button">Paste from clipboard</button>
+            </div>
+            <div class="import-paste-zone" id="importPasteZone" tabindex="0">Tap here, then paste (long-press → Paste on iOS)</div>
+            <textarea class="import-paste-fallback hidden" id="importPasteFallback" placeholder="Or paste base64 image text here (from a Share shortcut)"></textarea>
+            <button class="import-action-btn secondary" id="importCloseBtn" type="button" style="margin-top:10px">Cancel</button>
         </div>
     </div>
 
@@ -760,23 +911,29 @@
             const btn = document.getElementById('installInfoBtn');
             if (!btn) return;
             btn.classList.toggle('hidden', isStandaloneApp());
+            const pasteUrl = `${location.origin}/admin/toolbox/markup?ios-share=paste`;
+            const pasteEl = document.getElementById('iosShortcutPasteUrl');
+            if (pasteEl) pasteEl.textContent = pasteUrl;
+            const downloadEl = document.getElementById('iosShortcutDownload');
+            const importLink = document.getElementById('iosShortcutImportLink');
+            if (importLink && downloadEl?.href) {
+                importLink.href = `shortcuts://import-shortcut/?url=${encodeURIComponent(downloadEl.href)}`;
+            }
         }
 
         function openInstallHelp() {
             const backdrop = document.getElementById('installHelpBackdrop');
             const platform = detectInstallPlatform();
-            const markupUrl = `${location.origin}{{ url_for('toolbox.markup_tool') }}`;
-            document.getElementById('installHelpUrl').textContent = markupUrl;
             document.getElementById('helpAndroid').classList.toggle('active', platform === 'android');
             document.getElementById('helpIos').classList.toggle('active', platform === 'ios');
             document.getElementById('helpIosShortcut').classList.toggle('active', platform === 'ios');
             const lead = document.getElementById('installHelpLead');
             if (platform === 'ios') {
-                lead.textContent = 'Install Markup to your home screen for a full-screen app. On iPhone/iPad, import images inside Markup (Share → Markup with the image is Android-only).';
+                lead.textContent = 'Install Markup to your home screen. To annotate a photo: copy it, open Markup, tap Import → Paste from clipboard. Optionally build the Share shortcut below.';
             } else if (platform === 'android') {
                 lead.textContent = 'Install Markup once, then open photos from the system Share menu straight into the canvas.';
             } else {
-                lead.textContent = 'On mobile, install Markup for a full-screen app. Android can receive shared images; iOS uses in-app import or a Shortcuts workaround.';
+                lead.textContent = 'On mobile, install Markup for a full-screen app. Android can receive shared images; on iOS use Import → Paste from clipboard.';
             }
             backdrop.classList.remove('hidden');
             backdrop.setAttribute('aria-hidden', 'false');
@@ -1670,8 +1827,145 @@
             return true;
         }
 
+        function detectImageMime(bytes) {
+            if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
+            if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
+            if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+            if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+            return 'image/jpeg';
+        }
+
+        function base64ToImageBlob(base64Text) {
+            let raw = (base64Text || '').trim();
+            let mime = '';
+            const dataUrlMatch = raw.match(/^data:([^;]+);base64,(.+)$/i);
+            if (dataUrlMatch) {
+                mime = dataUrlMatch[1];
+                raw = dataUrlMatch[2];
+            }
+            raw = raw.replace(/\s/g, '');
+            const bin = atob(raw);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            if (!mime) mime = detectImageMime(bytes);
+            return new Blob([bytes], { type: mime });
+        }
+
+        async function importSharedImageBlob(blob) {
+            const src = await fileToDataUrl(new File([blob], 'shared-image', { type: blob.type || 'image/jpeg' }));
+            await loadBackgroundImage(src);
+            showToast('Shared image imported');
+        }
+
+        function closeImportSheet() {
+            const backdrop = document.getElementById('importBackdrop');
+            backdrop.classList.add('hidden');
+            backdrop.setAttribute('aria-hidden', 'true');
+        }
+
+        function openImportSheet(options = {}) {
+            const { fromShare = false } = options;
+            const backdrop = document.getElementById('importBackdrop');
+            const lead = document.getElementById('importSheetLead');
+            const pasteBtn = document.getElementById('importPasteBtn');
+            const fallback = document.getElementById('importPasteFallback');
+            pasteBtn.disabled = false;
+            pasteBtn.textContent = 'Paste from clipboard';
+            fallback.classList.add('hidden');
+            fallback.value = '';
+            lead.textContent = fromShare
+                ? 'Your Share shortcut copied the image. Tap Paste from clipboard, or tap the box below and paste.'
+                : 'Choose a photo/file, paste from the clipboard, or tap the box below and paste.';
+            if (!navigator.clipboard?.read && !navigator.clipboard?.readText) {
+                fallback.classList.remove('hidden');
+            }
+            backdrop.classList.remove('hidden');
+            backdrop.setAttribute('aria-hidden', 'false');
+        }
+
+        async function readClipboardAsImageBlob() {
+            if (navigator.clipboard?.read) {
+                try {
+                    const items = await navigator.clipboard.read();
+                    for (const item of items) {
+                        const type = item.types.find(t => t.startsWith('image/'));
+                        if (type) {
+                            const blob = await item.getType(type);
+                            if (blob?.size) return blob;
+                        }
+                    }
+                } catch (_) {}
+            }
+            if (navigator.clipboard?.readText) {
+                const text = await navigator.clipboard.readText();
+                const blob = base64ToImageBlob(text);
+                if (blob.size) return blob;
+            }
+            throw new Error('No image in clipboard');
+        }
+
+        async function processImportBlob(blob) {
+            if (!blob?.size) throw new Error('Empty image');
+            closeImportSheet();
+            clearIncomingUrlParams();
+            await importSharedImageBlob(blob);
+        }
+
+        async function pasteFromClipboard() {
+            const pasteBtn = document.getElementById('importPasteBtn');
+            pasteBtn.disabled = true;
+            pasteBtn.textContent = 'Processing…';
+            try {
+                const blob = await readClipboardAsImageBlob();
+                await processImportBlob(blob);
+            } catch (err) {
+                pasteBtn.disabled = false;
+                pasteBtn.textContent = 'Paste from clipboard';
+                document.getElementById('importPasteFallback').classList.remove('hidden');
+                showToast('Paste failed. Tap the box below and paste manually.');
+                throw err;
+            }
+        }
+
+        async function processImportBase64Text(base64Text) {
+            const blob = base64ToImageBlob(base64Text);
+            await processImportBlob(blob);
+        }
+
+        async function handleIosShareImport(mode, hash = '') {
+            if (mode === 'hash') {
+                if (!hash) {
+                    showToast('No shared image found in link');
+                    return true;
+                }
+                try {
+                    clearIncomingUrlParams();
+                    await processImportBase64Text(hash);
+                } catch (_) {}
+                return true;
+            }
+            if (mode === 'paste' || mode === 'true' || mode === '1') {
+                openImportSheet({ fromShare: true });
+                return true;
+            }
+            return false;
+        }
+
+        function clearIncomingUrlParams() {
+            const url = new URL(location.href);
+            url.searchParams.delete('ios-share');
+            url.searchParams.delete('shared');
+            url.searchParams.delete('img');
+            url.hash = '';
+            history.replaceState({}, '', url.pathname + url.search);
+        }
+
         async function maybeLoadIncomingImage() {
             const params = new URLSearchParams(location.search);
+            const iosShare = params.get('ios-share');
+            if (iosShare) {
+                return handleIosShareImport(iosShare, location.hash.substring(1));
+            }
             let loaded = false;
             if (params.get('shared') === '1') loaded = await loadSharedImage();
             const imgUrl = params.get('img');
@@ -2073,7 +2367,38 @@
             document.getElementById('undoBtn').addEventListener('click', undo);
             document.getElementById('redoBtn').addEventListener('click', redo);
             document.getElementById('deleteSelBtn').addEventListener('click', deleteSelection);
-            document.getElementById('importBtn').addEventListener('click', () => imageInput.click());
+            document.getElementById('importBtn').addEventListener('click', () => openImportSheet());
+            document.getElementById('importChooseBtn').addEventListener('click', () => imageInput.click());
+            document.getElementById('importPasteBtn').addEventListener('click', () => {
+                pasteFromClipboard().catch(() => {});
+            });
+            document.getElementById('importCloseBtn').addEventListener('click', closeImportSheet);
+            document.getElementById('importBackdrop').addEventListener('click', evt => {
+                if (evt.target.id === 'importBackdrop') closeImportSheet();
+            });
+            document.getElementById('importPasteZone').addEventListener('paste', async evt => {
+                evt.preventDefault();
+                const files = [...(evt.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
+                if (files.length) {
+                    try {
+                        await processImportBlob(files[0]);
+                    } catch (_) {}
+                    return;
+                }
+                const text = evt.clipboardData?.getData('text/plain')?.trim();
+                if (text && text.length >= 64) {
+                    try {
+                        await processImportBase64Text(text);
+                    } catch (_) {}
+                }
+            });
+            document.getElementById('importPasteFallback').addEventListener('input', async evt => {
+                const value = evt.target.value.trim();
+                if (value.length < 64) return;
+                try {
+                    await processImportBase64Text(value);
+                } catch (_) {}
+            });
             document.getElementById('fitBtn').addEventListener('click', fitContent);
             document.getElementById('exportBtn').addEventListener('click', exportMarkup);
             document.getElementById('clearBtn').addEventListener('click', clearCanvas);
@@ -2085,6 +2410,7 @@
             imageInput.addEventListener('change', async evt => {
                 await importFiles(evt.target.files || []);
                 imageInput.value = '';
+                closeImportSheet();
             });
 
             stageWrap.addEventListener('pointerdown', onPointerDown, { passive: false });
@@ -2129,7 +2455,9 @@
                         deleteSelection();
                     }
                 } else if (evt.key === 'Escape') {
-                    if (!document.getElementById('installHelpBackdrop').classList.contains('hidden')) {
+                    if (!document.getElementById('importBackdrop').classList.contains('hidden')) {
+                        closeImportSheet();
+                    } else if (!document.getElementById('installHelpBackdrop').classList.contains('hidden')) {
                         closeInstallHelp();
                     } else {
                         setSelected([]);
@@ -2146,6 +2474,12 @@
             window.matchMedia('(display-mode: standalone)').addEventListener?.('change', updateInstallHelpUi);
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+            }
+            const params = new URLSearchParams(location.search);
+            if (params.get('ios-share')) {
+                await maybeLoadIncomingImage();
+                showToast('Markup ready');
+                return;
             }
             const savedScene = idb ? await idb.get(AUTOSAVE_KEY) : null;
             if (sceneHasContent(savedScene)) {

@@ -216,8 +216,8 @@ Open **My Stuff → Toolbox → Markup** to handwrite solutions or annotate an i
 ### Adding Images
 
 You can start with a blank canvas or import an image by:
-- tapping **Import image** inside Markup,
-- pasting an image from the clipboard,
+- tapping **Import image** inside Markup → **Choose photo / file**, **Paste from clipboard**, or tap the paste box and paste (long-press → Paste on iOS),
+- pasting an image anywhere on the canvas (when the import sheet is not focused),
 - opening a QUE/SOL asset from Viewer / Presentation Mode,
 - sharing an image to the installed Markup PWA on Android.
 
@@ -233,7 +233,13 @@ When Markup is opened in a normal browser tab (not yet installed), a floating **
 
 On **Android Chrome**, open Markup once and choose **Add to Home screen** / **Install app**. After installation, Android can show Markup as a target when sharing image files from Gallery/Photos.
 
-On **iPhone/iPad**, open Markup in **Safari**, tap **Share** → **Add to Home Screen**. iOS does not support native Web Share Target for PWAs, so you cannot Share → Markup with an image attached the way Android can. Instead, open the installed Markup app and use **Import**, paste, or the photo picker. The in-app info sheet also describes an optional **Shortcuts** workaround that opens Markup from the Share sheet (you still pick the image inside Markup).
+On **iPhone/iPad**:
+
+1. Open Markup in **Safari** → **Share** → **Add to Home Screen** (optional but recommended).
+2. **Recommended:** copy a photo (Photos → Copy), open Markup, tap **Import** → **Paste from clipboard** (or tap the paste box and paste).
+3. **Optional Share shortcut:** tap **ℹ️** and follow the manual Shortcuts recipe (Convert Image → Base64 → Copy → Open URL). iOS 15+ often rejects unsigned shortcut downloads — use the **Try “Add to Shortcuts” link** or build the shortcut by hand in the Shortcuts app. If a signed copy is deployed on the server, the download link serves that instead.
+
+When a Share shortcut opens Markup with `?ios-share=paste`, the same Import sheet appears with paste-focused instructions.
 
 ---
 

@@ -466,6 +466,7 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 |---|---|---|
 | `/` | GET | Toolbox landing page for all logged-in users; individual cards/routes apply per-tool gating |
 | `/markup` | GET | Standalone Markup PWA canvas for logged-in users |
+| `/markup/ios-shortcut.shortcut` | GET | Download iOS Share Sheet shortcut (PairDrop-style) for this server |
 | `/markup/share-target` | POST | Web Share Target fallback redirect when the service worker is not active |
 | `/pdf` | GET | Admin-only PDF Tool |
 | `/pdf/*` | GET, POST | Admin-only PDF Tool staging, processing, preview, export, and save APIs |
