@@ -681,9 +681,8 @@ def _extract_responses_parts(data):
     if not isinstance(data, dict):
         raise LLMError(f'unexpected response type: {type(data).__name__}')
 
-    text = data.get('output_text') or ''
+    text = (data.get('output_text') or '').strip()
     reasoning_parts: list[str] = []
-    text_parts: list[str] = []
 
     for item in data.get('output') or []:
         if not isinstance(item, dict):
@@ -695,7 +694,7 @@ def _extract_responses_parts(data):
                 reasoning_parts.append(content)
             elif isinstance(content, list):
                 reasoning_parts.append(_extract_block_text(content))
-        elif itype == 'message':
+        elif not text and itype == 'message':
             for blk in item.get('content') or []:
                 if not isinstance(blk, dict):
                     continue
@@ -703,10 +702,7 @@ def _extract_responses_parts(data):
                 if btype in ('output_text', 'text'):
                     t = blk.get('text') or ''
                     if t:
-                        text_parts.append(t)
-
-    if not text:
-        text = '\n'.join(text_parts)
+                        text = '\n'.join(filter(None, [text, t])).strip()
 
     reasoning = '\n'.join(reasoning_parts)
     details = data.get('reasoning_details')
@@ -949,19 +945,9 @@ def _responses_stream_deltas(chunk: dict):
     elif etype in ('response.reasoning.delta', 'response.reasoning_text.delta',
                    'response.reasoning_summary_text.delta'):
         reasoning_delta = chunk.get('delta') or chunk.get('text') or ''
-    elif etype == 'response.output_item.done':
-        item = chunk.get('item') or {}
-        itype = (item.get('type') or '').lower()
-        if itype == 'message':
-            for blk in item.get('content') or []:
-                if isinstance(blk, dict) and blk.get('type') in ('output_text', 'text'):
-                    content_delta += blk.get('text') or ''
-        elif itype in ('reasoning', 'reasoning_summary'):
-            c = item.get('content') or item.get('summary') or item.get('text')
-            if isinstance(c, str):
-                reasoning_delta += c
-            elif isinstance(c, list):
-                reasoning_delta += _extract_block_text(c)
+    # ``response.output_item.done`` carries the assembled item, but providers
+    # (Poe, OpenAI) already stream the same text via *.delta events — harvesting
+    # the full item here duplicates the accumulated output.
 
     return content_delta, reasoning_delta
 
@@ -979,6 +965,7 @@ def _stream_responses(config, messages, max_tokens=None, temperature=None,
     accumulated_reasoning: list[str] = []
     finish_reason = None
     usage: dict = {}
+    final_response: dict | None = None
 
     try:
         resp = requests.post(url, json=payload, headers=headers,
@@ -1048,8 +1035,14 @@ def _stream_responses(config, messages, max_tokens=None, temperature=None,
                 chunk = dict(chunk)
                 chunk['type'] = current_event
 
-            if isinstance(chunk, dict) and chunk.get('type', '').endswith('completed'):
+            chunk_type = (chunk.get('type') or '') if isinstance(chunk, dict) else ''
+            if chunk_type.endswith('completed'):
                 finish_reason = chunk.get('status') or chunk.get('type')
+                body = chunk.get('response')
+                if isinstance(body, dict):
+                    final_response = body
+                elif isinstance(chunk, dict) and chunk.get('output') is not None:
+                    final_response = chunk
 
             content_delta, reasoning_delta = _responses_stream_deltas(chunk)
             if content_delta or reasoning_delta:
@@ -1061,10 +1054,20 @@ def _stream_responses(config, messages, max_tokens=None, temperature=None,
                     'reasoning': reasoning_delta,
                 }
 
+    combined_text = ''.join(accumulated_content)
+    combined_reasoning = ''.join(accumulated_reasoning)
+    if not combined_text.strip() and final_response:
+        t, r, fr = _extract_responses_parts(final_response)
+        combined_text = t or ''
+        if not combined_reasoning.strip():
+            combined_reasoning = r or ''
+        if fr and not finish_reason:
+            finish_reason = fr
+
     yield {
         'type': 'done',
-        'text': ''.join(accumulated_content),
-        'reasoning': ''.join(accumulated_reasoning),
+        'text': combined_text,
+        'reasoning': combined_reasoning,
         'finish_reason': finish_reason,
         'usage': usage,
     }

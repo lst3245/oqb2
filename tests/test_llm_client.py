@@ -10,6 +10,7 @@ from app.llm_client import (
     _extract_responses_parts,
     _messages_to_responses_input,
     _resolve_reasoning,
+    _responses_stream_deltas,
     parse_request_extra_json,
 )
 
@@ -185,9 +186,36 @@ class TestResponseParsing(unittest.TestCase):
             'status': 'completed',
         }
         text, reasoning, finish = _extract_responses_parts(data)
-        self.assertTrue(text)
+        self.assertEqual(text, 'Final')
         self.assertIn('Thinking', reasoning)
         self.assertEqual(finish, 'completed')
+
+    def test_extract_responses_parts_without_output_text(self):
+        data = {
+            'output': [
+                {'type': 'message', 'content': [
+                    {'type': 'output_text', 'text': 'From message'},
+                ]},
+            ],
+            'status': 'completed',
+        }
+        text, _, _ = _extract_responses_parts(data)
+        self.assertEqual(text, 'From message')
+
+    def test_responses_stream_deltas_skip_item_done(self):
+        c1, _ = _responses_stream_deltas(
+            {'type': 'response.output_text.delta', 'delta': 'Hello'},
+        )
+        self.assertEqual(c1, 'Hello')
+        c2, r2 = _responses_stream_deltas({
+            'type': 'response.output_item.done',
+            'item': {
+                'type': 'message',
+                'content': [{'type': 'output_text', 'text': 'Hello'}],
+            },
+        })
+        self.assertEqual(c2, '')
+        self.assertEqual(r2, '')
 
 
 if __name__ == '__main__':

@@ -52,7 +52,7 @@ Each endpoint uses either **Chat Completions** (`POST {base_url}/chat/completion
 
 - `llm_client.chat(config, system, user_text, images)` → `(text, info)` where `info = {usage, finish_reason, reasoning, reasoning_details, raw}`; raises `LLMError`. Dispatches by `api_protocol`. `_extract_message_parts` / `_extract_responses_parts` separate answer text from reasoning.
 - `llm_client.chat_messages(config, messages, max_tokens?, temperature?, timeout?)` → `(text, info)` for **multi-turn** conversations. Used by batch AI Tools when not using `chat()`.
-- `llm_client.chat_messages_stream(config, messages, ...)` → **generator** yielding `{type:'delta', content, reasoning}` then `{type:'done', text, reasoning, finish_reason, usage}`. Streams Chat Completions SSE or Responses semantic events. Used by **Explain** and admin **Chat** console. Interactive routes pass `LLM_CHAT_TIMEOUT_SECONDS` (default 600 s).
+- `llm_client.chat_messages_stream(config, messages, ...)` → **generator** yielding `{type:'delta', content, reasoning}` then `{type:'done', text, reasoning, finish_reason, usage}`. Streams Chat Completions SSE or Responses semantic events. Responses streaming accumulates `response.output_text.delta` only — do not also harvest `response.output_item.done` message text (duplicates output). Used by **Explain** and admin **Chat** console. Interactive routes pass `LLM_CHAT_TIMEOUT_SECONDS` (default 600 s).
 - `llm_client.prepare_image(abs_path, max_dim)` → downscaled JPEG `(b64, mime)` for sending.
 - `llm_client.prepare_image_from_pil(im, max_dim)` → same, from an in-memory PIL Image (used when MD/DOC slots are rendered to pages on the fly for proofreading).
 - `llm_client.read_image_data_uri(abs_path)` → ORIGINAL bytes data-URI (whole-image figure fallback).

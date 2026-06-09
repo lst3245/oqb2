@@ -25,6 +25,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### 🐛 Bug Fixes
 
+- **LLM Responses API: streamed output repeated twice.** Poe/OpenAI Responses streams emit incremental `response.output_text.delta` events and then a `response.output_item.done` item with the same assembled text; harvesting both duplicated every reply in Explain and direct chat. Streaming now accumulates deltas only; `output_item.done` is ignored, with a `response.completed` body fallback when a provider sends no deltas. Non-stream parsing also prefers top-level `output_text` and skips per-message text when it is already present.
+
 - **LLM Claude reasoning: HTTP 400 on `thinking.type.enabled`.** Claude 4.6+ models (e.g. Poe `Claude-Opus-4.7`, `Claude-Sonnet-4.6`) no longer accept the legacy enabled-thinking mapping that gateways derive from OpenAI-style `reasoning.effort`. When the endpoint model name contains `claude`, the client now sends `thinking: {type: adaptive}` (with `display: summarized` when reasoning summary is `auto`) and `output_config: {effort}` instead of top-level `reasoning`.
 
 - **LLM Responses API (Poe / OpenRouter): direct chat HTTP 400 on `input_text`.** Responses endpoints no longer wrap plain user/assistant turns in `{type: input_text}` content blocks (which Poe rejects for assistant replay and is unnecessary for text-only user turns). Text-only messages now use plain-string `content` per the [Poe Responses API](https://creator.poe.com/docs/external-applications/openai-compatible-api); multimodal user turns use a `type: message` wrapper with `input_text` + `input_image` blocks; a single text-only user turn is sent as `input: "..."` instead of a one-element array.
