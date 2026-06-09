@@ -494,12 +494,14 @@ A DB-backed page for runtime tunables. Changes apply immediately to the running 
 
 The **AI Tools** feature (proofreading, Markdown generation, solve-generation/checking, and auto-tagging in Question Management) needs at least one configured LLM endpoint. Open **Admin → LLM Endpoints** (linked from the System Settings header and the Admin navbar; super-admin only).
 
-- Click **Add Endpoint** and fill in: **Name**, **Model name**, **Base URL** (the API root that exposes `/chat/completions` — e.g. `https://api.openai.com/v1` or `http://localhost:11434/v1`; do **not** include `/chat/completions`), **API key** (optional — blank uses the `.env` `LLM_API_KEY`), provider, max output tokens, temperature, timeout, and the **Vision** toggle.
+- Click **Add Endpoint** and fill in: **Name**, **Model name**, **Base URL** (the API root — e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `https://api.poe.com/v1`, or `http://localhost:11434/v1`; do **not** include `/chat/completions` or `/responses`), **API key** (optional — blank uses the `.env` `LLM_API_KEY`), provider, max output tokens, temperature, timeout, and the **Vision** toggle.
+- **API protocol**: **Chat Completions** (default — local Ollama/LM Studio, OpenRouter GPT-5.5) or **Responses API** (recommended for Poe reasoning models).
+- **Reasoning**: set **Reasoning effort** (`off` / `low` / `medium` / `high`, or inherit from System Settings → **Default reasoning effort**). For Responses endpoints, set **Reasoning summary** (`auto` / `none`). Raise **Max output tokens** (e.g. 8192+) for reasoning models. Use **Advanced request JSON** for provider-specific body fields (Poe Chat Completions may need keys here because top-level `reasoning_effort` is ignored).
 - **Vision is required** for both AI Tools operations. Local models must be vision-capable (e.g. Qwen-VL, Llava, Llama-Vision).
 - API keys entered here are **encrypted at rest** (Fernet). The plaintext is never shown again — leave the key field blank when editing to keep the stored key, type a new value to replace it, or tick **Remove the stored key** to fall back to `.env`.
 - Use the **Test** button to send a tiny ping and confirm connectivity / auth / model name.
-- Use the **Chat** button for a raw direct conversation with the endpoint. Vision endpoints support pasted, dragged, or attached images in the chat console; text-only endpoints disable image attachment.
-- Cloud (OpenAI, OpenRouter) and local (Ollama, LM Studio, vLLM) endpoints all work, as do Anthropic/Gemini behind an OpenAI-compatible proxy.
+- Use the **Chat** button for a raw direct conversation with the endpoint. Vision endpoints support pasted, dragged, or attached images; reasoning models show a collapsible **Reasoning** panel while streaming.
+- Cloud (OpenAI, OpenRouter, Poe) and local (Ollama, LM Studio, vLLM) endpoints all work, as do Anthropic/Gemini behind an OpenAI-compatible proxy.
 
 ### Settings that stay in `.env`
 

@@ -91,7 +91,7 @@ python run.py
   - **Markdown live editor** (modal + fullscreen) for `.md` assets: EasyMDE editor, live KaTeX preview, base64 image insert, optimistic concurrency
   - Batch update (level, type, section, topic/subtopic, correct %) and batch delete
   - **AI Tools** — call an OpenAI-compatible LLM (local or cloud) to proofread typed images against official scans (per-asset check state + issue badges) or transcribe images into Markdown (LaTeX math); live SSE log with a real server-side Stop
-- **LLM Endpoints** (`/admin/llm-endpoints`) — super admin only; manage named LLM endpoints (encrypted keys, vision toggle, test ping) for AI Tools
+- **LLM Endpoints** (`/admin/llm-endpoints`) — super admin only; manage named LLM endpoints (Chat Completions or Responses API, reasoning effort, encrypted keys, vision toggle, test ping) for AI Tools
 - **User Management** (`/admin/users`) — super admin only; per-subject permission assignment
 - **Export / Import** (`/admin/export-import`) — CSV round-trip for question tags, topics, chapters
 - **Ingestion** (`/admin/ingestion`) — scan SOURCE_PATH and import files into DB; live streaming log

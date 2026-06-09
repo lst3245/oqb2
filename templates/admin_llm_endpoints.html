@@ -58,7 +58,7 @@
     <div class="alert alert-info">
         <i class="bi bi-info-circle"></i>
         These OpenAI-compatible endpoints power the <strong>AI Tools</strong> feature (image proofreading and Markdown generation) on the Question Management page.
-        Local servers (Ollama, LM Studio, vLLM) and cloud providers (OpenAI, OpenRouter) all work; point <code>base_url</code> at the API root that exposes <code>/chat/completions</code> (e.g. <code>https://api.openai.com/v1</code> or <code>http://localhost:11434/v1</code>).
+        Local servers (Ollama, LM Studio, vLLM) and cloud providers (OpenAI, OpenRouter, Poe) all work; point <code>base_url</code> at the API root (e.g. <code>https://api.openai.com/v1</code>, <code>https://openrouter.ai/api/v1</code>, <code>https://api.poe.com/v1</code>). Use <strong>Chat Completions</strong> for most endpoints; choose <strong>Responses</strong> for Poe reasoning models. OpenRouter GPT-5.5 supports reasoning via Chat Completions.
         API keys are stored <strong>encrypted</strong>; leave the key blank to fall back to the <code>LLM_API_KEY</code> in <code>.env</code>.
         Image operations require a <strong>vision-capable</strong> model.
     </div>
@@ -161,6 +161,43 @@
                             <option value="default">default</option>
                         </select>
                         <div class="form-text">Batch ops (Check / Gen-MD / Auto-tag / PDF detect). <code>flex</code> trades latency for a lower price. <a href="https://openrouter.ai/docs/guides/features/service-tiers" target="_blank" rel="noopener">Docs</a></div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">API protocol</label>
+                        <select class="form-select" id="epApiProtocol">
+                            <option value="chat">Chat Completions</option>
+                            <option value="responses">Responses API</option>
+                        </select>
+                        <div class="form-text">Poe reasoning: Responses. OpenRouter GPT-5.5: Chat Completions.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Reasoning effort</label>
+                        <select class="form-select" id="epReasoningEffort">
+                            <option value="">Use system default</option>
+                            <option value="off">Off (never send)</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Reasoning summary</label>
+                        <select class="form-select" id="epReasoningSummary">
+                            <option value="">Use system default</option>
+                            <option value="auto">Auto (Responses API)</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Reasoning max tokens</label>
+                        <input type="number" class="form-control" id="epReasoningMaxTokens" min="0" placeholder="(omit)">
+                        <div class="form-text">Optional cap on thinking tokens. 0 = omit.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Advanced request JSON <span class="text-muted fw-normal">(optional)</span></label>
+                        <textarea class="form-control font-monospace" id="epRequestExtraJson" rows="3"
+                                  placeholder='{"reasoning_effort": "high"}'></textarea>
+                        <div class="form-text">Provider-specific fields merged into the request body (JSON object). Poe Chat Completions may need keys here because top-level <code>reasoning_effort</code> is ignored.</div>
                     </div>
                     <div class="col-md-4 d-flex align-items-end gap-3">
                         <div class="form-check form-switch">
@@ -278,13 +315,23 @@ function renderEndpoints() {
         const tierBadge = (ep.service_tier || ep.service_tier_batch)
             ? `<span class="badge bg-info text-dark" title="service_tier — single vs batch ops">tier: ${escapeHtml(ep.service_tier || '—')} / ${escapeHtml(ep.service_tier_batch || '—')}</span>`
             : '';
+        const protoBadge = (ep.api_protocol === 'responses')
+            ? '<span class="badge bg-warning text-dark">responses</span>'
+            : '';
+        const re = ep.reasoning_effort || '';
+        const reasoningBadge = re
+            ? `<span class="badge bg-secondary">reasoning: ${escapeHtml(re)}</span>`
+            : '<span class="badge bg-light text-dark border">reasoning: inherit</span>';
+        const extraBadge = ep.has_request_extra
+            ? '<span class="badge bg-light text-dark border">extra JSON</span>'
+            : '';
         return `
         <div class="card mb-2 endpoint-card">
             <div class="card-body py-2">
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
                         <strong>${escapeHtml(ep.name)}</strong>
-                        ${enabledBadge} ${visionBadge} ${kindBadge} ${tierBadge} ${keyBadge}
+                        ${enabledBadge} ${visionBadge} ${kindBadge} ${protoBadge} ${reasoningBadge} ${extraBadge} ${tierBadge} ${keyBadge}
                         <div class="meta mt-1">
                             <code>${escapeHtml(ep.model_name)}</code> @ <code>${escapeHtml(ep.base_url)}</code>
                             &middot; provider: ${escapeHtml(ep.provider)}
@@ -325,6 +372,11 @@ function openEndpointModal(id) {
     document.getElementById('epMaxConcurrency').value = ep ? (ep.max_concurrency || 1) : 1;
     document.getElementById('epServiceTier').value = ep ? (ep.service_tier || '') : '';
     document.getElementById('epServiceTierBatch').value = ep ? (ep.service_tier_batch || '') : '';
+    document.getElementById('epApiProtocol').value = ep ? (ep.api_protocol || 'chat') : 'chat';
+    document.getElementById('epReasoningEffort').value = ep ? (ep.reasoning_effort || '') : '';
+    document.getElementById('epReasoningSummary').value = ep ? (ep.reasoning_summary || '') : '';
+    document.getElementById('epReasoningMaxTokens').value = ep && ep.reasoning_max_tokens ? ep.reasoning_max_tokens : '';
+    document.getElementById('epRequestExtraJson').value = ep ? (ep.request_extra_json || '') : '';
     onKindChange();
     document.getElementById('epVision').checked = ep ? ep.supports_vision : true;
     document.getElementById('epEnabled').checked = ep ? ep.enabled : true;
@@ -370,6 +422,11 @@ function saveEndpoint() {
         max_concurrency: parseInt(document.getElementById('epMaxConcurrency').value, 10) || 1,
         service_tier: document.getElementById('epServiceTier').value,
         service_tier_batch: document.getElementById('epServiceTierBatch').value,
+        api_protocol: document.getElementById('epApiProtocol').value,
+        reasoning_effort: document.getElementById('epReasoningEffort').value,
+        reasoning_summary: document.getElementById('epReasoningSummary').value,
+        reasoning_max_tokens: parseInt(document.getElementById('epReasoningMaxTokens').value, 10) || 0,
+        request_extra_json: document.getElementById('epRequestExtraJson').value,
         supports_vision: document.getElementById('epVision').checked,
         enabled: document.getElementById('epEnabled').checked,
         clear_key: document.getElementById('epClearKey').checked,

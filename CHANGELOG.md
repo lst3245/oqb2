@@ -23,7 +23,17 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 - **Batch PDF Import: shared pre-processing.** PDF Import Setup gained a collapsible **"Pre-process scans (rotate / A3 split / image)"** panel powered by the same `app/pdf_tools` primitives as the Toolbox: rotate-first, A3 split mode (none / middle / Mode 1 / Mode 2), and brightness / contrast / sharpen / grayscale / black-and-white. Defaults leave pages unchanged, so existing behaviour is unaffected. A3 splitting just yields more staged pages (the per-page LLM detector is unaffected). The legacy **Auto-deskew scans** checkbox now feeds the same filter chain.
 
+### 🐛 Bug Fixes
+
+- **LLM Claude reasoning: HTTP 400 on `thinking.type.enabled`.** Claude 4.6+ models (e.g. Poe `Claude-Opus-4.7`, `Claude-Sonnet-4.6`) no longer accept the legacy enabled-thinking mapping that gateways derive from OpenAI-style `reasoning.effort`. When the endpoint model name contains `claude`, the client now sends `thinking: {type: adaptive}` (with `display: summarized` when reasoning summary is `auto`) and `output_config: {effort}` instead of top-level `reasoning`.
+
+- **LLM Responses API (Poe / OpenRouter): direct chat HTTP 400 on `input_text`.** Responses endpoints no longer wrap plain user/assistant turns in `{type: input_text}` content blocks (which Poe rejects for assistant replay and is unnecessary for text-only user turns). Text-only messages now use plain-string `content` per the [Poe Responses API](https://creator.poe.com/docs/external-applications/openai-compatible-api); multimodal user turns use a `type: message` wrapper with `input_text` + `input_image` blocks; a single text-only user turn is sent as `input: "..."` instead of a one-element array.
+
 ### ✨ Enhanced Features
+
+- **LLM Endpoints: duplicate copies stored API key.** Duplicating an endpoint now clones its Fernet-encrypted `api_key_enc` when present, so the copy is immediately usable without re-entering the key. Endpoints that only rely on `.env` / `api_key_env` are unchanged.
+
+- **LLM Endpoints: reasoning + Responses API support.** Super-admin LLM endpoint settings now include **API protocol** (Chat Completions or Responses API), per-endpoint **reasoning effort** / **reasoning summary** / optional **reasoning max tokens**, and an **Advanced request JSON** field for provider-specific body fields (e.g. Poe `extra_body` keys). New System Settings **Default reasoning effort** (`LLM_REASONING_EFFORT_DEFAULT`, default `off`) and **Default reasoning summary** (`LLM_REASONING_SUMMARY_DEFAULT`, default `auto`) apply to endpoints that inherit. The shared `app/llm_client.py` transport sends reasoning params to OpenRouter Chat Completions and Poe/OpenAI Responses endpoints, parses reasoning separately from final answer text, and streams reasoning tokens in the Explain tutor and direct Chat console. All batch AI Tools (proofread, MD gen, solve, auto-tag, PDF detect) inherit reasoning automatically through the centralized client. Tightened default `SOLVE_GEN_SYSTEM` prompt so MC ANS/ANS_TEXT cannot hedge or contradict itself in the saved output.
 
 - **Markup: tunable import normalize size.** New **Admin → System Settings → Markup → Import normalize size** (`MARKUP_NORMALIZED_MAX_DIM`, default 2400 world units, range 400–8000). Controls how large imported images appear on the Markup canvas and the default pen/highlighter sizes derived from them. Hot-reloads into new Markup sessions without a server restart.
 

@@ -180,7 +180,7 @@ def create_app():
         try:
             from sqlalchemy import text
             _CLOUD_HOSTS = (
-                'api.openai.com', 'openrouter.ai',
+                'api.openai.com', 'openrouter.ai', 'api.poe.com',
                 'generativelanguage.googleapis.com', 'api.anthropic.com',
                 'api.groq.com', 'api.together.xyz', 'api.deepseek.com',
                 'api.mistral.ai', 'api.x.ai',
@@ -212,6 +212,31 @@ def create_app():
                     conn.execute(text(
                         "ALTER TABLE llm_configs ADD COLUMN service_tier_batch "
                         "VARCHAR(20) NOT NULL DEFAULT ''"
+                    ))
+                if 'api_protocol' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN api_protocol "
+                        "VARCHAR(12) NOT NULL DEFAULT 'chat'"
+                    ))
+                if 'reasoning_effort' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN reasoning_effort "
+                        "VARCHAR(10) NOT NULL DEFAULT ''"
+                    ))
+                if 'reasoning_summary' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN reasoning_summary "
+                        "VARCHAR(10) NOT NULL DEFAULT ''"
+                    ))
+                if 'reasoning_max_tokens' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN reasoning_max_tokens "
+                        "INT NULL"
+                    ))
+                if 'request_extra_json' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN request_extra_json "
+                        "TEXT NULL"
                     ))
                 if added:
                     for row in conn.execute(text(

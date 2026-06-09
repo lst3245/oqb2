@@ -104,6 +104,11 @@ class Config:
     # (which is fine for fast batch ops like proofreading). Set to 0 to fall
     # back to the endpoint's own timeout.
     LLM_CHAT_TIMEOUT_SECONDS = int(os.getenv('LLM_CHAT_TIMEOUT_SECONDS', '600'))
+    # Default reasoning effort for endpoints that inherit ('' = inherit).
+    # 'off' = omit reasoning params; 'low'/'medium'/'high' enable thinking.
+    LLM_REASONING_EFFORT_DEFAULT = os.getenv('LLM_REASONING_EFFORT_DEFAULT', 'off').strip().lower()
+    # Default reasoning summary for Responses API ('auto' or 'none').
+    LLM_REASONING_SUMMARY_DEFAULT = os.getenv('LLM_REASONING_SUMMARY_DEFAULT', 'auto').strip().lower()
 
     # PDF Batch Import — width (px) to rasterise uploaded PDF pages to. The
     # high-res page PNGs are what per-question crops are cut from (the image

@@ -6256,6 +6256,12 @@ def _serialize_llm_config(c, *, include_secret=False):
         'max_concurrency': c.max_concurrency or 1,
         'service_tier': c.service_tier or '',
         'service_tier_batch': c.service_tier_batch or '',
+        'api_protocol': c.api_protocol or 'chat',
+        'reasoning_effort': c.reasoning_effort or '',
+        'reasoning_summary': c.reasoning_summary or '',
+        'reasoning_max_tokens': c.reasoning_max_tokens,
+        'has_request_extra': bool((c.request_extra_json or '').strip()),
+        'request_extra_json': c.request_extra_json or '',
         'max_output_tokens': c.max_output_tokens,
         'temperature': c.temperature,
         'timeout_seconds': c.timeout_seconds,
@@ -6346,6 +6352,29 @@ def llm_endpoints_save():
     cfg.service_tier = _tier if _tier in _ALLOWED_TIERS else ''
     _tier_b = (data.get('service_tier_batch') or '').strip().lower()
     cfg.service_tier_batch = _tier_b if _tier_b in _ALLOWED_TIERS else ''
+    _proto = (data.get('api_protocol') or 'chat').strip().lower()
+    cfg.api_protocol = 'responses' if _proto == 'responses' else 'chat'
+    _ALLOWED_REASONING = ('', 'off', 'low', 'medium', 'high')
+    _re = (data.get('reasoning_effort') or '').strip().lower()
+    cfg.reasoning_effort = _re if _re in _ALLOWED_REASONING else ''
+    _ALLOWED_SUMMARY = ('', 'auto', 'none')
+    _rs = (data.get('reasoning_summary') or '').strip().lower()
+    cfg.reasoning_summary = _rs if _rs in _ALLOWED_SUMMARY else ''
+    _rmt = data.get('reasoning_max_tokens')
+    if _rmt in (None, '', 0, '0'):
+        cfg.reasoning_max_tokens = None
+    else:
+        cfg.reasoning_max_tokens = max(1, _int(_rmt, 0)) or None
+    from app.llm_client import parse_request_extra_json
+    extra_raw = data.get('request_extra_json')
+    if extra_raw is None:
+        pass  # keep existing on edit when field omitted
+    else:
+        try:
+            extra_obj = parse_request_extra_json(extra_raw)
+            cfg.request_extra_json = json.dumps(extra_obj) if extra_obj else None
+        except ValueError as e:
+            return jsonify({'error': f'request_extra_json: {e}'}), 400
     cfg.max_output_tokens = max(1, _int(data.get('max_output_tokens'), 4096))
     cfg.temperature = _float(data.get('temperature'), 0.0)
     cfg.timeout_seconds = max(5, _int(data.get('timeout_seconds'), 120))
@@ -6380,8 +6409,9 @@ def llm_endpoints_delete(cid):
 @super_admin_required
 def llm_endpoints_duplicate(cid):
     """Create a copy of an endpoint with a unique auto-generated name.
-    The API key is NOT copied — the duplicate starts without a stored key
-    and falls back to the .env variable just like a freshly created endpoint.
+
+    Copies the encrypted stored API key when the source has one; otherwise
+    the duplicate falls back to the source's ``api_key_env`` / ``.env`` key.
     """
     from app.models import LLMConfig
     src = LLMConfig.query.get_or_404(cid)
@@ -6399,12 +6429,18 @@ def llm_endpoints_duplicate(cid):
         base_url=src.base_url,
         model_name=src.model_name,
         provider=src.provider,
+        api_key_enc=src.api_key_enc,
         api_key_env=src.api_key_env,
         supports_vision=src.supports_vision,
         kind=src.kind,
         max_concurrency=src.max_concurrency,
         service_tier=src.service_tier,
         service_tier_batch=src.service_tier_batch,
+        api_protocol=src.api_protocol,
+        reasoning_effort=src.reasoning_effort,
+        reasoning_summary=src.reasoning_summary,
+        reasoning_max_tokens=src.reasoning_max_tokens,
+        request_extra_json=src.request_extra_json,
         max_output_tokens=src.max_output_tokens,
         temperature=src.temperature,
         timeout_seconds=src.timeout_seconds,

@@ -366,6 +366,28 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         min=0, max=3600,
     )),
+    ('LLM_REASONING_EFFORT_DEFAULT', _spec(
+        'LLM_REASONING_EFFORT_DEFAULT', 'string', group='AI Tools',
+        label='Default reasoning effort',
+        help=(
+            'Default reasoning effort for LLM endpoints that inherit reasoning '
+            'settings (blank/inherit on the endpoint). Use off for legacy '
+            'local servers; low/medium/high for OpenRouter GPT-5.5, Poe '
+            'Responses, Claude Opus, etc. Endpoints with reasoning effort '
+            'set to off never send reasoning params.'
+        ),
+        validator=_choice_validator('off', 'low', 'medium', 'high'),
+    )),
+    ('LLM_REASONING_SUMMARY_DEFAULT', _spec(
+        'LLM_REASONING_SUMMARY_DEFAULT', 'string', group='AI Tools',
+        label='Default reasoning summary',
+        help=(
+            'Default reasoning summary mode for Responses API endpoints that '
+            'inherit. auto exposes chain-of-thought in the reasoning channel; '
+            'none omits it. Chat Completions endpoints ignore this.'
+        ),
+        validator=_choice_validator('auto', 'none'),
+    )),
 
     # PDF Batch Import
     ('PDF_IMPORT_RASTER_WIDTH', _spec(

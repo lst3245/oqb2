@@ -502,10 +502,11 @@ class PromptOverride(db.Model):
 class LLMConfig(db.Model):
     """A configured LLM endpoint for the AI Tools feature.
 
-    All endpoints speak the OpenAI-compatible Chat Completions protocol
-    (``POST {base_url}/chat/completions``) so a single client adapter in
-    ``app/llm_client.py`` serves both local servers (Ollama, LM Studio,
-    vLLM, ...) and cloud providers (OpenAI, OpenRouter, ...).
+    Endpoints speak either the OpenAI-compatible Chat Completions protocol
+    (``POST {base_url}/chat/completions``) or the Responses API
+    (``POST {base_url}/responses``). A single client adapter in
+    ``app/llm_client.py`` serves local servers (Ollama, LM Studio,
+    vLLM, ...) and cloud providers (OpenAI, OpenRouter, Poe, ...).
 
     API-key handling is hybrid: ``api_key_enc`` holds an optional
     Fernet-encrypted key entered through the admin UI; when empty the
@@ -539,6 +540,16 @@ class LLMConfig(db.Model):
     # while a single question stays on the normal tier.
     service_tier = db.Column(db.String(20), nullable=False, default='')
     service_tier_batch = db.Column(db.String(20), nullable=False, default='')
+    # 'chat' (Chat Completions) or 'responses' (OpenAI Responses API).
+    api_protocol = db.Column(db.String(12), nullable=False, default='chat')
+    # Reasoning controls. Blank = inherit from LLM_REASONING_* system settings.
+    # 'off' = never send reasoning params for this endpoint.
+    reasoning_effort = db.Column(db.String(10), nullable=False, default='')
+    reasoning_summary = db.Column(db.String(10), nullable=False, default='')
+    # 0/NULL = omit max reasoning tokens from the request.
+    reasoning_max_tokens = db.Column(db.Integer, nullable=True)
+    # Optional provider-specific JSON merged into the request body.
+    request_extra_json = db.Column(db.Text, nullable=True)
     max_output_tokens = db.Column(db.Integer, nullable=False, default=4096)
     temperature = db.Column(db.Float, nullable=False, default=0.0)
     timeout_seconds = db.Column(db.Integer, nullable=False, default=120)

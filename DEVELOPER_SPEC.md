@@ -255,11 +255,16 @@ Unique constraint: `(question_id, asset_type, version, file_format, part_number)
 |---|---|---|
 | `id` | INT PK | |
 | `name` | VARCHAR(120) UNIQUE | Display name |
-| `base_url` | VARCHAR(500) | OpenAI-compatible API root exposing `/chat/completions` |
+| `base_url` | VARCHAR(500) | API root (e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `https://api.poe.com/v1`) |
 | `model_name` | VARCHAR(200) | Model identifier passed in the request |
 | `provider` | VARCHAR(40) | Free text, default `openai` |
 | `api_key_enc` | TEXT NULL | Fernet-encrypted API key (blank ⇒ fall back to `.env` `LLM_API_KEY`) |
 | `api_key_env` | VARCHAR(80) NULL | Name of the `.env` var to read when no key stored |
+| `api_protocol` | VARCHAR(12) | `chat` (Chat Completions, default) or `responses` (Responses API) |
+| `reasoning_effort` | VARCHAR(10) | `''` (inherit), `off`, `low`, `medium`, `high` |
+| `reasoning_summary` | VARCHAR(10) | `''` (inherit), `auto`, `none` — Responses API |
+| `reasoning_max_tokens` | INT NULL | Optional cap on thinking tokens |
+| `request_extra_json` | TEXT NULL | Provider-specific JSON merged into request body |
 | `supports_vision` | BOOLEAN | Gates the image operations |
 | `max_output_tokens` | INT | |
 | `temperature` | FLOAT | |

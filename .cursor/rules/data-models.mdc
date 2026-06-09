@@ -33,7 +33,10 @@ QuestionAsset (question_id, asset_type, file_format, version, file_path, part_nu
                check_state, check_result, checked_at)   -- last 3 = AI Tools proofreading
 
 LLMConfig (id, name unique, base_url, model_name, provider, api_key_enc, api_key_env,
-           supports_vision, max_output_tokens, temperature, timeout_seconds, enabled, sort_order)
+           supports_vision, kind, max_concurrency, service_tier, service_tier_batch,
+           api_protocol, reasoning_effort, reasoning_summary, reasoning_max_tokens,
+           request_extra_json, max_output_tokens, temperature, timeout_seconds,
+           enabled, sort_order)
 
 User (username, password_hash, is_super_admin)
   └── subject_permissions → [UserSubjectPermission]
@@ -76,7 +79,10 @@ Delete is **blocked while any `Question` references the subject**. When allowed,
 - AI Tools proofreading (nullable): `check_state` (None / `checking` / `ok` / `issues` / `error`), `check_result` (JSON `{status, issues[], raw, model, ref_version, checked_by, file_format?}`), `checked_at` (UTC). Set by `app/ai_tools.check_slot_format` — **per format** (IMG rows share one state; MD/DOC each have their own). MD/DOC are rendered to images on the fly before the vision call. Admin **Status** rollup/filter counts only `TYPED_VERSIONS` (EN/CH/BI). See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
 
 ## LLMConfig (AI Tools endpoints)
-- Table `llm_configs`. One row per configured OpenAI-compatible LLM endpoint (local or cloud). Managed via the super-admin **Admin → LLM Endpoints** page.
+- Table `llm_configs`. One row per configured LLM endpoint (local or cloud). Managed via the super-admin **Admin → LLM Endpoints** page.
+- `api_protocol`: `chat` (Chat Completions, default) or `responses` (Responses API — Poe reasoning).
+- `reasoning_effort` / `reasoning_summary` / `reasoning_max_tokens`: per-endpoint reasoning controls; blank inherits `LLM_REASONING_EFFORT_DEFAULT` / `LLM_REASONING_SUMMARY_DEFAULT` from System Settings.
+- `request_extra_json`: optional JSON object merged into the request body (provider-specific keys).
 - `api_key_enc` holds a Fernet-encrypted key (optional); when blank the client falls back to `os.getenv(api_key_env or 'LLM_API_KEY')`. Plaintext keys are never returned to the browser.
 - `supports_vision` gates the image operations (both AI Tools ops require vision).
 - Auto-created on app startup if missing. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
