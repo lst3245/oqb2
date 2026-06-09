@@ -263,6 +263,26 @@ def build_check_user_text(typed_version, ref_version, asset_type):
     )
 
 
+# Shared LaTeX delimiter contract for any prompt that emits Markdown/math.
+_MATH_DELIMITER_RULES = (
+    "MATHEMATICS (LaTeX delimiters — mandatory)\n"
+    "- Inline math: $...$ only (e.g. $AD=x$ cm, $\\angle BAD=90^\\circ$).\n"
+    "- Display math (a formula on its own line): $$...$$ only, usually on "
+    "separate lines.\n"
+    "- NEVER use square brackets [ ] as math delimiters — [ x+1 ] and "
+    "[ \\text{Area}=... ] will NOT render.\n"
+    "- NEVER use bare parentheses for labels or formulas — write $AD$, $BC$, "
+    "$AB=12$, NOT (AD), (BC), or (AB=12).\n"
+    "- NEVER use \\(...\\) or \\[...\\] delimiters.\n"
+    "- Put NO space just inside $ delimiters: $x+1$ not $ x+1 $ (spaced "
+    "delimiters do not render).\n"
+    "- A LITERAL dollar sign (currency) MUST be escaped as \\$ (e.g. \\$5). "
+    "Reserve unescaped $...$ / $$...$$ strictly for real mathematics.\n"
+    "- Example display math:\n"
+    "$$\\text{Area of trapezium }ABCD=\\frac{1}{2}(x+6)(12)$$"
+)
+
+
 # ==================== Markdown generation ====================
 
 _DEFAULT_MD_SYSTEM = (
@@ -277,15 +297,7 @@ _DEFAULT_MD_SYSTEM = (
     "the whole answer, no preamble, no explanation.\n"
     "- Use Markdown only where it helps: **bold**, *italic*, tables, math.\n"
     "\n"
-    "MATH & DOLLAR SIGNS\n"
-    "- Inline math: $...$ ; display math: $$...$$ (LaTeX). Put NO space just "
-    "inside the inline delimiters: write $x+1$, NEVER $ x+1 $ (spaced "
-    "delimiters do not render).\n"
-    "- A LITERAL dollar sign (currency or the $ symbol — e.g. $5, $1.50, "
-    "US$20, a price) MUST be escaped as \\$, because an UNescaped $ opens math "
-    "mode (\"costs $5 and $10\" wrongly renders \"5 and\" as a formula; write "
-    "\"costs \\$5 and \\$10\"). Reserve UNescaped $...$ / $$...$$ strictly for "
-    "real mathematics.\n"
+    + _MATH_DELIMITER_RULES + "\n"
     "\n"
     "QUESTION & PART NUMBERS\n"
     "- Write the number as plain text and ESCAPE the period so Markdown does "
@@ -370,10 +382,8 @@ _DEFAULT_SOLVE_GEN_SYSTEM = (
     "- Match the requested target version/language when possible. EN should be "
     "English, CH should be Chinese, BI should be bilingual. ENO/CHO targets "
     "should follow the visible official language.\n"
-    "- For Markdown outputs, use LaTeX for mathematics: inline math as $...$ "
-    "and display math as $$...$$, with NO spaces just inside the dollar signs "
-    "(write $x+1$, never $ x+1 $).\n"
-    "- Escape literal dollar signs as \\$.\n"
+    "- For Markdown outputs:\n"
+    + _MATH_DELIMITER_RULES + "\n"
     "- Output only the requested content. No preamble, no self-commentary, no "
     "markdown code fence around the whole response."
 )
@@ -802,19 +812,18 @@ _DEFAULT_EXPLAIN_SYSTEM = (
     "justifying each step rather than just stating it.\n"
     "- If a SOLUTION is provided, base your explanation on it and expand any "
     "terse steps; if not, work the problem out yourself and give the answer.\n"
-    "- Use LaTeX for ALL mathematics: inline math as $...$ and display math as "
-    "$$...$$, with NO space immediately inside the dollar signs (write $x+1$, "
-    "NEVER $ x+1 $ — spaced delimiters do not render).\n"
-    "- Escape any LITERAL dollar sign as \\$ (e.g. a price like \\$5), because "
-    "an unescaped $ starts LaTeX math mode — \"$5 and $10\" would wrongly "
-    "render \"5 and\" as a formula. Use unescaped $ only for real math.\n"
+    "- Use LaTeX for ALL mathematics. Some models wrongly emit [ ] or bare ( ) "
+    "around formulas — that will NOT render here. Follow these rules exactly:\n"
+    + _MATH_DELIMITER_RULES + "\n"
     "- Keep the student's language (English and/or Chinese). Be concise but "
     "complete, and answer any follow-up questions in the same style."
 )
 
 _DEFAULT_EXPLAIN_INITIAL_USER = (
     "Please explain this question: what it is asking, the concepts involved, "
-    "and how to arrive at the answer step by step."
+    "and how to arrive at the answer step by step. Use $...$ / $$...$$ for "
+    "all math — never square brackets [ ] or bare parentheses like (AD) for "
+    "labels or formulas."
 )
 
 

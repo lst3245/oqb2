@@ -49,6 +49,10 @@ In declaration order (the UI renders them in this order, grouped by `group`):
 
 `FIGURE_BOX_SYSTEM` references `FIGURE_BOX_JSON_CONTRACT` via `build_figure_box_system()`. `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` reference `PDF_BOX_JSON_CONTRACT` via `build_pdf_box_system(asset_type)`. Figure + PDF parsers share `_normalize_box` and honour `PDF_IMPORT_COORD_ORDER`. `PDF_PAPER_NAME_*` feed `pdf_import.guess_paper_name` (first-page image + file name → `SUBJECT_SOURCE_YEAR_PAPER`); parsed by `parse_paper_name`.
 
+## Math delimiter contract
+
+`MD_SYSTEM`, `SOLVE_GEN_SYSTEM`, and `EXPLAIN_SYSTEM` share `_MATH_DELIMITER_RULES` in [app/ai_prompts.py](mdc:app/ai_prompts.py): only `$...$` / `$$...$$` for math; never `[ ]` display blocks or bare `(AD)` labels (GPT habit). Only `normalize_inline_math` (tight `$ x $` → `$x$`) runs post-generation — do not add bracket/paren rewriting (breaks KaTeX).
+
 ## Variable substitution
 
 Syntax is **`{{name}}`** (double-braces). Single `{` / `}` are literal — this matters because several prompts contain JSON examples (`{"status": "ok"}`, `{"qno": <int>, ...}`) that must pass through unchanged. The substitution regex `_VAR_RE = re.compile(r'\{\{(\w+)\}\}')` only matches whole-word `{{...}}` pairs.
