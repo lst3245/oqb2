@@ -263,10 +263,12 @@ class QuestionAsset(db.Model):
     # AI Tools proofreading state (see app/ai_tools.py). Set when a typed
     # version is checked against an official scan via an LLM.
     #   check_state: None (never checked) / 'checking' / 'ok' / 'issues' / 'error'
-    #   check_result: JSON blob {status, issues[], raw, model, ref_version, checked_by}
+    #   check_result: JSON blob {status, issues[], model, ref_version, checked_by, ...}
+    #   check_raw: verbatim LLM reply from the last AI proofread/solve-check (debug)
     #   checked_at: UTC timestamp of the last check
     check_state = db.Column(db.String(20), nullable=True)
     check_result = db.Column(db.Text, nullable=True)
+    check_raw = db.Column(db.Text, nullable=True)
     checked_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (

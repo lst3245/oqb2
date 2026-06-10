@@ -165,7 +165,7 @@ def create_app():
             pass  # pre-init DB / non-MySQL backend; migrate_versions.py covers it
 
         # AI Tools: create the llm_configs table and add the per-asset check
-        # columns (check_state / check_result / checked_at) if absent. Same
+        # columns (check_state / check_result / check_raw / checked_at) if absent. Same
         # idempotent pattern so existing deployments upgrade automatically.
         try:
             from app.models import LLMConfig
@@ -269,6 +269,10 @@ def create_app():
                 if 'checked_at' not in existing:
                     conn.execute(text(
                         "ALTER TABLE question_assets ADD COLUMN checked_at DATETIME NULL"
+                    ))
+                if 'check_raw' not in existing:
+                    conn.execute(text(
+                        "ALTER TABLE question_assets ADD COLUMN check_raw TEXT NULL"
                     ))
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation

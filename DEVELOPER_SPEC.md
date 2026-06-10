@@ -246,7 +246,8 @@ Many-to-many via association tables:
 | `file_path` | VARCHAR(500) | Relative to SOURCE_PATH, always forward slashes |
 | `part_number` | INT | ≥ 1; for multi-image questions |
 | `check_state` | VARCHAR(20) NULL | AI Tools proofreading state: `ok` / `issues` / `error` / `checking` / NULL |
-| `check_result` | TEXT NULL | JSON `{status, issues[], raw, model, ref_version, checked_by}` |
+| `check_result` | TEXT NULL | Parsed JSON `{status, issues[], model, ref_version, checked_by, ...}` |
+| `check_raw` | TEXT NULL | Verbatim LLM reply from last AI proofread/solve-check (debug) |
 | `checked_at` | DATETIME NULL | UTC time of the last AI check |
 Unique constraint: `(question_id, asset_type, version, file_format, part_number)`
 

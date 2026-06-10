@@ -19,7 +19,7 @@ Admin batch feature that calls an OpenAI-compatible LLM over selected questions 
 | SSE generators + cancel registry + `generate_md_slot` / solve workers | [app/ai_tools.py](mdc:app/ai_tools.py) |
 | Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`); `kind` (`local`/`cloud`) + `max_concurrency` gate parallel batch ops |
 | Parallel executor | [app/parallel.py](mdc:app/parallel.py) `run_parallel(app, cancel, items, worker_fn, max_workers)` |
-| Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/checked_at` |
+| Per-asset check fields | [app/models.py](mdc:app/models.py) `QuestionAsset.check_state/check_result/check_raw/checked_at` |
 | Endpoint CRUD routes (super-admin) | [app/admin.py](mdc:app/admin.py) `llm_endpoints_*` (incl. `_duplicate`, `_chat` raw-chat console) |
 | SSE + cancel routes (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_check`, `ai_generate_md`, `ai_solve_generate`, `ai_solve_check`, `ai_auto_tag`, `ai_cancel`, `ai_endpoints` |
 | Per-slot sync MD route (subject-admin) | [app/admin.py](mdc:app/admin.py) `ai_generate_md_slot` |
@@ -133,7 +133,7 @@ Each `LLMConfig` carries `kind` (`'local'` | `'cloud'`) + `max_concurrency` (int
 - **Image resolution** — typed side: `_resolve_format_images` (IMG parts as-is; MD/DOC rendered via `_render_source_to_pages`). Reference side: `_resolve_slot_images` (IMG preferred, else rendered DOC/MD).
 - **Lazy Word session (`_LazyWord`)** — `iter_check` opens ONE Word COM session for the whole run (sequential path), but only when a work item needs rendering. Pure-IMG checks never acquire the Word lock. Parallel workers each own a short-lived session.
 - **Write target** — `_write_format_check_state` writes `check_state`/`check_result`/`checked_at` to every row of **that format only** in the typed slot. `check_result` includes `file_format`.
-- Skips (with event) if typed/reference slot has no usable source, or if already checked and `recheck` is off. Sends reference images first, then typed; parses strict JSON via `ai_prompts.parse_check_result`. States: `ok` (faithful), `issues` (discrepancies listed), `error` (unparseable reply — raw stored). `check_result` JSON: `{status, issues:[{severity,location,description}], model, ref_version, checked_by}` (manual edits use `checked_by:"manual"` + `editor`).
+- Skips (with event) if typed/reference slot has no usable source, or if already checked and `recheck` is off. Sends reference images first, then typed; parses strict JSON via `ai_prompts.parse_check_result`. States: `ok` (faithful), `issues` (discrepancies listed), `error` (unparseable reply). **Always** stores the verbatim model reply in `check_raw` (up to 32 KiB); parsed output goes in `check_result` only. SSE events include `raw`; edit-modal proofread bar has a **braces** button (`showCheckRawModal`) when `check_raw` is set. Manual/batch status edits clear `check_raw`.
 
 **Status rollup is typed-only.** In `questions_api_list`, the per-question **Status** indicator + `check_status` filter consider only `TYPED_VERSIONS` (EN/CH/BI, from `app/utils.py`); `OFFICIAL_VERSIONS` (ENO/CHO) are the reference scans and are excluded. `asset_count` still reflects the true total across all versions.
 

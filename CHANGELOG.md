@@ -25,6 +25,10 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### 🐛 Bug Fixes
 
+- **AI proofread / solve-check: fix raw-reply viewer button.** The braces button no longer uses a broken inline `onclick` (double-quoted meta text terminated the HTML attribute). Uses delegated clicks + reads `check_raw` from the cached assets tree on demand.
+
+- **AI proofread / solve-check: `check_raw` column + UI viewer.** Every AI proofread/solve-check now stores the verbatim model reply in a new `QuestionAsset.check_raw` field (up to 32 KiB), separate from parsed `check_result` JSON — so empty/malformed issue lists still have the original text for debugging. The edit-modal proofread bar has a **braces** button to open the saved reply; the AI Tools SSE log still echoes `raw` on each check line. Manual/batch status edits clear `check_raw`.
+
 - **LLM Responses API: streamed output repeated twice.** Poe/OpenAI Responses streams emit incremental `response.output_text.delta` events and then a `response.output_item.done` item with the same assembled text; harvesting both duplicated every reply in Explain and direct chat. Streaming now accumulates deltas only; `output_item.done` is ignored, with a `response.completed` body fallback when a provider sends no deltas. Non-stream parsing also prefers top-level `output_text` and skips per-message text when it is already present.
 
 - **LLM Claude reasoning: HTTP 400 on `thinking.type.enabled`.** Claude 4.6+ models (e.g. Poe `Claude-Opus-4.7`, `Claude-Sonnet-4.6`) no longer accept the legacy enabled-thinking mapping that gateways derive from OpenAI-style `reasoning.effort`. When the endpoint model name contains `claude`, the client now sends `thinking: {type: adaptive}` (with `display: summarized` when reasoning summary is `auto`) and `output_config: {effort}` instead of top-level `reasoning`.

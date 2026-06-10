@@ -27,6 +27,20 @@ from app import llm_client
 
 logger = logging.getLogger(__name__)
 
+# Max chars of the model's verbatim check reply stored in ``check_result.raw``
+# and echoed in the AI Tools SSE log when JSON parsing fails.
+_RAW_CHECK_REPLY_MAX = 32_000
+
+
+def _clip_raw_reply(text) -> str:
+    return (text or '')[:_RAW_CHECK_REPLY_MAX]
+
+
+def _check_sse_extras(res: dict) -> dict:
+    """Optional SSE fields (e.g. verbatim model reply) for check results."""
+    raw = res.get('raw')
+    return {'raw': raw} if raw else {}
+
 
 # ==================== Cancellation registry ====================
 #
@@ -255,15 +269,17 @@ def _resolve_format_images(question, asset_type, version, file_format,
 
 
 def _write_format_check_state(question_id, asset_type, version, file_format,
-                              state, result, now):
+                              state, result, now, *, raw_reply=None):
     """Write check fields to every row of ``file_format`` in the slot."""
     encoded = json.dumps(result, ensure_ascii=False) if result is not None else None
+    clipped_raw = _clip_raw_reply(raw_reply) if raw_reply else None
     rows = QuestionAsset.query.filter_by(
         question_id=question_id, asset_type=asset_type, version=version,
         file_format=file_format).all()
     for a in rows:
         a.check_state = state
         a.check_result = encoded
+        a.check_raw = clipped_raw or None
         a.checked_at = now
     db.session.commit()
     return len(rows)
@@ -285,7 +301,11 @@ def _aggregate_check_results(results):
         out, state = 'ok', 'ok'
     else:
         out, state = 'skip', None
-    return {'status': out, 'state': state, 'message': ' | '.join(msgs)}
+    agg = {'status': out, 'state': state, 'message': ' | '.join(msgs)}
+    raws = [_clip_raw_reply(r['raw']) for r in results if r.get('raw')]
+    if raws:
+        agg['raw'] = '\n---\n'.join(r for r in raws if r)
+    return agg
 
 
 def check_slot_format(question, asset_type, typed_version, ref_version, file_format,
@@ -371,15 +391,15 @@ def check_slot_format(question, asset_type, typed_version, ref_version, file_for
                 'message': f'{label} — model returned an empty reply{hint}',
                 'file_format': file_format}
 
+    raw_reply = _clip_raw_reply(text)
     parsed = ai_prompts.parse_check_result(text)
     now = datetime.utcnow()
     base_result = {'model': config.model_name, 'ref_version': ref_version,
                    'checked_by': 'ai', 'file_format': file_format}
     if parsed is None:
         state = 'error'
-        result = {**base_result, 'status': 'error', 'issues': [],
-                  'raw': (text or '')[:4000]}
-        msg = f'{label} — unparseable model reply (stored raw)'
+        result = {**base_result, 'status': 'error', 'issues': []}
+        msg = f'{label} — unparseable model reply (raw saved)'
         out_status = 'error'
     else:
         state = parsed['status']
@@ -395,7 +415,8 @@ def check_slot_format(question, asset_type, typed_version, ref_version, file_for
 
     try:
         _write_format_check_state(question.id, asset_type, typed_version,
-                                  file_format, state, result, now)
+                                  file_format, state, result, now,
+                                  raw_reply=raw_reply)
     except Exception as e:
         db.session.rollback()
         logger.exception('DB write failed for %s', label)
@@ -403,7 +424,7 @@ def check_slot_format(question, asset_type, typed_version, ref_version, file_for
                 'file_format': file_format}
 
     return {'status': out_status, 'message': msg, 'state': state,
-            'file_format': file_format}
+            'file_format': file_format, 'raw': raw_reply}
 
 
 def check_slot(question, asset_type, typed_version, ref_version, *, recheck,
@@ -492,7 +513,7 @@ def iter_check(qs, typed_version, ref_version, asset_types, formats, recheck,
             res = r['result']
             ev_type = _shape(res)
             ev = {'type': ev_type, 'message': res['message'],
-                  'current': current, 'total': total}
+                  'current': current, 'total': total, **_check_sse_extras(res)}
             if res.get('state'):
                 ev['state'] = res['state']
             yield ev
@@ -511,7 +532,7 @@ def iter_check(qs, typed_version, ref_version, asset_types, formats, recheck,
                     source_path=source_path, render_opts=render_opts, word=word)
                 ev_type = _shape(res)
                 ev = {'type': ev_type, 'message': res['message'],
-                      'current': current, 'total': total}
+                      'current': current, 'total': total, **_check_sse_extras(res)}
                 if res.get('state'):
                     ev['state'] = res['state']
                 yield ev
@@ -1194,6 +1215,7 @@ def solve_check_slot_format(question, asset_type, version, file_format, *,
         return {'status': 'error', 'message': f'{label} — model returned empty check result{hint}',
                 'file_format': file_format}
 
+    raw_reply = _clip_raw_reply(text)
     parsed = ai_prompts.parse_check_result(text)
     now = datetime.utcnow()
     base_result = {'model': config.model_name, 'ref_version': None,
@@ -1201,9 +1223,8 @@ def solve_check_slot_format(question, asset_type, version, file_format, *,
                    'mode': 'solve'}
     if parsed is None:
         state = 'error'
-        result = {**base_result, 'status': 'error', 'issues': [],
-                  'raw': (text or '')[:4000]}
-        msg = f'{label} — unparseable model reply (stored raw)'
+        result = {**base_result, 'status': 'error', 'issues': []}
+        msg = f'{label} — unparseable model reply (raw saved)'
         out_status = 'error'
     else:
         state = parsed['status']
@@ -1219,14 +1240,14 @@ def solve_check_slot_format(question, asset_type, version, file_format, *,
 
     try:
         _write_format_check_state(question.id, asset_type, version, file_format,
-                                  state, result, now)
+                                  state, result, now, raw_reply=raw_reply)
     except Exception as e:
         db.session.rollback()
         logger.exception('Solve-check DB write failed for %s', label)
         return {'status': 'error', 'message': f'{label} — DB write failed: {e}',
                 'file_format': file_format}
     return {'status': out_status, 'message': msg, 'state': state,
-            'file_format': file_format}
+            'file_format': file_format, 'raw': raw_reply}
 
 
 def check_answer_text(question, *, source_versions, include_official_sol,
@@ -1258,8 +1279,10 @@ def check_answer_text(question, *, source_versions, include_official_sol,
         return {'status': 'error', 'message': f'{label} — model returned empty check result{hint}'}
     parsed = ai_prompts.parse_check_result(text)
     if parsed is None:
+        raw_reply = _clip_raw_reply(text)
         return {'status': 'error',
-                'message': f'{label} — unparseable model reply: {(text or "")[:200]}'}
+                'message': f'{label} — unparseable model reply (raw saved)',
+                'raw': raw_reply}
     if parsed['status'] == 'ok':
         return {'status': 'ok', 'message': f'{label} — OK', 'state': 'ok',
                 'issues': []}
@@ -1425,7 +1448,8 @@ def iter_solve_check(qs, versions, targets, formats, include_official_sol,
                 continue
             ev_type = _shape(r['result'])
             ev = {'type': ev_type, 'message': r['result']['message'],
-                  'current': current, 'total': total}
+                  'current': current, 'total': total,
+                  **_check_sse_extras(r['result'])}
             if r['result'].get('state'):
                 ev['state'] = r['result']['state']
             yield ev
@@ -1439,7 +1463,7 @@ def iter_solve_check(qs, versions, targets, formats, include_official_sol,
             res = _worker(item)
             ev_type = _shape(res)
             ev = {'type': ev_type, 'message': res['message'],
-                  'current': current, 'total': total}
+                  'current': current, 'total': total, **_check_sse_extras(res)}
             if res.get('state'):
                 ev['state'] = res['state']
             yield ev

@@ -1913,7 +1913,7 @@ function escapeHtmlAi(s) {
     return div.innerHTML;
 }
 
-function _appendAiLog(message, type) {
+function _appendAiLog(message, type, raw) {
     const logEl = document.getElementById('aiToolsLog');
     const timestamp = new Date().toLocaleTimeString();
     const colour = ({
@@ -1925,6 +1925,12 @@ function _appendAiLog(message, type) {
     span.style.display = 'block';
     span.textContent = `[${timestamp}] ${message}`;
     logEl.appendChild(span);
+    if (raw) {
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'margin:0 0 .4rem 1.2rem;color:#b0b0b0;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto;font-size:0.75rem;';
+        pre.textContent = raw;
+        logEl.appendChild(pre);
+    }
     logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -2045,7 +2051,7 @@ function runAiTools() {
                 aiToolsJobId = event.job_id;
                 return;
             }
-            _appendAiLog(event.message, event.type);
+            _appendAiLog(event.message, event.type, event.raw);
             if (typeof event.current === 'number' && event.total > 0) {
                 const pct = Math.round((event.current / event.total) * 100);
                 document.getElementById('aiToolsProgressBar').style.width = pct + '%';

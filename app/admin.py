@@ -1797,6 +1797,7 @@ def question_assets(question_id):
             'preview_url': url_for('dashboard.get_asset_preview', asset_id=a.id),
             'check_state': a.check_state,
             'check_result': check_result,
+            'check_raw': a.check_raw or '',
             'checked_at': utc_iso(a.checked_at),
         })
 
@@ -1850,6 +1851,7 @@ def set_asset_check_state(question_id):
         new_state = None
         encoded = None
         checked_at = None
+        clear_raw = True
     else:
         new_state = state
         result = {'status': state, 'issues': [], 'checked_by': 'manual',
@@ -1861,17 +1863,20 @@ def set_asset_check_state(question_id):
                 'description': note or 'Marked as having issues (manual).',
             }]
         elif state == 'error' and note:
-            result['raw'] = note
+            result['note'] = note
         elif note:
             result['note'] = note
         encoded = json.dumps(result, ensure_ascii=False)
         checked_at = datetime.utcnow()
+        clear_raw = True
 
     try:
         for a in slot_assets:
             a.check_state = new_state
             a.check_result = encoded
             a.checked_at = checked_at
+            if clear_raw:
+                a.check_raw = None
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -5462,12 +5467,15 @@ def ai_check_slot(question_id):
 
     status = res.get('status')
     http = 200 if status in ('ok', 'issues') else (409 if status == 'skip' else 502)
-    return jsonify({
+    payload = {
         'success': status in ('ok', 'issues'),
         'status': status,
         'state': res.get('state'),
         'message': res.get('message', ''),
-    }), http
+    }
+    if res.get('raw'):
+        payload['raw'] = res['raw']
+    return jsonify(payload), http
 
 
 @admin_bp.route('/questions/<int:question_id>/assets/ai/solve-generate', methods=['POST'])
@@ -5582,12 +5590,15 @@ def ai_solve_check_slot(question_id):
 
     status = res.get('status')
     http = 200 if status in ('ok', 'issues') else (409 if status == 'skip' else 502)
-    return jsonify({
+    payload = {
         'success': status in ('ok', 'issues'),
         'status': status,
         'state': res.get('state'),
         'message': res.get('message', ''),
-    }), http
+    }
+    if res.get('raw'):
+        payload['raw'] = res['raw']
+    return jsonify(payload), http
 
 
 @admin_bp.route('/questions/<int:question_id>/ai/answer-text', methods=['POST'])
@@ -6009,6 +6020,7 @@ def batch_set_check_state():
         new_state = None
         encoded = None
         checked_at = None
+        clear_raw = True
     else:
         new_state = state
         result = {'status': state, 'issues': [], 'checked_by': 'manual',
@@ -6020,11 +6032,12 @@ def batch_set_check_state():
                 'description': note or 'Marked as having issues (manual, batch).',
             }]
         elif state == 'error' and note:
-            result['raw'] = note
+            result['note'] = note
         elif note:
             result['note'] = note
         encoded = json.dumps(result, ensure_ascii=False)
         checked_at = datetime.utcnow()
+        clear_raw = True
 
     slots_updated = 0
     assets_updated = 0
@@ -6042,6 +6055,8 @@ def batch_set_check_state():
                         a.check_state = new_state
                         a.check_result = encoded
                         a.checked_at = checked_at
+                        if clear_raw:
+                            a.check_raw = None
                         assets_updated += 1
                     slots_updated += 1
         db.session.commit()

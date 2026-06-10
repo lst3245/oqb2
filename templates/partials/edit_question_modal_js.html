@@ -760,6 +760,89 @@ function _aiEscapeAttr(s) {
         .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function _aiFormatRawReply(raw) {
+    if (!raw) return '';
+    return `<pre class="mt-2 mb-0 p-2 bg-light border rounded text-start" style="white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;font-size:0.75rem;">${_aiEscapeAttr(raw)}</pre>`;
+}
+
+function _checkRawFromParts(parts) {
+    for (const p of (parts || [])) {
+        if (p && p.check_raw) return p.check_raw;
+    }
+    return '';
+}
+
+let _checkRawModalInstance = null;
+window._checkRawCache = window._checkRawCache || {};
+
+function showCheckRawModalByKey(cacheKey) {
+    let raw = '';
+    let meta = '';
+    const m = String(cacheKey || '').match(/^cr-(\d+)-([A-Z]+)-(QUE|ANS|SOL)$/);
+    if (m) {
+        const qid = parseInt(m[1], 10);
+        const lang = m[2];
+        const atype = m[3];
+        const parts = ((_oqbQuestionAssets(qid) || {})[lang] || {})[atype] || [];
+        raw = _checkRawFromParts(parts);
+        const checked = _worstCheckPart(parts);
+        const res = (checked && checked.check_result) || {};
+        const when = (checked && checked.checked_at) ? window.oqbFormatLocalTime(checked.checked_at) : '';
+        const who = res.checked_by === 'manual' ? 'manual' : (res.model ? `AI: ${res.model}` : (res.checked_by || ''));
+        const ref = res.ref_version ? `vs ${res.ref_version}` : '';
+        meta = [ref, who, when].filter(Boolean).join(' · ');
+    }
+    if (!raw) {
+        const entry = (window._checkRawCache || {})[cacheKey];
+        raw = (entry && typeof entry === 'object') ? (entry.raw || '') : (entry || '');
+        meta = meta || ((entry && typeof entry === 'object') ? (entry.meta || '') : '');
+    }
+    showCheckRawModal(raw, meta);
+}
+
+function showCheckRawModal(rawText, metaLine) {
+    const raw = String(rawText || '').trim();
+    if (!raw) {
+        showToast('No saved model reply for this check.', 'warning');
+        return;
+    }
+    let el = document.getElementById('checkRawModal');
+    if (el) el.remove();
+    el = document.createElement('div');
+    el.id = 'checkRawModal';
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('data-bs-backdrop', 'true');
+    el.style.zIndex = '1065';
+    el.innerHTML = `
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-braces"></i> AI check — model reply</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            ${metaLine ? `<p class="small text-muted mb-2">${_aiEscapeAttr(metaLine)}</p>` : ''}
+            <pre class="mb-0 p-2 bg-light border rounded" style="white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;font-size:0.8rem;">${_aiEscapeAttr(raw)}</pre>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    _checkRawModalInstance = new bootstrap.Modal(el);
+    el.addEventListener('hidden.bs.modal', () => {
+        el.remove();
+        _checkRawModalInstance = null;
+        const editModal = document.getElementById('editQuestionModal');
+        if (editModal && editModal.classList.contains('show')) {
+            document.body.classList.add('modal-open');
+        }
+    });
+    _checkRawModalInstance.show();
+}
+
 // Pick the right value to pre-select for an AI endpoint dropdown given the
 // per-feature defaults map returned by /admin/questions/ai/endpoints. Falls
 // back to the first vision-capable endpoint when the configured default is
@@ -802,7 +885,7 @@ function renderCheckBadge(parts) {
         return `<span class="badge bg-danger ms-2" style="cursor:help" title="${_aiEscapeAttr(tip + (when ? '\n(' + when + ')' : ''))}"><i class="bi bi-exclamation-triangle"></i> ${issues.length} issue(s)</span>`;
     }
     if (st === 'error') {
-        return `<span class="badge bg-warning text-dark ms-2" style="cursor:help" title="${_aiEscapeAttr(String(res.raw || 'Check error').slice(0, 600))}"><i class="bi bi-question-circle"></i> check error</span>`;
+        return `<span class="badge bg-warning text-dark ms-2" title="Check error — use the braces button in the status bar to view the model reply"><i class="bi bi-question-circle"></i> check error</span>`;
     }
     if (st === 'checking') {
         return `<span class="badge bg-info text-dark ms-2"><i class="bi bi-hourglass-split"></i> checking</span>`;
@@ -829,21 +912,29 @@ function renderCheckStatusBar(questionId, lang, atype, parts) {
     };
     const meta = META[st] || { cls: 'secondary', icon: 'bi-shield', label: 'Not proofread' };
 
-    // Body: issue list / raw error / meta line.
+    // Body: issue list / meta line.
     let body = '';
     if (st === 'issues') {
         const issues = res.issues || [];
         body = `<ul class="mb-0 mt-1 ps-3 small">` + (issues.length
             ? issues.map(it => `<li><span class="badge bg-${it.severity === 'critical' ? 'dark' : it.severity === 'major' ? 'danger' : 'secondary'} me-1">${_aiEscapeAttr(it.severity || 'minor')}</span>${it.location ? '<strong>' + _aiEscapeAttr(it.location) + ':</strong> ' : ''}${_aiEscapeAttr(it.description || '')}</li>`).join('')
             : '<li>Marked as having issues.</li>') + `</ul>`;
-    } else if (st === 'error') {
-        body = `<div class="small mt-1 text-truncate" style="max-width:100%;">${_aiEscapeAttr(String(res.raw || 'Unparseable check reply').slice(0, 300))}</div>`;
     } else if (st === 'ok' && res.note) {
         body = `<div class="small mt-1">${_aiEscapeAttr(res.note)}</div>`;
     }
-    const metaLine = (st && (when || who || ref))
-        ? `<div class="small text-muted mt-1">${[ref, who, when].filter(Boolean).map(_aiEscapeAttr).join(' · ')}</div>`
+    const metaParts = [ref, who, when].filter(Boolean);
+    const metaLine = (st && metaParts.length)
+        ? `<div class="small text-muted mt-1">${metaParts.map(_aiEscapeAttr).join(' · ')}</div>`
         : '';
+    const metaPlain = metaParts.join(' · ');
+    const savedRaw = _checkRawFromParts(parts) || (res.raw || '');
+    let rawBtn = '';
+    if (savedRaw) {
+        const rawKey = `cr-${questionId}-${lang}-${atype}`;
+        window._checkRawCache[rawKey] = { raw: savedRaw, meta: metaPlain };
+        rawBtn = `<button type="button" class="btn btn-outline-secondary btn-check-raw-view" title="View verbatim AI model reply"
+                    data-check-raw-key="${_aiEscapeAttr(rawKey)}"><i class="bi bi-braces"></i></button>`;
+    }
 
     // Action buttons (always allow re-marking / clearing + an AI quick-check).
     const baseCall = `setSlotCheckState(${questionId}, '${lang}', '${atype}',`;
@@ -853,6 +944,7 @@ function renderCheckStatusBar(questionId, lang, atype, parts) {
         : '';
     const btns = `
         <div class="btn-group btn-group-sm flex-shrink-0 ms-2" role="group">
+            ${rawBtn}
             <button type="button" class="btn btn-outline-primary" title="Proofread with AI against a reference version"
                     onclick="event.stopPropagation(); openQuickCheckModal(${questionId}, '${lang}', '${atype}')"><i class="bi bi-robot"></i></button>
             ${solveCheckBtn}
@@ -1907,7 +1999,9 @@ function runAiSolveSlot(questionId, version, atype, mode, el) {
             refreshAssetsView(questionId);
             markEditModalListStale();
         } else {
-            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'AI solve operation failed')}</span>`;
+            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'AI solve operation failed')}</span>`
+                + _aiFormatRawReply(d && d.raw);
+            if (!isGen && d && d.raw) refreshAssetsView(questionId);
             btn.disabled = false;
             btn.innerHTML = `<i class="bi bi-lightbulb"></i> ${isGen ? 'Generate' : 'Run check'}`;
         }
@@ -2033,7 +2127,9 @@ function runQuickCheck(questionId, version, atype, el) {
             refreshAssetsView(questionId);
             markEditModalListStale();
         } else {
-            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'Check failed')}</span>`;
+            status.innerHTML = `<span class="text-${d && d.status === 'skip' ? 'warning' : 'danger'}">${_aiEscapeAttr((d && (d.message || d.error)) || 'Check failed')}</span>`
+                + _aiFormatRawReply(d && d.raw);
+            if (d && d.raw) refreshAssetsView(questionId);
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-robot"></i> Run check';
         }
@@ -2187,5 +2283,18 @@ function runAnswerTextAi(mode, el) {
         status.innerHTML = `<span class="text-danger">Network error: ${_aiEscapeAttr(err.message)}</span>`;
         btn.disabled = false;
         btn.innerHTML = `<i class="bi ${isGen ? 'bi-lightbulb' : 'bi-robot'}"></i> ${isGen ? 'Generate' : 'Run check'}`;
+    });
+}
+
+// Delegated handler — avoids broken inline onclick when meta text contains quotes.
+if (!window._checkRawClickBound) {
+    window._checkRawClickBound = true;
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-check-raw-view');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.getAttribute('data-check-raw-key');
+        if (key) showCheckRawModalByKey(key);
     });
 }
