@@ -57,10 +57,13 @@
                 <div class="btn-group btn-group-sm" role="group" id="aeTools">
                     <button class="btn btn-outline-secondary" data-tool="select" type="button" title="Select / move / resize (V)"><i class="bi bi-cursor"></i></button>
                     <button class="btn btn-outline-secondary" data-tool="redact" type="button" title="Redact box — censors content (R)"><i class="bi bi-square-fill"></i> Redact</button>
+                    <button class="btn btn-outline-secondary" data-tool="erase" type="button" title="Remove box — erases content, leaves white page (E)"><i class="bi bi-eraser"></i> Remove</button>
                     <button class="btn btn-outline-secondary" data-tool="highlight" type="button" title="Highlight box (H)"><i class="bi bi-highlighter"></i> Highlight</button>
                     <button class="btn btn-outline-secondary" data-tool="text" type="button" title="Add / edit text — click the page and type (T)"><i class="bi bi-fonts"></i> Text</button>
                     <button class="btn btn-outline-secondary" data-tool="pen" type="button" title="Freehand pen / signature (P)"><i class="bi bi-pencil"></i> Pen</button>
                 </div>
+                <button class="btn btn-sm btn-outline-secondary" id="aeImageBtn" type="button" title="Insert an image (stamp, signature, logo)"><i class="bi bi-image"></i> Image</button>
+                <input type="file" id="aeImageFile" accept="image/*" hidden>
                 <div class="vr"></div>
                 <span class="d-inline-flex align-items-center gap-1" id="aeColors"></span>
                 <input type="color" class="form-control form-control-color form-control-sm" id="aeCustomColor" value="#000000" title="Custom colour">
@@ -114,8 +117,10 @@
 
 const AE_PALETTE = ['#000000', '#ffffff', '#ffff00', '#90ee90', '#00ffff',
                     '#ff9bd0', '#ff0000', '#0000ff'];
-const AE_TOOL_KIND = {redact: 'redact', highlight: 'highlight',
+const AE_TOOL_KIND = {redact: 'redact', erase: 'erase', highlight: 'highlight',
                       text: 'text', pen: 'ink'};
+// editor-only styling so a white erase box is visible on a white page
+const AE_ERASE_PROPS = {stroke: '#b8b8b8', strokeWidth: 1, dash: [4, 3]};
 // font token -> CSS family (matches the server's ANNOT_FONT_FILES /
 // ANNOT_FONT_PDF mapping: sans=Helvetica/Arial, serif=Times, mono=Courier)
 const AE_FONTS = {sans: 'Helvetica, Arial, sans-serif',
@@ -251,6 +256,14 @@ function aeInit() {
     });
     document.querySelectorAll('#annotEditorModal [data-copyto]').forEach(a => {
         a.addEventListener('click', (e) => { e.preventDefault(); aeCopyTo(a.dataset.copyto); });
+    });
+    document.getElementById('aeImageBtn').addEventListener('click', () => {
+        document.getElementById('aeImageFile').click();
+    });
+    document.getElementById('aeImageFile').addEventListener('change', (e) => {
+        const f = e.target.files[0];
+        e.target.value = '';
+        if (f) aeInsertImageFile(f);
     });
     document.getElementById('aeAcceptPageBtn').addEventListener('click', () => {
         aeCloseTextEditor(true);
@@ -420,6 +433,8 @@ function aeBuildStage(im) {
     aeStage.on('mousemove touchmove', aeOnMove);
     aeStage.on('mouseup touchend', aeOnUp);
     aeStage.on('wheel', aeOnWheel);
+    // right-button drag pans; keep the browser context menu out of the way
+    aeStage.container().addEventListener('contextmenu', (e) => e.preventDefault());
     // keep the zoom level across page jumps (zoom about the stage centre)
     const z = aeZoom;
     aeZoom = 1;
@@ -522,14 +537,16 @@ function aeMakeNode(a) {
     let node;
     const pendingProps = a.pending
         ? {stroke: '#ff8c00', strokeWidth: 2, dash: [8, 4]} : {};
-    if (a.kind === 'redact' || a.kind === 'highlight') {
+    if (a.kind === 'redact' || a.kind === 'highlight' || a.kind === 'erase') {
         const [x1, y1, x2, y2] = a.rect;
         node = new Konva.Rect({
             x: fx2s(Math.min(x1, x2)), y: fy2s(Math.min(y1, y2)),
             width: Math.abs(x2 - x1) * aeImgW * aeScale,
             height: Math.abs(y2 - y1) * aeImgH * aeScale,
-            fill: a.color || (a.kind === 'redact' ? '#000000' : '#ffff00'),
+            fill: a.kind === 'erase' ? '#ffffff'
+                : (a.color || (a.kind === 'redact' ? '#000000' : '#ffff00')),
             opacity: a.kind === 'highlight' ? (a.opacity || 0.4) : 1,
+            ...(a.kind === 'erase' ? AE_ERASE_PROPS : {}),
             ...pendingProps,
         });
     } else if (a.kind === 'text') {
@@ -542,6 +559,18 @@ function aeMakeNode(a) {
             fill: a.color || '#d00000',
         });
         node.on('dblclick dbltap', () => aeStartTextEdit(a, node));
+    } else if (a.kind === 'image') {
+        const [x1, y1, x2, y2] = a.rect;
+        node = new Konva.Image({
+            x: fx2s(Math.min(x1, x2)), y: fy2s(Math.min(y1, y2)),
+            width: Math.abs(x2 - x1) * aeImgW * aeScale,
+            height: Math.abs(y2 - y1) * aeImgH * aeScale,
+            ...pendingProps,
+        });
+        aeLoadStampImage(a.data, (img) => {
+            node.image(img);
+            if (aeLayer) aeLayer.batchDraw();
+        });
     } else if (a.kind === 'ink') {
         const flat = [];
         (a.points || []).forEach(pt => { flat.push(fx2s(pt[0]), fy2s(pt[1])); });
@@ -559,10 +588,85 @@ function aeMakeNode(a) {
     node.setAttr('annotId', a.id);
     node.setAttr('kind', a.kind);
     node.draggable(aeTool === 'select');
-    node.on('mousedown touchstart', () => { if (aeTool === 'select') aeSelect(node); });
+    node.on('mousedown touchstart', (ev) => {
+        if (aeTool === 'select' && (!ev.evt.button || ev.evt.button === 0)) aeSelect(node);
+    });
     node.on('dragstart transformstart', aeSnap);
     node.on('dragend transformend', () => aeWriteBack(a, node));
     return node;
+}
+
+// ---------- image stamps ----------
+
+const aeStampCache = new Map();   // data URL -> HTMLImageElement
+
+function aeLoadStampImage(dataUrl, cb) {
+    if (!dataUrl) return;
+    const cached = aeStampCache.get(dataUrl);
+    if (cached) {
+        if (cached.complete) cb(cached);
+        else cached.addEventListener('load', () => cb(cached), {once: true});
+        return;
+    }
+    const img = new Image();
+    img.addEventListener('load', () => cb(img), {once: true});
+    img.src = dataUrl;
+    aeStampCache.set(dataUrl, img);
+}
+
+const AE_STAMP_MAX_PX = 1400;     // downscale large uploads before embedding
+
+function aeInsertImageFile(file) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+        URL.revokeObjectURL(url);
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) { log('Could not read that image.', 'error'); return; }
+        const k = Math.min(1, AE_STAMP_MAX_PX / Math.max(w, h));
+        const cw = Math.max(1, Math.round(w * k));
+        const ch = Math.max(1, Math.round(h * k));
+        const cv = document.createElement('canvas');
+        cv.width = cw; cv.height = ch;
+        cv.getContext('2d').drawImage(img, 0, 0, cw, ch);
+        // PNG keeps transparency (signatures/stamps); JPEG for photos.
+        const isPng = file.type === 'image/png' || /\.png$/i.test(file.name || '');
+        const data = isPng ? cv.toDataURL('image/png')
+                           : cv.toDataURL('image/jpeg', 0.85);
+        if (data.length > 4 * 1024 * 1024) {
+            log('Image too large after encoding — use a smaller image.', 'error');
+            return;
+        }
+        // Place centred in the visible viewport at ~40% of the page width.
+        const fw = 0.4;
+        const fh = fw * (ch / cw) * (aeImgW / aeImgH);
+        const vc = aeViewportCenterFrac();
+        const x1 = Math.max(0, Math.min(1 - fw, vc.x - fw / 2));
+        const y1 = Math.max(0, Math.min(1 - fh, vc.y - fh / 2));
+        aeSnap();
+        const a = {id: annotId(), kind: 'image',
+                   rect: [x1, y1, Math.min(1, x1 + fw), Math.min(1, y1 + fh)],
+                   data};
+        aeAnnots.push(a);
+        aePageDirty = true;
+        aeRebuildNodes();
+        aeSetTool('select');
+        const node = aeLayer.getChildren().find(
+            n => n.getAttr && n.getAttr('annotId') === a.id);
+        if (node) aeSelect(node);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); log('Could not read that image.', 'error'); };
+    img.src = url;
+}
+
+// Centre of the currently visible part of the page, in fractional coords.
+function aeViewportCenterFrac() {
+    if (!aeStage) return {x: 0.5, y: 0.5};
+    const sw = aeStage.width(), sh = aeStage.height();
+    const inv = aeStage.getAbsoluteTransform().copy().invert();
+    const c = inv.point({x: sw / 2, y: sh / 2});
+    return {x: Math.max(0, Math.min(1, sx2f(c.x))),
+            y: Math.max(0, Math.min(1, sy2f(c.y)))};
 }
 
 function aeAnnotForNode(node) {
@@ -578,7 +682,7 @@ function aeSelect(node) {
     const kind = node.getAttr('kind');
     if (kind === 'ink') {
         aeTr.enabledAnchors([]);
-    } else if (kind === 'text') {
+    } else if (kind === 'text' || kind === 'image') {
         aeTr.keepRatio(true);
         aeTr.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
     } else {
@@ -612,7 +716,8 @@ function aeUpdateDeleteBtn() {
 }
 
 function aeWriteBack(a, node) {
-    if (a.kind === 'redact' || a.kind === 'highlight') {
+    if (a.kind === 'redact' || a.kind === 'highlight' || a.kind === 'erase'
+        || a.kind === 'image') {
         const w = node.width() * node.scaleX();
         const h = node.height() * node.scaleY();
         node.scaleX(1); node.scaleY(1);
@@ -719,6 +824,10 @@ function aeSetTool(tool) {
         (tool === 'highlight' || tool === 'select') ? '' : 'none';
     document.getElementById('aeWidthWrap').style.display =
         (tool === 'pen' || tool === 'select') ? '' : 'none';
+    // Remove boxes are always white — no colour choice.
+    const colorVis = tool === 'erase' ? 'none' : '';
+    document.getElementById('aeColors').style.display = colorVis;
+    document.getElementById('aeCustomColor').style.display = colorVis;
     aeSyncTextWrap();
     aeApplyToolState();
 }
@@ -750,7 +859,7 @@ function aeApplyToolState() {
 
 function aePickColor(color) {
     const sel = aeSelectedNode();
-    if (sel) {
+    if (sel && sel.getAttr('kind') !== 'erase') {
         const a = aeAnnotForNode(sel);
         if (a) {
             aeSnap();
@@ -765,9 +874,10 @@ function aePickColor(color) {
     if (aeEditing) {
         aeEditing.a.color = color;
         aeEditing.ta.style.color = color;
+        aeEditing.ta.focus();
     }
     const kind = AE_TOOL_KIND[aeTool];
-    if (kind) aeColors[kind] = color;
+    if (kind && kind !== 'erase') aeColors[kind] = color;
     document.querySelectorAll('#aeColors .ae-swatch').forEach(b => {
         b.classList.toggle('active', b.dataset.color === color);
     });
@@ -780,6 +890,7 @@ function aeApplyTextStyle() {
         aeEditing.a.font = aeTextFont;
         aeEditing.a.size = aeTextSize;
         aeStyleTextArea(aeEditing.ta, aeEditing.a);
+        aeEditing.ta.focus();
         return;
     }
     const sel = aeSelectedNode();
@@ -861,8 +972,14 @@ function aeStartTextEdit(annot, node, fpos) {
             e.preventDefault(); aeCloseTextEditor(true);
         }
     });
-    ta.addEventListener('blur', () => {
-        if (aeEditing && aeEditing.ta === ta) aeCloseTextEditor(true);
+    ta.addEventListener('blur', (e) => {
+        if (!aeEditing || aeEditing.ta !== ta) return;
+        // Clicking a style control (typeface, size, colours) must NOT commit —
+        // the user is restyling the text being edited. Focus returns to the
+        // textarea after the control applies its change.
+        const rt = e.relatedTarget;
+        if (rt && rt.closest && rt.closest('#aeTextWrap, #aeColors, #aeCustomColor')) return;
+        aeCloseTextEditor(true);
     });
     setTimeout(() => { ta.focus(); ta.select(); }, 0);
 }
@@ -908,8 +1025,9 @@ function aeOnDown(e) {
     if (!aeStage) return;
     // two-finger gesture = pinch zoom / pan
     if (e.evt.touches && e.evt.touches.length >= 2) { aeHandlePinch(e); return; }
-    // middle mouse button or space+drag = pan the zoomed view
-    if (e.evt.button === 1 || (aeSpaceDown && e.evt.button === 0)) {
+    // right / middle mouse button or space+drag = pan the view
+    if (e.evt.button === 2 || e.evt.button === 1
+        || (aeSpaceDown && e.evt.button === 0)) {
         e.evt.preventDefault();
         const p = aeStage.getPointerPosition();
         aePanning = {sx: p.x, sy: p.y, px: aeStage.x(), py: aeStage.y()};
@@ -930,11 +1048,12 @@ function aeOnDown(e) {
         return;
     }
     e.evt.preventDefault();
-    if (aeTool === 'redact' || aeTool === 'highlight') {
+    if (aeTool === 'redact' || aeTool === 'highlight' || aeTool === 'erase') {
         const node = new Konva.Rect({
             x: pos.x, y: pos.y, width: 1, height: 1,
-            fill: aeColors[aeTool],
+            fill: aeTool === 'erase' ? '#ffffff' : aeColors[aeTool],
             opacity: aeTool === 'highlight' ? aeOpacity : 1,
+            ...(aeTool === 'erase' ? AE_ERASE_PROPS : {}),
         });
         aeLayer.add(node);
         aeTr.moveToTop();
@@ -1016,7 +1135,7 @@ function aeOnUp(e) {
             aeSnap();
             const a = {id: annotId(), kind: d.kind,
                        rect: [sx2f(x), sy2f(y), sx2f(x + w), sy2f(y + h)],
-                       color: aeColors[d.kind]};
+                       color: d.kind === 'erase' ? '#ffffff' : aeColors[d.kind]};
             if (d.kind === 'highlight') a.opacity = aeOpacity;
             aeAnnots.push(a);
             aePageDirty = true;
@@ -1093,6 +1212,7 @@ function aeOnKeyDown(e) {
         else aeModal.hide();
     } else if (e.key === 'v' || e.key === 'V') { aeSetTool('select'); }
     else if (e.key === 'r' || e.key === 'R') { aeSetTool('redact'); }
+    else if (e.key === 'e' || e.key === 'E') { aeSetTool('erase'); }
     else if (e.key === 'h' || e.key === 'H') { aeSetTool('highlight'); }
     else if (e.key === 't' || e.key === 'T') { aeSetTool('text'); }
     else if (e.key === 'p' || e.key === 'P') { aeSetTool('pen'); }

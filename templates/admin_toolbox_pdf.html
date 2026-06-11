@@ -13,7 +13,56 @@
         border: 1px dashed var(--bs-border-color);
         border-radius: .4rem;
     }
+    /* Desktop: pin both columns below the sticky navbar and scroll the page
+       grid (and the steps panel) internally, so the toolbar / export bar /
+       step cards never scroll out of view. */
+    @media (min-width: 992px) {
+        .tb-left-col {
+            position: sticky;
+            top: 66px;
+            align-self: flex-start;
+            max-height: calc(100vh - 76px);
+            overflow-y: auto;
+        }
+        .tb-right-col { align-self: flex-start; position: sticky; top: 66px; }
+        .tb-right-card {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 76px);
+        }
+        .tb-right-card > .card-body {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .tb-right-card .tb-canvas {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+    }
     .tb-canvas.tb-rubber-active { cursor: crosshair; }
+    #cropStage { position: relative; display: inline-block; user-select: none; touch-action: none; }
+    #cropStage img { max-width: 100%; max-height: 68vh; display: block; pointer-events: none; }
+    #cropBox {
+        position: absolute; border: 2px dashed var(--bs-primary);
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, .45); cursor: move;
+    }
+    .crop-handle {
+        position: absolute; width: 14px; height: 14px; background: var(--bs-primary);
+        border: 2px solid #fff; border-radius: 50%;
+    }
+    .crop-handle[data-h="nw"] { left: -8px; top: -8px; cursor: nwse-resize; }
+    .crop-handle[data-h="ne"] { right: -8px; top: -8px; cursor: nesw-resize; }
+    .crop-handle[data-h="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+    .crop-handle[data-h="se"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+    .tb-canvas.tb-drop-hover {
+        outline: 3px dashed var(--bs-primary);
+        outline-offset: -3px;
+        background: rgba(var(--bs-primary-rgb), .06);
+    }
     .tb-preview-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(var(--tb-card-w, 115px), 1fr));
@@ -136,7 +185,7 @@
 
     <div class="row g-3">
         <!-- ===== Left: source + process ===== -->
-        <div class="col-lg-4">
+        <div class="col-lg-4 tb-left-col">
             <!-- Step 1: upload -->
             <div class="card mb-3">
                 <div class="card-header py-2"><strong><i class="bi bi-1-circle"></i> Upload source PDF</strong></div>
@@ -211,8 +260,8 @@
         </div>
 
         <!-- ===== Right: preview + export ===== -->
-        <div class="col-lg-8">
-            <div class="card">
+        <div class="col-lg-8 tb-right-col">
+            <div class="card tb-right-card">
                 <div class="card-header py-2 d-flex flex-wrap align-items-center gap-2">
                     <strong><i class="bi bi-3-circle"></i> Preview &amp; assemble</strong>
                     <span class="badge bg-secondary" id="pageCount">0 pages</span>
@@ -272,6 +321,22 @@
                                 <option value="image">Image (flatten pages)</option>
                             </select>
                         </div>
+                        <div class="col-auto" id="compressWrap">
+                            <label class="form-label small mb-0">Compression</label>
+                            <select id="exportCompress" class="form-select form-select-sm" style="width:auto;"
+                                    title="Recompresses/downsamples the images inside the PDF. Light keeps the resolution; Medium/Strong downsample to ~150/~100 DPI; Fit to size retries until the file fits under the limit.">
+                                <option value="none">None</option>
+                                <option value="light">Light — recompress only</option>
+                                <option value="medium">Medium — ~150 DPI</option>
+                                <option value="strong">Strong — ~100 DPI</option>
+                                <option value="size">Fit to size…</option>
+                            </select>
+                        </div>
+                        <div class="col-auto" id="targetMbWrap" style="display:none;">
+                            <label class="form-label small mb-0">Max size (MB)</label>
+                            <input type="number" class="form-control form-control-sm" id="exportTargetMb"
+                                   min="0.2" step="0.5" value="10" style="width:6.5em;">
+                        </div>
                         <div class="col-auto" id="splitEveryWrap" style="display:none;">
                             <div class="form-check mt-3">
                                 <input class="form-check-input" type="checkbox" id="splitEveryChk">
@@ -298,7 +363,8 @@
                         <div class="text-muted small flex-grow-1">
                             Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
                             On touch devices, long-press a page (or use the Select button) to tap-select multiple pages.
-                            Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
+                            Drag selected pages to reorder, double-click to preview.
+                            Drop a PDF or image file here to add its pages directly (no split / filters).
                         </div>
                         <div class="d-flex align-items-center gap-1 text-muted" title="Page thumbnail size" style="min-width:150px;">
                             <i class="bi bi-zoom-out small"></i>
@@ -403,6 +469,52 @@
     </div>
 </div>
 
+<!-- Crop modal -->
+<div class="modal fade" id="cropModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-crop"></i> Crop</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="text-muted small mb-2">Drag on the page to draw the crop area; drag the box or its corners to adjust. The same crop applies to every targeted page.</div>
+                <div id="cropStage">
+                    <img id="cropImg" alt="page">
+                    <div id="cropBox" style="display:none;">
+                        <div class="crop-handle" data-h="nw"></div>
+                        <div class="crop-handle" data-h="ne"></div>
+                        <div class="crop-handle" data-h="sw"></div>
+                        <div class="crop-handle" data-h="se"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-outline-danger me-auto" id="cropRemoveBtn" style="display:none;"><i class="bi bi-x-circle"></i> Remove crop</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="cropApplyBtn" disabled><i class="bi bi-check-lg"></i> Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export scope: selected pages or everything? -->
+<div class="modal fade" id="exportScopeModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-question-circle"></i> Which pages?</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body"><p id="exportScopeMsg" class="mb-0"></p></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="exportScopeAllBtn">All pages</button>
+                <button type="button" class="btn btn-primary" id="exportScopeSelBtn">Selected only</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Find & Mark modal (search text -> highlight / redact) -->
 <div class="modal fade" id="findMarkModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -454,6 +566,7 @@
                             <select class="form-select form-select-sm" id="fmCustomKind">
                                 <option value="highlight">Highlight</option>
                                 <option value="redact">Redact</option>
+                                <option value="erase">Remove</option>
                             </select>
                         </div>
                         <div class="col-auto"><input type="color" class="form-control form-control-color" id="fmCustomColor" value="#ffff00" title="Mark colour"></div>
@@ -572,7 +685,9 @@ async function postJSON(url, body) {
 }
 
 function fullOps(p) {
-    const order = ['rotate', 'deskew', 'rotate_fine', 'brightness', 'contrast', 'sharpen', 'grayscale', 'bw'];
+    // 'crop' comes last: the crop box is drawn on the fully-rendered page,
+    // so it must be applied in post-everything space.
+    const order = ['rotate', 'deskew', 'rotate_fine', 'brightness', 'contrast', 'sharpen', 'grayscale', 'bw', 'crop'];
     const edits = order.filter(t => p.edit[t]).map(t => p.edit[t]);
     return p.baseOps.concat(edits);
 }
@@ -659,6 +774,69 @@ async function uploadSource(file, serverPath) {
     renderSourceList();
     renderSrcStrip(data.srcid, data.page_count);
     document.getElementById('processCard').style.display = '';
+    // Default the export file name to the (first) source's name.
+    const nameEl = document.getElementById('exportName');
+    if (!nameEl.value.trim()) {
+        nameEl.value = data.filename.replace(/\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i, '');
+        updateExportButtons();
+    }
+    return data;
+}
+
+// Add every page of a source untouched (no split/rotate/filters, default DPI).
+async function addPagesWithDefaults(srcid) {
+    const data = await postJSON(`${BASE}/add-pages`, {
+        token: TOKEN, srcid, mode: 'none', pre_rotate: 0,
+        dpi: DEFAULT_DPI, filters: {},
+    });
+    pushUndo();
+    data.pages.forEach(sp => {
+        pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
+                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
+                    annots: sp.annots || [], nonce: Date.now()});
+    });
+    log(`Added ${data.added} page(s).`, 'success');
+    renderPreview();
+}
+
+// Drag a PDF straight onto the preview area = upload + add with defaults.
+function initDropZone() {
+    const canvas = document.getElementById('previewCanvas');
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    let depth = 0;
+    canvas.addEventListener('dragenter', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        depth++;
+        canvas.classList.add('tb-drop-hover');
+    });
+    canvas.addEventListener('dragover', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+    });
+    canvas.addEventListener('dragleave', () => {
+        if (--depth <= 0) { depth = 0; canvas.classList.remove('tb-drop-hover'); }
+    });
+    canvas.addEventListener('drop', async (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        depth = 0;
+        canvas.classList.remove('tb-drop-hover');
+        const files = [...e.dataTransfer.files].filter(f =>
+            f.type === 'application/pdf' || f.type.startsWith('image/')
+            || /\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i.test(f.name));
+        if (!files.length) { log('Drop a PDF or image file.', 'error'); return; }
+        for (const f of files) {
+            const d = await uploadSource(f, null);
+            if (!d) continue;
+            try {
+                await addPagesWithDefaults(d.srcid);
+            } catch (err) {
+                log('Add failed: ' + err.message, 'error');
+            }
+        }
+    });
 }
 
 function renderSourceList() {
@@ -752,6 +930,7 @@ function renderPreview() {
 function editBadges(p) {
     const labels = [];
     if (p.edit.rotate) labels.push(`${p.edit.rotate.deg}°`);
+    if (p.edit.crop) labels.push('crop');
     if (p.edit.deskew) labels.push('deskew');
     if (p.edit.bw) labels.push('B&W');
     if (p.edit.brightness) labels.push('bright');
@@ -912,6 +1091,7 @@ async function opAction(op) {
     if (!targets.length) return;
     if (op === 'del') { return deleteSelected(); }
     if (op === 'markup') { return openAnnotEditor(targets[0].id); }
+    if (op === 'crop') { return openCropModal(targets); }
 
     pushUndo();
     if (op === 'rotL') targets.forEach(p => rotateBy(p, -90));
@@ -989,6 +1169,133 @@ function refreshCard(p) {
     if (img) img.src = thumbUrl(p);
     const badges = card.querySelector('.tb-page-badges');
     if (badges) badges.innerHTML = editBadges(p);
+}
+
+// ---------- crop ----------
+let cropModal = null, cropTargets = [], cropFrac = null, cropDrag = null;
+
+function openCropModal(targets) {
+    if (!targets.length) return;
+    cropTargets = targets;
+    if (!cropModal) {
+        cropModal = new bootstrap.Modal(document.getElementById('cropModal'));
+        initCropEvents();
+    }
+    const p = targets[0];
+    // The preview shows the page as currently rendered (including any
+    // existing crop); a drawn box is composed with that crop on apply.
+    document.getElementById('cropImg').src = thumbUrl(p, 1100);
+    cropFrac = null;
+    cropSyncBox();
+    document.getElementById('cropRemoveBtn').style.display =
+        targets.some(t => t.edit.crop) ? '' : 'none';
+    const n = targets.length;
+    document.getElementById('cropApplyBtn').innerHTML =
+        `<i class="bi bi-check-lg"></i> Apply to ${n} page${n === 1 ? '' : 's'}`;
+    cropModal.show();
+}
+
+function cropSyncBox() {
+    const box = document.getElementById('cropBox');
+    const img = document.getElementById('cropImg');
+    document.getElementById('cropApplyBtn').disabled = !cropFrac;
+    if (!cropFrac) { box.style.display = 'none'; return; }
+    const [x1, y1, x2, y2] = cropFrac;
+    box.style.display = '';
+    box.style.left = (x1 * img.clientWidth) + 'px';
+    box.style.top = (y1 * img.clientHeight) + 'px';
+    box.style.width = ((x2 - x1) * img.clientWidth) + 'px';
+    box.style.height = ((y2 - y1) * img.clientHeight) + 'px';
+}
+
+function cropPos(e) {
+    const img = document.getElementById('cropImg');
+    const r = img.getBoundingClientRect();
+    return [Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+            Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))];
+}
+
+function initCropEvents() {
+    const stage = document.getElementById('cropStage');
+    const box = document.getElementById('cropBox');
+
+    stage.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const h = e.target.closest('.crop-handle');
+        const [x, y] = cropPos(e);
+        if (h && cropFrac) {
+            cropDrag = {mode: 'resize', h: h.dataset.h};
+        } else if (e.target === box && cropFrac) {
+            cropDrag = {mode: 'move', sx: x, sy: y, orig: [...cropFrac]};
+        } else {
+            cropDrag = {mode: 'draw', sx: x, sy: y};
+            cropFrac = [x, y, x, y];
+        }
+        stage.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+    stage.addEventListener('pointermove', (e) => {
+        if (!cropDrag) return;
+        const [x, y] = cropPos(e);
+        if (cropDrag.mode === 'draw') {
+            cropFrac = [Math.min(cropDrag.sx, x), Math.min(cropDrag.sy, y),
+                        Math.max(cropDrag.sx, x), Math.max(cropDrag.sy, y)];
+        } else if (cropDrag.mode === 'move') {
+            const [ox1, oy1, ox2, oy2] = cropDrag.orig;
+            const w = ox2 - ox1, hgt = oy2 - oy1;
+            let nx = ox1 + (x - cropDrag.sx), ny = oy1 + (y - cropDrag.sy);
+            nx = Math.max(0, Math.min(1 - w, nx));
+            ny = Math.max(0, Math.min(1 - hgt, ny));
+            cropFrac = [nx, ny, nx + w, ny + hgt];
+        } else if (cropDrag.mode === 'resize') {
+            let [x1, y1, x2, y2] = cropFrac;
+            if (cropDrag.h.includes('w')) x1 = Math.min(x, x2 - 0.01);
+            if (cropDrag.h.includes('e')) x2 = Math.max(x, x1 + 0.01);
+            if (cropDrag.h.includes('n')) y1 = Math.min(y, y2 - 0.01);
+            if (cropDrag.h.includes('s')) y2 = Math.max(y, y1 + 0.01);
+            cropFrac = [x1, y1, x2, y2];
+        }
+        cropSyncBox();
+    });
+    const end = () => { cropDrag = null; };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    document.getElementById('cropImg').addEventListener('load', cropSyncBox);
+
+    document.getElementById('cropApplyBtn').addEventListener('click', async () => {
+        if (!cropFrac || (cropFrac[2] - cropFrac[0]) < 0.02
+            || (cropFrac[3] - cropFrac[1]) < 0.02) {
+            log('Draw a crop area first.', 'error');
+            return;
+        }
+        pushUndo();
+        cropTargets.forEach(p => {
+            // Compose with an existing crop: the drawn box is fractional in
+            // the already-cropped page, so map it back into base page space.
+            const prev = p.edit.crop && p.edit.crop.box;
+            let b = [...cropFrac];
+            if (prev) {
+                const pw = prev[2] - prev[0], ph = prev[3] - prev[1];
+                b = [prev[0] + b[0] * pw, prev[1] + b[1] * ph,
+                     prev[0] + b[2] * pw, prev[1] + b[3] * ph];
+            }
+            p.edit.crop = {type: 'crop', box: b.map(v => +v.toFixed(4))};
+            p.nonce = Date.now();
+        });
+        cropModal.hide();
+        await saveMany(cropTargets);
+        refreshModalImg();
+        log(`Cropped ${cropTargets.length} page(s).`, 'success');
+    });
+
+    document.getElementById('cropRemoveBtn').addEventListener('click', async () => {
+        pushUndo();
+        cropTargets.forEach(p => { delete p.edit.crop; p.nonce = Date.now(); });
+        cropModal.hide();
+        await saveMany(cropTargets);
+        refreshModalImg();
+        log('Crop removed.', 'success');
+    });
 }
 
 async function saveMany(arr) {
@@ -1181,37 +1488,93 @@ function initSortable() {
 let rubber = null;
 function initRubberBand() {
     const canvas = document.getElementById('previewCanvas');
+    const EDGE = 48;          // px from the canvas edge that triggers auto-scroll
+    const SCROLL_MAX = 22;    // max px per frame
+
     canvas.addEventListener('mousedown', (e) => {
         if (e.target.closest('.tb-page-card')) return;   // let cards/sortable handle
         if (e.button !== 0) return;
         const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-        const startX = e.clientX, startY = e.clientY;
         const band = document.getElementById('rubberBand');
-        const canvasRect = canvas.getBoundingClientRect();
         const base = additive ? new Set(selected) : new Set();
         let moved = false;
-        function onMove(ev) {
+        let lastClient = {x: e.clientX, y: e.clientY};
+        let rafId = null;
+
+        // Everything is tracked in the canvas's CONTENT space (scroll
+        // offsets included) so the anchor — and pages scrolled out of
+        // view — stay selected while the canvas scrolls mid-drag.
+        function toContent(cx, cy) {
+            const r = canvas.getBoundingClientRect();
+            return {x: cx - r.left + canvas.scrollLeft,
+                    y: cy - r.top + canvas.scrollTop};
+        }
+        const start = toContent(e.clientX, e.clientY);
+
+        function update() {
             moved = true;
             band.style.display = 'block';
-            const x = Math.min(ev.clientX, startX), y = Math.min(ev.clientY, startY);
-            const w = Math.abs(ev.clientX - startX), h = Math.abs(ev.clientY - startY);
-            band.style.left = (x - canvasRect.left) + 'px';
-            band.style.top = (y - canvasRect.top) + 'px';
+            const cur = toContent(lastClient.x, lastClient.y);
+            const x = Math.min(cur.x, start.x), y = Math.min(cur.y, start.y);
+            const w = Math.abs(cur.x - start.x), h = Math.abs(cur.y - start.y);
+            band.style.left = x + 'px';
+            band.style.top = y + 'px';
             band.style.width = w + 'px';
             band.style.height = h + 'px';
             const rb = {left: x, top: y, right: x + w, bottom: y + h};
+            const cr = canvas.getBoundingClientRect();
             const next = new Set(base);
             document.querySelectorAll('.tb-page-card').forEach(c => {
                 const r = c.getBoundingClientRect();
-                const hit = !(r.right < rb.left || r.left > rb.right || r.bottom < rb.top || r.top > rb.bottom);
+                // Card rect → content space, so offscreen cards keep matching.
+                const left = r.left - cr.left + canvas.scrollLeft;
+                const top = r.top - cr.top + canvas.scrollTop;
+                const hit = !(left + r.width < rb.left || left > rb.right
+                              || top + r.height < rb.top || top > rb.bottom);
                 if (hit) next.add(c.dataset.pageId);
             });
             selected = next;
             updateSelectionUI();
         }
+
+        // File-explorer-style auto-scroll while the pointer hovers near the
+        // top/bottom edge of the scroll container (speed scales with depth
+        // into the edge zone). Falls back to scrolling the window when the
+        // canvas itself isn't scrollable (narrow layouts).
+        function autoScrollStep() {
+            rafId = null;
+            const cr = canvas.getBoundingClientRect();
+            const canScroll = canvas.scrollHeight > canvas.clientHeight + 1;
+            let dy = 0;
+            const topRef = canScroll ? cr.top : 0;
+            const botRef = canScroll ? cr.bottom : window.innerHeight;
+            if (lastClient.y < topRef + EDGE) {
+                dy = -Math.ceil(SCROLL_MAX * Math.min(1, (topRef + EDGE - lastClient.y) / EDGE));
+            } else if (lastClient.y > botRef - EDGE) {
+                dy = Math.ceil(SCROLL_MAX * Math.min(1, (lastClient.y - (botRef - EDGE)) / EDGE));
+            }
+            if (dy) {
+                if (canScroll) {
+                    const before = canvas.scrollTop;
+                    canvas.scrollTop = before + dy;
+                    if (canvas.scrollTop !== before) update();
+                } else {
+                    window.scrollBy(0, dy);
+                    update();
+                }
+                rafId = requestAnimationFrame(autoScrollStep);
+            }
+        }
+
+        function onMove(ev) {
+            lastClient = {x: ev.clientX, y: ev.clientY};
+            update();
+            if (rafId === null) rafId = requestAnimationFrame(autoScrollStep);
+        }
         function onUp() {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
             band.style.display = 'none';
             if (!moved && !additive) { selected = new Set(); updateSelectionUI(); }
         }
@@ -1392,6 +1755,7 @@ function imageOpsHTML(needsSel) {
         </button>
         ${adjustMenuHTML()}
       </div>
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="crop" type="button" title="Crop the selected page(s)"><i class="bi bi-crop"></i> Crop</button>
       <button class="btn btn-sm btn-outline-secondary${ns}" data-op="markup" type="button" title="Redact, highlight, draw, or add text on the page"><i class="bi bi-pen"></i> Mark up</button>
       <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="Reset page edits (keeps marks)"><i class="bi bi-eraser"></i> Reset</button>`;
 }
@@ -1486,6 +1850,9 @@ function updateSplitEveryVisibility() {
     const fmtPdf = document.getElementById('exportFmt').value === 'pdf';
     document.getElementById('splitEveryWrap').style.display = (hasMode1 && fmtPdf) ? '' : 'none';
     document.getElementById('outputModeWrap').style.display = fmtPdf ? '' : 'none';
+    document.getElementById('compressWrap').style.display = fmtPdf ? '' : 'none';
+    document.getElementById('targetMbWrap').style.display =
+        (fmtPdf && document.getElementById('exportCompress').value === 'size') ? '' : 'none';
 }
 function updateExportButtons() {
     const hasName = document.getElementById('exportName').value.trim().length > 0;
@@ -1497,22 +1864,58 @@ function updateExportButtons() {
 }
 
 // ---------- export ----------
-function exportSelectionIds() {
+let exportScopeModal = null, exportScopeResolve = null;
+
+// Resolve which page ids to export. With a partial selection, asks the user
+// (Selected only / All pages); resolves null when dismissed.
+function resolveExportScope() {
     const sel = selectedPagesInOrder().map(p => p.id);
-    return sel.length ? sel : pages.map(p => p.id);
+    if (!sel.length || sel.length === pages.length) {
+        return Promise.resolve(pages.map(p => p.id));
+    }
+    return new Promise((resolve) => {
+        if (!exportScopeModal) {
+            const el = document.getElementById('exportScopeModal');
+            exportScopeModal = new bootstrap.Modal(el);
+            document.getElementById('exportScopeSelBtn').addEventListener('click', () => {
+                const cb = exportScopeResolve; exportScopeResolve = null;
+                exportScopeModal.hide();
+                if (cb) cb(selectedPagesInOrder().map(p => p.id));
+            });
+            document.getElementById('exportScopeAllBtn').addEventListener('click', () => {
+                const cb = exportScopeResolve; exportScopeResolve = null;
+                exportScopeModal.hide();
+                if (cb) cb(pages.map(p => p.id));
+            });
+            el.addEventListener('hidden.bs.modal', () => {
+                const cb = exportScopeResolve; exportScopeResolve = null;
+                if (cb) cb(null);   // dismissed = cancel
+            });
+        }
+        exportScopeResolve = resolve;
+        document.getElementById('exportScopeMsg').textContent =
+            `You have ${sel.length} of ${pages.length} page(s) selected. Export only the selected pages, or everything?`;
+        document.getElementById('exportScopeSelBtn').textContent = `Selected only (${sel.length})`;
+        exportScopeModal.show();
+    });
 }
-function exportBody() {
+
+function exportBody(pageIds) {
     const fmt = document.getElementById('exportFmt').value;
     const splitEvery = (fmt === 'pdf' && document.getElementById('splitEveryChk').checked
                         && document.getElementById('splitEveryWrap').style.display !== 'none') ? 4 : 0;
-    return {token: TOKEN, page_ids: exportSelectionIds(), fmt, split_every: splitEvery,
+    return {token: TOKEN, page_ids: pageIds, fmt, split_every: splitEvery,
             output: document.getElementById('exportOutput').value,
+            compress: document.getElementById('exportCompress').value,
+            target_mb: parseFloat(document.getElementById('exportTargetMb').value) || 0,
             filename: document.getElementById('exportName').value.trim()};
 }
 
 async function doExport() {
     if (!pages.length) { log('Nothing to export.', 'error'); return; }
-    const body = exportBody();
+    const ids = await resolveExportScope();
+    if (!ids) return;
+    const body = exportBody(ids);
     if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
     const btn = document.getElementById('exportBtn');
     setBtnLoading(btn, true);
@@ -1535,9 +1938,10 @@ async function doExport() {
 }
 
 let overwriteModal = null;
+let saveScopeIds = null;       // page ids chosen when the save flow started
 async function doSaveServer(overwrite) {
     if (!pages.length) { log('Nothing to save.', 'error'); return; }
-    const body = exportBody();
+    const body = exportBody(saveScopeIds || pages.map(p => p.id));
     if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
     body.dest = saveDest;
     if (overwrite) body.overwrite = true;
@@ -1565,10 +1969,12 @@ let saveDestModal = null;
 let destPath = '';                              // folder currently being browsed
 let saveDest = DEFAULT_SAVE_SUBDIR;             // chosen destination (rel to PDF_SOURCE_PATH)
 
-function openSaveDest() {
+async function openSaveDest() {
     if (!document.getElementById('exportName').value.trim()) {
         log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
     }
+    saveScopeIds = await resolveExportScope();
+    if (!saveScopeIds) return;
     if (!saveDestModal) saveDestModal = new bootstrap.Modal(document.getElementById('saveDestModal'));
     saveDestModal.show();
     loadDestDir(saveDest || DEFAULT_SAVE_SUBDIR, true);
@@ -1716,6 +2122,7 @@ function fmAddTermRow(text) {
             <select class="form-select form-select-sm fm-kind">
                 <option value="highlight">Highlight</option>
                 <option value="redact">Redact</option>
+                <option value="erase">Remove</option>
             </select>
         </div>
         <div class="col-auto"><input type="color" class="form-control form-control-color fm-color" value="#ffff00" title="Mark colour"></div>
@@ -1726,6 +2133,7 @@ function fmAddTermRow(text) {
         // Swap the default colour when the user hasn't customised it.
         if (kind.value === 'redact' && color.value.toLowerCase() === '#ffff00') color.value = '#000000';
         if (kind.value === 'highlight' && color.value.toLowerCase() === '#000000') color.value = '#ffff00';
+        color.disabled = kind.value === 'erase';   // erase is always white
     });
     row.querySelector('.fm-del').addEventListener('click', () => {
         row.remove();
@@ -1792,6 +2200,7 @@ function openFindMark() {
         ck.addEventListener('change', () => {
             if (ck.value === 'redact' && cc.value.toLowerCase() === '#ffff00') cc.value = '#000000';
             if (ck.value === 'highlight' && cc.value.toLowerCase() === '#000000') cc.value = '#ffff00';
+            cc.disabled = ck.value === 'erase';    // erase is always white
         });
         document.getElementById('fmThreshold').addEventListener('input', () => {
             document.getElementById('fmThresholdVal').textContent = document.getElementById('fmThreshold').value;
@@ -1887,7 +2296,8 @@ function fmApplyResults(resultsByPage, opts) {
         boxes.forEach(b => {
             const st = styles[Math.min(b.term || 0, styles.length - 1)];
             const a = {id: annotId(), kind: st.kind, rect: b.rect,
-                       color: st.color, pending: true};
+                       color: st.kind === 'erase' ? '#ffffff' : st.color,
+                       pending: true};
             if (st.kind === 'highlight') a.opacity = opts.opacity;
             p.annots.push(a);
             added++;
@@ -2084,6 +2494,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // export
     document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
+    document.getElementById('exportCompress').addEventListener('change', updateSplitEveryVisibility);
     document.getElementById('exportName').addEventListener('input', updateExportButtons);
     document.getElementById('exportBtn').addEventListener('click', doExport);
     const saveBtn = document.getElementById('saveServerBtn');
@@ -2102,6 +2513,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     initRubberBand();
+    initDropZone();
     initKeyboard();
     updateExportButtons();
     updateSelectionUI();

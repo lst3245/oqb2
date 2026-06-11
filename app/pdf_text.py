@@ -265,8 +265,9 @@ def get_page_words(cache_dir: str, desc, src_path: str, engine: str,
 
 def _group_lines(words):
     """Group matched words into text lines (same page assumed). Two words
-    share a line when their vertical centres are within ~60% of the taller
-    word's height."""
+    share a line when their vertical centres are within ~45% of the taller
+    word's height (stricter than half a line so adjacent lines never merge
+    into one tall box)."""
     groups = []
     for wd in words:
         h = max(1e-4, wd['y2'] - wd['y1'])
@@ -275,7 +276,7 @@ def _group_lines(words):
         for g in groups:
             gh = max(1e-4, g['y2'] - g['y1'])
             gcy = (g['y1'] + g['y2']) / 2.0
-            if abs(cy - gcy) < 0.6 * max(h, gh):
+            if abs(cy - gcy) < 0.45 * max(h, gh):
                 g['x1'] = min(g['x1'], wd['x1'])
                 g['y1'] = min(g['y1'], wd['y1'])
                 g['x2'] = max(g['x2'], wd['x2'])
@@ -343,12 +344,16 @@ def find_matches(page_words, terms, fuzzy: bool = True, threshold: int = 85,
                 for pid, wds in by_page.items():
                     heights = sorted(w['y2'] - w['y1'] for w in wds)
                     med_h = heights[len(heights) // 2] if heights else 0.01
-                    margin = min(0.01, max(0.001, 0.25 * med_h))
+                    # Horizontal margin bridges inter-word gaps; vertical
+                    # margin stays tiny so the box hugs the text line
+                    # (digital boxes already include ascender/descender).
+                    mx = min(0.01, max(0.001, 0.25 * med_h))
+                    my = min(0.004, max(0.0005, 0.06 * med_h))
                     for g in _group_lines(wds):
-                        rect = [max(0.0, g['x1'] - margin),
-                                max(0.0, g['y1'] - margin),
-                                min(1.0, g['x2'] + margin),
-                                min(1.0, g['y2'] + margin)]
+                        rect = [max(0.0, g['x1'] - mx),
+                                max(0.0, g['y1'] - my),
+                                min(1.0, g['x2'] + mx),
+                                min(1.0, g['y2'] + my)]
                         results.setdefault(pid, []).append(
                             {'rect': rect, 'term': ti})
                 i += L

@@ -29,9 +29,11 @@ ink marks). Annotation coordinates are **fractional 0..1 in the post-ops
 visible page space** (y down)::
 
     {"id":"..","kind":"redact",    "rect":[x1,y1,x2,y2], "color":"#000000"}
+    {"id":"..","kind":"erase",     "rect":[x1,y1,x2,y2]}                    # white redaction
     {"id":"..","kind":"highlight", "rect":[x1,y1,x2,y2], "color":"#ffff00", "opacity":0.4}
     {"id":"..","kind":"text",      "pos":[x,y], "text":"..", "size":0.025, "color":"#d00000"}
     {"id":"..","kind":"ink",       "points":[[x,y],..], "color":"#0000ff", "width":0.004, "opacity":1.0}
+    {"id":"..","kind":"image",     "rect":[x1,y1,x2,y2], "data":"data:image/png;base64,.."}
 
 ``pending: true`` marks search results awaiting user review (rendered with an
 orange outline on thumbnails; excluded from export until accepted).
@@ -242,6 +244,19 @@ def _annot_font(px, family: str = 'sans'):
         return ImageFont.load_default()
 
 
+def _annot_image_bytes(a):
+    """Decode an image annotation's data URL → raw bytes (None on failure)."""
+    import base64
+
+    data = a.get('data')
+    if not isinstance(data, str) or not data.startswith('data:image/'):
+        return None
+    try:
+        return base64.b64decode(data.split(',', 1)[1])
+    except (ValueError, IndexError):
+        return None
+
+
 def apply_annotations(img, annots):
     """Composite an ``annots`` list onto a PIL Image (post-ops space).
 
@@ -271,6 +286,13 @@ def apply_annotations(img, annots):
             if not box:
                 continue
             draw.rectangle(box, fill=rgb + (255,))
+            outline_box = box
+        elif kind == 'erase':
+            # Content removal: a plain white box (page background).
+            box = _annot_rect_px(a.get('rect'), w, h)
+            if not box:
+                continue
+            draw.rectangle(box, fill=(255, 255, 255, 255))
             outline_box = box
         elif kind == 'highlight':
             box = _annot_rect_px(a.get('rect'), w, h)
@@ -308,6 +330,21 @@ def apply_annotations(img, annots):
                     max(bounds[2], tb[2]), max(bounds[3], tb[3]))
             if a.get('pending') and bounds:
                 outline_box = bounds
+        elif kind == 'image':
+            box = _annot_rect_px(a.get('rect'), w, h)
+            raw = _annot_image_bytes(a)
+            if not box or not raw:
+                continue
+            try:
+                import io as _io
+                stamp = Image.open(_io.BytesIO(raw)).convert('RGBA')
+                bw = max(1, int(box[2] - box[0]))
+                bh = max(1, int(box[3] - box[1]))
+                stamp = stamp.resize((bw, bh), Image.LANCZOS)
+                overlay.paste(stamp, (int(box[0]), int(box[1])), stamp)
+            except Exception:
+                continue
+            outline_box = box
         elif kind == 'ink':
             pts = a.get('points')
             if not (isinstance(pts, (list, tuple)) and len(pts) >= 2):
@@ -521,7 +558,8 @@ def _apply_vector_crop(page, box):
 
 
 def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
-                 split_every=None, output: str = 'digital') -> bytes:
+                 split_every=None, output: str = 'digital',
+                 compress=None) -> bytes:
     """Assemble ``pages`` (page descriptors) into a downloadable artefact.
 
     ``resolve_path(src_id) -> abs pdf path``. Each descriptor may carry its own
@@ -545,6 +583,12 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
     Pending annotations (unreviewed Find & Mark results) are excluded — only
     accepted marks are exported.
 
+    ``compress`` (PDF outputs only) is ``None`` or a dict:
+    ``{'preset': 'light'|'medium'|'strong'}`` recompresses/downsamples images
+    once; ``{'target_bytes': int}`` retries down a quality ladder until the
+    file fits (best effort — per part for split ZIPs). See
+    :func:`compress_pdf_bytes`.
+
     Falls back to an all-raster PDF when pypdf is unavailable.
     """
     pages = [_drop_pending_annots(p) for p in (pages or [])]
@@ -564,11 +608,12 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
 
     if not have_pypdf:
         logger.warning('pypdf unavailable — exporting an all-raster PDF.')
-        return _export_raster_pdf(pages, resolve_path, default_dpi)
+        return compress_pdf_bytes(
+            _export_raster_pdf(pages, resolve_path, default_dpi), compress)
 
     if split_every and int(split_every) > 0:
         return _export_split_pdf_zip(pages, resolve_path, default_dpi,
-                                     int(split_every), force_raster)
+                                     int(split_every), force_raster, compress)
 
     writer = _new_writer()
     src_bytes_cache: dict = {}
@@ -577,7 +622,85 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
                   force_raster=force_raster)
     buf = io.BytesIO()
     writer.write(buf)
-    return buf.getvalue()
+    return compress_pdf_bytes(buf.getvalue(), compress)
+
+
+# Image-recompression settings per preset (PyMuPDF rewrite_images semantics:
+# images whose effective DPI exceeds ``dpi_threshold`` are resampled to
+# ``dpi_target``; ``quality`` is the JPEG quality; threshold None = never
+# resample, recompress only).
+COMPRESS_PRESETS = {
+    'light':  {'dpi_threshold': None, 'dpi_target': 0, 'quality': 80},
+    'medium': {'dpi_threshold': 200, 'dpi_target': 150, 'quality': 65},
+    'strong': {'dpi_threshold': 150, 'dpi_target': 100, 'quality': 40},
+}
+
+# Quality ladder for target-size mode, mildest first.
+_COMPRESS_SIZE_LADDER = (
+    {'dpi_threshold': None, 'dpi_target': 0, 'quality': 85},
+    {'dpi_threshold': 250, 'dpi_target': 200, 'quality': 75},
+    {'dpi_threshold': 200, 'dpi_target': 150, 'quality': 65},
+    {'dpi_threshold': 150, 'dpi_target': 120, 'quality': 50},
+    {'dpi_threshold': 120, 'dpi_target': 96, 'quality': 40},
+    {'dpi_threshold': 100, 'dpi_target': 72, 'quality': 25},
+)
+
+
+def _rewrite_pdf_images(blob: bytes, params: dict) -> bytes:
+    """One recompression pass over ``blob`` with rewrite_images ``params``."""
+    import fitz  # type: ignore
+
+    doc = fitz.open(stream=blob, filetype='pdf')
+    try:
+        doc.rewrite_images(dpi_threshold=params.get('dpi_threshold'),
+                           dpi_target=params.get('dpi_target') or 0,
+                           quality=int(params.get('quality') or 0))
+        return doc.tobytes(deflate=True, garbage=4)
+    finally:
+        doc.close()
+
+
+def compress_pdf_bytes(blob: bytes, compress) -> bytes:
+    """Optionally shrink a PDF by recompressing / downsampling its images.
+
+    ``compress`` is ``None`` (no-op), ``{'preset': name}`` (one pass with
+    :data:`COMPRESS_PRESETS`) or ``{'target_bytes': n}`` (walk the quality
+    ladder until the result fits, best effort). Never returns something
+    larger than the input; failures fall back to the original bytes.
+    """
+    if not compress or not isinstance(compress, dict):
+        return blob
+
+    target = compress.get('target_bytes')
+    if target:
+        target = int(target)
+        if len(blob) <= target:
+            return blob
+        best = blob
+        for params in _COMPRESS_SIZE_LADDER:
+            try:
+                out = _rewrite_pdf_images(blob, params)
+            except Exception as e:
+                logger.warning('PDF compression pass failed: %s', e)
+                continue
+            if len(out) < len(best):
+                best = out
+            if len(best) <= target:
+                break
+        if len(best) > target:
+            logger.info('PDF compression: target %d bytes not reached '
+                        '(best %d bytes).', target, len(best))
+        return best
+
+    preset = COMPRESS_PRESETS.get(str(compress.get('preset') or '').lower())
+    if not preset:
+        return blob
+    try:
+        out = _rewrite_pdf_images(blob, preset)
+    except Exception as e:
+        logger.warning('PDF compression failed: %s', e)
+        return blob
+    return out if len(out) < len(blob) else blob
 
 
 def _drop_pending_annots(desc):
@@ -725,24 +848,47 @@ def _fitz_annotated_page_bytes(pdf_path: str, page_index: int, ops,
         def _rgb01(color, default):
             return tuple(c / 255.0 for c in hex_to_rgb(color, default))
 
-        # 1. True redaction (content removal) first.
+        # 1. True redaction (content removal) first. ``erase`` is redaction
+        #    with a white (page-background) fill — content is removed without
+        #    leaving a visible censor box.
         redacted = False
         for a in annots:
-            if a.get('kind') != 'redact':
+            kind = a.get('kind')
+            if kind not in ('redact', 'erase'):
                 continue
             rect = a.get('rect')
             if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
                 continue
-            pg.add_redact_annot(_vis_rect(rect),
-                                fill=_rgb01(a.get('color'), (0, 0, 0)))
+            fill = ((1, 1, 1) if kind == 'erase'
+                    else _rgb01(a.get('color'), (0, 0, 0)))
+            pg.add_redact_annot(_vis_rect(rect), fill=fill)
             redacted = True
         if redacted:
             pg.apply_redactions()
+            # Redacting image-based (scanned) pages re-encodes the page image
+            # as raw/flate, which can inflate a 1 MB scan to tens of MB.
+            # Recompress to JPEG (no resampling) to keep the size sane.
+            try:
+                nd.rewrite_images(quality=85)
+            except Exception:  # pragma: no cover — older PyMuPDF
+                pass
 
         # 2. Vector overlays.
         for a in annots:
             kind = a.get('kind')
-            if kind == 'highlight':
+            if kind == 'image':
+                rect = a.get('rect')
+                raw = _annot_image_bytes(a)
+                if not raw or not (isinstance(rect, (list, tuple))
+                                   and len(rect) == 4):
+                    continue
+                try:
+                    pg.insert_image(_vis_rect(rect), stream=raw,
+                                    rotate=int(pg.rotation or 0),
+                                    overlay=True, keep_proportion=False)
+                except Exception as e:
+                    logger.warning('image annot insert failed: %s', e)
+            elif kind == 'highlight':
                 rect = a.get('rect')
                 if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
                     continue
@@ -799,7 +945,7 @@ def _fitz_annotated_page_bytes(pdf_path: str, page_index: int, ops,
                     pg.insert_text(pt, line, fontsize=size, fontname=fontname,
                                    color=color, rotate=rot, overlay=True)
 
-        return nd.tobytes()
+        return nd.tobytes(deflate=True, garbage=3)
     finally:
         nd.close()
 
@@ -841,8 +987,10 @@ def _export_png_zip(pages, resolve_path, default_dpi) -> bytes:
 
 
 def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every,
-                          force_raster: bool = False) -> bytes:
-    """ZIP of PDFs, ``split_every`` pages each (Mode-1 per-student output)."""
+                          force_raster: bool = False, compress=None) -> bytes:
+    """ZIP of PDFs, ``split_every`` pages each (Mode-1 per-student output).
+
+    ``compress`` applies to each part (a size target is per file)."""
     buf = io.BytesIO()
     src_bytes_cache: dict = {}
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -857,6 +1005,7 @@ def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every,
                           src_bytes_cache, force_raster=force_raster)
             pdf_buf = io.BytesIO()
             writer.write(pdf_buf)
-            zf.writestr(f'part_{chunk:03d}.pdf', pdf_buf.getvalue())
+            zf.writestr(f'part_{chunk:03d}.pdf',
+                        compress_pdf_bytes(pdf_buf.getvalue(), compress))
             idx += split_every
     return buf.getvalue()

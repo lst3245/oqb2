@@ -112,9 +112,11 @@ _ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
                 'contrast', 'sharpen', 'grayscale', 'bw'}
 
 _HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+_DATA_URL_RE = re.compile(r'^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$')
 _ANNOT_MAX_PER_PAGE = 500
 _ANNOT_MAX_INK_POINTS = 2000
 _ANNOT_MAX_TEXT_LEN = 300
+_ANNOT_MAX_IMAGE_B64 = 4 * 1024 * 1024   # ~3 MB of image data per mark
 
 
 def _f01(v, default=0.0):
@@ -132,7 +134,7 @@ def _sanitize_annots(annots):
         if not isinstance(a, dict):
             continue
         kind = a.get('kind')
-        if kind not in ('redact', 'highlight', 'text', 'ink'):
+        if kind not in ('redact', 'highlight', 'erase', 'text', 'ink', 'image'):
             continue
         aid = (str(a.get('id') or '')).strip()[:40]
         if not re.match(r'^[0-9a-zA-Z_\-]{1,40}$', aid):
@@ -141,12 +143,15 @@ def _sanitize_annots(annots):
         item = {'id': aid, 'kind': kind}
         if a.get('pending'):
             item['pending'] = True
-        if kind in ('redact', 'highlight'):
+        if kind in ('redact', 'highlight', 'erase'):
             rect = a.get('rect')
             if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
                 continue
             item['rect'] = [_f01(v) for v in rect]
-            item['color'] = color or ('#000000' if kind == 'redact' else '#ffff00')
+            if kind == 'erase':
+                item['color'] = '#ffffff'
+            else:
+                item['color'] = color or ('#000000' if kind == 'redact' else '#ffff00')
             if kind == 'highlight':
                 item['opacity'] = _f01(a.get('opacity', 0.4), 0.4) or 0.4
         elif kind == 'text':
@@ -182,6 +187,17 @@ def _sanitize_annots(annots):
                 item['width'] = 0.004
             item['opacity'] = _f01(a.get('opacity', 1.0), 1.0) or 1.0
             item['color'] = color or '#0000ff'
+        elif kind == 'image':
+            rect = a.get('rect')
+            data = a.get('data')
+            if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+                continue
+            if not (isinstance(data, str)
+                    and len(data) <= _ANNOT_MAX_IMAGE_B64
+                    and _DATA_URL_RE.match(data)):
+                continue
+            item['rect'] = [_f01(v) for v in rect]
+            item['data'] = data
         clean.append(item)
         if len(clean) >= _ANNOT_MAX_PER_PAGE:
             break
@@ -222,7 +238,7 @@ def _select_pages(session, page_ids):
 
 
 def _build_export_bytes(token, session, page_ids, fmt, split_every,
-                        output='digital'):
+                        output='digital', compress=None):
     pages = _select_pages(session, page_ids)
     if not pages:
         raise ValueError('No pages selected to export.')
@@ -230,7 +246,22 @@ def _build_export_bytes(token, session, page_ids, fmt, split_every,
     return pdf_tools.export_pages(pages, _resolver(token), fmt=fmt,
                                   default_dpi=default_dpi,
                                   split_every=split_every,
-                                  output=output)
+                                  output=output, compress=compress)
+
+
+def _parse_compress(data):
+    """``compress``/``target_mb`` request fields → pdf_tools compress dict."""
+    mode = str(data.get('compress') or 'none').strip().lower()
+    if mode in pdf_tools.COMPRESS_PRESETS:
+        return {'preset': mode}
+    if mode == 'size':
+        try:
+            mb = float(data.get('target_mb') or 0)
+        except (TypeError, ValueError):
+            mb = 0
+        if mb > 0:
+            return {'target_bytes': int(mb * 1024 * 1024)}
+    return None
 
 
 def _export_meta(fmt, split_every):
@@ -264,6 +295,40 @@ def pdf_tool():
 
 # ==================== API ====================
 
+_IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif',
+               '.tiff')
+
+
+def _image_file_to_pdf(file_storage, dest: str):
+    """Convert an uploaded image into a single-page PDF at ``dest``.
+
+    The page is sized so the image lands at ~150 DPI (a sane physical size
+    for screenshots and photos alike)."""
+    import io
+
+    from PIL import Image
+    import fitz  # type: ignore
+
+    raw = file_storage.read()
+    img = Image.open(io.BytesIO(raw))
+    img.load()
+    w_px, h_px = img.size
+    if img.mode not in ('RGB', 'L'):
+        img = img.convert('RGB')
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=92)
+
+    dpi = 150.0
+    w_pt, h_pt = w_px * 72.0 / dpi, h_px * 72.0 / dpi
+    doc = fitz.open()
+    try:
+        page = doc.new_page(width=w_pt, height=h_pt)
+        page.insert_image(fitz.Rect(0, 0, w_pt, h_pt), stream=buf.getvalue())
+        doc.save(dest)
+    finally:
+        doc.close()
+
+
 @toolbox_bp.route('/pdf/upload', methods=['POST'])
 @login_required
 @admin_required
@@ -281,10 +346,18 @@ def pdf_upload():
 
     upload = request.files.get('pdf')
     if upload is not None and upload.filename:
-        if not upload.filename.lower().endswith('.pdf'):
-            return jsonify({'error': 'Please upload a .pdf file.'}), 400
-        upload.save(dest)
-        filename = upload.filename
+        lower = upload.filename.lower()
+        if lower.endswith(_IMAGE_EXTS):
+            try:
+                _image_file_to_pdf(upload, dest)
+            except Exception as e:
+                return jsonify({'error': f'Could not read image: {e}'}), 400
+            filename = upload.filename
+        elif lower.endswith('.pdf'):
+            upload.save(dest)
+            filename = upload.filename
+        else:
+            return jsonify({'error': 'Please upload a .pdf file or an image.'}), 400
     else:
         rel = (request.form.get('server_path') or '').strip().strip('/').strip('\\')
         root = pdf_source_root()
@@ -594,7 +667,8 @@ def pdf_export():
     session = _load_session(token)
     try:
         blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every, output)
+                                   split_every, output,
+                                   compress=_parse_compress(data))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -662,7 +736,8 @@ def pdf_export_save():
     session = _load_session(token)
     try:
         blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every, output)
+                                   split_every, output,
+                                   compress=_parse_compress(data))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
