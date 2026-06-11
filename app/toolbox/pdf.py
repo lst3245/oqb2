@@ -16,7 +16,8 @@ import time
 import uuid
 from datetime import datetime
 
-from flask import abort, current_app, jsonify, render_template, request, send_file
+from flask import (Response, abort, current_app, jsonify, render_template,
+                   request, send_file)
 from flask_login import login_required
 
 from app import pdf_tools
@@ -110,6 +111,79 @@ def _numpy_ok() -> bool:
 _ALLOWED_OPS = {'rotate', 'rotate_fine', 'crop', 'deskew', 'brightness',
                 'contrast', 'sharpen', 'grayscale', 'bw'}
 
+_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+_ANNOT_MAX_PER_PAGE = 500
+_ANNOT_MAX_INK_POINTS = 2000
+_ANNOT_MAX_TEXT_LEN = 300
+
+
+def _f01(v, default=0.0):
+    try:
+        return max(0.0, min(1.0, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _sanitize_annots(annots):
+    """Re-validate a client-supplied annotation list (see pdf_tools docstring
+    for the canonical shapes). Bad entries are dropped silently."""
+    clean = []
+    for a in annots or []:
+        if not isinstance(a, dict):
+            continue
+        kind = a.get('kind')
+        if kind not in ('redact', 'highlight', 'text', 'ink'):
+            continue
+        aid = (str(a.get('id') or '')).strip()[:40]
+        if not re.match(r'^[0-9a-zA-Z_\-]{1,40}$', aid):
+            aid = uuid.uuid4().hex[:12]
+        color = a.get('color') if _HEX_COLOR_RE.match(str(a.get('color') or '')) else None
+        item = {'id': aid, 'kind': kind}
+        if a.get('pending'):
+            item['pending'] = True
+        if kind in ('redact', 'highlight'):
+            rect = a.get('rect')
+            if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+                continue
+            item['rect'] = [_f01(v) for v in rect]
+            item['color'] = color or ('#000000' if kind == 'redact' else '#ffff00')
+            if kind == 'highlight':
+                item['opacity'] = _f01(a.get('opacity', 0.4), 0.4) or 0.4
+        elif kind == 'text':
+            text = str(a.get('text') or '').strip()[:_ANNOT_MAX_TEXT_LEN]
+            pos = a.get('pos')
+            if not text or not (isinstance(pos, (list, tuple)) and len(pos) == 2):
+                continue
+            item['text'] = text
+            item['pos'] = [_f01(pos[0]), _f01(pos[1])]
+            try:
+                item['size'] = max(0.004, min(0.25, float(a.get('size', 0.025))))
+            except (TypeError, ValueError):
+                item['size'] = 0.025
+            item['color'] = color or '#d00000'
+        elif kind == 'ink':
+            pts = a.get('points')
+            if not (isinstance(pts, (list, tuple)) and len(pts) >= 2):
+                continue
+            pp = []
+            for p in pts[:_ANNOT_MAX_INK_POINTS]:
+                if not (isinstance(p, (list, tuple)) and len(p) >= 2):
+                    continue
+                pp.append([_f01(p[0]), _f01(p[1])])
+            if len(pp) < 2:
+                continue
+            item['points'] = pp
+            try:
+                item['width'] = max(0.0005, min(0.05, float(a.get('width', 0.004))))
+            except (TypeError, ValueError):
+                item['width'] = 0.004
+            item['opacity'] = _f01(a.get('opacity', 1.0), 1.0) or 1.0
+            item['color'] = color or '#0000ff'
+        clean.append(item)
+        if len(clean) >= _ANNOT_MAX_PER_PAGE:
+            break
+    return clean
+
 
 def _sanitize_ops(ops):
     clean = []
@@ -144,14 +218,16 @@ def _select_pages(session, page_ids):
     return list(session['pages'])
 
 
-def _build_export_bytes(token, session, page_ids, fmt, split_every):
+def _build_export_bytes(token, session, page_ids, fmt, split_every,
+                        output='digital'):
     pages = _select_pages(session, page_ids)
     if not pages:
         raise ValueError('No pages selected to export.')
     default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
     return pdf_tools.export_pages(pages, _resolver(token), fmt=fmt,
                                   default_dpi=default_dpi,
-                                  split_every=split_every)
+                                  split_every=split_every,
+                                  output=output)
 
 
 def _export_meta(fmt, split_every):
@@ -166,6 +242,7 @@ def _export_meta(fmt, split_every):
 @login_required
 @admin_required
 def pdf_tool():
+    from app import pdf_text
     root = pdf_source_root()
     return render_template(
         'admin_toolbox_pdf.html',
@@ -175,6 +252,10 @@ def pdf_tool():
         save_subdir=str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved')),
         pdf_source_available=bool(root and os.path.isdir(root)),
         numpy_available=_numpy_ok(),
+        ocr_available=pdf_text.ocr_available(
+            current_app.config.get('TESSERACT_CMD', '')),
+        ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
+        ocr_dpi=int(current_app.config.get('TOOLBOX_OCR_DPI', 300)),
     )
 
 
@@ -271,7 +352,7 @@ def pdf_add_pages():
         ops = pdf_tools.build_op_chain(pre_rotate, frag['ops'], filters)
         page = {'id': uuid.uuid4().hex[:12], 'src': srcid,
                 'page': int(frag['page']), 'ops': ops, 'mode': mode,
-                'dpi': dpi}
+                'dpi': dpi, 'annots': []}
         session['pages'].append(page)
         appended.append(page)
 
@@ -360,7 +441,8 @@ def pdf_duplicate():
             continue
         clone = {'id': uuid.uuid4().hex[:12], 'src': src['src'],
                  'page': src['page'], 'ops': list(src.get('ops') or []),
-                 'mode': src.get('mode', 'none'), 'dpi': src.get('dpi')}
+                 'mode': src.get('mode', 'none'), 'dpi': src.get('dpi'),
+                 'annots': json.loads(json.dumps(src.get('annots') or []))}
         clones.append(clone)
     if not clones:
         return jsonify({'error': 'Nothing to paste.'}), 400
@@ -419,7 +501,8 @@ def pdf_set_pages():
             dpi = default_dpi
         clean.append({'id': pid, 'src': srcid, 'page': page,
                       'ops': _sanitize_ops(it.get('ops') or []),
-                      'mode': mode, 'dpi': dpi})
+                      'mode': mode, 'dpi': dpi,
+                      'annots': _sanitize_annots(it.get('annots') or [])})
     session['pages'] = clean
     _save_session(token, session)
     return jsonify({'ok': True, 'total': len(clean)})
@@ -448,10 +531,14 @@ def pdf_thumb(token, page_id):
             width = max(120, min(2400, int(request.args.get('w', 360))))
         except (TypeError, ValueError):
             width = 360
+    # ``annots=0`` returns the clean page (annotation-editor background).
+    want_annots = request.args.get('annots', '1') not in ('0', 'false', 'no')
+    annots = page.get('annots') if want_annots else None
     try:
         img = pdf_tools.render_page_image(_source_path(token, page['src']),
                                           int(page['page']), page.get('ops') or [],
-                                          width_px=width, dpi=dpi)
+                                          width_px=width, dpi=dpi,
+                                          annots=annots)
     except Exception as e:
         logger.warning('toolbox thumb render failed: %s', e)
         return abort(404)
@@ -494,6 +581,9 @@ def pdf_export():
     fmt = (data.get('fmt') or 'pdf').strip().lower()
     if fmt not in ('pdf', 'zip'):
         fmt = 'pdf'
+    output = (data.get('output') or 'digital').strip().lower()
+    if output not in ('digital', 'image'):
+        output = 'digital'
     try:
         split_every = int(data.get('split_every') or 0)
     except (TypeError, ValueError):
@@ -501,7 +591,7 @@ def pdf_export():
     session = _load_session(token)
     try:
         blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every)
+                                   split_every, output)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -540,6 +630,9 @@ def pdf_export_save():
     fmt = (data.get('fmt') or 'pdf').strip().lower()
     if fmt not in ('pdf', 'zip'):
         fmt = 'pdf'
+    output = (data.get('output') or 'digital').strip().lower()
+    if output not in ('digital', 'image'):
+        output = 'digital'
     try:
         split_every = int(data.get('split_every') or 0)
     except (TypeError, ValueError):
@@ -566,7 +659,7 @@ def pdf_export_save():
     session = _load_session(token)
     try:
         blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every)
+                                   split_every, output)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -605,6 +698,215 @@ def pdf_mkdir():
         return jsonify({'error': f'Could not create folder: {e}'}), 400
     rel = os.path.relpath(target, root).replace('\\', '/')
     return jsonify({'ok': True, 'rel_path': rel, 'name': name})
+
+
+# ==================== Find & Mark (text / OCR / LLM search) ====================
+
+def _words_cache_dir(token: str) -> str:
+    return os.path.join(_token_dir(token), 'words')
+
+
+@toolbox_bp.route('/pdf/text-search', methods=['POST'])
+@login_required
+@admin_required
+def pdf_text_search():
+    """Locate phrases on working-set pages via the PDF text layer or OCR.
+
+    Body: ``{token, page_ids?, engine: 'auto'|'digital'|'ocr',
+    terms: [str, ...], fuzzy, threshold, case_sensitive}``.
+    Returns ``{results: {page_id: [{rect, term}]}, engines: {page_id: str},
+    skipped: [{page_id, reason}]}`` — rects are fractional post-ops coords.
+    """
+    from app import pdf_text
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
+        return jsonify({'error': 'Session expired — reload the page.'}), 400
+
+    terms = [str(t or '').strip()[:300] for t in (data.get('terms') or [])]
+    terms = [t for t in terms if t]
+    if not terms:
+        return jsonify({'error': 'Enter at least one search term.'}), 400
+
+    engine = (data.get('engine') or 'auto').strip().lower()
+    if engine not in pdf_text.ENGINES:
+        engine = 'auto'
+    fuzzy = bool(data.get('fuzzy', True))
+    try:
+        threshold = max(50, min(100, int(data.get('threshold') or 85)))
+    except (TypeError, ValueError):
+        threshold = 85
+    case_sensitive = bool(data.get('case_sensitive', False))
+
+    tess_cmd = pdf_text.resolve_tesseract(
+        current_app.config.get('TESSERACT_CMD', ''))
+    ocr_ok = pdf_text.ocr_available(
+        current_app.config.get('TESSERACT_CMD', ''))
+    if engine == 'ocr' and not ocr_ok:
+        return jsonify({'error': 'OCR is not available on this server '
+                                 '(install Tesseract or set TESSERACT_CMD).'}), 400
+
+    ocr_dpi = int(current_app.config.get('TOOLBOX_OCR_DPI', 300))
+    session = _load_session(token)
+    pages = _select_pages(session, data.get('page_ids'))
+    if not pages:
+        return jsonify({'error': 'No pages to search.'}), 400
+
+    cache_dir = _words_cache_dir(token)
+    page_words = []
+    engines_used = {}
+    skipped = []
+    for p in pages:
+        src_path = _source_path(token, p['src'])
+        ops = p.get('ops') or []
+        use = None
+        if engine in ('auto', 'digital') and pdf_text.digital_mappable(ops):
+            try:
+                if pdf_text.has_text_layer(src_path, int(p['page'])):
+                    use = 'digital'
+            except Exception as e:
+                logger.warning('text-layer probe failed for %s: %s', p['id'], e)
+        if use is None and engine in ('auto', 'ocr') and ocr_ok:
+            use = 'ocr'
+        if use is None:
+            reason = ('no text layer and OCR unavailable' if engine == 'auto'
+                      else 'no usable text layer'
+                      if engine == 'digital' else 'OCR unavailable')
+            skipped.append({'page_id': p['id'], 'reason': reason})
+            continue
+        try:
+            words = pdf_text.get_page_words(cache_dir, p, src_path, use,
+                                            ocr_dpi=ocr_dpi,
+                                            tesseract_cmd=tess_cmd)
+        except Exception as e:
+            logger.warning('word extraction failed for %s: %s', p['id'], e)
+            skipped.append({'page_id': p['id'], 'reason': str(e)})
+            continue
+        engines_used[p['id']] = use
+        page_words.append((p['id'], words))
+
+    results = pdf_text.find_matches(page_words, terms, fuzzy=fuzzy,
+                                    threshold=threshold,
+                                    case_sensitive=case_sensitive)
+    results = {pid: boxes for pid, boxes in results.items() if boxes}
+    return jsonify({'results': results, 'engines': engines_used,
+                    'skipped': skipped,
+                    'pages_scanned': len(page_words)})
+
+
+@toolbox_bp.route('/pdf/llm-detect')
+@login_required
+@admin_required
+def pdf_llm_detect():
+    """SSE: vision-LLM region detection on working-set pages.
+
+    Query params: ``token``, ``page_ids`` (csv), ``endpoint_id``,
+    ``instruction`` (free-text request, e.g. built from the search phrases or
+    a fully custom prompt). Streams ``{type:'page', page_id, boxes:[{label,
+    box:[x1,y1,x2,y2]}]}`` events (fractional coords), then ``done``.
+    """
+    from app import ai_prompts, llm_client, pdf_import
+    from app.models import LLMConfig
+
+    def _sse_error(msg):
+        def gen():
+            yield 'data: ' + json.dumps({'type': 'error', 'message': msg}) + '\n\n'
+            yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+        return Response(gen(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache',
+                                 'X-Accel-Buffering': 'no'})
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return _sse_error('AI features are disabled.')
+
+    token = (request.args.get('token') or '').strip()
+    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
+        return _sse_error('Session expired — reload the page.')
+
+    instruction = (request.args.get('instruction') or '').strip()[:2000]
+    if not instruction:
+        return _sse_error('Describe what to find first.')
+
+    try:
+        endpoint_id = int(request.args.get('endpoint_id', '0'))
+    except (TypeError, ValueError):
+        endpoint_id = 0
+    if endpoint_id > 0:
+        cfg = LLMConfig.query.get(endpoint_id)
+        if cfg is None or not cfg.enabled or not cfg.supports_vision:
+            return _sse_error('Selected LLM endpoint is unavailable or not '
+                              'vision-capable.')
+    else:
+        cfg = llm_client.resolve_default_endpoint('PDF_IMPORT_DEFAULT_LLM')
+        if cfg is None:
+            return _sse_error('No vision-capable LLM endpoint is configured.')
+
+    page_ids = [s for s in (request.args.get('page_ids') or '').split(',') if s]
+    session = _load_session(token)
+    pages = _select_pages(session, page_ids)
+    if not pages:
+        return _sse_error('No pages to scan.')
+
+    coord_order = (current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')
+                   or 'xyxy')
+    image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+    system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
+    user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
+
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+    src_paths = {p['id']: _source_path(token, p['src']) for p in pages}
+
+    def generate():
+        with app.app_context():
+            try:
+                yield 'data: ' + json.dumps({'type': 'job', 'job_id': job_id,
+                                             'total': len(pages)}) + '\n\n'
+                for i, p in enumerate(pages):
+                    if cancel.is_set():
+                        yield 'data: ' + json.dumps(
+                            {'type': 'info', 'message': 'Cancelled.'}) + '\n\n'
+                        break
+                    try:
+                        img = pdf_tools.render_page_image(
+                            src_paths[p['id']], int(p['page']),
+                            p.get('ops') or [], width_px=image_max_dim)
+                        b64, mime = llm_client.prepare_image_from_pil(
+                            img, image_max_dim)
+                        text, _info = llm_client.chat(cfg, system, user_text,
+                                                      images=[(b64, mime)])
+                        boxes = ai_prompts.parse_generic_boxes(
+                            text, img.size[0], img.size[1], coord_order)
+                    except Exception as e:
+                        logger.warning('llm-detect failed for %s: %s',
+                                       p['id'], e)
+                        yield 'data: ' + json.dumps(
+                            {'type': 'error', 'page_id': p['id'],
+                             'message': str(e), 'current': i + 1,
+                             'total': len(pages)}) + '\n\n'
+                        continue
+                    yield 'data: ' + json.dumps(
+                        {'type': 'page', 'page_id': p['id'],
+                         'boxes': boxes, 'current': i + 1,
+                         'total': len(pages)}) + '\n\n'
+                yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache',
+                             'X-Accel-Buffering': 'no'})
+
+
+@toolbox_bp.route('/pdf/llm-detect-cancel', methods=['POST'])
+@login_required
+@admin_required
+def pdf_llm_detect_cancel():
+    from app import pdf_import
+    data = request.get_json(silent=True) or {}
+    ok = pdf_import.cancel_job((data.get('job_id') or '').strip())
+    return jsonify({'ok': ok})
 
 
 @toolbox_bp.route('/pdf/discard', methods=['POST'])

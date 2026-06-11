@@ -1,6 +1,6 @@
 ---
-description: Toolbox tools — Markup PWA plus admin-only PDF processing/export
-globs: app/toolbox/**,app/pdf_tools.py,app/pwa.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html,templates/markup.html,static/markup/**
+description: Toolbox tools — Markup PWA plus admin-only PDF processing/redaction/export
+globs: app/toolbox/**,app/pdf_tools.py,app/pdf_text.py,app/pwa.py,templates/admin_toolbox.html,templates/admin_toolbox_pdf.html,templates/partials/pdf_annotate_editor.html,templates/markup.html,static/markup/**
 alwaysApply: false
 ---
 
@@ -30,7 +30,7 @@ Markup is client-side and does not save drawings server-side. Autosave is per-de
 The working set is an ordered list of **page descriptors**, each pointing at one source-PDF page plus an ordered op chain:
 
 ```
-{"id": <uuid12>, "src": <srcid>, "page": <0-based>, "ops": [ {op}, ... ], "mode": <split mode>, "dpi": <int>}
+{"id": <uuid12>, "src": <srcid>, "page": <0-based>, "ops": [ {op}, ... ], "mode": <split mode>, "dpi": <int>, "annots": [ {annot}, ... ]}
 ```
 
 `dpi` is chosen per batch in step 2 (default `TOOLBOX_DEFAULT_DPI`); it is page-size independent (zoom = dpi/72), so A4 and A3 export at the same physical quality. Export uses each page's `dpi` (fallback `default_dpi`) for raster pages and as the PDF `resolution`.
@@ -41,9 +41,22 @@ Ops (applied in order by `pdf_tools.apply_ops`):
 
 Op order built by `build_op_chain(pre_rotate, frag_ops, filters)` = pre-rotate → split crop → image filters. `filters_to_ops` maps the UI dict `{deskew, rotate_fine, brightness, contrast, sharpen, grayscale, bw, bw_threshold}` to ops (skips no-op values).
 
+## Annotations (redact / highlight / markup)
+
+`annots` are separate from `ops`; coords are **fractional 0..1 of the post-ops page** (y down), so they survive rotate/crop edits only if those don't change after marking. Kinds (sanitised by `_sanitize_annots` in `app/toolbox/pdf.py`; caps: 500/page, ink ≤ 4000 pts, text ≤ 2000 chars):
+- `{"id","kind":"redact","rect":[x1,y1,x2,y2],"color"}` — opaque box; truly removed on digital export.
+- `{"kind":"highlight","rect":[...],"color","opacity"}` — alpha overlay.
+- `{"kind":"text","pos":[x,y],"text","size","color"}` — `size` = fraction of page height.
+- `{"kind":"ink","points":[[x,y],...],"color","width","opacity"}` — freehand polyline.
+- Optional `pending: true` = unreviewed search/AI result; rendered with a dashed orange outline, **excluded from export** until accepted.
+
+Raster rendering: `pdf_tools.apply_annotations(img, annots)` (Pillow RGBA composite) called by `render_page_image(..., annots=)` — thumbs/previews show marks live. The Konva editor requests its background with `?annots=0`.
+
 ## Hybrid export (`pdf_tools.export_pages`)
 
 Per page, `is_vector_safe(ops)` is true when there's no raster-only op AND not a crop+rotate combo. Vector-safe pages are cloned via `pypdf` (set `cropbox`/`mediabox` from the fractional box + `/Rotate`); a crop on a page with inherent `/Rotate` falls back to raster too. Everything else rasterises (`render_page_image(..., dpi=)` → Pillow → one-page PDF → `add_page`). Preview thumbnails ALWAYS rasterise via the same `render_page_image` but use a small fixed `width_px` (DPI is for export). `rasterize_page`/`render_page_image` accept EITHER `dpi` (export/processing) OR `width_px` (thumbnails). `pypdf` missing → all-raster PDF fallback (logged). `fmt='zip'` → ZIP of PNGs; `split_every=N` (Mode 1) → ZIP of N-page PDFs.
+
+**Output modes** (`output=` param): `digital` (default) keeps pages vector — an annotated vector-safe page is built by `_fitz_annotated_page_bytes` (PyMuPDF: `add_redact_annot` + `apply_redactions` = content truly removed; highlights/text/ink drawn as vector overlays mapped into unrotated page space); `image` force-rasterises every page so redaction is pixel-level and unrecoverable. Pending annots are stripped by `_drop_pending_annots` before any export path.
 
 ## A3 split / reorder (`split_descriptors(num_pages, mode)`)
 
@@ -68,11 +81,13 @@ Math ported from a standalone pypdf script; reorder happens on the rotated page 
 - `POST /pdf/page-ops` — `{token, page_id, ops}` replace one page's chain (sanitised).
 - `POST /pdf/page-delete` — `{token, page_ids}`.
 - `POST /pdf/duplicate` — `{token, page_ids, after_id?}` clone pages (new ids, same src/page/ops/dpi) inserted after `after_id` (or end). Powers copy/paste. Returns `{pages:[clones], order:[id]}`.
-- `POST /pdf/set-pages` — `{token, pages:[{id, src, page, ops, mode, dpi}]}` **wholesale replace** the working set (validated against the session's sources; bad entries dropped). Powers **Undo** — the client is authoritative for the working set, so restoring a snapshot is just an overwrite.
-- `GET  /pdf/thumb/<token>/<page_id>.png?w=|?dpi=` — working-set page thumbnail (ops applied). `dpi=` (page-size independent) renders at full export resolution for the enlarged preview; `w=` is the small grid thumb.
+- `POST /pdf/set-pages` — `{token, pages:[{id, src, page, ops, mode, dpi, annots}]}` **wholesale replace** the working set (validated against the session's sources; bad entries dropped; annots re-sanitised). Powers **Undo** — the client is authoritative for the working set, so restoring a snapshot is just an overwrite.
+- `GET  /pdf/thumb/<token>/<page_id>.png?w=|?dpi=[&annots=0]` — working-set page thumbnail (ops + annots applied; `annots=0` = clean background for the Konva editor). `dpi=` (page-size independent) renders at full export resolution for the enlarged preview; `w=` is the small grid thumb.
 - `GET  /pdf/src-thumb/<token>/<srcid>/<int:idx>.png?w=` — raw source page thumbnail.
-- `POST /pdf/export` — `{token, page_ids?, fmt:'pdf'|'zip', split_every?, filename?}` → file download.
-- `POST /pdf/export-save` — `{token, page_ids?, fmt, split_every?, filename, dest?, overwrite?}` → saves under `PDF_SOURCE_PATH/<dest>` (`dest` is a rel folder chosen in the save picker; falls back to `TOOLBOX_SAVE_SUBDIR`). Filename is **required**. Existence is checked **before** building the bytes: if the target exists and `overwrite` is not set, returns **409** `{exists:true, filename, error}` so the client can prompt Overwrite/Rename. No silent auto-suffix.
+- `POST /pdf/text-search` — `{token, page_ids?, engine:'auto'|'digital'|'ocr', terms:[str], fuzzy, threshold, case_sensitive}` → `{results:{page_id:[{rect,term}]}, engines:{page_id:engine}, skipped:[{page_id,reason}]}`. Synchronous; words cached under the staging dir (`words/<page_id>.json`, keyed by engine/ops/dpi signature). `auto` = digital when mappable + text layer, else OCR.
+- `GET  /pdf/llm-detect?token=&page_ids=&endpoint_id=&instruction=` — **SSE** per-page LLM box detection (render page with ops → `llm_client.chat` with `ai_prompts.build_pdf_generic_system/user_text(instruction)` → `parse_generic_boxes` → fractional rects). Reuses `pdf_import.new_job` for cancellation (`POST /pdf/llm-detect-cancel` `{job_id}`). Gated on `AI_TOOLS_ENABLED`; endpoint list reuses `GET /admin/questions/ai/endpoints`, default endpoint `PDF_IMPORT_DEFAULT_LLM`.
+- `POST /pdf/export` — `{token, page_ids?, fmt:'pdf'|'zip', split_every?, filename?, output:'digital'|'image'}` → file download.
+- `POST /pdf/export-save` — `{token, page_ids?, fmt, split_every?, filename, dest?, overwrite?, output}` → saves under `PDF_SOURCE_PATH/<dest>` (`dest` is a rel folder chosen in the save picker; falls back to `TOOLBOX_SAVE_SUBDIR`). Filename is **required**. Existence is checked **before** building the bytes: if the target exists and `overwrite` is not set, returns **409** `{exists:true, filename, error}` so the client can prompt Overwrite/Rename. No silent auto-suffix.
 - `POST /pdf/mkdir` — `{path, name}` create a sub-folder under `PDF_SOURCE_PATH/<path>` (name sanitised to a single segment) for the save-destination picker. Returns `{rel_path}`.
 - `POST /pdf/discard` — delete the staging dir.
 
@@ -80,16 +95,18 @@ Export is synchronous (no SSE) — fast enough for typical jobs.
 
 ## Frontend ([templates/admin_toolbox_pdf.html](mdc:templates/admin_toolbox_pdf.html))
 
-Plain `fetch()` JSON + a client `pages[]` array (`{id, src, page, mode, dpi, baseOps, edit:{type→op}, nonce}`). `fullOps(p)` = `baseOps` + per-page `edit` ops in a fixed order; `nonce` cache-busts the thumb after edits.
+Plain `fetch()` JSON + a client `pages[]` array (`{id, src, page, mode, dpi, baseOps, edit:{type→op}, nonce, annots:[]}`). `fullOps(p)` = `baseOps` + per-page `edit` ops in a fixed order; `nonce` cache-busts the thumb after edits.
 
 - **Layout**: step 1 = upload only; step 2 = "Process & add" holds the **active-source page strip**, **Resolution (DPI)**, rotate/split, optional **deskew** only (no brightness/contrast/sharpen/grayscale/B&W — those are step 3); step 3 = preview/assemble + operations toolbar.
-- **Selection model**: `selected` Set + `lastClickedId`. Click = single, Ctrl/Cmd-click = toggle, Shift-click = range (`selectRange`), rubber-band drag on the **canvas** background (`initRubberBand` listens on `#previewCanvas`, which wraps `#previewGrid` with a tall `min-height` + wide gaps so there's plenty of empty space to start a drag; rect-intersection; Shift/Ctrl = additive).
-- **Shared operations toolbar**: built once by `buildToolbars()` from `imageOpsHTML()` and injected into BOTH `#mainImageOps` (main, `.tb-needs-sel` auto-disabled when nothing selected) and `#modalImageOps` (enlarged preview, always enabled). Ops resolve their target via **`currentTargets()`** = `[currentPreviewPage]` when the modal is open, else `selectedPagesInOrder()` — so the same buttons work in both places. Rotate-L/R, **Deskew** + **Grayscale** toggles (`[data-op]`), **Brightness / Contrast / Sharpen** slider dropdowns (`[data-adjust]`, percent → `applyAdjust(type,pct)` where factor=pct/100), **B&W** slider dropdown (`[data-bw]`, enable + 0–255 threshold → `applyBw`), and **Reset**. Dropdowns populate from the first target on `show.bs.dropdown`, apply on `change`, use `data-bs-auto-close="outside"`. `saveMany` persists the **whole working set in one atomic `/set-pages` call** — NOT per-page `/page-ops` (concurrent `Promise.all` writes raced on `session.json`). Keyboard (`initKeyboard`, ignored while typing): Del, Ctrl+A/C/X/V, **Ctrl+Z** (undo), Esc; when the modal is open arrows page prev/next instead.
+- **Selection model**: `selected` Set + `lastClickedId`. Click = single, Ctrl/Cmd-click = toggle, Shift-click = range (`selectRange`), rubber-band drag on the **canvas** background (`initRubberBand` listens on `#previewCanvas`, which wraps `#previewGrid` with a tall `min-height` + wide gaps so there's plenty of empty space to start a drag; rect-intersection; Shift/Ctrl = additive). **Select mode** (`setSelectMode`, toggled by `#selectModeBtn` or a ~500 ms **long-press** on a card via `beginLongPress`) makes every tap toggle selection (check overlays via `.tb-select-mode` body class), disables SortableJS while active, and shows "Done" on the button; Esc exits. Long-press timer is cancelled on pointer move / Sortable drag start.
+- **Shared operations toolbar**: built once by `buildToolbars()` from `imageOpsHTML()` and injected into BOTH `#mainImageOps` (main, `.tb-needs-sel` auto-disabled when nothing selected) and `#modalImageOps` (enlarged preview, always enabled). Ops resolve their target via **`currentTargets()`** = `[currentPreviewPage]` when the modal is open, else `selectedPagesInOrder()` — so the same buttons work in both places. Rotate-L/R, a single **Adjust** dropdown (`[data-adjustmenu]` → `adjustMenuHTML`/`initAdjustMenus`: Brightness/Contrast/Sharpen sliders → `applyAdjust`, Grayscale/Deskew checks → `applyCheckToggle`, B&W check + 0–255 threshold → `applyBw`, "Reset adjustments" → `resetAdjusts`), **Mark up** (`openAnnotEditor`), **Find & Mark**, and **Reset**. Dropdowns populate from the first target on `show.bs.dropdown`, apply on `change`, use `data-bs-auto-close="outside"`. `saveMany` persists the **whole working set in one atomic `/set-pages` call** — NOT per-page `/page-ops` (concurrent `Promise.all` writes raced on `session.json`). Keyboard (`initKeyboard`, ignored while typing or while the annot editor is open — `tbAnnotEditorActive`): Del, Ctrl+A/C/X/V, **Ctrl+Z** (undo), Esc; when the modal is open arrows page prev/next instead.
 - **Reorder ops**: a **Reorder** dropdown (`[data-reorder]` → `reorderOp(kind)`) rearranges the selection (≥2) or all pages. `arrangeIds(ids, kind)` for the 5 kinds: `interleave` (weave halves A0,B0,…), `deinterleave` (even-index group then odd-index group — inverse of interleave), `alt_interleave` (interleave with 2nd half reversed, for reversed duplex backs), `alt_deinterleave` (its inverse), `reverse`. Result placed back into the same positions, then `/reorder`.
 - **Undo**: `undoStack` of `snapshotPages()` (deep clone of `{id,src,page,mode,dpi,baseOps,edit}`). `pushUndo()` is called **before** each mutation (add, edit, delete, paste, reorder-op, and on actual drag move). `doUndo()` pops, restores `pages` (bumps every `nonce` to refetch thumbs), intersects `selected`, and mirrors the snapshot to the server via `/set-pages` (`pushServerPages`). `#undoBtn` enabled iff the stack is non-empty.
 - **Clipboard**: `copySel`/`cutSel` set `clipboard={mode,ids}`; `pasteClipboard` → copy uses `/duplicate` (inserts clones after the last selected), cut moves locally + `/reorder`. Cut pages get a `.tb-cut` style.
 - **Reorder (drag)**: SortableJS on `.tb-page-card` (whole card draggable, `forceFallback`). `onStart` selects the dragged card if not already selected, snapshots for undo, and for a **multi-selection** collapses the other selected cards away (`.tb-drag-collapsing` → scale 0) and turns the `.sortable-fallback` drag image into a **stack** (`.tb-multi-drag` offset layers + a `.tb-drag-badge` count). `onEnd` moves the **whole selection** as a contiguous block to the drop point (computed from DOM anchor); only persists + pushes undo if the order actually changed; re-renders deferred via `setTimeout`.
-- **Enlarged preview** (`#previewModal`): double-click a card → `openPreview`. Renders at **full DPI** (`fullResUrl` → `/thumb?dpi=`, shows actual px dims), `prev/next` buttons + `stepPreview` (← / → keys), and the shared modal toolbar (ops act on `currentPreviewPage`).
+- **Enlarged preview** (`#previewModal`): double-click a card → `openPreview`. **Quick / Full res** toggle (`setPreviewRes`, sticky module flag `previewRes` persisted as `localStorage.oqb_tbPreviewRes`, default thumb `?w=1100`; full = `/thumb?dpi=`, badge shows px dims), `prev/next` buttons + `stepPreview` (← / → keys, honours the sticky res) + on-image touch **tap zones** (`#modalTapPrev/Next`), and the shared modal toolbar (ops act on `currentPreviewPage`).
+- **Annotation editor** ([templates/partials/pdf_annotate_editor.html](mdc:templates/partials/pdf_annotate_editor.html), included in `extra_js` after the main script — shares its globals): fullscreen Konva modal via `openAnnotEditor(pageId)`. Tools select/redact/highlight/text/pen (V/R/H/T/P), palette + custom colour, highlight-opacity + pen-width sliders, Transformer move/resize, dbl-click text edit, **Copy to → all/selected pages**, per-page or global **Accept** for pending marks, prev/next page (arrows), Quick/Full-res background (`?annots=0`). Edits buffer in `aeAnnots`; on close → one `pushUndo` + atomic `/set-pages` + refresh of touched cards. Grid cards show ✏-count + pending-count badges (`editBadges`).
+- **Find & Mark** (`#findMarkModal`): term rows (text + redact/highlight + colour), scope (selected/all), engine **Auto / Digital / OCR / AI** (OCR disabled when Tesseract missing, AI when `AI_TOOLS_ENABLED` off), fuzzy toggle + threshold, case toggle; AI mode has endpoint picker + editable instruction (default built from terms). Text engines POST `/text-search`; AI streams `/llm-detect` SSE with cancel. Results become **pending** annots (`fmApplyResults` — one undo step) reviewed in grid/editor or **Accept all** in the modal.
 - **Save destination picker** (`#saveDestModal`): `openSaveDest` → `loadDestDir` browses folders under `PDF_SOURCE_PATH` (reuses `admin.pdf_import_source_list`, dirs only, root-fallback on 404); `createFolder` POSTs `/mkdir`; **Save here** sets `saveDest = destPath` and calls `doSaveServer` (body `dest`).
 - **Export**: file name is **required** (`updateExportButtons` disables both buttons when empty); buttons show a spinner via `setBtnLoading`. Save-to-server 409 → `#overwriteModal` (Overwrite re-POSTs with `overwrite:true`; Rename focuses the name field). With no page selected, export uses all pages in order. "Separate file every 4 pages" shows only when any Mode-1 page exists and format is PDF.
 
@@ -97,7 +114,7 @@ Server PDF picker reuses `admin.pdf_import_source_list` (`?path=` → `{configur
 
 ## Config
 
-`TOOLBOX_RASTER_WIDTH` (preview width, default 1700), `TOOLBOX_EXPORT_WIDTH` (legacy raster width fallback, default 2200), `TOOLBOX_DEFAULT_DPI` (processing/export DPI, default 200 — **registered in System Settings**, group "Toolbox"), `TOOLBOX_SAVE_SUBDIR` (default `Saved`) — all in [app/config.py](mdc:app/config.py). Dependency `pypdf>=4.0` (vector export; degrades to raster if absent). Deskew needs NumPy (shared with `pdf_layout`); the deskew control is disabled when NumPy is missing.
+`TOOLBOX_RASTER_WIDTH` (preview width, default 1700), `TOOLBOX_EXPORT_WIDTH` (legacy raster width fallback, default 2200), `TOOLBOX_DEFAULT_DPI` (processing/export DPI, default 200 — **registered in System Settings**, group "Toolbox"), `TOOLBOX_OCR_DPI` (Find & Mark OCR render DPI, default 300 — also in System Settings "Toolbox"), `TOOLBOX_SAVE_SUBDIR` (default `Saved`), `TESSERACT_CMD` (optional `.env`-only path to `tesseract.exe`; [app/pdf_text.py](mdc:app/pdf_text.py) auto-detects common install dirs + PATH when unset) — all in [app/config.py](mdc:app/config.py). Dependencies `pypdf>=4.0` (vector export; degrades to raster if absent), `rapidfuzz` (fuzzy match; falls back to exact), `pytesseract` + a local Tesseract install (OCR engine; UI option disabled when missing). Deskew needs NumPy (shared with `pdf_layout`); the deskew control is disabled when NumPy is missing.
 
 ## Batch PDF Import reuse
 
@@ -109,3 +126,5 @@ Server PDF picker reuses `admin.pdf_import_source_list` (`?path=` → `{configur
 2. Heavy libs (`fitz`/`PIL`/`pypdf`) are imported lazily so importing `pdf_tools` never fails on a box missing one.
 3. `rotate` deg is clockwise (negated for PIL's CCW positive angle) to match pypdf `/Rotate`.
 4. Splitting in Batch PDF Import renumbers staged PNGs contiguously in final reading order; downstream page indices stay valid.
+5. Annot coords live in **post-ops** space — rotating/cropping a page *after* marking it does NOT remap its annots. The digital-export mapper (`_fitz_annotated_page_bytes`) inverts rotate/crop into unrotated source space; geometry-warping raster ops (`deskew`, `rotate_fine`) force that page to raster and block the `digital` text-search engine (`pdf_text.GEOMETRY_BREAKERS`).
+6. `pdf_text.find_matches` slides a fuzzy window over the **concatenated word stream of all searched pages**, so phrases wrapped across lines or page boundaries still match (boxes emitted per page/line).

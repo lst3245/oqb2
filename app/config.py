@@ -165,6 +165,12 @@ class Config:
     # PDF Toolbox — subfolder (under PDF_SOURCE_PATH) where "Save to server"
     # writes assembled PDFs/ZIPs so Batch PDF Import can pick them.
     TOOLBOX_SAVE_SUBDIR = os.getenv('TOOLBOX_SAVE_SUBDIR', 'Saved')
+    # PDF Toolbox — Tesseract executable for the Find & Mark OCR engine.
+    # Blank = auto-detect (common Windows install paths, then PATH).
+    TESSERACT_CMD = os.getenv('TESSERACT_CMD', '')
+    # PDF Toolbox — DPI used to rasterise pages for OCR word extraction in
+    # Find & Mark (higher = better recognition of small print, slower).
+    TOOLBOX_OCR_DPI = int(os.getenv('TOOLBOX_OCR_DPI', '300'))
 
     # Markup — longest edge (world units) for resolution-normalized image imports.
     MARKUP_NORMALIZED_MAX_DIM = int(os.getenv('MARKUP_NORMALIZED_MAX_DIM', '2400'))

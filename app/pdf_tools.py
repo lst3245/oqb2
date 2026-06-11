@@ -24,6 +24,18 @@ Ops (``type`` + params)::
     {"type":"grayscale"}                           # raster-only
     {"type":"bw",          "threshold": <int>}     # raster-only
 
+A descriptor may also carry an ``annots`` list (redact / highlight / text /
+ink marks). Annotation coordinates are **fractional 0..1 in the post-ops
+visible page space** (y down)::
+
+    {"id":"..","kind":"redact",    "rect":[x1,y1,x2,y2], "color":"#000000"}
+    {"id":"..","kind":"highlight", "rect":[x1,y1,x2,y2], "color":"#ffff00", "opacity":0.4}
+    {"id":"..","kind":"text",      "pos":[x,y], "text":"..", "size":0.025, "color":"#d00000"}
+    {"id":"..","kind":"ink",       "points":[[x,y],..], "color":"#0000ff", "width":0.004, "opacity":1.0}
+
+``pending: true`` marks search results awaiting user review (rendered with an
+orange outline on thumbnails; excluded from export until accepted).
+
 A page is exported **losslessly** (vector, via pypdf cropbox / ``/Rotate``)
 only when its ops are vector-safe (crop-only OR a single rotate, never the two
 combined — that hits pypdf's rotation/mediabox coordinate pitfalls). Any
@@ -157,6 +169,154 @@ def _crop_fractional(img, box):
     return img.crop((left, top, right, bottom))
 
 
+# ==================== Annotations (redact / highlight / text / ink) ====================
+
+ANNOT_KINDS = ('redact', 'highlight', 'text', 'ink')
+
+# Default visual parameters (fractions are of page HEIGHT).
+ANNOT_DEFAULT_HL_OPACITY = 0.4
+ANNOT_DEFAULT_TEXT_SIZE = 0.025
+ANNOT_DEFAULT_INK_WIDTH = 0.004
+
+
+def hex_to_rgb(color, default=(0, 0, 0)):
+    """``#rrggbb`` (or ``#rgb``) → (r, g, b) ints, falling back to ``default``."""
+    if isinstance(color, (list, tuple)) and len(color) >= 3:
+        try:
+            return tuple(max(0, min(255, int(c))) for c in color[:3])
+        except (TypeError, ValueError):
+            return default
+    if not isinstance(color, str):
+        return default
+    s = color.strip().lstrip('#')
+    if len(s) == 3:
+        s = ''.join(ch * 2 for ch in s)
+    if len(s) != 6:
+        return default
+    try:
+        return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return default
+
+
+def _annot_rect_px(rect, w, h):
+    """Fractional ``[x1,y1,x2,y2]`` → integer pixel box, or None if degenerate."""
+    if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in rect)
+    except (TypeError, ValueError):
+        return None
+    x1, x2 = sorted((max(0.0, min(1.0, x1)), max(0.0, min(1.0, x2))))
+    y1, y2 = sorted((max(0.0, min(1.0, y1)), max(0.0, min(1.0, y2))))
+    box = (int(round(x1 * w)), int(round(y1 * h)),
+           int(round(x2 * w)), int(round(y2 * h)))
+    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+        return None
+    return box
+
+
+def _annot_font(px):
+    """Best-effort scalable font for burned-in text annotations."""
+    from PIL import ImageFont
+    px = max(6, int(px))
+    for name in ('arial.ttf', 'DejaVuSans.ttf', 'segoeui.ttf'):
+        try:
+            return ImageFont.truetype(name, px)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=px)  # Pillow >= 10.1
+    except TypeError:  # pragma: no cover — very old Pillow
+        return ImageFont.load_default()
+
+
+def apply_annotations(img, annots):
+    """Composite an ``annots`` list onto a PIL Image (post-ops space).
+
+    Returns a new RGB Image; the input is unchanged. Pending annotations get
+    an orange outline so search results are recognisable on thumbnails.
+    """
+    if not annots:
+        return img
+    from PIL import Image, ImageDraw
+
+    base = img.convert('RGBA')
+    overlay = Image.new('RGBA', base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    w, h = base.size
+    pend_w = max(2, h // 500)
+
+    for a in annots:
+        if not isinstance(a, dict):
+            continue
+        kind = a.get('kind')
+        rgb = hex_to_rgb(a.get('color'),
+                         (0, 0, 0) if kind == 'redact' else
+                         (255, 255, 0) if kind == 'highlight' else (208, 0, 0))
+        outline_box = None
+        if kind == 'redact':
+            box = _annot_rect_px(a.get('rect'), w, h)
+            if not box:
+                continue
+            draw.rectangle(box, fill=rgb + (255,))
+            outline_box = box
+        elif kind == 'highlight':
+            box = _annot_rect_px(a.get('rect'), w, h)
+            if not box:
+                continue
+            try:
+                op = float(a.get('opacity', ANNOT_DEFAULT_HL_OPACITY))
+            except (TypeError, ValueError):
+                op = ANNOT_DEFAULT_HL_OPACITY
+            op = max(0.05, min(1.0, op))
+            draw.rectangle(box, fill=rgb + (int(op * 255),))
+            outline_box = box
+        elif kind == 'text':
+            pos = a.get('pos')
+            text = str(a.get('text') or '')
+            if not (isinstance(pos, (list, tuple)) and len(pos) == 2 and text):
+                continue
+            try:
+                x, y = float(pos[0]) * w, float(pos[1]) * h
+                size = float(a.get('size', ANNOT_DEFAULT_TEXT_SIZE)) * h
+            except (TypeError, ValueError):
+                continue
+            font = _annot_font(size)
+            draw.text((x, y), text, fill=rgb + (255,), font=font)
+            if a.get('pending'):
+                tb = draw.textbbox((x, y), text, font=font)
+                outline_box = tb
+        elif kind == 'ink':
+            pts = a.get('points')
+            if not (isinstance(pts, (list, tuple)) and len(pts) >= 2):
+                continue
+            try:
+                px = [(float(p[0]) * w, float(p[1]) * h) for p in pts]
+                lw = max(1, int(round(float(a.get('width', ANNOT_DEFAULT_INK_WIDTH)) * h)))
+                op = float(a.get('opacity', 1.0))
+            except (TypeError, ValueError, IndexError):
+                continue
+            op = max(0.05, min(1.0, op))
+            draw.line(px, fill=rgb + (int(op * 255),), width=lw, joint='curve')
+            # Round the stroke ends.
+            r = lw / 2.0
+            for cx, cy in (px[0], px[-1]):
+                draw.ellipse((cx - r, cy - r, cx + r, cy + r),
+                             fill=rgb + (int(op * 255),))
+            if a.get('pending'):
+                xs = [p[0] for p in px]
+                ys = [p[1] for p in px]
+                outline_box = (min(xs) - r, min(ys) - r, max(xs) + r, max(ys) + r)
+        else:
+            continue
+
+        if a.get('pending') and outline_box:
+            draw.rectangle(outline_box, outline=(255, 140, 0, 255), width=pend_w)
+
+    return Image.alpha_composite(base, overlay).convert('RGB')
+
+
 # ==================== A3 split / reorder descriptors ====================
 
 def split_descriptors(num_pages: int, mode: str):
@@ -259,10 +419,11 @@ def filters_to_ops(filters):
 # ==================== Single-page render (thumbnails + raster export) ====================
 
 def render_page_image(pdf_path: str, page_index: int, ops, width_px: int = None,
-                      dpi: int = None):
+                      dpi: int = None, annots=None):
     """Open ``pdf_path``, rasterise page ``page_index`` (by ``dpi`` or
     ``width_px``) and apply ``ops``. Returns a PIL RGB Image. Used by the
-    thumbnail route (width) and the raster export path (dpi)."""
+    thumbnail route (width) and the raster export path (dpi). ``annots`` (if
+    given) are composited on top after the op chain."""
     import fitz  # type: ignore
 
     doc = fitz.open(pdf_path)
@@ -273,7 +434,10 @@ def render_page_image(pdf_path: str, page_index: int, ops, width_px: int = None,
         img = rasterize_page(page, width_px=width_px, dpi=dpi)
     finally:
         doc.close()
-    return apply_ops(img, ops)
+    img = apply_ops(img, ops)
+    if annots:
+        img = apply_annotations(img, annots)
+    return img
 
 
 def process_pdf_to_images(pdf_path: str, width_px: int, pre_rotate: int = 0,
@@ -336,7 +500,7 @@ def _apply_vector_crop(page, box):
 
 
 def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
-                 split_every=None) -> bytes:
+                 split_every=None, output: str = 'digital') -> bytes:
     """Assemble ``pages`` (page descriptors) into a downloadable artefact.
 
     ``resolve_path(src_id) -> abs pdf path``. Each descriptor may carry its own
@@ -348,11 +512,25 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
       per-student split).
     * ``'zip'``  — a ZIP of per-page PNGs.
 
+    ``output``:
+
+    * ``'digital'`` (default) — vector pages stay vector. Annotated vector-safe
+      pages go through PyMuPDF: redactions are applied with
+      ``apply_redactions`` (the underlying text/images are truly removed) and
+      highlights / text / ink are drawn on top of the still-digital page.
+    * ``'image'`` — every page is rasterised (annotations burned in), so
+      redacted content is removed at the pixel level and cannot be recovered.
+
+    Pending annotations (unreviewed Find & Mark results) are excluded — only
+    accepted marks are exported.
+
     Falls back to an all-raster PDF when pypdf is unavailable.
     """
-    pages = list(pages or [])
+    pages = [_drop_pending_annots(p) for p in (pages or [])]
     if not pages:
         raise ValueError('no pages to export')
+
+    force_raster = (output or 'digital').strip().lower() == 'image'
 
     if fmt == 'zip':
         return _export_png_zip(pages, resolve_path, default_dpi)
@@ -369,15 +547,27 @@ def export_pages(pages, resolve_path, fmt: str = 'pdf', default_dpi: int = 200,
 
     if split_every and int(split_every) > 0:
         return _export_split_pdf_zip(pages, resolve_path, default_dpi,
-                                     int(split_every))
+                                     int(split_every), force_raster)
 
     writer = _new_writer()
     src_bytes_cache: dict = {}
     for desc in pages:
-        _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache)
+        _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache,
+                  force_raster=force_raster)
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()
+
+
+def _drop_pending_annots(desc):
+    """Copy of ``desc`` without pending (unreviewed) annotations."""
+    annots = desc.get('annots') or []
+    kept = [a for a in annots if not (isinstance(a, dict) and a.get('pending'))]
+    if len(kept) == len(annots):
+        return desc
+    out = dict(desc)
+    out['annots'] = kept
+    return out
 
 
 def _page_dpi(desc, default_dpi: int) -> int:
@@ -401,42 +591,188 @@ def _src_bytes(resolve_path, src_id, cache):
     return cache[src_id]
 
 
-def _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache):
+def _add_page(writer, desc, resolve_path, default_dpi, src_bytes_cache,
+              force_raster: bool = False):
     """Add one descriptor to ``writer`` as a vector page when safe, else as a
-    rasterised image page (at the page's chosen DPI)."""
+    rasterised image page (at the page's chosen DPI). Annotated vector-safe
+    pages are routed through PyMuPDF (true redaction + vector overlays) unless
+    ``force_raster`` requests the flattened image output."""
     import pypdf  # type: ignore
 
     ops = desc.get('ops') or []
+    annots = desc.get('annots') or []
     crop = next((o for o in ops if o.get('type') == 'crop'), None)
     rotates = [o for o in ops if o.get('type') == 'rotate']
 
-    if is_vector_safe(ops):
-        try:
-            data = _src_bytes(resolve_path, desc['src'], src_bytes_cache)
-            reader = pypdf.PdfReader(io.BytesIO(data))
-            page = reader.pages[int(desc['page'])]
-            inherent_rot = int(page.rotation or 0) % 360
-            if crop and inherent_rot != 0:
-                # Cropping a page that already carries a /Rotate is ambiguous
-                # in mediabox space — rasterise to stay correct.
-                raise _RasterFallback()
-            if crop:
-                _apply_vector_crop(page, crop['box'])
-            for r in rotates:
-                page.rotate(int(r.get('deg', 0)))
-            writer.add_page(page)
-            return
-        except _RasterFallback:
-            pass
-        except Exception as e:  # pragma: no cover — fall back to raster
-            logger.warning('vector add failed for %s p%s (%s) — rasterising.',
-                           desc.get('src'), desc.get('page'), e)
+    if not force_raster and is_vector_safe(ops):
+        if annots:
+            try:
+                data = _fitz_annotated_page_bytes(resolve_path(desc['src']),
+                                                  int(desc['page']), ops, annots)
+                reader = pypdf.PdfReader(io.BytesIO(data))
+                writer.add_page(reader.pages[0])
+                return
+            except _RasterFallback:
+                pass
+            except Exception as e:  # pragma: no cover — fall back to raster
+                logger.warning('annotated vector add failed for %s p%s (%s) — '
+                               'rasterising.', desc.get('src'),
+                               desc.get('page'), e)
+        else:
+            try:
+                data = _src_bytes(resolve_path, desc['src'], src_bytes_cache)
+                reader = pypdf.PdfReader(io.BytesIO(data))
+                page = reader.pages[int(desc['page'])]
+                inherent_rot = int(page.rotation or 0) % 360
+                if crop and inherent_rot != 0:
+                    # Cropping a page that already carries a /Rotate is
+                    # ambiguous in mediabox space — rasterise to stay correct.
+                    raise _RasterFallback()
+                if crop:
+                    _apply_vector_crop(page, crop['box'])
+                for r in rotates:
+                    page.rotate(int(r.get('deg', 0)))
+                writer.add_page(page)
+                return
+            except _RasterFallback:
+                pass
+            except Exception as e:  # pragma: no cover — fall back to raster
+                logger.warning('vector add failed for %s p%s (%s) — rasterising.',
+                               desc.get('src'), desc.get('page'), e)
 
     dpi = _page_dpi(desc, default_dpi)
     img = render_page_image(resolve_path(desc['src']), int(desc['page']),
-                            ops, dpi=dpi)
+                            ops, dpi=dpi, annots=annots)
     reader = _pil_image_to_pdf_reader(img, dpi=dpi)
     writer.add_page(reader.pages[0])
+
+
+def _fitz_annotated_page_bytes(pdf_path: str, page_index: int, ops,
+                               annots) -> bytes:
+    """Build a one-page PDF with ``ops`` (vector-safe only) applied via
+    PyMuPDF geometry and ``annots`` rendered digitally.
+
+    Redactions use ``add_redact_annot`` + ``apply_redactions`` so the covered
+    text/images are **removed from the content stream**, not just hidden.
+    Highlights / ink / text are drawn as vector overlays. Annotation coords
+    are fractional in the final visible page space; drawing commands need the
+    unrotated space, so everything is mapped through ``derotation_matrix``.
+    """
+    import fitz  # type: ignore
+
+    src = fitz.open(pdf_path)
+    try:
+        nd = fitz.open()
+        nd.insert_pdf(src, from_page=page_index, to_page=page_index)
+    finally:
+        src.close()
+    try:
+        pg = nd[0]
+
+        crop = next((o for o in ops if o.get('type') == 'crop'), None)
+        deg = sum(int(o.get('deg', 0)) for o in ops
+                  if o.get('type') == 'rotate') % 360
+        if crop:
+            if int(pg.rotation or 0) % 360 != 0:
+                raise _RasterFallback()  # parity with the pypdf rule
+            b = crop.get('box') or [0, 0, 1, 1]
+            x1, x2 = sorted((float(b[0]), float(b[2])))
+            y1, y2 = sorted((float(b[1]), float(b[3])))
+            r0 = pg.rect
+            new_box = fitz.Rect(r0.x0 + x1 * r0.width, r0.y0 + y1 * r0.height,
+                                r0.x0 + x2 * r0.width, r0.y0 + y2 * r0.height)
+            pg.set_cropbox(new_box)
+        if deg:
+            pg.set_rotation((int(pg.rotation or 0) + deg) % 360)
+
+        vr = pg.rect  # visible (rotation-aware) rect
+        dmat = pg.derotation_matrix
+
+        def _vis_rect(fr):
+            fx1, fx2 = sorted((float(fr[0]), float(fr[2])))
+            fy1, fy2 = sorted((float(fr[1]), float(fr[3])))
+            r = fitz.Rect(vr.x0 + fx1 * vr.width, vr.y0 + fy1 * vr.height,
+                          vr.x0 + fx2 * vr.width, vr.y0 + fy2 * vr.height)
+            r = r * dmat
+            r.normalize()
+            return r
+
+        def _vis_point(fx, fy):
+            return fitz.Point(vr.x0 + float(fx) * vr.width,
+                              vr.y0 + float(fy) * vr.height) * dmat
+
+        def _rgb01(color, default):
+            return tuple(c / 255.0 for c in hex_to_rgb(color, default))
+
+        # 1. True redaction (content removal) first.
+        redacted = False
+        for a in annots:
+            if a.get('kind') != 'redact':
+                continue
+            rect = a.get('rect')
+            if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+                continue
+            pg.add_redact_annot(_vis_rect(rect),
+                                fill=_rgb01(a.get('color'), (0, 0, 0)))
+            redacted = True
+        if redacted:
+            pg.apply_redactions()
+
+        # 2. Vector overlays.
+        for a in annots:
+            kind = a.get('kind')
+            if kind == 'highlight':
+                rect = a.get('rect')
+                if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+                    continue
+                try:
+                    op = float(a.get('opacity', ANNOT_DEFAULT_HL_OPACITY))
+                except (TypeError, ValueError):
+                    op = ANNOT_DEFAULT_HL_OPACITY
+                pg.draw_rect(_vis_rect(rect),
+                             fill=_rgb01(a.get('color'), (255, 255, 0)),
+                             color=None, fill_opacity=max(0.05, min(1.0, op)),
+                             overlay=True)
+            elif kind == 'ink':
+                pts = a.get('points')
+                if not (isinstance(pts, (list, tuple)) and len(pts) >= 2):
+                    continue
+                try:
+                    fpts = [_vis_point(p[0], p[1]) for p in pts]
+                    width = max(0.2, float(a.get('width', ANNOT_DEFAULT_INK_WIDTH))
+                                * vr.height)
+                    op = max(0.05, min(1.0, float(a.get('opacity', 1.0))))
+                except (TypeError, ValueError, IndexError):
+                    continue
+                pg.draw_polyline(fpts, color=_rgb01(a.get('color'), (0, 0, 255)),
+                                 width=width, lineCap=1, lineJoin=1,
+                                 stroke_opacity=op, overlay=True)
+            elif kind == 'text':
+                pos = a.get('pos')
+                text = str(a.get('text') or '')
+                if not (isinstance(pos, (list, tuple)) and len(pos) == 2
+                        and text):
+                    continue
+                try:
+                    size = float(a.get('size', ANNOT_DEFAULT_TEXT_SIZE)) * vr.height
+                except (TypeError, ValueError):
+                    continue
+                size = max(4.0, size)
+                # ``pos`` is the text's top-left; insert_text wants a baseline.
+                pt = _vis_point(float(pos[0]),
+                                float(pos[1]) + 0.8 * size / vr.height)
+                try:
+                    text.encode('latin-1')
+                    fontname = 'helv'
+                except UnicodeEncodeError:
+                    fontname = 'china-t'  # built-in CJK fallback
+                pg.insert_text(pt, text, fontsize=size, fontname=fontname,
+                               color=_rgb01(a.get('color'), (208, 0, 0)),
+                               rotate=int(pg.rotation or 0), overlay=True)
+
+        return nd.tobytes()
+    finally:
+        nd.close()
 
 
 class _RasterFallback(Exception):
@@ -453,7 +789,8 @@ def _export_raster_pdf(pages, resolve_path, default_dpi) -> bytes:
         if first_dpi is None:
             first_dpi = dpi
         imgs.append(render_page_image(resolve_path(d['src']), int(d['page']),
-                                      d.get('ops') or [], dpi=dpi))
+                                      d.get('ops') or [], dpi=dpi,
+                                      annots=d.get('annots')))
     buf = io.BytesIO()
     imgs[0].save(buf, format='PDF', save_all=True, append_images=imgs[1:],
                  resolution=float(first_dpi or 200))
@@ -466,14 +803,16 @@ def _export_png_zip(pages, resolve_path, default_dpi) -> bytes:
         for i, desc in enumerate(pages):
             img = render_page_image(resolve_path(desc['src']),
                                     int(desc['page']), desc.get('ops') or [],
-                                    dpi=_page_dpi(desc, default_dpi))
+                                    dpi=_page_dpi(desc, default_dpi),
+                                    annots=desc.get('annots'))
             img_buf = io.BytesIO()
             img.save(img_buf, format='PNG')
             zf.writestr(f'page_{i + 1:03d}.png', img_buf.getvalue())
     return buf.getvalue()
 
 
-def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every) -> bytes:
+def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every,
+                          force_raster: bool = False) -> bytes:
     """ZIP of PDFs, ``split_every`` pages each (Mode-1 per-student output)."""
     buf = io.BytesIO()
     src_bytes_cache: dict = {}
@@ -486,7 +825,7 @@ def _export_split_pdf_zip(pages, resolve_path, default_dpi, split_every) -> byte
             writer = _new_writer()
             for desc in group:
                 _add_page(writer, desc, resolve_path, default_dpi,
-                          src_bytes_cache)
+                          src_bytes_cache, force_raster=force_raster)
             pdf_buf = io.BytesIO()
             writer.write(pdf_buf)
             zf.writestr(f'part_{chunk:03d}.pdf', pdf_buf.getvalue())

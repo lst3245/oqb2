@@ -1,0 +1,685 @@
+{# Fullscreen Konva annotation editor for the Toolbox PDF Tool.
+
+   Included by templates/admin_toolbox_pdf.html INSIDE the extra_js block,
+   AFTER the main inline script and the Konva CDN tag — its script shares the
+   page's global lexical scope (pages, TOKEN, BASE, previewRes, pushUndo,
+   pushServerPages, refreshCard, snapshotPages, annotId, pageById, log, ...).
+
+   Annotation coords are fractional 0..1 of the post-ops page (y down) — the
+   exact space the server's apply_annotations / digital export expect. #}
+
+<style>
+    #aeStageDiv { position: absolute; inset: 0; touch-action: none; background: #3a3d42; }
+    #annotEditorModal .ae-swatch {
+        width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+        border: 2px solid var(--bs-border-color); display: inline-block; padding: 0;
+    }
+    #annotEditorModal .ae-swatch.active { border-color: var(--bs-primary); box-shadow: 0 0 0 2px var(--bs-primary); }
+    #annotEditorModal .ae-range-wrap { min-width: 130px; }
+    #annotEditorModal .modal-body { overflow: hidden; }
+</style>
+
+<div class="modal fade" id="annotEditorModal" tabindex="-1" data-bs-keyboard="false" data-bs-backdrop="static">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header py-2 d-flex align-items-center gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="aePrevBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="aeNextBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
+                <h5 class="modal-title mb-0" id="aeTitle"><i class="bi bi-pen"></i> Mark up</h5>
+                <div class="btn-group btn-group-sm" role="group" id="aeResToggle">
+                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="Fast preview">Quick</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="Full export resolution">Full res</button>
+                </div>
+                <span class="badge bg-warning text-dark" id="aePendingBadge" style="display:none;"></span>
+                <button type="button" class="btn btn-sm btn-primary ms-auto" data-bs-dismiss="modal"><i class="bi bi-check-lg"></i> Done</button>
+            </div>
+            <div class="bg-body border-bottom p-2 d-flex flex-wrap align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group" id="aeTools">
+                    <button class="btn btn-outline-secondary" data-tool="select" type="button" title="Select / move / resize (V)"><i class="bi bi-cursor"></i></button>
+                    <button class="btn btn-outline-secondary" data-tool="redact" type="button" title="Redact box — censors content (R)"><i class="bi bi-square-fill"></i> Redact</button>
+                    <button class="btn btn-outline-secondary" data-tool="highlight" type="button" title="Highlight box (H)"><i class="bi bi-highlighter"></i> Highlight</button>
+                    <button class="btn btn-outline-secondary" data-tool="text" type="button" title="Add text (T)"><i class="bi bi-fonts"></i> Text</button>
+                    <button class="btn btn-outline-secondary" data-tool="pen" type="button" title="Freehand pen / signature (P)"><i class="bi bi-pencil"></i> Pen</button>
+                </div>
+                <div class="vr"></div>
+                <span class="d-inline-flex align-items-center gap-1" id="aeColors"></span>
+                <input type="color" class="form-control form-control-color form-control-sm" id="aeCustomColor" value="#000000" title="Custom colour">
+                <div class="vr"></div>
+                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeOpacityWrap" title="Highlight opacity">
+                    <i class="bi bi-transparency"></i>
+                    <input type="range" class="form-range" id="aeOpacity" min="10" max="100" step="5" value="40">
+                    <span class="small" id="aeOpacityVal">40%</span>
+                </div>
+                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeWidthWrap" title="Pen width">
+                    <i class="bi bi-border-width"></i>
+                    <input type="range" class="form-range" id="aeWidth" min="1" max="30" step="1" value="6">
+                </div>
+                <div class="vr"></div>
+                <button class="btn btn-sm btn-outline-danger" id="aeDeleteBtn" type="button" disabled title="Delete selected (Del)"><i class="bi bi-trash"></i></button>
+                <button class="btn btn-sm btn-outline-danger" id="aeClearBtn" type="button" title="Remove every mark on this page"><i class="bi bi-x-circle"></i> Clear page</button>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Copy marks to other pages">
+                        <i class="bi bi-back"></i> Copy to…
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><h6 class="dropdown-header">Copies the selected mark (or all marks on this page)</h6></li>
+                        <li><a class="dropdown-item" href="#" data-copyto="all"><i class="bi bi-files"></i> All pages</a></li>
+                        <li><a class="dropdown-item" href="#" data-copyto="selected"><i class="bi bi-check2-square"></i> Selected pages</a></li>
+                    </ul>
+                </div>
+                <div class="btn-group btn-group-sm ms-auto" role="group" id="aePendingActions" style="display:none;">
+                    <button class="btn btn-outline-success" id="aeAcceptPageBtn" type="button" title="Accept the pending (search-result) marks on this page"><i class="bi bi-check2"></i> Accept page</button>
+                    <button class="btn btn-outline-success" id="aeAcceptAllBtn" type="button" title="Accept pending marks on every page"><i class="bi bi-check2-all"></i> Accept all</button>
+                </div>
+            </div>
+            <div class="modal-body p-0 position-relative" id="aeWrap">
+                <div id="aeStageDiv"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+const AE_PALETTE = ['#000000', '#ffffff', '#ffff00', '#90ee90', '#00ffff',
+                    '#ff9bd0', '#ff0000', '#0000ff'];
+const AE_TOOL_KIND = {redact: 'redact', highlight: 'highlight',
+                      text: 'text', pen: 'ink'};
+
+let aeModal = null, aeShown = false;
+let aeStage = null, aeBgLayer = null, aeLayer = null, aeTr = null;
+let aePageId = null, aePendingOpenId = null;
+let aeAnnots = [];            // working copy for the current page
+let aePageDirty = false;      // current page has uncommitted edits
+let aeDirty = new Set();      // page ids changed during this editor session
+let aePre = null;             // pages snapshot at editor open (one undo step)
+let aeTool = 'select';
+const aeColors = {redact: '#000000', highlight: '#ffff00',
+                  text: '#d00000', ink: '#0000ff'};
+let aeOpacity = 0.4;
+let aeInkWidthPx = 6;         // slider value; stored as fraction at commit
+let aeImgW = 0, aeImgH = 0, aeScale = 1, aeOffX = 0, aeOffY = 0;
+let aeDrawing = null;
+
+const fx2s = fx => aeOffX + fx * aeImgW * aeScale;
+const fy2s = fy => aeOffY + fy * aeImgH * aeScale;
+const sx2f = sx => Math.max(0, Math.min(1, (sx - aeOffX) / (aeImgW * aeScale)));
+const sy2f = sy => Math.max(0, Math.min(1, (sy - aeOffY) / (aeImgH * aeScale)));
+const inkFrac = () => aeInkWidthPx / Math.max(1, aeImgH * aeScale);
+
+window.openAnnotEditor = function (pageId) {
+    if (typeof Konva === 'undefined') { log('Mark up editor failed to load (Konva missing).', 'error'); return; }
+    if (!pageById(pageId)) return;
+    aePre = snapshotPages();
+    aeDirty = new Set();
+    aePendingOpenId = pageId;
+    if (!aeModal) aeInit();
+    window.tbAnnotEditorActive = true;
+    aeModal.show();
+};
+
+function aeInit() {
+    const el = document.getElementById('annotEditorModal');
+    aeModal = new bootstrap.Modal(el);
+    el.addEventListener('shown.bs.modal', () => {
+        aeShown = true;
+        if (aePendingOpenId) { aeLoadPage(aePendingOpenId); aePendingOpenId = null; }
+    });
+    el.addEventListener('hidden.bs.modal', aeOnClose);
+
+    // tools
+    document.querySelectorAll('#aeTools [data-tool]').forEach(b => {
+        b.addEventListener('click', () => aeSetTool(b.dataset.tool));
+    });
+
+    // colours
+    const colorsWrap = document.getElementById('aeColors');
+    AE_PALETTE.forEach(c => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ae-swatch';
+        b.style.background = c;
+        b.dataset.color = c;
+        b.title = c;
+        b.addEventListener('click', () => aePickColor(c));
+        colorsWrap.appendChild(b);
+    });
+    document.getElementById('aeCustomColor').addEventListener('change', (e) => aePickColor(e.target.value));
+
+    // opacity / width
+    document.getElementById('aeOpacity').addEventListener('input', (e) => {
+        aeOpacity = parseInt(e.target.value, 10) / 100;
+        document.getElementById('aeOpacityVal').textContent = e.target.value + '%';
+        const n = aeSelectedNode();
+        if (n && n.getAttr('kind') === 'highlight') {
+            n.opacity(aeOpacity);
+            const a = aeAnnotForNode(n);
+            if (a) { a.opacity = aeOpacity; aePageDirty = true; }
+        }
+    });
+    document.getElementById('aeWidth').addEventListener('input', (e) => {
+        aeInkWidthPx = parseInt(e.target.value, 10);
+        const n = aeSelectedNode();
+        if (n && n.getAttr('kind') === 'ink') {
+            n.strokeWidth(aeInkWidthPx);
+            const a = aeAnnotForNode(n);
+            if (a) { a.width = inkFrac(); aePageDirty = true; }
+        }
+    });
+
+    // actions
+    document.getElementById('aeDeleteBtn').addEventListener('click', aeDeleteSelected);
+    document.getElementById('aeClearBtn').addEventListener('click', () => {
+        if (!aeAnnots.length) return;
+        if (!confirm('Remove every mark on this page?')) return;
+        aeAnnots = [];
+        aePageDirty = true;
+        aeRebuildNodes();
+    });
+    document.querySelectorAll('#annotEditorModal [data-copyto]').forEach(a => {
+        a.addEventListener('click', (e) => { e.preventDefault(); aeCopyTo(a.dataset.copyto); });
+    });
+    document.getElementById('aeAcceptPageBtn').addEventListener('click', () => {
+        aeAnnots.forEach(x => { delete x.pending; });
+        aePageDirty = true;
+        aeRebuildNodes();
+    });
+    document.getElementById('aeAcceptAllBtn').addEventListener('click', () => {
+        aeAnnots.forEach(x => { delete x.pending; });
+        aePageDirty = true;
+        aeCommitPage();
+        pages.forEach(p => {
+            if ((p.annots || []).some(x => x.pending)) {
+                p.annots.forEach(x => { delete x.pending; });
+                aeDirty.add(p.id);
+            }
+        });
+        aeRebuildNodes();
+    });
+
+    // nav + resolution
+    document.getElementById('aePrevBtn').addEventListener('click', () => aeStep(-1));
+    document.getElementById('aeNextBtn').addEventListener('click', () => aeStep(1));
+    document.querySelectorAll('#aeResToggle [data-res]').forEach(b => {
+        b.addEventListener('click', () => {
+            previewRes = b.dataset.res === 'full' ? 'full' : 'thumb';
+            localStorage.setItem('oqb_tbPreviewRes', previewRes);
+            syncPreviewResToggle();
+            aeSyncResToggle();
+            aeLoadPage(aePageId);
+        });
+    });
+
+    document.addEventListener('keydown', aeOnKeyDown);
+    window.addEventListener('resize', () => {
+        if (aeShown && aePageId) {
+            clearTimeout(aeInit._rs);
+            aeInit._rs = setTimeout(() => aeLoadPage(aePageId), 200);
+        }
+    });
+
+    aeSetTool('select');
+}
+
+function aeOnClose() {
+    aeShown = false;
+    window.tbAnnotEditorActive = false;
+    aeCommitPage();
+    if (aeDirty.size) {
+        pushUndo(aePre);
+        const touched = pages.filter(p => aeDirty.has(p.id));
+        touched.forEach(p => { p.nonce = Date.now(); });
+        pushServerPages()
+            .then(() => touched.forEach(refreshCard))
+            .catch(e => log(e.message, 'error'));
+    }
+    aePre = null;
+    aePageId = null;
+    if (aeStage) { aeStage.destroy(); aeStage = null; aeTr = null; }
+}
+
+function aeCommitPage() {
+    if (!aePageId || !aePageDirty) return;
+    const p = pageById(aePageId);
+    if (p) {
+        p.annots = JSON.parse(JSON.stringify(aeAnnots));
+        aeDirty.add(aePageId);
+    }
+    aePageDirty = false;
+}
+
+function aeStep(delta) {
+    const idx = pages.findIndex(p => p.id === aePageId);
+    const next = idx + delta;
+    if (next < 0 || next >= pages.length) return;
+    aeLoadPage(pages[next].id);
+}
+
+function aeLoadPage(pageId) {
+    aeCommitPage();
+    const p = pageById(pageId);
+    if (!p) return;
+    aePageId = pageId;
+    aeAnnots = JSON.parse(JSON.stringify(p.annots || []));
+    aePageDirty = false;
+
+    const idx = pages.indexOf(p);
+    document.getElementById('aeTitle').innerHTML =
+        `<i class="bi bi-pen"></i> Mark up — page #${idx + 1} of ${pages.length}`;
+    document.getElementById('aePrevBtn').disabled = idx <= 0;
+    document.getElementById('aeNextBtn').disabled = idx >= pages.length - 1;
+    aeSyncResToggle();
+
+    const url = (previewRes === 'full' ? fullResUrl(p) : thumbUrl(p, PREVIEW_W)) + '&annots=0';
+    const im = new Image();
+    im.onload = () => { if (aeShown && aePageId === pageId) aeBuildStage(im); };
+    im.onerror = () => log('Failed to load the page image.', 'error');
+    im.src = url;
+}
+
+function aeSyncResToggle() {
+    document.querySelectorAll('#aeResToggle [data-res]').forEach(b => {
+        b.classList.toggle('active', b.dataset.res === previewRes);
+    });
+}
+
+function aeBuildStage(im) {
+    const wrap = document.getElementById('aeWrap');
+    const W = Math.max(50, wrap.clientWidth), H = Math.max(50, wrap.clientHeight);
+    if (aeStage) aeStage.destroy();
+
+    aeStage = new Konva.Stage({container: 'aeStageDiv', width: W, height: H});
+    aeBgLayer = new Konva.Layer({listening: false});
+    aeLayer = new Konva.Layer();
+    aeStage.add(aeBgLayer);
+    aeStage.add(aeLayer);
+
+    aeImgW = im.naturalWidth;
+    aeImgH = im.naturalHeight;
+    aeScale = Math.min(W / aeImgW, H / aeImgH) * 0.98;
+    aeOffX = (W - aeImgW * aeScale) / 2;
+    aeOffY = (H - aeImgH * aeScale) / 2;
+    aeBgLayer.add(new Konva.Image({image: im, x: aeOffX, y: aeOffY,
+                                   width: aeImgW * aeScale,
+                                   height: aeImgH * aeScale}));
+
+    aeTr = new Konva.Transformer({rotateEnabled: false, ignoreStroke: true});
+    aeLayer.add(aeTr);
+    aeRebuildNodes();
+
+    aeStage.on('mousedown touchstart', aeOnDown);
+    aeStage.on('mousemove touchmove', aeOnMove);
+    aeStage.on('mouseup touchend', aeOnUp);
+    aeApplyToolState();
+}
+
+function aeRebuildNodes() {
+    if (!aeLayer) return;
+    [...aeLayer.getChildren()].filter(n => n !== aeTr).forEach(n => n.destroy());
+    aeTr.nodes([]);
+    aeAnnots.forEach(a => aeLayer.add(aeMakeNode(a)));
+    aeTr.moveToTop();
+    aeLayer.batchDraw();
+    aeUpdatePendingUI();
+    aeUpdateDeleteBtn();
+}
+
+function aeUpdatePendingUI() {
+    const pendHere = aeAnnots.filter(a => a.pending).length;
+    const pendAll = pages.reduce((n, p) =>
+        n + (p.id === aePageId ? pendHere
+             : (p.annots || []).filter(a => a.pending).length), 0);
+    const badge = document.getElementById('aePendingBadge');
+    badge.style.display = pendAll ? '' : 'none';
+    badge.textContent = `${pendAll} pending`;
+    document.getElementById('aePendingActions').style.display = pendAll ? '' : 'none';
+}
+
+function aeMakeNode(a) {
+    let node;
+    const pendingProps = a.pending
+        ? {stroke: '#ff8c00', strokeWidth: 2, dash: [8, 4]} : {};
+    if (a.kind === 'redact' || a.kind === 'highlight') {
+        const [x1, y1, x2, y2] = a.rect;
+        node = new Konva.Rect({
+            x: fx2s(Math.min(x1, x2)), y: fy2s(Math.min(y1, y2)),
+            width: Math.abs(x2 - x1) * aeImgW * aeScale,
+            height: Math.abs(y2 - y1) * aeImgH * aeScale,
+            fill: a.color || (a.kind === 'redact' ? '#000000' : '#ffff00'),
+            opacity: a.kind === 'highlight' ? (a.opacity || 0.4) : 1,
+            ...pendingProps,
+        });
+    } else if (a.kind === 'text') {
+        node = new Konva.Text({
+            x: fx2s(a.pos[0]), y: fy2s(a.pos[1]),
+            text: a.text || '',
+            fontSize: Math.max(6, (a.size || 0.025) * aeImgH * aeScale),
+            fill: a.color || '#d00000',
+            fontStyle: 'bold',
+        });
+        node.on('dblclick dbltap', () => {
+            const nt = prompt('Edit text:', a.text || '');
+            if (nt === null) return;
+            const v = nt.trim();
+            if (!v) { aeRemoveAnnot(a.id); return; }
+            a.text = v;
+            node.text(v);
+            aePageDirty = true;
+            aeLayer.batchDraw();
+        });
+    } else if (a.kind === 'ink') {
+        const flat = [];
+        (a.points || []).forEach(pt => { flat.push(fx2s(pt[0]), fy2s(pt[1])); });
+        node = new Konva.Line({
+            points: flat,
+            stroke: a.color || '#0000ff',
+            strokeWidth: Math.max(1, (a.width || 0.004) * aeImgH * aeScale),
+            opacity: a.opacity || 1,
+            lineCap: 'round', lineJoin: 'round',
+            hitStrokeWidth: 14,
+        });
+    } else {
+        return new Konva.Group();
+    }
+    node.setAttr('annotId', a.id);
+    node.setAttr('kind', a.kind);
+    node.draggable(aeTool === 'select');
+    node.on('mousedown touchstart', () => { if (aeTool === 'select') aeSelect(node); });
+    node.on('dragend transformend', () => aeWriteBack(a, node));
+    return node;
+}
+
+function aeAnnotForNode(node) {
+    return aeAnnots.find(a => a.id === node.getAttr('annotId'));
+}
+function aeSelectedNode() {
+    return (aeTr && aeTr.nodes().length) ? aeTr.nodes()[0] : null;
+}
+
+function aeSelect(node) {
+    if (!aeTr) return;
+    aeTr.nodes([node]);
+    const kind = node.getAttr('kind');
+    if (kind === 'ink') {
+        aeTr.enabledAnchors([]);
+    } else if (kind === 'text') {
+        aeTr.keepRatio(true);
+        aeTr.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+    } else {
+        aeTr.keepRatio(false);
+        aeTr.enabledAnchors(['top-left', 'top-center', 'top-right',
+                             'middle-left', 'middle-right',
+                             'bottom-left', 'bottom-center', 'bottom-right']);
+    }
+    // Reflect the selection's style in the controls.
+    const a = aeAnnotForNode(node);
+    if (a) {
+        if (a.kind === 'highlight' && a.opacity) {
+            aeOpacity = a.opacity;
+            document.getElementById('aeOpacity').value = Math.round(a.opacity * 100);
+            document.getElementById('aeOpacityVal').textContent = Math.round(a.opacity * 100) + '%';
+        }
+    }
+    aeTr.moveToTop();
+    aeLayer.batchDraw();
+    aeUpdateDeleteBtn();
+}
+
+function aeUpdateDeleteBtn() {
+    document.getElementById('aeDeleteBtn').disabled = !aeSelectedNode();
+}
+
+function aeWriteBack(a, node) {
+    if (a.kind === 'redact' || a.kind === 'highlight') {
+        const w = node.width() * node.scaleX();
+        const h = node.height() * node.scaleY();
+        node.scaleX(1); node.scaleY(1);
+        node.width(w); node.height(h);
+        a.rect = [sx2f(node.x()), sy2f(node.y()),
+                  sx2f(node.x() + w), sy2f(node.y() + h)];
+    } else if (a.kind === 'text') {
+        const s = node.scaleY();
+        if (Math.abs(s - 1) > 1e-3) {
+            node.fontSize(node.fontSize() * s);
+            node.scaleX(1); node.scaleY(1);
+        }
+        a.pos = [sx2f(node.x()), sy2f(node.y())];
+        a.size = node.fontSize() / (aeImgH * aeScale);
+    } else if (a.kind === 'ink') {
+        const dx = node.x(), dy = node.y();
+        if (dx || dy) {
+            a.points = (a.points || []).map(pt => [
+                Math.max(0, Math.min(1, pt[0] + dx / (aeImgW * aeScale))),
+                Math.max(0, Math.min(1, pt[1] + dy / (aeImgH * aeScale)))]);
+            node.position({x: 0, y: 0});
+            const flat = [];
+            a.points.forEach(pt => { flat.push(fx2s(pt[0]), fy2s(pt[1])); });
+            node.points(flat);
+        }
+    }
+    aePageDirty = true;
+    aeLayer.batchDraw();
+}
+
+function aeRemoveAnnot(id) {
+    aeAnnots = aeAnnots.filter(a => a.id !== id);
+    aePageDirty = true;
+    aeRebuildNodes();
+}
+
+function aeDeleteSelected() {
+    const n = aeSelectedNode();
+    if (!n) return;
+    aeRemoveAnnot(n.getAttr('annotId'));
+}
+
+// ---------- tools / colours ----------
+
+function aeSetTool(tool) {
+    aeTool = tool;
+    document.querySelectorAll('#aeTools [data-tool]').forEach(b => {
+        b.classList.toggle('active', b.dataset.tool === tool);
+        b.classList.toggle('btn-primary', b.dataset.tool === tool);
+        b.classList.toggle('btn-outline-secondary', b.dataset.tool !== tool);
+    });
+    document.getElementById('aeOpacityWrap').style.display =
+        (tool === 'highlight' || tool === 'select') ? '' : 'none';
+    document.getElementById('aeWidthWrap').style.display =
+        (tool === 'pen' || tool === 'select') ? '' : 'none';
+    aeApplyToolState();
+}
+
+function aeApplyToolState() {
+    if (!aeLayer) return;
+    if (aeTool !== 'select' && aeTr) aeTr.nodes([]);
+    [...aeLayer.getChildren()].filter(n => n !== aeTr)
+        .forEach(n => n.draggable(aeTool === 'select'));
+    const div = document.getElementById('aeStageDiv');
+    div.style.cursor = aeTool === 'select' ? 'default'
+        : aeTool === 'text' ? 'text' : 'crosshair';
+    aeUpdateDeleteBtn();
+    aeLayer.batchDraw();
+}
+
+function aePickColor(color) {
+    const sel = aeSelectedNode();
+    if (sel) {
+        const a = aeAnnotForNode(sel);
+        if (a) {
+            a.color = color;
+            if (sel instanceof Konva.Line) sel.stroke(color);
+            else if (sel instanceof Konva.Text) sel.fill(color);
+            else sel.fill(color);
+            aePageDirty = true;
+            aeLayer.batchDraw();
+        }
+    }
+    const kind = AE_TOOL_KIND[aeTool];
+    if (kind) aeColors[kind] = color;
+    document.querySelectorAll('#aeColors .ae-swatch').forEach(b => {
+        b.classList.toggle('active', b.dataset.color === color);
+    });
+}
+
+// ---------- drawing ----------
+
+function aeOnDown(e) {
+    if (!aeStage) return;
+    const pos = aeStage.getPointerPosition();
+    if (!pos) return;
+    if (aeTool === 'select') {
+        // Clicking empty canvas / background clears the selection.
+        if (e.target === aeStage || e.target.getLayer() === aeBgLayer) {
+            if (aeTr) aeTr.nodes([]);
+            aeUpdateDeleteBtn();
+            aeLayer.batchDraw();
+        }
+        return;
+    }
+    e.evt.preventDefault();
+    if (aeTool === 'redact' || aeTool === 'highlight') {
+        const node = new Konva.Rect({
+            x: pos.x, y: pos.y, width: 1, height: 1,
+            fill: aeColors[aeTool],
+            opacity: aeTool === 'highlight' ? aeOpacity : 1,
+        });
+        aeLayer.add(node);
+        aeTr.moveToTop();
+        aeDrawing = {kind: aeTool, node, sx: pos.x, sy: pos.y};
+    } else if (aeTool === 'pen') {
+        const node = new Konva.Line({
+            points: [pos.x, pos.y],
+            stroke: aeColors.ink, strokeWidth: aeInkWidthPx,
+            lineCap: 'round', lineJoin: 'round',
+        });
+        aeLayer.add(node);
+        aeTr.moveToTop();
+        aeDrawing = {kind: 'ink', node};
+    } else if (aeTool === 'text') {
+        const t = prompt('Text to add:');
+        if (t && t.trim()) {
+            const a = {id: annotId(), kind: 'text', text: t.trim(),
+                       pos: [sx2f(pos.x), sy2f(pos.y)],
+                       size: 0.025, color: aeColors.text};
+            aeAnnots.push(a);
+            aePageDirty = true;
+            const node = aeMakeNode(a);
+            aeLayer.add(node);
+            aeTr.moveToTop();
+            aeLayer.batchDraw();
+            aeUpdatePendingUI();
+        }
+    }
+}
+
+function aeOnMove(e) {
+    if (!aeDrawing) return;
+    e.evt.preventDefault();
+    const pos = aeStage.getPointerPosition();
+    if (!pos) return;
+    if (aeDrawing.kind === 'ink') {
+        aeDrawing.node.points(aeDrawing.node.points().concat([pos.x, pos.y]));
+    } else {
+        aeDrawing.node.x(Math.min(pos.x, aeDrawing.sx));
+        aeDrawing.node.y(Math.min(pos.y, aeDrawing.sy));
+        aeDrawing.node.width(Math.abs(pos.x - aeDrawing.sx));
+        aeDrawing.node.height(Math.abs(pos.y - aeDrawing.sy));
+    }
+    aeLayer.batchDraw();
+}
+
+function aeOnUp() {
+    if (!aeDrawing) return;
+    const d = aeDrawing;
+    aeDrawing = null;
+    if (d.kind === 'ink') {
+        const flat = d.node.points();
+        d.node.destroy();
+        if (flat.length >= 4) {
+            const pts = [];
+            for (let i = 0; i < flat.length; i += 2) {
+                pts.push([sx2f(flat[i]), sy2f(flat[i + 1])]);
+            }
+            const a = {id: annotId(), kind: 'ink', points: pts,
+                       color: aeColors.ink, width: inkFrac(), opacity: 1.0};
+            aeAnnots.push(a);
+            aePageDirty = true;
+            aeLayer.add(aeMakeNode(a));
+            aeTr.moveToTop();
+        }
+    } else {
+        const w = d.node.width(), h = d.node.height();
+        const x = d.node.x(), y = d.node.y();
+        d.node.destroy();
+        if (w > 5 && h > 5) {
+            const a = {id: annotId(), kind: d.kind,
+                       rect: [sx2f(x), sy2f(y), sx2f(x + w), sy2f(y + h)],
+                       color: aeColors[d.kind]};
+            if (d.kind === 'highlight') a.opacity = aeOpacity;
+            aeAnnots.push(a);
+            aePageDirty = true;
+            aeLayer.add(aeMakeNode(a));
+            aeTr.moveToTop();
+        }
+    }
+    aeLayer.batchDraw();
+    aeUpdatePendingUI();
+}
+
+// ---------- batch copy ----------
+
+function aeCopyTo(scope) {
+    const sel = aeSelectedNode();
+    const selAnnot = sel ? aeAnnotForNode(sel) : null;
+    const src = selAnnot ? [selAnnot] : aeAnnots;
+    if (!src.length) { log('Nothing to copy — draw a mark first.', 'error'); return; }
+    const targets = pages.filter(p => p.id !== aePageId
+        && (scope === 'all' || selected.has(p.id)));
+    if (!targets.length) {
+        log(scope === 'selected'
+            ? 'No other selected pages to copy to.' : 'No other pages.', 'error');
+        return;
+    }
+    targets.forEach(p => {
+        p.annots = p.annots || [];
+        src.forEach(a => {
+            const c = JSON.parse(JSON.stringify(a));
+            c.id = annotId();
+            delete c.pending;
+            p.annots.push(c);
+        });
+        aeDirty.add(p.id);
+    });
+    log(`Copied ${src.length} mark(s) to ${targets.length} page(s).`, 'success');
+}
+
+// ---------- keyboard ----------
+
+function aeOnKeyDown(e) {
+    if (!aeShown) return;
+    const el = document.activeElement;
+    const tag = (el && el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select'
+        || (el && el.isContentEditable)) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        aeDeleteSelected();
+    } else if (e.key === 'ArrowLeft') {
+        e.preventDefault(); aeStep(-1);
+    } else if (e.key === 'ArrowRight') {
+        e.preventDefault(); aeStep(1);
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (aeSelectedNode()) { aeTr.nodes([]); aeUpdateDeleteBtn(); aeLayer.batchDraw(); }
+        else aeModal.hide();
+    } else if (e.key === 'v' || e.key === 'V') { aeSetTool('select'); }
+    else if (e.key === 'r' || e.key === 'R') { aeSetTool('redact'); }
+    else if (e.key === 'h' || e.key === 'H') { aeSetTool('highlight'); }
+    else if (e.key === 't' || e.key === 'T') { aeSetTool('text'); }
+    else if (e.key === 'p' || e.key === 'P') { aeSetTool('pen'); }
+}
+
+})();
+</script>

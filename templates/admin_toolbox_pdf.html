@@ -91,7 +91,33 @@
     .sortable-fallback.tb-multi-drag::before { transform: translate(6px, 6px); }
     .sortable-fallback.tb-multi-drag::after  { transform: translate(12px, 12px); }
     .tb-modal-imgwrap { display: inline-block; max-width: 100%; }
-    .tb-adjust-menu { min-width: 250px; }
+    .tb-adjust-menu { min-width: 300px; }
+    /* Tap-to-select mode: every card shows a check circle; taps toggle. */
+    .tb-check {
+        position: absolute; top: 4px; right: 4px; z-index: 3;
+        width: 24px; height: 24px; border-radius: 50%;
+        background: rgba(255,255,255,.9); border: 2px solid var(--bs-secondary);
+        display: none; align-items: center; justify-content: center;
+        font-size: .85rem; color: transparent;
+    }
+    body.tb-select-mode .tb-page-card .tb-check { display: flex; }
+    body.tb-select-mode .tb-page-card.tb-selected .tb-check {
+        background: var(--bs-primary); border-color: var(--bs-primary); color: #fff;
+    }
+    /* Enlarged preview: touch tap zones for prev / next. */
+    .tb-tapzone {
+        position: absolute; top: 0; bottom: 0; width: 18%; z-index: 4;
+        display: flex; align-items: center; cursor: pointer;
+        opacity: 0; transition: opacity .15s; user-select: none;
+    }
+    .tb-tapzone:hover, .tb-tapzone:active { opacity: 1; }
+    .tb-tapzone.tb-tap-left  { left: 0;  justify-content: flex-start; }
+    .tb-tapzone.tb-tap-right { right: 0; justify-content: flex-end; }
+    .tb-tapzone > span {
+        font-size: 1.6rem; padding: .6rem .35rem; color: var(--bs-body-color);
+        background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);
+        border-radius: .4rem; opacity: .85; margin: 0 .35rem;
+    }
 </style>
 {% endblock %}
 
@@ -199,10 +225,12 @@
                             <div class="btn-group btn-group-sm" role="group">
                                 <button class="btn btn-outline-secondary" id="selAllBtn" type="button" title="Select all (Ctrl+A)"><i class="bi bi-check2-square"></i> All</button>
                                 <button class="btn btn-outline-secondary" id="selClearBtn" type="button" title="Clear selection (Esc)">None</button>
+                                <button class="btn btn-outline-secondary" id="selectModeBtn" type="button" title="Tap-to-select mode (long-press a page on touch devices)"><i class="bi bi-ui-checks-grid"></i> Select</button>
                             </div>
                             <button class="btn btn-sm btn-outline-secondary" id="undoBtn" type="button" title="Undo (Ctrl+Z)" disabled><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
                             <div class="vr"></div>
                             <span id="mainImageOps" class="d-flex flex-wrap align-items-center gap-2"></span>
+                            <button class="btn btn-sm btn-outline-primary" id="findMarkBtn" type="button" title="Search text (digital / OCR / AI) and add highlights or redactions"><i class="bi bi-search"></i> Find &amp; Mark</button>
                             <div class="vr"></div>
                             <div class="btn-group btn-group-sm" role="group">
                                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" title="Reorder selected pages (or all if none selected)">
@@ -236,6 +264,14 @@
                                 <option value="zip">ZIP of page images</option>
                             </select>
                         </div>
+                        <div class="col-auto" id="outputModeWrap">
+                            <label class="form-label small mb-0">Output</label>
+                            <select id="exportOutput" class="form-select form-select-sm" style="width:auto;"
+                                    title="Digital keeps vector pages and applies TRUE redaction (covered text is removed from the file). Image flattens every page to pixels, so redacted content can never be recovered.">
+                                <option value="digital">Digital (true redaction)</option>
+                                <option value="image">Image (flatten pages)</option>
+                            </select>
+                        </div>
                         <div class="col-auto" id="splitEveryWrap" style="display:none;">
                             <div class="form-check mt-3">
                                 <input class="form-check-input" type="checkbox" id="splitEveryChk">
@@ -260,6 +296,7 @@
                     </div>
                     <div class="text-muted small mb-2">
                         Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
+                        On touch devices, long-press a page (or use the Select button) to tap-select multiple pages.
                         Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
                     </div>
 
@@ -294,17 +331,23 @@
 <div class="modal fade" id="previewModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header py-2 d-flex align-items-center gap-2">
+            <div class="modal-header py-2 d-flex align-items-center gap-2 flex-wrap">
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="prevPageBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="nextPageBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
                 <h5 class="modal-title mb-0" id="previewModalTitle">Page preview</h5>
+                <div class="btn-group btn-group-sm" role="group" id="previewResToggle">
+                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="Fast preview (smaller render)">Quick</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="Full export resolution (slower)">Full res</button>
+                </div>
                 <span class="badge bg-secondary" id="previewModalRes"></span>
                 <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
             </div>
             <div class="tb-ops-bar bg-body border-bottom p-2">
                 <div id="modalImageOps" class="d-flex flex-wrap align-items-center gap-2"></div>
             </div>
-            <div class="modal-body text-center" id="previewModalBody">
+            <div class="modal-body text-center position-relative" id="previewModalBody">
+                <div class="tb-tapzone tb-tap-left" id="modalTapPrev" title="Previous page"><span><i class="bi bi-chevron-left"></i></span></div>
+                <div class="tb-tapzone tb-tap-right" id="modalTapNext" title="Next page"><span><i class="bi bi-chevron-right"></i></span></div>
                 <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="Page preview"></div>
             </div>
         </div>
@@ -352,28 +395,118 @@
         </div>
     </div>
 </div>
+
+<!-- Find & Mark modal (search text -> highlight / redact) -->
+<div class="modal fade" id="findMarkModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-search"></i> Find &amp; Mark</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label small mb-1 fw-bold">Search terms</label>
+                <div id="fmTerms"></div>
+                <button class="btn btn-sm btn-outline-secondary mb-3" id="fmAddTermBtn" type="button"><i class="bi bi-plus-lg"></i> Add term</button>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-sm-6">
+                        <label class="form-label small mb-1 fw-bold">Search engine</label>
+                        <select id="fmEngine" class="form-select form-select-sm">
+                            <option value="auto">Auto (text layer, else OCR)</option>
+                            <option value="digital">Digital text layer</option>
+                            <option value="ocr">OCR (scanned pages)</option>
+                            <option value="ai">AI vision (LLM)</option>
+                        </select>
+                        <div class="form-text" id="fmEngineHint"></div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label small mb-1 fw-bold">Pages</label>
+                        <select id="fmScope" class="form-select form-select-sm">
+                            <option value="all">All pages</option>
+                            <option value="selected">Selected pages only</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 align-items-center mb-2" id="fmFuzzyRow">
+                    <div class="col-auto">
+                        <div class="form-check form-check-sm">
+                            <input class="form-check-input" type="checkbox" id="fmFuzzy" checked>
+                            <label class="form-check-label small" for="fmFuzzy">Fuzzy match</label>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="small text-nowrap">Threshold <b id="fmThresholdVal">85</b>%</span>
+                            <input type="range" class="form-range" id="fmThreshold" min="50" max="100" step="1" value="85">
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <div class="form-check form-check-sm">
+                            <input class="form-check-input" type="checkbox" id="fmCase">
+                            <label class="form-check-label small" for="fmCase">Case sensitive</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-auto small text-nowrap">Highlight opacity <b id="fmOpacityVal">40</b>%</div>
+                    <div class="col"><input type="range" class="form-range" id="fmOpacity" min="10" max="100" step="5" value="40"></div>
+                </div>
+
+                <div id="fmAiBlock" style="display:none;">
+                    <hr class="my-2">
+                    <div class="mb-2">
+                        <label class="form-label small mb-1 fw-bold">LLM endpoint</label>
+                        <select id="fmEndpoint" class="form-select form-select-sm"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1 fw-bold">Custom prompt <span class="fw-normal text-muted">(optional — overrides the phrase search; describe anything to locate, e.g. "every signature and personal name")</span></label>
+                        <textarea class="form-control form-control-sm" id="fmCustomPrompt" rows="2" placeholder="Leave blank to search for the terms above"></textarea>
+                    </div>
+                    <div class="form-text mb-2">The model returns boxes per page. With a custom prompt, all boxes use the first term's mark style (or highlight if no terms).</div>
+                </div>
+
+                <div id="fmLog" class="alert alert-secondary tb-log d-none mb-0"></div>
+            </div>
+            <div class="modal-footer flex-wrap">
+                <span class="me-auto small text-muted" id="fmSummary"></span>
+                <button type="button" class="btn btn-sm btn-outline-success" id="fmAcceptBtn" style="display:none;"><i class="bi bi-check2-all"></i> Accept all pending</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fmUndoBtn" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="fmCancelBtn" style="display:none;"><i class="bi bi-x-octagon"></i> Stop</button>
+                <button type="button" class="btn btn-sm btn-primary" id="fmRunBtn"><i class="bi bi-search"></i> Search &amp; mark</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 const BASE = "{{ url_for('toolbox.pdf_tool') }}";
 const SOURCE_LIST_URL = "{{ url_for('admin.pdf_import_source_list') }}";
+const AI_ENDPOINTS_URL = "{{ url_for('admin.ai_endpoints') }}";
 const THUMB_W = 360;
 const PREVIEW_W = 1100;
 const DEFAULT_DPI = {{ default_dpi }};
 const NUMPY_OK = {{ 'true' if numpy_available else 'false' }};
+const OCR_OK = {{ 'true' if ocr_available else 'false' }};
+const AI_OK = {{ 'true' if ai_enabled else 'false' }};
 const DEFAULT_SAVE_SUBDIR = {{ save_subdir | tojson }};
 let TOKEN = null;
 let activeSrc = null;
 const sources = {};          // srcid -> {filename, page_count}
-let pages = [];              // [{id, src, page, mode, baseOps, edit:{type->op}, dpi, nonce}]
+let pages = [];              // [{id, src, page, mode, baseOps, edit:{type->op}, dpi, annots:[], nonce}]
 let sortable = null;
 let selected = new Set();     // selected page ids
 let lastClickedId = null;     // for shift-range select
+let selectMode = false;       // tap-to-select (touch) mode
 let clipboard = null;         // {mode:'copy'|'cut', ids:[]}
 const undoStack = [];         // snapshots of `pages` taken before each mutation
 const UNDO_MAX = 60;
 let dragPreSnapshot = null;    // snapshot captured at drag start
+let previewRes = localStorage.getItem('oqb_tbPreviewRes') === 'full' ? 'full' : 'thumb';
 
 const SPLIT_HELP = {
     none: 'Pages are added as-is.',
@@ -415,6 +548,7 @@ function snapshotPages() {
         id: p.id, src: p.src, page: p.page, mode: p.mode, dpi: p.dpi,
         baseOps: JSON.parse(JSON.stringify(p.baseOps || [])),
         edit: JSON.parse(JSON.stringify(p.edit || {})),
+        annots: JSON.parse(JSON.stringify(p.annots || [])),
     }));
 }
 function pushUndo(snap) {
@@ -431,7 +565,8 @@ async function pushServerPages() {
     return postJSON(`${BASE}/set-pages`, {
         token: TOKEN,
         pages: pages.map(p => ({id: p.id, src: p.src, page: p.page,
-                                mode: p.mode, dpi: p.dpi, ops: fullOps(p)})),
+                                mode: p.mode, dpi: p.dpi, ops: fullOps(p),
+                                annots: p.annots || []})),
     });
 }
 async function doUndo() {
@@ -439,7 +574,7 @@ async function doUndo() {
     const snap = undoStack.pop();
     pages = snap.map(p => ({id: p.id, src: p.src, page: p.page, mode: p.mode,
                             dpi: p.dpi, baseOps: p.baseOps, edit: p.edit,
-                            nonce: Date.now()}));
+                            annots: p.annots || [], nonce: Date.now()}));
     const ids = new Set(pages.map(p => p.id));
     selected = new Set([...selected].filter(id => ids.has(id)));
     clipboard = null;
@@ -550,7 +685,8 @@ async function addPages() {
     pushUndo();
     data.pages.forEach(sp => {
         pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {}, nonce: Date.now()});
+                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
+                    annots: sp.annots || [], nonce: Date.now()});
     });
     log(`Added ${data.added} page(s).`, 'success');
     setBtnLoading(btn, false);
@@ -587,7 +723,14 @@ function editBadges(p) {
     if (p.edit.contrast) labels.push('contrast');
     if (p.edit.sharpen) labels.push('sharpen');
     if (p.edit.grayscale) labels.push('gray');
-    return labels.map(l => `<span class="badge bg-info text-dark">${l}</span>`).join('');
+    let html = labels.map(l => `<span class="badge bg-info text-dark">${l}</span>`).join('');
+    const annots = p.annots || [];
+    if (annots.length) {
+        const pend = annots.filter(a => a.pending).length;
+        html += `<span class="badge bg-warning text-dark" title="${annots.length} mark(s) on this page"><i class="bi bi-pen"></i> ${annots.length}</span>`;
+        if (pend) html += `<span class="badge bg-danger" title="${pend} pending mark(s) awaiting review">${pend} pending</span>`;
+    }
+    return html;
 }
 
 function buildCard(p, idx) {
@@ -599,9 +742,11 @@ function buildCard(p, idx) {
             <span class="text-muted">#<span class="tb-num">${idx + 1}</span></span>
         </div>
         <div class="tb-page-badges">${editBadges(p)}</div>
+        <div class="tb-check"><i class="bi bi-check-lg"></i></div>
         <div class="tb-thumb-wrap"><img src="${thumbUrl(p)}" loading="lazy"></div>`;
     card.addEventListener('click', (e) => onCardClick(e, p.id));
     card.addEventListener('dblclick', (e) => { e.preventDefault(); openPreview(p); });
+    card.addEventListener('pointerdown', (e) => beginLongPress(e, p.id));
     return card;
 }
 
@@ -609,6 +754,17 @@ function cardEl(id) { return document.querySelector(`.tb-page-card[data-page-id=
 
 // ---------- selection ----------
 function onCardClick(e, id) {
+    if (suppressClickId === id && Date.now() - suppressClickAt < 700) {
+        suppressClickId = null;            // swallow the click after a long-press
+        return;
+    }
+    if (selectMode) {
+        // Tap-to-select: every click toggles (Google-Photos style).
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        lastClickedId = id;
+        updateSelectionUI();
+        return;
+    }
     if (e.shiftKey && lastClickedId) {
         selectRange(lastClickedId, id, e.ctrlKey || e.metaKey);
     } else if (e.ctrlKey || e.metaKey) {
@@ -619,6 +775,57 @@ function onCardClick(e, id) {
         lastClickedId = id;
     }
     updateSelectionUI();
+}
+
+// ---------- tap-to-select mode (touch friendly) ----------
+let lpTimer = null, suppressClickId = null, suppressClickAt = 0;
+
+function setSelectMode(on) {
+    selectMode = !!on;
+    document.body.classList.toggle('tb-select-mode', selectMode);
+    const b = document.getElementById('selectModeBtn');
+    if (b) {
+        b.classList.toggle('btn-primary', selectMode);
+        b.classList.toggle('btn-outline-secondary', !selectMode);
+        b.innerHTML = selectMode
+            ? '<i class="bi bi-check2-square"></i> Done'
+            : '<i class="bi bi-ui-checks-grid"></i> Select';
+    }
+    if (sortable) sortable.option('disabled', selectMode);
+}
+
+function cancelLongPress() {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+}
+
+function beginLongPress(e, id) {
+    // Long-press on a card enters tap-to-select mode (touch / pen only —
+    // mouse users have Ctrl/Shift/rubber-band). Skipped when a selection
+    // already exists so holding a selected group still starts a drag.
+    if (selectMode || selected.size || e.pointerType === 'mouse') return;
+    cancelLongPress();
+    const sx = e.clientX, sy = e.clientY;
+    const onMove = (ev) => {
+        if (Math.abs(ev.clientX - sx) > 8 || Math.abs(ev.clientY - sy) > 8) cleanup();
+    };
+    const cleanup = () => {
+        cancelLongPress();
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', cleanup);
+        document.removeEventListener('pointercancel', cleanup);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', cleanup);
+    document.addEventListener('pointercancel', cleanup);
+    lpTimer = setTimeout(() => {
+        cleanup();
+        setSelectMode(true);
+        selected = new Set([id]);
+        lastClickedId = id;
+        suppressClickId = id; suppressClickAt = Date.now();
+        updateSelectionUI();
+        if (navigator.vibrate) { try { navigator.vibrate(25); } catch (_) {} }
+    }, 500);
 }
 
 function selectRange(fromId, toId, additive) {
@@ -669,18 +876,40 @@ async function opAction(op) {
     if (op === 'cut') { return cutSel(targets); }
     if (!targets.length) return;
     if (op === 'del') { return deleteSelected(); }
+    if (op === 'markup') { return openAnnotEditor(targets[0].id); }
 
     pushUndo();
     if (op === 'rotL') targets.forEach(p => rotateBy(p, -90));
     else if (op === 'rotR') targets.forEach(p => rotateBy(p, 90));
     else if (op === 'reset') targets.forEach(p => p.edit = {});
-    else if (op === 'deskew') {
-        const allOn = targets.every(p => p.edit.deskew);
-        targets.forEach(p => { if (allOn) delete p.edit.deskew; else p.edit.deskew = {type: 'deskew'}; });
-    } else if (op === 'gray') {
-        const allOn = targets.every(p => p.edit.grayscale);
-        targets.forEach(p => { if (allOn) delete p.edit.grayscale; else p.edit.grayscale = {type: 'grayscale'}; });
-    }
+    await saveMany(targets);
+    refreshModalImg();
+}
+
+// Checkbox-driven toggles in the Adjust menu (grayscale / deskew) — the
+// checkbox state is authoritative, so set/unset rather than flip.
+async function applyCheckToggle(type, on) {
+    const targets = currentTargets();
+    if (!targets.length) return;
+    pushUndo();
+    targets.forEach(p => {
+        if (on) p.edit[type] = {type};
+        else delete p.edit[type];
+    });
+    await saveMany(targets);
+    refreshModalImg();
+}
+
+// "Reset adjustments" — clears the colour/tone group only (brightness,
+// contrast, sharpen, grayscale, deskew, B&W); rotation and marks survive.
+async function resetAdjusts() {
+    const targets = currentTargets();
+    if (!targets.length) return;
+    pushUndo();
+    targets.forEach(p => {
+        ['brightness', 'contrast', 'sharpen', 'grayscale', 'deskew', 'bw']
+            .forEach(k => delete p.edit[k]);
+    });
     await saveMany(targets);
     refreshModalImg();
 }
@@ -777,7 +1006,8 @@ async function pasteClipboard() {
         const byId = {}; pages.forEach(p => byId[p.id] = p);
         data.pages.forEach(sp => {
             byId[sp.id] = {id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                           dpi: sp.dpi, baseOps: sp.ops || [], edit: {}, nonce: Date.now()};
+                           dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
+                           annots: sp.annots || [], nonce: Date.now()};
         });
         pages = data.order.map(id => byId[id]).filter(Boolean);
         setSelection(data.pages.map(p => p.id));
@@ -861,7 +1091,9 @@ function initSortable() {
         draggable: '.tb-page-card',
         animation: 150, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
         forceFallback: true, fallbackTolerance: 4, delay: 80, delayOnTouchOnly: true,
+        disabled: selectMode,
         onStart(evt) {
+            cancelLongPress();   // a real drag began — don't enter select mode
             const id = evt.item.dataset.pageId;
             if (!selected.has(id)) setSelection([id]);
             dragPreSnapshot = snapshotPages();
@@ -963,6 +1195,7 @@ function isTypingTarget(el) {
 function initKeyboard() {
     document.addEventListener('keydown', (e) => {
         if (isTypingTarget(document.activeElement)) return;
+        if (window.tbAnnotEditorActive) return;   // editor has its own keys
         // When the enlarged preview is open, arrows page through; grid shortcuts
         // are suppressed to avoid acting on the hidden selection.
         if (modalActive) {
@@ -984,6 +1217,7 @@ function initKeyboard() {
         } else if (ctrl && (e.key === 'z' || e.key === 'Z')) {
             e.preventDefault(); doUndo();
         } else if (e.key === 'Escape') {
+            if (selectMode) setSelectMode(false);
             clearSelection();
         }
     });
@@ -1011,6 +1245,19 @@ function openPreview(p) {
     previewModal.show();
 }
 
+function setPreviewRes(mode) {
+    previewRes = mode === 'full' ? 'full' : 'thumb';
+    localStorage.setItem('oqb_tbPreviewRes', previewRes);
+    syncPreviewResToggle();
+    renderModalPage();
+}
+
+function syncPreviewResToggle() {
+    document.querySelectorAll('#previewResToggle [data-res]').forEach(b => {
+        b.classList.toggle('active', b.dataset.res === previewRes);
+    });
+}
+
 function renderModalPage() {
     const p = currentPreviewPage;
     if (!p) return;
@@ -1018,11 +1265,20 @@ function renderModalPage() {
     document.getElementById('previewModalTitle').textContent = `Page #${idx + 1} of ${pages.length}`;
     const img = document.getElementById('previewModalImg');
     const resBadge = document.getElementById('previewModalRes');
-    resBadge.textContent = `${p.dpi || DEFAULT_DPI} DPI`;
-    img.onload = () => { resBadge.textContent = `${img.naturalWidth} × ${img.naturalHeight} px @ ${p.dpi || DEFAULT_DPI} DPI`; };
-    img.src = fullResUrl(p);
+    const full = previewRes === 'full';
+    resBadge.textContent = full ? `${p.dpi || DEFAULT_DPI} DPI` : 'quick';
+    img.onload = () => {
+        resBadge.textContent = full
+            ? `${img.naturalWidth} × ${img.naturalHeight} px @ ${p.dpi || DEFAULT_DPI} DPI`
+            : `quick · ${img.naturalWidth} × ${img.naturalHeight} px`;
+    };
+    img.src = full ? fullResUrl(p) : thumbUrl(p, PREVIEW_W);
     document.getElementById('prevPageBtn').disabled = idx <= 0;
     document.getElementById('nextPageBtn').disabled = idx >= pages.length - 1;
+    const tapPrev = document.getElementById('modalTapPrev');
+    const tapNext = document.getElementById('modalTapNext');
+    if (tapPrev) tapPrev.style.display = idx <= 0 ? 'none' : '';
+    if (tapNext) tapNext.style.display = idx >= pages.length - 1 ? 'none' : '';
 }
 
 function refreshModalImg() {
@@ -1039,46 +1295,52 @@ function stepPreview(delta) {
 }
 
 // ---------- operations toolbar (built once, shared by main + modal) ----------
-function adjustDropdownHTML(type, label, icon, min, max, ns) {
+// All colour/tone controls live in ONE "Adjust" dropdown so the bar stays
+// compact: brightness / contrast / sharpen sliders, grayscale + deskew
+// toggles, B&W threshold, and a reset for the adjustment group.
+function adjustSliderRowHTML(type, label, icon, min, max) {
     return `
-    <div class="btn-group btn-group-sm" role="group">
-      <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
-              data-bs-auto-close="outside" data-adjust="${type}" title="${label}">
-        <i class="bi ${icon}"></i> ${label}
-      </button>
-      <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu">
-        <label class="form-label small mb-1">${label}: <span class="tb-adj-val fw-bold">100%</span></label>
+      <div class="tb-adj-row mb-2" data-type="${type}" data-min="${min}" data-max="${max}">
+        <label class="form-label small mb-1"><i class="bi ${icon}"></i> ${label}: <span class="tb-adj-val fw-bold">100%</span></label>
         <div class="d-flex align-items-center gap-2">
           <input type="range" class="form-range tb-adj-range" min="${min}" max="${max}" step="1" value="100">
-          <input type="number" class="form-control form-control-sm tb-adj-num" style="width:80px;" min="${min}" max="${max}" step="1" value="100">
-          <span class="small text-muted">%</span>
+          <input type="number" class="form-control form-control-sm tb-adj-num" style="width:76px;" min="${min}" max="${max}" step="1" value="100">
         </div>
-        <div class="d-flex justify-content-end mt-2">
-          <button class="btn btn-sm btn-link p-0 tb-adj-reset" type="button">Reset to 100%</button>
-        </div>
-      </div>
-    </div>`;
+      </div>`;
 }
 
-function bwDropdownHTML(ns) {
+function adjustMenuHTML() {
     return `
-    <div class="btn-group btn-group-sm" role="group">
-      <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
-              data-bs-auto-close="outside" data-bw="1" title="Black &amp; white">
-        <i class="bi bi-circle-half"></i> B&amp;W
-      </button>
-      <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu tb-bw-menu">
-        <div class="form-check mb-2">
+      <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu">
+        ${adjustSliderRowHTML('brightness', 'Brightness', 'bi-brightness-high', 30, 200)}
+        ${adjustSliderRowHTML('contrast', 'Contrast', 'bi-circle-square', 30, 200)}
+        ${adjustSliderRowHTML('sharpen', 'Sharpen', 'bi-triangle-half', 0, 300)}
+        <hr class="my-2">
+        <div class="d-flex gap-3 mb-2">
+          <div class="form-check form-check-sm mb-0">
+            <input class="form-check-input tb-adj-gray" type="checkbox">
+            <label class="form-check-label small">Grayscale</label>
+          </div>
+          <div class="form-check form-check-sm mb-0">
+            <input class="form-check-input tb-adj-deskew" type="checkbox" ${NUMPY_OK ? '' : 'disabled'}>
+            <label class="form-check-label small">Deskew${NUMPY_OK ? '' : ' (needs NumPy)'}</label>
+          </div>
+        </div>
+        <div class="form-check form-check-sm mb-1">
           <input class="form-check-input tb-bw-enable" type="checkbox">
-          <label class="form-check-label small">Enable black &amp; white</label>
+          <label class="form-check-label small">Black &amp; white</label>
         </div>
-        <label class="form-label small mb-1">Threshold: <span class="tb-bw-val fw-bold">160</span></label>
-        <div class="d-flex align-items-center gap-2">
-          <input type="range" class="form-range tb-bw-range" min="0" max="255" step="1" value="160">
-          <input type="number" class="form-control form-control-sm tb-bw-num" style="width:80px;" min="0" max="255" step="1" value="160">
+        <div class="tb-bw-row mb-2">
+          <label class="form-label small mb-1">Threshold: <span class="tb-bw-val fw-bold">160</span></label>
+          <div class="d-flex align-items-center gap-2">
+            <input type="range" class="form-range tb-bw-range" min="0" max="255" step="1" value="160">
+            <input type="number" class="form-control form-control-sm tb-bw-num" style="width:76px;" min="0" max="255" step="1" value="160">
+          </div>
         </div>
-      </div>
-    </div>`;
+        <div class="d-flex justify-content-end">
+          <button class="btn btn-sm btn-link p-0 tb-adj-resetall" type="button">Reset adjustments</button>
+        </div>
+      </div>`;
 }
 
 function imageOpsHTML(needsSel) {
@@ -1087,14 +1349,16 @@ function imageOpsHTML(needsSel) {
       <div class="btn-group btn-group-sm" role="group">
         <button class="btn btn-outline-secondary${ns}" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
         <button class="btn btn-outline-secondary${ns}" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
-        <button class="btn btn-outline-secondary${ns}" data-op="deskew" type="button" title="Toggle deskew" ${NUMPY_OK ? '' : 'disabled'}><i class="bi bi-rulers"></i> Deskew</button>
-        <button class="btn btn-outline-secondary${ns}" data-op="gray" type="button" title="Toggle grayscale"><i class="bi bi-palette"></i></button>
       </div>
-      ${adjustDropdownHTML('brightness', 'Brightness', 'bi-brightness-high', 30, 200, ns)}
-      ${adjustDropdownHTML('contrast', 'Contrast', 'bi-circle-square', 30, 200, ns)}
-      ${adjustDropdownHTML('sharpen', 'Sharpen', 'bi-triangle-half', 0, 300, ns)}
-      ${bwDropdownHTML(ns)}
-      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="Reset page edits"><i class="bi bi-eraser"></i> Reset</button>`;
+      <div class="btn-group btn-group-sm" role="group">
+        <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
+                data-bs-auto-close="outside" data-adjustmenu="1" title="Brightness, contrast, sharpen, grayscale, deskew, B&amp;W">
+          <i class="bi bi-sliders"></i> Adjust
+        </button>
+        ${adjustMenuHTML()}
+      </div>
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="markup" type="button" title="Redact, highlight, draw, or add text on the page"><i class="bi bi-pen"></i> Mark up</button>
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="Reset page edits (keeps marks)"><i class="bi bi-eraser"></i> Reset</button>`;
 }
 
 function buildToolbars() {
@@ -1105,64 +1369,75 @@ function buildToolbars() {
         btn.dataset.wired = '1';
         btn.addEventListener('click', () => opAction(btn.dataset.op));
     });
-    initAdjustDropdowns();
-    initBwDropdowns();
+    initAdjustMenus();
 }
 
-function initAdjustDropdowns() {
-    document.querySelectorAll('[data-adjust]').forEach(btn => {
+function initAdjustMenus() {
+    document.querySelectorAll('[data-adjustmenu]').forEach(btn => {
         if (btn.dataset.wired) return;
         btn.dataset.wired = '1';
-        const type = btn.dataset.adjust;
         const menu = btn.parentElement.querySelector('.tb-adjust-menu');
-        const range = menu.querySelector('.tb-adj-range');
-        const num = menu.querySelector('.tb-adj-num');
-        const val = menu.querySelector('.tb-adj-val');
-        const reset = menu.querySelector('.tb-adj-reset');
-        const lo = parseInt(range.min, 10), hi = parseInt(range.max, 10);
-        const show = (v) => { range.value = v; num.value = v; val.textContent = v + '%'; };
-        btn.addEventListener('show.bs.dropdown', () => {
-            const t = currentTargets()[0];
-            const f = (t && t.edit[type]) ? t.edit[type].factor : 1.0;
-            show(Math.round(f * 100));
-        });
-        range.addEventListener('input', () => { num.value = range.value; val.textContent = range.value + '%'; });
-        num.addEventListener('input', () => { val.textContent = num.value + '%'; });
-        range.addEventListener('change', () => applyAdjust(type, parseInt(range.value, 10)));
-        num.addEventListener('change', () => {
-            let v = parseInt(num.value, 10); if (isNaN(v)) v = 100;
-            v = Math.max(lo, Math.min(hi, v)); show(v); applyAdjust(type, v);
-        });
-        reset.addEventListener('click', () => { show(100); applyAdjust(type, 100); });
-        menu.addEventListener('click', (e) => e.stopPropagation());
-    });
-}
 
-function initBwDropdowns() {
-    document.querySelectorAll('[data-bw]').forEach(btn => {
-        if (btn.dataset.wired) return;
-        btn.dataset.wired = '1';
-        const menu = btn.parentElement.querySelector('.tb-bw-menu');
+        // -- sliders (brightness / contrast / sharpen) --
+        menu.querySelectorAll('.tb-adj-row').forEach(row => {
+            const type = row.dataset.type;
+            const lo = parseInt(row.dataset.min, 10), hi = parseInt(row.dataset.max, 10);
+            const range = row.querySelector('.tb-adj-range');
+            const num = row.querySelector('.tb-adj-num');
+            const val = row.querySelector('.tb-adj-val');
+            const show = (v) => { range.value = v; num.value = v; val.textContent = v + '%'; };
+            row._show = show;
+            range.addEventListener('input', () => { num.value = range.value; val.textContent = range.value + '%'; });
+            num.addEventListener('input', () => { val.textContent = num.value + '%'; });
+            range.addEventListener('change', () => applyAdjust(type, parseInt(range.value, 10)));
+            num.addEventListener('change', () => {
+                let v = parseInt(num.value, 10); if (isNaN(v)) v = 100;
+                v = Math.max(lo, Math.min(hi, v)); show(v); applyAdjust(type, v);
+            });
+        });
+
+        // -- toggles --
+        const gray = menu.querySelector('.tb-adj-gray');
+        const deskew = menu.querySelector('.tb-adj-deskew');
+        gray.addEventListener('change', () => applyCheckToggle('grayscale', gray.checked));
+        deskew.addEventListener('change', () => applyCheckToggle('deskew', deskew.checked));
+
+        // -- B&W --
         const en = menu.querySelector('.tb-bw-enable');
-        const range = menu.querySelector('.tb-bw-range');
-        const num = menu.querySelector('.tb-bw-num');
-        const val = menu.querySelector('.tb-bw-val');
-        btn.addEventListener('show.bs.dropdown', () => {
+        const bwRange = menu.querySelector('.tb-bw-range');
+        const bwNum = menu.querySelector('.tb-bw-num');
+        const bwVal = menu.querySelector('.tb-bw-val');
+        bwRange.addEventListener('input', () => { bwNum.value = bwRange.value; bwVal.textContent = bwRange.value; });
+        bwNum.addEventListener('input', () => { bwVal.textContent = bwNum.value; });
+        en.addEventListener('change', () => applyBw(en.checked, parseInt(bwRange.value, 10)));
+        bwRange.addEventListener('change', () => { if (en.checked) applyBw(true, parseInt(bwRange.value, 10)); });
+        bwNum.addEventListener('change', () => {
+            let v = parseInt(bwNum.value, 10); if (isNaN(v)) v = 160;
+            v = Math.max(0, Math.min(255, v)); bwRange.value = v; bwVal.textContent = v;
+            if (en.checked) applyBw(true, v);
+        });
+
+        // -- reset adjustments (keeps rotate + marks) --
+        menu.querySelector('.tb-adj-resetall').addEventListener('click', () => {
+            resetAdjusts();
+            syncMenu();
+        });
+
+        // -- populate from the first target on open --
+        function syncMenu() {
             const t = currentTargets()[0];
+            menu.querySelectorAll('.tb-adj-row').forEach(row => {
+                const f = (t && t.edit[row.dataset.type]) ? t.edit[row.dataset.type].factor : 1.0;
+                row._show(Math.round(f * 100));
+            });
+            gray.checked = !!(t && t.edit.grayscale);
+            deskew.checked = !!(t && t.edit.deskew);
             const on = !!(t && t.edit.bw);
             en.checked = on;
             const thr = on ? t.edit.bw.threshold : 160;
-            range.value = thr; num.value = thr; val.textContent = thr;
-        });
-        range.addEventListener('input', () => { num.value = range.value; val.textContent = range.value; });
-        num.addEventListener('input', () => { val.textContent = num.value; });
-        en.addEventListener('change', () => applyBw(en.checked, parseInt(range.value, 10)));
-        range.addEventListener('change', () => { if (en.checked) applyBw(true, parseInt(range.value, 10)); });
-        num.addEventListener('change', () => {
-            let v = parseInt(num.value, 10); if (isNaN(v)) v = 160;
-            v = Math.max(0, Math.min(255, v)); range.value = v; val.textContent = v;
-            if (en.checked) applyBw(true, v);
-        });
+            bwRange.value = thr; bwNum.value = thr; bwVal.textContent = thr;
+        }
+        btn.addEventListener('show.bs.dropdown', syncMenu);
         menu.addEventListener('click', (e) => e.stopPropagation());
     });
 }
@@ -1175,6 +1450,7 @@ function updateSplitEveryVisibility() {
     const hasMode1 = pages.some(p => p.mode === 'mode1');
     const fmtPdf = document.getElementById('exportFmt').value === 'pdf';
     document.getElementById('splitEveryWrap').style.display = (hasMode1 && fmtPdf) ? '' : 'none';
+    document.getElementById('outputModeWrap').style.display = fmtPdf ? '' : 'none';
 }
 function updateExportButtons() {
     const hasName = document.getElementById('exportName').value.trim().length > 0;
@@ -1195,6 +1471,7 @@ function exportBody() {
     const splitEvery = (fmt === 'pdf' && document.getElementById('splitEveryChk').checked
                         && document.getElementById('splitEveryWrap').style.display !== 'none') ? 4 : 0;
     return {token: TOKEN, page_ids: exportSelectionIds(), fmt, split_every: splitEvery,
+            output: document.getElementById('exportOutput').value,
             filename: document.getElementById('exportName').value.trim()};
 }
 
@@ -1370,6 +1647,300 @@ async function loadServerDir(path) {
     }
 }
 
+// ---------- Find & Mark (search text -> highlight / redact) ----------
+function annotId() {
+    return 'a' + Math.random().toString(16).slice(2, 10) + Date.now().toString(16).slice(-4);
+}
+function pageById(id) { return pages.find(p => p.id === id); }
+
+let findMarkModal = null;
+let fmES = null, fmJobId = null, fmPreSnapshot = null, fmEndpointsLoaded = false;
+
+function fmLog(msg, isError) {
+    const box = document.getElementById('fmLog');
+    box.classList.remove('d-none');
+    const line = document.createElement('div');
+    if (isError) line.className = 'text-danger';
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+}
+function fmClearLog() {
+    const box = document.getElementById('fmLog');
+    box.innerHTML = '';
+    box.classList.add('d-none');
+}
+
+function fmAddTermRow(text) {
+    const wrap = document.getElementById('fmTerms');
+    const row = document.createElement('div');
+    row.className = 'fm-term row g-1 align-items-center mb-1';
+    row.innerHTML = `
+        <div class="col"><input class="form-control form-control-sm fm-text" placeholder="Phrase to find" value="${(text || '').replace(/"/g, '&quot;')}"></div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm fm-kind">
+                <option value="highlight">Highlight</option>
+                <option value="redact">Redact</option>
+            </select>
+        </div>
+        <div class="col-auto"><input type="color" class="form-control form-control-color fm-color" value="#ffff00" title="Mark colour"></div>
+        <div class="col-auto"><button class="btn btn-sm btn-outline-danger fm-del" type="button" title="Remove term"><i class="bi bi-x-lg"></i></button></div>`;
+    const kind = row.querySelector('.fm-kind');
+    const color = row.querySelector('.fm-color');
+    kind.addEventListener('change', () => {
+        // Swap the default colour when the user hasn't customised it.
+        if (kind.value === 'redact' && color.value.toLowerCase() === '#ffff00') color.value = '#000000';
+        if (kind.value === 'highlight' && color.value.toLowerCase() === '#000000') color.value = '#ffff00';
+    });
+    row.querySelector('.fm-del').addEventListener('click', () => {
+        row.remove();
+        if (!document.querySelector('#fmTerms .fm-term')) fmAddTermRow('');
+    });
+    wrap.appendChild(row);
+    return row;
+}
+
+async function fmLoadEndpoints() {
+    if (fmEndpointsLoaded) return;
+    const sel = document.getElementById('fmEndpoint');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    try {
+        const r = await fetch(AI_ENDPOINTS_URL);
+        const data = await r.json();
+        const eps = (data.endpoints || []).filter(e => e.supports_vision !== false);
+        sel.innerHTML = '<option value="">Default endpoint</option>';
+        eps.forEach(e => {
+            const o = document.createElement('option');
+            o.value = e.id;
+            o.textContent = e.name + (e.model ? ` (${e.model})` : '');
+            sel.appendChild(o);
+        });
+        fmEndpointsLoaded = true;
+    } catch (e) {
+        sel.innerHTML = '<option value="">Default endpoint</option>';
+    }
+}
+
+function fmSyncEngineUI() {
+    const engine = document.getElementById('fmEngine').value;
+    document.getElementById('fmAiBlock').style.display = engine === 'ai' ? '' : 'none';
+    document.getElementById('fmFuzzyRow').style.display = engine === 'ai' ? 'none' : '';
+    const hints = {
+        auto: 'Uses the PDF text layer when present, else OCR.' + (OCR_OK ? '' : ' (OCR is unavailable on this server — scanned pages will be skipped.)'),
+        digital: 'Born-digital PDFs only — pages without a text layer are skipped.',
+        ocr: OCR_OK ? 'Recognises text on scanned pages (slower).' : 'Unavailable — install Tesseract or set TESSERACT_CMD in .env.',
+        ai: 'A vision LLM locates the phrases (or anything you describe in the custom prompt).',
+    };
+    document.getElementById('fmEngineHint').textContent = hints[engine] || '';
+    if (engine === 'ai') fmLoadEndpoints();
+}
+
+function openFindMark() {
+    if (!pages.length) { log('Add pages to the preview first.', 'error'); return; }
+    if (!findMarkModal) {
+        findMarkModal = new bootstrap.Modal(document.getElementById('findMarkModal'));
+        document.getElementById('fmAddTermBtn').addEventListener('click', () => fmAddTermRow(''));
+        document.getElementById('fmEngine').addEventListener('change', fmSyncEngineUI);
+        document.getElementById('fmThreshold').addEventListener('input', () => {
+            document.getElementById('fmThresholdVal').textContent = document.getElementById('fmThreshold').value;
+        });
+        document.getElementById('fmOpacity').addEventListener('input', () => {
+            document.getElementById('fmOpacityVal').textContent = document.getElementById('fmOpacity').value;
+        });
+        document.getElementById('fmRunBtn').addEventListener('click', runFindMark);
+        document.getElementById('fmAcceptBtn').addEventListener('click', fmAcceptAllPending);
+        document.getElementById('fmUndoBtn').addEventListener('click', () => {
+            doUndo();
+            document.getElementById('fmAcceptBtn').style.display = 'none';
+            document.getElementById('fmUndoBtn').style.display = 'none';
+            document.getElementById('fmSummary').textContent = '';
+        });
+        document.getElementById('fmCancelBtn').addEventListener('click', fmStop);
+        // Engine availability
+        const engineSel = document.getElementById('fmEngine');
+        if (!OCR_OK) engineSel.querySelector('option[value="ocr"]').disabled = true;
+        if (!AI_OK) engineSel.querySelector('option[value="ai"]').disabled = true;
+    }
+    if (!document.querySelector('#fmTerms .fm-term')) fmAddTermRow('');
+    const scopeSel = document.getElementById('fmScope');
+    const selOpt = scopeSel.querySelector('option[value="selected"]');
+    selOpt.disabled = selected.size === 0;
+    selOpt.textContent = selected.size ? `Selected pages only (${selected.size})` : 'Selected pages only';
+    if (selected.size) scopeSel.value = 'selected';
+    else scopeSel.value = 'all';
+    fmClearLog();
+    document.getElementById('fmSummary').textContent = '';
+    document.getElementById('fmAcceptBtn').style.display = pages.some(p => (p.annots || []).some(a => a.pending)) ? '' : 'none';
+    document.getElementById('fmUndoBtn').style.display = 'none';
+    fmSyncEngineUI();
+    findMarkModal.show();
+}
+
+function fmGather() {
+    const terms = [];
+    document.querySelectorAll('#fmTerms .fm-term').forEach(row => {
+        const text = row.querySelector('.fm-text').value.trim();
+        if (!text) return;
+        terms.push({text, kind: row.querySelector('.fm-kind').value,
+                    color: row.querySelector('.fm-color').value});
+    });
+    const engine = document.getElementById('fmEngine').value;
+    const customPrompt = engine === 'ai'
+        ? document.getElementById('fmCustomPrompt').value.trim() : '';
+    if (!terms.length && !customPrompt) {
+        fmLog('Enter at least one search term' + (engine === 'ai' ? ' or a custom prompt.' : '.'), true);
+        return null;
+    }
+    const scope = document.getElementById('fmScope').value;
+    const ids = (scope === 'selected' && selected.size)
+        ? pages.filter(p => selected.has(p.id)).map(p => p.id)
+        : pages.map(p => p.id);
+    return {
+        terms, engine, ids, customPrompt,
+        fuzzy: document.getElementById('fmFuzzy').checked,
+        threshold: parseInt(document.getElementById('fmThreshold').value, 10),
+        caseSensitive: document.getElementById('fmCase').checked,
+        opacity: parseInt(document.getElementById('fmOpacity').value, 10) / 100,
+        endpointId: document.getElementById('fmEndpoint').value,
+    };
+}
+
+function fmTermIndexForLabel(label, terms) {
+    const l = (label || '').toLowerCase();
+    for (let i = 0; i < terms.length; i++) {
+        if (l && terms[i].text && l.includes(terms[i].text.toLowerCase())) return i;
+    }
+    return 0;
+}
+
+function fmApplyResults(resultsByPage, opts) {
+    const styles = opts.terms.length ? opts.terms
+        : [{kind: 'highlight', color: '#ffff00'}];
+    let added = 0;
+    const touched = [];
+    Object.entries(resultsByPage).forEach(([pid, boxes]) => {
+        const p = pageById(pid);
+        if (!p || !boxes || !boxes.length) return;
+        p.annots = p.annots || [];
+        boxes.forEach(b => {
+            const st = styles[Math.min(b.term || 0, styles.length - 1)];
+            const a = {id: annotId(), kind: st.kind, rect: b.rect,
+                       color: st.color, pending: true};
+            if (st.kind === 'highlight') a.opacity = opts.opacity;
+            p.annots.push(a);
+            added++;
+        });
+        p.nonce = Date.now();
+        touched.push(p);
+    });
+    if (added) {
+        pushUndo(fmPreSnapshot);
+        pushServerPages().then(() => touched.forEach(refreshCard))
+            .catch(e => log(e.message, 'error'));
+        document.getElementById('fmAcceptBtn').style.display = '';
+        document.getElementById('fmUndoBtn').style.display = '';
+    }
+    document.getElementById('fmSummary').textContent = added
+        ? `Added ${added} pending mark(s) on ${touched.length} page(s) — review in the grid or Mark up editor, then accept.`
+        : 'No matches found.';
+    return added;
+}
+
+function fmAcceptAllPending() {
+    const touched = pages.filter(p => (p.annots || []).some(a => a.pending));
+    if (!touched.length) return;
+    pushUndo();
+    touched.forEach(p => {
+        p.annots.forEach(a => { delete a.pending; });
+        p.nonce = Date.now();
+    });
+    pushServerPages().then(() => touched.forEach(refreshCard))
+        .catch(e => log(e.message, 'error'));
+    document.getElementById('fmAcceptBtn').style.display = 'none';
+    document.getElementById('fmSummary').textContent = 'All pending marks accepted.';
+}
+
+function fmStop() {
+    if (fmJobId) {
+        postJSON(`${BASE}/llm-detect-cancel`, {job_id: fmJobId}).catch(() => {});
+    }
+}
+
+function fmSetRunning(on) {
+    setBtnLoading(document.getElementById('fmRunBtn'), on);
+    document.getElementById('fmCancelBtn').style.display = 'none';
+}
+
+async function runFindMark() {
+    const opts = fmGather();
+    if (!opts) return;
+    fmClearLog();
+    document.getElementById('fmSummary').textContent = '';
+    fmPreSnapshot = snapshotPages();
+    if (opts.engine === 'ai') return runFindMarkAI(opts);
+
+    fmSetRunning(true);
+    fmLog(`Searching ${opts.ids.length} page(s)…`);
+    try {
+        const data = await postJSON(`${BASE}/text-search`, {
+            token: TOKEN, page_ids: opts.ids, engine: opts.engine,
+            terms: opts.terms.map(t => t.text), fuzzy: opts.fuzzy,
+            threshold: opts.threshold, case_sensitive: opts.caseSensitive,
+        });
+        (data.skipped || []).forEach(s => {
+            const p = pageById(s.page_id);
+            const idx = p ? pages.indexOf(p) + 1 : '?';
+            fmLog(`Page #${idx} skipped: ${s.reason}`, true);
+        });
+        fmLog(`Scanned ${data.pages_scanned} page(s).`);
+        fmApplyResults(data.results || {}, opts);
+    } catch (e) {
+        fmLog('Search failed: ' + e.message, true);
+    }
+    fmSetRunning(false);
+}
+
+function runFindMarkAI(opts) {
+    const instruction = opts.customPrompt
+        || ('Find every visible occurrence of the following text phrase(s) on the page: '
+            + opts.terms.map(t => `"${t.text}"`).join(', ')
+            + '. Return one tight bounding box per occurrence, using the matched phrase as the label.');
+    const params = new URLSearchParams({token: TOKEN,
+                                        page_ids: opts.ids.join(','),
+                                        instruction});
+    if (opts.endpointId) params.set('endpoint_id', opts.endpointId);
+
+    setBtnLoading(document.getElementById('fmRunBtn'), true);
+    document.getElementById('fmCancelBtn').style.display = '';
+    fmLog(`AI scan of ${opts.ids.length} page(s)…`);
+
+    const collected = {};
+    fmJobId = null;
+    fmES = new EventSource(`${BASE}/llm-detect?` + params.toString());
+    const finish = () => {
+        if (fmES) { fmES.close(); fmES = null; }
+        fmJobId = null;
+        fmSetRunning(false);
+        fmApplyResults(collected, opts);
+    };
+    fmES.onmessage = (ev) => {
+        let d;
+        try { d = JSON.parse(ev.data); } catch (_) { return; }
+        if (d.type === 'job') { fmJobId = d.job_id; }
+        else if (d.type === 'page') {
+            collected[d.page_id] = (d.boxes || []).map(b => ({
+                rect: b.box, term: fmTermIndexForLabel(b.label, opts.terms)}));
+            const p = pageById(d.page_id);
+            const idx = p ? pages.indexOf(p) + 1 : '?';
+            fmLog(`Page #${idx} (${d.current}/${d.total}): ${(d.boxes || []).length} region(s).`);
+        }
+        else if (d.type === 'error') fmLog(d.message, true);
+        else if (d.type === 'info') fmLog(d.message);
+        else if (d.type === 'done') finish();
+    };
+    fmES.onerror = () => { fmLog('Connection lost.', true); finish(); };
+}
+
 // ---------- wiring ----------
 document.addEventListener('DOMContentLoaded', () => {
     // default DPI
@@ -1397,12 +1968,20 @@ document.addEventListener('DOMContentLoaded', () => {
     buildToolbars();
     document.getElementById('selAllBtn').addEventListener('click', selectAll);
     document.getElementById('selClearBtn').addEventListener('click', clearSelection);
+    document.getElementById('selectModeBtn').addEventListener('click', () => setSelectMode(!selectMode));
     document.getElementById('undoBtn').addEventListener('click', doUndo);
+    document.getElementById('findMarkBtn').addEventListener('click', openFindMark);
     document.querySelectorAll('[data-reorder]').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); reorderOp(a.dataset.reorder); }));
 
-    // enlarged-preview navigation
+    // enlarged-preview navigation + resolution toggle
     document.getElementById('prevPageBtn').addEventListener('click', () => stepPreview(-1));
     document.getElementById('nextPageBtn').addEventListener('click', () => stepPreview(1));
+    document.getElementById('modalTapPrev').addEventListener('click', () => stepPreview(-1));
+    document.getElementById('modalTapNext').addEventListener('click', () => stepPreview(1));
+    document.querySelectorAll('#previewResToggle [data-res]').forEach(b => {
+        b.addEventListener('click', () => setPreviewRes(b.dataset.res));
+    });
+    syncPreviewResToggle();
 
     // export
     document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
@@ -1427,6 +2006,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initKeyboard();
     updateExportButtons();
     updateSelectionUI();
+    updateSplitEveryVisibility();
 });
 </script>
+<script src="https://unpkg.com/konva@9/konva.min.js"></script>
+{% include 'partials/pdf_annotate_editor.html' %}
 {% endblock %}

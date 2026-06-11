@@ -475,7 +475,7 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | `/markup/ios-shortcut.shortcut` | GET | Download iOS Share Sheet shortcut (PairDrop-style) for this server |
 | `/markup/share-target` | POST | Web Share Target fallback redirect when the service worker is not active |
 | `/pdf` | GET | Admin-only PDF Tool |
-| `/pdf/*` | GET, POST | Admin-only PDF Tool staging, processing, preview, export, and save APIs |
+| `/pdf/*` | GET, POST | Admin-only PDF Tool staging, processing, preview, annotation (redact/highlight/markup), text/OCR search (`/pdf/text-search`), LLM detect SSE (`/pdf/llm-detect`), export (digital true-redaction or flattened image), and save APIs |
 
 ### `pwa_bp` — `app/pwa.py` — prefix: `/`
 | Route | Method | Description |

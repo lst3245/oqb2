@@ -97,6 +97,7 @@ python run.py
 - **Ingestion** (`/admin/ingestion`) — scan SOURCE_PATH and import files into DB; live streaming log
 - **Database Health** (`/admin/health`) — super admin only; DB stats, anomaly detection, orphan sync
 - **File Browser** (`/admin/files`) — super admin only; browse, upload, download, rename, delete source files
+- **Toolbox → PDF Tool** (`/admin/toolbox/pdf`) — admin PDF workbench: A3 booklet split (3 modes), rotate/deskew/crop, image adjustments, drag/touch multi-select assembly, **redact / highlight / markup** (manual editor, fuzzy text or **OCR** search, **AI region detect**), and hybrid export (digital PDF with **true redaction**, or flattened images / PNG ZIP) with save-to-server
 
 ### Security
 - Flask-Login session authentication

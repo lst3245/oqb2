@@ -37,3 +37,10 @@ numpy>=1.26
 # without rasterising born-digital PDFs (cropbox + /Rotate). Optional: if absent,
 # the Toolbox falls back to an all-raster PDF export (app/pdf_tools.py).
 pypdf>=4.0
+# PDF Tool "Find & Mark": fuzzy phrase matching (rapidfuzz) + OCR word boxes
+# for scanned PDFs (pytesseract). pytesseract additionally needs the Tesseract
+# binary installed on the machine — auto-detected from the common Windows
+# install paths / PATH, or set TESSERACT_CMD in .env. Without Tesseract the
+# digital-text and AI engines still work; only the OCR engine is disabled.
+rapidfuzz>=3.0
+pytesseract>=0.3.10

@@ -449,6 +449,12 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Default resolution pre-selected in the Toolbox PDF Tool "Process & add" step, used to rasterise pages for export and any image processing. DPI is page-size independent, so it gives predictable quality for both A4 and A3 (200 DPI → A4 ≈ 1654 px wide, A3 ≈ 2339 px). 150 = draft/screen, 200 = normal (recommended), 300 = print. Pages that only need lossless ops (crop / 90° rotate) stay vector regardless. Users can change it per batch.',
         min=72, max=600,
     )),
+    ('TOOLBOX_OCR_DPI', _spec(
+        'TOOLBOX_OCR_DPI', 'int', group='Toolbox',
+        label='PDF Tool OCR resolution (DPI)',
+        help='Resolution used to rasterise pages for Tesseract OCR in the PDF Tool\'s Find & Mark (scanned-page keyword search). Higher recognises small print better but is slower. 300 is a good default; 400 for dense or low-quality scans. Requires a local Tesseract install (auto-detected, or TESSERACT_CMD in .env).',
+        min=72, max=600,
+    )),
 
     # Markup
     ('MARKUP_NORMALIZED_MAX_DIM', _spec(
