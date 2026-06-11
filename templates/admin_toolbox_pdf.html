@@ -16,7 +16,7 @@
     .tb-canvas.tb-rubber-active { cursor: crosshair; }
     .tb-preview-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(var(--tb-card-w, 115px), 1fr));
         gap: 1.6rem;
         padding: .5rem;
         user-select: none;
@@ -294,10 +294,17 @@
                         </div>
                         {% endif %}
                     </div>
-                    <div class="text-muted small mb-2">
-                        Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
-                        On touch devices, long-press a page (or use the Select button) to tap-select multiple pages.
-                        Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <div class="text-muted small flex-grow-1">
+                            Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
+                            On touch devices, long-press a page (or use the Select button) to tap-select multiple pages.
+                            Drag selected pages to reorder, double-click to preview. With nothing selected, all pages export.
+                        </div>
+                        <div class="d-flex align-items-center gap-1 text-muted" title="Page thumbnail size" style="min-width:150px;">
+                            <i class="bi bi-zoom-out small"></i>
+                            <input type="range" class="form-range" id="gridSizeRange" min="80" max="340" step="10">
+                            <i class="bi bi-zoom-in"></i>
+                        </div>
                     </div>
 
                     <div id="previewCanvas" class="tb-canvas">
@@ -405,10 +412,6 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <label class="form-label small mb-1 fw-bold">Search terms</label>
-                <div id="fmTerms"></div>
-                <button class="btn btn-sm btn-outline-secondary mb-3" id="fmAddTermBtn" type="button"><i class="bi bi-plus-lg"></i> Add term</button>
-
                 <div class="row g-2 mb-2">
                     <div class="col-sm-6">
                         <label class="form-label small mb-1 fw-bold">Search engine</label>
@@ -426,6 +429,34 @@
                             <option value="all">All pages</option>
                             <option value="selected">Selected pages only</option>
                         </select>
+                    </div>
+                </div>
+
+                <div class="btn-group btn-group-sm w-100 mb-2" role="group" id="fmAiModeRow" style="display:none;">
+                    <input type="radio" class="btn-check" name="fmAiMode" id="fmAiModeTerms" value="terms" checked>
+                    <label class="btn btn-outline-secondary" for="fmAiModeTerms"><i class="bi bi-type"></i> Find the search terms</label>
+                    <input type="radio" class="btn-check" name="fmAiMode" id="fmAiModeCustom" value="custom">
+                    <label class="btn btn-outline-secondary" for="fmAiModeCustom"><i class="bi bi-stars"></i> Custom instruction</label>
+                </div>
+
+                <div id="fmTermsBlock">
+                    <label class="form-label small mb-1 fw-bold">Search terms</label>
+                    <div id="fmTerms"></div>
+                    <button class="btn btn-sm btn-outline-secondary mb-3" id="fmAddTermBtn" type="button"><i class="bi bi-plus-lg"></i> Add term</button>
+                </div>
+
+                <div id="fmCustomBlock" style="display:none;">
+                    <label class="form-label small mb-1 fw-bold">Describe what to find</label>
+                    <textarea class="form-control form-control-sm mb-2" id="fmCustomPrompt" rows="3" placeholder='e.g. "every signature", "all personal names", "each figure or chart"'></textarea>
+                    <div class="row g-1 align-items-center mb-3">
+                        <div class="col-auto small fw-bold">Mark matches as</div>
+                        <div class="col-auto">
+                            <select class="form-select form-select-sm" id="fmCustomKind">
+                                <option value="highlight">Highlight</option>
+                                <option value="redact">Redact</option>
+                            </select>
+                        </div>
+                        <div class="col-auto"><input type="color" class="form-control form-control-color" id="fmCustomColor" value="#ffff00" title="Mark colour"></div>
                     </div>
                 </div>
 
@@ -457,15 +488,18 @@
 
                 <div id="fmAiBlock" style="display:none;">
                     <hr class="my-2">
-                    <div class="mb-2">
-                        <label class="form-label small mb-1 fw-bold">LLM endpoint</label>
-                        <select id="fmEndpoint" class="form-select form-select-sm"></select>
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col">
+                            <label class="form-label small mb-1 fw-bold">LLM endpoint</label>
+                            <select id="fmEndpoint" class="form-select form-select-sm"></select>
+                        </div>
+                        <div class="col-auto">
+                            <div class="form-check form-check-sm mb-1" title="Fan page requests out concurrently — cloud endpoints with concurrency &gt; 1 only">
+                                <input class="form-check-input" type="checkbox" id="fmParallel" checked>
+                                <label class="form-check-label small" for="fmParallel">Parallel</label>
+                            </div>
+                        </div>
                     </div>
-                    <div class="mb-2">
-                        <label class="form-label small mb-1 fw-bold">Custom prompt <span class="fw-normal text-muted">(optional — overrides the phrase search; describe anything to locate, e.g. "every signature and personal name")</span></label>
-                        <textarea class="form-control form-control-sm" id="fmCustomPrompt" rows="2" placeholder="Leave blank to search for the terms above"></textarea>
-                    </div>
-                    <div class="form-text mb-2">The model returns boxes per page. With a custom prompt, all boxes use the first term's mark style (or highlight if no terms).</div>
                 </div>
 
                 <div id="fmLog" class="alert alert-secondary tb-log d-none mb-0"></div>
@@ -473,6 +507,7 @@
             <div class="modal-footer flex-wrap">
                 <span class="me-auto small text-muted" id="fmSummary"></span>
                 <button type="button" class="btn btn-sm btn-outline-success" id="fmAcceptBtn" style="display:none;"><i class="bi bi-check2-all"></i> Accept all pending</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="fmDiscardBtn" style="display:none;" title="Delete every pending mark"><i class="bi bi-x-lg"></i> Discard pending</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="fmUndoBtn" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
                 <button type="button" class="btn btn-sm btn-outline-danger" id="fmCancelBtn" style="display:none;"><i class="bi bi-x-octagon"></i> Stop</button>
                 <button type="button" class="btn btn-sm btn-primary" id="fmRunBtn"><i class="bi bi-search"></i> Search &amp; mark</button>
@@ -1721,15 +1756,24 @@ async function fmLoadEndpoints() {
     }
 }
 
+function fmAiMode() {
+    return document.getElementById('fmAiModeCustom').checked ? 'custom' : 'terms';
+}
+
 function fmSyncEngineUI() {
     const engine = document.getElementById('fmEngine').value;
+    const custom = engine === 'ai' && fmAiMode() === 'custom';
     document.getElementById('fmAiBlock').style.display = engine === 'ai' ? '' : 'none';
+    document.getElementById('fmAiModeRow').style.display = engine === 'ai' ? '' : 'none';
+    document.getElementById('fmTermsBlock').style.display = custom ? 'none' : '';
+    document.getElementById('fmCustomBlock').style.display = custom ? '' : 'none';
     document.getElementById('fmFuzzyRow').style.display = engine === 'ai' ? 'none' : '';
     const hints = {
         auto: 'Uses the PDF text layer when present, else OCR.' + (OCR_OK ? '' : ' (OCR is unavailable on this server — scanned pages will be skipped.)'),
         digital: 'Born-digital PDFs only — pages without a text layer are skipped.',
         ocr: OCR_OK ? 'Recognises text on scanned pages (slower).' : 'Unavailable — install Tesseract or set TESSERACT_CMD in .env.',
-        ai: 'A vision LLM locates the phrases (or anything you describe in the custom prompt).',
+        ai: custom ? 'A vision LLM locates whatever you describe (text, figures, signatures…).'
+                   : 'A vision LLM locates the search-term phrases on each page.',
     };
     document.getElementById('fmEngineHint').textContent = hints[engine] || '';
     if (engine === 'ai') fmLoadEndpoints();
@@ -1741,6 +1785,14 @@ function openFindMark() {
         findMarkModal = new bootstrap.Modal(document.getElementById('findMarkModal'));
         document.getElementById('fmAddTermBtn').addEventListener('click', () => fmAddTermRow(''));
         document.getElementById('fmEngine').addEventListener('change', fmSyncEngineUI);
+        document.querySelectorAll('input[name="fmAiMode"]').forEach(r =>
+            r.addEventListener('change', fmSyncEngineUI));
+        const ck = document.getElementById('fmCustomKind');
+        const cc = document.getElementById('fmCustomColor');
+        ck.addEventListener('change', () => {
+            if (ck.value === 'redact' && cc.value.toLowerCase() === '#ffff00') cc.value = '#000000';
+            if (ck.value === 'highlight' && cc.value.toLowerCase() === '#000000') cc.value = '#ffff00';
+        });
         document.getElementById('fmThreshold').addEventListener('input', () => {
             document.getElementById('fmThresholdVal').textContent = document.getElementById('fmThreshold').value;
         });
@@ -1749,9 +1801,10 @@ function openFindMark() {
         });
         document.getElementById('fmRunBtn').addEventListener('click', runFindMark);
         document.getElementById('fmAcceptBtn').addEventListener('click', fmAcceptAllPending);
+        document.getElementById('fmDiscardBtn').addEventListener('click', fmDiscardAllPending);
         document.getElementById('fmUndoBtn').addEventListener('click', () => {
             doUndo();
-            document.getElementById('fmAcceptBtn').style.display = 'none';
+            fmSyncPendingButtons();
             document.getElementById('fmUndoBtn').style.display = 'none';
             document.getElementById('fmSummary').textContent = '';
         });
@@ -1770,7 +1823,7 @@ function openFindMark() {
     else scopeSel.value = 'all';
     fmClearLog();
     document.getElementById('fmSummary').textContent = '';
-    document.getElementById('fmAcceptBtn').style.display = pages.some(p => (p.annots || []).some(a => a.pending)) ? '' : 'none';
+    fmSyncPendingButtons();
     document.getElementById('fmUndoBtn').style.display = 'none';
     fmSyncEngineUI();
     findMarkModal.show();
@@ -1785,23 +1838,31 @@ function fmGather() {
                     color: row.querySelector('.fm-color').value});
     });
     const engine = document.getElementById('fmEngine').value;
-    const customPrompt = engine === 'ai'
+    const custom = engine === 'ai' && fmAiMode() === 'custom';
+    const customPrompt = custom
         ? document.getElementById('fmCustomPrompt').value.trim() : '';
-    if (!terms.length && !customPrompt) {
-        fmLog('Enter at least one search term' + (engine === 'ai' ? ' or a custom prompt.' : '.'), true);
+    if (custom && !customPrompt) {
+        fmLog('Describe what the AI should find.', true);
         return null;
     }
+    if (!custom && !terms.length) {
+        fmLog('Enter at least one search term.', true);
+        return null;
+    }
+    const customStyle = {kind: document.getElementById('fmCustomKind').value,
+                         color: document.getElementById('fmCustomColor').value};
     const scope = document.getElementById('fmScope').value;
     const ids = (scope === 'selected' && selected.size)
         ? pages.filter(p => selected.has(p.id)).map(p => p.id)
         : pages.map(p => p.id);
     return {
-        terms, engine, ids, customPrompt,
+        terms, engine, ids, customPrompt, customStyle,
         fuzzy: document.getElementById('fmFuzzy').checked,
         threshold: parseInt(document.getElementById('fmThreshold').value, 10),
         caseSensitive: document.getElementById('fmCase').checked,
         opacity: parseInt(document.getElementById('fmOpacity').value, 10) / 100,
         endpointId: document.getElementById('fmEndpoint').value,
+        parallel: document.getElementById('fmParallel').checked,
     };
 }
 
@@ -1814,7 +1875,8 @@ function fmTermIndexForLabel(label, terms) {
 }
 
 function fmApplyResults(resultsByPage, opts) {
-    const styles = opts.terms.length ? opts.terms
+    const styles = opts.customPrompt ? [opts.customStyle]
+        : opts.terms.length ? opts.terms
         : [{kind: 'highlight', color: '#ffff00'}];
     let added = 0;
     const touched = [];
@@ -1837,7 +1899,7 @@ function fmApplyResults(resultsByPage, opts) {
         pushUndo(fmPreSnapshot);
         pushServerPages().then(() => touched.forEach(refreshCard))
             .catch(e => log(e.message, 'error'));
-        document.getElementById('fmAcceptBtn').style.display = '';
+        fmSyncPendingButtons();
         document.getElementById('fmUndoBtn').style.display = '';
     }
     document.getElementById('fmSummary').textContent = added
@@ -1856,8 +1918,31 @@ function fmAcceptAllPending() {
     });
     pushServerPages().then(() => touched.forEach(refreshCard))
         .catch(e => log(e.message, 'error'));
-    document.getElementById('fmAcceptBtn').style.display = 'none';
+    fmSyncPendingButtons();
     document.getElementById('fmSummary').textContent = 'All pending marks accepted.';
+}
+
+function fmDiscardAllPending() {
+    const touched = pages.filter(p => (p.annots || []).some(a => a.pending));
+    if (!touched.length) return;
+    pushUndo();
+    let n = 0;
+    touched.forEach(p => {
+        const before = p.annots.length;
+        p.annots = p.annots.filter(a => !a.pending);
+        n += before - p.annots.length;
+        p.nonce = Date.now();
+    });
+    pushServerPages().then(() => touched.forEach(refreshCard))
+        .catch(e => log(e.message, 'error'));
+    fmSyncPendingButtons();
+    document.getElementById('fmSummary').textContent = `Discarded ${n} pending mark(s).`;
+}
+
+function fmSyncPendingButtons() {
+    const any = pages.some(p => (p.annots || []).some(a => a.pending));
+    document.getElementById('fmAcceptBtn').style.display = any ? '' : 'none';
+    document.getElementById('fmDiscardBtn').style.display = any ? '' : 'none';
 }
 
 function fmStop() {
@@ -1909,6 +1994,7 @@ function runFindMarkAI(opts) {
                                         page_ids: opts.ids.join(','),
                                         instruction});
     if (opts.endpointId) params.set('endpoint_id', opts.endpointId);
+    if (opts.parallel) params.set('parallel', '1');
 
     setBtnLoading(document.getElementById('fmRunBtn'), true);
     document.getElementById('fmCancelBtn').style.display = '';
@@ -1963,6 +2049,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('splitMode').addEventListener('change', e => { document.getElementById('splitHelp').textContent = SPLIT_HELP[e.target.value] || ''; });
     document.getElementById('splitHelp').textContent = SPLIT_HELP.none;
     document.getElementById('addPagesBtn').addEventListener('click', addPages);
+
+    // preview-grid thumbnail size slider (persisted per browser)
+    const gridRange = document.getElementById('gridSizeRange');
+    const applyGridW = (w) => {
+        document.getElementById('previewGrid').style.setProperty('--tb-card-w', w + 'px');
+    };
+    const savedGridW = parseInt(localStorage.getItem('oqb_tbGridW'), 10);
+    gridRange.value = (savedGridW >= 80 && savedGridW <= 340) ? savedGridW : 120;
+    applyGridW(gridRange.value);
+    gridRange.addEventListener('input', () => {
+        applyGridW(gridRange.value);
+        localStorage.setItem('oqb_tbGridW', gridRange.value);
+    });
 
     // operations toolbar (built once, shared by main + modal)
     buildToolbars();

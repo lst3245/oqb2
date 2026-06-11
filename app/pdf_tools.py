@@ -216,11 +216,22 @@ def _annot_rect_px(rect, w, h):
     return box
 
 
-def _annot_font(px):
+# Text-annotation font families: token -> candidate TTF files (raster path)
+# and PDF base-14 font name (digital path in _fitz_annotated_page_bytes).
+ANNOT_FONT_FILES = {
+    'sans': ('arial.ttf', 'DejaVuSans.ttf', 'segoeui.ttf'),
+    'serif': ('times.ttf', 'DejaVuSerif.ttf', 'georgia.ttf'),
+    'mono': ('cour.ttf', 'DejaVuSansMono.ttf', 'consola.ttf'),
+}
+ANNOT_FONT_PDF = {'sans': 'helv', 'serif': 'tiro', 'mono': 'cour'}
+
+
+def _annot_font(px, family: str = 'sans'):
     """Best-effort scalable font for burned-in text annotations."""
     from PIL import ImageFont
     px = max(6, int(px))
-    for name in ('arial.ttf', 'DejaVuSans.ttf', 'segoeui.ttf'):
+    names = ANNOT_FONT_FILES.get(family) or ANNOT_FONT_FILES['sans']
+    for name in names + ANNOT_FONT_FILES['sans']:
         try:
             return ImageFont.truetype(name, px)
         except OSError:
@@ -282,11 +293,21 @@ def apply_annotations(img, annots):
                 size = float(a.get('size', ANNOT_DEFAULT_TEXT_SIZE)) * h
             except (TypeError, ValueError):
                 continue
-            font = _annot_font(size)
-            draw.text((x, y), text, fill=rgb + (255,), font=font)
-            if a.get('pending'):
-                tb = draw.textbbox((x, y), text, font=font)
-                outline_box = tb
+            font = _annot_font(size, a.get('font', 'sans'))
+            # Per-line drawing with 1.2em spacing — matches the editor (Konva)
+            # and the digital export.
+            bounds = None
+            for li, line in enumerate(text.split('\n')):
+                if not line.strip():
+                    continue
+                ly = y + 1.2 * size * li
+                draw.text((x, ly), line, fill=rgb + (255,), font=font)
+                tb = draw.textbbox((x, ly), line, font=font)
+                bounds = tb if bounds is None else (
+                    min(bounds[0], tb[0]), min(bounds[1], tb[1]),
+                    max(bounds[2], tb[2]), max(bounds[3], tb[3]))
+            if a.get('pending') and bounds:
+                outline_box = bounds
         elif kind == 'ink':
             pts = a.get('points')
             if not (isinstance(pts, (list, tuple)) and len(pts) >= 2):
@@ -758,17 +779,25 @@ def _fitz_annotated_page_bytes(pdf_path: str, page_index: int, ops,
                 except (TypeError, ValueError):
                     continue
                 size = max(4.0, size)
+                base_font = ANNOT_FONT_PDF.get(a.get('font'), 'helv')
+                color = _rgb01(a.get('color'), (208, 0, 0))
+                rot = int(pg.rotation or 0)
                 # ``pos`` is the text's top-left; insert_text wants a baseline.
-                pt = _vis_point(float(pos[0]),
-                                float(pos[1]) + 0.8 * size / vr.height)
-                try:
-                    text.encode('latin-1')
-                    fontname = 'helv'
-                except UnicodeEncodeError:
-                    fontname = 'china-t'  # built-in CJK fallback
-                pg.insert_text(pt, text, fontsize=size, fontname=fontname,
-                               color=_rgb01(a.get('color'), (208, 0, 0)),
-                               rotate=int(pg.rotation or 0), overlay=True)
+                # Multi-line text is drawn line by line (1.2 line height, the
+                # same as Konva's default in the editor).
+                for li, line in enumerate(text.split('\n')):
+                    if not line.strip():
+                        continue
+                    pt = _vis_point(
+                        float(pos[0]),
+                        float(pos[1]) + (0.8 + 1.2 * li) * size / vr.height)
+                    try:
+                        line.encode('latin-1')
+                        fontname = base_font
+                    except UnicodeEncodeError:
+                        fontname = 'china-t'  # built-in CJK fallback
+                    pg.insert_text(pt, line, fontsize=size, fontname=fontname,
+                                   color=color, rotate=rot, overlay=True)
 
         return nd.tobytes()
     finally:

@@ -16,6 +16,15 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Toolbox PDF Tool: Acrobat-style text tool, editor undo/redo + zoom, clearer AI Find & Mark, parallel AI, grid size slider.**
+  - **Inline text editing.** The Mark up editor's Text tool no longer uses a browser prompt — click the page and type directly in a positioned overlay (Enter = new line, click away or Ctrl+Enter to commit, Esc to cancel; click or double-click an existing text mark to re-edit). New **typeface** (Helvetica / Times / Courier) and **font size (pt)** controls apply to the selection or live editing and set the defaults for new text; multi-line text and the chosen typeface render identically in the editor, raster thumbnails, and both export modes (base-14 fonts in digital PDFs).
+  - **Editor undo/redo.** Per-page **Undo / Redo** in the Mark up editor (header buttons + Ctrl+Z / Ctrl+Y) covering draws, moves, resizes, deletes, style changes, clears, and pending accepts — independent of the main grid's session undo.
+  - **Editor zoom & pan.** Zoom 100–800% via mouse wheel (centred on the pointer), pinch gesture, header buttons, or + / − / 0 keys; pan with two fingers, middle-mouse drag, or space + drag. Marks drawn while zoomed land exactly where placed.
+  - **Find & Mark: separate Custom instruction mode.** The AI engine now has an explicit toggle: **Find the search terms** (each term keeps its own redact/highlight style) or **Custom instruction** with its own description box and a dedicated *Mark matches as* style (kind + colour) — no more silently inheriting the first term's style or defaulting to yellow highlight.
+  - **Parallel AI detection.** A **Parallel** option fans per-page LLM requests across the endpoint's configured concurrency (cloud endpoints, same rules as the other batch AI tools) — results stream in as pages complete.
+  - **Discard pending.** Both the Find & Mark modal and the Mark up editor can now **discard** all pending search/AI marks in one click (previously only accept-all or undo).
+  - **Preview grid size slider.** A slider above the page grid scales the thumbnail cards (80–340 px), remembered per browser.
+
 - **Toolbox PDF Tool: touch-friendly multi-select, preview resolution toggle, tidier toolbar.**
   - **Select mode.** A new toolbar **Select** toggle (or **long-press** a page on touch devices) switches the grid into tap-to-toggle selection with check overlays — multi-select now works without a mouse. Drag-reorder pauses while select mode is on; Esc or **Done** exits. Desktop click / Ctrl / Shift / rubber-band behaviour is unchanged.
   - **Enlarged preview.** New **Quick / Full res** toggle (default Quick — fast 1100 px render; Full res shows exact export pixels). The choice sticks across prev/next navigation and reopening (saved per browser). On-image left/right tap zones join the existing ← / → keys for touch navigation.

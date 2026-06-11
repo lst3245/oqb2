@@ -6,7 +6,11 @@
    pushServerPages, refreshCard, snapshotPages, annotId, pageById, log, ...).
 
    Annotation coords are fractional 0..1 of the post-ops page (y down) — the
-   exact space the server's apply_annotations / digital export expect. #}
+   exact space the server's apply_annotations / digital export expect.
+
+   Layout model: the page image is laid out at fit-scale (aeScale) inside the
+   stage; ZOOM is applied as a stage-level scale+position transform, so all
+   drawing math uses stage-relative coordinates (aePtr()). #}
 
 <style>
     #aeStageDiv { position: absolute; inset: 0; touch-action: none; background: #3a3d42; }
@@ -17,6 +21,13 @@
     #annotEditorModal .ae-swatch.active { border-color: var(--bs-primary); box-shadow: 0 0 0 2px var(--bs-primary); }
     #annotEditorModal .ae-range-wrap { min-width: 130px; }
     #annotEditorModal .modal-body { overflow: hidden; }
+    #aeZoomVal { min-width: 3.2em; text-align: center; }
+    #aeTextArea {
+        position: absolute; z-index: 30; margin: 0; padding: 2px 4px;
+        background: rgba(255, 255, 255, .88); border: 1px dashed var(--bs-primary);
+        outline: none; resize: none; overflow: hidden; line-height: 1.2;
+        min-width: 120px; min-height: 1.4em; white-space: pre; border-radius: 2px;
+    }
 </style>
 
 <div class="modal fade" id="annotEditorModal" tabindex="-1" data-bs-keyboard="false" data-bs-backdrop="static">
@@ -26,6 +37,15 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="aePrevBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="aeNextBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
                 <h5 class="modal-title mb-0" id="aeTitle"><i class="bi bi-pen"></i> Mark up</h5>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary" id="aeUndoBtn" disabled title="Undo (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeRedoBtn" disabled title="Redo (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomOutBtn" title="Zoom out (-)"><i class="bi bi-zoom-out"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomFitBtn" title="Fit page (0)"><span class="small" id="aeZoomVal">100%</span></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomInBtn" title="Zoom in (+)"><i class="bi bi-zoom-in"></i></button>
+                </div>
                 <div class="btn-group btn-group-sm" role="group" id="aeResToggle">
                     <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="Fast preview">Quick</button>
                     <button type="button" class="btn btn-outline-secondary" data-res="full" title="Full export resolution">Full res</button>
@@ -38,13 +58,21 @@
                     <button class="btn btn-outline-secondary" data-tool="select" type="button" title="Select / move / resize (V)"><i class="bi bi-cursor"></i></button>
                     <button class="btn btn-outline-secondary" data-tool="redact" type="button" title="Redact box — censors content (R)"><i class="bi bi-square-fill"></i> Redact</button>
                     <button class="btn btn-outline-secondary" data-tool="highlight" type="button" title="Highlight box (H)"><i class="bi bi-highlighter"></i> Highlight</button>
-                    <button class="btn btn-outline-secondary" data-tool="text" type="button" title="Add text (T)"><i class="bi bi-fonts"></i> Text</button>
+                    <button class="btn btn-outline-secondary" data-tool="text" type="button" title="Add / edit text — click the page and type (T)"><i class="bi bi-fonts"></i> Text</button>
                     <button class="btn btn-outline-secondary" data-tool="pen" type="button" title="Freehand pen / signature (P)"><i class="bi bi-pencil"></i> Pen</button>
                 </div>
                 <div class="vr"></div>
                 <span class="d-inline-flex align-items-center gap-1" id="aeColors"></span>
                 <input type="color" class="form-control form-control-color form-control-sm" id="aeCustomColor" value="#000000" title="Custom colour">
                 <div class="vr"></div>
+                <div class="d-flex align-items-center gap-1" id="aeTextWrap" style="display:none;">
+                    <select class="form-select form-select-sm" id="aeFont" style="width:auto;" title="Typeface">
+                        <option value="sans">Helvetica</option>
+                        <option value="serif">Times</option>
+                        <option value="mono">Courier</option>
+                    </select>
+                    <input type="number" class="form-control form-control-sm" id="aeFontSize" min="4" max="200" step="1" value="21" style="width:4.6em;" title="Font size (pt)">
+                </div>
                 <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeOpacityWrap" title="Highlight opacity">
                     <i class="bi bi-transparency"></i>
                     <input type="range" class="form-range" id="aeOpacity" min="10" max="100" step="5" value="40">
@@ -70,6 +98,7 @@
                 <div class="btn-group btn-group-sm ms-auto" role="group" id="aePendingActions" style="display:none;">
                     <button class="btn btn-outline-success" id="aeAcceptPageBtn" type="button" title="Accept the pending (search-result) marks on this page"><i class="bi bi-check2"></i> Accept page</button>
                     <button class="btn btn-outline-success" id="aeAcceptAllBtn" type="button" title="Accept pending marks on every page"><i class="bi bi-check2-all"></i> Accept all</button>
+                    <button class="btn btn-outline-danger" id="aeDiscardAllBtn" type="button" title="Delete the pending marks on every page"><i class="bi bi-x-lg"></i> Discard all</button>
                 </div>
             </div>
             <div class="modal-body p-0 position-relative" id="aeWrap">
@@ -87,6 +116,15 @@ const AE_PALETTE = ['#000000', '#ffffff', '#ffff00', '#90ee90', '#00ffff',
                     '#ff9bd0', '#ff0000', '#0000ff'];
 const AE_TOOL_KIND = {redact: 'redact', highlight: 'highlight',
                       text: 'text', pen: 'ink'};
+// font token -> CSS family (matches the server's ANNOT_FONT_FILES /
+// ANNOT_FONT_PDF mapping: sans=Helvetica/Arial, serif=Times, mono=Courier)
+const AE_FONTS = {sans: 'Helvetica, Arial, sans-serif',
+                  serif: '"Times New Roman", Times, serif',
+                  mono: '"Courier New", Courier, monospace'};
+// Font size is displayed in "points" assuming an A4-height page (842 pt) —
+// stored as a fraction of page height like everything else.
+const AE_PT = 842;
+const AE_ZOOM_MIN = 1, AE_ZOOM_MAX = 8;
 
 let aeModal = null, aeShown = false;
 let aeStage = null, aeBgLayer = null, aeLayer = null, aeTr = null;
@@ -100,20 +138,33 @@ const aeColors = {redact: '#000000', highlight: '#ffff00',
                   text: '#d00000', ink: '#0000ff'};
 let aeOpacity = 0.4;
 let aeInkWidthPx = 6;         // slider value; stored as fraction at commit
+let aeTextFont = 'sans';      // default for new text marks
+let aeTextSize = 21 / AE_PT;  // fraction of page height
 let aeImgW = 0, aeImgH = 0, aeScale = 1, aeOffX = 0, aeOffY = 0;
 let aeDrawing = null;
+let aeZoom = 1;               // stage zoom (1 = fit page)
+let aePanning = null;         // {sx, sy, px, py} while dragging the view
+let aePinch = null;           // {dist, mid, zoom, pos} during a two-finger gesture
+let aeSpaceDown = false;      // hold space + drag = pan
+let aeEditing = null;         // {a, node, ta, isNew} inline text editor state
+const aeHistory = new Map();  // pageId -> {undo: [json], redo: [json]}
+const AE_HIST_MAX = 60;
 
+// fit-layout (zoom-independent) coordinate mapping
 const fx2s = fx => aeOffX + fx * aeImgW * aeScale;
 const fy2s = fy => aeOffY + fy * aeImgH * aeScale;
 const sx2f = sx => Math.max(0, Math.min(1, (sx - aeOffX) / (aeImgW * aeScale)));
 const sy2f = sy => Math.max(0, Math.min(1, (sy - aeOffY) / (aeImgH * aeScale)));
 const inkFrac = () => aeInkWidthPx / Math.max(1, aeImgH * aeScale);
+// pointer in stage-relative (zoom-corrected) coordinates
+function aePtr() { return aeStage ? aeStage.getRelativePointerPosition() : null; }
 
 window.openAnnotEditor = function (pageId) {
     if (typeof Konva === 'undefined') { log('Mark up editor failed to load (Konva missing).', 'error'); return; }
     if (!pageById(pageId)) return;
     aePre = snapshotPages();
     aeDirty = new Set();
+    aeHistory.clear();
     aePendingOpenId = pageId;
     if (!aeModal) aeInit();
     window.tbAnnotEditorActive = true;
@@ -148,8 +199,10 @@ function aeInit() {
     });
     document.getElementById('aeCustomColor').addEventListener('change', (e) => aePickColor(e.target.value));
 
-    // opacity / width
-    document.getElementById('aeOpacity').addEventListener('input', (e) => {
+    // opacity / width — snapshot once when the interaction starts
+    const opacityEl = document.getElementById('aeOpacity');
+    opacityEl.addEventListener('pointerdown', aeSnapIfSelected);
+    opacityEl.addEventListener('input', (e) => {
         aeOpacity = parseInt(e.target.value, 10) / 100;
         document.getElementById('aeOpacityVal').textContent = e.target.value + '%';
         const n = aeSelectedNode();
@@ -159,7 +212,9 @@ function aeInit() {
             if (a) { a.opacity = aeOpacity; aePageDirty = true; }
         }
     });
-    document.getElementById('aeWidth').addEventListener('input', (e) => {
+    const widthEl = document.getElementById('aeWidth');
+    widthEl.addEventListener('pointerdown', aeSnapIfSelected);
+    widthEl.addEventListener('input', (e) => {
         aeInkWidthPx = parseInt(e.target.value, 10);
         const n = aeSelectedNode();
         if (n && n.getAttr('kind') === 'ink') {
@@ -169,11 +224,27 @@ function aeInit() {
         }
     });
 
+    // text style controls
+    document.getElementById('aeFont').addEventListener('change', (e) => {
+        aeTextFont = e.target.value;
+        aeApplyTextStyle();
+    });
+    document.getElementById('aeFontSize').addEventListener('change', (e) => {
+        let pt = parseFloat(e.target.value);
+        if (!isFinite(pt)) pt = 21;
+        pt = Math.max(4, Math.min(200, pt));
+        e.target.value = pt;
+        aeTextSize = pt / AE_PT;
+        aeApplyTextStyle();
+    });
+
     // actions
     document.getElementById('aeDeleteBtn').addEventListener('click', aeDeleteSelected);
     document.getElementById('aeClearBtn').addEventListener('click', () => {
+        aeCloseTextEditor(true);
         if (!aeAnnots.length) return;
         if (!confirm('Remove every mark on this page?')) return;
+        aeSnap();
         aeAnnots = [];
         aePageDirty = true;
         aeRebuildNodes();
@@ -182,11 +253,16 @@ function aeInit() {
         a.addEventListener('click', (e) => { e.preventDefault(); aeCopyTo(a.dataset.copyto); });
     });
     document.getElementById('aeAcceptPageBtn').addEventListener('click', () => {
+        aeCloseTextEditor(true);
+        if (!aeAnnots.some(x => x.pending)) return;
+        aeSnap();
         aeAnnots.forEach(x => { delete x.pending; });
         aePageDirty = true;
         aeRebuildNodes();
     });
     document.getElementById('aeAcceptAllBtn').addEventListener('click', () => {
+        aeCloseTextEditor(true);
+        if (aeAnnots.some(x => x.pending)) aeSnap();
         aeAnnots.forEach(x => { delete x.pending; });
         aePageDirty = true;
         aeCommitPage();
@@ -198,6 +274,29 @@ function aeInit() {
         });
         aeRebuildNodes();
     });
+    document.getElementById('aeDiscardAllBtn').addEventListener('click', () => {
+        aeCloseTextEditor(true);
+        if (aeAnnots.some(x => x.pending)) aeSnap();
+        aeAnnots = aeAnnots.filter(x => !x.pending);
+        aePageDirty = true;
+        aeCommitPage();
+        pages.forEach(p => {
+            if ((p.annots || []).some(x => x.pending)) {
+                p.annots = p.annots.filter(x => !x.pending);
+                aeDirty.add(p.id);
+            }
+        });
+        aeRebuildNodes();
+    });
+
+    // editor-local undo / redo
+    document.getElementById('aeUndoBtn').addEventListener('click', aeUndoOp);
+    document.getElementById('aeRedoBtn').addEventListener('click', aeRedoOp);
+
+    // zoom controls
+    document.getElementById('aeZoomInBtn').addEventListener('click', () => aeZoomBy(1.25));
+    document.getElementById('aeZoomOutBtn').addEventListener('click', () => aeZoomBy(1 / 1.25));
+    document.getElementById('aeZoomFitBtn').addEventListener('click', () => aeSetZoom(1));
 
     // nav + resolution
     document.getElementById('aePrevBtn').addEventListener('click', () => aeStep(-1));
@@ -213,6 +312,9 @@ function aeInit() {
     });
 
     document.addEventListener('keydown', aeOnKeyDown);
+    document.addEventListener('keyup', (e) => {
+        if (e.key === ' ') { aeSpaceDown = false; aeSyncCursor(); }
+    });
     window.addEventListener('resize', () => {
         if (aeShown && aePageId) {
             clearTimeout(aeInit._rs);
@@ -226,6 +328,7 @@ function aeInit() {
 function aeOnClose() {
     aeShown = false;
     window.tbAnnotEditorActive = false;
+    aeCloseTextEditor(true);
     aeCommitPage();
     if (aeDirty.size) {
         pushUndo(aePre);
@@ -237,6 +340,8 @@ function aeOnClose() {
     }
     aePre = null;
     aePageId = null;
+    aeHistory.clear();
+    aeZoom = 1;
     if (aeStage) { aeStage.destroy(); aeStage = null; aeTr = null; }
 }
 
@@ -258,6 +363,7 @@ function aeStep(delta) {
 }
 
 function aeLoadPage(pageId) {
+    aeCloseTextEditor(true);
     aeCommitPage();
     const p = pageById(pageId);
     if (!p) return;
@@ -271,6 +377,7 @@ function aeLoadPage(pageId) {
     document.getElementById('aePrevBtn').disabled = idx <= 0;
     document.getElementById('aeNextBtn').disabled = idx >= pages.length - 1;
     aeSyncResToggle();
+    aeSyncHistBtns();
 
     const url = (previewRes === 'full' ? fullResUrl(p) : thumbUrl(p, PREVIEW_W)) + '&annots=0';
     const im = new Image();
@@ -312,8 +419,81 @@ function aeBuildStage(im) {
     aeStage.on('mousedown touchstart', aeOnDown);
     aeStage.on('mousemove touchmove', aeOnMove);
     aeStage.on('mouseup touchend', aeOnUp);
+    aeStage.on('wheel', aeOnWheel);
+    // keep the zoom level across page jumps (zoom about the stage centre)
+    const z = aeZoom;
+    aeZoom = 1;
+    if (z > 1) aeSetZoom(z);
+    else aeSyncZoomUI();
     aeApplyToolState();
 }
+
+// ---------- zoom / pan ----------
+
+function aeSetZoom(z, center) {
+    if (!aeStage) return;
+    z = Math.max(AE_ZOOM_MIN, Math.min(AE_ZOOM_MAX, z));
+    const c = center || {x: aeStage.width() / 2, y: aeStage.height() / 2};
+    const old = aeZoom;
+    // keep the (container-space) point `c` anchored while rescaling
+    const rel = {x: (c.x - aeStage.x()) / old, y: (c.y - aeStage.y()) / old};
+    aeStage.scale({x: z, y: z});
+    aeStage.position(z === 1 ? {x: 0, y: 0}
+                             : {x: c.x - rel.x * z, y: c.y - rel.y * z});
+    aeZoom = z;
+    aeStage.batchDraw();
+    aeSyncZoomUI();
+    aeSyncTextEditorBox();
+}
+
+function aeZoomBy(factor, center) { aeSetZoom(aeZoom * factor, center); }
+
+function aeSyncZoomUI() {
+    document.getElementById('aeZoomVal').textContent = Math.round(aeZoom * 100) + '%';
+    document.getElementById('aeZoomOutBtn').disabled = aeZoom <= AE_ZOOM_MIN + 1e-6;
+    document.getElementById('aeZoomInBtn').disabled = aeZoom >= AE_ZOOM_MAX - 1e-6;
+    aeSyncCursor();
+}
+
+function aeOnWheel(e) {
+    e.evt.preventDefault();
+    const factor = e.evt.deltaY > 0 ? 1 / 1.15 : 1.15;
+    aeZoomBy(factor, aeStage.getPointerPosition());
+}
+
+function aeTouchPoints(evt) {
+    const r = aeStage.container().getBoundingClientRect();
+    return [...evt.touches].map(t => ({x: t.clientX - r.left,
+                                       y: t.clientY - r.top}));
+}
+
+function aeHandlePinch(e) {
+    const pts = aeTouchPoints(e.evt);
+    if (pts.length < 2) return false;
+    e.evt.preventDefault();
+    // a second finger cancels any in-progress drawing
+    if (aeDrawing) { aeDrawing.node.destroy(); aeDrawing = null; aeLayer.batchDraw(); }
+    const mid = {x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2};
+    const dist = Math.max(10, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+    if (!aePinch) {
+        aePinch = {dist, mid, zoom: aeZoom, pos: aeStage.position()};
+        return true;
+    }
+    let z = Math.max(AE_ZOOM_MIN, Math.min(AE_ZOOM_MAX, aePinch.zoom * dist / aePinch.dist));
+    const k = z / aePinch.zoom;
+    aeStage.scale({x: z, y: z});
+    aeStage.position(z === 1 ? {x: 0, y: 0} : {
+        x: aePinch.mid.x - (aePinch.mid.x - aePinch.pos.x) * k + (mid.x - aePinch.mid.x),
+        y: aePinch.mid.y - (aePinch.mid.y - aePinch.pos.y) * k + (mid.y - aePinch.mid.y),
+    });
+    aeZoom = z;
+    aeStage.batchDraw();
+    aeSyncZoomUI();
+    aeSyncTextEditorBox();
+    return true;
+}
+
+// ---------- nodes ----------
 
 function aeRebuildNodes() {
     if (!aeLayer) return;
@@ -324,6 +504,7 @@ function aeRebuildNodes() {
     aeLayer.batchDraw();
     aeUpdatePendingUI();
     aeUpdateDeleteBtn();
+    aeApplyToolState();
 }
 
 function aeUpdatePendingUI() {
@@ -356,19 +537,11 @@ function aeMakeNode(a) {
             x: fx2s(a.pos[0]), y: fy2s(a.pos[1]),
             text: a.text || '',
             fontSize: Math.max(6, (a.size || 0.025) * aeImgH * aeScale),
+            fontFamily: AE_FONTS[a.font] || AE_FONTS.sans,
+            lineHeight: 1.2,
             fill: a.color || '#d00000',
-            fontStyle: 'bold',
         });
-        node.on('dblclick dbltap', () => {
-            const nt = prompt('Edit text:', a.text || '');
-            if (nt === null) return;
-            const v = nt.trim();
-            if (!v) { aeRemoveAnnot(a.id); return; }
-            a.text = v;
-            node.text(v);
-            aePageDirty = true;
-            aeLayer.batchDraw();
-        });
+        node.on('dblclick dbltap', () => aeStartTextEdit(a, node));
     } else if (a.kind === 'ink') {
         const flat = [];
         (a.points || []).forEach(pt => { flat.push(fx2s(pt[0]), fy2s(pt[1])); });
@@ -387,6 +560,7 @@ function aeMakeNode(a) {
     node.setAttr('kind', a.kind);
     node.draggable(aeTool === 'select');
     node.on('mousedown touchstart', () => { if (aeTool === 'select') aeSelect(node); });
+    node.on('dragstart transformstart', aeSnap);
     node.on('dragend transformend', () => aeWriteBack(a, node));
     return node;
 }
@@ -421,7 +595,13 @@ function aeSelect(node) {
             document.getElementById('aeOpacity').value = Math.round(a.opacity * 100);
             document.getElementById('aeOpacityVal').textContent = Math.round(a.opacity * 100) + '%';
         }
+        if (a.kind === 'text') {
+            document.getElementById('aeFont').value = a.font || 'sans';
+            document.getElementById('aeFontSize').value =
+                Math.round((a.size || 0.025) * AE_PT);
+        }
     }
+    aeSyncTextWrap();
     aeTr.moveToTop();
     aeLayer.batchDraw();
     aeUpdateDeleteBtn();
@@ -447,6 +627,7 @@ function aeWriteBack(a, node) {
         }
         a.pos = [sx2f(node.x()), sy2f(node.y())];
         a.size = node.fontSize() / (aeImgH * aeScale);
+        document.getElementById('aeFontSize').value = Math.round(a.size * AE_PT);
     } else if (a.kind === 'ink') {
         const dx = node.x(), dy = node.y();
         if (dx || dy) {
@@ -472,12 +653,62 @@ function aeRemoveAnnot(id) {
 function aeDeleteSelected() {
     const n = aeSelectedNode();
     if (!n) return;
+    aeSnap();
     aeRemoveAnnot(n.getAttr('annotId'));
+}
+
+// ---------- editor-local undo / redo ----------
+
+function aeHist() {
+    let h = aeHistory.get(aePageId);
+    if (!h) { h = {undo: [], redo: []}; aeHistory.set(aePageId, h); }
+    return h;
+}
+
+function aeSnap() {
+    const h = aeHist();
+    h.undo.push(JSON.stringify(aeAnnots));
+    if (h.undo.length > AE_HIST_MAX) h.undo.shift();
+    h.redo.length = 0;
+    aeSyncHistBtns();
+}
+
+function aeSnapIfSelected() {
+    if (aeSelectedNode()) aeSnap();
+}
+
+function aeUndoOp() {
+    aeCloseTextEditor(true);
+    const h = aeHist();
+    if (!h.undo.length) return;
+    h.redo.push(JSON.stringify(aeAnnots));
+    aeAnnots = JSON.parse(h.undo.pop());
+    aePageDirty = true;
+    aeRebuildNodes();
+    aeSyncHistBtns();
+}
+
+function aeRedoOp() {
+    aeCloseTextEditor(true);
+    const h = aeHist();
+    if (!h.redo.length) return;
+    h.undo.push(JSON.stringify(aeAnnots));
+    aeAnnots = JSON.parse(h.redo.pop());
+    aePageDirty = true;
+    aeRebuildNodes();
+    aeSyncHistBtns();
+}
+
+function aeSyncHistBtns() {
+    const h = aeHist();
+    document.getElementById('aeUndoBtn').disabled = !h.undo.length;
+    document.getElementById('aeRedoBtn').disabled = !h.redo.length;
 }
 
 // ---------- tools / colours ----------
 
 function aeSetTool(tool) {
+    if (aeEditing) aeCloseTextEditor(true);
     aeTool = tool;
     document.querySelectorAll('#aeTools [data-tool]').forEach(b => {
         b.classList.toggle('active', b.dataset.tool === tool);
@@ -488,7 +719,22 @@ function aeSetTool(tool) {
         (tool === 'highlight' || tool === 'select') ? '' : 'none';
     document.getElementById('aeWidthWrap').style.display =
         (tool === 'pen' || tool === 'select') ? '' : 'none';
+    aeSyncTextWrap();
     aeApplyToolState();
+}
+
+function aeSyncTextWrap() {
+    const sel = aeSelectedNode();
+    const show = aeTool === 'text' || aeEditing
+        || (sel && sel.getAttr('kind') === 'text');
+    document.getElementById('aeTextWrap').style.display = show ? '' : 'none';
+}
+
+function aeSyncCursor() {
+    const div = document.getElementById('aeStageDiv');
+    div.style.cursor = (aeSpaceDown || aePanning) ? 'grab'
+        : aeTool === 'select' ? 'default'
+        : aeTool === 'text' ? 'text' : 'crosshair';
 }
 
 function aeApplyToolState() {
@@ -496,10 +742,9 @@ function aeApplyToolState() {
     if (aeTool !== 'select' && aeTr) aeTr.nodes([]);
     [...aeLayer.getChildren()].filter(n => n !== aeTr)
         .forEach(n => n.draggable(aeTool === 'select'));
-    const div = document.getElementById('aeStageDiv');
-    div.style.cursor = aeTool === 'select' ? 'default'
-        : aeTool === 'text' ? 'text' : 'crosshair';
+    aeSyncCursor();
     aeUpdateDeleteBtn();
+    aeSyncTextWrap();
     aeLayer.batchDraw();
 }
 
@@ -508,6 +753,7 @@ function aePickColor(color) {
     if (sel) {
         const a = aeAnnotForNode(sel);
         if (a) {
+            aeSnap();
             a.color = color;
             if (sel instanceof Konva.Line) sel.stroke(color);
             else if (sel instanceof Konva.Text) sel.fill(color);
@@ -516,6 +762,10 @@ function aePickColor(color) {
             aeLayer.batchDraw();
         }
     }
+    if (aeEditing) {
+        aeEditing.a.color = color;
+        aeEditing.ta.style.color = color;
+    }
     const kind = AE_TOOL_KIND[aeTool];
     if (kind) aeColors[kind] = color;
     document.querySelectorAll('#aeColors .ae-swatch').forEach(b => {
@@ -523,17 +773,158 @@ function aePickColor(color) {
     });
 }
 
+// Apply the font controls to the live text editor or the selected text mark,
+// and remember them as the defaults for new text.
+function aeApplyTextStyle() {
+    if (aeEditing) {
+        aeEditing.a.font = aeTextFont;
+        aeEditing.a.size = aeTextSize;
+        aeStyleTextArea(aeEditing.ta, aeEditing.a);
+        return;
+    }
+    const sel = aeSelectedNode();
+    if (sel && sel.getAttr('kind') === 'text') {
+        const a = aeAnnotForNode(sel);
+        if (a) {
+            aeSnap();
+            a.font = aeTextFont;
+            a.size = aeTextSize;
+            sel.fontFamily(AE_FONTS[aeTextFont] || AE_FONTS.sans);
+            sel.fontSize(Math.max(6, aeTextSize * aeImgH * aeScale));
+            aePageDirty = true;
+            aeLayer.batchDraw();
+        }
+    }
+}
+
+// ---------- inline text editing (Acrobat-style) ----------
+
+function aeStyleTextArea(ta, a) {
+    const px = Math.max(6, (a.size || 0.025) * aeImgH * aeScale) * aeZoom;
+    ta.style.fontSize = px + 'px';
+    ta.style.fontFamily = AE_FONTS[a.font] || AE_FONTS.sans;
+    ta.style.color = a.color || '#d00000';
+    aeAutosizeTextArea(ta);
+}
+
+function aeAutosizeTextArea(ta) {
+    ta.style.width = 'auto';
+    ta.style.height = 'auto';
+    ta.style.width = Math.max(120, ta.scrollWidth + 12) + 'px';
+    ta.style.height = (ta.scrollHeight + 4) + 'px';
+}
+
+function aeSyncTextEditorBox() {
+    if (!aeEditing || !aeStage) return;
+    const {a, ta} = aeEditing;
+    // fit-layout point -> container coords through the stage transform
+    const x = fx2s(a.pos[0]) * aeZoom + aeStage.x();
+    const y = fy2s(a.pos[1]) * aeZoom + aeStage.y();
+    ta.style.left = x + 'px';
+    ta.style.top = y + 'px';
+    aeStyleTextArea(ta, a);
+}
+
+function aeStartTextEdit(annot, node, fpos) {
+    aeCloseTextEditor(true);
+    const isNew = !annot;
+    const a = annot || {id: annotId(), kind: 'text', text: '',
+                        pos: [fpos.x, fpos.y], size: aeTextSize,
+                        font: aeTextFont, color: aeColors.text};
+    if (!isNew) {
+        document.getElementById('aeFont').value = a.font || 'sans';
+        document.getElementById('aeFontSize').value =
+            Math.round((a.size || 0.025) * AE_PT);
+        aeTextFont = a.font || 'sans';
+        aeTextSize = a.size || 0.025;
+        delete a.pending;
+    }
+    if (node) node.hide();
+    if (aeTr) aeTr.nodes([]);
+    aeUpdateDeleteBtn();
+    if (aeLayer) aeLayer.batchDraw();
+
+    const ta = document.createElement('textarea');
+    ta.id = 'aeTextArea';
+    ta.value = a.text || '';
+    ta.spellcheck = false;
+    document.getElementById('aeWrap').appendChild(ta);
+    aeEditing = {a, node, ta, isNew};
+    aeSyncTextEditorBox();
+    aeSyncTextWrap();
+
+    ta.addEventListener('input', () => aeAutosizeTextArea(ta));
+    ta.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') { e.preventDefault(); aeCloseTextEditor(false); }
+        else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault(); aeCloseTextEditor(true);
+        }
+    });
+    ta.addEventListener('blur', () => {
+        if (aeEditing && aeEditing.ta === ta) aeCloseTextEditor(true);
+    });
+    setTimeout(() => { ta.focus(); ta.select(); }, 0);
+}
+
+function aeCloseTextEditor(commit) {
+    if (!aeEditing) return;
+    const {a, node, ta, isNew} = aeEditing;
+    aeEditing = null;
+    const v = ta.value.replace(/\s+$/, '');
+    ta.remove();
+    if (commit && v.trim()) {
+        if (isNew) {
+            aeSnap();
+            a.text = v;
+            aeAnnots.push(a);
+            aePageDirty = true;
+            aeRebuildNodes();
+        } else if (v !== a.text || node === null) {
+            aeSnap();
+            a.text = v;
+            aePageDirty = true;
+            aeRebuildNodes();
+        } else if (node) {
+            node.show();
+            aeLayer.batchDraw();
+        }
+    } else if (!isNew) {
+        if (commit) {
+            // committed empty -> delete the mark
+            aeSnap();
+            aeRemoveAnnot(a.id);
+        } else if (node) {
+            node.show();
+            aeLayer.batchDraw();
+        }
+    }
+    aeSyncTextWrap();
+}
+
 // ---------- drawing ----------
 
 function aeOnDown(e) {
     if (!aeStage) return;
-    const pos = aeStage.getPointerPosition();
+    // two-finger gesture = pinch zoom / pan
+    if (e.evt.touches && e.evt.touches.length >= 2) { aeHandlePinch(e); return; }
+    // middle mouse button or space+drag = pan the zoomed view
+    if (e.evt.button === 1 || (aeSpaceDown && e.evt.button === 0)) {
+        e.evt.preventDefault();
+        const p = aeStage.getPointerPosition();
+        aePanning = {sx: p.x, sy: p.y, px: aeStage.x(), py: aeStage.y()};
+        aeSyncCursor();
+        return;
+    }
+    const pos = aePtr();
     if (!pos) return;
+    if (aeEditing) { aeCloseTextEditor(true); return; }
     if (aeTool === 'select') {
         // Clicking empty canvas / background clears the selection.
         if (e.target === aeStage || e.target.getLayer() === aeBgLayer) {
             if (aeTr) aeTr.nodes([]);
             aeUpdateDeleteBtn();
+            aeSyncTextWrap();
             aeLayer.batchDraw();
         }
         return;
@@ -558,26 +949,31 @@ function aeOnDown(e) {
         aeTr.moveToTop();
         aeDrawing = {kind: 'ink', node};
     } else if (aeTool === 'text') {
-        const t = prompt('Text to add:');
-        if (t && t.trim()) {
-            const a = {id: annotId(), kind: 'text', text: t.trim(),
-                       pos: [sx2f(pos.x), sy2f(pos.y)],
-                       size: 0.025, color: aeColors.text};
-            aeAnnots.push(a);
-            aePageDirty = true;
-            const node = aeMakeNode(a);
-            aeLayer.add(node);
-            aeTr.moveToTop();
-            aeLayer.batchDraw();
-            aeUpdatePendingUI();
+        // Clicking an existing text mark edits it; empty space starts new text.
+        if (e.target instanceof Konva.Text) {
+            const a = aeAnnotForNode(e.target);
+            if (a) { aeStartTextEdit(a, e.target); return; }
         }
+        aeStartTextEdit(null, null, {x: sx2f(pos.x), y: sy2f(pos.y)});
     }
 }
 
 function aeOnMove(e) {
+    if (aePinch) { aeHandlePinch(e); return; }
+    if (e.evt.touches && e.evt.touches.length >= 2) { aeHandlePinch(e); return; }
+    if (aePanning) {
+        const p = aeStage.getPointerPosition();
+        if (p) {
+            aeStage.position({x: aePanning.px + (p.x - aePanning.sx),
+                              y: aePanning.py + (p.y - aePanning.sy)});
+            aeStage.batchDraw();
+            aeSyncTextEditorBox();
+        }
+        return;
+    }
     if (!aeDrawing) return;
     e.evt.preventDefault();
-    const pos = aeStage.getPointerPosition();
+    const pos = aePtr();
     if (!pos) return;
     if (aeDrawing.kind === 'ink') {
         aeDrawing.node.points(aeDrawing.node.points().concat([pos.x, pos.y]));
@@ -590,7 +986,9 @@ function aeOnMove(e) {
     aeLayer.batchDraw();
 }
 
-function aeOnUp() {
+function aeOnUp(e) {
+    if (aePinch && (!e.evt.touches || e.evt.touches.length < 2)) aePinch = null;
+    if (aePanning) { aePanning = null; aeSyncCursor(); return; }
     if (!aeDrawing) return;
     const d = aeDrawing;
     aeDrawing = null;
@@ -602,6 +1000,7 @@ function aeOnUp() {
             for (let i = 0; i < flat.length; i += 2) {
                 pts.push([sx2f(flat[i]), sy2f(flat[i + 1])]);
             }
+            aeSnap();
             const a = {id: annotId(), kind: 'ink', points: pts,
                        color: aeColors.ink, width: inkFrac(), opacity: 1.0};
             aeAnnots.push(a);
@@ -614,6 +1013,7 @@ function aeOnUp() {
         const x = d.node.x(), y = d.node.y();
         d.node.destroy();
         if (w > 5 && h > 5) {
+            aeSnap();
             const a = {id: annotId(), kind: d.kind,
                        rect: [sx2f(x), sy2f(y), sx2f(x + w), sy2f(y + h)],
                        color: aeColors[d.kind]};
@@ -631,6 +1031,8 @@ function aeOnUp() {
 // ---------- batch copy ----------
 
 function aeCopyTo(scope) {
+    aeCloseTextEditor(true);
+    aeCommitPage();
     const sel = aeSelectedNode();
     const selAnnot = sel ? aeAnnotForNode(sel) : null;
     const src = selAnnot ? [selAnnot] : aeAnnots;
@@ -663,6 +1065,15 @@ function aeOnKeyDown(e) {
     const tag = (el && el.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select'
         || (el && el.isContentEditable)) return;
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) aeRedoOp(); else aeUndoOp();
+        return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault(); aeRedoOp(); return;
+    }
+    if (e.key === ' ') { aeSpaceDown = true; aeSyncCursor(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         aeDeleteSelected();
@@ -670,9 +1081,15 @@ function aeOnKeyDown(e) {
         e.preventDefault(); aeStep(-1);
     } else if (e.key === 'ArrowRight') {
         e.preventDefault(); aeStep(1);
+    } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault(); aeZoomBy(1.25);
+    } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault(); aeZoomBy(1 / 1.25);
+    } else if (e.key === '0') {
+        e.preventDefault(); aeSetZoom(1);
     } else if (e.key === 'Escape') {
         e.preventDefault();
-        if (aeSelectedNode()) { aeTr.nodes([]); aeUpdateDeleteBtn(); aeLayer.batchDraw(); }
+        if (aeSelectedNode()) { aeTr.nodes([]); aeUpdateDeleteBtn(); aeSyncTextWrap(); aeLayer.batchDraw(); }
         else aeModal.hide();
     } else if (e.key === 'v' || e.key === 'V') { aeSetTool('select'); }
     else if (e.key === 'r' || e.key === 'R') { aeSetTool('redact'); }

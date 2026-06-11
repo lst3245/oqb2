@@ -150,6 +150,7 @@ def _sanitize_annots(annots):
             if kind == 'highlight':
                 item['opacity'] = _f01(a.get('opacity', 0.4), 0.4) or 0.4
         elif kind == 'text':
+            # Keep internal newlines (multi-line text), trim the outside.
             text = str(a.get('text') or '').strip()[:_ANNOT_MAX_TEXT_LEN]
             pos = a.get('pos')
             if not text or not (isinstance(pos, (list, tuple)) and len(pos) == 2):
@@ -160,6 +161,8 @@ def _sanitize_annots(annots):
                 item['size'] = max(0.004, min(0.25, float(a.get('size', 0.025))))
             except (TypeError, ValueError):
                 item['size'] = 0.025
+            if a.get('font') in ('sans', 'serif', 'mono'):
+                item['font'] = a['font']
             item['color'] = color or '#d00000'
         elif kind == 'ink':
             pts = a.get('points')
@@ -803,8 +806,10 @@ def pdf_llm_detect():
 
     Query params: ``token``, ``page_ids`` (csv), ``endpoint_id``,
     ``instruction`` (free-text request, e.g. built from the search phrases or
-    a fully custom prompt). Streams ``{type:'page', page_id, boxes:[{label,
-    box:[x1,y1,x2,y2]}]}`` events (fractional coords), then ``done``.
+    a fully custom prompt), ``parallel`` (fan page round-trips out across the
+    endpoint's ``max_concurrency`` — cloud endpoints only). Streams
+    ``{type:'page', page_id, boxes:[{label, box:[x1,y1,x2,y2]}]}`` events
+    (fractional coords, completion order when parallel), then ``done``.
     """
     from app import ai_prompts, llm_client, pdf_import
     from app.models import LLMConfig
@@ -854,42 +859,63 @@ def pdf_llm_detect():
     system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
     user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
 
+    want_parallel = (request.args.get('parallel', '0').strip().lower()
+                     in ('1', 'true', 'yes', 'on'))
+    workers = max(1, int(getattr(cfg, 'max_concurrency', 1) or 1))
+    if not (want_parallel and getattr(cfg, 'kind', 'local') == 'cloud'
+            and workers > 1):
+        workers = 1
+
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
     src_paths = {p['id']: _source_path(token, p['src']) for p in pages}
 
+    def _detect_one(p):
+        img = pdf_tools.render_page_image(
+            src_paths[p['id']], int(p['page']),
+            p.get('ops') or [], width_px=image_max_dim)
+        b64, mime = llm_client.prepare_image_from_pil(img, image_max_dim)
+        text, _info = llm_client.chat(cfg, system, user_text,
+                                      images=[(b64, mime)])
+        return ai_prompts.parse_generic_boxes(
+            text, img.size[0], img.size[1], coord_order)
+
     def generate():
+        from app.parallel import run_parallel, CANCELLED
         with app.app_context():
             try:
-                yield 'data: ' + json.dumps({'type': 'job', 'job_id': job_id,
-                                             'total': len(pages)}) + '\n\n'
-                for i, p in enumerate(pages):
-                    if cancel.is_set():
-                        yield 'data: ' + json.dumps(
-                            {'type': 'info', 'message': 'Cancelled.'}) + '\n\n'
-                        break
-                    try:
-                        img = pdf_tools.render_page_image(
-                            src_paths[p['id']], int(p['page']),
-                            p.get('ops') or [], width_px=image_max_dim)
-                        b64, mime = llm_client.prepare_image_from_pil(
-                            img, image_max_dim)
-                        text, _info = llm_client.chat(cfg, system, user_text,
-                                                      images=[(b64, mime)])
-                        boxes = ai_prompts.parse_generic_boxes(
-                            text, img.size[0], img.size[1], coord_order)
-                    except Exception as e:
+                yield 'data: ' + json.dumps(
+                    {'type': 'job', 'job_id': job_id, 'total': len(pages),
+                     'workers': workers}) + '\n\n'
+                if workers > 1:
+                    yield 'data: ' + json.dumps(
+                        {'type': 'info',
+                         'message': f'Running {workers} pages in parallel.'}
+                    ) + '\n\n'
+                done = 0
+                cancelled = False
+                for r in run_parallel(app, cancel, pages, _detect_one,
+                                      workers):
+                    p = r['item']
+                    if r['result'] is CANCELLED:
+                        cancelled = True
+                        continue
+                    done += 1
+                    if r['error'] is not None:
                         logger.warning('llm-detect failed for %s: %s',
-                                       p['id'], e)
+                                       p['id'], r['error'])
                         yield 'data: ' + json.dumps(
                             {'type': 'error', 'page_id': p['id'],
-                             'message': str(e), 'current': i + 1,
+                             'message': str(r['error']), 'current': done,
                              'total': len(pages)}) + '\n\n'
                         continue
                     yield 'data: ' + json.dumps(
                         {'type': 'page', 'page_id': p['id'],
-                         'boxes': boxes, 'current': i + 1,
+                         'boxes': r['result'], 'current': done,
                          'total': len(pages)}) + '\n\n'
+                if cancelled or cancel.is_set():
+                    yield 'data: ' + json.dumps(
+                        {'type': 'info', 'message': 'Cancelled.'}) + '\n\n'
                 yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
             finally:
                 pdf_import.finish_job(job_id)
