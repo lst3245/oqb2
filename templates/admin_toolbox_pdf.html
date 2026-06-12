@@ -153,11 +153,14 @@
     body.tb-select-mode .tb-page-card.tb-selected .tb-check {
         background: var(--bs-primary); border-color: var(--bs-primary); color: #fff;
     }
-    /* Enlarged preview: touch tap zones for prev / next. */
+    /* Enlarged preview: touch tap zones for prev / next.
+       Anchored to .modal-content (position:relative) so they stay fixed
+       over the scrollable body. The header / ops-bar sit above them via z-index. */
     .tb-tapzone {
         position: absolute; top: 0; bottom: 0; width: 18%; z-index: 4;
         display: flex; align-items: center; cursor: pointer;
         opacity: 0; transition: opacity .15s; user-select: none;
+        pointer-events: auto;
     }
     .tb-tapzone:hover, .tb-tapzone:active { opacity: 1; }
     .tb-tapzone.tb-tap-left  { left: 0;  justify-content: flex-start; }
@@ -167,6 +170,9 @@
         background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);
         border-radius: .4rem; opacity: .85; margin: 0 .35rem;
     }
+    /* Keep header and ops-bar interactive above the floating tap zones. */
+    #previewModal .modal-header,
+    #previewModal .tb-ops-bar { position: relative; z-index: 5; }
 </style>
 {% endblock %}
 
@@ -301,70 +307,15 @@
                                 <button class="btn btn-outline-secondary" id="pasteBtn" data-op="paste" type="button" title="Paste (Ctrl+V)" disabled><i class="bi bi-clipboard-plus"></i></button>
                             </div>
                             <button class="btn btn-sm btn-outline-danger tb-needs-sel ms-auto" data-op="del" type="button" title="Delete selected (Del)"><i class="bi bi-trash"></i> Delete</button>
-                        </div>
-                    </div>
-
-                    <!-- Export bar -->
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-auto">
-                            <label class="form-label small mb-0">Format</label>
-                            <select id="exportFmt" class="form-select form-select-sm" style="width:auto;">
-                                <option value="pdf">Combined PDF</option>
-                                <option value="zip">ZIP of page images</option>
-                            </select>
-                        </div>
-                        <div class="col-auto" id="outputModeWrap">
-                            <label class="form-label small mb-0">Output</label>
-                            <select id="exportOutput" class="form-select form-select-sm" style="width:auto;"
-                                    title="Digital keeps vector pages and applies TRUE redaction (covered text is removed from the file). Image flattens every page to pixels, so redacted content can never be recovered.">
-                                <option value="digital">Digital (true redaction)</option>
-                                <option value="image">Image (flatten pages)</option>
-                            </select>
-                        </div>
-                        <div class="col-auto" id="compressWrap">
-                            <label class="form-label small mb-0">Compression</label>
-                            <select id="exportCompress" class="form-select form-select-sm" style="width:auto;"
-                                    title="Recompresses/downsamples the images inside the PDF. Light keeps the resolution; Medium/Strong downsample to ~150/~100 DPI; Fit to size retries until the file fits under the limit.">
-                                <option value="none">None</option>
-                                <option value="light">Light — recompress only</option>
-                                <option value="medium">Medium — ~150 DPI</option>
-                                <option value="strong">Strong — ~100 DPI</option>
-                                <option value="size">Fit to size…</option>
-                            </select>
-                        </div>
-                        <div class="col-auto" id="targetMbWrap" style="display:none;">
-                            <label class="form-label small mb-0">Max size (MB)</label>
-                            <input type="number" class="form-control form-control-sm" id="exportTargetMb"
-                                   min="0.2" step="0.5" value="10" style="width:6.5em;">
-                        </div>
-                        <div class="col-auto" id="splitEveryWrap" style="display:none;">
-                            <div class="form-check mt-3">
-                                <input class="form-check-input" type="checkbox" id="splitEveryChk">
-                                <label class="form-check-label small" for="splitEveryChk">Separate file every 4 pages (per student)</label>
-                            </div>
-                        </div>
-                        <div class="col">
-                            <label class="form-label small mb-0">File name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control form-control-sm" id="exportName" placeholder="Enter a file name" required>
-                        </div>
-                        <div class="col-auto">
-                            <button class="btn btn-primary btn-sm" id="exportBtn" type="button" disabled><i class="bi bi-download"></i> Export selected</button>
-                        </div>
-                        {% if pdf_source_available %}
-                        <div class="col-auto">
-                            <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button" disabled
-                                    title="Save under PDF_SOURCE_PATH/{{ save_subdir }} so Batch PDF Import can pick it">
-                                <i class="bi bi-hdd"></i> Save to server
+                            <div class="vr"></div>
+                            <button class="btn btn-primary btn-sm" id="exportOpenBtn" type="button" disabled>
+                                <i class="bi bi-download"></i> Export…
                             </button>
                         </div>
-                        {% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-3 mb-2">
                         <div class="text-muted small flex-grow-1">
-                            Click a page to select it; drag a box over pages or use Ctrl/Shift-click to multi-select.
-                            On touch devices, long-press a page (or use the Select button) to tap-select multiple pages.
-                            Drag selected pages to reorder, double-click to preview.
-                            Drop a PDF or image file here to add its pages directly (no split / filters).
+                            Click to select, Ctrl/Shift-click or drag a box to multi-select, double-click to preview; drop a PDF or image here to add pages.
                         </div>
                         <div class="d-flex align-items-center gap-1 text-muted" title="Page thumbnail size" style="min-width:150px;">
                             <i class="bi bi-zoom-out small"></i>
@@ -404,6 +355,10 @@
 <div class="modal fade" id="previewModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
+            <!-- Tap zones live here (in .modal-content, position:relative) so they
+                 stay fixed over the viewport and never scroll with the image. -->
+            <div class="tb-tapzone tb-tap-left" id="modalTapPrev" title="Previous page"><span><i class="bi bi-chevron-left"></i></span></div>
+            <div class="tb-tapzone tb-tap-right" id="modalTapNext" title="Next page"><span><i class="bi bi-chevron-right"></i></span></div>
             <div class="modal-header py-2 d-flex align-items-center gap-2 flex-wrap">
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="prevPageBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="nextPageBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
@@ -418,9 +373,7 @@
             <div class="tb-ops-bar bg-body border-bottom p-2">
                 <div id="modalImageOps" class="d-flex flex-wrap align-items-center gap-2"></div>
             </div>
-            <div class="modal-body text-center position-relative" id="previewModalBody">
-                <div class="tb-tapzone tb-tap-left" id="modalTapPrev" title="Previous page"><span><i class="bi bi-chevron-left"></i></span></div>
-                <div class="tb-tapzone tb-tap-right" id="modalTapNext" title="Next page"><span><i class="bi bi-chevron-right"></i></span></div>
+            <div class="modal-body text-center" id="previewModalBody">
                 <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="Page preview"></div>
             </div>
         </div>
@@ -510,6 +463,75 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" id="exportScopeAllBtn">All pages</button>
                 <button type="button" class="btn btn-primary" id="exportScopeSelBtn">Selected only</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export settings modal -->
+<div class="modal fade" id="exportSettingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-download"></i> Export</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label small mb-1 fw-bold">Format</label>
+                        <select id="exportFmt" class="form-select form-select-sm">
+                            <option value="pdf">Combined PDF</option>
+                            <option value="zip">ZIP of page images</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6" id="outputModeWrap">
+                        <label class="form-label small mb-1 fw-bold">Output</label>
+                        <select id="exportOutput" class="form-select form-select-sm"
+                                title="Digital keeps vector pages and applies TRUE redaction (covered text is removed from the file). Image flattens every page to pixels, so redacted content can never be recovered.">
+                            <option value="digital">Digital (true redaction)</option>
+                            <option value="image">Image (flatten pages)</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6" id="compressWrap">
+                        <label class="form-label small mb-1 fw-bold">Compression</label>
+                        <select id="exportCompress" class="form-select form-select-sm"
+                                title="Recompresses/downsamples the images inside the PDF. Light keeps the resolution; Medium/Strong downsample to ~150/~100 DPI; Fit to size retries until the file fits under the limit.">
+                            <option value="none">None</option>
+                            <option value="light">Light — recompress only</option>
+                            <option value="medium">Medium — ~150 DPI</option>
+                            <option value="strong">Strong — ~100 DPI</option>
+                            <option value="size">Fit to size…</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6" id="targetMbWrap" style="display:none;">
+                        <label class="form-label small mb-1 fw-bold">Max size (MB)</label>
+                        <input type="number" class="form-control form-control-sm" id="exportTargetMb"
+                               min="0.2" step="0.5" value="10">
+                    </div>
+                    <div class="col-12" id="splitEveryWrap" style="display:none;">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="splitEveryChk">
+                            <label class="form-check-label small" for="splitEveryChk">Separate file every 4 pages (per student)</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small mb-1 fw-bold">File name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="exportName" placeholder="Enter a file name">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                {% if pdf_source_available %}
+                <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button"
+                        title="Save under PDF_SOURCE_PATH/{{ save_subdir }} so Batch PDF Import can pick it">
+                    <i class="bi bi-hdd"></i> Save to server
+                </button>
+                {% endif %}
+                <button class="btn btn-primary btn-sm" id="exportBtn" type="button">
+                    <i class="bi bi-download"></i> Download
+                </button>
             </div>
         </div>
     </div>
@@ -1855,16 +1877,34 @@ function updateSplitEveryVisibility() {
         (fmtPdf && document.getElementById('exportCompress').value === 'size') ? '' : 'none';
 }
 function updateExportButtons() {
-    const hasName = document.getElementById('exportName').value.trim().length > 0;
-    const ok = pages.length > 0 && hasName;
-    const ex = document.getElementById('exportBtn');
-    if (ex && ex.dataset.html === undefined) ex.disabled = !ok;
-    const sv = document.getElementById('saveServerBtn');
-    if (sv && sv.dataset.html === undefined) sv.disabled = !ok;
+    const ok = pages.length > 0;
+    const trig = document.getElementById('exportOpenBtn');
+    if (trig && trig.dataset.html === undefined) trig.disabled = !ok;
 }
 
 // ---------- export ----------
+let exportSettingsModalInst = null;
 let exportScopeModal = null, exportScopeResolve = null;
+let pendingExportIds = null;   // resolved before the settings modal opens
+
+// Returns a promise that resolves once the Bootstrap modal finishes hiding.
+function waitModalHidden(id) {
+    return new Promise(resolve => {
+        const el = document.getElementById(id);
+        if (!el || !el.classList.contains('show')) { resolve(); return; }
+        el.addEventListener('hidden.bs.modal', resolve, {once: true});
+    });
+}
+
+async function openExportSettings() {
+    // Resolve scope (all vs selected) BEFORE opening the settings modal so
+    // the scope question never appears on top of another modal.
+    pendingExportIds = await resolveExportScope();
+    if (!pendingExportIds) return;   // dismissed
+    if (!exportSettingsModalInst)
+        exportSettingsModalInst = new bootstrap.Modal(document.getElementById('exportSettingsModal'));
+    exportSettingsModalInst.show();
+}
 
 // Resolve which page ids to export. With a partial selection, asks the user
 // (Selected only / All pages); resolves null when dismissed.
@@ -1913,25 +1953,44 @@ function exportBody(pageIds) {
 
 async function doExport() {
     if (!pages.length) { log('Nothing to export.', 'error'); return; }
-    const ids = await resolveExportScope();
-    if (!ids) return;
+    if (!document.getElementById('exportName').value.trim()) {
+        log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
+    }
+    const ids = pendingExportIds || pages.map(p => p.id);
     const body = exportBody(ids);
-    if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
-    const btn = document.getElementById('exportBtn');
+    if (exportSettingsModalInst) exportSettingsModalInst.hide();
+    await waitModalHidden('exportSettingsModal');
+
+    // Show loading on the toolbar button so the user knows work is in progress.
+    const btn = document.getElementById('exportOpenBtn');
     setBtnLoading(btn, true);
-    log(`Exporting ${body.page_ids.length} page(s)...`);
+    log(`Exporting ${ids.length} page(s)…`);
     try {
-        const r = await fetch(`${BASE}/export`, {
-            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        // Start the async job — returns immediately with a job_id.
+        const {job_id: jobId} = await postJSON(`${BASE}/export-start`, body);
+
+        // Stream progress via SSE; the server sends heartbeats to keep the
+        // proxy from timing out, then a final done/error event.
+        await new Promise((resolve, reject) => {
+            const es = new EventSource(`${BASE}/export-stream?job_id=${encodeURIComponent(jobId)}`);
+            es.onmessage = (e) => {
+                const ev = JSON.parse(e.data);
+                if (ev.type === 'heartbeat') {
+                    log('Exporting… (processing)');
+                } else if (ev.type === 'done') {
+                    es.close(); resolve(jobId);
+                } else if (ev.type === 'error') {
+                    es.close(); reject(new Error(ev.message));
+                }
+            };
+            es.onerror = () => { es.close(); reject(new Error('Connection lost during export.')); };
         });
-        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || ('HTTP ' + r.status)); }
-        const blob = await r.blob();
-        const disp = r.headers.get('Content-Disposition') || '';
-        const m = disp.match(/filename="?([^"]+)"?/);
-        const name = m ? m[1] : (body.filename + (body.fmt === 'zip' || body.split_every ? '.zip' : '.pdf'));
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-        URL.revokeObjectURL(url);
+
+        // Trigger the browser download — the server serves the prepared blob.
+        const a = document.createElement('a');
+        a.href = `${BASE}/export-download?job_id=${encodeURIComponent(jobId)}`;
+        a.download = body.filename + (body.fmt === 'zip' || body.split_every ? '.zip' : '.pdf');
+        a.click();
         log('Export ready — download started.', 'success');
     } catch (e) { log('Export failed: ' + e.message, 'error'); }
     setBtnLoading(btn, false);
@@ -1942,15 +2001,35 @@ let saveScopeIds = null;       // page ids chosen when the save flow started
 async function doSaveServer(overwrite) {
     if (!pages.length) { log('Nothing to save.', 'error'); return; }
     const body = exportBody(saveScopeIds || pages.map(p => p.id));
-    if (!body.filename) { log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return; }
+    if (!body.filename) { log('Enter a file name first.', 'error'); return; }
     body.dest = saveDest;
     if (overwrite) body.overwrite = true;
-    const btn = document.getElementById('saveServerBtn');
+
+    // Show loading on the toolbar button.
+    const btn = document.getElementById('exportOpenBtn');
     setBtnLoading(btn, true);
-    log('Saving to server...');
+    log('Starting server save…');
     try {
-        const data = await postJSON(`${BASE}/export-save`, body);
-        log(`Saved to server: ${data.saved}`, 'success');
+        // Start async save job (returns job_id, or 409 for overwrite conflict).
+        const startData = await postJSON(`${BASE}/export-save-start`, body);
+        const jobId = startData.job_id;
+
+        // Stream SSE progress until done/error.
+        const result = await new Promise((resolve, reject) => {
+            const es = new EventSource(`${BASE}/export-stream?job_id=${encodeURIComponent(jobId)}`);
+            es.onmessage = (e) => {
+                const ev = JSON.parse(e.data);
+                if (ev.type === 'heartbeat') {
+                    log('Saving to server… (processing)');
+                } else if (ev.type === 'done') {
+                    es.close(); resolve(ev);
+                } else if (ev.type === 'error') {
+                    es.close(); reject(new Error(ev.message));
+                }
+            };
+            es.onerror = () => { es.close(); reject(new Error('Connection lost during save.')); };
+        });
+        log(`Saved to server: ${result.saved}`, 'success');
     } catch (e) {
         if (e.status === 409 && e.data && e.data.exists) {
             setBtnLoading(btn, false);
@@ -1973,8 +2052,10 @@ async function openSaveDest() {
     if (!document.getElementById('exportName').value.trim()) {
         log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
     }
-    saveScopeIds = await resolveExportScope();
-    if (!saveScopeIds) return;
+    // Scope was already resolved when the settings modal was opened — reuse it.
+    saveScopeIds = pendingExportIds || pages.map(p => p.id);
+    if (exportSettingsModalInst) exportSettingsModalInst.hide();
+    await waitModalHidden('exportSettingsModal');
     if (!saveDestModal) saveDestModal = new bootstrap.Modal(document.getElementById('saveDestModal'));
     saveDestModal.show();
     loadDestDir(saveDest || DEFAULT_SAVE_SUBDIR, true);
@@ -2527,9 +2608,9 @@ document.addEventListener('DOMContentLoaded', () => {
     syncPreviewResToggle();
 
     // export
-    document.getElementById('exportFmt').addEventListener('change', () => { updateSplitEveryVisibility(); });
+    document.getElementById('exportOpenBtn').addEventListener('click', openExportSettings);
+    document.getElementById('exportFmt').addEventListener('change', updateSplitEveryVisibility);
     document.getElementById('exportCompress').addEventListener('change', updateSplitEveryVisibility);
-    document.getElementById('exportName').addEventListener('input', updateExportButtons);
     document.getElementById('exportBtn').addEventListener('click', doExport);
     const saveBtn = document.getElementById('saveServerBtn');
     if (saveBtn) saveBtn.addEventListener('click', openSaveDest);
@@ -2542,8 +2623,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('overwriteRenameBtn').addEventListener('click', () => {
         if (overwriteModal) overwriteModal.hide();
-        document.getElementById('exportName').focus();
-        document.getElementById('exportName').select();
+        openExportSettings();
+        setTimeout(() => {
+            document.getElementById('exportName').focus();
+            document.getElementById('exportName').select();
+        }, 350);
     });
 
     initRubberBand();

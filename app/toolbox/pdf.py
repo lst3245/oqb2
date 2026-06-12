@@ -10,8 +10,10 @@ import io
 import json
 import logging
 import os
+import queue as _queue_mod
 import re
 import shutil
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -29,6 +31,18 @@ logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
 _ID_RE = re.compile(r'^[0-9a-f]{6,40}$')
+
+# In-memory store for async export / save jobs.
+# Keys: job_id (hex).  Values: dicts described below.
+_EXPORT_JOBS: dict = {}
+
+
+def _cleanup_export_jobs(max_age: int = 600) -> None:
+    """Drop stale jobs older than *max_age* seconds."""
+    now = time.time()
+    stale = [k for k, v in list(_EXPORT_JOBS.items()) if now - v.get('ts', 0) > max_age]
+    for k in stale:
+        _EXPORT_JOBS.pop(k, None)
 
 
 # ==================== Staging ====================
@@ -646,14 +660,14 @@ def pdf_src_thumb(token, srcid, idx):
     return send_file(buf, mimetype='image/png')
 
 
-@toolbox_bp.route('/pdf/export', methods=['POST'])
-@login_required
-@admin_required
-def pdf_export():
-    data = request.get_json(silent=True) or {}
+def _parse_export_common(data):
+    """Extract and validate common export parameters from a request dict.
+
+    Returns (token, fmt, output, split_every, compress) or raises ValueError.
+    """
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        raise ValueError('Session expired — reload the page.')
     fmt = (data.get('fmt') or 'pdf').strip().lower()
     if fmt not in ('pdf', 'zip'):
         fmt = 'pdf'
@@ -664,33 +678,108 @@ def pdf_export():
         split_every = int(data.get('split_every') or 0)
     except (TypeError, ValueError):
         split_every = 0
-    session = _load_session(token)
+    return token, fmt, output, split_every, _parse_compress(data)
+
+
+@toolbox_bp.route('/pdf/export-start', methods=['POST'])
+@login_required
+@admin_required
+def pdf_export_start():
+    """Start an async download-export job. Returns {job_id} immediately."""
+    data = request.get_json(silent=True) or {}
     try:
-        blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every, output,
-                                   compress=_parse_compress(data))
+        token, fmt, output, split_every, compress = _parse_export_common(data)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        logger.exception('toolbox export failed')
-        return jsonify({'error': f'Export failed: {e}'}), 500
 
     ext, mime = _export_meta(fmt, split_every)
     stem = safe_filename(data.get('filename'), 'toolbox_export')
-    buf = io.BytesIO(blob)
-    buf.seek(0)
-    return send_file(buf, mimetype=mime, as_attachment=True,
-                     download_name=f'{stem}.{ext}')
+    download_name = f'{stem}.{ext}'
+    page_ids = data.get('page_ids')
+    session = _load_session(token)
+
+    _cleanup_export_jobs()
+    job_id = uuid.uuid4().hex
+    q: _queue_mod.Queue = _queue_mod.Queue()
+    job: dict = {'q': q, 'mode': 'download', 'blob': None,
+                 'mime': mime, 'download_name': download_name, 'ts': time.time()}
+    _EXPORT_JOBS[job_id] = job
+
+    app = current_app._get_current_object()
+
+    def _run() -> None:
+        with app.app_context():
+            try:
+                blob = _build_export_bytes(token, session, page_ids, fmt,
+                                           split_every, output, compress=compress)
+                job['blob'] = blob
+                q.put({'type': 'done'})
+            except Exception as exc:
+                logger.exception('toolbox async export failed')
+                q.put({'type': 'error', 'message': f'Export failed: {exc}'})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
 
 
-@toolbox_bp.route('/pdf/export-save', methods=['POST'])
+@toolbox_bp.route('/pdf/export-stream')
 @login_required
 @admin_required
-def pdf_export_save():
+def pdf_export_stream():
+    """SSE: heartbeat every ~2 s while a job runs, then ``done``/``error``."""
+    job_id = (request.args.get('job_id') or '').strip()
+
+    def _sse_error(msg):
+        def _gen():
+            yield 'data: ' + json.dumps({'type': 'error', 'message': msg}) + '\n\n'
+            yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+        return Response(_gen(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    job = _EXPORT_JOBS.get(job_id)
+    if not job:
+        return _sse_error('Unknown export job.')
+
+    q: _queue_mod.Queue = job['q']
+
+    def generate():
+        while True:
+            try:
+                event = q.get(timeout=2)
+                yield 'data: ' + json.dumps(event) + '\n\n'
+                if event.get('type') in ('done', 'error'):
+                    break
+            except _queue_mod.Empty:
+                yield 'data: ' + json.dumps({'type': 'heartbeat'}) + '\n\n'
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@toolbox_bp.route('/pdf/export-download')
+@login_required
+@admin_required
+def pdf_export_download():
+    """Serve a completed download-export job and clean it up."""
+    job_id = (request.args.get('job_id') or '').strip()
+    job = _EXPORT_JOBS.pop(job_id, None)
+    if not job or job.get('mode') != 'download' or not job.get('blob'):
+        return jsonify({'error': 'Export job not found or not ready.'}), 404
+    buf = io.BytesIO(job['blob'])
+    return send_file(buf, mimetype=job['mime'], as_attachment=True,
+                     download_name=job['download_name'])
+
+
+@toolbox_bp.route('/pdf/export-save-start', methods=['POST'])
+@login_required
+@admin_required
+def pdf_export_save_start():
+    """Start an async server-save job. Returns {job_id} immediately."""
     data = request.get_json(silent=True) or {}
-    token = (data.get('token') or '').strip()
-    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+    try:
+        token, fmt, output, split_every, compress = _parse_export_common(data)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     root = pdf_source_root()
     if not root or not os.path.isdir(root):
@@ -704,18 +793,7 @@ def pdf_export_save():
     os.makedirs(save_dir, exist_ok=True)
     subdir = os.path.relpath(save_dir, root).replace('\\', '/')
 
-    fmt = (data.get('fmt') or 'pdf').strip().lower()
-    if fmt not in ('pdf', 'zip'):
-        fmt = 'pdf'
-    output = (data.get('output') or 'digital').strip().lower()
-    if output not in ('digital', 'image'):
-        output = 'digital'
-    try:
-        split_every = int(data.get('split_every') or 0)
-    except (TypeError, ValueError):
-        split_every = 0
     ext, _mime = _export_meta(fmt, split_every)
-
     raw_name = (data.get('filename') or '').strip()
     if not raw_name:
         return jsonify({'error': 'Enter a file name.'}), 400
@@ -733,22 +811,32 @@ def pdf_export_save():
                         'subdir': subdir,
                         'error': f'"{stem}.{ext}" already exists in {subdir}.'}), 409
 
+    page_ids = data.get('page_ids')
     session = _load_session(token)
-    try:
-        blob = _build_export_bytes(token, session, data.get('page_ids'), fmt,
-                                   split_every, output,
-                                   compress=_parse_compress(data))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        logger.exception('toolbox export-save failed')
-        return jsonify({'error': f'Export failed: {e}'}), 500
 
-    with open(dest, 'wb') as f:
-        f.write(blob)
-    rel = os.path.relpath(dest, root).replace('\\', '/')
-    return jsonify({'ok': True, 'saved': rel,
-                    'path': dest, 'subdir': subdir})
+    _cleanup_export_jobs()
+    job_id = uuid.uuid4().hex
+    q: _queue_mod.Queue = _queue_mod.Queue()
+    job: dict = {'q': q, 'mode': 'save', 'ts': time.time()}
+    _EXPORT_JOBS[job_id] = job
+
+    app = current_app._get_current_object()
+
+    def _run() -> None:
+        with app.app_context():
+            try:
+                blob = _build_export_bytes(token, session, page_ids, fmt,
+                                           split_every, output, compress=compress)
+                with open(dest, 'wb') as f:
+                    f.write(blob)
+                rel = os.path.relpath(dest, root).replace('\\', '/')
+                q.put({'type': 'done', 'saved': rel, 'subdir': subdir})
+            except Exception as exc:
+                logger.exception('toolbox async export-save failed')
+                q.put({'type': 'error', 'message': f'Save failed: {exc}'})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
 
 
 @toolbox_bp.route('/pdf/mkdir', methods=['POST'])
