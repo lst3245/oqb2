@@ -147,3 +147,12 @@ The page is reached from:
 3. At the call site, use `ai_prompts.get_prompt('NEW_KEY')` (no vars) or `ai_prompts.render_prompt('NEW_KEY', **vars)`.
 4. The UI auto-discovers it via `as_dict()` — no template change needed.
 5. Document the prompt's purpose in its `description` (shown verbatim in the admin UI).
+
+## ⚠️ Checklist when adding ANY new LLM-powered feature
+
+Whenever you wire a new LLM call (a new feature, tool, or detection mode) into the app, do NOT inline a hard-coded prompt string at the call site. ALWAYS:
+
+1. **Register every system + user prompt** in `PROMPTS_REGISTRY` so it appears on the **Admin → AI Prompts** page (super-admins must be able to tune model behaviour without a code change). Reuse an existing prompt where the contract matches — e.g. the Toolbox PDF Tool **Find & Mark "AI detect"** reuses `PDF_GENERIC_BOX_*` rather than defining its own. If you reuse a prompt for a new surface, mention that surface in the prompt's `description` so it's discoverable.
+2. **Register every tunable** (timeouts, max image dim, default endpoint, worker counts, DPI, feature toggles, …) in `app/settings.py` REGISTRY **and** add the matching `Config` attribute in `app/config.py`, so they live on the **Admin → System Settings** page — never hard-code a magic number in the module. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc).
+3. **Pick the endpoint** via a `*_DEFAULT_LLM` setting (with `choices_fn=_llm_endpoint_choices`) instead of hard-wiring one.
+4. **Long-running calls stream over SSE** (job → progress → done) with a real Stop via `pdf_import.new_job` / `app.parallel.run_parallel`, so they show live progress and never hit a gateway timeout — never a single blocking POST that can 504.

@@ -173,8 +173,22 @@ def extract_words_digital(pdf_path: str, page_index: int, ops):
         doc.close()
 
 
-def extract_words_ocr(img, tesseract_cmd: str = ''):
-    """Words from Tesseract OCR over a post-ops PIL image (fractional coords)."""
+# Orientation-detection thresholds. A "good" word is a confident, word-like
+# token; a page that yields too few of them (or a poor good/total ratio) is
+# treated as possibly-rotated and re-examined at 90/180/270°. Word COUNT
+# alone is a bad signal — a sideways scan still produces hundreds of
+# low-confidence GIBBERISH tokens — so confidence is the real discriminator.
+_OCR_CONF_MIN = 60          # a word counts as "good" at/above this confidence
+_OCR_ORIENT_MIN_WORDS = 8   # fewer good words than this ⇒ inspect orientations
+_OCR_GOOD_RATIO = 0.35      # good/total below this ⇒ inspect orientations
+
+
+def _ocr_pass(img, tesseract_cmd: str = ''):
+    """Single Tesseract pass over a PIL image → fractional word boxes.
+
+    Each box also carries its ``conf`` (0–100) so callers can score the
+    orientation; :func:`extract_words_ocr` strips it before returning.
+    """
     import pytesseract  # type: ignore
 
     if tesseract_cmd:
@@ -193,10 +207,97 @@ def extract_words_ocr(img, tesseract_cmd: str = ''):
             continue
         left, top = data['left'][i], data['top'][i]
         width, height = data['width'][i], data['height'][i]
-        out.append({'text': text,
+        out.append({'text': text, 'conf': conf,
                     'x1': left / w, 'y1': top / h,
                     'x2': (left + width) / w, 'y2': (top + height) / h})
     return out
+
+
+def _good_word_count(words):
+    """Number of confident, word-like tokens (the orientation quality score)."""
+    return sum(1 for w in words
+               if w.get('conf', 0) >= _OCR_CONF_MIN and len(w['text']) >= 2
+               and any(c.isalpha() for c in w['text']))
+
+
+def _detect_osd_rotation(img, tesseract_cmd: str = '', min_conf: float = 1.0):
+    """Tesseract OSD page-orientation probe → clockwise degrees to upright
+    (0/90/180/270), or 0 when unavailable / not confident. Used only as a
+    tie-breaker between orientations that score equally well."""
+    import pytesseract  # type: ignore
+
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+    try:
+        osd = pytesseract.image_to_osd(img, output_type=pytesseract.Output.DICT)
+        rot = int(osd.get('rotate', 0)) % 360
+        conf = float(osd.get('orientation_conf', 0) or 0)
+    except Exception:
+        return 0
+    return rot if rot in (90, 180, 270) and conf >= min_conf else 0
+
+
+def rotate_rect_frac(rect, deg):
+    """Rotate a fractional ``[x1,y1,x2,y2]`` rect ``deg`` clockwise within the
+    unit square, returning a normalised rect. ``deg`` is 0/90/180/270."""
+    ax, ay = _rot_point(rect[0], rect[1], deg)
+    bx, by = _rot_point(rect[2], rect[3], deg)
+    return [min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)]
+
+
+def _strip_conf(words):
+    for w in words:
+        w.pop('conf', None)
+    return words
+
+
+def extract_words_ocr(img, tesseract_cmd: str = '', auto_orient: bool = True):
+    """OCR words over a PIL image → ``(words, display_rot)``.
+
+    Words are returned in **reading-upright** fractional coords (text reads
+    left-to-right, so boxes are tight). ``display_rot`` is the clockwise
+    degrees needed to map a reading-space box back onto the page as it is
+    DISPLAYED (0 for an already-upright page; 90/180/270 for a sideways
+    scan). Keeping matching in upright space and rotating only the final
+    result boxes means line grouping and the tight/loose margins act on the
+    correct axes — otherwise a rotated page's boxes get the gap-bridging
+    margin on the wrong axis and look fat.
+
+    When ``auto_orient`` is set and the upright pass looks like it is NOT
+    reading real text (few confident words, or a poor confident/total ratio —
+    the signature of a sideways scan, which still yields lots of low-confidence
+    gibberish), the image is also OCR'd at 90/180/270° and the orientation
+    with the most confident words wins (Tesseract OSD breaks ties).
+    """
+    up = _ocr_pass(img, tesseract_cmd)
+    if not auto_orient:
+        return _strip_conf(up), 0
+
+    up_good = _good_word_count(up)
+    ratio = up_good / len(up) if up else 0.0
+    # Confidently reading upright text → fast path, no extra passes / OSD.
+    if up_good >= _OCR_ORIENT_MIN_WORDS and ratio >= _OCR_GOOD_RATIO:
+        return _strip_conf(up), 0
+
+    osd_rot = _detect_osd_rotation(img, tesseract_cmd)
+    scored = [(0, up, up_good)]
+    for rot in (90, 180, 270):
+        # PIL rotate is counter-clockwise for positive angles; rotate(-rot)
+        # turns the image clockwise by ``rot`` to test that orientation.
+        words = _ocr_pass(img.rotate(-rot, expand=True), tesseract_cmd)
+        scored.append((rot, words, _good_word_count(words)))
+
+    # Most confident orientation wins; ties prefer OSD's pick, then "no
+    # rotation" (so a genuinely upright page is never needlessly rotated).
+    best_rot, best_words, _ = max(
+        scored,
+        key=lambda it: (it[2],
+                        1 if it[0] and it[0] == osd_rot else 0,
+                        1 if it[0] == 0 else 0))
+    # Boxes are tight in this reading-upright orientation; the caller maps
+    # the final match rects back to display space via display_rot.
+    display_rot = (360 - best_rot) % 360 if best_rot else 0
+    return _strip_conf(best_words), display_rot
 
 
 def has_text_layer(pdf_path: str, page_index: int) -> bool:
@@ -215,21 +316,31 @@ def has_text_layer(pdf_path: str, page_index: int) -> bool:
 
 # ==================== Per-page cache ====================
 
-def _words_sig(engine: str, ops, ocr_dpi: int) -> str:
-    payload = json.dumps([engine, ocr_dpi if engine == 'ocr' else 0,
+# Bump when word-extraction behaviour changes so stale per-page caches from
+# an older build are not reused (the signature is content-of-ops, not pixels).
+_WORDS_SIG_VERSION = 4
+
+
+def _words_sig(engine: str, ops, ocr_dpi: int, auto_orient: bool) -> str:
+    payload = json.dumps([_WORDS_SIG_VERSION, engine,
+                          ocr_dpi if engine == 'ocr' else 0,
+                          bool(auto_orient) if engine == 'ocr' else False,
                           ops or []], sort_keys=True)
     return hashlib.sha1(payload.encode('utf-8')).hexdigest()[:16]
 
 
 def get_page_words(cache_dir: str, desc, src_path: str, engine: str,
-                   ocr_dpi: int = 300, tesseract_cmd: str = ''):
+                   ocr_dpi: int = 300, tesseract_cmd: str = '',
+                   auto_orient: bool = True):
     """Extract (or load cached) words for one page descriptor.
 
     ``engine`` must be ``'digital'`` or ``'ocr'`` (resolved by the caller).
-    Returns the word list (fractional post-ops coords).
+    Returns ``(words, display_rot)`` — words in reading-upright fractional
+    coords, and the clockwise degrees to map a box back onto the displayed
+    page (0 unless an OCR page was auto-rotated; see :func:`extract_words_ocr`).
     """
     ops = desc.get('ops') or []
-    sig = _words_sig(engine, ops, ocr_dpi)
+    sig = _words_sig(engine, ops, ocr_dpi, auto_orient)
     path = None
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
@@ -238,27 +349,30 @@ def get_page_words(cache_dir: str, desc, src_path: str, engine: str,
             with open(path, 'r', encoding='utf-8') as f:
                 cached = json.load(f)
             if cached.get('sig') == sig:
-                return cached.get('words') or []
+                return cached.get('words') or [], int(cached.get('display_rot') or 0)
         except (OSError, ValueError):
             pass
 
     if engine == 'digital':
         words = extract_words_digital(src_path, int(desc['page']), ops)
+        display_rot = 0
     else:
         from app import pdf_tools
         img = pdf_tools.render_page_image(src_path, int(desc['page']), ops,
                                           dpi=ocr_dpi)
-        words = extract_words_ocr(img, tesseract_cmd)
+        words, display_rot = extract_words_ocr(img, tesseract_cmd,
+                                               auto_orient=auto_orient)
 
     if path:
         try:
             tmp = path + '.tmp'
             with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump({'sig': sig, 'engine': engine, 'words': words}, f)
+                json.dump({'sig': sig, 'engine': engine, 'words': words,
+                           'display_rot': display_rot}, f)
             os.replace(tmp, path)
         except OSError:
             pass
-    return words
+    return words, display_rot
 
 
 # ==================== Fuzzy phrase matching ====================

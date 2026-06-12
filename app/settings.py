@@ -455,6 +455,17 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Resolution used to rasterise pages for Tesseract OCR in the PDF Tool\'s Find & Mark (scanned-page keyword search). Higher recognises small print better but is slower. 300 is a good default; 400 for dense or low-quality scans. Requires a local Tesseract install (auto-detected, or TESSERACT_CMD in .env).',
         min=72, max=600,
     )),
+    ('TOOLBOX_OCR_WORKERS', _spec(
+        'TOOLBOX_OCR_WORKERS', 'int', group='Toolbox',
+        label='PDF Tool Find & Mark parallel workers',
+        help='How many pages the PDF Tool\'s Find & Mark extracts/OCRs concurrently when "Parallel" is ticked. Tesseract runs as a subprocess, so this scales OCR across CPU cores; the value is capped by the machine\'s CPU count at runtime. 1 disables parallelism. Cross-page phrase matching still runs once after all pages are scanned, so results are unaffected.',
+        min=1, max=32,
+    )),
+    ('TOOLBOX_OCR_AUTO_ORIENT', _spec(
+        'TOOLBOX_OCR_AUTO_ORIENT', 'bool', group='Toolbox',
+        label='PDF Tool OCR auto-orientation',
+        help='When ON, a page whose upright OCR pass finds little text is re-OCR\'d at 90/180/270° and the best orientation wins (its boxes are mapped back so highlights land correctly). Fixes sideways/rotated scans not matching. Adds up to 3 extra OCR passes on sparse or rotated pages only; normal upright text pages do a single pass.',
+    )),
 
     # Markup
     ('MARKUP_NORMALIZED_MAX_DIM', _spec(

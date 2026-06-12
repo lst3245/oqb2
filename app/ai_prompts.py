@@ -1372,7 +1372,8 @@ PROMPTS_REGISTRY = OrderedDict([
             'Substituted into the generic system prompt via {{json_contract}}. '
             'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
             'are filled from the PDF_IMPORT_COORD_ORDER setting. Parser '
-            'parse_generic_boxes is coupled to this shape.'
+            'parse_generic_boxes is coupled to this shape. ALSO powers the '
+            'Toolbox → PDF Tool → Find & Mark "AI detect" engine.'
         ),
         default=_DEFAULT_PDF_GENERIC_BOX_JSON_CONTRACT,
         variables=['box_array', 'box_corner', 'box_example'],
@@ -1385,7 +1386,10 @@ PROMPTS_REGISTRY = OrderedDict([
             'Used by the "Generic Extraction" task to find regions matching a '
             'user-supplied request on any document page (no exam-question '
             'context). {{instruction}} is the user request; {{json_contract}} '
-            'is replaced with the generic contract above.'
+            'is replaced with the generic contract above. ALSO powers the '
+            'Toolbox → PDF Tool → Find & Mark "AI detect" engine (both the '
+            '"find the search terms" and "custom instruction" modes feed '
+            '{{instruction}}).'
         ),
         default=_DEFAULT_PDF_GENERIC_BOX_SYSTEM,
         variables=['instruction', 'json_contract'],
@@ -1397,7 +1401,8 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             "Accompanies the single page image for Generic Extraction. "
             "{{instruction}} is the user request; {{box_pairs}} is filled from "
-            "the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx)."
+            "the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx). ALSO powers "
+            "the Toolbox → PDF Tool → Find & Mark \"AI detect\" engine."
         ),
         default=_DEFAULT_PDF_GENERIC_BOX_USER,
         variables=['instruction', 'box_pairs'],

@@ -171,6 +171,15 @@ class Config:
     # PDF Toolbox — DPI used to rasterise pages for OCR word extraction in
     # Find & Mark (higher = better recognition of small print, slower).
     TOOLBOX_OCR_DPI = int(os.getenv('TOOLBOX_OCR_DPI', '300'))
+    # PDF Toolbox — number of pages OCR'd / extracted concurrently in Find &
+    # Mark when "Parallel" is on (Tesseract runs as a subprocess, so threads
+    # scale across CPU cores). Capped by the CPU count at runtime.
+    TOOLBOX_OCR_WORKERS = int(os.getenv('TOOLBOX_OCR_WORKERS', '4'))
+    # PDF Toolbox — when a page's upright OCR pass finds little text, retry at
+    # 90/180/270° and keep the best (handles sideways scans). Costs up to 3
+    # extra OCR passes on sparse/rotated pages only.
+    TOOLBOX_OCR_AUTO_ORIENT = os.getenv(
+        'TOOLBOX_OCR_AUTO_ORIENT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
     # Markup — longest edge (world units) for resolution-normalized image imports.
     MARKUP_NORMALIZED_MAX_DIM = int(os.getenv('MARKUP_NORMALIZED_MAX_DIM', '2400'))

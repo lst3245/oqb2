@@ -784,59 +784,85 @@ def _words_cache_dir(token: str) -> str:
     return os.path.join(_token_dir(token), 'words')
 
 
-@toolbox_bp.route('/pdf/text-search', methods=['POST'])
+@toolbox_bp.route('/pdf/text-search')
 @login_required
 @admin_required
 def pdf_text_search():
-    """Locate phrases on working-set pages via the PDF text layer or OCR.
+    """SSE: locate phrases on working-set pages via the text layer or OCR.
 
-    Body: ``{token, page_ids?, engine: 'auto'|'digital'|'ocr',
-    terms: [str, ...], fuzzy, threshold, case_sensitive}``.
-    Returns ``{results: {page_id: [{rect, term}]}, engines: {page_id: str},
-    skipped: [{page_id, reason}]}`` — rects are fractional post-ops coords.
+    Query params: ``token``, ``page_ids`` (csv), ``engine``
+    (``auto``/``digital``/``ocr``), ``term`` (repeated), ``fuzzy``,
+    ``threshold``, ``case_sensitive``, ``parallel``.
+
+    Streams ``job`` → per-page ``progress`` / ``skip`` events (word
+    extraction is the slow part — OCR — and is fanned across worker threads
+    when ``parallel`` is on), then a single ``results`` event (cross-page
+    phrase matching runs once, after every page is scanned, so phrases that
+    wrap across pages still match), then ``done``. SSE keeps the connection
+    alive so long scanned PDFs never hit a proxy/gateway timeout.
     """
-    from app import pdf_text
+    from app import pdf_text, pdf_import
 
-    data = request.get_json(silent=True) or {}
-    token = (data.get('token') or '').strip()
+    def _sse_error(msg):
+        def gen():
+            yield 'data: ' + json.dumps({'type': 'error', 'message': msg}) + '\n\n'
+            yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+        return Response(gen(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache',
+                                 'X-Accel-Buffering': 'no'})
+
+    token = (request.args.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return _sse_error('Session expired — reload the page.')
 
-    terms = [str(t or '').strip()[:300] for t in (data.get('terms') or [])]
+    terms = [str(t or '').strip()[:300] for t in request.args.getlist('term')]
     terms = [t for t in terms if t]
     if not terms:
-        return jsonify({'error': 'Enter at least one search term.'}), 400
+        return _sse_error('Enter at least one search term.')
 
-    engine = (data.get('engine') or 'auto').strip().lower()
+    engine = (request.args.get('engine') or 'auto').strip().lower()
     if engine not in pdf_text.ENGINES:
         engine = 'auto'
-    fuzzy = bool(data.get('fuzzy', True))
+    fuzzy = request.args.get('fuzzy', '1').strip().lower() in ('1', 'true', 'yes', 'on')
     try:
-        threshold = max(50, min(100, int(data.get('threshold') or 85)))
+        threshold = max(50, min(100, int(request.args.get('threshold') or 85)))
     except (TypeError, ValueError):
         threshold = 85
-    case_sensitive = bool(data.get('case_sensitive', False))
+    case_sensitive = request.args.get('case_sensitive', '0').strip().lower() in (
+        '1', 'true', 'yes', 'on')
 
     tess_cmd = pdf_text.resolve_tesseract(
         current_app.config.get('TESSERACT_CMD', ''))
-    ocr_ok = pdf_text.ocr_available(
-        current_app.config.get('TESSERACT_CMD', ''))
+    ocr_ok = pdf_text.ocr_available(current_app.config.get('TESSERACT_CMD', ''))
     if engine == 'ocr' and not ocr_ok:
-        return jsonify({'error': 'OCR is not available on this server '
-                                 '(install Tesseract or set TESSERACT_CMD).'}), 400
+        return _sse_error('OCR is not available on this server '
+                          '(install Tesseract or set TESSERACT_CMD).')
 
     ocr_dpi = int(current_app.config.get('TOOLBOX_OCR_DPI', 300))
+    auto_orient = bool(current_app.config.get('TOOLBOX_OCR_AUTO_ORIENT', True))
+    page_ids = [s for s in (request.args.get('page_ids') or '').split(',') if s]
     session = _load_session(token)
-    pages = _select_pages(session, data.get('page_ids'))
+    pages = _select_pages(session, page_ids)
     if not pages:
-        return jsonify({'error': 'No pages to search.'}), 400
+        return _sse_error('No pages to search.')
+
+    want_parallel = request.args.get('parallel', '0').strip().lower() in (
+        '1', 'true', 'yes', 'on')
+    workers = 1
+    if want_parallel:
+        import os as _os
+        cfg_workers = int(current_app.config.get('TOOLBOX_OCR_WORKERS', 4) or 1)
+        workers = max(1, min(cfg_workers, (_os.cpu_count() or 1), len(pages)))
 
     cache_dir = _words_cache_dir(token)
-    page_words = []
-    engines_used = {}
-    skipped = []
-    for p in pages:
-        src_path = _source_path(token, p['src'])
+    src_paths = {p['id']: _source_path(token, p['src']) for p in pages}
+    page_index = {p['id']: i + 1 for i, p in enumerate(pages)}
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+
+    def _extract_one(p):
+        """Resolve the engine for one page and return its words (or a skip)."""
+        src_path = src_paths[p['id']]
         ops = p.get('ops') or []
         use = None
         if engine in ('auto', 'digital') and pdf_text.digital_mappable(ops):
@@ -851,26 +877,97 @@ def pdf_text_search():
             reason = ('no text layer and OCR unavailable' if engine == 'auto'
                       else 'no usable text layer'
                       if engine == 'digital' else 'OCR unavailable')
-            skipped.append({'page_id': p['id'], 'reason': reason})
-            continue
-        try:
-            words = pdf_text.get_page_words(cache_dir, p, src_path, use,
-                                            ocr_dpi=ocr_dpi,
-                                            tesseract_cmd=tess_cmd)
-        except Exception as e:
-            logger.warning('word extraction failed for %s: %s', p['id'], e)
-            skipped.append({'page_id': p['id'], 'reason': str(e)})
-            continue
-        engines_used[p['id']] = use
-        page_words.append((p['id'], words))
+            return {'skip': reason}
+        words, display_rot = pdf_text.get_page_words(
+            cache_dir, p, src_path, use, ocr_dpi=ocr_dpi,
+            tesseract_cmd=tess_cmd, auto_orient=auto_orient)
+        return {'engine': use, 'words': words, 'display_rot': display_rot}
 
-    results = pdf_text.find_matches(page_words, terms, fuzzy=fuzzy,
-                                    threshold=threshold,
-                                    case_sensitive=case_sensitive)
-    results = {pid: boxes for pid, boxes in results.items() if boxes}
-    return jsonify({'results': results, 'engines': engines_used,
-                    'skipped': skipped,
-                    'pages_scanned': len(page_words)})
+    def generate():
+        from app.parallel import run_parallel, CANCELLED
+        with app.app_context():
+            words_by_page = {}
+            engines_used = {}
+            rot_by_page = {}
+            try:
+                yield 'data: ' + json.dumps(
+                    {'type': 'job', 'job_id': job_id, 'total': len(pages),
+                     'workers': workers}) + '\n\n'
+                if workers > 1:
+                    yield 'data: ' + json.dumps(
+                        {'type': 'info',
+                         'message': f'Scanning {workers} pages in parallel…'}
+                    ) + '\n\n'
+                done = 0
+                cancelled = False
+                for r in run_parallel(app, cancel, pages, _extract_one, workers):
+                    p = r['item']
+                    if r['result'] is CANCELLED:
+                        cancelled = True
+                        continue
+                    done += 1
+                    idx = page_index[p['id']]
+                    if r['error'] is not None:
+                        logger.warning('word extraction failed for %s: %s',
+                                       p['id'], r['error'])
+                        yield 'data: ' + json.dumps(
+                            {'type': 'skip', 'page_id': p['id'],
+                             'index': idx, 'reason': str(r['error']),
+                             'current': done, 'total': len(pages)}) + '\n\n'
+                        continue
+                    res = r['result']
+                    if 'skip' in res:
+                        yield 'data: ' + json.dumps(
+                            {'type': 'skip', 'page_id': p['id'], 'index': idx,
+                             'reason': res['skip'], 'current': done,
+                             'total': len(pages)}) + '\n\n'
+                        continue
+                    words_by_page[p['id']] = res['words']
+                    engines_used[p['id']] = res['engine']
+                    rot_by_page[p['id']] = res.get('display_rot') or 0
+                    yield 'data: ' + json.dumps(
+                        {'type': 'progress', 'page_id': p['id'], 'index': idx,
+                         'engine': res['engine'], 'words': len(res['words']),
+                         'current': done, 'total': len(pages)}) + '\n\n'
+
+                if cancelled or cancel.is_set():
+                    yield 'data: ' + json.dumps(
+                        {'type': 'info', 'message': 'Cancelled.'}) + '\n\n'
+                    yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+                    return
+
+                # Cross-page phrase matching runs once, in original page order.
+                yield 'data: ' + json.dumps(
+                    {'type': 'info', 'message': 'Matching phrases…'}) + '\n\n'
+                ordered = [(p['id'], words_by_page[p['id']]) for p in pages
+                           if p['id'] in words_by_page]
+                results = pdf_text.find_matches(
+                    ordered, terms, fuzzy=fuzzy, threshold=threshold,
+                    case_sensitive=case_sensitive)
+                results = {pid: boxes for pid, boxes in results.items() if boxes}
+                # Matching ran in reading-upright space (tight boxes); rotate
+                # each match rect back onto the displayed page where needed.
+                for pid, boxes in results.items():
+                    rot = rot_by_page.get(pid, 0)
+                    if rot:
+                        for b in boxes:
+                            b['rect'] = pdf_text.rotate_rect_frac(b['rect'], rot)
+                yield 'data: ' + json.dumps(
+                    {'type': 'results', 'results': results,
+                     'engines': engines_used,
+                     'pages_scanned': len(ordered)}) + '\n\n'
+                yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+            except Exception as e:
+                logger.exception('text-search failed')
+                yield 'data: ' + json.dumps(
+                    {'type': 'error', 'message': str(e)}) + '\n\n'
+                yield 'data: ' + json.dumps({'type': 'done'}) + '\n\n'
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache',
+                             'X-Accel-Buffering': 'no'})
 
 
 @toolbox_bp.route('/pdf/llm-detect')

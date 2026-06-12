@@ -599,18 +599,18 @@
                     <div class="col"><input type="range" class="form-range" id="fmOpacity" min="10" max="100" step="5" value="40"></div>
                 </div>
 
+                <div class="form-check form-check-sm mb-2" id="fmParallelRow"
+                     title="Scan pages concurrently — OCR across CPU cores, or LLM round-trips across the endpoint's concurrency (cloud endpoints only).">
+                    <input class="form-check-input" type="checkbox" id="fmParallel" checked>
+                    <label class="form-check-label small" for="fmParallel">Run pages in parallel (faster)</label>
+                </div>
+
                 <div id="fmAiBlock" style="display:none;">
                     <hr class="my-2">
                     <div class="row g-2 align-items-end mb-2">
                         <div class="col">
                             <label class="form-label small mb-1 fw-bold">LLM endpoint</label>
                             <select id="fmEndpoint" class="form-select form-select-sm"></select>
-                        </div>
-                        <div class="col-auto">
-                            <div class="form-check form-check-sm mb-1" title="Fan page requests out concurrently — cloud endpoints with concurrency &gt; 1 only">
-                                <input class="form-check-input" type="checkbox" id="fmParallel" checked>
-                                <label class="form-check-label small" for="fmParallel">Parallel</label>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -2176,6 +2176,10 @@ function fmSyncEngineUI() {
     document.getElementById('fmTermsBlock').style.display = custom ? 'none' : '';
     document.getElementById('fmCustomBlock').style.display = custom ? '' : 'none';
     document.getElementById('fmFuzzyRow').style.display = engine === 'ai' ? 'none' : '';
+    // Parallel helps OCR (CPU cores) and AI (endpoint concurrency); digital
+    // text-layer extraction is already instant, so hide it there.
+    document.getElementById('fmParallelRow').style.display =
+        engine === 'digital' ? 'none' : '';
     const hints = {
         auto: 'Uses the PDF text layer when present, else OCR.' + (OCR_OK ? '' : ' (OCR is unavailable on this server — scanned pages will be skipped.)'),
         digital: 'Born-digital PDFs only — pages without a text layer are skipped.',
@@ -2366,33 +2370,63 @@ function fmSetRunning(on) {
     document.getElementById('fmCancelBtn').style.display = 'none';
 }
 
-async function runFindMark() {
+function runFindMark() {
     const opts = fmGather();
     if (!opts) return;
     fmClearLog();
     document.getElementById('fmSummary').textContent = '';
     fmPreSnapshot = snapshotPages();
     if (opts.engine === 'ai') return runFindMarkAI(opts);
+    return runFindMarkText(opts);
+}
 
-    fmSetRunning(true);
-    fmLog(`Searching ${opts.ids.length} page(s)…`);
-    try {
-        const data = await postJSON(`${BASE}/text-search`, {
-            token: TOKEN, page_ids: opts.ids, engine: opts.engine,
-            terms: opts.terms.map(t => t.text), fuzzy: opts.fuzzy,
-            threshold: opts.threshold, case_sensitive: opts.caseSensitive,
-        });
-        (data.skipped || []).forEach(s => {
-            const p = pageById(s.page_id);
-            const idx = p ? pages.indexOf(p) + 1 : '?';
-            fmLog(`Page #${idx} skipped: ${s.reason}`, true);
-        });
-        fmLog(`Scanned ${data.pages_scanned} page(s).`);
-        fmApplyResults(data.results || {}, opts);
-    } catch (e) {
-        fmLog('Search failed: ' + e.message, true);
-    }
-    fmSetRunning(false);
+// Text-layer / OCR search over SSE: live per-page progress, parallel-aware,
+// never times out on long scanned PDFs.
+function runFindMarkText(opts) {
+    const params = new URLSearchParams({
+        token: TOKEN, page_ids: opts.ids.join(','), engine: opts.engine,
+        fuzzy: opts.fuzzy ? '1' : '0', threshold: String(opts.threshold),
+        case_sensitive: opts.caseSensitive ? '1' : '0',
+        parallel: opts.parallel ? '1' : '0',
+    });
+    opts.terms.forEach(t => params.append('term', t.text));
+
+    setBtnLoading(document.getElementById('fmRunBtn'), true);
+    document.getElementById('fmCancelBtn').style.display = '';
+    fmLog(`Scanning ${opts.ids.length} page(s)…`);
+
+    let resultsPayload = null;
+    let skippedCount = 0;
+    fmJobId = null;
+    if (fmES) { fmES.close(); fmES = null; }
+    fmES = new EventSource(`${BASE}/text-search?` + params.toString());
+    const finish = () => {
+        if (fmES) { fmES.close(); fmES = null; }
+        fmJobId = null;
+        fmSetRunning(false);
+        if (resultsPayload) {
+            fmLog(`Scanned ${resultsPayload.pages_scanned} page(s)`
+                  + (skippedCount ? `, ${skippedCount} skipped.` : '.'));
+            fmApplyResults(resultsPayload.results || {}, opts);
+        }
+    };
+    fmES.onmessage = (ev) => {
+        let d;
+        try { d = JSON.parse(ev.data); } catch (_) { return; }
+        if (d.type === 'job') { fmJobId = d.job_id; }
+        else if (d.type === 'progress') {
+            fmLog(`Page #${d.index} (${d.current}/${d.total}) · ${d.engine.toUpperCase()}: ${d.words} word(s).`);
+        }
+        else if (d.type === 'skip') {
+            skippedCount++;
+            fmLog(`Page #${d.index} (${d.current}/${d.total}) skipped: ${d.reason}`, true);
+        }
+        else if (d.type === 'results') { resultsPayload = d; }
+        else if (d.type === 'error') fmLog(d.message, true);
+        else if (d.type === 'info') fmLog(d.message);
+        else if (d.type === 'done') finish();
+    };
+    fmES.onerror = () => { fmLog('Connection lost.', true); finish(); };
 }
 
 function runFindMarkAI(opts) {
