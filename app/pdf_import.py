@@ -247,7 +247,8 @@ def cleanup_old(max_age_hours: float = 6.0) -> None:
 
 def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
                   deskew: bool = False, pre_rotate: int = 0,
-                  split_mode: str = 'none', filters: dict = None) -> list:
+                  split_mode: str = 'none', filters: dict = None,
+                  workers: int = 1) -> list:
     """Rasterise every page of ``pdf_path`` to ``page_NNNN.png`` in
     ``out_dir``. Returns a list of ``{index, filename, width, height}``.
 
@@ -263,6 +264,12 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
       detector runs per page, so this is transparent downstream).
     * ``filters``     — ``{deskew, brightness, contrast, sharpen, grayscale,
       bw, bw_threshold}`` image adjustments.
+    * ``workers``     — render this many pages concurrently (CPU-bound page
+      render + NumPy filters). Each worker opens its OWN ``fitz`` document —
+      MuPDF is not safe to share a ``Document`` across threads, but independent
+      opens render in parallel and release the GIL during rendering/NumPy
+      (mirrors the parallel OCR path's per-worker ``fitz.open``). ``<= 1`` (or a
+      single page) keeps the original sequential loop.
 
     Output pages are renumbered contiguously in final reading order so the
     rest of the pipeline (page PNG paths, meta indices) is unaffected.
@@ -280,40 +287,75 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
     pre_rotate = int(pre_rotate or 0) % 360
     split_mode = (split_mode or 'none').strip().lower()
 
-    pages: list = []
+    # One cheap open just to enumerate the page fragments + op chains.
     pdf = fitz.open(pdf_path)
     try:
         frags = pdf_tools.split_descriptors(pdf.page_count, split_mode)
-        for out_index, frag in enumerate(frags):
-            ops = pdf_tools.build_op_chain(pre_rotate, frag['ops'], filt)
-            page = pdf.load_page(int(frag['page']))
-            img = pdf_tools.rasterize_page(page, width_px)
-            try:
-                img = pdf_tools.apply_ops(img, ops)
-            except Exception as e:  # pragma: no cover — best-effort processing
-                logger.warning('PDF import page processing failed for page %s: %s',
-                               frag['page'] + 1, e)
-            fname = f'page_{out_index + 1:04d}.png'
-            out_path = os.path.join(out_dir, fname)
-            img.save(out_path, format='PNG')
-            pages.append({'index': out_index, 'filename': fname,
-                          'width': img.width, 'height': img.height})
     finally:
         pdf.close()
+
+    tasks = [{'out_index': out_index, 'page': int(frag['page']),
+              'ops': pdf_tools.build_op_chain(pre_rotate, frag['ops'], filt)}
+             for out_index, frag in enumerate(frags)]
+
+    def _render_one(task):
+        # Own document per worker (see docstring): never share a fitz.Document
+        # across threads.
+        doc = fitz.open(pdf_path)
+        try:
+            page = doc.load_page(task['page'])
+            img = pdf_tools.rasterize_page(page, width_px)
+        finally:
+            doc.close()
+        try:
+            img = pdf_tools.apply_ops(img, task['ops'])
+        except Exception as e:  # pragma: no cover — best-effort processing
+            logger.warning('PDF import page processing failed for page %s: %s',
+                           task['page'] + 1, e)
+        fname = f"page_{task['out_index'] + 1:04d}.png"
+        img.save(os.path.join(out_dir, fname), format='PNG')
+        return {'index': task['out_index'], 'filename': fname,
+                'width': img.width, 'height': img.height}
+
+    n = len(tasks)
+    workers = max(1, min(int(workers or 1), n or 1))
+
+    pages: list = [None] * n
+    if workers <= 1 or n <= 1:
+        for t in tasks:
+            rec = _render_one(t)
+            pages[rec['index']] = rec
+    else:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_render_one, t) for t in tasks]
+            for fut in concurrent.futures.as_completed(futures):
+                rec = fut.result()  # re-raises a render failure (aborts staging)
+                pages[rec['index']] = rec
     return pages
 
 
 def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
           deskew: bool = False, pre_rotate: int = 0,
-          split_mode: str = 'none', filters: dict = None):
+          split_mode: str = 'none', filters: dict = None,
+          workers: int = None):
     """Save the uploaded PDFs and rasterise their pages.
 
     ``que_storage`` / ``sol_storage`` are Werkzeug ``FileStorage`` objects (or
     None). ``meta_in`` carries the parsed paper prefix + version. ``deskew`` /
     ``pre_rotate`` / ``split_mode`` / ``filters`` drive the shared pre-processing
-    (see :func:`rasterize_pdf`). Returns ``(token, meta)`` where ``meta`` is the
-    persisted JSON.
+    (see :func:`rasterize_pdf`). ``workers`` is the page-rasterisation
+    concurrency; ``None`` resolves it from ``PDF_IMPORT_RASTER_WORKERS`` (capped
+    by the CPU count). Returns ``(token, meta)`` where ``meta`` is the persisted
+    JSON.
     """
+    if workers is None:
+        try:
+            workers = int(current_app.config.get('PDF_IMPORT_RASTER_WORKERS', 4))
+        except (TypeError, ValueError):
+            workers = 4
+    workers = max(1, min(int(workers or 1), os.cpu_count() or 1))
+
     cleanup_old()
     token = uuid.uuid4().hex
     base = token_dir(token)
@@ -337,7 +379,7 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
         storage.save(pdf_path)
         pages = rasterize_pdf(pdf_path, kind_dir, raster_width, deskew=deskew,
                               pre_rotate=pre_rotate, split_mode=split_mode,
-                              filters=filters)
+                              filters=filters, workers=workers)
         meta[kind] = {'filename': storage.filename, 'pages': pages}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:

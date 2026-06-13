@@ -28,6 +28,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Batch PDF Import: parallel page rasterisation (faster "Load PDF").** The Load PDF / staging step previously rasterised pages one at a time, which was the main bottleneck for multi-page papers. Pages are now rendered concurrently across a thread pool — page rendering (PyMuPDF) and image filters (deskew / brightness / B&W) are CPU-bound and independent per page, and release the GIL, so this scales across cores. Each worker opens its own PyMuPDF document (never sharing one across threads), and output PNGs are written by index so page order is unaffected. Worker count is the new **`PDF_IMPORT_RASTER_WORKERS`** System Setting (group "PDF Import", default 4, capped by the machine's CPU count; 1 = old sequential behaviour). Detection (the LLM step) keeps its own separate parallelism.
+
 - **Toolbox PDF Tool: Find & Mark is streamed, parallel & rotation-aware.**
   - **No more timeouts on long scanned PDFs.** Text/OCR search now streams over SSE with live per-page progress (`Page #n (k/total) · OCR: w words`) instead of one blocking request that could 504. A **Stop** button cancels mid-run.
   - **Parallel scanning.** A "Run pages in parallel" option fans OCR/extraction across CPU cores (Tesseract runs as a subprocess) — new **`TOOLBOX_OCR_WORKERS`** System Setting (default 4, capped by CPU count). Cross-page phrase matching still runs once after every page is scanned, so phrases wrapping across pages are unaffected.

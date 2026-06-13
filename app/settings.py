@@ -396,6 +396,12 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Width that uploaded PDF pages are rasterised to. Per-question crops are cut from these high-res page images (the copy sent to the LLM is downscaled separately to "Max image dimension sent to LLM"). Higher = sharper crops but larger temp files; 1700 suits A4 exam papers.',
         min=600, max=4000,
     )),
+    ('PDF_IMPORT_RASTER_WORKERS', _spec(
+        'PDF_IMPORT_RASTER_WORKERS', 'int', group='PDF Import',
+        label='PDF page raster parallel workers',
+        help='How many PDF pages the "Load PDF" step rasterises concurrently. Page rendering (PyMuPDF) and image filters (deskew / brightness / B&W) are CPU-bound and independent per page, so this fans staging across CPU cores and is the main lever on load time for multi-page papers. The value is capped by the machine\'s CPU count at runtime. 1 = sequential (old behaviour). Detection (the LLM step) has its own separate parallelism.',
+        min=1, max=32,
+    )),
     ('PDF_IMPORT_COORD_ORDER', _spec(
         'PDF_IMPORT_COORD_ORDER', 'string', group='PDF Import',
         label='Bounding-box coordinate order',

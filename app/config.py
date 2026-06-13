@@ -115,6 +115,11 @@ class Config:
     # sent to the LLM is downscaled separately to LLM_IMAGE_MAX_DIM), so a
     # larger value yields sharper crops at the cost of disk/CPU.
     PDF_IMPORT_RASTER_WIDTH = int(os.getenv('PDF_IMPORT_RASTER_WIDTH', '1700'))
+    # PDF Batch Import — how many pages to rasterise concurrently during the
+    # "Load PDF" staging step. Page rendering (PyMuPDF) + image filters (deskew
+    # etc.) are CPU-bound and independent per page, so this fans them across
+    # cores; capped by the machine's CPU count at runtime. 1 = sequential.
+    PDF_IMPORT_RASTER_WORKERS = int(os.getenv('PDF_IMPORT_RASTER_WORKERS', '4'))
     # PDF Batch Import — how the vision model orders bounding-box coordinates.
     # 'xyxy' = [x1,y1,x2,y2] (Qwen and most models); 'yxyx' = [y1,x1,y2,x2]
     # (Gemma / Gemini / PaliGemma family). Range (0..1 vs 0..1000 vs pixels) is

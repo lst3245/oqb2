@@ -69,6 +69,7 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | Toolbox | `TOOLBOX_DEFAULT_DPI` | int | 200 | PDF Tool default resolution (DPI) |
 | Markup | `MARKUP_NORMALIZED_MAX_DIM` | int 400–8000 | 2400 | Longest-edge world units for imported Markup images |
 | PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int | 1700 | PDF page raster width (px) |
+| PDF Import | `PDF_IMPORT_RASTER_WORKERS` | int 1–32 | 4 | Concurrent page-rasterisation workers for the "Load PDF" staging step; capped by CPU count at runtime |
 | PDF Import | `PDF_IMPORT_COORD_ORDER` | string | `xyxy` | Bounding-box coordinate order (`xyxy` or `yxyx`); also used by MD figure cropping (`parse_figure_boxes`) |
 
 > AI Tools LLM **endpoints** are NOT registry scalars — they live in their own `llm_configs` table managed via the dedicated **Admin → LLM Endpoints** page (super-admin). See [.cursor/rules/ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
