@@ -48,6 +48,11 @@ FileSection (user_id, name, sort_order, sort_field, sort_direction, page_size, c
 GeneratedFile (user_id, display_name, filename, status, filter_data, generation_options JSON, section_id, manual_position, ...)
 FileShare (file_id?, section_id?, shared_by_user_id, shared_with_user_id)  — XOR(file_id, section_id)
 SystemSetting (key PK, value Text/JSON, updated_at, updated_by FK)
+PromptVariant (id, prompt_key idx, name, content NULL, is_builtin, is_active,
+               sort_order, updated_at, updated_by FK)  — unique (prompt_key, name)
+PromptEndpointAssignment (id, prompt_key idx, endpoint_id FK llm_configs CASCADE,
+                          variant_id FK prompt_variants CASCADE)  — unique (prompt_key, endpoint_id)
+PromptOverride (key PK, content)  — LEGACY, migrated into PromptVariant builtin rows at boot
 ```
 
 ## Subject (CRUD-managed)
@@ -106,6 +111,11 @@ Stale `pending`/`generating` records are reset to `failed` on app startup (in `c
 - Visibility helper: `_user_can_view_file(gf, user)` returns True if user owns the file, is super-admin, OR has any `FileShare` row matching `(file_id=gf OR section_id=gf.section_id)`.
 - Mutation helper: `_user_owns_file(gf, user)` — only the owner / super-admin can move / rename / delete. Sharing controls (toggle / list) are super-admin-only.
 - See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the full API + frontend layout.
+
+## PromptVariant / PromptEndpointAssignment (AI prompt variants)
+- `prompt_variants`: multiple named versions per prompt key (keys live in `app/ai_prompts.PROMPTS_REGISTRY`). One **built-in** row per key (`is_builtin=True`; `content=NULL` means "use the registry bootstrap default" — reset nulls content, never deletes the row) and one **active** row per key (the default for endpoints with no pin). Seeded/migrated idempotently at boot by `ai_prompts.ensure_seeded()` (legacy `prompt_overrides` content is copied into the built-in row the first time only).
+- `prompt_endpoint_assignments`: pins one LLM endpoint to a specific variant for one key; unpinned endpoints use the active variant. Cleaned up on endpoint delete (CASCADE + explicit) and cloned on endpoint duplicate.
+- Both tables auto-created on app startup. See [ai-prompts.mdc](mdc:.cursor/rules/ai-prompts.mdc).
 
 ## SystemSetting (DB-backed runtime config)
 Key/value table that overrides `.env` / `Config` bootstrap defaults at runtime. The full registry of tunables (type/label/help/validator) lives in `app/settings.py`. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) for the precedence rules, hot-reload semantics, and "adding a new tunable" guide.

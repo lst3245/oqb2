@@ -6156,13 +6156,14 @@ def settings_reset(key):
 
 # ==================== AI Prompts (Super Admin Only) ====================
 #
-# Edit-in-place admin UI for the system / user-turn prompt templates used by
-# every AI feature (proofreading, MD generation, the Explain tutor, the
+# Admin UI for the system / user-turn / output-format prompt templates used
+# by every AI feature (proofreading, MD generation, the Explain tutor, the
 # figure-bbox detector, the PDF batch-import bbox detector). The full
 # registry — keys, defaults, declared variables, group / label / description
 # — lives in `app/ai_prompts.py` (PROMPTS_REGISTRY); these routes are the
-# thin HTTP surface around it. All write paths require super-admin because
-# prompts shape global model behaviour.
+# thin HTTP surface around the variant CRUD + endpoint-assignment helpers
+# there. All write paths require super-admin because prompts shape global
+# model behaviour.
 
 @admin_bp.route('/prompts')
 @login_required
@@ -6176,69 +6177,145 @@ def prompts_page():
 @login_required
 @super_admin_required
 def prompts_data():
-    """Return the full registry + current values as JSON for the UI."""
+    """Return the full registry + variants + endpoint assignments as JSON."""
     from app import ai_prompts
+    ai_prompts.ensure_seeded()
     return jsonify(ai_prompts.as_dict())
 
 
-@admin_bp.route('/prompts/save', methods=['POST'])
+@admin_bp.route('/prompts/variant/create', methods=['POST'])
 @login_required
 @super_admin_required
-def prompts_save():
-    """Accept ``{key: content, ...}`` and persist each as a DB override.
-
-    Per-key validation errors are reported in the response (200 OK either
-    way) so a partial save can complete even if one prompt is bad. Mirrors
-    the system-settings save shape.
-
-    Response:
-        {
-          'saved':  ['CHECK_SYSTEM', ...],
-          'errors': {'CHECK_USER': '...', ...},
-        }
-    """
+def prompts_variant_create():
+    """Create a custom variant: body ``{key, name, content}``."""
     from app import ai_prompts
 
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({'error': 'JSON object body required'}), 400
-
-    saved = []
-    errors = {}
-    for key, content in payload.items():
-        if key not in ai_prompts.PROMPTS_REGISTRY:
-            errors[key] = 'unknown prompt key'
-            continue
-        try:
-            ai_prompts.set_prompt(key, content, user_id=current_user.id)
-            saved.append(key)
-        except (ValueError, KeyError) as e:
-            errors[key] = str(e)
-        except Exception as e:  # pragma: no cover — surface DB errors gracefully
-            errors[key] = f'unexpected error: {e}'
-
-    return jsonify({'saved': saved, 'errors': errors})
+    data = request.get_json(silent=True) or {}
+    try:
+        row = ai_prompts.create_variant(
+            data.get('key') or '', data.get('name') or '',
+            data.get('content') or '', user_id=current_user.id)
+    except KeyError as e:
+        return jsonify({'error': str(e).strip("'")}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'id': row.id, 'key': row.prompt_key, 'name': row.name})
 
 
-@admin_bp.route('/prompts/reset/<key>', methods=['POST'])
+@admin_bp.route('/prompts/variant/<int:variant_id>/save', methods=['POST'])
 @login_required
 @super_admin_required
-def prompts_reset(key):
-    """Drop the DB override for ``key`` and restore the bootstrap default.
+def prompts_variant_save(variant_id):
+    """Edit a variant: body ``{name?, content?}``. The built-in variant
+    accepts content edits only."""
+    from app import ai_prompts
 
-    Returns the restored default content so the UI can update its display
-    without a refresh."""
+    data = request.get_json(silent=True) or {}
+    try:
+        row = ai_prompts.update_variant(
+            variant_id, name=data.get('name'), content=data.get('content'),
+            user_id=current_user.id)
+    except KeyError as e:
+        return jsonify({'error': str(e).strip("'")}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'id': row.id, 'key': row.prompt_key, 'name': row.name})
+
+
+@admin_bp.route('/prompts/variant/<int:variant_id>/delete', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_variant_delete(variant_id):
+    """Delete a custom variant (built-in rejected). Its endpoint assignments
+    are removed; if it was active the built-in becomes active."""
+    from app import ai_prompts
+
+    try:
+        ai_prompts.delete_variant(variant_id)
+    except KeyError as e:
+        return jsonify({'error': str(e).strip("'")}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/prompts/variant/<int:variant_id>/activate', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_variant_activate(variant_id):
+    """Make this variant the active default for its prompt key."""
+    from app import ai_prompts
+
+    try:
+        row = ai_prompts.set_active(variant_id)
+    except KeyError as e:
+        return jsonify({'error': str(e).strip("'")}), 404
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'ok': True, 'key': row.prompt_key, 'active_id': row.id})
+
+
+@admin_bp.route('/prompts/<key>/reset-builtin', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_reset_builtin(key):
+    """Null the built-in variant's content so the registry bootstrap default
+    applies again. Returns the default content."""
     from app import ai_prompts
 
     if key not in ai_prompts.PROMPTS_REGISTRY:
         return jsonify({'error': 'Unknown prompt key'}), 404
-
     try:
-        default = ai_prompts.reset_prompt(key, user_id=current_user.id)
-    except Exception as e:
+        default = ai_prompts.reset_builtin(key, user_id=current_user.id)
+    except Exception as e:  # pragma: no cover
         return jsonify({'error': str(e)}), 500
+    return jsonify({'key': key, 'value': default})
 
-    return jsonify({'key': key, 'value': default, 'has_override': False})
+
+@admin_bp.route('/prompts/variant/<int:variant_id>/assign', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_variant_assign(variant_id):
+    """Declaratively set which endpoints are pinned to this variant:
+    body ``{endpoint_ids: [...]}``. Endpoints pinned to a sibling variant
+    are re-pointed; endpoints dropped from the list fall back to the
+    active variant."""
+    from app import ai_prompts
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ai_prompts.set_variant_endpoints(variant_id, data.get('endpoint_ids') or [])
+    except KeyError as e:
+        return jsonify({'error': str(e).strip("'")}), 404
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/prompts/<key>/unassign', methods=['POST'])
+@login_required
+@super_admin_required
+def prompts_unassign(key):
+    """Remove one endpoint's explicit assignment for ``key``: body
+    ``{endpoint_id}``. The endpoint falls back to the active variant."""
+    from app import ai_prompts
+
+    if key not in ai_prompts.PROMPTS_REGISTRY:
+        return jsonify({'error': 'Unknown prompt key'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        ai_prompts.unassign_endpoint(key, int(data.get('endpoint_id') or 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'endpoint_id required'}), 400
+    except Exception as e:  # pragma: no cover
+        return jsonify({'error': f'unexpected error: {e}'}), 500
+    return jsonify({'ok': True})
 
 
 # ==================== LLM Endpoints (AI Tools, Super Admin Only) ====================
@@ -6412,10 +6489,16 @@ def llm_endpoints_save():
 @login_required
 @super_admin_required
 def llm_endpoints_delete(cid):
-    from app.models import LLMConfig
+    from app import ai_prompts
+    from app.models import LLMConfig, PromptEndpointAssignment
     cfg = LLMConfig.query.get_or_404(cid)
+    # Explicitly drop prompt-variant assignments (belt-and-braces alongside
+    # the FK ON DELETE CASCADE) so no orphan rows survive.
+    (PromptEndpointAssignment.query
+     .filter_by(endpoint_id=cfg.id).delete(synchronize_session=False))
     db.session.delete(cfg)
     db.session.commit()
+    ai_prompts.invalidate_cache()
     return jsonify({'success': True})
 
 
@@ -6427,8 +6510,11 @@ def llm_endpoints_duplicate(cid):
 
     Copies the encrypted stored API key when the source has one; otherwise
     the duplicate falls back to the source's ``api_key_env`` / ``.env`` key.
+    Also clones the source's per-prompt variant assignments so the duplicate
+    behaves identically.
     """
-    from app.models import LLMConfig
+    from app import ai_prompts
+    from app.models import LLMConfig, PromptEndpointAssignment
     src = LLMConfig.query.get_or_404(cid)
 
     # Build a unique name: "Copy of <name>", "Copy 2 of <name>", …
@@ -6463,7 +6549,14 @@ def llm_endpoints_duplicate(cid):
         sort_order=src.sort_order,
     )
     db.session.add(copy)
+    db.session.flush()  # assign copy.id before cloning assignments
+
+    for a in PromptEndpointAssignment.query.filter_by(endpoint_id=src.id).all():
+        db.session.add(PromptEndpointAssignment(
+            prompt_key=a.prompt_key, endpoint_id=copy.id,
+            variant_id=a.variant_id))
     db.session.commit()
+    ai_prompts.invalidate_cache()
     return jsonify({'success': True, 'endpoint': _serialize_llm_config(copy)})
 
 

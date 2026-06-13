@@ -1116,8 +1116,10 @@ def pdf_llm_detect():
     coord_order = (current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')
                    or 'xyxy')
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
-    system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
-    user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
+    system = ai_prompts.build_pdf_generic_system(instruction, coord_order,
+                                                 endpoint_id=cfg.id)
+    user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order,
+                                                       endpoint_id=cfg.id)
 
     want_parallel = (request.args.get('parallel', '0').strip().lower()
                      in ('1', 'true', 'yes', 'on'))

@@ -90,11 +90,24 @@ def create_app():
     # present.
     with app.app_context():
         try:
-            from app.models import SystemSetting, PromptOverride
+            from app.models import (SystemSetting, PromptOverride,
+                                    PromptVariant, PromptEndpointAssignment)
             SystemSetting.__table__.create(db.engine, checkfirst=True)
             PromptOverride.__table__.create(db.engine, checkfirst=True)
+            PromptVariant.__table__.create(db.engine, checkfirst=True)
+            PromptEndpointAssignment.__table__.create(db.engine, checkfirst=True)
         except Exception:
             pass  # broken DB connection / pre-init; settings will fall back to .env
+
+    # Seed one built-in (active) prompt variant per registry key and migrate
+    # any legacy prompt_overrides rows into the built-in variant's content.
+    # Idempotent: existing built-in rows are never overwritten on boot.
+    with app.app_context():
+        try:
+            from app import ai_prompts as _ai_prompts
+            _ai_prompts.ensure_seeded()
+        except Exception:
+            pass  # pre-init DB; resolver falls back to bootstrap defaults
 
     # Auto-create the My Files sections + shares tables and patch
     # generated_files with the new columns. Same idempotent upgrade pattern

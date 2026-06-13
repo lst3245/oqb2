@@ -1,12 +1,22 @@
 """
 Prompt templates + output parsing for the AI features.
 
-The prompt content (system + user-turn templates for proofreading, MD
-generation, the Explain tutor, the figure-bbox detector, and the PDF
-batch-import bbox detector) lives in PROMPTS_REGISTRY below as bootstrap
-defaults, and is overridable at runtime via the Admin -> AI Prompts page
-(super-admin only). Overrides persist in the `prompt_overrides` table
-(see app/models.py PromptOverride).
+The prompt content (system + user-turn + output-format templates for
+proofreading, MD generation, the Explain tutor, the figure-bbox detector,
+and the PDF batch-import bbox detector) lives in PROMPTS_REGISTRY below as
+bootstrap defaults, and is overridable at runtime via the Admin -> AI
+Prompts page (super-admin only). Each key supports MULTIPLE named variants
+(table `prompt_variants`, see app/models.py PromptVariant): one editable
+built-in row (NULL content = bootstrap default) plus admin-created customs,
+with one variant marked active per key. LLM endpoints may be pinned to a
+specific variant per key (`prompt_endpoint_assignments`); unpinned
+endpoints use the active variant.
+
+Output-formatting rules are factored into separate *_FORMAT items (declared
+via the spec's ``format_key``) and are injected into BOTH turns: appended
+to the system prompt by ``system_prompt()`` and re-appended at the end of
+the user turn by ``append_format()`` / the build_*_user_text helpers —
+some models (notably GPT builds) under-weight system-role formatting rules.
 
 Variable substitution syntax for prompts that take parameters:
   ``{{var}}``  - replaced with the value of ``var``.
@@ -40,7 +50,7 @@ class _PromptSpec(dict):
 
 
 def _prompt(*, group, label, description, default,
-            variables=None, role='system'):
+            variables=None, role='system', format_key=None):
     return _PromptSpec(
         group=group,
         label=label,
@@ -48,48 +58,73 @@ def _prompt(*, group, label, description, default,
         default=default,
         variables=list(variables or []),
         role=role,
+        format_key=format_key,
     )
 
 
 # ---- Resolver / cache ------------------------------------------------------
 #
-# Module-level cache so chat calls don't hit the DB every time. Writes
-# (set_prompt / reset_prompt / invalidate_cache) drop entries; reads
+# Module-level cache so chat calls don't hit the DB every time. Cache keys
+# are ``(prompt_key, endpoint_id_or_None)`` because endpoints may be pinned
+# to a specific variant. Any variant/assignment write invalidates; reads
 # repopulate. Single-process assumption — same caveat as the system
 # settings cache.
 
 _PROMPT_CACHE: dict = {}
 _CACHE_LOCK = Lock()
 
+MAX_PROMPT_CHARS = 32000
 
-def _load_override(key):
-    """Read the DB override for ``key`` if present. Returns None when no row
-    exists or the DB isn't reachable (caller falls back to the default)."""
+
+def _load_resolved(key, endpoint_id=None):
+    """Resolve the live content for ``key`` from the variant tables.
+
+    Resolution order:
+      1. the variant explicitly assigned to ``endpoint_id`` for this key;
+      2. else the key's active variant;
+      3. ``None`` when the winning variant has no content (built-in row with
+         NULL content) or the DB isn't reachable — caller falls back to the
+         registry bootstrap default.
+    """
     try:
-        from app.models import PromptOverride
-        row = PromptOverride.query.get(key)
-        return row.content if row else None
+        from app.models import PromptVariant, PromptEndpointAssignment
+        variant = None
+        if endpoint_id:
+            row = (PromptEndpointAssignment.query
+                   .filter_by(prompt_key=key, endpoint_id=endpoint_id)
+                   .first())
+            if row is not None:
+                variant = PromptVariant.query.get(row.variant_id)
+        if variant is None:
+            variant = (PromptVariant.query
+                       .filter_by(prompt_key=key, is_active=True)
+                       .first())
+        if variant is not None and (variant.content or '').strip():
+            return variant.content
+        return None
     except Exception as e:  # pragma: no cover — DB down / pre-init
-        logger.debug('PromptOverride load failed for %s: %s', key, e)
+        logger.debug('Prompt variant load failed for %s: %s', key, e)
         return None
 
 
-def get_prompt(key: str) -> str:
-    """Return the live content for ``key`` (DB override if any, else the
-    bootstrap default). Raises KeyError on an unknown key."""
+def get_prompt(key: str, endpoint_id=None) -> str:
+    """Return the live content for ``key``, honouring a per-endpoint variant
+    assignment when ``endpoint_id`` is given (else the key's active variant,
+    else the bootstrap default). Raises KeyError on an unknown key."""
     if key not in PROMPTS_REGISTRY:
         raise KeyError(f'Unknown prompt key: {key}')
 
+    cache_key = (key, endpoint_id)
     with _CACHE_LOCK:
-        cached = _PROMPT_CACHE.get(key)
+        cached = _PROMPT_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    override = _load_override(key)
-    content = override if override is not None else PROMPTS_REGISTRY[key]['default']
+    resolved = _load_resolved(key, endpoint_id)
+    content = resolved if resolved is not None else PROMPTS_REGISTRY[key]['default']
 
     with _CACHE_LOCK:
-        _PROMPT_CACHE[key] = content
+        _PROMPT_CACHE[cache_key] = content
     return content
 
 
@@ -100,13 +135,13 @@ def get_prompt(key: str) -> str:
 _VAR_RE = re.compile(r'\{\{(\w+)\}\}')
 
 
-def render_prompt(key: str, **vars: Any) -> str:
-    """Return ``get_prompt(key)`` with declared ``{{var}}`` placeholders
-    substituted. Variables not declared in the registry for that key are
-    ignored. Missing declared variables leave the literal ``{{var}}`` in
-    the output (so prompt-design errors surface in the model's reply
-    rather than crashing the request)."""
-    template = get_prompt(key)
+def render_prompt(key: str, endpoint_id=None, **vars: Any) -> str:
+    """Return ``get_prompt(key, endpoint_id)`` with declared ``{{var}}``
+    placeholders substituted. Variables not declared in the registry for
+    that key are ignored. Missing declared variables leave the literal
+    ``{{var}}`` in the output (so prompt-design errors surface in the
+    model's reply rather than crashing the request)."""
+    template = get_prompt(key, endpoint_id)
     if not vars:
         return template
 
@@ -124,88 +159,392 @@ def render_prompt(key: str, **vars: Any) -> str:
     return _VAR_RE.sub(_sub, template)
 
 
-def set_prompt(key: str, content: str, user_id=None) -> str:
-    """Persist a DB override for ``key`` and invalidate the cache. Returns
-    the saved content. Raises KeyError on an unknown key, ValueError on a
-    blank or excessively large payload."""
-    if key not in PROMPTS_REGISTRY:
-        raise KeyError(f'Unknown prompt key: {key}')
+# ---- Format-block composition ----------------------------------------------
+#
+# Prompts whose spec declares ``format_key`` get their output-formatting
+# rules injected from a SEPARATE registry item: appended to the system
+# prompt AND re-appended at the end of the user turn so models that
+# under-weight the system role (several GPT builds) still see the contract
+# at task time.
+
+FORMAT_EMPHASIS_HEADER = 'OUTPUT FORMAT (mandatory):'
+
+
+def format_block(key: str, endpoint_id=None, **vars: Any) -> str:
+    """Resolved formatting-rules block for ``key`` (via its ``format_key``),
+    or '' when the key declares none."""
+    spec = PROMPTS_REGISTRY.get(key) or {}
+    fkey = spec.get('format_key')
+    if not fkey:
+        return ''
+    return render_prompt(fkey, endpoint_id=endpoint_id, **vars)
+
+
+def system_prompt(key: str, endpoint_id=None, **vars: Any) -> str:
+    """Full system prompt for ``key``: the base prompt plus its formatting
+    block (when one is declared). Use this at call sites instead of
+    ``get_prompt`` for the *_SYSTEM prompts that carry a ``format_key``."""
+    base = render_prompt(key, endpoint_id=endpoint_id, **vars)
+    fmt = format_block(key, endpoint_id=endpoint_id, **vars)
+    return f'{base}\n\n{fmt}' if fmt else base
+
+
+def append_format(key: str, text: str, endpoint_id=None, **vars: Any) -> str:
+    """Append ``key``'s formatting block (if any) to a user-turn ``text``
+    under an emphasis header. Returns ``text`` unchanged when the key has
+    no ``format_key``."""
+    fmt = format_block(key, endpoint_id=endpoint_id, **vars)
+    if not fmt:
+        return text
+    return f'{text}\n\n{FORMAT_EMPHASIS_HEADER}\n{fmt}'
+
+
+# ---- Variant CRUD + endpoint assignment -------------------------------------
+
+def _validate_content(content) -> str:
+    """Normalise + validate prompt content. Returns the cleaned string."""
     if not isinstance(content, str):
         raise ValueError('content must be a string')
     content = content.strip('\ufeff').rstrip()  # strip BOM + trailing whitespace
     if not content:
         raise ValueError('content must not be empty')
-    if len(content) > 32000:
-        raise ValueError('content exceeds 32000 characters')
-
-    from app import db
-    from app.models import PromptOverride
-
-    row = PromptOverride.query.get(key)
-    if row is None:
-        row = PromptOverride(key=key, content=content, updated_by=user_id)
-        db.session.add(row)
-    else:
-        row.content = content
-        row.updated_by = user_id
-    db.session.commit()
-
-    with _CACHE_LOCK:
-        _PROMPT_CACHE.pop(key, None)
-    logger.info('PromptOverride saved: %s (%d chars, by user %s)',
-                key, len(content), user_id)
+    if len(content) > MAX_PROMPT_CHARS:
+        raise ValueError(f'content exceeds {MAX_PROMPT_CHARS} characters')
     return content
 
 
-def reset_prompt(key: str, user_id=None) -> str:
-    """Delete the DB override for ``key`` and restore the bootstrap default.
-    Returns the default content."""
+BUILTIN_VARIANT_NAME = 'Built-in default'
+
+
+def _ensure_builtin(key):
+    """Return the built-in variant row for ``key``, creating it (uncommitted)
+    when missing. Caller commits."""
+    from app import db
+    from app.models import PromptVariant
+
+    row = PromptVariant.query.filter_by(prompt_key=key, is_builtin=True).first()
+    if row is None:
+        has_active = (PromptVariant.query
+                      .filter_by(prompt_key=key, is_active=True).first() is not None)
+        row = PromptVariant(prompt_key=key, name=BUILTIN_VARIANT_NAME,
+                            content=None, is_builtin=True,
+                            is_active=not has_active, sort_order=0)
+        db.session.add(row)
+    return row
+
+
+def ensure_seeded() -> None:
+    """Idempotent startup seed: one built-in variant per registry key, with
+    any legacy ``prompt_overrides`` row migrated into the built-in row's
+    content the FIRST time it is created. Existing rows are never touched,
+    so admin edits survive restarts. Also guarantees one active variant per
+    key. Swallows DB errors (pre-init boot)."""
+    from app import db
+    from app.models import PromptVariant, PromptOverride
+
+    try:
+        legacy = {}
+        try:
+            for row in PromptOverride.query.all():
+                legacy[row.key] = row.content
+        except Exception:
+            legacy = {}
+
+        changed = False
+        for key in PROMPTS_REGISTRY:
+            builtin = (PromptVariant.query
+                       .filter_by(prompt_key=key, is_builtin=True).first())
+            if builtin is None:
+                has_active = (PromptVariant.query
+                              .filter_by(prompt_key=key, is_active=True)
+                              .first() is not None)
+                builtin = PromptVariant(
+                    prompt_key=key, name=BUILTIN_VARIANT_NAME,
+                    content=legacy.get(key), is_builtin=True,
+                    is_active=not has_active, sort_order=0)
+                db.session.add(builtin)
+                changed = True
+            else:
+                # Guarantee one active variant per key.
+                active = (PromptVariant.query
+                          .filter_by(prompt_key=key, is_active=True).first())
+                if active is None:
+                    builtin.is_active = True
+                    changed = True
+        if changed:
+            db.session.commit()
+            invalidate_cache()
+    except Exception as e:  # pragma: no cover — DB down / pre-init
+        try:
+            from app import db as _db
+            _db.session.rollback()
+        except Exception:
+            pass
+        logger.debug('Prompt variant seed skipped: %s', e)
+
+
+def list_variants(key):
+    """All variants for ``key`` (built-in first, then by sort_order, name)."""
+    from app.models import PromptVariant
+    return (PromptVariant.query.filter_by(prompt_key=key)
+            .order_by(PromptVariant.is_builtin.desc(),
+                      PromptVariant.sort_order, PromptVariant.name)
+            .all())
+
+
+def create_variant(key: str, name: str, content: str, user_id=None):
+    """Create a custom variant for ``key``. Returns the new row."""
+    if key not in PROMPTS_REGISTRY:
+        raise KeyError(f'Unknown prompt key: {key}')
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('name must not be empty')
+    if len(name) > 120:
+        raise ValueError('name exceeds 120 characters')
+    content = _validate_content(content)
+
+    from app import db
+    from app.models import PromptVariant
+
+    if PromptVariant.query.filter_by(prompt_key=key, name=name).first():
+        raise ValueError(f'A variant named "{name}" already exists for this prompt')
+
+    _ensure_builtin(key)
+    max_sort = (db.session.query(db.func.max(PromptVariant.sort_order))
+                .filter_by(prompt_key=key).scalar()) or 0
+    row = PromptVariant(prompt_key=key, name=name, content=content,
+                        is_builtin=False, is_active=False,
+                        sort_order=max_sort + 1, updated_by=user_id)
+    db.session.add(row)
+    db.session.commit()
+    invalidate_cache()
+    logger.info('PromptVariant created: %s/%s (by user %s)', key, name, user_id)
+    return row
+
+
+def update_variant(variant_id: int, name=None, content=None, user_id=None):
+    """Edit a variant. The built-in variant accepts content edits only (its
+    name is fixed). Returns the row."""
+    from app import db
+    from app.models import PromptVariant
+
+    row = PromptVariant.query.get(variant_id)
+    if row is None:
+        raise KeyError('Variant not found')
+
+    if name is not None and not row.is_builtin:
+        name = (name or '').strip()
+        if not name:
+            raise ValueError('name must not be empty')
+        if len(name) > 120:
+            raise ValueError('name exceeds 120 characters')
+        clash = (PromptVariant.query
+                 .filter(PromptVariant.prompt_key == row.prompt_key,
+                         PromptVariant.name == name,
+                         PromptVariant.id != row.id)
+                 .first())
+        if clash:
+            raise ValueError(f'A variant named "{name}" already exists for this prompt')
+        row.name = name
+
+    if content is not None:
+        row.content = _validate_content(content)
+
+    row.updated_by = user_id
+    db.session.commit()
+    invalidate_cache()
+    logger.info('PromptVariant updated: %s/%s (by user %s)',
+                row.prompt_key, row.name, user_id)
+    return row
+
+
+def delete_variant(variant_id: int) -> None:
+    """Delete a custom variant. Its endpoint assignments are removed; if it
+    was the active variant, the built-in becomes active. Deleting the
+    built-in is rejected."""
+    from app import db
+    from app.models import PromptVariant, PromptEndpointAssignment
+
+    row = PromptVariant.query.get(variant_id)
+    if row is None:
+        raise KeyError('Variant not found')
+    if row.is_builtin:
+        raise ValueError('The built-in variant cannot be deleted (reset it instead)')
+
+    key = row.prompt_key
+    was_active = row.is_active
+    (PromptEndpointAssignment.query
+     .filter_by(variant_id=row.id).delete(synchronize_session=False))
+    db.session.delete(row)
+    if was_active:
+        builtin = _ensure_builtin(key)
+        builtin.is_active = True
+    db.session.commit()
+    invalidate_cache()
+    logger.info('PromptVariant deleted: %s/%s', key, row.name)
+
+
+def set_active(variant_id: int):
+    """Make ``variant_id`` the active (default) variant for its key."""
+    from app import db
+    from app.models import PromptVariant
+
+    row = PromptVariant.query.get(variant_id)
+    if row is None:
+        raise KeyError('Variant not found')
+    (PromptVariant.query
+     .filter(PromptVariant.prompt_key == row.prompt_key,
+             PromptVariant.id != row.id)
+     .update({'is_active': False}, synchronize_session=False))
+    row.is_active = True
+    db.session.commit()
+    invalidate_cache()
+    return row
+
+
+def reset_builtin(key: str, user_id=None) -> str:
+    """Null the built-in variant's content so the bootstrap default applies
+    again. Returns the default content."""
     if key not in PROMPTS_REGISTRY:
         raise KeyError(f'Unknown prompt key: {key}')
 
     from app import db
-    from app.models import PromptOverride
 
-    row = PromptOverride.query.get(key)
-    if row is not None:
-        db.session.delete(row)
-        db.session.commit()
+    builtin = _ensure_builtin(key)
+    builtin.content = None
+    builtin.updated_by = user_id
+    db.session.commit()
+    invalidate_cache()
+    logger.info('Prompt built-in reset to bootstrap default: %s (by user %s)',
+                key, user_id)
+    return PROMPTS_REGISTRY[key]['default']
 
-    with _CACHE_LOCK:
-        _PROMPT_CACHE.pop(key, None)
-    default = PROMPTS_REGISTRY[key]['default']
-    logger.info('PromptOverride reset to default: %s (by user %s)', key, user_id)
-    return default
+
+def set_variant_endpoints(variant_id: int, endpoint_ids) -> None:
+    """Declaratively set which endpoints are pinned to ``variant_id`` for its
+    key. Endpoints previously pinned to this variant but absent from
+    ``endpoint_ids`` lose their assignment (falling back to the active
+    variant); endpoints pinned to a sibling variant are re-pointed here."""
+    from app import db
+    from app.models import PromptVariant, PromptEndpointAssignment, LLMConfig
+
+    row = PromptVariant.query.get(variant_id)
+    if row is None:
+        raise KeyError('Variant not found')
+    key = row.prompt_key
+
+    wanted = set()
+    for eid in (endpoint_ids or []):
+        try:
+            wanted.add(int(eid))
+        except (TypeError, ValueError):
+            continue
+    valid = {c.id for c in LLMConfig.query.filter(LLMConfig.id.in_(wanted)).all()} \
+        if wanted else set()
+
+    existing = PromptEndpointAssignment.query.filter_by(prompt_key=key).all()
+    for a in existing:
+        if a.variant_id == row.id and a.endpoint_id not in valid:
+            db.session.delete(a)
+        elif a.endpoint_id in valid and a.variant_id != row.id:
+            a.variant_id = row.id
+            valid.discard(a.endpoint_id)
+        elif a.variant_id == row.id:
+            valid.discard(a.endpoint_id)
+    for eid in valid:
+        db.session.add(PromptEndpointAssignment(
+            prompt_key=key, endpoint_id=eid, variant_id=row.id))
+    db.session.commit()
+    invalidate_cache()
+
+
+def unassign_endpoint(key: str, endpoint_id: int) -> None:
+    """Remove ``endpoint_id``'s explicit assignment for ``key`` (it falls
+    back to the active variant)."""
+    from app import db
+    from app.models import PromptEndpointAssignment
+
+    (PromptEndpointAssignment.query
+     .filter_by(prompt_key=key, endpoint_id=int(endpoint_id))
+     .delete(synchronize_session=False))
+    db.session.commit()
+    invalidate_cache()
 
 
 def invalidate_cache(key=None) -> None:
-    """Drop one cached prompt, or the whole cache when ``key`` is None.
-    Called automatically by set_prompt / reset_prompt; also exposed so
-    tests / live-reloaders can force a refresh."""
+    """Drop every cached entry for one prompt key (any endpoint), or the
+    whole cache when ``key`` is None. Called automatically by the variant /
+    assignment writers; also exposed so tests / live-reloaders can force a
+    refresh."""
     with _CACHE_LOCK:
         if key is None:
             _PROMPT_CACHE.clear()
         else:
-            _PROMPT_CACHE.pop(key, None)
+            for ck in [ck for ck in _PROMPT_CACHE if ck[0] == key]:
+                _PROMPT_CACHE.pop(ck, None)
 
 
 def as_dict() -> dict:
-    """Serialise the registry + current values for the admin UI."""
-    from app.models import PromptOverride
+    """Serialise the registry + variants + endpoint assignments for the
+    admin UI."""
+    from app.models import PromptVariant, PromptEndpointAssignment, LLMConfig
 
-    overrides = {}
+    variants_by_key: dict = {}
+    assigns_by_variant: dict = {}
+    endpoints = []
     try:
-        for row in PromptOverride.query.all():
-            overrides[row.key] = row
+        for v in (PromptVariant.query
+                  .order_by(PromptVariant.is_builtin.desc(),
+                            PromptVariant.sort_order, PromptVariant.name)
+                  .all()):
+            variants_by_key.setdefault(v.prompt_key, []).append(v)
+        for a in PromptEndpointAssignment.query.all():
+            assigns_by_variant.setdefault(a.variant_id, []).append(a.endpoint_id)
+        endpoints = [
+            {'id': c.id, 'name': c.name, 'enabled': bool(c.enabled)}
+            for c in LLMConfig.query.order_by(LLMConfig.sort_order, LLMConfig.name).all()
+        ]
     except Exception as e:  # pragma: no cover — pre-init / DB down
-        logger.debug('PromptOverride query failed: %s', e)
+        logger.debug('Prompt variant query failed: %s', e)
 
     out_registry = OrderedDict()
     groups = []
     for key, spec in PROMPTS_REGISTRY.items():
         if spec['group'] not in groups:
             groups.append(spec['group'])
-        row = overrides.get(key)
+
+        variants = []
+        for v in variants_by_key.get(key, []):
+            assigned = sorted(assigns_by_variant.get(v.id, []))
+            variants.append({
+                'id': v.id,
+                'name': v.name,
+                'is_builtin': bool(v.is_builtin),
+                'is_active': bool(v.is_active),
+                'content': (v.content if (v.content or '').strip()
+                            else (spec['default'] if v.is_builtin else '')),
+                'has_custom_content': bool((v.content or '').strip()),
+                'assigned_endpoint_ids': assigned,
+                'assigned_count': len(assigned),
+                'updated_at': v.updated_at.isoformat() if v.updated_at else None,
+                'updated_by_username': (
+                    v.updated_by_user.username if v.updated_by_user else None),
+            })
+        if not variants:
+            # Pre-seed DB state: synthesise the built-in so the UI still works.
+            variants.append({
+                'id': None,
+                'name': BUILTIN_VARIANT_NAME,
+                'is_builtin': True,
+                'is_active': True,
+                'content': spec['default'],
+                'has_custom_content': False,
+                'assigned_endpoint_ids': [],
+                'assigned_count': 0,
+                'updated_at': None,
+                'updated_by_username': None,
+            })
+
         out_registry[key] = {
             'key': key,
             'group': spec['group'],
@@ -213,15 +552,11 @@ def as_dict() -> dict:
             'description': spec['description'],
             'variables': spec['variables'],
             'role': spec['role'],
+            'format_key': spec.get('format_key'),
             'default': spec['default'],
-            'value': row.content if row else spec['default'],
-            'has_override': row is not None,
-            'updated_at': row.updated_at.isoformat() if (row and row.updated_at) else None,
-            'updated_by_username': (
-                row.updated_by_user.username if (row and row.updated_by_user) else None
-            ),
+            'variants': variants,
         }
-    return {'groups': groups, 'registry': out_registry}
+    return {'groups': groups, 'registry': out_registry, 'endpoints': endpoints}
 
 
 # ==================== Image checking (proofreading) ====================
@@ -236,7 +571,13 @@ _DEFAULT_CHECK_SYSTEM = (
     "missing or extra words, wrong subscripts/superscripts, swapped options, "
     "and formatting errors that change meaning. Ignore differences that do "
     "not affect meaning (font, colour, resolution, scan artefacts, layout, "
-    "page margins, watermarks).\n\n"
+    "page margins, watermarks)."
+)
+
+
+# Output-format contract for proofreading. Parsed by parse_check_result —
+# keep the JSON shape in sync with the parser.
+_DEFAULT_CHECK_FORMAT = (
     "Respond with STRICT JSON only (no prose, no markdown fences) of the form:\n"
     '{"status": "ok"} when the typed version is faithful, OR\n'
     '{"status": "issues", "issues": [{"location": "<where>", '
@@ -253,14 +594,18 @@ _DEFAULT_CHECK_USER = (
 )
 
 
-def build_check_user_text(typed_version, ref_version, asset_type):
-    """The user-turn instruction accompanying the two images for proofreading."""
-    return render_prompt(
+def build_check_user_text(typed_version, ref_version, asset_type,
+                          endpoint_id=None):
+    """The user-turn instruction accompanying the two images for proofreading,
+    with the output-format contract re-appended for emphasis."""
+    text = render_prompt(
         'CHECK_USER',
+        endpoint_id=endpoint_id,
         typed_version=typed_version,
         ref_version=ref_version,
         asset_type=asset_type,
     )
+    return append_format('CHECK_USER', text, endpoint_id=endpoint_id)
 
 
 # Shared LaTeX delimiter contract for any prompt that emits Markdown/math.
@@ -295,9 +640,15 @@ _DEFAULT_MD_SYSTEM = (
     "- Keep the original language (English and/or Chinese) exactly.\n"
     "- Output ONLY the Markdown for the question content: no code fences around "
     "the whole answer, no preamble, no explanation.\n"
-    "- Use Markdown only where it helps: **bold**, *italic*, tables, math.\n"
-    "\n"
-    + _MATH_DELIMITER_RULES + "\n"
+    "- Use Markdown only where it helps: **bold**, *italic*, tables, math."
+)
+
+
+# Output-format rules for MD transcription (math delimiters, question-number
+# escaping, MC option layout, the [FIGURE: ...] sentinel). The sentinel is
+# consumed by ai_tools._embed_figures / FIGURE_RE — keep it intact.
+_DEFAULT_MD_FORMAT = (
+    _MATH_DELIMITER_RULES + "\n"
     "\n"
     "QUESTION & PART NUMBERS\n"
     "- Write the number as plain text and ESCAPE the period so Markdown does "
@@ -347,12 +698,14 @@ _DEFAULT_MD_USER = (
 )
 
 
-def build_md_user_text(source_version, asset_type):
-    return render_prompt(
+def build_md_user_text(source_version, asset_type, endpoint_id=None):
+    text = render_prompt(
         'MD_USER',
+        endpoint_id=endpoint_id,
         source_version=source_version,
         asset_type=asset_type,
     )
+    return append_format('MD_USER', text, endpoint_id=endpoint_id)
 
 
 # ==================== Solve-based ANS / SOL generation + checking ============
@@ -361,8 +714,13 @@ _DEFAULT_SOLVE_GEN_SYSTEM = (
     "You are an expert bilingual (English/Chinese) exam solver and answer-key "
     "writer. You are given the QUESTION content, and may also be given an "
     "official ENO/CHO SOLUTION to use as supporting context. Work out the "
-    "problem carefully and generate ONLY the requested output.\n"
-    "\n"
+    "problem carefully and generate ONLY the requested output."
+)
+
+
+# Output-format rules for solve-based generation (ANS / SOL / ANS_TEXT
+# shapes, target language, math delimiters, no-preamble).
+_DEFAULT_SOLVE_GEN_FORMAT = (
     "Output modes:\n"
     "- ANS: produce a concise Markdown answer. Work out the problem carefully "
     "before writing, but output only the final answer — never hedge, never "
@@ -414,7 +772,13 @@ _DEFAULT_SOLVE_CHECK_SYSTEM = (
     "- ANS_TEXT should be a concise plaintext final answer, often just A/B/C/D "
     "for MC questions.\n"
     "- Ignore harmless wording/style/layout differences. Report only issues "
-    "that affect correctness, completeness, or clarity.\n\n"
+    "that affect correctness, completeness, or clarity."
+)
+
+
+# Output-format contract for solve-checking. Reuses parse_check_result's
+# strict JSON shape — keep in sync with the parser.
+_DEFAULT_SOLVE_CHECK_FORMAT = (
     "Respond with STRICT JSON only (no prose, no markdown fences) of the form:\n"
     '{"status": "ok"} when the target is correct, OR\n'
     '{"status": "issues", "issues": [{"location": "<where>", '
@@ -432,22 +796,26 @@ _DEFAULT_SOLVE_CHECK_USER = (
 )
 
 
-def build_solve_gen_user_text(kind, target_version):
-    return render_prompt(
+def build_solve_gen_user_text(kind, target_version, endpoint_id=None):
+    text = render_prompt(
         'SOLVE_GEN_USER',
+        endpoint_id=endpoint_id,
         kind=kind,
         target_version=target_version,
         asset_type=kind,
     )
+    return append_format('SOLVE_GEN_USER', text, endpoint_id=endpoint_id)
 
 
-def build_solve_check_user_text(kind, target_version):
-    return render_prompt(
+def build_solve_check_user_text(kind, target_version, endpoint_id=None):
+    text = render_prompt(
         'SOLVE_CHECK_USER',
+        endpoint_id=endpoint_id,
         kind=kind,
         target_version=target_version,
         asset_type=kind,
     )
+    return append_format('SOLVE_CHECK_USER', text, endpoint_id=endpoint_id)
 
 
 # ==================== Auto question tagging ====================
@@ -475,7 +843,13 @@ _DEFAULT_TAG_SYSTEM = (
     "- section: the printed paper-section label if visible (e.g. \"A\", \"B\"), "
     "else null.\n"
     "- Tag ONLY the fields you are asked for. Use null (or [] for the list "
-    "fields) for anything you cannot determine from the allowed values.\n\n"
+    "fields) for anything you cannot determine from the allowed values."
+)
+
+
+# Output-format contract for auto tagging. Parsed by parse_tag_result —
+# keep the JSON shape in sync with the parser.
+_DEFAULT_TAG_FORMAT = (
     "Respond with STRICT JSON only (no prose, no markdown fences) of the form:\n"
     '{"q_type": "MC"|"CQ"|null, "level": 1|2|3|null, "section": "..."|null, '
     '"major_topic": "..."|null, "major_subtopic": "..."|null, '
@@ -563,12 +937,15 @@ def build_tag_taxonomy(subject_id, fields):
     return '\n\n'.join(blocks) if blocks else '(no taxonomy required)'
 
 
-def build_tag_user_text(subject_name, fields, taxonomy):
+def build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None):
     """User-turn instruction for Auto Tag. ``fields`` is an iterable of field
-    keys; rendered with human labels."""
+    keys; rendered with human labels. The output-format contract is
+    re-appended for emphasis."""
     labels = ', '.join(TAG_FIELD_LABELS.get(f, f) for f in fields) or '(none)'
-    return render_prompt('TAG_USER', subject_name=subject_name or '(unknown)',
+    text = render_prompt('TAG_USER', endpoint_id=endpoint_id,
+                         subject_name=subject_name or '(unknown)',
                          fields=labels, taxonomy=taxonomy)
+    return append_format('TAG_USER', text, endpoint_id=endpoint_id)
 
 
 # ==================== Robust JSON extraction helpers ====================
@@ -812,11 +1189,17 @@ _DEFAULT_EXPLAIN_SYSTEM = (
     "justifying each step rather than just stating it.\n"
     "- If a SOLUTION is provided, base your explanation on it and expand any "
     "terse steps; if not, work the problem out yourself and give the answer.\n"
-    "- Use LaTeX for ALL mathematics. Some models wrongly emit [ ] or bare ( ) "
-    "around formulas — that will NOT render here. Follow these rules exactly:\n"
-    + _MATH_DELIMITER_RULES + "\n"
     "- Keep the student's language (English and/or Chinese). Be concise but "
     "complete, and answer any follow-up questions in the same style."
+)
+
+
+# Output-format (math delimiter) rules for the Explain tutor — the chat UI
+# renders $...$ / $$...$$ via KaTeX, so bracket-style math will not render.
+_DEFAULT_EXPLAIN_FORMAT = (
+    "Use LaTeX for ALL mathematics. Some models wrongly emit [ ] or bare ( ) "
+    "around formulas — that will NOT render here. Follow these rules exactly:\n"
+    + _MATH_DELIMITER_RULES
 )
 
 _DEFAULT_EXPLAIN_INITIAL_USER = (
@@ -825,6 +1208,13 @@ _DEFAULT_EXPLAIN_INITIAL_USER = (
     "all math — never square brackets [ ] or bare parentheses like (AD) for "
     "labels or formulas."
 )
+
+
+def build_explain_initial_user_text(endpoint_id=None):
+    """Initial user-turn instruction for the Explain tutor, with the math
+    formatting rules re-appended for emphasis."""
+    text = get_prompt('EXPLAIN_INITIAL_USER', endpoint_id)
+    return append_format('EXPLAIN_INITIAL_USER', text, endpoint_id=endpoint_id)
 
 
 # ---- Figure placeholders + bounding-box localisation (for cropping) --------
@@ -1143,17 +1533,32 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_CHECK_SYSTEM,
         role='system',
+        format_key='CHECK_FORMAT',
     )),
     ('CHECK_USER', _prompt(
         group='AI Tools — Proofreading',
         label='Proofreading: User-turn instruction',
         description=(
             'Accompanies the two images sent each call. Variables are filled '
-            'in per-question by the AI Tools batch op.'
+            'in per-question by the AI Tools batch op. The CHECK_FORMAT block '
+            'is re-appended at the end of the user turn.'
         ),
         default=_DEFAULT_CHECK_USER,
         variables=['asset_type', 'ref_version', 'typed_version'],
         role='user',
+        format_key='CHECK_FORMAT',
+    )),
+    ('CHECK_FORMAT', _prompt(
+        group='AI Tools — Proofreading',
+        label='Proofreading: Output format rules',
+        description=(
+            'STRICT JSON response contract for proofreading. Injected into '
+            'the system prompt AND appended to the user turn (some models '
+            'under-weight system-role formatting rules). Changing the JSON '
+            'shape risks breaking parse_check_result — keep the contract.'
+        ),
+        default=_DEFAULT_CHECK_FORMAT,
+        role='format',
     )),
     ('MD_SYSTEM', _prompt(
         group='AI Tools — Markdown Generation',
@@ -1167,14 +1572,32 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_MD_SYSTEM,
         role='system',
+        format_key='MD_FORMAT',
     )),
     ('MD_USER', _prompt(
         group='AI Tools — Markdown Generation',
         label='Markdown generation: User-turn instruction',
-        description='Accompanies the source image(s) sent each call.',
+        description=(
+            'Accompanies the source image(s) sent each call. The MD_FORMAT '
+            'block is re-appended at the end of the user turn.'
+        ),
         default=_DEFAULT_MD_USER,
         variables=['asset_type', 'source_version'],
         role='user',
+        format_key='MD_FORMAT',
+    )),
+    ('MD_FORMAT', _prompt(
+        group='AI Tools — Markdown Generation',
+        label='Markdown generation: Output format rules',
+        description=(
+            'Math-delimiter, question-number escaping, MC-option, and '
+            '[FIGURE: ...] rules for MD transcription. Injected into the '
+            'system prompt AND appended to the user turn. The [FIGURE: ...] '
+            'sentinel is consumed downstream by the figure-embed pass — keep '
+            'it intact if you customise this block.'
+        ),
+        default=_DEFAULT_MD_FORMAT,
+        role='format',
     )),
     ('SOLVE_GEN_SYSTEM', _prompt(
         group='AI Tools — Solve',
@@ -1186,14 +1609,31 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_SOLVE_GEN_SYSTEM,
         role='system',
+        format_key='SOLVE_GEN_FORMAT',
     )),
     ('SOLVE_GEN_USER', _prompt(
         group='AI Tools — Solve',
         label='Solve generation: User-turn instruction',
-        description='Accompanies the question content and optional official solution context.',
+        description=(
+            'Accompanies the question content and optional official solution '
+            'context. The SOLVE_GEN_FORMAT block is re-appended at the end '
+            'of the user turn.'
+        ),
         default=_DEFAULT_SOLVE_GEN_USER,
         variables=['kind', 'target_version', 'asset_type'],
         role='user',
+        format_key='SOLVE_GEN_FORMAT',
+    )),
+    ('SOLVE_GEN_FORMAT', _prompt(
+        group='AI Tools — Solve',
+        label='Solve generation: Output format rules',
+        description=(
+            'Output-mode (ANS / SOL / ANS_TEXT), target-language, and math '
+            'delimiter rules for solve-based generation. Injected into the '
+            'system prompt AND appended to the user turn.'
+        ),
+        default=_DEFAULT_SOLVE_GEN_FORMAT,
+        role='format',
     )),
     ('SOLVE_CHECK_SYSTEM', _prompt(
         group='AI Tools — Solve',
@@ -1205,14 +1645,31 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_SOLVE_CHECK_SYSTEM,
         role='system',
+        format_key='SOLVE_CHECK_FORMAT',
     )),
     ('SOLVE_CHECK_USER', _prompt(
         group='AI Tools — Solve',
         label='Solve check: User-turn instruction',
-        description='Accompanies the question content, existing target, and optional official solution context.',
+        description=(
+            'Accompanies the question content, existing target, and optional '
+            'official solution context. The SOLVE_CHECK_FORMAT block is '
+            're-appended at the end of the user turn.'
+        ),
         default=_DEFAULT_SOLVE_CHECK_USER,
         variables=['kind', 'target_version', 'asset_type'],
         role='user',
+        format_key='SOLVE_CHECK_FORMAT',
+    )),
+    ('SOLVE_CHECK_FORMAT', _prompt(
+        group='AI Tools — Solve',
+        label='Solve check: Output format rules',
+        description=(
+            'STRICT JSON response contract for solve-checking. Injected into '
+            'the system prompt AND appended to the user turn. Keep the JSON '
+            'shape compatible with parse_check_result.'
+        ),
+        default=_DEFAULT_SOLVE_CHECK_FORMAT,
+        role='format',
     )),
     ('TAG_SYSTEM', _prompt(
         group='AI Tools — Auto Tagging',
@@ -1226,6 +1683,7 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_TAG_SYSTEM,
         role='system',
+        format_key='TAG_FORMAT',
     )),
     ('TAG_USER', _prompt(
         group='AI Tools — Auto Tagging',
@@ -1233,11 +1691,24 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             'Accompanies the question image(s) each call. Variables are filled '
             'in per-question: the subject name, the list of fields to tag, and '
-            'the rendered allowed-values taxonomy for the subject.'
+            'the rendered allowed-values taxonomy for the subject. The '
+            'TAG_FORMAT block is re-appended at the end of the user turn.'
         ),
         default=_DEFAULT_TAG_USER,
         variables=['subject_name', 'fields', 'taxonomy'],
         role='user',
+        format_key='TAG_FORMAT',
+    )),
+    ('TAG_FORMAT', _prompt(
+        group='AI Tools — Auto Tagging',
+        label='Auto tagging: Output format rules',
+        description=(
+            'STRICT JSON response contract for auto tagging. Injected into '
+            'the system prompt AND appended to the user turn. Changing the '
+            'JSON shape risks breaking parse_tag_result — keep the contract.'
+        ),
+        default=_DEFAULT_TAG_FORMAT,
+        role='format',
     )),
     ('EXPLAIN_SYSTEM', _prompt(
         group='Explain Tutor (Dashboard)',
@@ -1249,6 +1720,7 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_EXPLAIN_SYSTEM,
         role='system',
+        format_key='EXPLAIN_FORMAT',
     )),
     ('EXPLAIN_INITIAL_USER', _prompt(
         group='Explain Tutor (Dashboard)',
@@ -1256,10 +1728,23 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             'Trailing text appended after the QUESTION/SOLUTION images on the '
             'first user turn. Keep it short — it just kicks off the tutor '
-            'response. Follow-up turns are user free-text and use no prompt.'
+            'response. Follow-up turns are user free-text and use no prompt. '
+            'The EXPLAIN_FORMAT block is re-appended at the end of this turn.'
         ),
         default=_DEFAULT_EXPLAIN_INITIAL_USER,
         role='user',
+        format_key='EXPLAIN_FORMAT',
+    )),
+    ('EXPLAIN_FORMAT', _prompt(
+        group='Explain Tutor (Dashboard)',
+        label='Explain: Output format rules',
+        description=(
+            'Math-delimiter rules for the Explain tutor chat (the UI renders '
+            '$...$ / $$...$$ via KaTeX). Injected into the system prompt AND '
+            'appended to the initial user turn.'
+        ),
+        default=_DEFAULT_EXPLAIN_FORMAT,
+        role='format',
     )),
     ('FIGURE_BOX_JSON_CONTRACT', _prompt(
         group='Figure Detection (MD Generation)',
@@ -1276,7 +1761,7 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_FIGURE_BOX_JSON_CONTRACT,
         variables=['box_array', 'box_corner', 'box_example'],
-        role='system',
+        role='format',
     )),
     ('FIGURE_BOX_SYSTEM', _prompt(
         group='Figure Detection (MD Generation)',
@@ -1304,6 +1789,7 @@ PROMPTS_REGISTRY = OrderedDict([
         default=_DEFAULT_FIGURE_BOX_USER,
         variables=['box_pairs'],
         role='user',
+        format_key='FIGURE_BOX_JSON_CONTRACT',
     )),
     ('PDF_BOX_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Question/Solution Detection',
@@ -1320,7 +1806,7 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_PDF_BOX_JSON_CONTRACT,
         variables=['box_array', 'box_corner', 'box_example'],
-        role='system',
+        role='format',
     )),
     ('PDF_QUE_BOX_SYSTEM', _prompt(
         group='PDF Batch Import — Question/Solution Detection',
@@ -1362,6 +1848,7 @@ PROMPTS_REGISTRY = OrderedDict([
         default=_DEFAULT_PDF_BOX_USER,
         variables=['what', 'box_pairs'],
         role='user',
+        format_key='PDF_BOX_JSON_CONTRACT',
     )),
     ('PDF_GENERIC_BOX_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Generic Extraction',
@@ -1377,7 +1864,7 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_PDF_GENERIC_BOX_JSON_CONTRACT,
         variables=['box_array', 'box_corner', 'box_example'],
-        role='system',
+        role='format',
     )),
     ('PDF_GENERIC_BOX_SYSTEM', _prompt(
         group='PDF Batch Import — Generic Extraction',
@@ -1407,6 +1894,7 @@ PROMPTS_REGISTRY = OrderedDict([
         default=_DEFAULT_PDF_GENERIC_BOX_USER,
         variables=['instruction', 'box_pairs'],
         role='user',
+        format_key='PDF_GENERIC_BOX_JSON_CONTRACT',
     )),
     ('PDF_ANCHOR_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Assisted (Anchor) Detection',
@@ -1419,7 +1907,7 @@ PROMPTS_REGISTRY = OrderedDict([
             'this shape.'
         ),
         default=_DEFAULT_PDF_ANCHOR_JSON_CONTRACT,
-        role='system',
+        role='format',
     )),
     ('PDF_ANCHOR_SYSTEM', _prompt(
         group='PDF Batch Import — Assisted (Anchor) Detection',
@@ -1444,6 +1932,7 @@ PROMPTS_REGISTRY = OrderedDict([
         default=_DEFAULT_PDF_ANCHOR_USER,
         variables=['what'],
         role='user',
+        format_key='PDF_ANCHOR_JSON_CONTRACT',
     )),
     ('PDF_PAPER_NAME_SYSTEM', _prompt(
         group='PDF Batch Import — Paper-name Guess',
@@ -1473,21 +1962,26 @@ PROMPTS_REGISTRY = OrderedDict([
 ])
 
 
-def build_figure_box_system(coord_order: str = 'xyxy') -> str:
+def build_figure_box_system(coord_order: str = 'xyxy', endpoint_id=None) -> str:
     """Resolved system prompt for figure localisation during MD generation.
     ``coord_order`` (the ``PDF_IMPORT_COORD_ORDER`` setting) drives the
     coordinate-order wording in the contract so the prompt matches what
     ``parse_figure_boxes`` expects."""
-    contract = render_prompt('FIGURE_BOX_JSON_CONTRACT',
+    contract = render_prompt('FIGURE_BOX_JSON_CONTRACT', endpoint_id=endpoint_id,
                              **pdf_box_order_vars(coord_order))
-    return render_prompt('FIGURE_BOX_SYSTEM', json_contract=contract)
+    return render_prompt('FIGURE_BOX_SYSTEM', endpoint_id=endpoint_id,
+                         json_contract=contract)
 
 
-def build_figure_box_user_text(coord_order: str = 'xyxy') -> str:
-    """User-turn instruction for figure localisation during MD generation.
-    ``coord_order`` (the ``PDF_IMPORT_COORD_ORDER`` setting) fills the
-    axis-order wording so the instruction matches the parser."""
-    return render_prompt('FIGURE_BOX_USER', **pdf_box_order_vars(coord_order))
+def build_figure_box_user_text(coord_order: str = 'xyxy', endpoint_id=None) -> str:
+    """User-turn instruction for figure localisation during MD generation,
+    with the JSON contract re-appended for emphasis. ``coord_order`` (the
+    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording so the
+    instruction matches the parser."""
+    order_vars = pdf_box_order_vars(coord_order)
+    text = render_prompt('FIGURE_BOX_USER', endpoint_id=endpoint_id, **order_vars)
+    return append_format('FIGURE_BOX_USER', text, endpoint_id=endpoint_id,
+                         **order_vars)
 
 
 def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:
@@ -1516,71 +2010,91 @@ def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:
     }
 
 
-def build_pdf_box_user_text(asset_type: str, coord_order: str = 'xyxy') -> str:
-    """User-turn instruction accompanying a single page image. ``coord_order``
-    (the ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording."""
+def build_pdf_box_user_text(asset_type: str, coord_order: str = 'xyxy',
+                            endpoint_id=None) -> str:
+    """User-turn instruction accompanying a single page image, with the
+    shared JSON contract re-appended for emphasis. ``coord_order`` (the
+    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
-    return render_prompt('PDF_BOX_USER', what=what,
-                         **pdf_box_order_vars(coord_order))
+    order_vars = pdf_box_order_vars(coord_order)
+    text = render_prompt('PDF_BOX_USER', endpoint_id=endpoint_id, what=what,
+                         **order_vars)
+    return append_format('PDF_BOX_USER', text, endpoint_id=endpoint_id,
+                         **order_vars)
 
 
-def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy') -> str:
+def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy',
+                         endpoint_id=None) -> str:
     """Resolved system prompt for the PDF page-detection model, with the
     shared JSON contract substituted in. Use this from call sites instead of
     branching on QUE/SOL yourself. ``coord_order`` (the
     ``PDF_IMPORT_COORD_ORDER`` setting) drives the coordinate-order wording in
     the contract so the prompt matches what ``parse_question_boxes`` expects."""
-    contract = render_prompt('PDF_BOX_JSON_CONTRACT',
+    contract = render_prompt('PDF_BOX_JSON_CONTRACT', endpoint_id=endpoint_id,
                              **pdf_box_order_vars(coord_order))
     key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
-    return render_prompt(key, json_contract=contract)
+    return render_prompt(key, endpoint_id=endpoint_id, json_contract=contract)
 
 
-def build_pdf_generic_system(instruction: str, coord_order: str = 'xyxy') -> str:
+def build_pdf_generic_system(instruction: str, coord_order: str = 'xyxy',
+                             endpoint_id=None) -> str:
     """Resolved system prompt for Generic Extraction (no exam context).
     ``instruction`` is the user's free-text request; ``coord_order`` (the
     PDF_IMPORT_COORD_ORDER setting) drives the coordinate-order wording."""
     contract = render_prompt('PDF_GENERIC_BOX_JSON_CONTRACT',
+                             endpoint_id=endpoint_id,
                              **pdf_box_order_vars(coord_order))
     return render_prompt('PDF_GENERIC_BOX_SYSTEM',
+                         endpoint_id=endpoint_id,
                          instruction=(instruction or '').strip()
                          or '(no specific request given — extract the main content regions)',
                          json_contract=contract)
 
 
-def build_pdf_generic_user_text(instruction: str, coord_order: str = 'xyxy') -> str:
-    """User-turn instruction for Generic Extraction accompanying one page."""
-    return render_prompt('PDF_GENERIC_BOX_USER',
+def build_pdf_generic_user_text(instruction: str, coord_order: str = 'xyxy',
+                                endpoint_id=None) -> str:
+    """User-turn instruction for Generic Extraction accompanying one page,
+    with the generic JSON contract re-appended for emphasis."""
+    order_vars = pdf_box_order_vars(coord_order)
+    text = render_prompt('PDF_GENERIC_BOX_USER',
+                         endpoint_id=endpoint_id,
                          instruction=(instruction or '').strip()
                          or 'Extract the main content regions',
-                         **pdf_box_order_vars(coord_order))
+                         **order_vars)
+    return append_format('PDF_GENERIC_BOX_USER', text, endpoint_id=endpoint_id,
+                         **order_vars)
 
 
-def build_pdf_anchor_user_text(asset_type: str) -> str:
-    """User-turn instruction for the anchor (segment) detection method."""
+def build_pdf_anchor_user_text(asset_type: str, endpoint_id=None) -> str:
+    """User-turn instruction for the anchor (segment) detection method, with
+    the anchor JSON contract re-appended for emphasis."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
-    return render_prompt('PDF_ANCHOR_USER', what=what)
+    text = render_prompt('PDF_ANCHOR_USER', endpoint_id=endpoint_id, what=what)
+    return append_format('PDF_ANCHOR_USER', text, endpoint_id=endpoint_id)
 
 
-def build_pdf_anchor_system(asset_type: str) -> str:
+def build_pdf_anchor_system(asset_type: str, endpoint_id=None) -> str:
     """Resolved anchor-detection system prompt (segment method), with the
     shared anchor JSON contract substituted in."""
-    contract = get_prompt('PDF_ANCHOR_JSON_CONTRACT')
+    contract = get_prompt('PDF_ANCHOR_JSON_CONTRACT', endpoint_id)
     what = 'question' if asset_type == 'QUE' else 'solution'
-    return render_prompt('PDF_ANCHOR_SYSTEM', what=what, json_contract=contract)
+    return render_prompt('PDF_ANCHOR_SYSTEM', endpoint_id=endpoint_id,
+                         what=what, json_contract=contract)
 
 
-def build_pdf_paper_name_system() -> str:
+def build_pdf_paper_name_system(endpoint_id=None) -> str:
     """System prompt for the PDF Import paper-name auto-guess."""
-    return get_prompt('PDF_PAPER_NAME_SYSTEM')
+    return get_prompt('PDF_PAPER_NAME_SYSTEM', endpoint_id)
 
 
-def build_pdf_paper_name_user_text(filename: str, subjects) -> str:
+def build_pdf_paper_name_user_text(filename: str, subjects,
+                                   endpoint_id=None) -> str:
     """User-turn instruction for the paper-name guess. ``subjects`` is an
     iterable of allowed subject codes (or a string)."""
     if isinstance(subjects, (list, tuple, set)):
         subjects = ', '.join(str(s) for s in subjects) or '(none configured)'
-    return render_prompt('PDF_PAPER_NAME_USER', filename=filename or '(unknown)',
+    return render_prompt('PDF_PAPER_NAME_USER', endpoint_id=endpoint_id,
+                         filename=filename or '(unknown)',
                          subjects=subjects)
 
 

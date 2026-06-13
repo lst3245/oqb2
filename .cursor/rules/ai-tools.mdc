@@ -13,8 +13,8 @@ Admin batch feature that calls an OpenAI-compatible LLM over selected questions 
 | Concern | File(s) |
 |---|---|
 | LLM transport (chat + vision + Fernet keys) | [app/llm_client.py](mdc:app/llm_client.py) |
-| Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) — `PROMPTS_REGISTRY`, `get_prompt`, `render_prompt`, parsers |
-| Prompt override storage | [app/models.py](mdc:app/models.py) `PromptOverride` (table `prompt_overrides`) |
+| Prompts + robust JSON/MD parsing | [app/ai_prompts.py](mdc:app/ai_prompts.py) — `PROMPTS_REGISTRY`, `get_prompt(key, endpoint_id)`, `render_prompt`, `system_prompt` (base + format block), `append_format`, parsers. Call sites pass `config.id` as `endpoint_id` so per-endpoint variant pins apply; see [ai-prompts.mdc](mdc:.cursor/rules/ai-prompts.mdc) |
+| Prompt variant storage | [app/models.py](mdc:app/models.py) `PromptVariant` (`prompt_variants`) + `PromptEndpointAssignment` (`prompt_endpoint_assignments`); legacy `PromptOverride` kept for one-time migration only |
 | Prompt admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html), [app/admin.py](mdc:app/admin.py) `prompts_*` |
 | SSE generators + cancel registry + `generate_md_slot` / solve workers | [app/ai_tools.py](mdc:app/ai_tools.py) |
 | Endpoint model | [app/models.py](mdc:app/models.py) `LLMConfig` (table `llm_configs`); `kind` (`local`/`cloud`) + `max_concurrency` gate parallel batch ops |

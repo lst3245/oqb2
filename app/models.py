@@ -473,19 +473,10 @@ class SystemSetting(db.Model):
 
 
 class PromptOverride(db.Model):
-    """Editable storage for AI prompt templates.
-
-    Each row overrides one prompt (system / user-turn template) used by the
-    AI features (proofreading, MD generation, the Explain tutor, the figure
-    bbox detector, the PDF batch-import bbox detector). The full registry
-    of prompts — keys, defaults, declared variables, group / label /
-    description metadata — lives in `app/ai_prompts.py` (PROMPTS_REGISTRY).
-    A missing row means "use the built-in default"; saving overrides it,
-    resetting deletes the row.
-
-    Distinct from `SystemSetting` because prompts are large free-text blobs
-    with their own dedicated UI (Admin → AI Prompts) and validation
-    semantics — not the typed-tunable shape that the settings page assumes.
+    """LEGACY editable storage for AI prompt templates (one override row per
+    prompt key). Superseded by :class:`PromptVariant` — kept only so existing
+    rows can be migrated into the built-in variant's content on startup
+    (see ``ai_prompts.ensure_seeded``). Do not write new rows.
     """
     __tablename__ = 'prompt_overrides'
 
@@ -499,6 +490,76 @@ class PromptOverride(db.Model):
 
     def __repr__(self):
         return f'<PromptOverride {self.key} ({len(self.content or "")} chars)>'
+
+
+class PromptVariant(db.Model):
+    """One named version of an AI prompt template.
+
+    Each registry key (see ``app/ai_prompts.PROMPTS_REGISTRY``) has exactly
+    one built-in variant (``is_builtin=True``, seeded at startup) plus any
+    number of admin-created custom variants. ``content`` may be NULL on the
+    built-in row, meaning "use the registry bootstrap default" — resetting
+    the built-in nulls its content rather than deleting the row.
+
+    Exactly one variant per key carries ``is_active=True``: the default used
+    for every LLM endpoint that has no explicit
+    :class:`PromptEndpointAssignment` for that key.
+    """
+    __tablename__ = 'prompt_variants'
+
+    id = db.Column(db.Integer, primary_key=True)
+    prompt_key = db.Column(db.String(80), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    # NULL on the built-in row = bootstrap default from PROMPTS_REGISTRY.
+    content = db.Column(db.Text, nullable=True)
+    is_builtin = db.Column(db.Boolean, nullable=False, default=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by])
+
+    __table_args__ = (
+        db.UniqueConstraint('prompt_key', 'name', name='uq_prompt_variant_key_name'),
+    )
+
+    def __repr__(self):
+        flags = ('builtin' if self.is_builtin else 'custom') + (
+            ',active' if self.is_active else '')
+        return f'<PromptVariant {self.prompt_key}/{self.name} ({flags})>'
+
+
+class PromptEndpointAssignment(db.Model):
+    """Pins one LLM endpoint to a specific prompt variant for one key.
+
+    Endpoints without a row for a given key use that key's active variant.
+    Rows are removed when the endpoint or the variant is deleted (FK
+    CASCADE + explicit cleanup in the admin routes).
+    """
+    __tablename__ = 'prompt_endpoint_assignments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    prompt_key = db.Column(db.String(80), nullable=False, index=True)
+    endpoint_id = db.Column(db.Integer,
+                            db.ForeignKey('llm_configs.id', ondelete='CASCADE'),
+                            nullable=False)
+    variant_id = db.Column(db.Integer,
+                           db.ForeignKey('prompt_variants.id', ondelete='CASCADE'),
+                           nullable=False)
+
+    endpoint = db.relationship('LLMConfig', foreign_keys=[endpoint_id])
+    variant = db.relationship('PromptVariant', foreign_keys=[variant_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('prompt_key', 'endpoint_id',
+                            name='uq_prompt_assignment_key_endpoint'),
+    )
+
+    def __repr__(self):
+        return (f'<PromptEndpointAssignment {self.prompt_key} '
+                f'ep={self.endpoint_id} -> var={self.variant_id}>')
 
 
 class LLMConfig(db.Model):

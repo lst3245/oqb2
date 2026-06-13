@@ -369,14 +369,17 @@ def check_slot_format(question, asset_type, typed_version, ref_version, file_for
 
     fmt_note = ' (rendered from source)' if file_format in ('MD', 'DOC') else ''
     user_text = (
-        ai_prompts.build_check_user_text(typed_version, ref_version, asset_type)
+        ai_prompts.build_check_user_text(typed_version, ref_version, asset_type,
+                                         endpoint_id=config.id)
         + f"\n\nTyped format: {file_format}{fmt_note}."
         + f"\n\nImage order: the first {len(ref_imgs)} image(s) are the "
           f"OFFICIAL ({ref_version}) version; the remaining {len(typed_imgs)} "
           f"image(s) are the TYPED ({typed_version}) {file_format} to proofread."
     )
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('CHECK_SYSTEM'),
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('CHECK_SYSTEM',
+                                                              config.id),
                                      user_text, ref_imgs + typed_imgs)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}',
@@ -590,8 +593,10 @@ def _embed_figures(md, src_assets, config, imgs, image_max_dim, source_path):
             ).strip().lower()
             btext, _info = llm_client.chat(
                 config,
-                ai_prompts.build_figure_box_system(coord_order),
-                ai_prompts.build_figure_box_user_text(coord_order),
+                ai_prompts.build_figure_box_system(coord_order,
+                                                   endpoint_id=config.id),
+                ai_prompts.build_figure_box_user_text(coord_order,
+                                                      endpoint_id=config.id),
                 imgs,
             )
             boxes = ai_prompts.parse_figure_boxes(
@@ -660,9 +665,13 @@ def generate_md_slot(question, asset_type, source_version, target_version, *,
         logger.exception('Image prep failed for %s', label)
         return {'status': 'error', 'message': f'{label} — image load failed: {e}'}
 
-    user_text = ai_prompts.build_md_user_text(source_version, asset_type)
+    user_text = ai_prompts.build_md_user_text(source_version, asset_type,
+                                              endpoint_id=config.id)
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('MD_SYSTEM'), user_text, imgs)
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('MD_SYSTEM',
+                                                              config.id),
+                                     user_text, imgs)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
 
@@ -1075,11 +1084,14 @@ def solve_generate_slot(question, kind, version, *, include_official_sol,
     if not found_que:
         return {'status': 'skip', 'message': f'{label} — no usable {version} QUE content'}
 
-    user_text = ai_prompts.build_solve_gen_user_text(kind, version)
+    user_text = ai_prompts.build_solve_gen_user_text(kind, version,
+                                                     endpoint_id=config.id)
     if text_blocks:
         user_text += '\n\n' + '\n\n'.join(text_blocks)
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_GEN_SYSTEM'),
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('SOLVE_GEN_SYSTEM',
+                                                              config.id),
                                      user_text, images)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
@@ -1109,11 +1121,14 @@ def generate_answer_text(question, *, source_versions, include_official_sol,
     if not source_version:
         return {'status': 'skip', 'message': f'{label} — no usable QUE content in selected versions'}
 
-    user_text = ai_prompts.build_solve_gen_user_text('ANS_TEXT', source_version)
+    user_text = ai_prompts.build_solve_gen_user_text('ANS_TEXT', source_version,
+                                                     endpoint_id=config.id)
     if text_blocks:
         user_text += '\n\n' + '\n\n'.join(text_blocks)
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_GEN_SYSTEM'),
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('SOLVE_GEN_SYSTEM',
+                                                              config.id),
                                      user_text, images)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
@@ -1200,12 +1215,15 @@ def solve_check_slot_format(question, asset_type, version, file_format, *,
         return {'status': 'skip', 'message': f'{label} — no usable target content',
                 'file_format': file_format}
 
-    user_text = ai_prompts.build_solve_check_user_text(asset_type, version)
+    user_text = ai_prompts.build_solve_check_user_text(asset_type, version,
+                                                       endpoint_id=config.id)
     blocks = q_text_blocks + target_text_blocks
     if blocks:
         user_text += '\n\n' + '\n\n'.join(blocks)
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_CHECK_SYSTEM'),
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('SOLVE_CHECK_SYSTEM',
+                                                              config.id),
                                      user_text, q_images + target_images)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}',
@@ -1266,11 +1284,14 @@ def check_answer_text(question, *, source_versions, include_official_sol,
         return {'status': 'error', 'message': f'{label} — render failed: {e}'}
     if not source_version:
         return {'status': 'skip', 'message': f'{label} — no usable QUE content in selected versions'}
-    user_text = ai_prompts.build_solve_check_user_text('ANS_TEXT', source_version)
+    user_text = ai_prompts.build_solve_check_user_text('ANS_TEXT', source_version,
+                                                       endpoint_id=config.id)
     text_blocks.append(f'EXISTING TARGET ANS_TEXT:\n{answer}')
     user_text += '\n\n' + '\n\n'.join(text_blocks)
     try:
-        text, info = llm_client.chat(config, ai_prompts.get_prompt('SOLVE_CHECK_SYSTEM'),
+        text, info = llm_client.chat(config,
+                                     ai_prompts.system_prompt('SOLVE_CHECK_SYSTEM',
+                                                              config.id),
                                      user_text, images)
     except llm_client.LLMError as e:
         return {'status': 'error', 'message': f'{label} — LLM error: {e}'}
@@ -1649,11 +1670,14 @@ def suggest_tags(question, versions, fields, config, image_max_dim, source_path)
     subject_row = Subject.query.get(question.subject)
     subject_name = subject_row.name if subject_row else question.subject
     taxonomy = ai_prompts.build_tag_taxonomy(question.subject, fields)
-    user_text = ai_prompts.build_tag_user_text(subject_name, fields, taxonomy)
+    user_text = ai_prompts.build_tag_user_text(subject_name, fields, taxonomy,
+                                               endpoint_id=config.id)
     if text_blocks:
         user_text += '\n\n' + '\n\n'.join(text_blocks)
 
-    text, info = llm_client.chat(config, ai_prompts.get_prompt('TAG_SYSTEM'),
+    text, info = llm_client.chat(config,
+                                 ai_prompts.system_prompt('TAG_SYSTEM',
+                                                          config.id),
                                  user_text, images)
     if not (text or '').strip():
         hint = _empty_reply_hint(info)

@@ -106,8 +106,9 @@ def guess_paper_name(config, pdf_path: str, filename: str, subjects,
             pdf.close()
 
         b64, mime = llm_client.prepare_image(png_path, image_max_dim)
-        system = ai_prompts.build_pdf_paper_name_system()
-        user_text = ai_prompts.build_pdf_paper_name_user_text(filename, subjects)
+        system = ai_prompts.build_pdf_paper_name_system(endpoint_id=config.id)
+        user_text = ai_prompts.build_pdf_paper_name_user_text(
+            filename, subjects, endpoint_id=config.id)
         text, _info = llm_client.chat(config, system, user_text,
                                       images=[(b64, mime)])
     finally:
@@ -413,8 +414,10 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         # collapses to llm here. In generic MODE each box keeps its label; for
         # an exam run borrowing this prompt the box is exam-shaped with
         # qno=None (the caller assigns the running question number).
-        system = ai_prompts.build_pdf_generic_system(instruction, coord_order)
-        user_text = ai_prompts.build_pdf_generic_user_text(instruction, coord_order)
+        system = ai_prompts.build_pdf_generic_system(instruction, coord_order,
+                                                     endpoint_id=config.id)
+        user_text = ai_prompts.build_pdf_generic_user_text(
+            instruction, coord_order, endpoint_id=config.id)
         text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
         gboxes = ai_prompts.parse_generic_boxes(text, img_w=sw, img_h=sh,
                                                 coord_order=coord_order)
@@ -438,8 +441,9 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
 
     if method == 'segment':
         from app import pdf_layout
-        system = ai_prompts.build_pdf_anchor_system(atype)
-        user_text = ai_prompts.build_pdf_anchor_user_text(atype)
+        system = ai_prompts.build_pdf_anchor_system(atype, endpoint_id=config.id)
+        user_text = ai_prompts.build_pdf_anchor_user_text(atype,
+                                                          endpoint_id=config.id)
         text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
         anchors = ai_prompts.parse_question_anchors(text, img_h=sh,
                                                     coord_order=coord_order)
@@ -451,8 +455,10 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         return boxes, (text or '')
 
     # 'llm' or 'refine': the model returns full boxes.
-    system = ai_prompts.build_pdf_box_system(atype, coord_order)
-    user_text = ai_prompts.build_pdf_box_user_text(atype, coord_order)
+    system = ai_prompts.build_pdf_box_system(atype, coord_order,
+                                             endpoint_id=config.id)
+    user_text = ai_prompts.build_pdf_box_user_text(atype, coord_order,
+                                                   endpoint_id=config.id)
     text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)
