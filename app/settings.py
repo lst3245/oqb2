@@ -466,6 +466,12 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='PDF Tool OCR auto-orientation',
         help='When ON, a page whose upright OCR pass finds little text is re-OCR\'d at 90/180/270° and the best orientation wins (its boxes are mapped back so highlights land correctly). Fixes sideways/rotated scans not matching. Adds up to 3 extra OCR passes on sparse or rotated pages only; normal upright text pages do a single pass.',
     )),
+    ('TOOLBOX_SESSION_RETENTION_HOURS', _spec(
+        'TOOLBOX_SESSION_RETENTION_HOURS', 'int', group='Toolbox',
+        label='PDF Tool session retention (hours)',
+        help='How long to keep staging sessions on disk before they are automatically purged. Sessions within this window are shown in the "Restore session" list. Increase if you want to resume work from a previous day; decrease to save disk space. Default 48 h.',
+        min=1, max=720,
+    )),
 
     # Markup
     ('MARKUP_NORMALIZED_MAX_DIM', _spec(

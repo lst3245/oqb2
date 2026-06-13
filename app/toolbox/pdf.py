@@ -80,6 +80,7 @@ def _load_session(token: str) -> dict:
 
 
 def _save_session(token: str, data: dict) -> None:
+    data['last_saved'] = datetime.utcnow().isoformat()
     path = _session_path(token)
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
@@ -96,7 +97,14 @@ def _new_session() -> str:
     return token
 
 
-def _cleanup_old(max_age_hours: float = 12.0) -> None:
+def _cleanup_old(max_age_hours: float = 0.0) -> None:
+    """Delete staging dirs older than *max_age_hours* (reads app config when 0)."""
+    if max_age_hours <= 0:
+        try:
+            max_age_hours = float(
+                current_app.config.get('TOOLBOX_SESSION_RETENTION_HOURS', 48))
+        except Exception:
+            max_age_hours = 48.0
     root = _staging_root()
     if not os.path.isdir(root):
         return
@@ -304,6 +312,8 @@ def pdf_tool():
             current_app.config.get('TESSERACT_CMD', '')),
         ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
         ocr_dpi=int(current_app.config.get('TOOLBOX_OCR_DPI', 300)),
+        session_retention_hours=int(current_app.config.get(
+            'TOOLBOX_SESSION_RETENTION_HOURS', 48)),
     )
 
 
@@ -659,6 +669,122 @@ def pdf_src_thumb(token, srcid, idx):
     buf.seek(0)
     return send_file(buf, mimetype='image/png')
 
+
+# ==================== Session Management ====================
+
+def _list_sessions() -> list:
+    """Return metadata for all valid staging sessions, newest first."""
+    root = _staging_root()
+    if not os.path.isdir(root):
+        return []
+    sessions = []
+    for name in os.listdir(root):
+        if not _TOKEN_RE.match(name):
+            continue
+        path = os.path.join(root, name)
+        sess_file = os.path.join(path, 'session.json')
+        if not os.path.isfile(sess_file):
+            continue
+        try:
+            with open(sess_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            srcs = data.get('sources') or {}
+            pages = data.get('pages') or []
+            # Compute total source size from files on disk
+            src_dir = os.path.join(path, 'sources')
+            size_bytes = sum(
+                os.path.getsize(os.path.join(src_dir, f'{sid}.pdf'))
+                for sid in srcs
+                if os.path.isfile(os.path.join(src_dir, f'{sid}.pdf'))
+            )
+            mtime = os.path.getmtime(path)
+            sessions.append({
+                'token': name,
+                'created_at': data.get('created_at', ''),
+                'last_saved': data.get('last_saved') or datetime.utcfromtimestamp(mtime).isoformat(),
+                'mtime': mtime,
+                'page_count': len(pages),
+                'source_names': [v.get('filename', sid) for sid, v in srcs.items()],
+                'size_bytes': size_bytes,
+            })
+        except Exception:
+            continue
+    sessions.sort(key=lambda s: s['mtime'], reverse=True)
+    # Remove internal mtime field before returning
+    for s in sessions:
+        del s['mtime']
+    return sessions
+
+
+@toolbox_bp.route('/pdf/sessions')
+@login_required
+@admin_required
+def pdf_sessions_list():
+    """Return a list of available staging sessions within the retention window."""
+    return jsonify({'sessions': _list_sessions()})
+
+
+@toolbox_bp.route('/pdf/session-restore', methods=['POST'])
+@login_required
+@admin_required
+def pdf_session_restore():
+    """Return full session state so the client can reinitialise from a saved session."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
+        return jsonify({'error': 'Session not found.'}), 404
+    try:
+        session = _load_session(token)
+    except Exception as e:
+        return jsonify({'error': f'Could not load session: {e}'}), 500
+    return jsonify({
+        'ok': True,
+        'token': token,
+        'sources': session.get('sources') or {},
+        'pages': session.get('pages') or [],
+    })
+
+
+@toolbox_bp.route('/pdf/sessions/delete', methods=['POST'])
+@login_required
+@admin_required
+def pdf_sessions_delete():
+    """Delete one or more sessions by token."""
+    data = request.get_json(silent=True) or {}
+    tokens = data.get('tokens') or []
+    if isinstance(tokens, str):
+        tokens = [tokens]
+    deleted = 0
+    for token in tokens:
+        token = (token or '').strip()
+        if not _TOKEN_RE.match(token):
+            continue
+        path = os.path.join(_staging_root(), token)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+            deleted += 1
+    return jsonify({'ok': True, 'deleted': deleted})
+
+
+@toolbox_bp.route('/pdf/sessions/clear-all', methods=['POST'])
+@login_required
+@admin_required
+def pdf_sessions_clear_all():
+    """Delete every staging session."""
+    root = _staging_root()
+    deleted = 0
+    if os.path.isdir(root):
+        for name in os.listdir(root):
+            if not _TOKEN_RE.match(name):
+                continue
+            path = os.path.join(root, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+                deleted += 1
+    return jsonify({'ok': True, 'deleted': deleted})
+
+
+# ==================== Export ====================
 
 def _parse_export_common(data):
     """Extract and validate common export parameters from a request dict.

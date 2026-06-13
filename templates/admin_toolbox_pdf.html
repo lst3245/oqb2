@@ -272,6 +272,10 @@
                     <strong><i class="bi bi-3-circle"></i> Preview &amp; assemble</strong>
                     <span class="badge bg-secondary" id="pageCount">0 pages</span>
                     <span class="badge bg-primary" id="selCount" style="display:none;">0 selected</span>
+                    <button class="btn btn-outline-secondary btn-sm ms-auto" id="restoreSessionBtn" type="button"
+                            title="Browse and restore sessions from the last {{ session_retention_hours }} hours">
+                        <i class="bi bi-clock-history"></i> Sessions
+                    </button>
                 </div>
                 <div class="card-body">
                     <!-- Operations toolbar (acts on the current selection) -->
@@ -446,6 +450,30 @@
                 <button type="button" class="btn btn-outline-danger me-auto" id="cropRemoveBtn" style="display:none;"><i class="bi bi-x-circle"></i> Remove crop</button>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="cropApplyBtn" disabled><i class="bi bi-check-lg"></i> Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Restore / manage saved sessions -->
+<div class="modal fade" id="restoreSessionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-clock-history"></i> Recent sessions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-2" id="restoreSessionBody">
+                <div class="text-muted text-center py-4" id="restoreSessionEmpty">Loading…</div>
+                <div id="restoreSessionList"></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button class="btn btn-sm btn-outline-danger" id="clearAllSessionsBtn" type="button">
+                    <i class="bi bi-trash"></i> Clear all
+                </button>
+                <small class="text-muted">Sessions kept for {{ session_retention_hours }} h
+                    (Admin → System Settings → <em>PDF Tool session retention</em>)</small>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -1089,6 +1117,12 @@ function updateSelectionUI() {
     const badge = document.getElementById('selCount');
     badge.style.display = n ? '' : 'none';
     badge.textContent = `${n} selected`;
+    if (n === 0) {
+        // Close any open dropdowns on tb-needs-sel buttons before disabling them;
+        // a disabled button cannot close its own dropdown via a click.
+        document.querySelectorAll('.tb-needs-sel.show, .tb-needs-sel[aria-expanded="true"]')
+            .forEach(b => bootstrap.Dropdown.getInstance(b)?.hide());
+    }
     document.querySelectorAll('.tb-needs-sel').forEach(b => b.disabled = (n === 0));
     document.getElementById('pasteBtn').disabled = !(clipboard && clipboard.ids.length);
 }
@@ -1882,6 +1916,155 @@ function updateExportButtons() {
     if (trig && trig.dataset.html === undefined) trig.disabled = !ok;
 }
 
+// ---------- session restore ----------
+let restoreSessionModalInst = null;
+
+function _fmtBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+    return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+function _fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso + 'Z').toLocaleString(); } catch { return iso; }
+}
+
+async function openRestoreSessionModal() {
+    if (!restoreSessionModalInst)
+        restoreSessionModalInst = new bootstrap.Modal(document.getElementById('restoreSessionModal'));
+    document.getElementById('restoreSessionEmpty').textContent = 'Loading…';
+    document.getElementById('restoreSessionEmpty').style.display = '';
+    document.getElementById('restoreSessionList').innerHTML = '';
+    restoreSessionModalInst.show();
+    await loadSessionList();
+}
+
+async function loadSessionList() {
+    const list = document.getElementById('restoreSessionList');
+    const empty = document.getElementById('restoreSessionEmpty');
+    list.innerHTML = '';
+    try {
+        const data = await (await fetch(`${BASE}/sessions`)).json();
+        const sessions = data.sessions || [];
+        if (!sessions.length) {
+            empty.textContent = 'No saved sessions found.';
+            return;
+        }
+        empty.style.display = 'none';
+        sessions.forEach(s => {
+            const isCurrent = (s.token === TOKEN);
+            const names = s.source_names.join(', ') || '(no sources)';
+            const row = document.createElement('div');
+            row.className = 'border rounded p-2 mb-2 d-flex align-items-start gap-2';
+            row.innerHTML = `
+                <div class="flex-grow-1 small">
+                    <div class="fw-bold">${names}
+                        ${isCurrent ? '<span class="badge bg-success ms-1">current</span>' : ''}
+                    </div>
+                    <div class="text-muted">
+                        ${s.page_count} page${s.page_count !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                        ${_fmtBytes(s.size_bytes)} &nbsp;·&nbsp;
+                        Saved ${_fmtDate(s.last_saved)}
+                    </div>
+                    <div class="text-muted" style="font-size:.75em;word-break:break-all;">
+                        Token: ${s.token}
+                    </div>
+                </div>
+                <div class="d-flex flex-column gap-1" style="min-width:6.5em;">
+                    ${isCurrent
+                        ? '<button class="btn btn-sm btn-outline-secondary" disabled>Active</button>'
+                        : `<button class="btn btn-sm btn-primary restore-btn" data-token="${s.token}">
+                               <i class="bi bi-arrow-counterclockwise"></i> Restore
+                           </button>`}
+                    <button class="btn btn-sm btn-outline-danger del-session-btn" data-token="${s.token}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>`;
+            list.appendChild(row);
+        });
+        list.querySelectorAll('.restore-btn').forEach(btn =>
+            btn.addEventListener('click', () => doRestoreSession(btn.dataset.token)));
+        list.querySelectorAll('.del-session-btn').forEach(btn =>
+            btn.addEventListener('click', () => doDeleteSession(btn.dataset.token)));
+    } catch (e) {
+        empty.textContent = 'Failed to load sessions: ' + e.message;
+    }
+}
+
+async function doRestoreSession(token) {
+    if (!confirm('Restore this session? Your current work will be replaced.')) return;
+    try {
+        const data = await postJSON(`${BASE}/session-restore`, {token});
+        // Reinitialise all state from the saved session.
+        TOKEN = data.token;
+        pages.length = 0;
+        selected.clear();
+        undoStack.length = 0;
+        clipboard = null;
+        Object.keys(sources).forEach(k => delete sources[k]);
+
+        // Re-populate sources
+        Object.entries(data.sources || {}).forEach(([sid, src]) => {
+            sources[sid] = {filename: src.filename, page_count: src.page_count};
+        });
+
+        // Re-populate pages (same shape as add-pages response)
+        (data.pages || []).forEach(sp => {
+            pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
+                        dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
+                        annots: sp.annots || [], nonce: Date.now()});
+        });
+
+        // Rebuild UI
+        renderSourceList();
+        const firstSid = Object.keys(data.sources || {})[0];
+        if (firstSid) {
+            activeSrc = firstSid;
+            renderSrcStrip(firstSid, sources[firstSid].page_count);
+            document.getElementById('processCard').style.display = '';
+            const nameEl = document.getElementById('exportName');
+            if (!nameEl.value.trim())
+                nameEl.value = sources[firstSid].filename.replace(/\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i, '');
+        }
+        renderPreview();
+
+        if (restoreSessionModalInst) restoreSessionModalInst.hide();
+        log(`Session restored: ${pages.length} page(s).`, 'success');
+    } catch (e) {
+        log('Restore failed: ' + e.message, 'error');
+    }
+}
+
+async function doDeleteSession(token) {
+    if (!confirm('Delete this session? This cannot be undone.')) return;
+    try {
+        await postJSON(`${BASE}/sessions/delete`, {tokens: [token]});
+        if (token === TOKEN) {
+            TOKEN = null; pages.length = 0; selected.clear();
+            Object.keys(sources).forEach(k => delete sources[k]);
+            renderPreview();
+            log('Current session deleted.', 'success');
+        }
+        await loadSessionList();
+    } catch (e) {
+        log('Delete failed: ' + e.message, 'error');
+    }
+}
+
+async function doClearAllSessions() {
+    if (!confirm('Delete ALL saved sessions? This cannot be undone.')) return;
+    try {
+        const res = await postJSON(`${BASE}/sessions/clear-all`, {});
+        TOKEN = null; pages.length = 0; selected.clear();
+        Object.keys(sources).forEach(k => delete sources[k]);
+        renderPreview();
+        log(`Cleared ${res.deleted} session(s).`, 'success');
+        await loadSessionList();
+    } catch (e) {
+        log('Clear failed: ' + e.message, 'error');
+    }
+}
+
 // ---------- export ----------
 let exportSettingsModalInst = null;
 let exportScopeModal = null, exportScopeResolve = null;
@@ -2636,6 +2819,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateExportButtons();
     updateSelectionUI();
     updateSplitEveryVisibility();
+
+    // session restore
+    document.getElementById('restoreSessionBtn').addEventListener('click', openRestoreSessionModal);
+    document.getElementById('clearAllSessionsBtn').addEventListener('click', doClearAllSessions);
 });
 </script>
 <script src="https://unpkg.com/konva@9/konva.min.js"></script>

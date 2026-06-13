@@ -6,6 +6,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+- **Toolbox PDF Tool: session restore.** A new **Sessions** button in the Preview & assemble card header lists all staging sessions saved within the retention window. Each entry shows the source filenames, page count, file size, and last-saved time. Users can **Restore** any past session (replacing the current work-in-progress) or **Delete** individual sessions. A "Clear all" button wipes the entire staging folder. The retention window is controlled by a new **PDF Tool session retention (hours)** setting in Admin → System Settings (default 48 h). Sessions now record a `last_saved` timestamp on every write.
+
 - **AI Prompts: variants, per-endpoint assignment & format-rule extraction.** The Admin → AI Prompts page was rebuilt around three ideas:
   - **Prompt variants.** Every prompt now supports multiple named variants instead of a single override: the **built-in default is itself editable** (and resettable to the bootstrap text), and admins can add/rename/delete custom variants. One variant per prompt is marked **active** — the default used by every LLM endpoint.
   - **Per-endpoint assignment.** Specific LLM endpoints can be **pinned to a specific variant** per prompt via endpoint chips under the editor; unpinned endpoints follow the active variant. Each variant pill shows how many endpoints use it (the active pill counts unpinned endpoints as `default (+N)`). Pins are cloned when an endpoint is duplicated and cleaned up when it is deleted; new endpoints simply use the active variants.
