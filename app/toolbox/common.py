@@ -20,6 +20,8 @@ def safe_join(base: str, *paths) -> str | None:
 
 
 def safe_filename(name: str, fallback: str) -> str:
+    # Replace characters that are unsafe in filenames; keep spaces.
     name = re.sub(r'[^\w\-. ]+', '_', (name or '').strip())
-    name = re.sub(r'\s+', '_', name).strip('._')
+    # Collapse runs of whitespace to a single space (don't turn them into _).
+    name = re.sub(r'\s+', ' ', name).strip('. ')
     return name[:80] or fallback
