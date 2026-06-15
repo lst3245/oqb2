@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OQB">
+  <!-- Navbar / dark-background variant: white mark, transparent background -->
+  <path d="M256 96c-88 0-156 34-156 34v280s68 34 156 34 156-34 156-34V130s-68-34-156-34z" fill="#ffffff" opacity=".95"/>
+  <path d="M256 96v314" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity=".25"/>
+  <rect x="148" y="188" width="136" height="16" rx="8" fill="#ffffff" opacity=".9"/>
+  <rect x="148" y="232" width="104" height="16" rx="8" fill="#ffffff" opacity=".65"/>
+  <rect x="148" y="276" width="112" height="16" rx="8" fill="#ffffff" opacity=".65"/>
+  <path d="M324 316c22 22 22 56 0 78" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="324" cy="296" r="12" fill="#ffffff"/>
+</svg>
