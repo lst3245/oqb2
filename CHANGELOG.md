@@ -6,7 +6,7 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
-- **OQB logo.** New SVG brand mark (open book + question lines) in `static/img/` — full-color `logo.svg`, white navbar variant `logo-white.svg`, and `favicon.svg`. Wired into the navbar, login page, and browser tab icon.
+- **OQB logo.** New SVG brand mark (minimal `Q` monogram with subtle open-book lines) in `static/img/` — `logo.svg`, `logo-navbar.svg`, `logo-white.svg`, and `favicon.svg`. Wired into the navbar, login page, and browser tab icon.
 
 - **Unified Storage tree + per-user File Browser + shared file selector.** All app-managed files now live under a single configurable `STORAGE_PATH` (default `Q:\Storage`, beside `Q:\Source`) split into three roots:
   - `Shared/` — per-subject shared files (one folder per Subject, role-gated), replacing the old flat `Source_PDF`. A `_archive/` subfolder (super-admin only) holds migrated legacy `Source_PDF` content.

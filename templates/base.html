@@ -34,9 +34,9 @@
     
     <style>
         .oqb-brand-logo {
-            height: 1.75rem;
-            width: auto;
-            vertical-align: -0.35rem;
+            height: 2rem;
+            width: 2rem;
+            flex-shrink: 0;
         }
         .question-card {
             margin-bottom: 1rem;
@@ -466,7 +466,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('dashboard.index') }}">
-                <img src="{{ url_for('static', filename='img/logo-white.svg') }}" alt="" class="oqb-brand-logo" width="28" height="28">
+                <img src="{{ url_for('static', filename='img/logo-navbar.svg') }}" alt="" class="oqb-brand-logo" width="32" height="32">
                 Question Bank
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

@@ -1,19 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OQB">
   <defs>
-    <linearGradient id="oqb-bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#3d8bfd"/>
+    <linearGradient id="oqb-bg" x1="72" y1="56" x2="440" y2="456" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2f8cff"/>
       <stop offset="100%" stop-color="#0a58ca"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#oqb-bg)"/>
-  <!-- Open book -->
-  <path d="M256 120c-72 0-128 28-128 28v224s56 28 128 28 128-28 128-28V148s-56-28-128-28z" fill="#ffffff" opacity=".95"/>
-  <path d="M256 120v252" stroke="#0d6efd" stroke-width="6" stroke-linecap="round" opacity=".35"/>
-  <!-- Question lines -->
-  <rect x="168" y="196" width="112" height="14" rx="7" fill="#0d6efd" opacity=".85"/>
-  <rect x="168" y="236" width="88" height="14" rx="7" fill="#0d6efd" opacity=".55"/>
-  <rect x="168" y="276" width="96" height="14" rx="7" fill="#0d6efd" opacity=".55"/>
-  <!-- Q tail -->
-  <path d="M312 308c18 18 18 46 0 64" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round"/>
-  <circle cx="312" cy="292" r="10" fill="#ffffff"/>
+  <circle cx="246" cy="238" r="146" fill="none" stroke="#ffffff" stroke-width="68"/>
+  <path d="M344 346 420 422" fill="none" stroke="#ffffff" stroke-width="68" stroke-linecap="round"/>
+  <path d="M176 300c38-14 66-7 88 22 22-29 50-36 88-22" fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M186 342c32-9 56-2 78 22 22-24 46-31 78-22" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
