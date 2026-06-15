@@ -40,6 +40,10 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Unified file selector remembers the current folder while the page stays open.** Reopening a same-purpose picker (for example Question PDF then Solution PDF in Batch PDF Import) now returns to the last browsed root/folder instead of resetting to My Files; a browser refresh still starts fresh.
+
+- **Unified file selector: friendlier, file-type-aware list.** File names now get the full row width (the Size / Modified columns collapse into a compact muted subline under the name on narrow/mobile screens), and each file shows a **type-specific coloured icon** (PDF, Word, Excel, PowerPoint, image, archive, text/Markdown, audio/video, code) instead of a generic white file icon, so file kinds are recognisable at a glance.
+
 - **Batch PDF Import: parallel page rasterisation (faster "Load PDF").** The Load PDF / staging step previously rasterised pages one at a time, which was the main bottleneck for multi-page papers. Pages are now rendered concurrently across a thread pool — page rendering (PyMuPDF) and image filters (deskew / brightness / B&W) are CPU-bound and independent per page, and release the GIL, so this scales across cores. Each worker opens its own PyMuPDF document (never sharing one across threads), and output PNGs are written by index so page order is unaffected. Worker count is the new **`PDF_IMPORT_RASTER_WORKERS`** System Setting (group "PDF Import", default 4, capped by the machine's CPU count; 1 = old sequential behaviour). Detection (the LLM step) keeps its own separate parallelism.
 
 - **Toolbox PDF Tool: Find & Mark is streamed, parallel & rotation-aware.**

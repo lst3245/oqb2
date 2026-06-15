@@ -45,7 +45,7 @@ Q:\Storage                      STORAGE_PATH (parent of three roots)
 
 ## Frontend
 - Shared partials: `partials/file_browser_{css,body,js}.html` (both browser pages), `partials/file_selector.html` (modal module `window.OQBFileSelector`).
-- `OQBFileSelector.open({mode:'file'|'folder', extensions, title, preferRootId, onPick})` → `onPick({root_id, root_label, rel_path, name, token})`. `token` = `root_id|rel_path` (copy/paste to jump). Always user scope. Sort by clicking column headers (no sort dropdown). Adopted by PDF Import + PDF Tool pickers.
+- `OQBFileSelector.open({mode:'file'|'folder', extensions, title, preferRootId, locationKey, onPick})` → `onPick({root_id, root_label, rel_path, name, token})`. `token` = `root_id|rel_path` (copy/paste to jump). Always user scope. Sort by clicking column headers (no sort dropdown). It remembers the last browsed `{root,path}` in JS memory per `locationKey` (default: `mode|extensions`) until page reload, so related pickers can reopen nearby without localStorage persistence. Adopted by PDF Import + PDF Tool pickers.
 - Pass `fb_can_manage_roots=True` + `fb_scope='admin'` only on the super-admin page; the user page passes `fb_scope='user'`.
 
 ## Backends that accept `{root, rel_path}`

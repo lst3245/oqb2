@@ -11,6 +11,7 @@
 {#      extensions: ['.pdf'],        // file mode filter (lowercase)       #}
 {#      title: 'Choose a PDF',                                             #}
 {#      preferRootId: 'shared:MATC', // optional initial root              #}
+{#      locationKey: 'pdf-import',   // optional in-page remembered dir    #}
 {#      onPick: function(sel) {                                            #}
 {#        // sel = {root_id, root_label, rel_path, name, token}           #}
 {#      }                                                                  #}
@@ -75,8 +76,8 @@
             <thead class="table-light" style="position:sticky; top:0; z-index:1;">
               <tr>
                 <th class="oqb-fs-sort" data-sort="name" style="cursor:pointer; user-select:none;">Name <span class="oqb-fs-arrow" data-for="name"></span></th>
-                <th class="oqb-fs-sort text-nowrap" data-sort="size" style="cursor:pointer; user-select:none; width:90px;">Size <span class="oqb-fs-arrow" data-for="size"></span></th>
-                <th class="oqb-fs-sort text-nowrap" data-sort="modified" style="cursor:pointer; user-select:none; width:172px;">Modified <span class="oqb-fs-arrow" data-for="modified"></span></th>
+                <th class="oqb-fs-sort text-nowrap d-none d-sm-table-cell" data-sort="size" style="cursor:pointer; user-select:none; width:90px;">Size <span class="oqb-fs-arrow" data-for="size"></span></th>
+                <th class="oqb-fs-sort text-nowrap d-none d-sm-table-cell" data-sort="modified" style="cursor:pointer; user-select:none; width:160px;">Modified <span class="oqb-fs-arrow" data-for="modified"></span></th>
               </tr>
             </thead>
             <tbody id="oqbFsBody"></tbody>
@@ -119,6 +120,7 @@
     sortDir: 'asc',
     filterText: '',
     modal: null,
+    rememberedLocations: {},
   };
 
   // -- helpers ---------------------------------------------------------
@@ -139,6 +141,46 @@
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   }
 
+  // Pick a Bootstrap-Icon class + colour from the file extension so PDFs,
+  // Word docs, images, etc. are visually distinguishable at a glance.
+  const FILE_ICONS = {
+    pdf:  ['bi-file-earmark-pdf-fill', 'text-danger'],
+    doc:  ['bi-file-earmark-word-fill', 'text-primary'],
+    docx: ['bi-file-earmark-word-fill', 'text-primary'],
+    rtf:  ['bi-file-earmark-word-fill', 'text-primary'],
+    xls:  ['bi-file-earmark-excel-fill', 'text-success'],
+    xlsx: ['bi-file-earmark-excel-fill', 'text-success'],
+    csv:  ['bi-file-earmark-spreadsheet-fill', 'text-success'],
+    ppt:  ['bi-file-earmark-ppt-fill', 'text-warning'],
+    pptx: ['bi-file-earmark-ppt-fill', 'text-warning'],
+    png:  ['bi-file-earmark-image-fill', 'text-info'],
+    jpg:  ['bi-file-earmark-image-fill', 'text-info'],
+    jpeg: ['bi-file-earmark-image-fill', 'text-info'],
+    gif:  ['bi-file-earmark-image-fill', 'text-info'],
+    webp: ['bi-file-earmark-image-fill', 'text-info'],
+    bmp:  ['bi-file-earmark-image-fill', 'text-info'],
+    tif:  ['bi-file-earmark-image-fill', 'text-info'],
+    tiff: ['bi-file-earmark-image-fill', 'text-info'],
+    svg:  ['bi-file-earmark-image-fill', 'text-info'],
+    zip:  ['bi-file-earmark-zip-fill', 'text-warning'],
+    rar:  ['bi-file-earmark-zip-fill', 'text-warning'],
+    '7z': ['bi-file-earmark-zip-fill', 'text-warning'],
+    md:   ['bi-file-earmark-text-fill', 'text-secondary'],
+    txt:  ['bi-file-earmark-text-fill', 'text-secondary'],
+    json: ['bi-file-earmark-code-fill', 'text-secondary'],
+    html: ['bi-file-earmark-code-fill', 'text-secondary'],
+    mp3:  ['bi-file-earmark-music-fill', 'text-secondary'],
+    wav:  ['bi-file-earmark-music-fill', 'text-secondary'],
+    mp4:  ['bi-file-earmark-play-fill', 'text-secondary'],
+    mov:  ['bi-file-earmark-play-fill', 'text-secondary'],
+    mkv:  ['bi-file-earmark-play-fill', 'text-secondary'],
+  };
+  function fileIcon(name) {
+    const dot = name.lastIndexOf('.');
+    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+    return FILE_ICONS[ext] || ['bi-file-earmark', 'text-muted'];
+  }
+
   function currentRootObj() {
     return state.roots.find(r => r.id === state.currentRoot) || null;
   }
@@ -147,6 +189,20 @@
     return !!(r && r.can_write !== false);
   }
   function rootLabel(r) { return r ? (r.label || r.id) : ''; }
+
+  function locationKey(cfg) {
+    cfg = cfg || {};
+    const exts = (cfg.extensions || []).map(e => String(e || '').toLowerCase()).sort().join(',');
+    return cfg.locationKey || ((cfg.mode || 'file') + '|' + exts);
+  }
+
+  function rememberLocation() {
+    if (!state.cfg || !state.currentRoot) return;
+    state.rememberedLocations[locationKey(state.cfg)] = {
+      root: state.currentRoot,
+      path: state.currentPath || '',
+    };
+  }
 
   function withRoot(url) {
     const join = url.includes('?') ? '&' : '?';
@@ -193,6 +249,7 @@
   function navigate(path) {
     state.currentPath = path || '';
     state.selected = null;
+    rememberLocation();
     updateChoose();
     load();
     renderCrumb();
@@ -277,7 +334,8 @@
         ? state.currentPath.substring(0, state.currentPath.lastIndexOf('/')) : '';
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
-      tr.innerHTML = '<td><i class="bi bi-arrow-up-circle text-secondary"></i> <span class="fw-bold">..</span></td><td>—</td><td>—</td>';
+      tr.innerHTML = '<td><i class="bi bi-arrow-up-circle text-secondary me-2"></i><span class="fw-bold">..</span></td>'
+        + '<td class="d-none d-sm-table-cell">—</td><td class="d-none d-sm-table-cell">—</td>';
       tr.onclick = () => navigate(parent);
       tbody.appendChild(tr);
     }
@@ -292,11 +350,24 @@
       const rel = state.currentPath ? (state.currentPath + '/' + it.name) : it.name;
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
-      const icon = it.is_dir ? 'bi-folder-fill text-warning' : 'bi-file-earmark text-muted';
+      const iconPair = it.is_dir ? ['bi-folder-fill', 'text-warning'] : fileIcon(it.name);
+      const sizeStr = it.is_dir ? '' : fmtSize(it.size);
+      const dateStr = fmtDate(it.modified);
+      // On narrow screens the size/modified columns are hidden, so surface them
+      // as a compact muted subline under the (full-width) file name instead.
+      const subParts = [];
+      if (sizeStr) subParts.push(esc(sizeStr));
+      if (dateStr && dateStr !== '—') subParts.push(esc(dateStr));
+      const sub = subParts.length
+        ? '<div class="d-sm-none small text-muted text-truncate">' + subParts.join(' · ') + '</div>'
+        : '';
       tr.innerHTML =
-        '<td><i class="bi ' + icon + '"></i> ' + esc(it.name) + '</td>' +
-        '<td class="text-muted text-nowrap">' + (it.is_dir ? '—' : fmtSize(it.size)) + '</td>' +
-        '<td class="text-muted text-nowrap">' + fmtDate(it.modified) + '</td>';
+        '<td><div class="d-flex align-items-start">' +
+          '<i class="bi ' + iconPair[0] + ' ' + iconPair[1] + ' me-2 mt-1 flex-shrink-0"></i>' +
+          '<div class="text-break" style="min-width:0;"><div>' + esc(it.name) + '</div>' + sub + '</div>' +
+        '</div></td>' +
+        '<td class="text-muted text-nowrap d-none d-sm-table-cell">' + (it.is_dir ? '—' : esc(sizeStr)) + '</td>' +
+        '<td class="text-muted text-nowrap d-none d-sm-table-cell">' + esc(dateStr) + '</td>';
       if (it.is_dir) {
         tr.ondblclick = () => navigate(rel);
         tr.onclick = () => navigate(rel);
@@ -477,7 +548,6 @@
     state.cfg = options || {};
     state.selected = null;
     state.filterText = '';
-    state.currentPath = '';
     el('oqbFsFilter').value = '';
     el('oqbFsPathInput').value = '';
     el('oqbFsTitle').innerHTML = '<i class="bi bi-folder2-open"></i> '
@@ -499,11 +569,21 @@
         return;
       }
       const prefer = state.cfg.preferRootId;
-      state.currentRoot = (prefer && state.roots.some(r => r.id === prefer))
-        ? prefer : state.roots[0].id;
+      const remembered = state.rememberedLocations[locationKey(state.cfg)] || null;
+      if (prefer && state.roots.some(r => r.id === prefer)) {
+        state.currentRoot = prefer;
+        state.currentPath = '';
+      } else if (remembered && state.roots.some(r => r.id === remembered.root)) {
+        state.currentRoot = remembered.root;
+        state.currentPath = remembered.path || '';
+      } else {
+        state.currentRoot = state.roots[0].id;
+        state.currentPath = '';
+      }
       populateRootSelect();
       el('oqbFsRoot').value = state.currentRoot;
-      onRootChanged(true);
+      onRootChanged(false);
+      navigate(state.currentPath);
       updateChoose();
       state.modal.show();
     }).catch(err => {
