@@ -2,10 +2,28 @@
 Configuration settings for the Flask application
 """
 import os
+from pathlib import Path
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Always load .env from the project root (not the process cwd — Flask's debug
+# reloader can start workers with a different working directory).
+# override=True ensures .env wins over empty DB_* vars left in the shell env.
+ENV_PATH = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(ENV_PATH, override=True)
+
+
+def build_database_uri() -> str:
+    """Build the SQLAlchemy URI from current os.environ (after load_dotenv)."""
+    user = os.getenv('DB_USER', 'root')
+    password = os.getenv('DB_PASSWORD', '')
+    host = os.getenv('DB_HOST', 'localhost')
+    name = os.getenv('DB_NAME', 'oqb2')
+    return (
+        f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}"
+        f"@{host}/{name}?charset=utf8mb4"
+    )
+
 
 class Config:
     """Base configuration class"""
@@ -20,7 +38,7 @@ class Config:
     DB_NAME = os.getenv('DB_NAME', 'oqb2')
     
     # SQLAlchemy settings
-    SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}?charset=utf8mb4'
+    SQLALCHEMY_DATABASE_URI = build_database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,

@@ -21,8 +21,11 @@ def create_app():
                 static_folder=os.path.join(basedir, 'static'))
     
     # Load configuration
-    from app.config import Config
+    from dotenv import load_dotenv
+    from app.config import Config, ENV_PATH, build_database_uri
+    load_dotenv(ENV_PATH, override=True)
     app.config.from_object(Config)
+    app.config['SQLALCHEMY_DATABASE_URI'] = build_database_uri()
     
     # Initialize extensions with app
     db.init_app(app)
