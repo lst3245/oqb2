@@ -80,8 +80,11 @@ SECRET_KEY=change-this-to-a-long-random-string
 FLASK_DEBUG=1          # Set to 0 in production
 
 # Paths
-SOURCE_PATH=Q:\Source              # Where question image/doc files live
-OUTPUT_PATH=C:\oqb2\output         # Where generated .docx files are saved
+SOURCE_PATH=Q:\Source              # Where question image/doc files live (read-mostly library)
+STORAGE_PATH=Q:\Storage            # Unified app-managed tree (Shared / System / User)
+# Optional fine-grained overrides (default to subfolders of STORAGE_PATH):
+#   SHARED_PATH, SYSTEM_PATH, USER_PATH, PDF_SOURCE_PATH, DOC_THUMBNAIL_PATH
+OUTPUT_PATH=C:\oqb2\output         # LEGACY fallback for pre-migration generated docs
 
 # AI Tools (optional — proofreading + Markdown generation)
 LLM_API_KEY=                       # Global fallback LLM API key (per-endpoint keys override it)
@@ -92,7 +95,8 @@ LLM_IMAGE_MAX_DIM=1600             # Image downscale long-edge in px (also in Sy
 
 **Important**:
 - `SOURCE_PATH` must be readable by the Python process. On Windows, this can be a network share (e.g. `Q:\Source`).
-- `OUTPUT_PATH` must be writable. It is created automatically if it doesn't exist.
+- `STORAGE_PATH` must be **writable and on the same drive as `SOURCE_PATH`** (the File Browser refuses roots on other drives). Its `Shared` / `System` / `User` subfolders are created automatically at startup.
+- `OUTPUT_PATH` is now only a legacy fallback for generated documents created before the storage migration; new documents are written to `STORAGE_PATH/User/<username>/generated`. Run `python cli.py migrate-storage` to relocate existing files (see §14).
 - Never commit `.env` to version control.
 - AI Tools keys are optional — leave them blank if you don't use the feature. Rotating `LLM_KEY_SECRET` (or `SECRET_KEY` when it's blank) invalidates any endpoint API keys stored encrypted in the DB.
 
@@ -283,7 +287,7 @@ DOCX source assets are merged into the generated document via Microsoft Word COM
 |---|---|---|
 | `WORD_COM_TIMEOUT` | `300` | Per-job watchdog (seconds) — kill WINWORD if a single call hangs. |
 | `WORD_COM_LOCK_TIMEOUT` | `600` | Max wait for the global Word lock when another generation is running. |
-| `DOC_THUMBNAIL_PATH` | `<OUTPUT_PATH>/.doc_thumbnails` | Where the cached first-page PNGs live. |
+| `DOC_THUMBNAIL_PATH` | `<SYSTEM_PATH>/doc_thumbnails` | Where the cached first-page PNGs live. |
 | `DOC_THUMBNAIL_WIDTH` | `1000` | Render width in pixels (~A4 at 96 DPI). |
 
 **Concurrency:** only ONE Word session runs at a time per server (a module-level `threading.Lock`). Concurrent generations queue up to `WORD_COM_LOCK_TIMEOUT`; on timeout the job fails with a clear error message in the GeneratedFile row.
@@ -442,14 +446,14 @@ Markup autosaves locally in the browser's IndexedDB so an in-progress drawing ca
 
 The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
 
-1. **Load a PDF** — upload a file, or **Pick from server** to choose one under `PDF_SOURCE_PATH`. You can also **drag a PDF or image file straight onto the preview grid** — it is uploaded and its pages are added untouched (no split / filters, default DPI; images become single pages), skipping steps 1–2.
+1. **Load a PDF** — upload a file, or **Pick from server** to choose one via the unified file selector (your accessible Shared subject folders + your personal My Files home, with filter / sort / paste-path). You can also **drag a PDF or image file straight onto the preview grid** — it is uploaded and its pages are added untouched (no split / filters, default DPI; images become single pages), skipping steps 1–2.
 2. **Process & add to preview** — pick the active source, set the **Resolution (DPI)** (page-size independent: 200 DPI ≈ A4 1654 px / A3 2339 px wide; 150 draft, 300 print), choose a *Rotate first* angle, an *A3 split mode*, and optional **deskew**, then add the resulting pages to the preview grid. Brightness, contrast, sharpen, grayscale, and black & white are applied in Step 3 (preview toolbar). The active-source page strip is shown here.
    - **Split modes**: *None* (whole pages); *Split each A3 down the middle* (left then right half); *Mode 1 — folded individual copies* (2 A3 sheets per student scanned folded → 4 ordered pages per student); *Mode 2 — destapled A4 booklet stack* (the split halves are reordered back into reading order; assumes an even number of A3 pages).
 3. **Assemble** — **select** pages (click; Ctrl/Cmd-click to toggle; Shift-click for a range; or drag a box over them — on touch devices tap **Select** or **long-press** a page to enter tap-to-select mode) and act on them with the **operations toolbar** (rotate, the **Adjust** menu for brightness / contrast / sharpen / grayscale / B&W / deskew, **Crop** — draw/move/resize a crop box and apply it to all selected pages; re-cropping narrows further and *Remove crop* restores the full page — Mark up, Find & Mark, reset, delete, copy/cut/paste). Keyboard shortcuts: **Del**, **Ctrl+A**, **Ctrl+C/X/V**, **Ctrl+Z**, **Esc**. Drag selected pages to **reorder** them together, **double-click** a page for a large preview (with a **Quick / Full res** toggle and ←/→ navigation), and load more PDFs to **merge** them into the same preview. A slider above the grid adjusts the thumbnail size (remembered per browser).
 4. **Redact / Highlight / Mark up** (optional) —
    - **Mark up** opens a fullscreen editor: draw redact boxes, **Remove boxes** (erase content and leave plain white page — true removal on export, not just a cover), highlights, text, freehand pen strokes, or **insert an image** (signature, stamp, logo — PNG transparency preserved); move/resize/delete marks; **Copy to → all/selected pages** stamps a mark across the document. The **Text** tool is Acrobat-style — click the page and type directly (Enter = new line, click away to commit, Esc to cancel; click an existing text mark to re-edit), with **typeface** (Helvetica/Times/Courier) and **font size** controls that apply live while you type. The editor has its own per-page **Undo/Redo** (Ctrl+Z / Ctrl+Y) and **zoom** (mouse wheel, pinch, +/− buttons; pan with right-mouse drag, two fingers, middle-drag, or space+drag).
    - **Find & Mark** searches for phrases and marks every match: engines are **Auto**, **Digital** (PDF text layer), **OCR** (scanned pages — needs Tesseract, see Notes), or **AI** (vision LLM; reuses the PDF Import endpoints). Each term can **Highlight**, **Redact**, or **Remove** (erase to white) its matches. The AI engine has two modes: **Find the search terms** (each term keeps its own style) or **Custom instruction** (describe anything — "every signature", "all personal names" — with its own mark style). All searches **stream live progress** (per-page) and have a **Stop** button, so even long scanned PDFs never time out, and a **Run pages in parallel** option speeds them up (OCR across CPU cores, or AI round-trips across the endpoint's concurrency). Fuzzy matching with a threshold slider handles OCR noise; phrases broken across lines/pages still match; sideways/rotated scans are auto-detected (OCR retries other orientations). Results arrive as **pending** marks (dashed orange) — review and **Accept all** (or **Discard pending**), or adjust/delete them in the editor first. Pending marks are never exported.
-5. **Export** — the **file name** defaults to the loaded PDF's name. Choose *Combined PDF* or *ZIP of page images*, an **Output** mode when marks exist (**Digital** keeps the PDF vector and applies **true redaction** — the covered text/images are removed from the file, not just hidden; **Image (flatten)** rasterises everything so redacted content is unrecoverable pixels), and an optional **Compression**: *Light* (recompress images, keep resolution), *Medium* (~150 DPI), *Strong* (~100 DPI), or *Fit to size…* with a max-MB limit (the server retries down a quality ladder until the file fits — best effort). Then **Export selected** (download) or **Save to server** (writes under `PDF_SOURCE_PATH/<TOOLBOX_SAVE_SUBDIR>`, default `Saved`, so Batch PDF Import can pick it up). With a partial selection you are asked **Selected only or All pages**; with nothing selected, all pages export. If the server file name already exists you are asked to **Overwrite** or **Rename**. For Mode 1, tick *Separate file every 4 pages* to get one file per student.
+5. **Export** — the **file name** defaults to the loaded PDF's name. Choose *Combined PDF* or *ZIP of page images*, an **Output** mode when marks exist (**Digital** keeps the PDF vector and applies **true redaction** — the covered text/images are removed from the file, not just hidden; **Image (flatten)** rasterises everything so redacted content is unrecoverable pixels), and an optional **Compression**: *Light* (recompress images, keep resolution), *Medium* (~150 DPI), *Strong* (~100 DPI), or *Fit to size…* with a max-MB limit (the server retries down a quality ladder until the file fits — best effort). Then **Export selected** (download) or **Save to server** (the file selector opens in folder-pick mode so you choose any writable location — a Shared subject folder or your My Files home; picking a folder root falls back to a `Saved` subfolder — so Batch PDF Import can pick it up). With a partial selection you are asked **Selected only or All pages**; with nothing selected, all pages export. If the server file name already exists you are asked to **Overwrite** or **Rename**. For Mode 1, tick *Separate file every 4 pages* to get one file per student.
 
 **Notes**:
 - Pages with only lossless operations (a single 90° rotate, or a crop) are exported without re-rasterising via `pypdf`; any pixel adjustment (deskew / brightness / sharpen / B&W) rasterises that page at the chosen DPI.
@@ -469,11 +473,16 @@ The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
 
 ## 12. File Browser
 
-Navigate to **Admin → Files** (Super Admin only).
+There are now **two** browsers sharing one backend:
 
-Provides a web interface to browse, upload, download, rename, delete files and create directories within `SOURCE_PATH`. Useful for correcting filenames without direct file system access.
+**Super-admin browser** — **Admin → Files** (Super Admin only). Browse, upload, download, rename, delete, copy and create directories across multiple **roots**: `Source`, the whole `Storage` tree, and any extra roots you register via **Manage roots** (must be on the same drive as `SOURCE_PATH`; they persist in System Settings). Useful for correcting filenames without direct file-system access.
 
-**Note**: After renaming files here, re-run ingestion or use the question rename function in Admin → Questions to keep the database in sync.
+**Per-user browser** — **My Stuff → File Browser** (`/files/browser`), available to everyone except pure viewers. Each user sees:
+- their personal **My Files** home (`Storage/User/<username>`) — full read/write;
+- the **Shared** folder for each subject they can access — read/write for subject **admins**, read-only for **users** (viewers are excluded);
+- their `generated/` subfolder is shown **read-only** (manage generated documents from **My Files** instead, so database records stay in sync).
+
+**Note**: After renaming asset files in `Source`, re-run ingestion or use the question rename function in Admin → Questions to keep the database in sync.
 
 ---
 
@@ -536,7 +545,18 @@ mysqldump -u root -p oqb2 > oqb2_backup_$(date +%Y%m%d).sql
 ```
 
 ### File Backup
-Back up the entire `SOURCE_PATH` directory. Generated files in `OUTPUT_PATH` can be regenerated at any time and don't strictly need backing up.
+Back up the entire `SOURCE_PATH` directory (the question library) and the `STORAGE_PATH` tree. Within `STORAGE_PATH`, the important data is `Shared/` (per-subject shared files) and `User/` (personal homes + generated documents); `System/` holds only regenerable caches/temp and can be skipped. Generated documents can also be re-created from the app, so they are lower priority than `Source` + `Shared`.
+
+### Migrating an existing deployment to the Storage tree
+After upgrading, relocate legacy files into the new layout. **Preview first** (no changes are made):
+```bash
+python cli.py migrate-storage --dry-run
+```
+Review the printed plan, then apply:
+```bash
+python cli.py migrate-storage --no-dry-run
+```
+This creates the `Storage` tree + one `Shared/<SUBJECT>` folder per subject, moves the DOC thumbnail cache into `System/doc_thumbnails`, moves each generated document (and its PDF sibling) into `User/<username>/generated`, and archives the old flat `Source_PDF` into `Shared/_archive` (super-admin only — subject admins refile from there into each subject's Shared folder). It is idempotent and skips anything already in place. Use `--old-pdf-source` / `--old-thumbnails` if your legacy folders aren't at the defaults.
 
 ### Recovery
 ```bash

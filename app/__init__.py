@@ -44,6 +44,7 @@ def create_app():
     from app.user import user_bp
     from app.toolbox import toolbox_bp
     from app.pwa import pwa_bp
+    from app.files import files_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -52,6 +53,7 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(toolbox_bp)
     app.register_blueprint(pwa_bp)
+    app.register_blueprint(files_bp)
 
     # Expose the canonical asset-version list to every template (including
     # viewer.html, which does not extend base.html). Templates build their
@@ -65,11 +67,15 @@ def create_app():
             'OQB_DEFAULT_VERSION_PRIORITY': DEFAULT_VERSION_PRIORITY,
         }
     
-    # Create output directory if it doesn't exist
+    # Create output directory if it doesn't exist (legacy generated-files base)
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
     # DOC thumbnail cache directory
     if app.config.get('DOC_THUMBNAIL_PATH'):
         os.makedirs(app.config['DOC_THUMBNAIL_PATH'], exist_ok=True)
+    # Unified Storage tree (Shared / System / User)
+    with app.app_context():
+        from app import storage as _storage
+        _storage.ensure_storage_tree()
     
     # Startup cleanup: mark any stale 'generating' files as failed
     with app.app_context():

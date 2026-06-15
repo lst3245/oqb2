@@ -440,29 +440,8 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
         </div>
     </div>
 
-    <!-- ===== Server PDF picker modal ===== -->
-    <div class="modal fade" id="serverPdfModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-hdd"></i> Pick a PDF from the server
-                        <small class="text-muted" id="serverPickTargetLabel"></small></h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-2">Source folder: <code>{{ pdf_source_path }}</code></p>
-                    <nav id="serverPdfBreadcrumb" class="small mb-2"></nav>
-                    <input type="text" id="serverPdfFilter" class="form-control form-control-sm mb-2"
-                           placeholder="Filter this folder…" oninput="renderServerPdfList()" autocomplete="off">
-                    <div id="serverPdfLoading" class="text-center py-4 d-none">
-                        <div class="spinner-border text-primary"></div>
-                    </div>
-                    <div id="serverPdfError" class="alert alert-danger d-none"></div>
-                    <div class="list-group" id="serverPdfList" style="max-height: 50vh; overflow-y:auto;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- ===== Server PDF picker (shared unified selector) ===== -->
+    {% include 'partials/file_selector.html' %}
 
     <!-- ===== Summary ===== -->
     <div id="summaryPanel" class="card mt-3 d-none">
@@ -659,148 +638,26 @@ function snapBoxToUniform(item, kind) {
 }
 
 // ----- Server PDF picking + paper-name auto-guess -----
-const serverPdf = { que: null, sol: null };  // each: {rel_path, name}
-let serverPickTarget = 'que';
-let serverCurDir = '';        // current folder rel path within PDF_SOURCE_PATH
-let serverDirs = [];          // subfolders in the current folder
-let serverFiles = [];         // PDFs in the current folder
+// Each side stores {root_id, rel_path, name} from the unified file selector.
+const serverPdf = { que: null, sol: null };
 let guessing = false;
 
 function openServerPicker(target) {
-    serverPickTarget = target;
-    document.getElementById('serverPickTargetLabel').textContent =
-        '(' + (target === 'que' ? 'Question' : 'Solution') + ')';
-    document.getElementById('serverPdfFilter').value = '';
-    document.getElementById('serverPdfError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('serverPdfModal')).show();
-    loadServerDir('');
-}
-
-function loadServerDir(path) {
-    const loading = document.getElementById('serverPdfLoading');
-    const errBox = document.getElementById('serverPdfError');
-    const list = document.getElementById('serverPdfList');
-    loading.classList.remove('d-none');
-    errBox.classList.add('d-none');
-    list.innerHTML = '';
-    fetch(`${IMPORT_BASE}/source-list?path=${encodeURIComponent(path)}`)
-        .then(r => r.json().then(d => ({ ok: r.ok, d })))
-        .then(({ ok, d }) => {
-            loading.classList.add('d-none');
-            if (!ok) { throw new Error(d.error || 'Could not open folder.'); }
-            if (!d.configured) {
-                errBox.textContent = d.message || 'Server source-PDF folder is not available.';
-                errBox.classList.remove('d-none');
-                return;
-            }
-            serverCurDir = d.current_path || '';
-            serverDirs = d.dirs || [];
-            serverFiles = d.files || [];
-            document.getElementById('serverPdfFilter').value = '';
-            renderServerBreadcrumb();
-            renderServerPdfList();
-        })
-        .catch(err => {
-            loading.classList.add('d-none');
-            errBox.textContent = err.message;
-            errBox.classList.remove('d-none');
-        });
-}
-
-function renderServerBreadcrumb() {
-    const nav = document.getElementById('serverPdfBreadcrumb');
-    nav.innerHTML = '';
-
-    const home = document.createElement('a');
-    home.href = '#';
-    home.innerHTML = '<i class="bi bi-house-door"></i> Source_PDF';
-    home.onclick = (e) => { e.preventDefault(); loadServerDir(''); };
-    nav.appendChild(home);
-
-    if (serverCurDir) {
-        let acc = '';
-        const parts = serverCurDir.split('/');
-        parts.forEach((part, i) => {
-            acc += (acc ? '/' : '') + part;
-            const p = acc;
-            nav.insertAdjacentHTML('beforeend', ' <span class="text-muted">/</span> ');
-            if (i < parts.length - 1) {
-                const a = document.createElement('a');
-                a.href = '#';
-                a.textContent = part;
-                a.onclick = (e) => { e.preventDefault(); loadServerDir(p); };
-                nav.appendChild(a);
-            } else {
-                const strong = document.createElement('strong');
-                strong.textContent = part;
-                nav.appendChild(strong);
-            }
-        });
-    }
-}
-
-function renderServerPdfList() {
-    const list = document.getElementById('serverPdfList');
-    const q = (document.getElementById('serverPdfFilter').value || '').toLowerCase();
-    list.innerHTML = '';
-
-    // Parent-folder row
-    if (serverCurDir) {
-        const parent = serverCurDir.includes('/') ? serverCurDir.substring(0, serverCurDir.lastIndexOf('/')) : '';
-        const up = document.createElement('a');
-        up.href = '#';
-        up.className = 'list-group-item list-group-item-action';
-        up.innerHTML = '<i class="bi bi-arrow-up-circle text-secondary"></i> <span class="fw-bold">..</span>';
-        up.onclick = (e) => { e.preventDefault(); loadServerDir(parent); };
-        list.appendChild(up);
-    }
-
-    const dirs = serverDirs.filter(d => !q || d.name.toLowerCase().includes(q));
-    const files = serverFiles.filter(f => !q || f.name.toLowerCase().includes(q));
-
-    dirs.forEach(d => {
-        const a = document.createElement('a');
-        a.href = '#';
-        a.className = 'list-group-item list-group-item-action';
-        a.innerHTML = `<i class="bi bi-folder-fill text-warning"></i> ${escapeHtmlPdf(d.name)}`;
-        a.onclick = (e) => { e.preventDefault(); loadServerDir(d.rel_path); };
-        list.appendChild(a);
+    OQBFileSelector.open({
+        mode: 'file',
+        extensions: ['.pdf'],
+        title: 'Pick a PDF (' + (target === 'que' ? 'Question' : 'Solution') + ')',
+        onPick: function (sel) { pickServerPdf(target, sel); },
     });
-
-    files.forEach(f => {
-        const a = document.createElement('a');
-        a.href = '#';
-        a.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-        const kb = f.size ? (f.size / 1024).toFixed(0) + ' KB' : '';
-        a.innerHTML = `<span><i class="bi bi-filetype-pdf text-danger"></i> ${escapeHtmlPdf(f.name)}</span>`
-            + `<small class="text-muted">${kb}</small>`;
-        a.onclick = (e) => { e.preventDefault(); pickServerPdf(f); };
-        list.appendChild(a);
-    });
-
-    if (!dirs.length && !files.length) {
-        const empty = document.createElement('div');
-        empty.className = 'text-muted small p-3';
-        empty.textContent = q ? 'No matching items in this folder.' : 'This folder has no PDFs or subfolders.';
-        list.appendChild(empty);
-    }
 }
 
-function escapeHtmlPdf(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-}
-
-function pickServerPdf(f) {
-    const side = serverPickTarget;
-    serverPdf[side] = { rel_path: f.rel_path, name: f.name };
+function pickServerPdf(side, sel) {
+    serverPdf[side] = { root_id: sel.root_id, rel_path: sel.rel_path, name: sel.name };
     // A server pick and a local upload are mutually exclusive per side.
     (side === 'que' ? quePdf : solPdf).value = '';
-    document.getElementById(side + 'ServerName').textContent = f.name;
+    document.getElementById(side + 'ServerName').textContent = sel.name;
     document.getElementById(side + 'ServerPick').classList.remove('d-none');
-    bootstrap.Modal.getInstance(document.getElementById('serverPdfModal')).hide();
-    maybeGuessPaper({ server_path: f.rel_path });
+    maybeGuessPaper({ server_root: sel.root_id, server_path: sel.rel_path });
 }
 
 function clearServerPick(side) {
@@ -817,7 +674,10 @@ function maybeGuessPaper(src) {
     const hint = document.getElementById('paperGuessHint');
     const fd = new FormData();
     if (src.file) fd.append('pdf', src.file);
-    else if (src.server_path) fd.append('server_path', src.server_path);
+    else if (src.server_path) {
+        fd.append('server_path', src.server_path);
+        if (src.server_root) fd.append('server_root', src.server_root);
+    }
     else return;
 
     guessing = true;
@@ -1003,10 +863,16 @@ async function loadPdf() {
     fd.append('f_bw_threshold', document.getElementById('ppBwThreshold').value);
     if (!generic) fd.append('paper', paper);
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
-    else if (serverPdf.que) fd.append('que_server_path', serverPdf.que.rel_path);
+    else if (serverPdf.que) {
+        fd.append('que_server_path', serverPdf.que.rel_path);
+        if (serverPdf.que.root_id) fd.append('que_server_root', serverPdf.que.root_id);
+    }
     if (!generic) {
         if (solPdf.files.length) fd.append('sol_pdf', solPdf.files[0]);
-        else if (serverPdf.sol) fd.append('sol_server_path', serverPdf.sol.rel_path);
+        else if (serverPdf.sol) {
+            fd.append('sol_server_path', serverPdf.sol.rel_path);
+            if (serverPdf.sol.root_id) fd.append('sol_server_root', serverPdf.sol.root_id);
+        }
     }
 
     let data;

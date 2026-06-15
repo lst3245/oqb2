@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from app import db
 from app.models import User
-from app.utils import admin_required
+from app.utils import admin_required, validate_username
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -53,12 +53,14 @@ def logout():
 def register():
     """Register new user (admin only)"""
     if request.method == 'POST':
-        username = request.form.get('username')
+        username = (request.form.get('username') or '').strip()
         password = request.form.get('password')
         is_admin = request.form.get('is_admin') == 'on'
         
-        # Check if user already exists
-        if User.query.filter_by(username=username).first():
+        ok, err = validate_username(username)
+        if not ok:
+            flash(err, 'danger')
+        elif User.query.filter_by(username=username).first():
             flash('Username already exists', 'danger')
         else:
             user = User(username=username, is_admin=is_admin)

@@ -163,9 +163,9 @@ _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
 
 
 def staging_root() -> str:
-    """Root directory for all PDF-import staging dirs (under OUTPUT_PATH)."""
-    out = current_app.config['OUTPUT_PATH']
-    return os.path.join(out, '.pdf_import')
+    """Root directory for all PDF-import staging dirs (under the System tree)."""
+    base = current_app.config.get('SYSTEM_PATH') or current_app.config['OUTPUT_PATH']
+    return os.path.join(base, '.pdf_import')
 
 
 def token_dir(token: str) -> str:

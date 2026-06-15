@@ -1,0 +1,880 @@
+{# Shared file-browser JS. Included (inside {% block extra_js %}) by both
+   admin_files.html and files_browser.html. Consumes the root-aware
+   /files/api/* endpoints. Context vars: roots, allowed_drive,
+   fb_can_manage_roots. #}
+<script>
+// ==================== State ====================
+// Roots: [{id, label, can_write, removable, missing, path?}]. `id` is an
+// opaque token the server validates on every request. ROOTS is the initial
+// server-rendered list; refreshRoots() keeps it in sync after add/remove.
+let ROOTS = {{ roots|tojson }};
+const ALLOWED_DRIVE = {{ allowed_drive|tojson }};
+const FB_CAN_MANAGE_ROOTS = {{ (fb_can_manage_roots|default(false))|tojson }};
+// Root scope: 'admin' (super-admin /admin/files) or 'user' (everyone else,
+// incl. super-admins on /files/browser). The server re-validates it.
+const FB_SCOPE = {{ (fb_scope|default('user'))|tojson }};
+let currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
+let currentPath = '';
+let selectedItems = new Set();  // Set of relative paths
+let pendingUploadFiles = [];
+let allItems = [];  // Current directory items
+let clipboard = [];  // Array of relative paths pending paste
+
+// ==================== URL helpers ====================
+const URLS = {
+    list:        '{{ url_for("files.api_list") }}',
+    download:    '{{ url_for("files.api_download") }}',
+    upload:      '{{ url_for("files.api_upload") }}',
+    rename:      '{{ url_for("files.api_rename") }}',
+    delete:      '{{ url_for("files.api_delete") }}',
+    mkdir:       '{{ url_for("files.api_mkdir") }}',
+    copy:        '{{ url_for("files.api_copy") }}',
+    roots:       '{{ url_for("files.api_roots") }}',
+    rootsAdd:    '{{ url_for("files.api_roots_add") }}',
+    rootsRemove: '{{ url_for("files.api_roots_remove") }}',
+};
+
+// Append the selected root + scope to a GET URL that already has a query string.
+function withRoot(url) {
+    return url + '&root=' + encodeURIComponent(currentRoot)
+        + '&scope=' + encodeURIComponent(FB_SCOPE);
+}
+
+// ==================== Roots ====================
+
+function currentRootObj() {
+    return ROOTS.find(r => r.id === currentRoot) || ROOTS[0] || null;
+}
+
+function canWrite() {
+    const r = currentRootObj();
+    return !!(r && r.can_write !== false);
+}
+
+function rootLabelFor(r) {
+    return r ? (r.label || r.id) : '';
+}
+
+function updateWriteUI() {
+    const writable = canWrite();
+    document.querySelectorAll('.fb-write-only').forEach(el => {
+        el.classList.toggle('d-none', !writable);
+    });
+    const badge = document.getElementById('rootReadonlyBadge');
+    if (badge) badge.classList.toggle('d-none', writable);
+}
+
+function renderRootSelect() {
+    const sel = document.getElementById('rootSelect');
+    sel.innerHTML = '';
+    ROOTS.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = rootLabelFor(r) + (r.missing ? ' (missing)' : '')
+            + (r.can_write === false ? ' (read-only)' : '');
+        if (r.id === currentRoot) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    const ro = currentRootObj();
+    document.getElementById('sourcePathLabel').textContent = (ro && ro.path) ? ro.path : '';
+    const rootLbl = document.getElementById('breadcrumbRootLabel');
+    if (rootLbl) rootLbl.textContent = rootLabelFor(ro);
+    updateWriteUI();
+}
+
+function onRootChange() {
+    const sel = document.getElementById('rootSelect');
+    currentRoot = sel.value;
+    selectedItems.clear();
+    clearClipboard();
+    updateSelectionUI();
+    navigateTo('');
+    renderRootSelect();
+}
+
+function refreshRoots() {
+    return fetch(URLS.roots + '?scope=' + encodeURIComponent(FB_SCOPE))
+        .then(r => r.json())
+        .then(data => {
+            ROOTS = data.roots || ROOTS;
+            if (!ROOTS.some(r => r.id === currentRoot)) {
+                currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
+            }
+            renderRootSelect();
+        })
+        .catch(() => {});
+}
+
+{% if fb_can_manage_roots %}
+function showRootsModal() {
+    document.getElementById('rootsDriveLabel').textContent = ALLOWED_DRIVE;
+    document.getElementById('rootsError').classList.add('d-none');
+    document.getElementById('newRootPath').value = '';
+    renderRootsList();
+    new bootstrap.Modal(document.getElementById('rootsModal')).show();
+    setTimeout(() => document.getElementById('newRootPath').focus(), 300);
+}
+
+function renderRootsList() {
+    const ul = document.getElementById('rootsList');
+    ul.innerHTML = '';
+    ROOTS.forEach(r => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-center';
+        const left = document.createElement('span');
+        left.innerHTML = `<i class="bi bi-folder-fill text-warning"></i> <code>${escapeHtml(r.path || r.label)}</code>`
+            + (r.missing ? ' <span class="badge bg-danger ms-1">missing</span>' : '')
+            + (r.removable ? '' : ' <span class="badge bg-secondary ms-1">built-in</span>');
+        li.appendChild(left);
+        if (r.removable) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-danger';
+            btn.innerHTML = '<i class="bi bi-trash"></i>';
+            btn.title = 'Remove root';
+            btn.onclick = () => doRemoveRoot(r.id);
+            li.appendChild(btn);
+        }
+        ul.appendChild(li);
+    });
+}
+
+function showRootsError(msg) {
+    const el = document.getElementById('rootsError');
+    el.textContent = msg;
+    el.classList.remove('d-none');
+}
+
+function doAddRoot() {
+    const input = document.getElementById('newRootPath');
+    const path = input.value.trim();
+    if (!path) return;
+    document.getElementById('rootsError').classList.add('d-none');
+    fetch(URLS.rootsAdd, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: path})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok || d.error) { showRootsError(d.error || 'Could not add root.'); return; }
+        ROOTS = d.roots || ROOTS;
+        input.value = '';
+        renderRootsList();
+        renderRootSelect();
+    })
+    .catch(err => showRootsError('Add failed: ' + err.message));
+}
+
+function doRemoveRoot(id) {
+    if (!confirm('Remove this root from the browser? (The folder itself is NOT deleted.)')) return;
+    fetch(URLS.rootsRemove, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok || d.error) { showRootsError(d.error || 'Could not remove root.'); return; }
+        ROOTS = d.roots || ROOTS;
+        if (!ROOTS.some(r => r.id === currentRoot)) {
+            currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
+            navigateTo('');
+        }
+        renderRootsList();
+        renderRootSelect();
+    })
+    .catch(err => showRootsError('Remove failed: ' + err.message));
+}
+{% endif %}
+
+// ==================== Navigation ====================
+
+function navigateTo(path) {
+    currentPath = path;
+    selectedItems.clear();
+    updateSelectionUI();
+    loadDirectory(path);
+    updateBreadcrumb(path);
+}
+
+function loadDirectory(path) {
+    const loading = document.getElementById('fileListLoading');
+    const error = document.getElementById('fileListError');
+    const empty = document.getElementById('fileListEmpty');
+    const table = document.getElementById('fileTable');
+
+    loading.classList.remove('d-none');
+    error.classList.add('d-none');
+    empty.classList.add('d-none');
+    table.classList.add('d-none');
+
+    const url = withRoot(URLS.list + '?path=' + encodeURIComponent(path));
+    fetch(url)
+        .then(r => {
+            if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'HTTP ' + r.status); });
+            return r.json();
+        })
+        .then(data => {
+            loading.classList.add('d-none');
+            allItems = data.items || [];
+            if (allItems.length === 0) {
+                empty.classList.remove('d-none');
+                table.classList.add('d-none');
+            } else {
+                empty.classList.add('d-none');
+                renderFileTable(allItems);
+                table.classList.remove('d-none');
+            }
+        })
+        .catch(err => {
+            loading.classList.add('d-none');
+            error.classList.remove('d-none');
+            document.getElementById('fileListErrorMsg').textContent = err.message;
+        });
+}
+
+function updateBreadcrumb(path) {
+    const nav = document.getElementById('breadcrumbNav');
+    const ro = currentRootObj();
+    const rootName = rootLabelFor(ro) || 'Root';
+    let html = `<a href="#" onclick="navigateTo(''); return false;"><i class="bi bi-house-door"></i> ${escapeHtml(rootName)}</a>`;
+    if (path) {
+        const parts = path.split('/');
+        let accumulated = '';
+        parts.forEach((part, i) => {
+            accumulated += (accumulated ? '/' : '') + part;
+            const p = accumulated;
+            if (i < parts.length - 1) {
+                html += ` <span class="text-muted">/</span> <a href="#" onclick="navigateTo('${escapeJs(p)}'); return false;">${escapeHtml(part)}</a>`;
+            } else {
+                html += ` <span class="text-muted">/</span> <strong>${escapeHtml(part)}</strong>`;
+            }
+        });
+    }
+    nav.innerHTML = html;
+}
+
+// ==================== Rendering ====================
+
+function formatSize(bytes) {
+    if (bytes === null || bytes === undefined) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+function formatDate(timestamp) {
+    if (!timestamp) return '—';
+    const d = new Date(timestamp * 1000);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function getFileIcon(name, isDir) {
+    if (isDir) return '<i class="bi bi-folder-fill text-warning file-icon"></i>';
+    const ext = name.split('.').pop().toLowerCase();
+    const icons = {
+        'pdf': 'bi-file-earmark-pdf text-danger',
+        'doc': 'bi-file-earmark-word text-primary',
+        'docx': 'bi-file-earmark-word text-primary',
+        'xls': 'bi-file-earmark-excel text-success',
+        'xlsx': 'bi-file-earmark-excel text-success',
+        'csv': 'bi-file-earmark-spreadsheet text-success',
+        'png': 'bi-file-earmark-image text-info',
+        'jpg': 'bi-file-earmark-image text-info',
+        'jpeg': 'bi-file-earmark-image text-info',
+        'gif': 'bi-file-earmark-image text-info',
+        'bmp': 'bi-file-earmark-image text-info',
+        'tiff': 'bi-file-earmark-image text-info',
+        'webp': 'bi-file-earmark-image text-info',
+        'zip': 'bi-file-earmark-zip text-secondary',
+        'rar': 'bi-file-earmark-zip text-secondary',
+        '7z': 'bi-file-earmark-zip text-secondary',
+        'txt': 'bi-file-earmark-text text-muted',
+        'json': 'bi-file-earmark-code text-warning',
+        'py': 'bi-file-earmark-code text-info',
+        'html': 'bi-file-earmark-code text-danger',
+    };
+    const cls = icons[ext] || 'bi-file-earmark text-muted';
+    return `<i class="bi ${cls} file-icon"></i>`;
+}
+
+function renderFileTable(items) {
+    const tbody = document.getElementById('fileTableBody');
+    tbody.innerHTML = '';
+    const writable = canWrite();
+
+    // Add parent directory link if not at root
+    if (currentPath) {
+        const parentPath = currentPath.includes('/') ? currentPath.substring(0, currentPath.lastIndexOf('/')) : '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td></td>
+            <td>
+                <i class="bi bi-arrow-up-circle text-secondary file-icon"></i>
+                <a href="#" class="file-name-link fw-bold" onclick="navigateTo('${escapeJs(parentPath)}'); return false;">..</a>
+            </td>
+            <td class="text-muted">—</td>
+            <td class="text-muted">—</td>
+            <td></td>
+        `;
+        tbody.appendChild(tr);
+    }
+
+    items.forEach(item => {
+        const itemPath = currentPath ? (currentPath + '/' + item.name) : item.name;
+        const tr = document.createElement('tr');
+        tr.dataset.path = itemPath;
+        tr.dataset.name = item.name;
+        tr.dataset.isDir = item.is_dir ? '1' : '0';
+
+        if (selectedItems.has(itemPath)) tr.classList.add('selected');
+
+        let nameCell;
+        if (item.is_dir) {
+            nameCell = `${getFileIcon(item.name, true)} <a href="#" class="file-name-link fw-bold" onclick="navigateTo('${escapeJs(itemPath)}'); return false;">${escapeHtml(item.name)}</a>`;
+        } else {
+            nameCell = `${getFileIcon(item.name, false)} <span class="file-name-link">${escapeHtml(item.name)}</span>`;
+        }
+
+        // Action buttons
+        let actions = '';
+        if (!item.is_dir) {
+            actions += `<a href="${withRoot(URLS.download + '?path=' + encodeURIComponent(itemPath))}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
+        }
+        actions += `<button class="btn btn-outline-secondary btn-sm" title="Copy to clipboard" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
+        if (writable && !item.is_dir) {
+            actions += `<button class="btn btn-outline-secondary btn-sm" title="Duplicate" onclick="duplicateItem('${escapeJs(itemPath)}')"><i class="bi bi-copy"></i></button> `;
+        }
+        if (writable) {
+            actions += `<button class="btn btn-outline-warning btn-sm" title="Rename" onclick="showRenameModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}')"><i class="bi bi-pencil"></i></button> `;
+            actions += `<button class="btn btn-outline-danger btn-sm" title="Delete" onclick="showSingleDeleteModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}', ${item.is_dir})"><i class="bi bi-trash"></i></button>`;
+        }
+
+        tr.innerHTML = `
+            <td>
+                <input type="checkbox" class="form-check-input select-checkbox"
+                       ${selectedItems.has(itemPath) ? 'checked' : ''}
+                       onchange="toggleItemSelect('${escapeJs(itemPath)}', this.checked)">
+            </td>
+            <td>${nameCell}</td>
+            <td class="text-muted">${formatSize(item.size)}</td>
+            <td class="text-muted">${formatDate(item.modified)}</td>
+            <td class="row-actions">${actions}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('selectAll').checked = false;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function escapeJs(str) {
+    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+// ==================== Selection ====================
+
+function toggleItemSelect(path, checked) {
+    if (checked) {
+        selectedItems.add(path);
+    } else {
+        selectedItems.delete(path);
+    }
+    const rows = document.querySelectorAll('#fileTableBody tr');
+    rows.forEach(tr => {
+        if (tr.dataset.path === path) {
+            tr.classList.toggle('selected', checked);
+        }
+    });
+    updateSelectionUI();
+}
+
+function toggleSelectAll(checked) {
+    const checkboxes = document.querySelectorAll('#fileTableBody .select-checkbox');
+    checkboxes.forEach(cb => {
+        const tr = cb.closest('tr');
+        const path = tr.dataset.path;
+        if (path) {
+            cb.checked = checked;
+            if (checked) {
+                selectedItems.add(path);
+                tr.classList.add('selected');
+            } else {
+                selectedItems.delete(path);
+                tr.classList.remove('selected');
+            }
+        }
+    });
+    updateSelectionUI();
+}
+
+function clearSelection() {
+    selectedItems.clear();
+    const checkboxes = document.querySelectorAll('#fileTableBody .select-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = false;
+        cb.closest('tr').classList.remove('selected');
+    });
+    document.getElementById('selectAll').checked = false;
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const actions = document.getElementById('selectionActions');
+    const count = document.getElementById('selectionCount');
+    if (selectedItems.size > 0) {
+        actions.classList.remove('d-none');
+        count.textContent = selectedItems.size + ' selected';
+    } else {
+        actions.classList.add('d-none');
+    }
+    updateClipboardUI();
+    updateWriteUI();
+}
+
+// ==================== Upload ====================
+
+function showUploadModal() {
+    pendingUploadFiles = [];
+    document.getElementById('fileInput').value = '';
+    document.getElementById('uploadFileList').innerHTML = '';
+    document.getElementById('uploadProgress').classList.add('d-none');
+    document.getElementById('uploadResult').classList.add('d-none');
+    document.getElementById('btnUpload').disabled = true;
+    document.getElementById('uploadTarget').textContent = currentPath || '/ (root)';
+    new bootstrap.Modal(document.getElementById('uploadModal')).show();
+}
+
+function handleFileSelect(files) {
+    for (let i = 0; i < files.length; i++) {
+        pendingUploadFiles.push(files[i]);
+    }
+    renderUploadFileList();
+}
+
+function renderUploadFileList() {
+    const container = document.getElementById('uploadFileList');
+    container.innerHTML = '';
+    pendingUploadFiles.forEach((f, idx) => {
+        const div = document.createElement('div');
+        div.className = 'upload-file-item';
+        div.innerHTML = `
+            <i class="bi bi-file-earmark"></i>
+            <span class="flex-grow-1">${escapeHtml(f.name)}</span>
+            <span class="text-muted">${formatSize(f.size)}</span>
+            <i class="bi bi-x-circle remove-file" onclick="removeUploadFile(${idx})" title="Remove"></i>
+        `;
+        container.appendChild(div);
+    });
+    document.getElementById('btnUpload').disabled = pendingUploadFiles.length === 0;
+}
+
+function removeUploadFile(idx) {
+    pendingUploadFiles.splice(idx, 1);
+    renderUploadFileList();
+}
+
+function doUpload() {
+    if (pendingUploadFiles.length === 0) return;
+
+    const btn = document.getElementById('btnUpload');
+    const progress = document.getElementById('uploadProgress');
+    const progressBar = document.getElementById('uploadProgressBar');
+    const resultDiv = document.getElementById('uploadResult');
+
+    btn.disabled = true;
+    progress.classList.remove('d-none');
+    resultDiv.classList.add('d-none');
+    progressBar.style.width = '0%';
+
+    const formData = new FormData();
+    formData.append('path', currentPath);
+    formData.append('root', currentRoot);
+    formData.append('scope', FB_SCOPE);
+    pendingUploadFiles.forEach(f => formData.append('files', f));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', URLS.upload);
+
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            progressBar.style.width = pct + '%';
+            document.getElementById('uploadProgressLabel').textContent = pct + '%';
+        }
+    };
+
+    xhr.onload = function() {
+        progress.classList.add('d-none');
+        try {
+            const data = JSON.parse(xhr.responseText);
+            let html = '';
+            if (data.uploaded && data.uploaded.length > 0) {
+                html += `<div class="alert alert-success py-2 small"><i class="bi bi-check-circle"></i> Uploaded: ${escapeHtml(data.uploaded.join(', '))}</div>`;
+            }
+            if (data.error) {
+                html += `<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> ${escapeHtml(data.error)}</div>`;
+            }
+            if (data.errors && data.errors.length > 0) {
+                html += `<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> Errors:<br>${escapeHtml(data.errors.join('; '))}</div>`;
+            }
+            resultDiv.innerHTML = html;
+            resultDiv.classList.remove('d-none');
+            pendingUploadFiles = [];
+            renderUploadFileList();
+            refreshListing();
+        } catch (e) {
+            resultDiv.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: ${escapeHtml(xhr.statusText)}</div>`;
+            resultDiv.classList.remove('d-none');
+        }
+        btn.disabled = false;
+    };
+
+    xhr.onerror = function() {
+        progress.classList.add('d-none');
+        resultDiv.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: network error</div>`;
+        resultDiv.classList.remove('d-none');
+        btn.disabled = false;
+    };
+
+    xhr.send(formData);
+}
+
+// Drag and drop support
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('dropZone');
+    if (!dropZone) return;
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+        });
+    });
+    dropZone.addEventListener('drop', e => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleFileSelect(files);
+    });
+});
+
+// ==================== Rename ====================
+
+function showRenameModal(path, name) {
+    document.getElementById('renameOldPath').value = path;
+    document.getElementById('renameNewName').value = name;
+    new bootstrap.Modal(document.getElementById('renameModal')).show();
+    setTimeout(() => {
+        const input = document.getElementById('renameNewName');
+        input.focus();
+        const dotIdx = name.lastIndexOf('.');
+        if (dotIdx > 0) {
+            input.setSelectionRange(0, dotIdx);
+        } else {
+            input.select();
+        }
+    }, 300);
+}
+
+function doRename() {
+    const path = document.getElementById('renameOldPath').value;
+    const newName = document.getElementById('renameNewName').value.trim();
+    if (!newName) return;
+
+    fetch(URLS.rename, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: path, new_name: newName, root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Rename failed: ' + data.error);
+        } else {
+            bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
+            refreshListing();
+        }
+    })
+    .catch(err => alert('Rename failed: ' + err.message));
+}
+
+// ==================== New Folder ====================
+
+function showNewFolderModal() {
+    document.getElementById('newFolderName').value = '';
+    new bootstrap.Modal(document.getElementById('newFolderModal')).show();
+    setTimeout(() => document.getElementById('newFolderName').focus(), 300);
+}
+
+function doNewFolder() {
+    const name = document.getElementById('newFolderName').value.trim();
+    if (!name) return;
+
+    fetch(URLS.mkdir, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: currentPath, name: name, root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Create folder failed: ' + data.error);
+        } else {
+            bootstrap.Modal.getInstance(document.getElementById('newFolderModal')).hide();
+            refreshListing();
+        }
+    })
+    .catch(err => alert('Create folder failed: ' + err.message));
+}
+
+// ==================== Delete ====================
+
+function showSingleDeleteModal(path, name, isDir) {
+    document.getElementById('singleDeletePath').value = path;
+    document.getElementById('singleDeleteName').textContent = name;
+
+    const dirWarning = document.getElementById('singleDeleteDirWarning');
+    const confirmBox = document.getElementById('singleDeleteConfirmBox');
+    const confirmInput = document.getElementById('singleDeleteConfirm');
+    const deleteBtn = document.getElementById('btnSingleDelete');
+
+    if (isDir) {
+        dirWarning.classList.remove('d-none');
+        confirmBox.classList.remove('d-none');
+        confirmInput.value = '';
+        deleteBtn.disabled = true;
+    } else {
+        dirWarning.classList.add('d-none');
+        confirmBox.classList.add('d-none');
+        deleteBtn.disabled = false;
+    }
+
+    new bootstrap.Modal(document.getElementById('singleDeleteModal')).show();
+    if (isDir) {
+        setTimeout(() => confirmInput.focus(), 300);
+    }
+}
+
+function doSingleDelete() {
+    const path = document.getElementById('singleDeletePath').value;
+    const confirmBox = document.getElementById('singleDeleteConfirmBox');
+
+    if (!confirmBox.classList.contains('d-none')) {
+        const val = document.getElementById('singleDeleteConfirm').value;
+        if (val !== 'DELETE') return;
+    }
+
+    const btn = document.getElementById('btnSingleDelete');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting…';
+
+    fetch(URLS.delete, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paths: [path], root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('singleDeleteModal')).hide();
+        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        btn.disabled = false;
+        if (data.error) {
+            showToast('Delete failed: ' + data.error, 'danger');
+        } else if (data.errors && data.errors.length > 0) {
+            showToast('Delete errors: ' + data.errors.join('; '), 'danger');
+        }
+        refreshListing();
+    })
+    .catch(err => {
+        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        btn.disabled = false;
+        showToast('Delete failed: ' + err.message, 'danger');
+    });
+}
+
+// Batch delete
+function batchDelete() {
+    if (selectedItems.size === 0) return;
+
+    const list = Array.from(selectedItems);
+    document.getElementById('batchDeleteCount').textContent = list.length;
+    const listDiv = document.getElementById('batchDeleteList');
+    listDiv.innerHTML = list.map(p => {
+        return `<div class="small"><i class="bi bi-file-earmark text-muted"></i> ${escapeHtml(p)}</div>`;
+    }).join('');
+
+    document.getElementById('batchDeleteConfirm').value = '';
+    document.getElementById('btnBatchDelete').disabled = true;
+    new bootstrap.Modal(document.getElementById('batchDeleteModal')).show();
+
+    document.getElementById('batchDeleteConfirm').addEventListener('input', function() {
+        document.getElementById('btnBatchDelete').disabled = this.value !== 'DELETE';
+    });
+}
+
+function doBatchDelete() {
+    const confirmVal = document.getElementById('batchDeleteConfirm').value;
+    if (confirmVal !== 'DELETE') return;
+
+    const paths = Array.from(selectedItems);
+    const btn = document.getElementById('btnBatchDelete');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+
+    fetch(URLS.delete, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paths: paths, root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('batchDeleteModal')).hide();
+        btn.innerHTML = '<i class="bi bi-trash"></i> Permanently Delete';
+
+        let msg = data.message || data.error || `Deleted ${(data.deleted || []).length} item(s).`;
+        if (data.errors && data.errors.length > 0) {
+            msg += '\n\nErrors:\n' + data.errors.join('\n');
+        }
+        alert(msg);
+
+        selectedItems.clear();
+        updateSelectionUI();
+        refreshListing();
+    })
+    .catch(err => {
+        btn.innerHTML = '<i class="bi bi-trash"></i> Permanently Delete';
+        btn.disabled = false;
+        alert('Batch delete failed: ' + err.message);
+    });
+}
+
+// ==================== Clipboard / Copy / Paste / Duplicate ====================
+
+function copyToClipboard(path) {
+    if (!clipboard.includes(path)) clipboard.push(path);
+    updateClipboardUI();
+    showToast(`Copied to clipboard.`, 'info');
+}
+
+function copySelected() {
+    if (selectedItems.size === 0) return;
+    selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
+    updateClipboardUI();
+    showToast(`${selectedItems.size} item(s) copied to clipboard.`, 'info');
+}
+
+function clearClipboard() {
+    clipboard = [];
+    updateClipboardUI();
+}
+
+function updateClipboardUI() {
+    const actions = document.getElementById('clipboardActions');
+    const countEl = document.getElementById('clipboardCount');
+    if (clipboard.length > 0) {
+        actions.classList.remove('d-none');
+        countEl.textContent = clipboard.length + ' copied';
+    } else {
+        actions.classList.add('d-none');
+    }
+}
+
+function pasteFromClipboard() {
+    if (clipboard.length === 0) return;
+    if (!canWrite()) { showToast('This location is read-only.', 'warning'); return; }
+    const btn = document.querySelector('#clipboardActions button.btn-info');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Pasting…';
+
+    fetch(URLS.copy, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sources: clipboard, dest_dir: currentPath, root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+        if (data.error) {
+            showToast('Paste failed: ' + data.error, 'danger');
+        } else if (data.errors && data.errors.length > 0) {
+            showToast('Paste errors: ' + data.errors.join('; '), 'danger');
+        } else {
+            showToast(data.message || 'Pasted successfully.', 'success');
+        }
+        refreshListing();
+    })
+    .catch(err => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+        showToast('Paste failed: ' + err.message, 'danger');
+    });
+}
+
+function duplicateItem(path) {
+    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    fetch(URLS.copy, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sources: [path], dest_dir: parentDir, root: currentRoot, scope: FB_SCOPE})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            showToast('Duplicate failed: ' + data.error, 'danger');
+        } else if (data.errors && data.errors.length > 0) {
+            showToast('Duplicate failed: ' + data.errors.join('; '), 'danger');
+        } else {
+            const newName = (data.copied && data.copied[0]) ? data.copied[0].new_name : '';
+            showToast(newName ? `Duplicated as "${newName}".` : 'Duplicated.', 'success');
+        }
+        refreshListing();
+    })
+    .catch(err => showToast('Duplicate failed: ' + err.message, 'danger'));
+}
+
+function showToast(message, type) {
+    let toastEl = document.getElementById('fileBrowserToast');
+    if (!toastEl) {
+        toastEl = document.createElement('div');
+        toastEl.id = 'fileBrowserToast';
+        toastEl.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;min-width:260px;max-width:400px;';
+        document.body.appendChild(toastEl);
+    }
+    const colors = {success: 'bg-success', danger: 'bg-danger', info: 'bg-info', warning: 'bg-warning text-dark'};
+    const cls = colors[type] || 'bg-secondary';
+    toastEl.innerHTML = `
+        <div class="toast show align-items-center text-white ${cls} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${escapeHtml(message)}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        onclick="this.closest('.toast').remove()"></button>
+            </div>
+        </div>`;
+    clearTimeout(toastEl._timer);
+    toastEl._timer = setTimeout(() => { if (toastEl) toastEl.innerHTML = ''; }, 4000);
+}
+
+// ==================== Refresh / Init ====================
+
+function refreshListing() {
+    loadDirectory(currentPath);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderRootSelect();
+    navigateTo('');
+});
+</script>

@@ -1,0 +1,60 @@
+{# Shared file-browser styles. Included by admin_files.html + files_browser.html. #}
+<style>
+    .file-table th { font-size: 0.85rem; white-space: nowrap; }
+    .file-table td { font-size: 0.85rem; vertical-align: middle; }
+    .file-table tr { cursor: default; }
+    .file-table tr:hover { background-color: #f0f7ff; }
+    .file-table tr.selected { background-color: #e7f1ff; }
+
+    .file-icon { font-size: 1.1rem; width: 28px; text-align: center; display: inline-block; }
+    .file-name-link { text-decoration: none; color: inherit; }
+    .file-name-link:hover { text-decoration: underline; color: #0d6efd; }
+
+    .breadcrumb-path { font-size: 0.9rem; }
+    .breadcrumb-path a { text-decoration: none; }
+    .breadcrumb-path a:hover { text-decoration: underline; }
+
+    .toolbar-btn { font-size: 0.82rem; }
+
+    .drop-zone {
+        border: 2px dashed #adb5bd;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+        color: #6c757d;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .drop-zone.drag-over {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+        color: #0d6efd;
+    }
+    .drop-zone i { font-size: 2rem; }
+
+    .upload-file-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.5rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        font-size: 0.82rem;
+        margin-bottom: 0.25rem;
+    }
+    .upload-file-item .remove-file { cursor: pointer; color: #dc3545; }
+
+    .select-checkbox {
+        width: 1.1rem;
+        height: 1.1rem;
+        cursor: pointer;
+    }
+
+    /* Context actions column */
+    .row-actions { white-space: nowrap; }
+    .row-actions .btn { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
+
+    /* Clipboard badge */
+    #clipboardActions .badge { font-size: 0.78rem; }
+    tr.clipboard-cut { opacity: 0.5; }
+</style>

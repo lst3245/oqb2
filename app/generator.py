@@ -605,7 +605,10 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                 questions = apply_multi_sort(questions, sort_config, group_order=sort_group_order)
             
             any_split = split_fields and any(split_fields.values())
-            output_path = app.config['OUTPUT_PATH']
+            # New generated files live under the owner's per-user
+            # User/<name>/generated folder (created on demand).
+            from app import storage
+            output_path = storage.ensure_user_generated_dir(gen_file.user)
             filepath = os.path.join(output_path, filename)
 
             # Collected DOC merging requests across all groups in this job.
@@ -853,7 +856,7 @@ def download_file(file_id):
         flash('File is not ready for download', 'warning')
         return redirect(url_for('user.files'))
     
-    output_path = current_app.config['OUTPUT_PATH']
+    output_path = generated_file_dir(gen_file)
     filepath = os.path.join(output_path, gen_file.filename)
     
     if not os.path.exists(filepath):
@@ -883,6 +886,37 @@ def download_file(file_id):
 # the Word COM lock. The sibling is cached on disk so repeat clicks become
 # instant downloads.
 # ===========================================================================
+
+def generated_file_dir(gen_file) -> str:
+    """Directory holding ``gen_file``'s on-disk artefacts (the source file and
+    any cached PDF sibling).
+
+    New files live under the owner's ``User/<name>/generated`` folder;
+    pre-migration rows may still be in the legacy ``OUTPUT_PATH``. Resolution:
+    prefer the per-user dir when the source exists there; fall back to
+    ``OUTPUT_PATH`` when the source exists there instead; otherwise default to
+    the per-user dir (so brand-new writes and not-found errors point at the new
+    layout). Must be called inside an app/request context.
+    """
+    from app import storage
+    legacy = current_app.config['OUTPUT_PATH']
+    owner = getattr(gen_file, 'user', None)
+    if owner is None:
+        return legacy
+    per_user = storage.user_generated_dir(owner)
+    name = getattr(gen_file, 'filename', None)
+    try:
+        if name and os.path.exists(os.path.join(per_user, name)):
+            return per_user
+    except OSError:
+        pass
+    try:
+        if name and os.path.exists(os.path.join(legacy, name)):
+            return legacy
+    except OSError:
+        pass
+    return per_user
+
 
 def _pdf_sibling_filename(filename: str) -> str | None:
     """Map a GeneratedFile.filename → the on-disk filename of its PDF sibling.
@@ -993,7 +1027,7 @@ def download_pdf(file_id):
     if sibling_filename is None:
         return jsonify({'error': 'This file is not convertible to PDF (already a PDF or unsupported type).'}), 400
 
-    output_path = current_app.config['OUTPUT_PATH']
+    output_path = generated_file_dir(gen_file)
     src_path = os.path.join(output_path, gen_file.filename)
     pdf_path = os.path.join(output_path, sibling_filename)
 

@@ -176,10 +176,19 @@ def _serialise_file_row(gf, *, show_username=False, shared_by=None, is_read_only
         except (ValueError, TypeError):
             pass
 
+    # `output_path` (when truthy) is the "do disk checks" gate. The actual
+    # directory is resolved per file-owner because generated files now live
+    # under each owner's User/<name>/generated folder (with a legacy
+    # OUTPUT_PATH fallback for un-migrated rows).
+    base_dir = None
+    if output_path:
+        from app.generator import generated_file_dir  # avoid module-cycle
+        base_dir = generated_file_dir(gf)
+
     size_bytes = None
-    if output_path and gf.filename and gf.status == 'completed':
+    if base_dir and gf.filename and gf.status == 'completed':
         try:
-            size_bytes = os.path.getsize(os.path.join(output_path, gf.filename))
+            size_bytes = os.path.getsize(os.path.join(base_dir, gf.filename))
         except OSError:
             size_bytes = None
 
@@ -195,8 +204,8 @@ def _serialise_file_row(gf, *, show_username=False, shared_by=None, is_read_only
         sibling = _pdf_sibling_filename(gf.filename)
         if sibling:
             pdf_supported = True
-            if output_path:
-                pdf_available = os.path.exists(os.path.join(output_path, sibling))
+            if base_dir:
+                pdf_available = os.path.exists(os.path.join(base_dir, sibling))
 
     return {
         'id': gf.id,
@@ -1463,16 +1472,18 @@ def files_reorder():
     return jsonify({'success': True})
 
 
-def _remove_file_and_pdf_sibling(output_path, gen_file):
+def _remove_file_and_pdf_sibling(gen_file):
     """Best-effort cleanup of a GeneratedFile's on-disk artefacts: the
     main file plus any cached PDF sibling produced by /generate/pdf/<id>.
-    Errors are swallowed — the row is going away regardless.
+    The directory is resolved per file-owner. Errors are swallowed — the row
+    is going away regardless.
     """
-    from app.generator import _pdf_sibling_filename  # avoid module-cycle
+    from app.generator import _pdf_sibling_filename, generated_file_dir  # avoid module-cycle
+    base_dir = generated_file_dir(gen_file)
     for name in (gen_file.filename, _pdf_sibling_filename(gen_file.filename)):
         if not name:
             continue
-        p = os.path.join(output_path, name)
+        p = os.path.join(base_dir, name)
         if os.path.exists(p):
             try:
                 os.remove(p)
@@ -1489,7 +1500,7 @@ def files_delete(file_id):
     if not _user_owns_file(gen_file, current_user):
         return jsonify({'error': 'Access denied'}), 403
 
-    _remove_file_and_pdf_sibling(current_app.config['OUTPUT_PATH'], gen_file)
+    _remove_file_and_pdf_sibling(gen_file)
 
     db.session.delete(gen_file)
     db.session.commit()
@@ -1506,7 +1517,6 @@ def files_bulk_delete():
     if not ids:
         return jsonify({'error': 'No IDs provided'}), 400
 
-    output_path = current_app.config['OUTPUT_PATH']
     deleted = 0
     for fid in ids:
         gen_file = GeneratedFile.query.get(fid)
@@ -1514,7 +1524,7 @@ def files_bulk_delete():
             continue
         if not _user_owns_file(gen_file, current_user):
             continue
-        _remove_file_and_pdf_sibling(output_path, gen_file)
+        _remove_file_and_pdf_sibling(gen_file)
         db.session.delete(gen_file)
         deleted += 1
 
@@ -1537,7 +1547,7 @@ def files_bulk_download():
     if not ids:
         return jsonify({'error': 'No IDs provided'}), 400
 
-    output_path = current_app.config['OUTPUT_PATH']
+    from app.generator import generated_file_dir  # avoid module-cycle
 
     # Resolve and authorise upfront so we can bail with a clean 403 if needed
     files_to_zip = []
@@ -1548,7 +1558,7 @@ def files_bulk_download():
             continue
         if not _user_can_view_file(gf, current_user):
             continue
-        disk_path = os.path.join(output_path, gf.filename)
+        disk_path = os.path.join(generated_file_dir(gf), gf.filename)
         if not os.path.exists(disk_path):
             continue
 

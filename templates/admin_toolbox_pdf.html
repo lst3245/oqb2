@@ -339,21 +339,8 @@
     </div>
 </div>
 
-<!-- Server PDF picker modal -->
-<div class="modal fade" id="serverPickModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-hdd-network"></i> Pick a PDF from the server</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2" id="serverCrumbs"></ol></nav>
-                <div id="serverEntries" class="list-group small"></div>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- Server PDF picker + save destination now use the shared unified selector -->
+{% include 'partials/file_selector.html' %}
 
 <!-- Large page preview modal -->
 <div class="modal fade" id="previewModal" tabindex="-1">
@@ -379,31 +366,6 @@
             </div>
             <div class="modal-body text-center" id="previewModalBody">
                 <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="Page preview"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Save destination picker modal -->
-<div class="modal fade" id="saveDestModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-folder2-open"></i> Choose save destination</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2" id="destCrumbs"></ol></nav>
-                <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="newFolderName" placeholder="New folder name">
-                    <button class="btn btn-outline-secondary" id="newFolderBtn" type="button"><i class="bi bi-folder-plus"></i> Create folder</button>
-                </div>
-                <div id="destEntries" class="list-group small"></div>
-            </div>
-            <div class="modal-footer">
-                <div class="me-auto small text-muted text-truncate">Saving into: <code id="destCurrent">/</code></div>
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="destSaveBtn"><i class="bi bi-hdd"></i> Save here</button>
             </div>
         </div>
     </div>
@@ -683,7 +645,6 @@
 {% block extra_js %}
 <script>
 const BASE = "{{ url_for('toolbox.pdf_tool') }}";
-const SOURCE_LIST_URL = "{{ url_for('admin.pdf_import_source_list') }}";
 const AI_ENDPOINTS_URL = "{{ url_for('admin.ai_endpoints') }}";
 const THUMB_W = 360;
 const PREVIEW_W = 1100;
@@ -802,11 +763,14 @@ function setBtnLoading(btn, on) {
 }
 
 // ---------- upload ----------
-async function uploadSource(file, serverPath) {
+async function uploadSource(file, serverPath, serverRoot) {
     const fd = new FormData();
     if (TOKEN) fd.append('token', TOKEN);
     if (file) fd.append('pdf', file);
-    if (serverPath) fd.append('server_path', serverPath);
+    if (serverPath) {
+        fd.append('server_path', serverPath);
+        if (serverRoot) fd.append('server_root', serverRoot);
+    }
     log('Uploading PDF...');
     let data;
     try {
@@ -2186,6 +2150,7 @@ async function doSaveServer(overwrite) {
     const body = exportBody(saveScopeIds || pages.map(p => p.id));
     if (!body.filename) { log('Enter a file name first.', 'error'); return; }
     body.dest = saveDest;
+    if (saveDestRoot) body.dest_root = saveDestRoot;
     if (overwrite) body.overwrite = true;
 
     // Show loading on the toolbar button.
@@ -2226,10 +2191,9 @@ async function doSaveServer(overwrite) {
     setBtnLoading(btn, false);
 }
 
-// ---------- save destination picker ----------
-let saveDestModal = null;
-let destPath = '';                              // folder currently being browsed
-let saveDest = DEFAULT_SAVE_SUBDIR;             // chosen destination (rel to PDF_SOURCE_PATH)
+// ---------- save destination picker (unified selector, folder mode) ----------
+let saveDest = DEFAULT_SAVE_SUBDIR;   // chosen destination rel path
+let saveDestRoot = '';                // chosen destination root id ('' = legacy PDF_SOURCE_PATH)
 
 async function openSaveDest() {
     if (!document.getElementById('exportName').value.trim()) {
@@ -2239,117 +2203,25 @@ async function openSaveDest() {
     saveScopeIds = pendingExportIds || pages.map(p => p.id);
     if (exportSettingsModalInst) exportSettingsModalInst.hide();
     await waitModalHidden('exportSettingsModal');
-    if (!saveDestModal) saveDestModal = new bootstrap.Modal(document.getElementById('saveDestModal'));
-    saveDestModal.show();
-    loadDestDir(saveDest || DEFAULT_SAVE_SUBDIR, true);
+    OQBFileSelector.open({
+        mode: 'folder',
+        title: 'Choose save destination',
+        onPick: function (sel) {
+            saveDest = sel.rel_path;
+            saveDestRoot = sel.root_id;
+            doSaveServer(false);
+        },
+    });
 }
 
-async function loadDestDir(path, allowRootFallback) {
-    const entries = document.getElementById('destEntries');
-    entries.innerHTML = '<div class="text-muted p-2">Loading...</div>';
-    let r, data;
-    try { r = await fetch(`${SOURCE_LIST_URL}?path=${encodeURIComponent(path || '')}`); data = await r.json(); }
-    catch (e) { entries.innerHTML = '<div class="text-danger p-2">' + e.message + '</div>'; return; }
-    if (!r.ok || data.error) {
-        if (allowRootFallback && (path || '')) { return loadDestDir('', false); }
-        entries.innerHTML = '<div class="text-danger p-2">' + (data.error || 'Could not open folder.') + '</div>';
-        return;
-    }
-    if (data.configured === false) { entries.innerHTML = '<div class="text-warning p-2">' + (data.message || 'Not configured') + '</div>'; return; }
-
-    destPath = data.current_path || '';
-    document.getElementById('destCurrent').textContent = '/' + destPath;
-
-    const crumbs = document.getElementById('destCrumbs'); crumbs.innerHTML = '';
-    const rootLi = document.createElement('li'); rootLi.className = 'breadcrumb-item';
-    const rootA = document.createElement('a'); rootA.href = '#'; rootA.textContent = 'root';
-    rootA.onclick = (e) => { e.preventDefault(); loadDestDir('', false); }; rootLi.appendChild(rootA); crumbs.appendChild(rootLi);
-    let acc = '';
-    (destPath ? destPath.split('/').filter(Boolean) : []).forEach(part => {
-        acc = acc ? acc + '/' + part : part; const cur = acc;
-        const li = document.createElement('li'); li.className = 'breadcrumb-item';
-        const a = document.createElement('a'); a.href = '#'; a.textContent = part;
-        a.onclick = (e) => { e.preventDefault(); loadDestDir(cur, false); }; li.appendChild(a); crumbs.appendChild(li);
+// ---------- server PDF picker (unified selector, file mode) ----------
+function openServerPicker() {
+    OQBFileSelector.open({
+        mode: 'file',
+        extensions: ['.pdf'],
+        title: 'Pick a PDF from the server',
+        onPick: function (sel) { uploadSource(null, sel.rel_path, sel.root_id); },
     });
-
-    entries.innerHTML = '';
-    (data.dirs || []).forEach(d => {
-        const a = document.createElement('a');
-        a.href = '#'; a.className = 'list-group-item list-group-item-action';
-        a.innerHTML = `<i class="bi bi-folder"></i> ${d.name}`;
-        a.onclick = (e) => { e.preventDefault(); loadDestDir(d.rel_path, false); };
-        entries.appendChild(a);
-    });
-    if (!(data.dirs || []).length) entries.innerHTML = '<div class="text-muted p-2">No sub-folders here. Use "Save here" or create one.</div>';
-}
-
-async function createFolder() {
-    const input = document.getElementById('newFolderName');
-    const name = input.value.trim();
-    if (!name) { log('Enter a folder name.', 'error'); input.focus(); return; }
-    let data;
-    try { data = await postJSON(`${BASE}/mkdir`, {path: destPath, name}); }
-    catch (e) { log('Create folder failed: ' + e.message, 'error'); return; }
-    input.value = '';
-    loadDestDir(data.rel_path, false);   // navigate into the new folder
-}
-
-function confirmSaveDest() {
-    saveDest = destPath;
-    if (saveDestModal) saveDestModal.hide();
-    doSaveServer(false);
-}
-
-// ---------- server picker ----------
-let serverModal = null;
-async function openServerPicker(path) {
-    if (!serverModal) serverModal = new bootstrap.Modal(document.getElementById('serverPickModal'));
-    serverModal.show();
-    await loadServerDir(path || '');
-}
-
-async function loadServerDir(path) {
-    const entries = document.getElementById('serverEntries');
-    entries.innerHTML = '<div class="text-muted p-2">Loading...</div>';
-    let data;
-    try {
-        const r = await fetch(`${SOURCE_LIST_URL}?path=${encodeURIComponent(path)}`);
-        data = await r.json();
-    } catch (e) { entries.innerHTML = '<div class="text-danger p-2">' + e.message + '</div>'; return; }
-    if (data.configured === false) { entries.innerHTML = '<div class="text-warning p-2">' + (data.message || 'Not configured') + '</div>'; return; }
-
-    const crumbs = document.getElementById('serverCrumbs');
-    crumbs.innerHTML = '';
-    const parts = (data.current_path || '').split('/').filter(Boolean);
-    const rootLi = document.createElement('li'); rootLi.className = 'breadcrumb-item';
-    const rootA = document.createElement('a'); rootA.href = '#'; rootA.textContent = 'root';
-    rootA.onclick = (e) => { e.preventDefault(); loadServerDir(''); }; rootLi.appendChild(rootA); crumbs.appendChild(rootLi);
-    let acc = '';
-    parts.forEach(part => {
-        acc = acc ? acc + '/' + part : part;
-        const li = document.createElement('li'); li.className = 'breadcrumb-item';
-        const a = document.createElement('a'); a.href = '#'; a.textContent = part; const cur = acc;
-        a.onclick = (e) => { e.preventDefault(); loadServerDir(cur); }; li.appendChild(a); crumbs.appendChild(li);
-    });
-
-    entries.innerHTML = '';
-    (data.dirs || []).forEach(d => {
-        const a = document.createElement('a');
-        a.href = '#'; a.className = 'list-group-item list-group-item-action';
-        a.innerHTML = `<i class="bi bi-folder"></i> ${d.name}`;
-        a.onclick = (e) => { e.preventDefault(); loadServerDir(d.rel_path); };
-        entries.appendChild(a);
-    });
-    (data.files || []).forEach(f => {
-        const a = document.createElement('a');
-        a.href = '#'; a.className = 'list-group-item list-group-item-action';
-        a.innerHTML = `<i class="bi bi-file-earmark-pdf text-danger"></i> ${f.name}`;
-        a.onclick = (e) => { e.preventDefault(); serverModal.hide(); uploadSource(null, f.rel_path); };
-        entries.appendChild(a);
-    });
-    if (!(data.dirs || []).length && !(data.files || []).length) {
-        entries.innerHTML = '<div class="text-muted p-2">Empty folder.</div>';
-    }
 }
 
 // ---------- Find & Mark (search text -> highlight / redact) ----------
@@ -2751,7 +2623,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('pdfFile').value = '';
     });
     const pickBtn = document.getElementById('pickServerBtn');
-    if (pickBtn) pickBtn.addEventListener('click', () => openServerPicker(''));
+    if (pickBtn) pickBtn.addEventListener('click', () => openServerPicker());
 
     document.getElementById('activeSource').addEventListener('change', e => { activeSrc = e.target.value; renderSrcStrip(activeSrc, sources[activeSrc].page_count); });
     document.getElementById('splitMode').addEventListener('change', e => { document.getElementById('splitHelp').textContent = SPLIT_HELP[e.target.value] || ''; });
@@ -2797,9 +2669,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exportBtn').addEventListener('click', doExport);
     const saveBtn = document.getElementById('saveServerBtn');
     if (saveBtn) saveBtn.addEventListener('click', openSaveDest);
-    document.getElementById('newFolderBtn').addEventListener('click', createFolder);
-    document.getElementById('newFolderName').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); createFolder(); } });
-    document.getElementById('destSaveBtn').addEventListener('click', confirmSaveDest);
     document.getElementById('overwriteConfirmBtn').addEventListener('click', () => {
         if (overwriteModal) overwriteModal.hide();
         doSaveServer(true);

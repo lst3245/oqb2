@@ -73,6 +73,40 @@ def parse_version_priority(raw, legacy_preferred=None):
     return out
 
 
+# ==================== Username Validation ====================
+#
+# Usernames double as filesystem folder names under the User storage tree
+# (User/<username>/...), so they must be safe path segments. The folder name
+# is derived by `app.storage.safe_username`; for names that pass this
+# validator the folder equals the username verbatim.
+
+USERNAME_RE = re.compile(r'^[A-Za-z0-9._-]{1,80}$')
+_RESERVED_USERNAMES = {
+    'generated', 'con', 'prn', 'aux', 'nul',
+    'com1', 'com2', 'com3', 'com4', 'lpt1', 'lpt2', 'lpt3',
+}
+
+
+def validate_username(username):
+    """Validate a username for use both as a login and as a filesystem folder
+    name. Returns ``(ok: bool, error_message: str | None)``.
+
+    Allowed: ASCII letters, digits, dot, underscore, hyphen; 1-80 chars; no
+    leading/trailing dot; not a reserved device/keyword name.
+    """
+    name = (username or '').strip()
+    if not name:
+        return False, 'Username is required.'
+    if not USERNAME_RE.match(name):
+        return False, ('Username may only contain letters, digits, dot (.), '
+                       'underscore (_) and hyphen (-), up to 80 characters.')
+    if name.startswith('.') or name.endswith('.'):
+        return False, 'Username cannot start or end with a dot.'
+    if name.lower() in _RESERVED_USERNAMES:
+        return False, 'That username is reserved. Please choose another.'
+    return True, None
+
+
 # ==================== Permission Decorators ====================
 
 def admin_required(f):

@@ -28,16 +28,35 @@ class Config:
     }
     
     # Application paths
+    # SOURCE_PATH holds the question-bank assets (images / DOC / MD). It is the
+    # canonical, read-mostly library and is unchanged by the storage refactor.
     SOURCE_PATH = os.getenv('SOURCE_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Source'))
+
+    # ---- Unified Storage tree (Shared / System / User) -------------------
+    # STORAGE_PATH is the parent of three sibling roots. Each child is
+    # overridable independently via its own env var, but by default they all
+    # live under STORAGE_PATH so a deployment only needs to set STORAGE_PATH
+    # (e.g. STORAGE_PATH=Q:\Storage beside SOURCE_PATH=Q:\Source).
+    #   Shared  — per-subject shared files (replaces the old flat Source_PDF);
+    #             role-gated subfolder per subject.
+    #   System  — server-internal caches/temp: DOC thumbnails, PDF import +
+    #             Toolbox staging.
+    #   User    — per-user home folders, each with a `generated/` subfolder for
+    #             that user's generated documents.
+    STORAGE_PATH = os.getenv('STORAGE_PATH', os.path.join(os.path.dirname(SOURCE_PATH), 'Storage'))
+    SHARED_PATH = os.getenv('SHARED_PATH', os.path.join(STORAGE_PATH, 'Shared'))
+    SYSTEM_PATH = os.getenv('SYSTEM_PATH', os.path.join(STORAGE_PATH, 'System'))
+    USER_PATH = os.getenv('USER_PATH', os.path.join(STORAGE_PATH, 'User'))
+
+    # OUTPUT_PATH is now a LEGACY base, kept for backward compatibility: it is
+    # the fallback location for generated files created before the per-user
+    # relocation, and still the default if STORAGE_PATH is not configured.
     OUTPUT_PATH = os.getenv('OUTPUT_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'output'))
-    # Directory of source PDFs the PDF Batch Import tool can pick from
-    # server-side (instead of uploading from the browser). Defaults to a
-    # `Source_PDF` folder beside SOURCE_PATH — e.g. SOURCE_PATH=Q:\Source
-    # → Q:\Source_PDF.
-    PDF_SOURCE_PATH = os.getenv(
-        'PDF_SOURCE_PATH',
-        os.path.join(os.path.dirname(SOURCE_PATH), 'Source_PDF')
-    )
+
+    # Server-side PDF library the PDF Batch Import / Toolbox tools pick from.
+    # Now defaults to the Shared tree (per-subject subfolders). A legacy
+    # `Source_PDF` deployment keeps working by setting PDF_SOURCE_PATH in .env.
+    PDF_SOURCE_PATH = os.getenv('PDF_SOURCE_PATH', SHARED_PATH)
     
     # Pagination
     QUESTIONS_PER_PAGE = 20
@@ -55,9 +74,11 @@ class Config:
     # Bounded wait for the global Word COM lock when another generation is running.
     WORD_COM_LOCK_TIMEOUT = int(os.getenv('WORD_COM_LOCK_TIMEOUT', '600'))
     # Where to store cached DOC asset thumbnails (PNG, keyed by asset_id).
+    # Defaults under the System tree so caches/temp live together, separate
+    # from generated documents and shared files.
     DOC_THUMBNAIL_PATH = os.getenv(
         'DOC_THUMBNAIL_PATH',
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'output', '.doc_thumbnails')
+        os.path.join(SYSTEM_PATH, 'doc_thumbnails')
     )
     # Thumbnail render width in pixels (~A4 page width at 96 DPI).
     DOC_THUMBNAIL_WIDTH = int(os.getenv('DOC_THUMBNAIL_WIDTH', '1000'))

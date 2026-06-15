@@ -20,7 +20,7 @@ from datetime import datetime
 
 from flask import (Response, abort, current_app, jsonify, render_template,
                    request, send_file)
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app import pdf_tools
 from app.toolbox import toolbox_bp
@@ -28,6 +28,33 @@ from app.toolbox.common import pdf_source_root, safe_filename, safe_join
 from app.utils import admin_required
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_root_base(root_id, require_write=False):
+    """Resolve a unified-selector ``root_id`` to ``(base_dir, error)``.
+
+    When ``root_id`` is provided, the base dir comes from the per-user
+    :class:`RootRegistry` (Shared / personal / Storage), enforcing
+    ``can_write`` when ``require_write`` is set. When blank, it falls back to
+    the legacy ``PDF_SOURCE_PATH`` for backward compatibility.
+    """
+    root_id = (root_id or '').strip()
+    if root_id:
+        from app.files_service import RootRegistry
+        root = RootRegistry(current_user).resolve(root_id)
+        if root is None:
+            return None, 'You do not have access to that location.'
+        if require_write and root.can_write is False:
+            return None, 'That location is read-only.'
+        try:
+            os.makedirs(root.path, exist_ok=True)
+        except OSError:
+            pass
+        return root.path, None
+    base = pdf_source_root()
+    if not base or not os.path.isdir(base):
+        return None, 'The server source-PDF folder is not configured.'
+    return base, None
 
 _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
 _ID_RE = re.compile(r'^[0-9a-f]{6,40}$')
@@ -48,7 +75,8 @@ def _cleanup_export_jobs(max_age: int = 600) -> None:
 # ==================== Staging ====================
 
 def _staging_root() -> str:
-    return os.path.join(current_app.config['OUTPUT_PATH'], '.toolbox')
+    base = current_app.config.get('SYSTEM_PATH') or current_app.config['OUTPUT_PATH']
+    return os.path.join(base, '.toolbox')
 
 
 def _token_dir(token: str) -> str:
@@ -384,9 +412,9 @@ def pdf_upload():
             return jsonify({'error': 'Please upload a .pdf file or an image.'}), 400
     else:
         rel = (request.form.get('server_path') or '').strip().strip('/').strip('\\')
-        root = pdf_source_root()
-        if not root or not os.path.isdir(root):
-            return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
+        root, err = _resolve_root_base((request.form.get('server_root') or '').strip())
+        if err:
+            return jsonify({'error': err}), 400
         full = safe_join(root, rel) if rel else None
         if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
             return jsonify({'error': 'Select a PDF (upload one or pick from the server).'}), 400
@@ -907,9 +935,9 @@ def pdf_export_save_start():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    root = pdf_source_root()
-    if not root or not os.path.isdir(root):
-        return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
+    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True)
+    if err:
+        return jsonify({'error': err}), 400
     subdir = (data.get('dest') or '').strip().strip('/').strip('\\')
     if not subdir:
         subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
@@ -970,9 +998,9 @@ def pdf_export_save_start():
 @admin_required
 def pdf_mkdir():
     data = request.get_json(silent=True) or {}
-    root = pdf_source_root()
-    if not root or not os.path.isdir(root):
-        return jsonify({'error': 'The server source-PDF folder is not configured.'}), 400
+    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True)
+    if err:
+        return jsonify({'error': err}), 400
     parent_rel = (data.get('path') or '').strip().strip('/').strip('\\')
     name = (data.get('name') or '').strip()
     name = re.sub(r'[^\w\-. ]+', '_', name).strip('. ')

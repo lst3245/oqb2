@@ -17,8 +17,10 @@ from app import word_com
 from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
                         User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
 from app.utils import (admin_required, super_admin_required, get_user_admin_subjects,
-                       VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso)
+                       VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso,
+                       validate_username)
 from app import md_render
+from app import storage
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -2691,6 +2693,29 @@ def users():
                            subjects=all_subjects)
 
 
+def _rename_user_storage_folder(old_username, new_username):
+    """Best-effort move of a user's personal storage home on username change.
+
+    Resolves both folder names via ``storage.safe_username`` (so the on-disk
+    name matches what the app uses elsewhere) and moves ``User/<old>`` ->
+    ``User/<new>`` when the source exists and the destination does not. Failures
+    are swallowed — a missing/locked folder must not block the rename.
+    """
+    try:
+        old_safe = storage.safe_username(old_username)
+        new_safe = storage.safe_username(new_username)
+        if old_safe == new_safe:
+            return
+        base = storage.user_path()
+        src = os.path.join(base, old_safe)
+        dst = os.path.join(base, new_safe)
+        if os.path.isdir(src) and not os.path.exists(dst):
+            shutil.move(src, dst)
+    except OSError:
+        current_app.logger.warning('Could not move user storage folder %r -> %r',
+                                   old_username, new_username, exc_info=True)
+
+
 @admin_bp.route('/users/add', methods=['POST'])
 @login_required
 @super_admin_required
@@ -2702,6 +2727,10 @@ def add_user():
     
     if not username or not password:
         return jsonify({'error': 'Username and password are required'}), 400
+
+    ok, err = validate_username(username)
+    if not ok:
+        return jsonify({'error': err}), 400
     
     # Check if username already exists
     if User.query.filter_by(username=username).first():
@@ -2742,12 +2771,22 @@ def edit_user(user_id):
     
     if not username:
         return jsonify({'error': 'Username is required'}), 400
+
+    ok, err = validate_username(username)
+    if not ok:
+        return jsonify({'error': err}), 400
     
     # Check if username is taken by another user
     existing = User.query.filter_by(username=username).first()
     if existing and existing.id != user_id:
         return jsonify({'error': 'Username already exists'}), 400
-    
+
+    # If the username changed, move the user's personal storage folder so its
+    # files (incl. generated docs) follow the new folder name.
+    old_username = user.username
+    if username != old_username:
+        _rename_user_storage_folder(old_username, username)
+
     user.username = username
     user.is_super_admin = is_super_admin
     user.is_admin = is_super_admin  # Keep is_admin in sync for backwards compatibility
@@ -3598,16 +3637,34 @@ class _ServerPDF:
         shutil.copyfile(self._abs, dest)
 
 
-def _resolve_server_pdf(rel_path):
-    """Resolve a client-supplied relative path (under PDF_SOURCE_PATH) to a
-    ``_ServerPDF``. Returns ``(server_pdf, error)``."""
-    root = _pdf_source_root()
-    if not root or not os.path.isdir(root):
-        return None, 'The server source-PDF folder is not configured or missing.'
+def _resolve_server_pdf(rel_path, root_id=None):
+    """Resolve a client-supplied PDF reference to a ``_ServerPDF``.
+
+    Two modes:
+    - **root-aware** (``root_id`` given, from the unified file selector): the
+      path is resolved inside that root via the per-user :class:`RootRegistry`
+      (Shared / personal / Storage). This is the current flow.
+    - **legacy** (no ``root_id``): the path is resolved relative to
+      ``PDF_SOURCE_PATH`` for backward compatibility.
+
+    Returns ``(server_pdf, error)``.
+    """
     rel = (rel_path or '').strip().strip('/').strip('\\')
     if not rel:
         return None, 'No server PDF selected.'
-    full = _safe_join(root, rel)
+
+    if root_id:
+        from app.files_service import RootRegistry
+        root = RootRegistry(current_user).resolve(root_id)
+        if root is None:
+            return None, 'You do not have access to that location.'
+        base = root.path
+    else:
+        base = _pdf_source_root()
+        if not base or not os.path.isdir(base):
+            return None, 'The server source-PDF folder is not configured or missing.'
+
+    full = storage.safe_join(base, rel)
     if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
         return None, 'Selected PDF not found on the server.'
     return _ServerPDF(full, os.path.basename(full)), None
@@ -3627,7 +3684,7 @@ def pdf_import_source_list():
                         'message': 'Server source-PDF folder is not configured or does not exist.'})
 
     rel_path = (request.args.get('path') or '').strip().strip('/').strip('\\')
-    cur_dir = _safe_join(root, rel_path) if rel_path else root
+    cur_dir = storage.safe_join(root, rel_path) if rel_path else root
     if not cur_dir or not os.path.isdir(cur_dir):
         return jsonify({'error': 'Directory not found or access denied'}), 404
 
@@ -3679,6 +3736,7 @@ def pdf_import_guess_paper():
 
     upload = request.files.get('pdf')
     server_path = (request.form.get('server_path') or '').strip()
+    server_root = (request.form.get('server_root') or '').strip() or None
 
     import tempfile
     tmp_path = None
@@ -3692,7 +3750,7 @@ def pdf_import_guess_paper():
             upload.save(tmp_path)
             pdf_path = tmp_path
         elif server_path:
-            server_pdf, err = _resolve_server_pdf(server_path)
+            server_pdf, err = _resolve_server_pdf(server_path, server_root)
             if err:
                 return jsonify({'error': err}), 400
             pdf_path = server_pdf._abs
@@ -3825,14 +3883,16 @@ def pdf_import_stage():
     if not has_que:
         que_server = (request.form.get('que_server_path') or '').strip()
         if que_server:
-            que_file, err = _resolve_server_pdf(que_server)
+            que_file, err = _resolve_server_pdf(
+                que_server, (request.form.get('que_server_root') or '').strip() or None)
             if err:
                 return jsonify({'error': f'Question PDF: {err}'}), 400
             has_que = True
     if not has_sol:
         sol_server = (request.form.get('sol_server_path') or '').strip()
         if sol_server:
-            sol_file, err = _resolve_server_pdf(sol_server)
+            sol_file, err = _resolve_server_pdf(
+                sol_server, (request.form.get('sol_server_root') or '').strip() or None)
             if err:
                 return jsonify({'error': f'Solution PDF: {err}'}), 400
             has_sol = True
@@ -6760,547 +6820,27 @@ def llm_endpoints_chat(cid):
 
 # ==================== File Browser (Super Admin Only) ====================
 #
-# The browser exposes one or more "roots". SOURCE_PATH is always present
-# (the built-in, non-removable root). A super admin may register extra
-# roots through the UI; they are persisted in the `system_settings` table
-# under the key FILE_BROWSER_EXTRA_ROOTS (a JSON list of absolute paths).
-# Every root — built-in or extra — MUST live on the same drive as
-# SOURCE_PATH (e.g. the whole Q:\ drive) so the browser can never be
-# pointed at C:\ or a network share outside the question-bank volume.
-
-FILE_BROWSER_ROOTS_KEY = 'FILE_BROWSER_EXTRA_ROOTS'
-
-
-def _resolve_source_path():
-    """Get the resolved source path, using abspath instead of realpath to avoid UNC issues on Windows."""
-    return os.path.abspath(current_app.config['SOURCE_PATH'])
-
-
-def _browser_allowed_drive():
-    """The drive (e.g. ``Q:\\``) every file-browser root must live on.
-
-    Derived from SOURCE_PATH so the deployment's question-bank volume is the
-    only thing reachable. ``os.path.splitdrive`` returns ``('Q:', '\\Source')``
-    on Windows; we normalise to ``Q:\\``. On a POSIX host (no drive letter)
-    this falls back to the filesystem root ``/``.
-    """
-    drive, _ = os.path.splitdrive(_resolve_source_path())
-    if drive:
-        return os.path.normcase(drive + os.sep)
-    return os.path.normcase(os.sep)
-
-
-def _path_on_allowed_drive(abs_path):
-    """True when ``abs_path`` is on the same drive as SOURCE_PATH."""
-    return os.path.normcase(os.path.abspath(abs_path)).startswith(_browser_allowed_drive())
-
-
-def _load_extra_roots():
-    """Return the list of extra root absolute paths from the DB setting.
-
-    Reads the `system_settings` row directly (this key is intentionally NOT
-    in the settings REGISTRY — it's managed by the dedicated routes below).
-    Malformed / missing rows yield an empty list.
-    """
-    from app.models import SystemSetting
-    try:
-        row = SystemSetting.query.get(FILE_BROWSER_ROOTS_KEY)
-    except Exception:
-        return []
-    if not row:
-        return []
-    try:
-        data = json.loads(row.value)
-    except (ValueError, TypeError):
-        return []
-    if not isinstance(data, list):
-        return []
-    out = []
-    for p in data:
-        if isinstance(p, str) and p.strip():
-            out.append(os.path.abspath(p.strip()))
-    return out
-
-
-def _save_extra_roots(paths):
-    """Persist the extra-roots list (list of abs paths) to the DB setting."""
-    from app.models import SystemSetting
-    encoded = json.dumps([os.path.abspath(p) for p in paths])
-    row = SystemSetting.query.get(FILE_BROWSER_ROOTS_KEY)
-    if row is None:
-        row = SystemSetting(key=FILE_BROWSER_ROOTS_KEY, value=encoded,
-                            updated_by=current_user.id)
-        db.session.add(row)
-    else:
-        row.value = encoded
-        row.updated_by = current_user.id
-    db.session.commit()
-
-
-def _browser_roots():
-    """Ordered list of available roots as ``{id, label, path, removable}``.
-
-    The first entry is always SOURCE_PATH (built-in, not removable). The
-    ``id`` is the normalised absolute path — used by the client to select a
-    root and validated server-side via :func:`_resolve_browser_root`.
-    """
-    source = _resolve_source_path()
-    roots = [{
-        'id': os.path.normcase(source),
-        'label': 'Source (default)',
-        'path': source,
-        'removable': False,
-    }]
-    seen = {os.path.normcase(source)}
-    for p in _load_extra_roots():
-        key = os.path.normcase(p)
-        if key in seen:
-            continue
-        seen.add(key)
-        roots.append({
-            'id': key,
-            'label': p,
-            'path': p,
-            'removable': True,
-            'missing': not os.path.isdir(p),
-        })
-    return roots
-
-
-def _resolve_browser_root(root_id):
-    """Map a client-supplied root id to an absolute path, or None if it is
-    not one of the allowed roots. A blank / missing id defaults to
-    SOURCE_PATH so existing links keep working."""
-    if not root_id:
-        return _resolve_source_path()
-    target = os.path.normcase(str(root_id))
-    for r in _browser_roots():
-        if r['id'] == target:
-            return r['path']
-    return None
-
-
-def _request_browser_root():
-    """Resolve the selected root from the current request (query, form, or
-    JSON body ``root`` field). Returns an abs path or None when the id was
-    supplied but invalid."""
-    root_id = request.args.get('root')
-    if root_id is None and request.form:
-        root_id = request.form.get('root')
-    if root_id is None and request.is_json:
-        body = request.get_json(silent=True) or {}
-        root_id = body.get('root')
-    return _resolve_browser_root(root_id)
-
-
-def _safe_join(base, *paths):
-    """Safely join paths ensuring result stays within base directory."""
-    base = os.path.abspath(base)
-    target = os.path.abspath(os.path.join(base, *paths))
-    # Use os.path.normcase for case-insensitive comparison on Windows
-    if not os.path.normcase(target).startswith(os.path.normcase(base)):
-        return None
-    return target
-
-
-def _get_dir_info(full_path, source_path):
-    """Get directory listing info for a given path."""
-    # Use abspath consistently to avoid mount mismatch issues
-    full_path = os.path.abspath(full_path)
-    source_path = os.path.abspath(source_path)
-    rel_path = os.path.relpath(full_path, source_path).replace('\\', '/')
-    if rel_path == '.':
-        rel_path = ''
-
-    items = []
-    try:
-        entries = sorted(os.listdir(full_path), key=lambda x: (not os.path.isdir(os.path.join(full_path, x)), x.lower()))
-    except PermissionError:
-        entries = []
-
-    for entry in entries:
-        entry_path = os.path.join(full_path, entry)
-        is_dir = os.path.isdir(entry_path)
-        stat = os.stat(entry_path)
-        items.append({
-            'name': entry,
-            'is_dir': is_dir,
-            'size': stat.st_size if not is_dir else None,
-            'modified': stat.st_mtime,
-        })
-
-    return {
-        'current_path': rel_path,
-        'items': items,
-    }
-
+# The data API + root registry now live in `app/files_service.py` and the
+# shared `files_bp` blueprint (`/files/api/*`). This route only renders the
+# super-admin browser page; it consumes those shared endpoints client-side.
+# Super admins see the Source + Storage roots (plus any registered extra
+# roots); every root MUST live on the SOURCE_PATH drive (enforced when adding
+# extra roots).
 
 @admin_bp.route('/files')
 @login_required
 @super_admin_required
 def files():
-    """File browser page - super admin only"""
-    source_path = current_app.config['SOURCE_PATH']
-    return render_template('admin_files.html', source_path=source_path,
-                           roots=_browser_roots(),
-                           allowed_drive=_browser_allowed_drive())
+    """File browser page - super admin only.
 
-
-@admin_bp.route('/files/roots')
-@login_required
-@super_admin_required
-def files_roots():
-    """List the configured browser roots (JSON)."""
-    return jsonify({
-        'roots': _browser_roots(),
-        'allowed_drive': _browser_allowed_drive(),
-    })
-
-
-@admin_bp.route('/files/roots/add', methods=['POST'])
-@login_required
-@super_admin_required
-def files_roots_add():
-    """Register a new browser root. The path must exist, be a directory, and
-    live on the same drive as SOURCE_PATH."""
-    data = request.get_json(silent=True) or {}
-    raw = (data.get('path') or '').strip().strip('"')
-    if not raw:
-        return jsonify({'error': 'Path is required'}), 400
-
-    abs_path = os.path.abspath(raw)
-    if not _path_on_allowed_drive(abs_path):
-        drive = _browser_allowed_drive()
-        return jsonify({'error': f'Root must be on the {drive} drive.'}), 400
-    if not os.path.isdir(abs_path):
-        return jsonify({'error': 'Path does not exist or is not a directory.'}), 400
-
-    # Don't duplicate SOURCE_PATH or an existing extra root.
-    existing_ids = {r['id'] for r in _browser_roots()}
-    if os.path.normcase(abs_path) in existing_ids:
-        return jsonify({'error': 'That root is already registered.'}), 409
-
-    roots = _load_extra_roots()
-    roots.append(abs_path)
-    _save_extra_roots(roots)
-    return jsonify({'success': True, 'roots': _browser_roots()})
-
-
-@admin_bp.route('/files/roots/remove', methods=['POST'])
-@login_required
-@super_admin_required
-def files_roots_remove():
-    """Remove an extra browser root by its id (normalised abs path). The
-    built-in SOURCE_PATH root cannot be removed."""
-    data = request.get_json(silent=True) or {}
-    root_id = os.path.normcase((data.get('id') or '').strip())
-    if not root_id:
-        return jsonify({'error': 'Root id is required'}), 400
-    if root_id == os.path.normcase(_resolve_source_path()):
-        return jsonify({'error': 'The default Source root cannot be removed.'}), 400
-
-    roots = _load_extra_roots()
-    kept = [p for p in roots if os.path.normcase(p) != root_id]
-    if len(kept) == len(roots):
-        return jsonify({'error': 'Root not found.'}), 404
-    _save_extra_roots(kept)
-    return jsonify({'success': True, 'roots': _browser_roots()})
-
-
-@admin_bp.route('/files/list')
-@login_required
-@super_admin_required
-def files_list():
-    """List files and directories in a path (JSON API)"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    rel_path = request.args.get('path', '').strip('/')
-
-    if rel_path:
-        full_path = _safe_join(source_path, rel_path)
-    else:
-        full_path = source_path
-
-    if not full_path or not os.path.isdir(full_path):
-        return jsonify({'error': 'Directory not found or access denied'}), 404
-
-    info = _get_dir_info(full_path, source_path)
-    return jsonify(info)
-
-
-@admin_bp.route('/files/download')
-@login_required
-@super_admin_required
-def files_download():
-    """Download a single file"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    rel_path = request.args.get('path', '').strip('/')
-
-    if not rel_path:
-        return jsonify({'error': 'No file specified'}), 400
-
-    full_path = _safe_join(source_path, rel_path)
-    if not full_path or not os.path.isfile(full_path):
-        return jsonify({'error': 'File not found or access denied'}), 404
-
-    return send_file(full_path, as_attachment=True)
-
-
-@admin_bp.route('/files/upload', methods=['POST'])
-@login_required
-@super_admin_required
-def files_upload():
-    """Upload one or more files to a directory"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    rel_path = request.form.get('path', '').strip('/')
-
-    if rel_path:
-        target_dir = _safe_join(source_path, rel_path)
-    else:
-        target_dir = source_path
-
-    if not target_dir or not os.path.isdir(target_dir):
-        return jsonify({'error': 'Target directory not found or access denied'}), 404
-
-    uploaded_files = request.files.getlist('files')
-    if not uploaded_files:
-        return jsonify({'error': 'No files provided'}), 400
-
-    uploaded = []
-    errors = []
-    for f in uploaded_files:
-        if not f.filename:
-            continue
-        filename = secure_filename(f.filename)
-        if not filename:
-            errors.append(f'Invalid filename: {f.filename}')
-            continue
-        dest = os.path.join(target_dir, filename)
-        try:
-            f.save(dest)
-            uploaded.append(filename)
-        except Exception as e:
-            errors.append(f'{filename}: {str(e)}')
-
-    return jsonify({
-        'success': True,
-        'uploaded': uploaded,
-        'errors': errors,
-        'message': f'Uploaded {len(uploaded)} file(s)' + (f', {len(errors)} error(s)' if errors else '')
-    })
-
-
-@admin_bp.route('/files/rename', methods=['POST'])
-@login_required
-@super_admin_required
-def files_rename():
-    """Rename a file or directory"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    data = request.get_json()
-    old_path = data.get('path', '').strip('/')
-    new_name = data.get('new_name', '').strip()
-
-    if not old_path or not new_name:
-        return jsonify({'error': 'Path and new name are required'}), 400
-
-    # Validate new_name doesn't contain path separators
-    if '/' in new_name or '\\' in new_name:
-        return jsonify({'error': 'New name cannot contain path separators'}), 400
-
-    full_path = _safe_join(source_path, old_path)
-    if not full_path or not os.path.exists(full_path):
-        return jsonify({'error': 'File or directory not found'}), 404
-
-    parent_dir = os.path.dirname(full_path)
-    new_full_path = os.path.join(parent_dir, new_name)
-
-    # Ensure new path is also within source
-    new_full_path_abs = os.path.abspath(new_full_path)
-    if not os.path.normcase(new_full_path_abs).startswith(os.path.normcase(source_path)):
-        return jsonify({'error': 'Access denied'}), 403
-
-    if os.path.exists(new_full_path):
-        return jsonify({'error': f'A file or directory named "{new_name}" already exists'}), 409
-
-    try:
-        os.rename(full_path, new_full_path)
-        return jsonify({'success': True, 'new_name': new_name})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@admin_bp.route('/files/delete', methods=['POST'])
-@login_required
-@super_admin_required
-def files_delete():
-    """Delete one or more files or directories"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    data = request.get_json()
-    paths = data.get('paths', [])
-
-    if not paths:
-        return jsonify({'error': 'No paths specified'}), 400
-
-    deleted = []
-    errors = []
-    for rel_path in paths:
-        rel_path = rel_path.strip('/')
-        if not rel_path:
-            errors.append('Cannot delete root directory')
-            continue
-
-        full_path = _safe_join(source_path, rel_path)
-        if not full_path or not os.path.exists(full_path):
-            errors.append(f'{rel_path}: not found')
-            continue
-
-        # Extra safety: don't allow deleting the source root
-        if os.path.normcase(os.path.abspath(full_path)) == os.path.normcase(source_path):
-            errors.append(f'{rel_path}: cannot delete source root')
-            continue
-
-        try:
-            if os.path.isdir(full_path):
-                shutil.rmtree(full_path)
-            else:
-                os.remove(full_path)
-            deleted.append(rel_path)
-        except Exception as e:
-            errors.append(f'{rel_path}: {str(e)}')
-
-    return jsonify({
-        'success': True,
-        'deleted': deleted,
-        'errors': errors,
-        'message': f'Deleted {len(deleted)} item(s)' + (f', {len(errors)} error(s)' if errors else '')
-    })
-
-
-@admin_bp.route('/files/mkdir', methods=['POST'])
-@login_required
-@super_admin_required
-def files_mkdir():
-    """Create a new directory"""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    data = request.get_json()
-    parent_path = data.get('path', '').strip('/')
-    dir_name = data.get('name', '').strip()
-
-    if not dir_name:
-        return jsonify({'error': 'Directory name is required'}), 400
-
-    if '/' in dir_name or '\\' in dir_name:
-        return jsonify({'error': 'Directory name cannot contain path separators'}), 400
-
-    if parent_path:
-        parent_dir = _safe_join(source_path, parent_path)
-    else:
-        parent_dir = source_path
-
-    if not parent_dir or not os.path.isdir(parent_dir):
-        return jsonify({'error': 'Parent directory not found'}), 404
-
-    new_dir = os.path.join(parent_dir, dir_name)
-    new_dir_abs = os.path.abspath(new_dir)
-    if not os.path.normcase(new_dir_abs).startswith(os.path.normcase(source_path)):
-        return jsonify({'error': 'Access denied'}), 403
-
-    if os.path.exists(new_dir):
-        return jsonify({'error': f'"{dir_name}" already exists'}), 409
-
-    try:
-        os.makedirs(new_dir)
-        return jsonify({'success': True, 'name': dir_name})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-def _unique_copy_name(dest_dir, name):
-    """Return a filename that does not yet exist inside dest_dir.
-
-    Tries: <name>, <stem>_copy<ext>, <stem>_copy2<ext>, … until a free slot is found.
-    Works for both files (with extensions) and directories (no extension).
+    The page now consumes the shared ``/files/api/*`` endpoints (see
+    ``app/files.py``); this route just renders the shell with the super-admin
+    root set so the template can pre-populate its root selector.
     """
-    if not os.path.exists(os.path.join(dest_dir, name)):
-        return name
-    base, ext = os.path.splitext(name)
-    candidate = f'{base}_copy{ext}'
-    if not os.path.exists(os.path.join(dest_dir, candidate)):
-        return candidate
-    n = 2
-    while True:
-        candidate = f'{base}_copy{n}{ext}'
-        if not os.path.exists(os.path.join(dest_dir, candidate)):
-            return candidate
-        n += 1
-
-
-@admin_bp.route('/files/copy', methods=['POST'])
-@login_required
-@super_admin_required
-def files_copy():
-    """Copy one or more files/directories into a destination directory."""
-    source_path = _request_browser_root()
-    if source_path is None:
-        return jsonify({'error': 'Invalid root'}), 400
-    data = request.get_json()
-    sources = data.get('sources', [])
-    dest_dir = data.get('dest_dir', '').strip('/')
-
-    if not sources:
-        return jsonify({'error': 'No sources specified'}), 400
-
-    dest_full = _safe_join(source_path, dest_dir) if dest_dir else source_path
-    if not dest_full or not os.path.isdir(dest_full):
-        return jsonify({'error': 'Destination directory not found or access denied'}), 404
-
-    copied = []
-    errors = []
-    for rel_path in sources:
-        rel_path = rel_path.strip('/')
-        if not rel_path:
-            errors.append('Cannot copy root directory')
-            continue
-
-        src_full = _safe_join(source_path, rel_path)
-        if not src_full or not os.path.exists(src_full):
-            errors.append(f'{rel_path}: not found')
-            continue
-
-        # Prevent copying a directory into itself or a subdirectory of itself
-        if os.path.isdir(src_full):
-            src_abs = os.path.normcase(os.path.abspath(src_full))
-            dest_abs = os.path.normcase(os.path.abspath(dest_full))
-            if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
-                errors.append(f'{rel_path}: cannot copy a folder into itself')
-                continue
-
-        dest_name = _unique_copy_name(dest_full, os.path.basename(src_full))
-        dest_item = os.path.join(dest_full, dest_name)
-
-        try:
-            if os.path.isdir(src_full):
-                shutil.copytree(src_full, dest_item)
-            else:
-                shutil.copy2(src_full, dest_item)
-            copied.append({'original': rel_path, 'new_name': dest_name})
-        except Exception as e:
-            errors.append(f'{rel_path}: {str(e)}')
-
-    return jsonify({
-        'success': True,
-        'copied': copied,
-        'errors': errors,
-        'message': f'Copied {len(copied)} item(s)' + (f', {len(errors)} error(s)' if errors else ''),
-    })
+    from app.files_service import RootRegistry, allowed_drive
+    return render_template('admin_files.html',
+                           source_path=current_app.config['SOURCE_PATH'],
+                           roots=RootRegistry(current_user, scope='admin').list_dicts(),
+                           allowed_drive=allowed_drive(),
+                           fb_can_manage_roots=True,
+                           fb_scope='admin')

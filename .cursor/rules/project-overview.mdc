@@ -59,6 +59,9 @@ Stored at `SOURCE_PATH` (from `.env`). Assets are images (IMG, multi-part), Word
 **Static resources** (not in SOURCE_PATH) live in `resources/` at the repo root:
 - `resources/mcq_answer_img/A.png`, `B.png`, `C.png`, `D.png` — source PNGs used by the **Set MCQ ANS** batch operation to populate the ANS slot for MC questions.
 
+## Storage Tree (app-managed files)
+Everything the app writes lives under `STORAGE_PATH` (default `Q:\Storage`, beside `Q:\Source`): `Shared/` (per-subject, role-gated; replaces old flat `Source_PDF`), `System/` (DOC thumbnails + PDF Import/Toolbox staging), and `User/<username>/` (personal home + `generated/` for that user's generated docs). A per-user **File Browser** (`/files/browser`, under My Stuff) and the super-admin browser (`/admin/files`) share one root-aware API (`files_bp`), and a unified file selector (`partials/file_selector.html`) backs the PDF Import / Toolbox pickers. Path resolution + the per-user root registry live in `app/storage.py` + `app/files_service.py`. Migrate with `python cli.py migrate-storage`. See [.cursor/rules/storage.mdc](mdc:.cursor/rules/storage.mdc).
+
 MD assets are self-contained (LaTeX math `$...$` / `$$...$$` + base64-embedded images). They render inline on the dashboard / viewer via `app/md_render.py` (markdown-it-py + bleach + client-side KaTeX) and convert to `.docx` during generation via pandoc + docxcompose. Format priority (default `IMG > MD > DOC`) is user-configurable per generation. Optional config keys: `PANDOC_PATH`, `MD_MAX_SIZE_BYTES`.
 
 For the full Markdown pipeline — security model, optimistic concurrency, fullscreen reparenting, cache invariants, common gotchas — see [.cursor/rules/markdown-assets.mdc](mdc:.cursor/rules/markdown-assets.mdc).

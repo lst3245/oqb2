@@ -35,11 +35,13 @@ Flask Application (app factory: create_app())
   ├── dashboard_bp  /dashboard     Question browse, filter, search
   ├── admin_bp      /admin         Admin panel (topics, questions, users, ingest, export)
   ├── generator_bp  /generate      Word doc generation, viewer mode
-  └── user_bp       /user          My Files, Saved Profiles
+  ├── user_bp       /user          My Files, Saved Profiles
+  └── files_bp      /files         Shared root-aware file browser API + user browser page
         │
         ├── SQLAlchemy ORM ──► MariaDB
         ├── SOURCE_PATH       Question asset files (images / Word docs)
-        └── OUTPUT_PATH       Generated .docx / .zip files
+        └── STORAGE_PATH      Unified tree: Shared/ (per-subject), System/ (thumbnails+staging),
+                              User/<name>/generated/ (generated docs; OUTPUT_PATH = legacy fallback)
 ```
 
 **Design patterns**:
@@ -110,9 +112,9 @@ oqb2/
 │       ├── tag_editor_form.html   # Reusable tag editor (used in dashboard + admin modal)
 │       └── tag_editor_js.html     # JS for tag editor
 ├── static/                # css/ and js/ (currently mostly empty; libs loaded from CDN)
-├── output/                # Generated documents (OUTPUT_PATH)
+├── output/                # Legacy generated-doc fallback (OUTPUT_PATH; new docs live under STORAGE_PATH/User/<name>/generated)
 ├── .cursor/rules/         # AI agent context rules
-├── cli.py                 # click CLI: ingest, sync
+├── cli.py                 # click CLI: ingest, sync, migrate-storage
 ├── init_db.py             # Create tables + default subjects + admin user
 ├── run.py                 # Dev server (app.run debug=True, port 5000)
 ├── requirements.txt
@@ -133,7 +135,13 @@ oqb2/
 | `DB_PASSWORD` | `` | DB password |
 | `DB_NAME` | `oqb2` | Database name |
 | `SOURCE_PATH` | `../Source` (relative to project root) | Root of question asset files |
-| `OUTPUT_PATH` | `../output` (relative to project root) | Where generated docs are saved |
+| `STORAGE_PATH` | `<dirname(SOURCE_PATH)>/Storage` | Unified storage tree parent (`Shared`/`System`/`User`) |
+| `SHARED_PATH` | `STORAGE_PATH/Shared` | Per-subject shared files (role-gated; replaces flat `Source_PDF`) |
+| `SYSTEM_PATH` | `STORAGE_PATH/System` | DOC thumbnails + PDF Import/Toolbox staging |
+| `USER_PATH` | `STORAGE_PATH/User` | Per-user homes (`User/<name>/generated` holds generated docs) |
+| `PDF_SOURCE_PATH` | `SHARED_PATH` | Server PDF library for PDF Import/Toolbox pickers |
+| `DOC_THUMBNAIL_PATH` | `SYSTEM_PATH/doc_thumbnails` | Cached DOC asset thumbnails |
+| `OUTPUT_PATH` | `../output` (relative to project root) | **Legacy** fallback for generated docs created before the per-user relocation |
 | `QUESTIONS_PER_PAGE` | `20` | Default page size (hardcoded, not in .env) |
 | `SQLALCHEMY_ENGINE_OPTIONS` | pool_pre_ping=True, recycle=300 | Connection pool health |
 | `LLM_API_KEY` | `` | AI Tools global fallback API key (per-endpoint keys override) |
@@ -448,7 +456,17 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | Export / Import | `/export-import`, `/export/question-tags`, `/import/question-tags`, `/export/topics`, `/import/topics`, `/export/chapters`, `/import/chapters` |
 | Ingestion | `/ingestion`, `/ingestion/preview`, `/ingestion/start` (SSE) |
 | Database Health | `/health`, `/health/stats`, `/health/untracked`, `/health/sync` (SSE) |
-| File Browser | `/files`, `/files/list`, `/files/download`, `/files/upload`, `/files/rename`, `/files/delete`, `/files/mkdir` |
+| File Browser (super-admin page) | `/admin/files` (renders the browser; data via the shared `files_bp` API below) |
+
+### `files_bp` — `app/files.py` — prefix: `/files`
+
+Shared root-aware, permission-checked file API backing **both** the super-admin browser (`/admin/files`) and the per-user browser, plus the unified file selector. Roots resolve via `RootRegistry(current_user)`; mutating ops enforce `can_write`. See `.cursor/rules/storage.mdc`.
+
+| Feature | Endpoints |
+|---|---|
+| User browser page | `/files/browser` (gated: `is_super_admin or not is_all_view_only()`) |
+| File ops | `GET /files/api/roots`, `/files/api/list`, `/files/api/download`; `POST /files/api/upload`, `/files/api/rename`, `/files/api/delete`, `/files/api/mkdir`, `/files/api/copy` |
+| Root management (super-admin) | `POST /files/api/roots/add`, `/files/api/roots/remove` |
 
 ### `user_bp` — `app/user.py` — prefix: `/user`
 | Route | Method | Description |

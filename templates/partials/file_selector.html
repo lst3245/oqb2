@@ -1,0 +1,518 @@
+{# ====================================================================== #}
+{#  Unified file/folder selector modal.                                   #}
+{#                                                                        #}
+{#  Reusable across tools (PDF Import, PDF Toolbox, future uploads). One   #}
+{#  modal, one JS module (window.OQBFileSelector), backed by the shared    #}
+{#  root-aware /files/api/* endpoints. Include this partial ONCE per page  #}
+{#  (anywhere in the content block); call it from JS:                      #}
+{#                                                                         #}
+{#    OQBFileSelector.open({                                               #}
+{#      mode: 'file',                // 'file' | 'folder'                   #}
+{#      extensions: ['.pdf'],        // file mode filter (lowercase)       #}
+{#      title: 'Choose a PDF',                                             #}
+{#      preferRootId: 'shared:MATC', // optional initial root              #}
+{#      onPick: function(sel) {                                            #}
+{#        // sel = {root_id, root_label, rel_path, name, token}           #}
+{#      }                                                                  #}
+{#    });                                                                  #}
+{#                                                                         #}
+{#  `token` is a portable "root_id|rel_path" string the user can copy and  #}
+{#  paste back into another selector to jump straight there.               #}
+{# ====================================================================== #}
+
+<div class="modal fade" id="oqbFsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="oqbFsTitle"><i class="bi bi-folder2-open"></i> Select</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Root + read-only state -->
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <label for="oqbFsRoot" class="form-label mb-0 small fw-bold"><i class="bi bi-hdd-stack"></i> Location:</label>
+          <select id="oqbFsRoot" class="form-select form-select-sm" style="width:auto; max-width:380px;"></select>
+          <span id="oqbFsReadonly" class="badge bg-secondary d-none"><i class="bi bi-eye"></i> Read-only</span>
+          <button type="button" class="btn btn-sm btn-outline-success d-none" id="oqbFsNewFolder">
+            <i class="bi bi-folder-plus"></i> New folder
+          </button>
+        </div>
+
+        <!-- Breadcrumb -->
+        <nav id="oqbFsCrumb" class="mb-2" style="font-size:0.9rem;"></nav>
+
+        <!-- Path copy / jump -->
+        <div class="input-group input-group-sm mb-2">
+          <span class="input-group-text"><i class="bi bi-signpost"></i></span>
+          <input type="text" class="form-control" id="oqbFsPathInput"
+                 placeholder="Paste a path token to jump here…" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" id="oqbFsGo" title="Go to path">Go</button>
+          <button class="btn btn-outline-secondary" type="button" id="oqbFsCopyPath" title="Copy current path">
+            <i class="bi bi-clipboard"></i> Copy path
+          </button>
+        </div>
+
+        <!-- Filter -->
+        <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+          <div class="input-group input-group-sm" style="max-width:260px;">
+            <span class="input-group-text"><i class="bi bi-funnel"></i></span>
+            <input type="text" class="form-control" id="oqbFsFilter" placeholder="Filter by name…" autocomplete="off">
+          </div>
+        </div>
+
+        <div id="oqbFsLoading" class="text-center py-4 d-none">
+          <div class="spinner-border spinner-border-sm text-primary"></div>
+          <span class="text-muted ms-2">Loading…</span>
+        </div>
+        <div id="oqbFsError" class="alert alert-danger py-2 small d-none"></div>
+        <div id="oqbFsEmpty" class="text-center text-muted py-4 d-none">
+          <i class="bi bi-folder2" style="font-size:2rem;"></i>
+          <div class="mt-1">Nothing here</div>
+        </div>
+
+        <div class="table-responsive border rounded" style="max-height:46vh; overflow-y:auto;">
+          <table class="table table-sm table-hover mb-0" id="oqbFsTable">
+            <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+              <tr>
+                <th class="oqb-fs-sort" data-sort="name" style="cursor:pointer; user-select:none;">Name <span class="oqb-fs-arrow" data-for="name"></span></th>
+                <th class="oqb-fs-sort text-nowrap" data-sort="size" style="cursor:pointer; user-select:none; width:90px;">Size <span class="oqb-fs-arrow" data-for="size"></span></th>
+                <th class="oqb-fs-sort text-nowrap" data-sort="modified" style="cursor:pointer; user-select:none; width:172px;">Modified <span class="oqb-fs-arrow" data-for="modified"></span></th>
+              </tr>
+            </thead>
+            <tbody id="oqbFsBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="me-auto small text-muted" id="oqbFsSelected"></div>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="oqbFsChoose" disabled>
+          <i class="bi bi-check-lg"></i> Choose
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  if (window.OQBFileSelector) return;  // idempotent include
+
+  const API = {
+    roots: '{{ url_for("files.api_roots") }}',
+    list:  '{{ url_for("files.api_list") }}',
+    mkdir: '{{ url_for("files.api_mkdir") }}',
+  };
+  // The selector always uses the user-scope root set (My Files + accessible
+  // Shared folders) — identical for regular users and super-admins.
+  const SCOPE = 'user';
+
+  const state = {
+    cfg: null,
+    roots: [],
+    rootsLoaded: false,
+    currentRoot: '',
+    currentPath: '',
+    items: [],
+    selected: null,      // {rel, name} for a picked file
+    sortField: 'name',
+    sortDir: 'asc',
+    filterText: '',
+    modal: null,
+  };
+
+  // -- helpers ---------------------------------------------------------
+  function el(id) { return document.getElementById(id); }
+  function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+  function fmtSize(b) {
+    if (b === null || b === undefined) return '—';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+    return (b/1073741824).toFixed(2) + ' GB';
+  }
+  function fmtDate(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+
+  function currentRootObj() {
+    return state.roots.find(r => r.id === state.currentRoot) || null;
+  }
+  function canWrite() {
+    const r = currentRootObj();
+    return !!(r && r.can_write !== false);
+  }
+  function rootLabel(r) { return r ? (r.label || r.id) : ''; }
+
+  function withRoot(url) {
+    const join = url.includes('?') ? '&' : '?';
+    return url + join + 'root=' + encodeURIComponent(state.currentRoot)
+        + '&scope=' + encodeURIComponent(SCOPE);
+  }
+
+  // Group roots into optgroups: My Files / Shared / Other.
+  function populateRootSelect() {
+    const sel = el('oqbFsRoot');
+    sel.innerHTML = '';
+    const groups = [
+      ['My Files', r => r.id === 'user'],
+      ['Shared',   r => r.id && r.id.indexOf('shared:') === 0],
+      ['Other',    r => r.id !== 'user' && !(r.id && r.id.indexOf('shared:') === 0)],
+    ];
+    groups.forEach(([label, pred]) => {
+      const matching = state.roots.filter(pred);
+      if (!matching.length) return;
+      const og = document.createElement('optgroup');
+      og.label = label;
+      matching.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = rootLabel(r) + (r.missing ? ' (missing)' : '') + (r.can_write === false ? ' · read-only' : '');
+        if (r.id === state.currentRoot) opt.selected = true;
+        og.appendChild(opt);
+      });
+      sel.appendChild(og);
+    });
+  }
+
+  function ensureRoots() {
+    if (state.rootsLoaded) return Promise.resolve();
+    return fetch(API.roots + '?scope=' + encodeURIComponent(SCOPE))
+      .then(r => r.json())
+      .then(data => {
+        state.roots = data.roots || [];
+        state.rootsLoaded = true;
+      });
+  }
+
+  // -- navigation ------------------------------------------------------
+  function navigate(path) {
+    state.currentPath = path || '';
+    state.selected = null;
+    updateChoose();
+    load();
+    renderCrumb();
+  }
+
+  function load() {
+    const loading = el('oqbFsLoading'), error = el('oqbFsError'),
+          empty = el('oqbFsEmpty'), table = el('oqbFsTable');
+    loading.classList.remove('d-none');
+    error.classList.add('d-none');
+    empty.classList.add('d-none');
+    table.classList.add('d-none');
+
+    fetch(withRoot(API.list + '?path=' + encodeURIComponent(state.currentPath)))
+      .then(r => r.ok ? r.json() : r.json().then(d => { throw new Error(d.error || ('HTTP ' + r.status)); }))
+      .then(data => {
+        loading.classList.add('d-none');
+        state.items = data.items || [];
+        render();
+      })
+      .catch(err => {
+        loading.classList.add('d-none');
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+      });
+  }
+
+  function visibleItems() {
+    const cfg = state.cfg || {};
+    const exts = (cfg.extensions || []).map(e => e.toLowerCase());
+    let items = state.items.slice();
+    // Folder mode: dirs only. File mode: dirs + files matching extensions.
+    items = items.filter(it => {
+      if (it.is_dir) return true;
+      if (cfg.mode === 'folder') return false;
+      if (!exts.length) return true;
+      const lower = it.name.toLowerCase();
+      return exts.some(e => lower.endsWith(e));
+    });
+    if (state.filterText) {
+      const f = state.filterText.toLowerCase();
+      items = items.filter(it => it.name.toLowerCase().includes(f));
+    }
+    const dir = state.sortDir === 'desc' ? -1 : 1;
+    const fld = state.sortField;
+    items.sort((a, b) => {
+      // Dirs first, always.
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      let av, bv;
+      if (fld === 'size') { av = a.size || 0; bv = b.size || 0; }
+      else if (fld === 'modified') { av = a.modified || 0; bv = b.modified || 0; }
+      else { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return items;
+  }
+
+  function renderSortArrows() {
+    Array.prototype.forEach.call(document.querySelectorAll('#oqbFsTable .oqb-fs-arrow'), function (sp) {
+      const field = sp.getAttribute('data-for');
+      if (field === state.sortField) {
+        sp.innerHTML = state.sortDir === 'asc'
+          ? '<i class="bi bi-caret-up-fill small"></i>'
+          : '<i class="bi bi-caret-down-fill small"></i>';
+      } else {
+        sp.innerHTML = '';
+      }
+    });
+  }
+
+  function render() {
+    const tbody = el('oqbFsBody'), empty = el('oqbFsEmpty'), table = el('oqbFsTable');
+    const items = visibleItems();
+    renderSortArrows();
+    tbody.innerHTML = '';
+
+    // Parent row
+    if (state.currentPath) {
+      const parent = state.currentPath.includes('/')
+        ? state.currentPath.substring(0, state.currentPath.lastIndexOf('/')) : '';
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.innerHTML = '<td><i class="bi bi-arrow-up-circle text-secondary"></i> <span class="fw-bold">..</span></td><td>—</td><td>—</td>';
+      tr.onclick = () => navigate(parent);
+      tbody.appendChild(tr);
+    }
+
+    if (!items.length && !state.currentPath) {
+      empty.classList.remove('d-none');
+    } else {
+      empty.classList.add('d-none');
+    }
+
+    items.forEach(it => {
+      const rel = state.currentPath ? (state.currentPath + '/' + it.name) : it.name;
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      const icon = it.is_dir ? 'bi-folder-fill text-warning' : 'bi-file-earmark text-muted';
+      tr.innerHTML =
+        '<td><i class="bi ' + icon + '"></i> ' + esc(it.name) + '</td>' +
+        '<td class="text-muted text-nowrap">' + (it.is_dir ? '—' : fmtSize(it.size)) + '</td>' +
+        '<td class="text-muted text-nowrap">' + fmtDate(it.modified) + '</td>';
+      if (it.is_dir) {
+        tr.ondblclick = () => navigate(rel);
+        tr.onclick = () => navigate(rel);
+      } else {
+        // file mode only (folder mode filters files out)
+        tr.onclick = () => selectFile(rel, it.name, tr);
+        tr.ondblclick = () => { selectFile(rel, it.name, tr); choose(); };
+      }
+      tbody.appendChild(tr);
+    });
+
+    table.classList.remove('d-none');
+  }
+
+  function selectFile(rel, name, tr) {
+    state.selected = { rel: rel, name: name };
+    Array.from(el('oqbFsBody').querySelectorAll('tr')).forEach(r => r.classList.remove('table-primary'));
+    if (tr) tr.classList.add('table-primary');
+    updateChoose();
+  }
+
+  function renderCrumb() {
+    const nav = el('oqbFsCrumb');
+    const ro = currentRootObj();
+    let html = '<a href="#" data-fs-nav="">' + '<i class="bi bi-house-door"></i> ' + esc(rootLabel(ro) || 'Root') + '</a>';
+    if (state.currentPath) {
+      const parts = state.currentPath.split('/');
+      let acc = '';
+      parts.forEach((p, i) => {
+        acc += (acc ? '/' : '') + p;
+        if (i < parts.length - 1) {
+          html += ' <span class="text-muted">/</span> <a href="#" data-fs-nav="' + escAttr(acc) + '">' + esc(p) + '</a>';
+        } else {
+          html += ' <span class="text-muted">/</span> <strong>' + esc(p) + '</strong>';
+        }
+      });
+    }
+    nav.innerHTML = html;
+    nav.querySelectorAll('[data-fs-nav]').forEach(a => {
+      a.onclick = (e) => { e.preventDefault(); navigate(a.getAttribute('data-fs-nav')); };
+    });
+  }
+
+  function currentToken() {
+    // Portable reference the user can copy and paste back later.
+    const rel = state.selected ? state.selected.rel : state.currentPath;
+    return state.currentRoot + '|' + rel;
+  }
+
+  function updateChoose() {
+    const cfg = state.cfg || {};
+    const btn = el('oqbFsChoose');
+    const info = el('oqbFsSelected');
+    if (cfg.mode === 'folder') {
+      btn.disabled = !canWrite() && false; // folders can be chosen even read-only (e.g. pick a read dir) — keep enabled
+      btn.disabled = false;
+      info.textContent = 'Destination: ' + (rootLabel(currentRootObj())) + ' / ' + (state.currentPath || '(root)');
+    } else {
+      btn.disabled = !state.selected;
+      info.textContent = state.selected
+        ? ('Selected: ' + state.selected.name)
+        : 'Select a file';
+    }
+  }
+
+  function choose() {
+    const cfg = state.cfg || {};
+    let sel;
+    if (cfg.mode === 'folder') {
+      sel = {
+        root_id: state.currentRoot,
+        root_label: rootLabel(currentRootObj()),
+        rel_path: state.currentPath,
+        name: state.currentPath ? state.currentPath.split('/').pop() : '',
+        token: state.currentRoot + '|' + state.currentPath,
+      };
+    } else {
+      if (!state.selected) return;
+      sel = {
+        root_id: state.currentRoot,
+        root_label: rootLabel(currentRootObj()),
+        rel_path: state.selected.rel,
+        name: state.selected.name,
+        token: state.currentRoot + '|' + state.selected.rel,
+      };
+    }
+    if (state.modal) state.modal.hide();
+    if (typeof cfg.onPick === 'function') cfg.onPick(sel);
+  }
+
+  function jumpToToken(raw) {
+    raw = (raw || '').trim();
+    if (!raw) return;
+    let rootId = state.currentRoot, rel = raw;
+    const bar = raw.indexOf('|');
+    if (bar >= 0) {
+      rootId = raw.substring(0, bar);
+      rel = raw.substring(bar + 1);
+    }
+    rel = rel.replace(/^[\/\\]+|[\/\\]+$/g, '').replace(/\\/g, '/');
+    // Switch root if valid + different.
+    if (rootId && rootId !== state.currentRoot && state.roots.some(r => r.id === rootId)) {
+      state.currentRoot = rootId;
+      populateRootSelect();
+      el('oqbFsRoot').value = rootId;
+      onRootChanged(false);
+    }
+    navigate(rel);
+  }
+
+  function onRootChanged(resetPath) {
+    const r = currentRootObj();
+    el('oqbFsReadonly').classList.toggle('d-none', canWrite());
+    const cfg = state.cfg || {};
+    const nf = el('oqbFsNewFolder');
+    nf.classList.toggle('d-none', !(cfg.mode === 'folder' && canWrite()));
+    if (resetPath !== false) navigate('');
+  }
+
+  function doNewFolder() {
+    if (!canWrite()) return;
+    const name = prompt('New folder name:');
+    if (!name) return;
+    fetch(API.mkdir, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ root: state.currentRoot, path: state.currentPath, name: name, scope: SCOPE }),
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { alert('Create folder failed: ' + d.error); return; }
+      load();
+    })
+    .catch(err => alert('Create folder failed: ' + err.message));
+  }
+
+  // -- wiring (once) ---------------------------------------------------
+  function wire() {
+    el('oqbFsRoot').addEventListener('change', function () {
+      state.currentRoot = this.value;
+      onRootChanged(true);
+    });
+    el('oqbFsFilter').addEventListener('input', function () {
+      state.filterText = this.value; render();
+    });
+    // Click a column header to sort; click again to flip direction.
+    Array.prototype.forEach.call(document.querySelectorAll('#oqbFsTable .oqb-fs-sort'), function (th) {
+      th.addEventListener('click', function () {
+        const field = th.getAttribute('data-sort');
+        if (state.sortField === field) {
+          state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          state.sortField = field;
+          state.sortDir = 'asc';
+        }
+        render();
+      });
+    });
+    el('oqbFsGo').addEventListener('click', () => jumpToToken(el('oqbFsPathInput').value));
+    el('oqbFsPathInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); jumpToToken(el('oqbFsPathInput').value); }
+    });
+    el('oqbFsCopyPath').addEventListener('click', () => {
+      const token = currentToken();
+      const done = () => { const b = el('oqbFsCopyPath'); const o = b.innerHTML; b.innerHTML = '<i class="bi bi-check2"></i> Copied'; setTimeout(() => b.innerHTML = o, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(token).then(done, () => { el('oqbFsPathInput').value = token; });
+      } else {
+        el('oqbFsPathInput').value = token; done();
+      }
+    });
+    el('oqbFsNewFolder').addEventListener('click', doNewFolder);
+    el('oqbFsChoose').addEventListener('click', choose);
+  }
+
+  // -- public open -----------------------------------------------------
+  function open(options) {
+    state.cfg = options || {};
+    state.selected = null;
+    state.filterText = '';
+    state.currentPath = '';
+    el('oqbFsFilter').value = '';
+    el('oqbFsPathInput').value = '';
+    el('oqbFsTitle').innerHTML = '<i class="bi bi-folder2-open"></i> '
+      + esc(state.cfg.title || (state.cfg.mode === 'folder' ? 'Choose a folder' : 'Choose a file'));
+    el('oqbFsChoose').innerHTML = state.cfg.mode === 'folder'
+      ? '<i class="bi bi-check-lg"></i> Use this folder'
+      : '<i class="bi bi-check-lg"></i> Choose';
+
+    if (!state.modal) {
+      state.modal = new bootstrap.Modal(el('oqbFsModal'));
+      wire();
+    }
+
+    ensureRoots().then(() => {
+      if (!state.roots.length) {
+        el('oqbFsError').textContent = 'No accessible locations.';
+        el('oqbFsError').classList.remove('d-none');
+        state.modal.show();
+        return;
+      }
+      const prefer = state.cfg.preferRootId;
+      state.currentRoot = (prefer && state.roots.some(r => r.id === prefer))
+        ? prefer : state.roots[0].id;
+      populateRootSelect();
+      el('oqbFsRoot').value = state.currentRoot;
+      onRootChanged(true);
+      updateChoose();
+      state.modal.show();
+    }).catch(err => {
+      el('oqbFsError').textContent = 'Could not load locations: ' + err.message;
+      el('oqbFsError').classList.remove('d-none');
+      state.modal.show();
+    });
+  }
+
+  window.OQBFileSelector = { open: open };
+})();
+</script>

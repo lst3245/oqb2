@@ -12,11 +12,9 @@ def pdf_source_root() -> str:
 
 
 def safe_join(base: str, *paths) -> str | None:
-    base = os.path.abspath(base)
-    target = os.path.abspath(os.path.join(base, *paths))
-    if not os.path.normcase(target).startswith(os.path.normcase(base)):
-        return None
-    return target
+    # Delegate to the central hardened join (fixes the sibling-prefix trap).
+    from app import storage
+    return storage.safe_join(base, *paths)
 
 
 def safe_filename(name: str, fallback: str) -> str:

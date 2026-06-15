@@ -82,6 +82,7 @@ python run.py
   - Dashboard **Set** button opens a chip-builder for **Union (∪) / Intersection (∩) / Difference (\\)** of the live Selection and any saved sets
   - Apply a saved set to instantly populate the dashboard selection; save a new set from the current selection or from an evaluated result
   - Super admin can share a set with all users that have access to its subject
+- **File Browser** (`/files/browser`) — personal **My Files** home plus the **Shared** folder for each accessible subject (subject admins read/write, users read-only; pure viewers excluded)
 
 ### Admin Panel
 - **Topic Management** (`/admin/topics`) — CRUD + drag-to-reorder for topics and subtopics; hidden subtopic flag
@@ -96,7 +97,7 @@ python run.py
 - **Export / Import** (`/admin/export-import`) — CSV round-trip for question tags, topics, chapters
 - **Ingestion** (`/admin/ingestion`) — scan SOURCE_PATH and import files into DB; live streaming log
 - **Database Health** (`/admin/health`) — super admin only; DB stats, anomaly detection, orphan sync
-- **File Browser** (`/admin/files`) — super admin only; browse, upload, download, rename, delete source files
+- **File Browser** (`/admin/files`) — super admin only; browse, upload, download, rename, delete, copy across `Source` + the whole `Storage` tree + registered extra roots (shares one root-aware backend with the per-user browser)
 - **Toolbox → PDF Tool** (`/admin/toolbox/pdf`) — admin PDF workbench: A3 booklet split (3 modes), rotate/deskew/crop, image adjustments, drag/touch multi-select assembly, **redact / highlight / markup** (manual editor, fuzzy text or **OCR** search, **AI region detect**), and hybrid export (digital PDF with **true redaction**, or flattened images / PNG ZIP) with save-to-server
 
 ### Security
@@ -118,6 +119,9 @@ oqb2/
 │   ├── admin.py           # Admin panel (admin_bp) — ~2500 lines
 │   ├── generator.py       # Word doc generation + viewer (generator_bp)
 │   ├── user.py            # My Files + Saved Profiles (user_bp)
+│   ├── files.py           # Shared root-aware file browser API + user browser page (files_bp)
+│   ├── files_service.py   # Pure file ops + per-user RootRegistry
+│   ├── storage.py         # Storage-tree paths, hardened safe_join, per-user dirs
 │   ├── pwa.py             # Root-scope PWA manifest/service-worker routes
 │   ├── toolbox/           # Toolbox hub: Markup + admin PDF Tool
 │   ├── ingestor.py        # File scanner, sync, health stats
@@ -129,9 +133,9 @@ oqb2/
 ├── templates/             # Jinja2 HTML templates
 │   └── partials/          # HTMX partial templates
 ├── static/                # CSS and JS assets
-├── output/                # Generated .docx / .zip files (OUTPUT_PATH)
+├── output/                # Legacy generated-doc fallback (new docs live under STORAGE_PATH/User/<name>/generated)
 ├── .cursor/rules/         # AI agent context rules
-├── cli.py                 # CLI commands (ingest, sync)
+├── cli.py                 # CLI commands (ingest, sync, migrate-storage)
 ├── init_db.py             # DB initialisation + default data
 ├── run.py                 # Dev server entry point
 ├── requirements.txt       # Python dependencies
@@ -167,7 +171,7 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 
 > `.md` files are self-contained (LaTeX math via `$...$` / `$$...$$`, base64-embedded images). They render inline on the dashboard/viewer and convert to `.docx` during generation via **pandoc** + docxcompose. Install pandoc separately (it is not a pip package): `apt install pandoc` / `brew install pandoc` / [Windows installer](https://github.com/jgm/pandoc/releases). If pandoc is not on `PATH`, set `PANDOC_PATH=...` in `.env`.
 
-> `.docx` source files are merged natively via **Microsoft Word** (COM automation through `pywin32`) — MathType OLE objects, embedded images, drawings, and custom fonts are preserved exactly. Same Word session also produces **PDF output** when requested. Windows + Word required for both features; without them, DOC source files render as a placeholder and PDF output is rejected. DOC assets also show a server-rendered first-page PNG thumbnail on the dashboard / viewer (lazy, cached at `<OUTPUT_PATH>/.doc_thumbnails/`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#microsoft-word-requirement-for-doc-source-files--pdf-output--doc-thumbnails) for setup details.
+> `.docx` source files are merged natively via **Microsoft Word** (COM automation through `pywin32`) — MathType OLE objects, embedded images, drawings, and custom fonts are preserved exactly. Same Word session also produces **PDF output** when requested. Windows + Word required for both features; without them, DOC source files render as a placeholder and PDF output is rejected. DOC assets also show a server-rendered first-page PNG thumbnail on the dashboard / viewer (lazy, cached at `<SYSTEM_PATH>/doc_thumbnails/`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#microsoft-word-requirement-for-doc-source-files--pdf-output--doc-thumbnails) for setup details.
 
 ---
 
@@ -182,7 +186,8 @@ MATC_QB_MATHSMART2024_Q1_EN_QUE.png
 | `SECRET_KEY` | Flask secret key | `change-this` |
 | `FLASK_DEBUG` | Debug mode | `1` (dev) / `0` (prod) |
 | `SOURCE_PATH` | Path to question asset files | `Q:\Source` |
-| `OUTPUT_PATH` | Path to save generated files | `C:\oqb2\output` |
+| `STORAGE_PATH` | Unified storage tree (Shared/System/User); same drive as `SOURCE_PATH` | `Q:\Storage` |
+| `OUTPUT_PATH` | Legacy fallback for pre-migration generated files | `C:\oqb2\output` |
 
 ---
 

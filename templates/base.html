@@ -480,6 +480,9 @@
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('user.profiles') }}"><i class="bi bi-bookmark"></i> Search Profiles</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('toolbox.index') }}"><i class="bi bi-tools"></i> Toolbox</a></li>
+                                {% if current_user.is_super_admin or not current_user.is_all_view_only() %}
+                                <li><a class="dropdown-item" href="{{ url_for('files.browser') }}"><i class="bi bi-folder2-open"></i> File Browser</a></li>
+                                {% endif %}
                                 {% if current_user.can_generate() %}
                                 <li><a class="dropdown-item" href="{{ url_for('user.sets') }}"><i class="bi bi-collection"></i> Question Sets</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('user.gen_profiles') }}"><i class="bi bi-bookmark-star"></i> Generation Presets</a></li>
