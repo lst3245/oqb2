@@ -1,12 +1,14 @@
 ---
 description: File ingestion system - filename parsing, folder structure, and sync logic
-globs: app/ingestor.py,templates/admin_ingestion.html
+globs: app/ingestor.py,app/smart_import.py,templates/admin_smart_import.html
 alwaysApply: false
 ---
 
 # File Ingestion (`app/ingestor.py`)
 
 Scans `SOURCE_PATH` and upserts questions + assets into the database based on filename patterns.
+
+> The strict scan here is the **Library scan** mode of the unified **Smart Import** tool (`/admin/import`, `templates/admin_smart_import.html`). `app/smart_import.py` reuses this module's `parse_filename` / `construct_qid` / `determine_file_format` / `determine_question_type` for its heuristic **Folder import** mode. See [smart-import.mdc](mdc:.cursor/rules/smart-import.mdc). The old `templates/admin_ingestion.html` page is retired.
 
 ## Expected Folder Structure
 ```

@@ -3497,10 +3497,8 @@ def import_chapters():
 @login_required
 @admin_required
 def ingestion():
-    """Ingestion management page"""
-    subjects = get_user_admin_subjects()
-    source_path = current_app.config['SOURCE_PATH']
-    return render_template('admin_ingestion.html', subjects=subjects, source_path=source_path)
+    """Legacy ingestion URL — now folded into the unified Smart Import tool."""
+    return redirect(url_for('admin.smart_import_page', **request.args.to_dict()))
 
 
 @admin_bp.route('/ingestion/preview')
@@ -3572,6 +3570,205 @@ def ingestion_start():
                 yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {str(e)}'})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'message': 'Ingestion failed due to error.'})}\n\n"
     
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ==================== Smart Import (unified ingestion + folder import) ====================
+#
+# One tool, two modes:
+#   * Library scan  — strict scan of SOURCE_PATH/<subject> (reuses
+#     ingestion_preview + scan_directory_stream above).
+#   * Folder import — heuristic match of an arbitrary server folder (any
+#     IMG/DOC/MD dump) onto questions + asset slots, with old-vs-new review
+#     and create/overwrite apply. Engine: app/smart_import.py.
+
+def _smart_import_resolve_root(root_id):
+    """Resolve a browsable Root for the current user (user scope) or return
+    ``(None, error_message)``."""
+    from app.files_service import RootRegistry
+    root = RootRegistry(current_user).resolve(root_id)
+    if root is None:
+        return None, 'You do not have access to that location.'
+    return root, None
+
+
+def _smart_import_filter_subjects(proposals):
+    """Flag proposals whose subject the caller cannot admin as skipped."""
+    admin_ids = {s.id for s in get_user_admin_subjects()}
+    for p in proposals:
+        subj = (p.get('subject') or '').upper()
+        if subj and subj not in admin_ids and p.get('status') != 'skip':
+            p['status'] = 'skip'
+            p['accept'] = False
+            p['note'] = f'No admin access to subject {subj}.'
+    return proposals
+
+
+@admin_bp.route('/import')
+@login_required
+@admin_required
+def smart_import_page():
+    """Unified Smart Import page (Library scan + Folder import modes)."""
+    subjects = get_user_admin_subjects()
+    source_path = current_app.config['SOURCE_PATH']
+    mode = request.args.get('mode', 'library')
+    qids = request.args.get('qids', '')
+    return render_template(
+        'admin_smart_import.html',
+        subjects=subjects,
+        source_path=source_path,
+        ai_tools_enabled=current_app.config.get('AI_TOOLS_ENABLED', True),
+        initial_mode=mode,
+        initial_qids=qids,
+    )
+
+
+@admin_bp.route('/import/analyze', methods=['POST'])
+@login_required
+@admin_required
+def smart_import_analyze():
+    """Resolve a folder into match proposals (Folder import step 2)."""
+    from app import smart_import
+
+    data = request.get_json(silent=True) or {}
+    root, err = _smart_import_resolve_root(data.get('root_id'))
+    if err:
+        return jsonify({'error': err}), 403
+
+    qids = data.get('qids') or None
+    if isinstance(qids, str):
+        qids = [q.strip() for q in qids.split(',') if q.strip()] or None
+
+    result = smart_import.resolve_folder(
+        root.path, data.get('rel_path', ''), data.get('profile') or {},
+        qid_scope=qids)
+    if result.get('error'):
+        return jsonify({'error': result['error']}), 400
+
+    _smart_import_filter_subjects(result['proposals'])
+    result['stats'] = smart_import._summarize(result['proposals'])
+    return jsonify(result)
+
+
+@admin_bp.route('/import/analyze-llm', methods=['POST'])
+@login_required
+@admin_required
+def smart_import_analyze_llm():
+    """Optional AI structure inference: infer folder-level defaults, re-seed
+    the profile, and re-resolve."""
+    from app import smart_import
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+
+    data = request.get_json(silent=True) or {}
+    root, err = _smart_import_resolve_root(data.get('root_id'))
+    if err:
+        return jsonify({'error': err}), 403
+
+    # Resolve the endpoint (explicit id, else the PDF-import default chain).
+    cfg = None
+    endpoint_id = data.get('endpoint_id')
+    if endpoint_id:
+        from app.models import LLMConfig
+        cfg = LLMConfig.query.filter_by(id=endpoint_id, enabled=True).first()
+    if cfg is None:
+        cfg = _pdf_default_endpoint()
+    if cfg is None:
+        return jsonify({'error': 'No enabled LLM endpoint is available.'}), 400
+
+    profile = data.get('profile') or {}
+    try:
+        rule, raw = smart_import.infer_structure_rule(
+            root.path, data.get('rel_path', ''), profile, cfg)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 400
+
+    # Merge the inferred rule into the profile and re-resolve.
+    merged = smart_import.normalize_profile(profile)
+    merged['rule'] = {k: v for k, v in rule.items() if k != 'notes'}
+
+    qids = data.get('qids') or None
+    if isinstance(qids, str):
+        qids = [q.strip() for q in qids.split(',') if q.strip()] or None
+
+    result = smart_import.resolve_folder(root.path, data.get('rel_path', ''), merged,
+                                         qid_scope=qids)
+    _smart_import_filter_subjects(result.get('proposals', []))
+    result['stats'] = smart_import._summarize(result.get('proposals', []))
+    result['rule'] = rule
+    result['rule_raw'] = raw
+    result['endpoint'] = cfg.name
+    return jsonify(result)
+
+
+@admin_bp.route('/import/prepare', methods=['POST'])
+@login_required
+@admin_required
+def smart_import_prepare():
+    """Validate the accepted proposals into an apply plan, stash it under a
+    token, and return the token for the SSE apply GET."""
+    from app import smart_import
+
+    data = request.get_json(silent=True) or {}
+    root, err = _smart_import_resolve_root(data.get('root_id'))
+    if err:
+        return jsonify({'error': err}), 403
+
+    items = data.get('items') or []
+    # Defence in depth: drop any item targeting a subject the caller can't admin.
+    admin_ids = {s.id for s in get_user_admin_subjects()}
+    items = [it for it in items
+             if (str(it.get('subject', '')).upper() in admin_ids)]
+    if not items:
+        return jsonify({'error': 'No applicable items selected.'}), 400
+
+    plan = smart_import.build_plan(root.path, data.get('root_id'), items,
+                                   data.get('profile') or {})
+    if not plan['jobs']:
+        return jsonify({'error': 'Nothing to apply.', 'skipped': plan['skipped']}), 400
+
+    token = smart_import.save_plan(plan)
+    return jsonify({'token': token, 'count': len(plan['jobs']),
+                    'skipped': plan['skipped']})
+
+
+@admin_bp.route('/import/apply')
+@login_required
+@admin_required
+def smart_import_apply():
+    """SSE stream that applies a prepared import plan."""
+    from app import smart_import
+
+    token = request.args.get('token', '')
+    try:
+        plan = smart_import.load_plan(token)
+    except (ValueError, OSError):
+        def err_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Import plan not found or expired.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+        return Response(err_gen(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    # Re-validate subject access on every job before applying.
+    admin_ids = {s.id for s in get_user_admin_subjects()}
+    plan['jobs'] = [j for j in plan.get('jobs', [])
+                    if str(j.get('subject', '')).upper() in admin_ids]
+
+    app = current_app._get_current_object()
+
+    def generate():
+        with app.app_context():
+            try:
+                for event in smart_import.iter_apply(plan, app):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Unexpected error: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Import failed due to error.'})}\n\n"
+            finally:
+                smart_import.discard_plan(token)
+
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 

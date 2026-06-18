@@ -97,12 +97,16 @@ All exports are CSV. Imports are idempotent (upsert logic).
 - **Topics CSV**: `subject_id, topic_name, subtopic_name, subtopic_hidden`. Row order = sort order.
 - **Chapters CSV**: `subject_id, chapter_name, subchapter_name, subchapter_hidden`. Row order = sort order.
 
-### Ingestion (`/admin/ingestion`)
-- `GET /admin/ingestion/preview` — scan SOURCE_PATH, show directory tree + parseable file counts
-- `GET /admin/ingestion/start?subject=MATC` — **SSE stream** that yields JSON progress events
-  - Event types: `info`, `success`, `skip`, `error`, `progress`, `done`
-  - `subject` param scans only `SOURCE_PATH/<subject>/` subfolder; omit to scan all
-  - Uses `scan_directory_stream()` from `app/ingestor.py`
+### Smart Import (`/admin/import`) — unified ingestion + folder import
+Two modes on one page (`admin_smart_import.html`). Replaces the old Ingestion page; `GET /admin/ingestion` 302-redirects to `/admin/import`. See [smart-import.mdc](mdc:.cursor/rules/smart-import.mdc).
+- **Library scan** (strict): `GET /admin/ingestion/preview` (directory tree + parseable counts) and `GET /admin/ingestion/start?subject_id=MATC` (**SSE** `scan_directory_stream()`; event types `info|success|skip|error|progress|done`) — both still live and reused by this mode.
+- **Folder import** (heuristic, IMG/DOC/MD), engine `app/smart_import.py`:
+  - `GET /admin/import` — page (`?mode=folder`, optional `?qids=` scope).
+  - `POST /admin/import/analyze` — `{root_id, rel_path, profile, qids?}` → match proposals (subject-admin filtered).
+  - `POST /admin/import/analyze-llm` — optional AI structure inference (gated on `AI_TOOLS_ENABLED`).
+  - `POST /admin/import/prepare` — `{root_id, items, profile}` → validated plan stashed under a token.
+  - `GET /admin/import/apply?token=` — **SSE** apply (copy into canonical `SOURCE_PATH`; IMG whole-slot replace, DOC/MD single-slot; optional backup + create-missing).
+  - **Import Files** toolbar button on Question Management scopes Folder import to selected QIDs.
 
 ### PDF Batch Import (`/admin/pdf-import`)
 Three-step UI: **Load PDF** (stage/rasterise) → **define bounding boxes** (optional vision-LLM detect + manual box editor) → **import** (exam: crop + `QUE`/`SOL` IMG assets; generic: ZIP). PP only for DB import; subject-admin scoped. Staging works without AI; detect/commit need `AI_TOOLS_ENABLED` + vision endpoint. Backed by `app/pdf_import.py`. Routes: `pdf_import_page`, `stage`, `page/<token>/<kind>/<int:page>.png`, `detect` (SSE), `redo-page`, `plan`, `commit` (SSE), `cancel`, `discard`, `export-zip`, etc. See [pdf-import.mdc](mdc:.cursor/rules/pdf-import.mdc).

@@ -6,6 +6,13 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ New Features
 
+- **Smart Import (unified ingestion + heuristic folder import).** The old Question Ingestion page is replaced by one **Smart Import** tool (`/admin/import`, navbar + Admin index) with two modes:
+  - **Library scan** — the previous fast, strict behaviour: pick a subject, scan `SOURCE_PATH/<subject>`, create/update from canonical filenames (reuses `scan_directory_stream`). Unchanged.
+  - **Folder import** — pick *any* server folder (even a messy dump like `2012/P1/Q9.png`) via the unified file selector and let the engine match each file to an existing question + asset slot. It parses canonical filenames first, then falls back to a heuristic path/token scan (recovers year / paper / question-number), filling the remaining dimensions (subject / source / version / type) from a per-import **profile**. Supports **IMG, DOC, and MD**. A review grid shows each proposal's status (**overwrite / add / unmatched / ambiguous / skip**), confidence, and an **old-vs-new preview**, with per-row QID/slot edits and bulk accept. Applying **copies** accepted files into their canonical `SOURCE_PATH` location and overwrites the slot (IMG = whole-slot replace; DOC/MD = single-slot), with optional **back-up of replaced files** (to `System/ImportBackups/<timestamp>/`) and optional **create-missing-questions** (so a not-yet-canonical folder can be ingested smoothly).
+  - **AI assist (optional).** "Analyze with AI" sends the directory tree + schema to a configured LLM endpoint and gets back folder-level default **rules** (source / version / type / QB detail); the deterministic engine then re-runs, so output stays safe and cheap. Gated on `AI_TOOLS_ENABLED`.
+  - **From Question Management.** A new **Import Files** toolbar button opens Folder import scoped to the currently-selected questions' QIDs — ideal for batch-fixing questions flagged with issues.
+  - New module `app/smart_import.py`; new routes `GET /admin/import`, `POST /admin/import/analyze`, `POST /admin/import/analyze-llm`, `POST /admin/import/prepare`, `GET /admin/import/apply` (SSE). The legacy `/admin/ingestion` URL now redirects to `/admin/import`; `admin_ingestion.html` is retired in favour of `admin_smart_import.html`.
+
 - **OQB logo.** New SVG brand mark (minimal `Q` monogram with subtle open-book lines) in `static/img/` — `logo.svg`, `logo-navbar.svg`, `logo-white.svg`, and `favicon.svg`. Wired into the navbar, login page, and browser tab icon.
 
 - **Unified Storage tree + per-user File Browser + shared file selector.** All app-managed files now live under a single configurable `STORAGE_PATH` (default `Q:\Storage`, beside `Q:\Source`) split into three roots:

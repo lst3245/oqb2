@@ -75,6 +75,9 @@
                     <button class="btn btn-sm btn-outline-warning" id="bulkAssetOpsBtn" style="display:none" onclick="openBatchAssetOpsModal()" title="Copy or move assets between slots for the selected questions">
                         <i class="bi bi-files"></i> Copy/Move Assets (<span id="selCountBadgeAssetOps">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-outline-primary" id="importFilesBtn" onclick="openSmartImport()" title="Import fixed/updated image, Word, or Markdown files from a server folder">
+                        <i class="bi bi-folder-plus"></i> Import Files<span id="importFilesScope"></span>
+                    </button>
                     {% if ai_tools_enabled %}
                     <button class="btn btn-sm btn-primary" id="bulkAiToolsBtn" style="display:none" onclick="openAiToolsModal()" title="Run AI proofreading or Markdown generation on the selected questions">
                         <i class="bi bi-robot"></i> AI Tools (<span id="selCountBadgeAi">0</span>)
@@ -1303,7 +1306,7 @@ function renderTable(data) {
     tbody.innerHTML = data.items.map(q => {
         const sel = selectedQIds.has(q.id) ? 'selected-row' : '';
         const chk = selectedQIds.has(q.id) ? 'checked' : '';
-        return `<tr class="q-row ${sel}" data-id="${q.id}">
+        return `<tr class="q-row ${sel}" data-id="${q.id}" data-qid="${q.qid}">
             <td><input type="checkbox" class="form-check-input q-checkbox" value="${q.id}" ${chk} onchange="toggleRowSelect(this)"></td>
             <td><code class="text-dark">${q.qid}</code></td>
             <td>${q.subject}</td>
@@ -1434,6 +1437,17 @@ function toggleSelectAll(cb) {
     updateSelectionUI();
 }
 
+function openSmartImport() {
+    // Collect the QIDs of selected rows on the current page to scope matching.
+    const qids = Array.from(document.querySelectorAll('#questionTableBody tr.q-row'))
+        .filter(tr => selectedQIds.has(parseInt(tr.dataset.id, 10)))
+        .map(tr => tr.dataset.qid)
+        .filter(Boolean);
+    let url = '{{ url_for("admin.smart_import_page") }}?mode=folder';
+    if (qids.length) url += '&qids=' + encodeURIComponent(qids.join(','));
+    window.open(url, '_blank');
+}
+
 function updateSelectionUI() {
     const count = selectedQIds.size;
     document.getElementById('selCountBadge').textContent = count;
@@ -1462,6 +1476,8 @@ function updateSelectionUI() {
     const chkBadge = document.getElementById('selCountBadgeChk');
     if (chkBtn) chkBtn.style.display = count > 0 ? '' : 'none';
     if (chkBadge) chkBadge.textContent = count;
+    const importScope = document.getElementById('importFilesScope');
+    if (importScope) importScope.textContent = count > 0 ? ` (${count})` : '';
     const verWrap = document.getElementById('bulkVerifiedWrap');
     const verBadge = document.getElementById('selCountBadgeVer');
     if (verWrap) verWrap.style.display = count > 0 ? '' : 'none';

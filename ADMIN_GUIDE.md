@@ -13,7 +13,7 @@
 5. [User Management](#5-user-management)
 6. [Topic & Chapter Management](#6-topic--chapter-management)
 7. [Question Management & Tagging](#7-question-management--tagging)
-8. [File Ingestion](#8-file-ingestion)
+8. [File Ingestion (Smart Import)](#8-file-ingestion-smart-import)
 9. [Export & Import](#9-export--import)
 10. [Database Health & Sync](#10-database-health--sync)
 11. [Toolbox](#11-toolbox)
@@ -313,9 +313,11 @@ Every rendered DOC thumbnail (dashboard card, preview modal, admin question moda
 
 ---
 
-## 8. File Ingestion
+## 8. File Ingestion (Smart Import)
 
-Navigate to **Admin → Ingestion**.
+Navigate to **Admin → Smart Import**. It has two modes:
+- **Library scan** — the classic strict scan of `SOURCE_PATH` (described below).
+- **Folder import** — match an arbitrary folder of files onto questions, with review (see [Folder import](#folder-import-heuristic)).
 
 ### Source Directory Structure
 Files must be organised under `SOURCE_PATH` following this structure:
@@ -339,10 +341,10 @@ MATC_DSE_2024_P1_Q5_ENO_QUE.png    ← ENO = official public-exam scan
 ```
 `VERSION` ∈ `EN` / `CH` / `BI` / `ENO` (English Official) / `CHO` (Chinese Official).
 
-### Running Ingestion
+### Running a Library scan
 
 **From the web UI** (recommended):
-1. Go to Admin → Ingestion
+1. Go to Admin → Smart Import → **Library scan** mode
 2. Optionally select a specific subject to scan only that subfolder
 3. Click **Preview** to see what files will be processed
 4. Click **Start Ingestion**
@@ -354,14 +356,30 @@ python cli.py ingest
 python cli.py ingest --source-path "D:\NewFiles"
 ```
 
-### What Ingestion Does
+### What a Library scan Does
 - Scans `SOURCE_PATH` recursively
 - Parses filenames with regex patterns
 - Creates `Question` records (if new QID) and `QuestionAsset` records (insert or update path)
 - Skips files that don't match any naming pattern
 - Reports errors to `ingest_errors.log`
 
-### After Ingestion
+<a name="folder-import-heuristic"></a>
+### Folder import (heuristic match + review)
+
+Use this when you have a folder of files that are **not** canonically named/placed — for example, updated/fixed images exported as `2012/P1/Q9.png`, or a fresh dump you have not renamed yet. Supports **IMG, DOC, and MD**.
+
+1. Go to Admin → Smart Import → **Folder import** mode.
+2. **Choose** a folder on the server (any location you can access in the file browser, e.g. under `Shared/<subject>`).
+3. Set the **profile** — the defaults applied to every file: Subject, Source (DSE/CE/AL/QB), default Version (EN/CH/…) and Type (QUE/ANS/SOL), and optionally the QB Detail. These fill in whatever the folder/filenames don't already encode.
+   - Flags: **Overwrite existing slot** (replace files already in the target slot), **Back up replaced files** (copies them to `System/ImportBackups/<timestamp>/` first), **Create missing questions** (also create the `Question` record when the QID does not exist yet — handy for ingesting a brand-new folder).
+   - Optional **Analyze with AI**: asks an LLM to infer the folder's structure (which defaults to use) and re-runs the match. Requires AI Tools to be enabled.
+4. Click **Analyze folder**. Each file becomes a proposal with a status — **Overwrite** / **Add** / **Unmatched** / **Ambiguous** / **Skip** — plus a confidence and an **old-vs-new preview**.
+5. **Review**: tick the files to apply (or use *Accept all matched*), fix any QID or slot (version/type) inline, and filter the list (e.g. show only unmatched/ambiguous).
+6. Click **Apply**. Accepted files are copied into their canonical `SOURCE_PATH` location and the slot is overwritten (images replace the whole slot; DOC/MD replace the single slot). Watch the live log.
+
+Opening Folder import from **Admin → Questions** via the **Import Files** button restricts matching to the currently-selected questions (and disables create-missing) — ideal for batch-fixing flagged questions.
+
+### After importing
 Run the tag editor in Admin → Questions to assign topics, levels, etc. to newly ingested questions. Use batch update for efficiency.
 
 ---

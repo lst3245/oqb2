@@ -1,0 +1,818 @@
+{% extends "base.html" %}
+
+{% block title %}Smart Import - Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .log-console {
+        background: #1e1e1e; color: #d4d4d4;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.82rem; padding: 1rem; border-radius: 6px;
+        height: 360px; overflow-y: auto; white-space: pre-wrap;
+        word-break: break-all; line-height: 1.5;
+    }
+    .log-console .log-info { color: #569cd6; }
+    .log-console .log-success { color: #6a9955; }
+    .log-console .log-skip { color: #ce9178; }
+    .log-console .log-warning { color: #d7ba7d; }
+    .log-console .log-error { color: #f44747; }
+    .log-console .log-done { color: #dcdcaa; font-weight: bold; }
+    .preview-table th { font-size: 0.85rem; }
+    .preview-table td { font-size: 0.85rem; font-family: 'Consolas', 'Courier New', monospace; }
+    .proposal-table { font-size: 0.85rem; }
+    .proposal-table td { vertical-align: middle; }
+    .proposal-thumb { max-height: 60px; max-width: 110px; border: 1px solid #dee2e6; border-radius: 4px; background: #fff; }
+    .proposal-qid { font-family: 'Consolas', monospace; min-width: 230px; }
+    .slot-select { width: auto; display: inline-block; }
+    .conf-high { color: #198754; }
+    .conf-medium { color: #fd7e14; }
+    .conf-low, .conf-none { color: #dc3545; }
+    .row-skip { opacity: 0.55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4 px-4">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h2 class="mb-0"><i class="bi bi-magic"></i> Smart Import</h2>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+    <p class="text-muted mt-1">
+        Import question files into the database. <strong>Library scan</strong> imports canonically-named files
+        already under the source folder. <strong>Folder import</strong> matches any folder (even a messy dump of
+        IMG/DOC/MD files) onto existing questions and asset slots, with review before applying.
+    </p>
+
+    <!-- Mode switch -->
+    <div class="btn-group mb-3" role="group" aria-label="Import mode">
+        <input type="radio" class="btn-check" name="importMode" id="modeLibrary" autocomplete="off" checked>
+        <label class="btn btn-outline-primary" for="modeLibrary"><i class="bi bi-folder-symlink"></i> Library scan</label>
+        <input type="radio" class="btn-check" name="importMode" id="modeFolder" autocomplete="off">
+        <label class="btn btn-outline-primary" for="modeFolder"><i class="bi bi-folder-plus"></i> Folder import</label>
+    </div>
+
+    <!-- ============================ LIBRARY SCAN ============================ -->
+    <div id="librarySection">
+        <div class="row mb-3 align-items-end">
+            <div class="col-md-4">
+                <label for="subjectSelect" class="form-label fw-bold">Subject</label>
+                <select id="subjectSelect" class="form-select" onchange="libUpdateButtons()">
+                    <option value="">-- Select Subject --</option>
+                    {% for subject in subjects %}
+                    <option value="{{ subject.id }}">{{ subject.name }} ({{ subject.id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">Source Path</label>
+                <input type="text" class="form-control" value="{{ source_path }}" readonly disabled>
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button id="btnPreview" class="btn btn-outline-primary" onclick="loadPreview()" disabled>
+                    <i class="bi bi-search"></i> Preview
+                </button>
+                <button id="btnStart" class="btn btn-success" onclick="startIngestion()" disabled>
+                    <i class="bi bi-play-fill"></i> Start Ingestion
+                </button>
+                <button id="btnStop" class="btn btn-danger d-none" onclick="stopIngestion()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+            </div>
+        </div>
+
+        <div id="previewPanel" class="card mb-3 d-none">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-folder2-open"></i> Source Folder Preview</span>
+                <span id="previewSummary" class="text-muted small"></span>
+            </div>
+            <div class="card-body p-0" style="max-height: 280px; overflow-y: auto;">
+                <table class="table table-sm table-striped mb-0 preview-table">
+                    <thead class="table-light sticky-top">
+                        <tr><th>Folder</th><th class="text-center">Total Files</th>
+                            <th class="text-center">Parseable</th><th class="text-center">Skipped</th></tr>
+                    </thead>
+                    <tbody id="previewBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="previewError" class="alert alert-warning d-none mb-3">
+            <i class="bi bi-exclamation-triangle"></i> <span id="previewErrorMsg"></span>
+        </div>
+
+        <div id="progressSection" class="mb-3 d-none">
+            <div class="d-flex justify-content-between mb-1">
+                <small id="progressLabel" class="text-muted">Processing...</small>
+                <small id="progressCount" class="text-muted">0 / 0</small>
+            </div>
+            <div class="progress" style="height: 22px;">
+                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 0%;">0%</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-terminal"></i> Ingestion Log</span>
+                <div>
+                    <span id="logStatus" class="badge bg-secondary">Idle</span>
+                    <button class="btn btn-sm btn-outline-light ms-2" onclick="clearLog()" title="Clear log">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="logConsole" class="log-console">Welcome to the Smart Import console.
+Select a subject and click "Start Ingestion" to begin a library scan.
+</div>
+        </div>
+
+        <div id="summaryPanel" class="card mt-3 d-none">
+            <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> Ingestion Summary</div>
+            <div class="card-body"><div class="row text-center" id="summaryStats"></div></div>
+        </div>
+    </div>
+
+    <!-- ============================ FOLDER IMPORT ============================ -->
+    <div id="folderSection" class="d-none">
+        <div id="scopeBanner" class="alert alert-info d-none">
+            <i class="bi bi-funnel"></i> Matching is restricted to
+            <strong id="scopeCount">0</strong> selected question(s) from Question Management.
+            New questions will not be created in this scope.
+        </div>
+
+        <!-- Step 1: Source + profile -->
+        <div class="card mb-3">
+            <div class="card-header bg-light"><i class="bi bi-1-circle"></i> Source folder &amp; profile</div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Folder on server</label>
+                        <div class="input-group">
+                            <input type="text" id="folderDisplay" class="form-control" readonly
+                                   placeholder="No folder selected" value="">
+                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()">
+                                <i class="bi bi-folder2-open"></i> Choose...
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Subject</label>
+                        <select id="fiSubject" class="form-select">
+                            {% for subject in subjects %}
+                            <option value="{{ subject.id }}">{{ subject.name }} ({{ subject.id }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Source</label>
+                        <select id="fiSource" class="form-select" onchange="fiToggleDetail()">
+                            <option value="DSE">DSE</option>
+                            <option value="CE">CE</option>
+                            <option value="AL">AL</option>
+                            <option value="QB">QB</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 align-items-end mt-1">
+                    <div class="col-md-3" id="fiDetailWrap" style="display:none">
+                        <label class="form-label fw-bold">QB Detail</label>
+                        <input type="text" id="fiDetail" class="form-control" placeholder="e.g. MATHSMART2024">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Default version</label>
+                        <select id="fiVersion" class="form-select"></select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Default type</label>
+                        <select id="fiType" class="form-select">
+                            <option value="QUE">QUE</option>
+                            <option value="ANS">ANS</option>
+                            <option value="SOL">SOL</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="fiOverwrite" checked>
+                            <label class="form-check-label" for="fiOverwrite">Overwrite existing slot</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="fiBackup">
+                            <label class="form-check-label" for="fiBackup">Back up replaced files</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="fiCreateMissing">
+                            <label class="form-check-label" for="fiCreateMissing">Create missing questions</label>
+                        </div>
+                    </div>
+                </div>
+
+                {% if ai_tools_enabled %}
+                <hr>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold"><i class="bi bi-robot"></i> AI assist (optional)</label>
+                        <select id="fiEndpoint" class="form-select form-select-sm">
+                            <option value="">Default endpoint</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-sm btn-outline-info" type="button" onclick="analyzeWithAI()">
+                            <i class="bi bi-stars"></i> Analyze with AI
+                        </button>
+                    </div>
+                    <div class="col-md-5">
+                        <small id="aiNotes" class="text-muted"></small>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="mt-3">
+                    <button class="btn btn-primary" type="button" id="btnAnalyze" onclick="analyzeFolder()" disabled>
+                        <i class="bi bi-search"></i> Analyze folder
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Review -->
+        <div class="card mb-3 d-none" id="reviewCard">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="bi bi-2-circle"></i> Review matches</span>
+                <div id="statBadges" class="d-flex gap-1 flex-wrap small"></div>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-2 align-items-center mb-2 flex-wrap">
+                    <select id="fiFilter" class="form-select form-select-sm" style="width:auto" onchange="renderProposals()">
+                        <option value="all">Show all</option>
+                        <option value="actionable">Matched (overwrite/add)</option>
+                        <option value="overwrite">Overwrite only</option>
+                        <option value="add">Add only</option>
+                        <option value="unmatched">Unmatched</option>
+                        <option value="ambiguous">Ambiguous</option>
+                        <option value="skip">Skipped</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-success" onclick="acceptAllMatched()">
+                        <i class="bi bi-check2-all"></i> Accept all matched
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="acceptNone()">
+                        <i class="bi bi-x-lg"></i> Clear accepts
+                    </button>
+                    <span class="ms-auto text-muted small"><span id="acceptCount">0</span> accepted</span>
+                </div>
+                <div class="table-responsive" style="max-height: 480px; overflow-y:auto;">
+                    <table class="table table-sm table-hover proposal-table mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width:34px;"><input type="checkbox" id="acceptAllChk" onclick="toggleAcceptAll(this)"></th>
+                                <th>Status</th>
+                                <th>QID</th>
+                                <th>Slot</th>
+                                <th>Old</th>
+                                <th>New</th>
+                                <th>Match</th>
+                                <th>Note</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proposalBody"></tbody>
+                    </table>
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-success" id="btnApply" onclick="applyImport()" disabled>
+                        <i class="bi bi-cloud-upload"></i> Apply <span id="applyCount">0</span> file(s)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Apply log -->
+        <div class="card d-none" id="applyCard">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-3-circle"></i> Apply log</span>
+                <span id="applyStatus" class="badge bg-secondary">Idle</span>
+            </div>
+            <div class="card-body">
+                <div id="applyProgressSection" class="mb-3 d-none">
+                    <div class="d-flex justify-content-between mb-1">
+                        <small class="text-muted">Applying...</small>
+                        <small id="applyProgressCount" class="text-muted">0 / 0</small>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div id="applyProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width:0%;">0%</div>
+                    </div>
+                </div>
+                <div id="applyConsole" class="log-console"></div>
+            </div>
+        </div>
+    </div>
+
+    {% include 'partials/file_selector.html' %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const AI_ENABLED = {{ 'true' if ai_tools_enabled else 'false' }};
+const INITIAL_MODE = {{ initial_mode|tojson }};
+const INITIAL_QIDS = {{ initial_qids|tojson }};
+
+// ============================ Mode switch ============================
+const librarySection = document.getElementById('librarySection');
+const folderSection = document.getElementById('folderSection');
+document.getElementById('modeLibrary').addEventListener('change', () => switchMode('library'));
+document.getElementById('modeFolder').addEventListener('change', () => switchMode('folder'));
+
+function switchMode(mode) {
+    librarySection.classList.toggle('d-none', mode !== 'library');
+    folderSection.classList.toggle('d-none', mode !== 'folder');
+}
+
+// ============================ Library scan ============================
+let eventSource = null;
+let isRunning = false;
+const subjectSelect = document.getElementById('subjectSelect');
+const btnPreview = document.getElementById('btnPreview');
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const logConsole = document.getElementById('logConsole');
+const logStatus = document.getElementById('logStatus');
+const progressSection = document.getElementById('progressSection');
+const progressBar = document.getElementById('progressBar');
+const progressCount = document.getElementById('progressCount');
+const previewPanel = document.getElementById('previewPanel');
+const previewError = document.getElementById('previewError');
+const summaryPanel = document.getElementById('summaryPanel');
+
+function libUpdateButtons() {
+    const hasValue = subjectSelect.value !== '';
+    btnPreview.disabled = !hasValue;
+    btnStart.disabled = !hasValue || isRunning;
+}
+
+function appendLog(message, type) {
+    const span = document.createElement('span');
+    span.className = 'log-' + (type || 'info');
+    span.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n`;
+    logConsole.appendChild(span);
+    logConsole.scrollTop = logConsole.scrollHeight;
+}
+
+function clearLog() {
+    logConsole.innerHTML = '';
+    summaryPanel.classList.add('d-none');
+}
+
+function loadPreview() {
+    const subjectId = subjectSelect.value;
+    if (!subjectId) return;
+    previewPanel.classList.add('d-none');
+    previewError.classList.add('d-none');
+    appendLog(`Loading preview for subject: ${subjectId}...`, 'info');
+    fetch(`{{ url_for('admin.ingestion_preview') }}?subject_id=${encodeURIComponent(subjectId)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error && (!data.folders || data.folders.length === 0)) {
+                previewError.classList.remove('d-none');
+                document.getElementById('previewErrorMsg').textContent =
+                    data.error + (data.subject_path ? ` (${data.subject_path})` : '');
+                appendLog(`Preview: ${data.error}`, 'warning');
+                return;
+            }
+            const tbody = document.getElementById('previewBody');
+            tbody.innerHTML = '';
+            data.folders.forEach(f => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${f.path || '(root)'}</td>
+                    <td class="text-center">${f.total}</td>
+                    <td class="text-center"><span class="badge bg-success">${f.parseable}</span></td>
+                    <td class="text-center">${f.skipped > 0 ? '<span class="badge bg-warning text-dark">' + f.skipped + '</span>' : '<span class="text-muted">0</span>'}</td>`;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('previewSummary').textContent =
+                `Total: ${data.total_files} files | Parseable: ${data.parseable_files} | Will skip: ${data.skipped_files}`;
+            previewPanel.classList.remove('d-none');
+            appendLog(`Preview loaded: ${data.total_files} files found, ${data.parseable_files} parseable`, 'success');
+        })
+        .catch(err => {
+            previewError.classList.remove('d-none');
+            document.getElementById('previewErrorMsg').textContent = 'Failed to load preview: ' + err.message;
+            appendLog('Preview failed: ' + err.message, 'error');
+        });
+}
+
+function startIngestion() {
+    const subjectId = subjectSelect.value;
+    if (!subjectId || isRunning) return;
+    if (!confirm(`Start library scan for subject "${subjectId}"?\n\nThis scans the source folder and imports/updates canonically-named files.`)) return;
+    isRunning = true;
+    btnStart.classList.add('d-none');
+    btnStop.classList.remove('d-none');
+    subjectSelect.disabled = true;
+    btnPreview.disabled = true;
+    logStatus.textContent = 'Running';
+    logStatus.className = 'badge bg-success';
+    summaryPanel.classList.add('d-none');
+    progressSection.classList.remove('d-none');
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    appendLog(`Starting library scan for subject: ${subjectId}`, 'info');
+    const url = `{{ url_for('admin.ingestion_start') }}?subject_id=${encodeURIComponent(subjectId)}`;
+    eventSource = new EventSource(url);
+    eventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            appendLog(event.message, event.type);
+            if (event.current !== undefined && event.total && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                progressBar.style.width = pct + '%';
+                progressBar.textContent = pct + '%';
+                progressCount.textContent = `${event.current} / ${event.total}`;
+            }
+            if (event.type === 'done') finishIngestion(event);
+        } catch (err) { appendLog('Error parsing event: ' + err.message, 'error'); }
+    };
+    eventSource.onerror = function() {
+        if (isRunning) { appendLog('Connection closed.', 'info'); finishIngestion(null); }
+    };
+}
+
+function finishIngestion(event) {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    isRunning = false;
+    btnStart.classList.remove('d-none');
+    btnStop.classList.add('d-none');
+    subjectSelect.disabled = false;
+    btnPreview.disabled = false;
+    btnStart.disabled = !subjectSelect.value;
+    logStatus.textContent = 'Complete';
+    logStatus.className = 'badge bg-primary';
+    progressBar.classList.remove('progress-bar-animated');
+    if (event && event.stats) {
+        const s = event.stats;
+        document.getElementById('summaryStats').innerHTML = `
+            <div class="col"><div class="fs-3 fw-bold text-success">${s.processed}</div><small class="text-muted">Processed</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-primary">${s.new_questions}</div><small class="text-muted">New Questions</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-info">${s.new_assets}</div><small class="text-muted">New Assets</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-secondary">${s.updated_assets}</div><small class="text-muted">Updated Assets</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">Skipped</small></div>
+            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">Errors</small></div>`;
+        summaryPanel.classList.remove('d-none');
+        progressBar.classList.add(s.errors > 0 ? 'bg-warning' : 'bg-success');
+    }
+}
+
+function stopIngestion() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    appendLog('Library scan stopped by user.', 'warning');
+    finishIngestion(null);
+    logStatus.textContent = 'Stopped';
+    logStatus.className = 'badge bg-warning text-dark';
+}
+
+// ============================ Folder import ============================
+const VERSIONS = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+const VERSION_LABELS = window.OQB_VERSION_LABELS || {};
+let selectedRoot = null;
+let selectedPath = '';
+let selectedFolderName = '';
+let proposals = [];
+let scopeQids = (INITIAL_QIDS || '').split(',').map(s => s.trim()).filter(Boolean);
+
+function fiVersionOptions(selected) {
+    return VERSIONS.map(v =>
+        `<option value="${v}"${v === selected ? ' selected' : ''}>${VERSION_LABELS[v] || v}</option>`).join('');
+}
+
+function initFolderControls() {
+    document.getElementById('fiVersion').innerHTML = fiVersionOptions('EN');
+    if (scopeQids.length) {
+        document.getElementById('scopeBanner').classList.remove('d-none');
+        document.getElementById('scopeCount').textContent = scopeQids.length;
+        const cm = document.getElementById('fiCreateMissing');
+        cm.checked = false; cm.disabled = true;
+    }
+    if (AI_ENABLED) loadEndpoints();
+}
+
+function fiToggleDetail() {
+    const isQB = document.getElementById('fiSource').value === 'QB';
+    document.getElementById('fiDetailWrap').style.display = isQB ? '' : 'none';
+}
+
+function pickFolder() {
+    OQBFileSelector.open({
+        mode: 'folder',
+        title: 'Choose the folder to import',
+        locationKey: 'smart-import',
+        onPick: function(sel) {
+            selectedRoot = sel.root_id;
+            selectedPath = sel.rel_path || '';
+            selectedFolderName = (sel.root_label || '') + ' / ' + (selectedPath || '(root)');
+            document.getElementById('folderDisplay').value = selectedFolderName;
+            document.getElementById('btnAnalyze').disabled = false;
+        }
+    });
+}
+
+function buildProfile() {
+    return {
+        subject: document.getElementById('fiSubject').value,
+        source: document.getElementById('fiSource').value,
+        detail: document.getElementById('fiDetail').value,
+        version: document.getElementById('fiVersion').value,
+        asset_type: document.getElementById('fiType').value,
+        overwrite: document.getElementById('fiOverwrite').checked,
+        backup: document.getElementById('fiBackup').checked,
+        create_missing: document.getElementById('fiCreateMissing').checked,
+    };
+}
+
+function loadEndpoints() {
+    fetch(`{{ url_for('admin.ai_endpoints') }}`)
+        .then(r => r.json())
+        .then(data => {
+            const sel = document.getElementById('fiEndpoint');
+            if (!sel || !data.endpoints) return;
+            data.endpoints.forEach(ep => {
+                const o = document.createElement('option');
+                o.value = ep.id;
+                o.textContent = ep.name + (ep.model ? ` (${ep.model})` : '');
+                sel.appendChild(o);
+            });
+        }).catch(() => {});
+}
+
+function analyzeFolder() {
+    if (!selectedRoot) { alert('Choose a folder first.'); return; }
+    const btn = document.getElementById('btnAnalyze');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Analyzing...';
+    const body = {
+        root_id: selectedRoot, rel_path: selectedPath, profile: buildProfile(),
+        qids: scopeQids.length ? scopeQids : null,
+    };
+    fetch(`{{ url_for('admin.smart_import_analyze') }}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search"></i> Analyze folder';
+        if (data.error) { alert(data.error); return; }
+        proposals = data.proposals || [];
+        document.getElementById('reviewCard').classList.remove('d-none');
+        renderProposals();
+    }).catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search"></i> Analyze folder';
+        alert('Analyze failed: ' + err.message);
+    });
+}
+
+function analyzeWithAI() {
+    if (!selectedRoot) { alert('Choose a folder first.'); return; }
+    const notes = document.getElementById('aiNotes');
+    notes.textContent = 'Asking the model to infer the folder structure...';
+    const body = {
+        root_id: selectedRoot, rel_path: selectedPath, profile: buildProfile(),
+        endpoint_id: document.getElementById('fiEndpoint').value || null,
+        qids: scopeQids.length ? scopeQids : null,
+    };
+    fetch(`{{ url_for('admin.smart_import_analyze_llm') }}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(data => {
+        if (data.error) { notes.textContent = ''; alert(data.error); return; }
+        const rule = data.rule || {};
+        // Reflect inferred defaults back into the form.
+        if (rule.source) document.getElementById('fiSource').value = rule.source;
+        if (rule.version) document.getElementById('fiVersion').value = rule.version;
+        if (rule.asset_type) document.getElementById('fiType').value = rule.asset_type;
+        if (rule.detail) document.getElementById('fiDetail').value = rule.detail;
+        fiToggleDetail();
+        notes.textContent = (rule.notes ? rule.notes + ' ' : '') + `(via ${data.endpoint || 'AI'})`;
+        proposals = data.proposals || [];
+        document.getElementById('reviewCard').classList.remove('d-none');
+        renderProposals();
+    }).catch(err => { notes.textContent = ''; alert('AI analyze failed: ' + err.message); });
+}
+
+const STATUS_BADGE = {
+    overwrite: '<span class="badge bg-warning text-dark">Overwrite</span>',
+    add: '<span class="badge bg-success">Add</span>',
+    unmatched: '<span class="badge bg-secondary">Unmatched</span>',
+    ambiguous: '<span class="badge bg-danger">Ambiguous</span>',
+    skip: '<span class="badge bg-light text-muted border">Skip</span>',
+};
+
+function newPreviewUrl(p) {
+    const params = new URLSearchParams({root: selectedRoot, scope: 'user', path: p.src_rel});
+    return `{{ url_for('files.api_download') }}?` + params.toString();
+}
+
+function oldAssetUrl(filePath) {
+    return '/dashboard/files/' + filePath.split('/').map(encodeURIComponent).join('/');
+}
+
+function thumbCell(format, url, label) {
+    if (format === 'IMG') return `<img src="${url}" class="proposal-thumb" loading="lazy" alt="${label}">`;
+    const icon = format === 'DOC' ? 'bi-file-earmark-word' : 'bi-file-earmark-text';
+    return `<a href="${url}" target="_blank" class="text-decoration-none"><i class="bi ${icon}"></i> ${label}</a>`;
+}
+
+function renderProposals() {
+    const filter = document.getElementById('fiFilter').value;
+    const tbody = document.getElementById('proposalBody');
+    tbody.innerHTML = '';
+    proposals.forEach(p => {
+        if (filter === 'actionable' && !['overwrite', 'add'].includes(p.status)) return;
+        if (['overwrite', 'add', 'unmatched', 'ambiguous', 'skip'].includes(filter) && p.status !== filter) return;
+        const tr = document.createElement('tr');
+        if (p.status === 'skip') tr.className = 'row-skip';
+        const disabled = p.status === 'skip' ? 'disabled' : '';
+        const oldHtml = (p.existing && p.existing.length)
+            ? p.existing.map(e => thumbCell(e.file_format, oldAssetUrl(e.file_path), 'old')).join(' ')
+            : '<span class="text-muted">none</span>';
+        const newHtml = thumbCell(p.format, newPreviewUrl(p), p.filename);
+        tr.innerHTML = `
+            <td><input type="checkbox" ${p.accept ? 'checked' : ''} ${disabled}
+                onclick="toggleAccept(${p.id}, this.checked)"></td>
+            <td>${STATUS_BADGE[p.status] || p.status}</td>
+            <td><input type="text" class="form-control form-control-sm proposal-qid" value="${p.qid || ''}"
+                ${disabled} onchange="updateProposal(${p.id}, 'qid', this.value)"></td>
+            <td>
+                <select class="form-select form-select-sm slot-select" ${disabled}
+                    onchange="updateProposal(${p.id}, 'asset_type', this.value)">
+                    ${['QUE', 'ANS', 'SOL'].map(t => `<option value="${t}"${t === p.asset_type ? ' selected' : ''}>${t}</option>`).join('')}
+                </select>
+                <select class="form-select form-select-sm slot-select" ${disabled}
+                    onchange="updateProposal(${p.id}, 'version', this.value)">
+                    ${VERSIONS.map(v => `<option value="${v}"${v === p.version ? ' selected' : ''}>${v}</option>`).join('')}
+                </select>
+                <span class="badge bg-light text-muted border">${p.format || '?'}</span>
+            </td>
+            <td>${oldHtml}</td>
+            <td>${newHtml}<div class="small text-muted text-truncate" style="max-width:140px">${p.filename}</div></td>
+            <td><span class="conf-${p.confidence}">${p.confidence}</span><br><small class="text-muted">${p.method || ''}</small></td>
+            <td><small>${p.note || ''}</small></td>`;
+        tbody.appendChild(tr);
+    });
+    renderStatBadges();
+    updateAcceptCount();
+}
+
+function renderStatBadges() {
+    const counts = {total: proposals.length, overwrite: 0, add: 0, unmatched: 0, ambiguous: 0, skip: 0};
+    proposals.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+    document.getElementById('statBadges').innerHTML =
+        `<span class="badge bg-dark">Total ${counts.total}</span>
+         <span class="badge bg-warning text-dark">Overwrite ${counts.overwrite}</span>
+         <span class="badge bg-success">Add ${counts.add}</span>
+         <span class="badge bg-secondary">Unmatched ${counts.unmatched}</span>
+         <span class="badge bg-danger">Ambiguous ${counts.ambiguous}</span>
+         <span class="badge bg-light text-muted border">Skip ${counts.skip}</span>`;
+}
+
+function findProposal(id) { return proposals.find(p => p.id === id); }
+
+function updateProposal(id, field, value) {
+    const p = findProposal(id);
+    if (p) p[field] = value;
+}
+
+function toggleAccept(id, checked) {
+    const p = findProposal(id);
+    if (p) p.accept = checked;
+    updateAcceptCount();
+}
+
+function acceptAllMatched() {
+    proposals.forEach(p => { if (['overwrite', 'add'].includes(p.status)) p.accept = true; });
+    renderProposals();
+}
+
+function acceptNone() {
+    proposals.forEach(p => p.accept = false);
+    renderProposals();
+}
+
+function toggleAcceptAll(chk) {
+    const filter = document.getElementById('fiFilter').value;
+    proposals.forEach(p => {
+        if (p.status === 'skip') return;
+        if (filter === 'actionable' && !['overwrite', 'add'].includes(p.status)) return;
+        if (['overwrite', 'add', 'unmatched', 'ambiguous', 'skip'].includes(filter) && p.status !== filter) return;
+        p.accept = chk.checked;
+    });
+    renderProposals();
+}
+
+function updateAcceptCount() {
+    const n = proposals.filter(p => p.accept && p.status !== 'skip').length;
+    document.getElementById('acceptCount').textContent = n;
+    document.getElementById('applyCount').textContent = n;
+    document.getElementById('btnApply').disabled = n === 0;
+}
+
+// ============================ Apply ============================
+let applyEventSource = null;
+const applyConsole = document.getElementById('applyConsole');
+const applyStatus = document.getElementById('applyStatus');
+const applyProgressSection = document.getElementById('applyProgressSection');
+const applyProgressBar = document.getElementById('applyProgressBar');
+const applyProgressCount = document.getElementById('applyProgressCount');
+
+function appendApplyLog(message, type) {
+    const span = document.createElement('span');
+    span.className = 'log-' + (type || 'info');
+    span.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n`;
+    applyConsole.appendChild(span);
+    applyConsole.scrollTop = applyConsole.scrollHeight;
+}
+
+function applyImport() {
+    const items = proposals.filter(p => p.accept && p.status !== 'skip');
+    if (!items.length) return;
+    if (!confirm(`Apply ${items.length} file(s)? This will write into the source folder and overwrite the selected slots.`)) return;
+    const btn = document.getElementById('btnApply');
+    btn.disabled = true;
+    document.getElementById('applyCard').classList.remove('d-none');
+    applyConsole.innerHTML = '';
+    applyStatus.textContent = 'Preparing';
+    applyStatus.className = 'badge bg-info text-dark';
+    appendApplyLog(`Preparing ${items.length} file(s)...`, 'info');
+
+    fetch(`{{ url_for('admin.smart_import_prepare') }}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({root_id: selectedRoot, items: items, profile: buildProfile()})
+    }).then(r => r.json()).then(data => {
+        if (data.error) {
+            appendApplyLog('Prepare failed: ' + data.error, 'error');
+            applyStatus.textContent = 'Failed';
+            applyStatus.className = 'badge bg-danger';
+            btn.disabled = false;
+            return;
+        }
+        (data.skipped || []).forEach(s => appendApplyLog(`Dropped ${s.src_rel}: ${s.reason}`, 'skip'));
+        runApply(data.token, data.count);
+    }).catch(err => {
+        appendApplyLog('Prepare error: ' + err.message, 'error');
+        btn.disabled = false;
+    });
+}
+
+function runApply(token, count) {
+    applyStatus.textContent = 'Applying';
+    applyStatus.className = 'badge bg-success';
+    applyProgressSection.classList.remove('d-none');
+    applyProgressBar.style.width = '0%';
+    applyProgressBar.textContent = '0%';
+    applyProgressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    appendApplyLog(`Applying ${count} file(s)...`, 'info');
+    applyEventSource = new EventSource(`{{ url_for('admin.smart_import_apply') }}?token=${encodeURIComponent(token)}`);
+    applyEventSource.onmessage = function(e) {
+        try {
+            const event = JSON.parse(e.data);
+            appendApplyLog(event.message, event.type);
+            if (event.current !== undefined && event.total && event.total > 0) {
+                const pct = Math.round((event.current / event.total) * 100);
+                applyProgressBar.style.width = pct + '%';
+                applyProgressBar.textContent = pct + '%';
+                applyProgressCount.textContent = `${event.current} / ${event.total}`;
+            }
+            if (event.type === 'done') finishApply(event);
+        } catch (err) { appendApplyLog('Error parsing event: ' + err.message, 'error'); }
+    };
+    applyEventSource.onerror = function() {
+        if (applyEventSource) {
+            appendApplyLog('Connection closed.', 'info');
+            finishApply(null);
+        }
+    };
+}
+
+function finishApply(event) {
+    if (applyEventSource) { applyEventSource.close(); applyEventSource = null; }
+    applyProgressBar.classList.remove('progress-bar-animated');
+    applyStatus.textContent = 'Complete';
+    applyStatus.className = 'badge bg-primary';
+    document.getElementById('btnApply').disabled = false;
+    if (event && event.stats && event.stats.errors > 0) {
+        applyProgressBar.classList.add('bg-warning');
+    } else {
+        applyProgressBar.classList.add('bg-success');
+    }
+}
+
+// ============================ Init ============================
+document.addEventListener('DOMContentLoaded', function() {
+    initFolderControls();
+    fiToggleDetail();
+    if (INITIAL_MODE === 'folder') {
+        document.getElementById('modeFolder').checked = true;
+        switchMode('folder');
+    }
+});
+</script>
+{% endblock %}
+
