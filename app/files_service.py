@@ -323,29 +323,59 @@ def get_download_path(base_dir: str, rel_path: str) -> str:
     return full
 
 
-def save_uploads(base_dir: str, rel_path: str, files, can_write: bool) -> dict:
-    """Save uploaded ``FileStorage`` objects into ``base_dir/rel_path``."""
+def save_uploads(base_dir: str, rel_path: str, files, can_write: bool,
+                 rel_paths=None) -> dict:
+    """Save uploaded ``FileStorage`` objects into ``base_dir/rel_path``.
+
+    When ``rel_paths`` is given (parallel to ``files``), each entry may carry a
+    relative path (e.g. a folder upload's ``webkitRelativePath``); intermediate
+    folders are created and every path component is sanitised, so a whole folder
+    tree can be uploaded at once while staying inside the root.
+    """
     _require_write(can_write)
     target_dir = _resolve(base_dir, rel_path)
     if not os.path.isdir(target_dir):
         raise FileServiceError(404, 'Target directory not found or access denied')
 
-    files = [f for f in (files or []) if getattr(f, 'filename', '')]
-    if not files:
+    files = list(files or [])
+    rel_paths = list(rel_paths or [])
+    pairs = [(f, rel_paths[i] if i < len(rel_paths) else '')
+             for i, f in enumerate(files) if getattr(f, 'filename', '')]
+    if not pairs:
         raise FileServiceError(400, 'No files provided')
 
     uploaded, errors = [], []
-    for f in files:
-        filename = secure_filename(f.filename)
-        if not filename:
-            errors.append(f'Invalid filename: {f.filename}')
-            continue
-        dest = os.path.join(target_dir, filename)
+    for f, sub in pairs:
+        sub = (sub or '').replace('\\', '/').strip('/')
+        if sub:
+            parts = [secure_filename(p) for p in sub.split('/')
+                     if p not in ('', '.', '..')]
+            parts = [p for p in parts if p]
+            if not parts:
+                errors.append(f'Invalid path: {sub}')
+                continue
+            dest = storage.safe_join(target_dir, *parts)
+            if not dest:
+                errors.append(f'Invalid path: {sub}')
+                continue
+            label = '/'.join(parts)
+            try:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+            except OSError as e:  # pragma: no cover - disk errors
+                errors.append(f'{label}: {e}')
+                continue
+        else:
+            filename = secure_filename(f.filename)
+            if not filename:
+                errors.append(f'Invalid filename: {f.filename}')
+                continue
+            dest = os.path.join(target_dir, filename)
+            label = filename
         try:
             f.save(dest)
-            uploaded.append(filename)
+            uploaded.append(label)
         except Exception as e:  # pragma: no cover - disk errors
-            errors.append(f'{filename}: {e}')
+            errors.append(f'{label}: {e}')
     return {
         'success': True, 'uploaded': uploaded, 'errors': errors,
         'message': f'Uploaded {len(uploaded)} file(s)'
@@ -494,5 +524,51 @@ def copy(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
     return {
         'success': True, 'copied': copied, 'errors': errors,
         'message': f'Copied {len(copied)} item(s)'
+                   + (f', {len(errors)} error(s)' if errors else ''),
+    }
+
+
+def move(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
+    """Move files/dirs (within the same root) into ``dest_dir`` (cut/paste)."""
+    _require_write(can_write)
+    sources = sources or []
+    if not sources:
+        raise FileServiceError(400, 'No sources specified')
+
+    dest_full = _resolve(base_dir, dest_dir)
+    if not os.path.isdir(dest_full):
+        raise FileServiceError(404, 'Destination directory not found or access denied')
+    dest_abs = os.path.normcase(os.path.abspath(dest_full))
+
+    moved, errors = [], []
+    for rel_path in sources:
+        rel = (rel_path or '').strip('/').strip('\\')
+        if not rel:
+            errors.append('Cannot move root directory')
+            continue
+        src_full = storage.safe_join(base_dir, rel)
+        if not src_full or not os.path.exists(src_full):
+            errors.append(f'{rel_path}: not found')
+            continue
+        src_abs = os.path.normcase(os.path.abspath(src_full))
+        # Can't move a folder into itself or its own subtree.
+        if os.path.isdir(src_full) and (
+                dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep)):
+            errors.append(f'{rel_path}: cannot move a folder into itself')
+            continue
+        # Already in the destination folder — nothing to do.
+        if os.path.normcase(os.path.dirname(src_abs)) == dest_abs:
+            errors.append(f'{rel_path}: already in this folder')
+            continue
+        dest_name = _unique_copy_name(dest_full, os.path.basename(src_full))
+        dest_item = os.path.join(dest_full, dest_name)
+        try:
+            shutil.move(src_full, dest_item)
+            moved.append({'original': rel_path, 'new_name': dest_name})
+        except OSError as e:
+            errors.append(f'{rel_path}: {e}')
+    return {
+        'success': True, 'moved': moved, 'errors': errors,
+        'message': f'Moved {len(moved)} item(s)'
                    + (f', {len(errors)} error(s)' if errors else ''),
     }

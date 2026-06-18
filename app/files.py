@@ -168,7 +168,8 @@ def api_upload():
         return _generated_readonly_response()
     try:
         return jsonify(files_service.save_uploads(
-            root.path, rel_path, request.files.getlist('files'), root.can_write))
+            root.path, rel_path, request.files.getlist('files'), root.can_write,
+            rel_paths=request.form.getlist('paths')))
     except FileServiceError as e:
         return _err(e)
 
@@ -241,6 +242,27 @@ def api_copy():
     try:
         return jsonify(files_service.copy(
             root.path, data.get('sources', []), data.get('dest_dir', ''), root.can_write))
+    except FileServiceError as e:
+        return _err(e)
+
+
+@files_bp.route('/api/move', methods=['POST'])
+@login_required
+def api_move():
+    if not _can_use_browser(current_user):
+        return jsonify({'error': 'Access denied'}), 403
+    root = _request_root()
+    if root is None:
+        return jsonify({'error': 'Invalid root'}), 400
+    data = request.get_json(silent=True) or {}
+    sources = data.get('sources', []) or []
+    dest_dir = data.get('dest_dir', '')
+    # Block moving into — or out of — the read-only generated/ folder.
+    if _is_generated_path(root, dest_dir) or any(_is_generated_path(root, s) for s in sources):
+        return _generated_readonly_response()
+    try:
+        return jsonify(files_service.move(
+            root.path, sources, dest_dir, root.can_write))
     except FileServiceError as e:
         return _err(e)
 

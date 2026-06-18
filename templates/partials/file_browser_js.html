@@ -19,6 +19,7 @@ let selectedItems = new Set();  // Set of relative paths
 let pendingUploadFiles = [];
 let allItems = [];  // Current directory items
 let clipboard = [];  // Array of relative paths pending paste
+let clipboardMode = 'copy';  // 'copy' (paste = duplicate) or 'cut' (paste = move)
 
 // ==================== URL helpers ====================
 const URLS = {
@@ -29,6 +30,7 @@ const URLS = {
     delete:      '{{ url_for("files.api_delete") }}',
     mkdir:       '{{ url_for("files.api_mkdir") }}',
     copy:        '{{ url_for("files.api_copy") }}',
+    move:        '{{ url_for("files.api_move") }}',
     roots:       '{{ url_for("files.api_roots") }}',
     rootsAdd:    '{{ url_for("files.api_roots_add") }}',
     rootsRemove: '{{ url_for("files.api_roots_remove") }}',
@@ -343,6 +345,9 @@ function renderFileTable(items) {
             actions += `<a href="${withRoot(URLS.download + '?path=' + encodeURIComponent(itemPath))}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
         }
         actions += `<button class="btn btn-outline-secondary btn-sm" title="Copy to clipboard" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
+        if (writable) {
+            actions += `<button class="btn btn-outline-secondary btn-sm" title="Cut to clipboard" onclick="cutToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-scissors"></i></button> `;
+        }
         if (writable && !item.is_dir) {
             actions += `<button class="btn btn-outline-secondary btn-sm" title="Duplicate" onclick="duplicateItem('${escapeJs(itemPath)}')"><i class="bi bi-copy"></i></button> `;
         }
@@ -443,6 +448,8 @@ function updateSelectionUI() {
 function showUploadModal() {
     pendingUploadFiles = [];
     document.getElementById('fileInput').value = '';
+    const folderInput = document.getElementById('folderInput');
+    if (folderInput) folderInput.value = '';
     document.getElementById('uploadFileList').innerHTML = '';
     document.getElementById('uploadProgress').classList.add('d-none');
     document.getElementById('uploadResult').classList.add('d-none');
@@ -451,9 +458,19 @@ function showUploadModal() {
     new bootstrap.Modal(document.getElementById('uploadModal')).show();
 }
 
+// pendingUploadFiles holds {file, relPath}. relPath preserves a folder tree
+// (from a folder picker's webkitRelativePath or a dropped directory); a plain
+// file keeps relPath = '' so it lands directly in the target dir.
 function handleFileSelect(files) {
     for (let i = 0; i < files.length; i++) {
-        pendingUploadFiles.push(files[i]);
+        pendingUploadFiles.push({file: files[i], relPath: ''});
+    }
+    renderUploadFileList();
+}
+
+function handleFolderSelect(files) {
+    for (let i = 0; i < files.length; i++) {
+        pendingUploadFiles.push({file: files[i], relPath: files[i].webkitRelativePath || files[i].name});
     }
     renderUploadFileList();
 }
@@ -461,18 +478,42 @@ function handleFileSelect(files) {
 function renderUploadFileList() {
     const container = document.getElementById('uploadFileList');
     container.innerHTML = '';
-    pendingUploadFiles.forEach((f, idx) => {
+    pendingUploadFiles.forEach((it, idx) => {
+        const label = it.relPath || it.file.name;
         const div = document.createElement('div');
         div.className = 'upload-file-item';
         div.innerHTML = `
             <i class="bi bi-file-earmark"></i>
-            <span class="flex-grow-1">${escapeHtml(f.name)}</span>
-            <span class="text-muted">${formatSize(f.size)}</span>
+            <span class="flex-grow-1">${escapeHtml(label)}</span>
+            <span class="text-muted">${formatSize(it.file.size)}</span>
             <i class="bi bi-x-circle remove-file" onclick="removeUploadFile(${idx})" title="Remove"></i>
         `;
         container.appendChild(div);
     });
     document.getElementById('btnUpload').disabled = pendingUploadFiles.length === 0;
+}
+
+// Recursively walk a dropped DataTransfer entry, collecting {file, relPath}.
+function fbTraverseEntry(entry, prefix) {
+    return new Promise(resolve => {
+        if (!entry) { resolve([]); return; }
+        if (entry.isFile) {
+            entry.file(f => resolve([{file: f, relPath: prefix + entry.name}]),
+                       () => resolve([]));
+        } else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            const out = [];
+            const readBatch = () => reader.readEntries(batch => {
+                if (!batch.length) {
+                    Promise.all(out).then(arrs => resolve([].concat(...arrs)));
+                    return;
+                }
+                batch.forEach(e => out.push(fbTraverseEntry(e, prefix + entry.name + '/')));
+                readBatch();
+            }, () => resolve([]));
+            readBatch();
+        } else { resolve([]); }
+    });
 }
 
 function removeUploadFile(idx) {
@@ -497,7 +538,10 @@ function doUpload() {
     formData.append('path', currentPath);
     formData.append('root', currentRoot);
     formData.append('scope', FB_SCOPE);
-    pendingUploadFiles.forEach(f => formData.append('files', f));
+    pendingUploadFiles.forEach(it => {
+        formData.append('files', it.file);
+        formData.append('paths', it.relPath || '');
+    });
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', URLS.upload);
@@ -564,8 +608,23 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     dropZone.addEventListener('drop', e => {
-        const files = e.dataTransfer.files;
-        if (files.length > 0) handleFileSelect(files);
+        e.preventDefault();
+        const items = e.dataTransfer.items;
+        if (items && items.length && items[0].webkitGetAsEntry) {
+            // Capture entries synchronously (DataTransferItemList is transient),
+            // then recurse to support dropping whole folders (like Google Drive).
+            const roots = [];
+            for (let i = 0; i < items.length; i++) {
+                const ent = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+                if (ent) roots.push(ent);
+            }
+            Promise.all(roots.map(r => fbTraverseEntry(r, ''))).then(arrs => {
+                [].concat(...arrs).forEach(it => pendingUploadFiles.push(it));
+                renderUploadFileList();
+            });
+        } else if (e.dataTransfer.files && e.dataTransfer.files.length) {
+            handleFileSelect(e.dataTransfer.files);
+        }
     });
 });
 
@@ -762,6 +821,7 @@ function doBatchDelete() {
 // ==================== Clipboard / Copy / Paste / Duplicate ====================
 
 function copyToClipboard(path) {
+    if (clipboardMode !== 'copy') { clipboard = []; clipboardMode = 'copy'; }
     if (!clipboard.includes(path)) clipboard.push(path);
     updateClipboardUI();
     showToast(`Copied to clipboard.`, 'info');
@@ -769,22 +829,47 @@ function copyToClipboard(path) {
 
 function copySelected() {
     if (selectedItems.size === 0) return;
+    if (clipboardMode !== 'copy') { clipboard = []; clipboardMode = 'copy'; }
     selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
     updateClipboardUI();
     showToast(`${selectedItems.size} item(s) copied to clipboard.`, 'info');
 }
 
+function cutToClipboard(path) {
+    if (clipboardMode !== 'cut') { clipboard = []; clipboardMode = 'cut'; }
+    if (!clipboard.includes(path)) clipboard.push(path);
+    updateClipboardUI();
+    showToast(`Cut to clipboard.`, 'info');
+}
+
+function cutSelected() {
+    if (selectedItems.size === 0) return;
+    if (clipboardMode !== 'cut') { clipboard = []; clipboardMode = 'cut'; }
+    selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
+    updateClipboardUI();
+    showToast(`${selectedItems.size} item(s) cut to clipboard.`, 'info');
+}
+
 function clearClipboard() {
     clipboard = [];
+    clipboardMode = 'copy';
     updateClipboardUI();
 }
 
 function updateClipboardUI() {
     const actions = document.getElementById('clipboardActions');
     const countEl = document.getElementById('clipboardCount');
+    const pasteBtn = document.getElementById('btnPaste');
+    const isCut = clipboardMode === 'cut';
     if (clipboard.length > 0) {
         actions.classList.remove('d-none');
-        countEl.textContent = clipboard.length + ' copied';
+        countEl.textContent = clipboard.length + (isCut ? ' cut' : ' copied');
+        countEl.className = 'badge me-1 ' + (isCut ? 'bg-warning text-dark' : 'bg-info text-dark');
+        if (pasteBtn) {
+            pasteBtn.innerHTML = isCut
+                ? '<i class="bi bi-clipboard-check"></i> Move here'
+                : '<i class="bi bi-clipboard-check"></i> Paste here';
+        }
     } else {
         actions.classList.add('d-none');
     }
@@ -793,33 +878,37 @@ function updateClipboardUI() {
 function pasteFromClipboard() {
     if (clipboard.length === 0) return;
     if (!canWrite()) { showToast('This location is read-only.', 'warning'); return; }
-    const btn = document.querySelector('#clipboardActions button.btn-info');
+    const isCut = clipboardMode === 'cut';
+    const btn = document.getElementById('btnPaste');
     const orig = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Pasting…';
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${isCut ? 'Moving…' : 'Pasting…'}`;
 
-    fetch(URLS.copy, {
+    fetch(isCut ? URLS.move : URLS.copy, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({sources: clipboard, dest_dir: currentPath, root: currentRoot, scope: FB_SCOPE})
     })
     .then(r => r.json())
     .then(data => {
-        btn.innerHTML = orig;
         btn.disabled = false;
         if (data.error) {
-            showToast('Paste failed: ' + data.error, 'danger');
+            showToast((isCut ? 'Move' : 'Paste') + ' failed: ' + data.error, 'danger');
         } else if (data.errors && data.errors.length > 0) {
-            showToast('Paste errors: ' + data.errors.join('; '), 'danger');
+            showToast((isCut ? 'Move' : 'Paste') + ' errors: ' + data.errors.join('; '), 'danger');
         } else {
-            showToast(data.message || 'Pasted successfully.', 'success');
+            showToast(data.message || (isCut ? 'Moved successfully.' : 'Pasted successfully.'), 'success');
         }
+        if (isCut) clearClipboard();  // cut items consumed by the move
+        updateClipboardUI();
+        btn.innerHTML = isCut ? '<i class="bi bi-clipboard-check"></i> Move here'
+                              : '<i class="bi bi-clipboard-check"></i> Paste here';
         refreshListing();
     })
     .catch(err => {
-        btn.innerHTML = orig;
         btn.disabled = false;
-        showToast('Paste failed: ' + err.message, 'danger');
+        btn.innerHTML = orig;
+        showToast((isCut ? 'Move' : 'Paste') + ' failed: ' + err.message, 'danger');
     });
 }
 

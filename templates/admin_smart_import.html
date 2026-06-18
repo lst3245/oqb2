@@ -28,6 +28,14 @@
     .conf-medium { color: #fd7e14; }
     .conf-low, .conf-none { color: #dc3545; }
     .row-skip { opacity: 0.55; }
+    .si-drop-zone {
+        border: 2px dashed #ced4da; border-radius: 6px;
+        padding: 0.6rem 1rem; text-align: center; color: #6c757d;
+        font-size: 0.85rem; cursor: pointer; transition: all 0.15s ease;
+        display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+    }
+    .si-drop-zone i { font-size: 1.1rem; }
+    .si-drop-zone.drag-over { border-color: #0d6efd; background: #e7f1ff; color: #0d6efd; }
 </style>
 {% endblock %}
 
@@ -158,9 +166,13 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                             <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('folderUpload').click()" title="Upload a folder from this computer">
                                 <i class="bi bi-upload"></i> Upload...
                             </button>
-                            <input type="file" id="folderUpload" webkitdirectory directory multiple class="d-none" onchange="uploadFolder(this)">
                         </div>
-                        <small id="uploadStatus" class="text-muted"></small>
+                        <input type="file" id="folderUpload" webkitdirectory directory multiple class="d-none" onchange="uploadFolder(this)">
+                        <div id="folderDropZone" class="si-drop-zone mt-2" title="Drag a folder here to upload from this computer">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <span>Drag &amp; drop a folder here to upload</span>
+                        </div>
+                        <small id="uploadStatus" class="text-muted d-block mt-1"></small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Subject</label>
@@ -578,15 +590,25 @@ function pickFolder() {
 }
 
 function uploadFolder(input) {
-    const files = Array.from(input.files || []);
-    if (!files.length) return;
+    const entries = Array.from(input.files || []).map(f => ({
+        file: f, relPath: f.webkitRelativePath || f.name,
+    }));
+    uploadFolderEntries(entries);
+    input.value = '';
+}
+
+// Shared uploader for {file, relPath} entries (from the folder picker or a
+// drag-and-drop). Streams files + parallel relative paths to the staging route.
+function uploadFolderEntries(entries) {
+    entries = (entries || []).filter(e => e && e.file);
     const status = document.getElementById('uploadStatus');
-    status.textContent = `Uploading ${files.length} file(s)...`;
+    if (!entries.length) { status.textContent = 'No files found in the dropped item.'; return; }
+    status.textContent = `Uploading ${entries.length} file(s)...`;
     document.getElementById('btnAnalyze').disabled = true;
     const fd = new FormData();
-    files.forEach(f => {
-        fd.append('files', f);
-        fd.append('paths', f.webkitRelativePath || f.name);
+    entries.forEach(e => {
+        fd.append('files', e.file);
+        fd.append('paths', e.relPath || e.file.name);
     });
     fetch(`{{ url_for('admin.smart_import_upload') }}`, {method: 'POST', body: fd})
         .then(r => r.json())
@@ -601,9 +623,63 @@ function uploadFolder(input) {
             status.textContent = `Uploaded ${data.count} file(s).`;
             document.getElementById('btnAnalyze').disabled = false;
         })
-        .catch(err => { status.textContent = 'Upload error: ' + err.message; })
-        .finally(() => { input.value = ''; });
+        .catch(err => { status.textContent = 'Upload error: ' + err.message; });
 }
+
+// Recursively walk a dropped DataTransfer entry, collecting {file, relPath}.
+function siTraverseEntry(entry, prefix) {
+    return new Promise(resolve => {
+        if (!entry) { resolve([]); return; }
+        if (entry.isFile) {
+            entry.file(
+                f => resolve([{file: f, relPath: prefix + entry.name}]),
+                () => resolve([]));
+        } else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            const out = [];
+            const readBatch = () => reader.readEntries(batch => {
+                if (!batch.length) {
+                    Promise.all(out).then(arrs => resolve([].concat(...arrs)));
+                    return;
+                }
+                batch.forEach(e => out.push(siTraverseEntry(e, prefix + entry.name + '/')));
+                readBatch();
+            }, () => resolve([]));
+            readBatch();
+        } else { resolve([]); }
+    });
+}
+
+(function initFolderDropZone() {
+    const zone = document.getElementById('folderDropZone');
+    if (!zone) return;
+    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+        e.preventDefault(); e.stopPropagation(); zone.classList.add('drag-over');
+    }));
+    ['dragleave', 'dragend'].forEach(ev => zone.addEventListener(ev, e => {
+        e.preventDefault(); e.stopPropagation(); zone.classList.remove('drag-over');
+    }));
+    zone.addEventListener('drop', e => {
+        e.preventDefault(); e.stopPropagation();
+        zone.classList.remove('drag-over');
+        const items = e.dataTransfer.items;
+        if (items && items.length && items[0].webkitGetAsEntry) {
+            // Capture entries synchronously (DataTransferItemList is transient).
+            const roots = [];
+            for (let i = 0; i < items.length; i++) {
+                const ent = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+                if (ent) roots.push(ent);
+            }
+            document.getElementById('uploadStatus').textContent = 'Reading folder...';
+            Promise.all(roots.map(r => siTraverseEntry(r, '')))
+                .then(arrs => uploadFolderEntries([].concat(...arrs)));
+        } else if (e.dataTransfer.files && e.dataTransfer.files.length) {
+            uploadFolderEntries(Array.from(e.dataTransfer.files).map(f => ({
+                file: f, relPath: f.webkitRelativePath || f.name,
+            })));
+        }
+    });
+})();
 
 function buildProfile() {
     return {
