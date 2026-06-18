@@ -40,6 +40,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Dashboard: "Include tagged in minor" toggle is visually disabled when AND mode makes it implicit.** When AND mode is active with 2 or more topics (or subtopics) selected, the backend already searches both major and minor/M2M tags per selected ID — the toggle is redundant. The checkbox is now automatically disabled and force-checked in this state, with an **(implied by AND)** note next to the label. Switching back to OR mode (or dropping to one selection) re-enables it and restores the user's previous choice. The topic mode radio now also has a change listener (previously only subtopic mode had one). `saveStateToStorage` correctly persists the user's *intent* rather than the forced `true` value.
+
 - **Unified file selector remembers the current folder while the page stays open.** Reopening a same-purpose picker (for example Question PDF then Solution PDF in Batch PDF Import) now returns to the last browsed root/folder instead of resetting to My Files; a browser refresh still starts fresh.
 
 - **Unified file selector: friendlier, file-type-aware list.** File names now get the full row width (the Size / Modified columns collapse into a compact muted subline under the name on narrow/mobile screens), and each file shows a **type-specific coloured icon** (PDF, Word, Excel, PowerPoint, image, archive, text/Markdown, audio/video, code) instead of a generic white file icon, so file kinds are recognisable at a glance.

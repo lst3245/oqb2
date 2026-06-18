@@ -159,11 +159,11 @@
                         </div>
 
                         <!-- Include tagged in minor (topics) -->
-                        <div class="mb-3 form-check">
+                        <div class="mb-3 form-check" id="crosstopicContainer">
                             <input type="checkbox" class="form-check-input" id="crosstopic" 
                                    name="is_crosstopic" value="1">
                             <label class="form-check-label" for="crosstopic">
-                                Include tagged in minor
+                                Include tagged in minor<span id="crosstopicImplied" class="text-muted fst-italic ms-1" style="display:none;">(implied by AND)</span>
                             </label>
                         </div>
 
@@ -208,11 +208,11 @@
                                 </div>
                             </div>
                             <!-- Include tagged in minor (subtopics) -->
-                            <div class="form-check mt-1">
+                            <div class="form-check mt-1" id="crosssubtopicContainer">
                                 <input type="checkbox" class="form-check-input" id="crosssubtopic" 
                                        name="is_crosssubtopic" value="1">
                                 <label class="form-check-label small" for="crosssubtopic">
-                                    Include tagged in minor
+                                    Include tagged in minor<span id="crosssubtopicImplied" class="text-muted fst-italic ms-1" style="display:none;">(implied by AND)</span>
                                 </label>
                             </div>
                             <!-- Hidden select to store values for form submission -->
@@ -2411,8 +2411,8 @@ function saveStateToStorage() {
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value),
         subtopic_mode: document.querySelector('input[name="subtopic_mode"]:checked')?.value || 'OR',
         show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
-        is_crosstopic: document.getElementById('crosstopic').checked,
-        is_crosssubtopic: document.getElementById('crosssubtopic').checked,
+        is_crosstopic: (() => { const cb = document.getElementById('crosstopic'); return cb.disabled ? cb.dataset.userValue === '1' : cb.checked; })(),
+        is_crosssubtopic: (() => { const cb = document.getElementById('crosssubtopic'); return cb.disabled ? cb.dataset.userValue === '1' : cb.checked; })(),
         chapters: Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value),
         subchapters: Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value),
         show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
@@ -2517,7 +2517,9 @@ async function restoreFilterSettings(settings) {
     
     // Restore cross-topic checkbox
     if (settings.is_crosstopic !== undefined) {
-        document.getElementById('crosstopic').checked = settings.is_crosstopic;
+        const crosstopicCb = document.getElementById('crosstopic');
+        crosstopicCb.checked = settings.is_crosstopic;
+        crosstopicCb.dataset.userValue = settings.is_crosstopic ? '1' : '0';
     }
     
     // Restore subtopic mode (AND/OR)
@@ -2530,7 +2532,9 @@ async function restoreFilterSettings(settings) {
     
     // Restore cross-subtopic checkbox
     if (settings.is_crosssubtopic !== undefined) {
-        document.getElementById('crosssubtopic').checked = settings.is_crosssubtopic;
+        const crosssubtopicCb = document.getElementById('crosssubtopic');
+        crosssubtopicCb.checked = settings.is_crosssubtopic;
+        crosssubtopicCb.dataset.userValue = settings.is_crosssubtopic ? '1' : '0';
     }
     
     // Restore show hidden subtopics checkbox
@@ -2653,6 +2657,10 @@ async function restoreFilterSettings(settings) {
             await loadSubchaptersForSelectedChaptersAsync();
         }
     }
+
+    // Update implied-state visuals now that topics/subtopics checkboxes are in their restored state
+    updateCrosstopicImpliedState();
+    updateCrosssubtopicImpliedState();
 }
 
 // Helper function to load subject data (topics and years)
@@ -2846,6 +2854,7 @@ function onTopicChange() {
     updateTopicDropdownLabel();
     syncTopicSelectWithCheckboxes();
     loadSubtopicsForSelectedTopics();
+    updateCrosstopicImpliedState();
     saveStateToStorage();
     checkFilterModification();
 }
@@ -2927,13 +2936,57 @@ function clearAllTopics() {
     onTopicChange();
 }
 
+// Update the "Include tagged in minor" implied state for topics.
+// In AND mode with 2+ topics selected, the backend always searches major AND minor, so the
+// toggle is redundant — disable it and show an explanatory note.
+function updateCrosstopicImpliedState() {
+    const mode = document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR';
+    const count = document.querySelectorAll('.topic-checkbox:checked').length;
+    const cb = document.getElementById('crosstopic');
+    const note = document.getElementById('crosstopicImplied');
+    const isImplied = mode === 'AND' && count >= 2;
+    if (isImplied) {
+        if (!cb.disabled) cb.dataset.userValue = cb.checked ? '1' : '0';
+        cb.checked = true;
+        cb.disabled = true;
+    } else {
+        if (cb.disabled) cb.checked = cb.dataset.userValue === '1';
+        cb.disabled = false;
+    }
+    if (note) note.style.display = isImplied ? '' : 'none';
+}
+
+// Same for subtopics.
+function updateCrosssubtopicImpliedState() {
+    const mode = document.querySelector('input[name="subtopic_mode"]:checked')?.value || 'OR';
+    const count = document.querySelectorAll('.subtopic-checkbox:checked').length;
+    const cb = document.getElementById('crosssubtopic');
+    const note = document.getElementById('crosssubtopicImplied');
+    const isImplied = mode === 'AND' && count >= 2;
+    if (isImplied) {
+        if (!cb.disabled) cb.dataset.userValue = cb.checked ? '1' : '0';
+        cb.checked = true;
+        cb.disabled = true;
+    } else {
+        if (cb.disabled) cb.checked = cb.dataset.userValue === '1';
+        cb.disabled = false;
+    }
+    if (note) note.style.display = isImplied ? '' : 'none';
+}
+
+// Handle topic mode (OR/AND) change
+document.querySelectorAll('input[name="topic_mode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        updateCrosstopicImpliedState();
+        saveStateToStorage();
+        checkFilterModification();
+    });
+});
+
 // Handle subtopic mode (OR/AND) change
 document.querySelectorAll('input[name="subtopic_mode"]').forEach(radio => {
     radio.addEventListener('change', function() {
-        if (this.value === 'AND') {
-            // Auto-check "Include tagged in minor" when AND is selected
-            document.getElementById('crosssubtopic').checked = true;
-        }
+        updateCrosssubtopicImpliedState();
         saveStateToStorage();
         checkFilterModification();
     });
@@ -3044,6 +3097,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
 function onSubtopicChange() {
     updateSubtopicDropdownLabel();
     syncSubtopicSelectWithCheckboxes();
+    updateCrosssubtopicImpliedState();
     saveStateToStorage();
     checkFilterModification();
 }
@@ -4957,10 +5011,18 @@ function resetFilters() {
     document.getElementById('subtopicModeOR').checked = true;
     
     // Reset cross-topic checkbox
-    document.getElementById('crosstopic').checked = false;
-    
+    const crosstopicResetCb = document.getElementById('crosstopic');
+    crosstopicResetCb.checked = false;
+    crosstopicResetCb.disabled = false;
+    crosstopicResetCb.dataset.userValue = '0';
+    if (document.getElementById('crosstopicImplied')) document.getElementById('crosstopicImplied').style.display = 'none';
+
     // Reset cross-subtopic checkbox
-    document.getElementById('crosssubtopic').checked = false;
+    const crosssubtopicResetCb = document.getElementById('crosssubtopic');
+    crosssubtopicResetCb.checked = false;
+    crosssubtopicResetCb.disabled = false;
+    crosssubtopicResetCb.dataset.userValue = '0';
+    if (document.getElementById('crosssubtopicImplied')) document.getElementById('crosssubtopicImplied').style.display = 'none';
     
     // Reset all levels to checked
     document.querySelectorAll('input[name="levels"]').forEach(cb => cb.checked = true);
