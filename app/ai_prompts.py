@@ -1514,6 +1514,37 @@ _DEFAULT_PDF_PAPER_NAME_USER = (
 )
 
 
+_DEFAULT_SMART_IMPORT_SYSTEM = (
+    "You analyse a folder of exam-question asset files and infer how to map "
+    "them onto a question bank. The canonical filename schema is "
+    "SUBJECT_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].ext for past papers "
+    "(e.g. MATC_DSE_2024_P1_Q5_EN_QUE.png) and SUBJECT_QB_DETAIL_QNO_VERSION_TYPE "
+    "for question banks. SOURCE is one of DSE/CE/AL/QB. VERSION is one of "
+    "EN/CH/BI/ENO/CHO. TYPE is one of QUE/ANS/SOL. A dumped folder usually "
+    "omits some of these dimensions (often only year/paper/question-number are "
+    "encoded in the path). Your job is to state the best DEFAULTS for the WHOLE "
+    "folder so a deterministic parser can recover year/paper/question-number "
+    "from the paths and fill in the rest. Do NOT map individual files."
+)
+
+
+_DEFAULT_SMART_IMPORT_USER = (
+    "Subject is '{{subject}}'. Allowed sources: DSE, CE, AL, QB. Allowed "
+    "versions: {{versions}}. Allowed types: QUE, ANS, SOL.\n\n"
+    "Here is a sample of the relative file paths in the folder:\n{{tree}}\n\n"
+    "Return ONLY a JSON object (no prose, no code fence) with these keys, "
+    "omitting any you are unsure about:\n"
+    "{\n"
+    '  "subject": "<subject id or empty>",\n'
+    '  "source": "DSE|CE|AL|QB",\n'
+    '  "version": "EN|CH|BI|ENO|CHO",\n'
+    '  "asset_type": "QUE|ANS|SOL",\n'
+    '  "detail": "<QB detail or empty>",\n'
+    '  "notes": "<one short sentence explaining the folder layout>"\n'
+    "}"
+)
+
+
 # ---- Registry --------------------------------------------------------------
 #
 # Order here drives the order rendered in the admin UI; group keys also
@@ -1957,6 +1988,32 @@ PROMPTS_REGISTRY = OrderedDict([
         ),
         default=_DEFAULT_PDF_PAPER_NAME_USER,
         variables=['filename', 'subjects'],
+        role='user',
+    )),
+    ('SMART_IMPORT_SYSTEM', _prompt(
+        group='Smart Import — Structure Inference',
+        label='Smart Import: System prompt',
+        description=(
+            'Role + contract for the optional "Analyze with AI" assist on the '
+            'Smart Import Folder-import page. The model infers folder-level '
+            'DEFAULTS (source / version / type / QB detail), NOT per-file '
+            'mappings; the deterministic engine then re-runs. Keep the JSON '
+            'response shape — smart_import._parse_json_object reads it.'
+        ),
+        default=_DEFAULT_SMART_IMPORT_SYSTEM,
+        role='system',
+    )),
+    ('SMART_IMPORT_USER', _prompt(
+        group='Smart Import — Structure Inference',
+        label='Smart Import: User-turn instruction',
+        description=(
+            'Accompanies the directory-tree sample. {{subject}} is the chosen '
+            'subject, {{versions}} the allowed version list, {{tree}} a sample '
+            'of relative file paths. Must elicit a single JSON object of '
+            'folder-level defaults.'
+        ),
+        default=_DEFAULT_SMART_IMPORT_USER,
+        variables=['subject', 'versions', 'tree'],
         role='user',
     )),
 ])

@@ -213,35 +213,6 @@ def list_sample_paths(base_dir, rel_path, limit=80):
     return out
 
 
-_AI_SYSTEM = (
-    "You analyse a folder of exam-question asset files and infer how to map "
-    "them onto a question bank. The canonical filename schema is "
-    "SUBJECT_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].ext for past papers "
-    "(e.g. MATC_DSE_2024_P1_Q5_EN_QUE.png) and SUBJECT_QB_DETAIL_QNO_VERSION_TYPE "
-    "for question banks. SOURCE is one of DSE/CE/AL/QB. VERSION is one of "
-    "EN/CH/BI/ENO/CHO. TYPE is one of QUE/ANS/SOL. The folder usually omits "
-    "some of these dimensions; your job is to state the best DEFAULTS for the "
-    "whole folder so a deterministic parser can recover year/paper/question "
-    "number from the paths."
-)
-
-_AI_USER_TMPL = (
-    "Subject is '{subject}'. Allowed sources: DSE, CE, AL, QB. Allowed "
-    "versions: {versions}. Allowed types: QUE, ANS, SOL.\n\n"
-    "Here is a sample of the relative file paths in the folder:\n{tree}\n\n"
-    "Return ONLY a JSON object (no prose, no code fence) with these keys, "
-    "omitting any you are unsure about:\n"
-    "{{\n"
-    '  "subject": "<subject id or empty>",\n'
-    '  "source": "DSE|CE|AL|QB",\n'
-    '  "version": "EN|CH|BI|ENO|CHO",\n'
-    '  "asset_type": "QUE|ANS|SOL",\n'
-    '  "detail": "<QB detail or empty>",\n'
-    '  "notes": "<one short sentence explaining the folder layout>"\n'
-    "}}"
-)
-
-
 def _parse_json_object(text):
     """Best-effort extraction of a single JSON object from an LLM reply."""
     if not text:
@@ -269,8 +240,10 @@ def infer_structure_rule(base_dir, rel_path, profile, config):
     Returns ``(rule, raw_text)``. ``rule`` is a dict suitable for
     ``profile['rule']`` (subject/source/version/asset_type/detail) plus a
     ``notes`` string. Raises ``RuntimeError`` on transport failure so the route
-    can surface a clean message."""
+    can surface a clean message. Prompts are editable on Admin -> AI Prompts
+    (``SMART_IMPORT_SYSTEM`` / ``SMART_IMPORT_USER``)."""
     from app import llm_client
+    from app import ai_prompts
 
     profile = normalize_profile(profile)
     samples = list_sample_paths(base_dir, rel_path, limit=80)
@@ -278,13 +251,13 @@ def infer_structure_rule(base_dir, rel_path, profile, config):
         raise RuntimeError('No files found in the selected folder.')
 
     tree = '\n'.join(samples[:80])
-    user = _AI_USER_TMPL.format(
-        subject=profile.get('subject') or '(unknown)',
-        versions=', '.join(VERSIONS),
-        tree=tree,
-    )
+    system = ai_prompts.system_prompt('SMART_IMPORT_SYSTEM', config.id)
+    user = ai_prompts.render_prompt(
+        'SMART_IMPORT_USER', endpoint_id=config.id,
+        subject=(profile.get('subject') or '(unknown)'),
+        versions=', '.join(VERSIONS), tree=tree)
     try:
-        text, _info = llm_client.chat(config, _AI_SYSTEM, user)
+        text, _info = llm_client.chat(config, system, user)
     except Exception as e:
         raise RuntimeError(f'LLM request failed: {e}')
 
@@ -323,19 +296,49 @@ def _build_qid(subject, source, year, paper, detail, qno):
 # Resolve one file -> proposal
 # ---------------------------------------------------------------------------
 
+def _issue_text(check_state, check_result):
+    """Render an existing asset's proofread issues into a short human string
+    for the compare view. Returns '' when there's nothing to show."""
+    if not check_result:
+        return ''
+    try:
+        data = json.loads(check_result)
+    except (ValueError, TypeError):
+        return check_result if check_state in ('issues', 'error') else ''
+    issues = data.get('issues') if isinstance(data, dict) else None
+    if not issues:
+        return ''
+    lines = []
+    for it in issues:
+        if isinstance(it, dict):
+            sev = (it.get('severity') or '').strip()
+            loc = (it.get('location') or '').strip()
+            desc = (it.get('description') or it.get('issue') or '').strip()
+            prefix = ' '.join(p for p in [f'[{sev}]' if sev else '', f'{loc}:' if loc else ''] if p)
+            lines.append((prefix + ' ' + desc).strip())
+        elif it:
+            lines.append(str(it))
+    return '\n'.join(l for l in lines if l)
+
+
 def _existing_slot_assets(question, asset_type, version, file_format):
     """Existing assets in the target slot, as lightweight dicts for the
-    compare view (ordered by part)."""
+    compare view (ordered by part), including any proofread issue message."""
     rows = (QuestionAsset.query
             .filter_by(question_id=question.id, asset_type=asset_type,
                        version=version, file_format=file_format)
             .order_by(QuestionAsset.part_number).all())
-    return [{
-        'asset_id': r.id,
-        'file_path': r.file_path,
-        'part_number': r.part_number,
-        'file_format': r.file_format,
-    } for r in rows]
+    out = []
+    for r in rows:
+        out.append({
+            'asset_id': r.id,
+            'file_path': r.file_path,
+            'part_number': r.part_number,
+            'file_format': r.file_format,
+            'check_state': r.check_state,
+            'issue_text': _issue_text(r.check_state, r.check_result),
+        })
+    return out
 
 
 def _resolve_file(rel_path, filename, profile):
@@ -551,6 +554,33 @@ def staging_root():
     root = os.path.join(storage.system_path(), '.smart_import')
     os.makedirs(root, exist_ok=True)
     return root
+
+
+def upload_root():
+    root = os.path.join(storage.system_path(), '.smart_import_uploads')
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def upload_dir(token):
+    """Absolute path of one uploaded-folder staging dir; validates the token."""
+    if not _TOKEN_RE.match(token or ''):
+        raise ValueError('invalid upload token')
+    return os.path.join(upload_root(), token)
+
+
+def create_upload():
+    """Create a fresh uploaded-folder staging dir and return its token."""
+    token = uuid.uuid4().hex
+    os.makedirs(os.path.join(upload_root(), token), exist_ok=True)
+    return token
+
+
+def discard_upload(token):
+    try:
+        shutil.rmtree(upload_dir(token))
+    except (OSError, ValueError):
+        pass
 
 
 def _plan_path(token):

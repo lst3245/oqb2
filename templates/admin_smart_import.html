@@ -148,14 +148,19 @@ Select a subject and click "Start Ingestion" to begin a library scan.
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Folder on server</label>
+                        <label class="form-label fw-bold">Source folder</label>
                         <div class="input-group">
                             <input type="text" id="folderDisplay" class="form-control" readonly
                                    placeholder="No folder selected" value="">
-                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()">
-                                <i class="bi bi-folder2-open"></i> Choose...
+                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()" title="Pick a folder already on the server">
+                                <i class="bi bi-hdd-network"></i> Server...
                             </button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('folderUpload').click()" title="Upload a folder from this computer">
+                                <i class="bi bi-upload"></i> Upload...
+                            </button>
+                            <input type="file" id="folderUpload" webkitdirectory directory multiple class="d-none" onchange="uploadFolder(this)">
                         </div>
+                        <small id="uploadStatus" class="text-muted"></small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Subject</label>
@@ -304,6 +309,46 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                     </div>
                 </div>
                 <div id="applyConsole" class="log-console"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full-window compare modal -->
+    <div class="modal fade" id="compareModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                        <span id="cmpQid">QID</span>
+                        <span class="badge bg-secondary" id="cmpSlot"></span>
+                        <span id="cmpStatusBadge"></span>
+                    </h5>
+                    <span class="ms-3 text-muted" id="cmpPos">0 / 0</span>
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" id="cmpAccept" onchange="cmpToggleAccept(this.checked)">
+                            <label class="form-check-label" for="cmpAccept">Accept</label>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(-1)" title="Previous (Left arrow)"><i class="bi bi-chevron-left"></i> Prev</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(1)" title="Next (Right arrow)">Next <i class="bi bi-chevron-right"></i></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body bg-body-tertiary">
+                    <div class="row g-2 h-100">
+                        <div class="col-6 d-flex flex-column">
+                            <div class="fw-bold mb-1"><i class="bi bi-clock-history"></i> Existing (current)</div>
+                            <div id="cmpIssue" class="alert alert-danger py-2 px-2 small d-none" style="white-space:pre-wrap;"></div>
+                            <div id="cmpOld" class="flex-grow-1 overflow-auto text-center border rounded bg-white p-2"></div>
+                        </div>
+                        <div class="col-6 d-flex flex-column">
+                            <div class="fw-bold mb-1"><i class="bi bi-stars"></i> New (incoming)</div>
+                            <div id="cmpNewMeta" class="small text-muted mb-1"></div>
+                            <div id="cmpNew" class="flex-grow-1 overflow-auto text-center border rounded bg-white p-2"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -475,11 +520,23 @@ function stopIngestion() {
 // ============================ Folder import ============================
 const VERSIONS = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
 const VERSION_LABELS = window.OQB_VERSION_LABELS || {};
+let sourceMode = 'server';   // 'server' | 'upload'
 let selectedRoot = null;
 let selectedPath = '';
+let uploadToken = null;
 let selectedFolderName = '';
 let proposals = [];
 let scopeQids = (INITIAL_QIDS || '').split(',').map(s => s.trim()).filter(Boolean);
+
+function buildSourceBody() {
+    return sourceMode === 'upload'
+        ? {upload_token: uploadToken}
+        : {root_id: selectedRoot, rel_path: selectedPath};
+}
+
+function sourceReady() {
+    return sourceMode === 'upload' ? !!uploadToken : !!selectedRoot;
+}
 
 function fiVersionOptions(selected) {
     return VERSIONS.map(v =>
@@ -508,13 +565,44 @@ function pickFolder() {
         title: 'Choose the folder to import',
         locationKey: 'smart-import',
         onPick: function(sel) {
+            sourceMode = 'server';
+            uploadToken = null;
             selectedRoot = sel.root_id;
             selectedPath = sel.rel_path || '';
             selectedFolderName = (sel.root_label || '') + ' / ' + (selectedPath || '(root)');
             document.getElementById('folderDisplay').value = selectedFolderName;
+            document.getElementById('uploadStatus').textContent = '';
             document.getElementById('btnAnalyze').disabled = false;
         }
     });
+}
+
+function uploadFolder(input) {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const status = document.getElementById('uploadStatus');
+    status.textContent = `Uploading ${files.length} file(s)...`;
+    document.getElementById('btnAnalyze').disabled = true;
+    const fd = new FormData();
+    files.forEach(f => {
+        fd.append('files', f);
+        fd.append('paths', f.webkitRelativePath || f.name);
+    });
+    fetch(`{{ url_for('admin.smart_import_upload') }}`, {method: 'POST', body: fd})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { status.textContent = 'Upload failed: ' + data.error; return; }
+            sourceMode = 'upload';
+            uploadToken = data.upload_token;
+            selectedRoot = null;
+            selectedPath = '';
+            selectedFolderName = (data.folder_name || 'uploaded folder');
+            document.getElementById('folderDisplay').value = 'Uploaded: ' + selectedFolderName;
+            status.textContent = `Uploaded ${data.count} file(s).`;
+            document.getElementById('btnAnalyze').disabled = false;
+        })
+        .catch(err => { status.textContent = 'Upload error: ' + err.message; })
+        .finally(() => { input.value = ''; });
 }
 
 function buildProfile() {
@@ -546,14 +634,14 @@ function loadEndpoints() {
 }
 
 function analyzeFolder() {
-    if (!selectedRoot) { alert('Choose a folder first.'); return; }
+    if (!sourceReady()) { alert('Choose or upload a folder first.'); return; }
     const btn = document.getElementById('btnAnalyze');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Analyzing...';
-    const body = {
-        root_id: selectedRoot, rel_path: selectedPath, profile: buildProfile(),
+    const body = Object.assign(buildSourceBody(), {
+        profile: buildProfile(),
         qids: scopeQids.length ? scopeQids : null,
-    };
+    });
     fetch(`{{ url_for('admin.smart_import_analyze') }}`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
     }).then(r => r.json()).then(data => {
@@ -571,14 +659,14 @@ function analyzeFolder() {
 }
 
 function analyzeWithAI() {
-    if (!selectedRoot) { alert('Choose a folder first.'); return; }
+    if (!sourceReady()) { alert('Choose or upload a folder first.'); return; }
     const notes = document.getElementById('aiNotes');
     notes.textContent = 'Asking the model to infer the folder structure...';
-    const body = {
-        root_id: selectedRoot, rel_path: selectedPath, profile: buildProfile(),
+    const body = Object.assign(buildSourceBody(), {
+        profile: buildProfile(),
         endpoint_id: document.getElementById('fiEndpoint').value || null,
         qids: scopeQids.length ? scopeQids : null,
-    };
+    });
     fetch(`{{ url_for('admin.smart_import_analyze_llm') }}`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
     }).then(r => r.json()).then(data => {
@@ -606,6 +694,10 @@ const STATUS_BADGE = {
 };
 
 function newPreviewUrl(p) {
+    if (sourceMode === 'upload') {
+        const params = new URLSearchParams({token: uploadToken, path: p.src_rel});
+        return `{{ url_for('admin.smart_import_uploaded_file') }}?` + params.toString();
+    }
     const params = new URLSearchParams({root: selectedRoot, scope: 'user', path: p.src_rel});
     return `{{ url_for('files.api_download') }}?` + params.toString();
 }
@@ -620,13 +712,19 @@ function thumbCell(format, url, label) {
     return `<a href="${url}" target="_blank" class="text-decoration-none"><i class="bi ${icon}"></i> ${label}</a>`;
 }
 
-function renderProposals() {
+function filteredProposals() {
     const filter = document.getElementById('fiFilter').value;
+    return proposals.filter(p => {
+        if (filter === 'actionable') return ['overwrite', 'add'].includes(p.status);
+        if (['overwrite', 'add', 'unmatched', 'ambiguous', 'skip'].includes(filter)) return p.status === filter;
+        return true;
+    });
+}
+
+function renderProposals() {
     const tbody = document.getElementById('proposalBody');
     tbody.innerHTML = '';
-    proposals.forEach(p => {
-        if (filter === 'actionable' && !['overwrite', 'add'].includes(p.status)) return;
-        if (['overwrite', 'add', 'unmatched', 'ambiguous', 'skip'].includes(filter) && p.status !== filter) return;
+    filteredProposals().forEach(p => {
         const tr = document.createElement('tr');
         if (p.status === 'skip') tr.className = 'row-skip';
         const disabled = p.status === 'skip' ? 'disabled' : '';
@@ -652,7 +750,10 @@ function renderProposals() {
                 <span class="badge bg-light text-muted border">${p.format || '?'}</span>
             </td>
             <td>${oldHtml}</td>
-            <td>${newHtml}<div class="small text-muted text-truncate" style="max-width:140px">${p.filename}</div></td>
+            <td>${newHtml}<div class="small text-muted text-truncate" style="max-width:140px">${p.filename}</div>
+                <button class="btn btn-sm btn-outline-primary mt-1 py-0 px-1" onclick="openCompare(${p.id})" title="Compare full screen (old vs new)">
+                    <i class="bi bi-arrows-fullscreen"></i> Compare
+                </button></td>
             <td><span class="conf-${p.confidence}">${p.confidence}</span><br><small class="text-muted">${p.method || ''}</small></td>
             <td><small>${p.note || ''}</small></td>`;
         tbody.appendChild(tr);
@@ -744,7 +845,7 @@ function applyImport() {
 
     fetch(`{{ url_for('admin.smart_import_prepare') }}`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({root_id: selectedRoot, items: items, profile: buildProfile()})
+        body: JSON.stringify(Object.assign(buildSourceBody(), {items: items, profile: buildProfile()}))
     }).then(r => r.json()).then(data => {
         if (data.error) {
             appendApplyLog('Prepare failed: ' + data.error, 'error');
@@ -803,6 +904,101 @@ function finishApply(event) {
         applyProgressBar.classList.add('bg-success');
     }
 }
+
+// ============================ Compare (full-window) ============================
+let compareList = [];
+let compareIdx = 0;
+let compareModal = null;
+
+function bigImgHtml(url, label) {
+    return `<img src="${url}" alt="${label}" style="max-width:100%; height:auto;" class="border rounded">`;
+}
+
+function bigFileHtml(format, url, label) {
+    const icon = format === 'DOC' ? 'bi-file-earmark-word' : 'bi-file-earmark-text';
+    return `<div class="p-4"><i class="bi ${icon}" style="font-size:3rem"></i>
+        <div class="mt-2">${label}</div>
+        <a href="${url}" target="_blank" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-box-arrow-up-right"></i> Open</a></div>`;
+}
+
+function openCompare(id) {
+    compareList = filteredProposals();
+    compareIdx = compareList.findIndex(p => p.id === id);
+    if (compareIdx < 0) compareIdx = 0;
+    if (!compareModal) {
+        compareModal = new bootstrap.Modal(document.getElementById('compareModal'));
+    }
+    renderCompare();
+    compareModal.show();
+}
+
+function renderCompare() {
+    const p = compareList[compareIdx];
+    if (!p) return;
+    document.getElementById('cmpQid').textContent = p.qid || '(no QID)';
+    document.getElementById('cmpSlot').textContent = `${p.asset_type}/${p.version}/${p.format}`;
+    document.getElementById('cmpStatusBadge').innerHTML = STATUS_BADGE[p.status] || p.status;
+    document.getElementById('cmpPos').textContent = `${compareIdx + 1} / ${compareList.length}`;
+
+    const acc = document.getElementById('cmpAccept');
+    acc.checked = !!p.accept;
+    acc.disabled = p.status === 'skip';
+
+    // Existing side + issue message.
+    const issueEl = document.getElementById('cmpIssue');
+    const issues = (p.existing || []).map(e => e.issue_text).filter(Boolean);
+    if (issues.length) {
+        issueEl.textContent = 'Reported issue(s):\n' + issues.join('\n');
+        issueEl.classList.remove('d-none');
+    } else {
+        issueEl.classList.add('d-none');
+        issueEl.textContent = '';
+    }
+    const oldEl = document.getElementById('cmpOld');
+    if (p.existing && p.existing.length) {
+        oldEl.innerHTML = p.existing.map(e => e.file_format === 'IMG'
+            ? bigImgHtml(oldAssetUrl(e.file_path), 'old')
+            : bigFileHtml(e.file_format, oldAssetUrl(e.file_path), e.file_path.split('/').pop())).join('<hr>');
+    } else {
+        oldEl.innerHTML = '<div class="text-muted p-4">No existing asset in this slot.</div>';
+    }
+
+    document.getElementById('cmpNewMeta').textContent = p.filename + '  ·  ' + (p.note || '');
+    const newEl = document.getElementById('cmpNew');
+    newEl.innerHTML = p.format === 'IMG'
+        ? bigImgHtml(newPreviewUrl(p), p.filename)
+        : bigFileHtml(p.format, newPreviewUrl(p), p.filename);
+}
+
+function compareNav(delta) {
+    if (!compareList.length) return;
+    compareIdx = Math.max(0, Math.min(compareList.length - 1, compareIdx + delta));
+    renderCompare();
+}
+
+function cmpToggleAccept(checked) {
+    const p = compareList[compareIdx];
+    if (p && p.status !== 'skip') {
+        p.accept = checked;
+        updateAcceptCount();
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    const open = document.getElementById('compareModal').classList.contains('show');
+    if (!open) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); compareNav(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); compareNav(1); }
+    else if (e.key.toLowerCase() === 'a') {
+        const acc = document.getElementById('cmpAccept');
+        if (!acc.disabled) { acc.checked = !acc.checked; cmpToggleAccept(acc.checked); }
+    }
+});
+
+// Keep the grid checkboxes in sync after the compare modal closes.
+document.getElementById('compareModal').addEventListener('hidden.bs.modal', function() {
+    renderProposals();
+});
 
 // ============================ Init ============================
 document.addEventListener('DOMContentLoaded', function() {

@@ -10,15 +10,21 @@ One admin tool (`/admin/import`, `templates/admin_smart_import.html`) with two m
 
 ## Modes
 - **Library scan** — strict scan of `SOURCE_PATH/<subject>`. Reuses `ingestor.preview_source_directory` + `scan_directory_stream` via the still-live routes `GET /admin/ingestion/preview` + `GET /admin/ingestion/start`. Unchanged behaviour.
-- **Folder import** — heuristic match of an arbitrary server folder (any IMG/DOC/MD dump) onto questions + asset slots, with old-vs-new review and create/overwrite apply.
+- **Folder import** — heuristic match of a folder (any IMG/DOC/MD dump) onto questions + asset slots, with old-vs-new review and create/overwrite apply. The folder can be **on the server** (file selector) OR **uploaded from the user's computer** (`webkitdirectory`).
 
 `GET /admin/ingestion` 302-redirects to `/admin/import` (legacy links). Navbar + Admin index say "Smart Import".
+
+## Source: server folder OR uploaded folder
+`_smart_import_source(data)` (in `admin.py`) resolves the import source into `(base_dir, rel_path, error)`:
+- **Upload** — body carries `upload_token`. Files were POSTed to `POST /admin/import/upload` (`files` + parallel `paths` list = each file's `webkitRelativePath`) and staged under `System/.smart_import_uploads/<token>/` (helpers `create_upload`/`upload_dir`/`discard_upload`). Preview served by `GET /admin/import/uploaded-file?token=&path=`. `base_dir` = the staging dir, `rel_path` = ''.
+- **Server** — body carries `root_id` (+ `rel_path`), resolved via `RootRegistry(current_user)` (user scope). Preview served by `GET /files/api/download`.
+`analyze`, `analyze-llm`, and `prepare` all accept either kind; `build_plan` stores the resolved absolute `src_abs`, so apply is source-agnostic.
 
 ## Engine (`app/smart_import.py`)
 Resolve order per file (reuses `app/ingestor.py`): **strict** `parse_filename` (canonical name) → **heuristic** path/token scan (`_scan_tokens`: year `(19|20)\d{2}`, paper `P\d+[A-Za-z]?`, qno `Q?\d+` from filename-stem-first, version/type tokens) → fill gaps from the per-import **profile**. Format from extension via `ingestor.determine_file_format` (IMG/DOC/MD).
 
 - `normalize_profile(raw)` → `{subject, source, detail, version, asset_type, overwrite, backup, create_missing, rule}`.
-- `resolve_folder(base_dir, rel_path, profile, qid_scope=None)` → `{proposals, stats, folder, profile}`. Each **proposal**: `{id, src_rel, filename, ext, format, subject, source, year, paper, detail, qno, version, asset_type, part, method('strict'|'heuristic'), confidence('high'|'medium'|'low'|'none'), status, qid, note, existing[], existing_count, accept}`.
+- `resolve_folder(base_dir, rel_path, profile, qid_scope=None)` → `{proposals, stats, folder, profile}`. Each **proposal**: `{id, src_rel, filename, ext, format, subject, source, year, paper, detail, qno, version, asset_type, part, method('strict'|'heuristic'), confidence('high'|'medium'|'low'|'none'), status, qid, note, existing[], existing_count, accept}`. Each `existing[]` entry carries `{asset_id, file_path, part_number, file_format, check_state, issue_text}` — `issue_text` is the existing asset's proofread issues rendered by `_issue_text` for the compare view.
 - **status**: `overwrite` (question+slot occupied), `add` (question exists, empty slot), `unmatched` (no such QID — accepted only if create-missing), `ambiguous` (low confidence), `skip` (unknown ext / no qno / out of `qid_scope` / no subject-admin access).
 - `qid_scope` (list of QIDs) restricts matching; passed from Question Management's selected rows.
 
@@ -33,14 +39,21 @@ Resolve order per file (reuses `app/ingestor.py`): **strict** `parse_filename` (
 ## Plan stash (token, for the SSE GET)
 `build_plan(base_dir, root_id, items, profile)` validates reviewed proposals (possibly edited client-side) into fully-resolved jobs with an absolute, re-validated `src_abs`; `save_plan`/`load_plan`/`discard_plan` persist JSON under `System/.smart_import/<token>.json` (32-hex token). Apply route loads, re-checks subject access on every job, streams, then discards.
 
+## Optional AI assist (prompts + endpoint)
+`infer_structure_rule(base_dir, rel_path, profile, config)` → `(rule, raw)`. Prompts are editable on **Admin → AI Prompts**: `SMART_IMPORT_SYSTEM` / `SMART_IMPORT_USER` (group "Smart Import — Structure Inference", vars `subject`/`versions`/`tree`), resolved via `ai_prompts.system_prompt`/`render_prompt` with `endpoint_id=config.id`. Endpoint = explicit `endpoint_id` or `llm_client.resolve_default_endpoint('SMART_IMPORT_DEFAULT_LLM', vision_only=False)` (text task — vision not required). The default endpoint is a **System Setting** `SMART_IMPORT_DEFAULT_LLM` (settings.py REGISTRY + config.py). Gated on `AI_TOOLS_ENABLED`.
+
 ## Routes (`app/admin.py`, `@admin_required`, subject-scoped)
 - `GET /admin/import` — page; `?mode=folder`, optional `?qids=` (scope + disables create-missing).
-- `POST /admin/import/analyze` — `{root_id, rel_path, profile, qids?}` → proposals. Root resolved via `RootRegistry(current_user)` (user scope); proposals outside the caller's admin subjects forced to `skip`.
-- `POST /admin/import/analyze-llm` — optional AI rule inference (`infer_structure_rule` → `llm_client.chat`), merges rule into profile, re-resolves. Endpoint = `endpoint_id` or `_pdf_default_endpoint()`. Gated on `AI_TOOLS_ENABLED`.
-- `POST /admin/import/prepare` — `{root_id, items, profile}` → `build_plan` + `save_plan` → `{token, count, skipped}`. Drops items outside admin subjects.
+- `POST /admin/import/analyze` — `{root_id+rel_path | upload_token, profile, qids?}` → proposals (source via `_smart_import_source`). Proposals outside the caller's admin subjects forced to `skip`.
+- `POST /admin/import/analyze-llm` — optional AI rule inference, merges rule into profile, re-resolves.
+- `POST /admin/import/prepare` — `{<source>, items, profile}` → `build_plan` + `save_plan` → `{token, count, skipped}`. Drops items outside admin subjects.
 - `GET /admin/import/apply?token=` — SSE apply.
+- `POST /admin/import/upload` — stage an uploaded folder (`files` + `paths`) → `{upload_token, count, folder_name}`.
+- `GET /admin/import/uploaded-file?token=&path=` — serve a staged uploaded file (preview).
 
 ## Frontend (`templates/admin_smart_import.html`)
-Extends `base.html`. Mode toggle; Library scan UI (subject picker + preview + SSE log, ported from old ingestion page); Folder import (folder picker via `OQBFileSelector.open({mode:'folder', locationKey:'smart-import'})` + profile form + AI assist; proposals grid with old preview `/dashboard/files/<path>`, new preview `/files/api/download?root=&scope=user&path=`, per-row QID/version/type edits, bulk accept, filter; apply console). Version/type selects built from `window.OQB_VERSIONS`. AI endpoint dropdown reuses `GET /admin/questions/ai/endpoints`.
+Extends `base.html`. Mode toggle; Library scan UI (subject picker + preview + SSE log, ported from old ingestion page); Folder import: source is **server** (`OQBFileSelector.open({mode:'folder', locationKey:'smart-import'})`) or **upload** (`<input webkitdirectory>` → `uploadFolder`); `sourceMode`/`buildSourceBody` thread `root_id`+`rel_path` or `upload_token` through analyze/analyze-llm/prepare. Proposals grid: old preview `/dashboard/files/<path>`, new preview server `/files/api/download` or upload `/admin/import/uploaded-file`, per-row QID/version/type edits, bulk accept, filter, **Compare** button per row. Version/type selects from `window.OQB_VERSIONS`. AI endpoint dropdown reuses `GET /admin/questions/ai/endpoints`.
+
+**Compare modal** (`#compareModal`, `modal-fullscreen`): full-window old-vs-new side by side + the existing asset's proofread `issue_text`, with **Prev/Next** buttons, **Left/Right arrow** keys, and an **Accept** checkbox (`a` key toggles) that syncs back to the grid on close. Navigates the currently-filtered proposal list (`filteredProposals()`).
 
 Question Management toolbar has an **Import Files** button (`openSmartImport()` in `admin_questions.html`) opening `/admin/import?mode=folder&qids=` from selected rows' `data-qid`.

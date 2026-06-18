@@ -63,6 +63,7 @@ Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts t
 | AI Tools | `MD_DEFAULT_LLM` | string | `''` | Default LLM for **Generate Markdown** (per-slot + batch); also feeds the figure-bbox second pass. Blank = first enabled+vision. |
 | AI Tools | `CHECK_DEFAULT_LLM` | string | `''` | Default LLM for **Proofread / Quick check** (per-slot + batch). Blank = first enabled+vision. |
 | AI Tools | `PDF_IMPORT_DEFAULT_LLM` | string | `''` | Default LLM for **PDF Batch Import** bbox detect + paper-name guess. Blank = first enabled+vision (via `_pdf_default_endpoint`, which also falls back to `EXPLAIN_DEFAULT_LLM` for continuity). |
+| AI Tools | `SMART_IMPORT_DEFAULT_LLM` | string | `''` | Default LLM for **Smart Import** "Analyze with AI" folder structure inference. **Text-only** task (vision NOT required) — resolved via `resolve_default_endpoint('SMART_IMPORT_DEFAULT_LLM', vision_only=False)`. Blank = first enabled endpoint by sort order then name. |
 | AI Tools | `LLM_CHAT_TIMEOUT_SECONDS` | int 0–3600 | 600 | Per-feature timeout override for **interactive** LLM chat (dashboard Explain + admin Chat console). 0 = use the endpoint's own `timeout_seconds`. Reasoning models can think for several minutes. |
 | AI Tools | `LLM_REASONING_EFFORT_DEFAULT` | string | `off` | Default reasoning effort for endpoints that inherit (`off`/`low`/`medium`/`high`). `off` = no reasoning params sent. |
 | AI Tools | `LLM_REASONING_SUMMARY_DEFAULT` | string | `auto` | Default reasoning summary for Responses API endpoints that inherit (`auto`/`none`). |

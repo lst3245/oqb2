@@ -369,13 +369,17 @@ python cli.py ingest --source-path "D:\NewFiles"
 Use this when you have a folder of files that are **not** canonically named/placed — for example, updated/fixed images exported as `2012/P1/Q9.png`, or a fresh dump you have not renamed yet. Supports **IMG, DOC, and MD**.
 
 1. Go to Admin → Smart Import → **Folder import** mode.
-2. **Choose** a folder on the server (any location you can access in the file browser, e.g. under `Shared/<subject>`).
+2. Pick the source folder, either:
+   - **Server…** — a folder already on the server (any location you can access in the file browser, e.g. under `Shared/<subject>`), or
+   - **Upload…** — upload an entire folder straight from your computer (the browser sends every file plus its sub-folder paths; they are staged on the server for matching).
 3. Set the **profile** — the defaults applied to every file: Subject, Source (DSE/CE/AL/QB), default Version (EN/CH/…) and Type (QUE/ANS/SOL), and optionally the QB Detail. These fill in whatever the folder/filenames don't already encode.
-   - Flags: **Overwrite existing slot** (replace files already in the target slot), **Back up replaced files** (copies them to `System/ImportBackups/<timestamp>/` first), **Create missing questions** (also create the `Question` record when the QID does not exist yet — handy for ingesting a brand-new folder).
-   - Optional **Analyze with AI**: asks an LLM to infer the folder's structure (which defaults to use) and re-runs the match. Requires AI Tools to be enabled.
+   - Flags: **Overwrite existing slot** (replace files already in the target slot), **Back up replaced files** (copies the files about to be replaced into `System/ImportBackups/<timestamp>/`, preserving their relative path, *before* they are deleted — a simple undo trail), **Create missing questions** (also create the `Question` record when the QID does not exist yet — handy for ingesting a brand-new folder).
+   - Optional **Analyze with AI**: asks an LLM to infer the folder's structure (which defaults to use) and re-runs the match. Requires AI Tools to be enabled; the prompts are editable on **Admin → AI Prompts** and the endpoint is set by **`SMART_IMPORT_DEFAULT_LLM`** in System Settings.
 4. Click **Analyze folder**. Each file becomes a proposal with a status — **Overwrite** / **Add** / **Unmatched** / **Ambiguous** / **Skip** — plus a confidence and an **old-vs-new preview**.
-5. **Review**: tick the files to apply (or use *Accept all matched*), fix any QID or slot (version/type) inline, and filter the list (e.g. show only unmatched/ambiguous).
+5. **Review**: tick the files to apply (or use *Accept all matched*), fix any QID or slot (version/type) inline, and filter the list (e.g. show only unmatched/ambiguous). Click **Compare** on any row for a full-window side-by-side of the existing vs new file (with the existing asset's reported issue shown); use the **←/→** arrow keys or Prev/Next to flip through, and **a** (or the Accept checkbox) to accept while reviewing.
 6. Click **Apply**. Accepted files are copied into their canonical `SOURCE_PATH` location and the slot is overwritten (images replace the whole slot; DOC/MD replace the single slot). Watch the live log.
+
+> **What "Back up replaced files" does:** when an accepted file would overwrite an existing slot, the current file(s) on disk are first copied to `Q:\Storage\System\ImportBackups\<timestamp>\<original/relative/path>` before being replaced. Nothing is backed up for *Add* proposals (there was no existing file). It is a manual safety net — the app does not auto-restore from it.
 
 Opening Folder import from **Admin → Questions** via the **Import Files** button restricts matching to the currently-selected questions (and disables create-missing) — ideal for batch-fixing flagged questions.
 

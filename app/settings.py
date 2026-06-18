@@ -351,6 +351,18 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         choices_fn=_llm_endpoint_choices,
     )),
+    ('SMART_IMPORT_DEFAULT_LLM', _spec(
+        'SMART_IMPORT_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for Smart Import structure inference',
+        help=(
+            'LLM endpoint used by the "Analyze with AI" assist on the Smart '
+            'Import Folder-import page (infers folder-level defaults from the '
+            'directory tree). This is a TEXT-only task, so a vision-capable '
+            'endpoint is not required. Leave blank to auto-pick the first '
+            'enabled endpoint by sort order then name.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
     ('LLM_CHAT_TIMEOUT_SECONDS', _spec(
         'LLM_CHAT_TIMEOUT_SECONDS', 'int', group='AI Tools',
         label='Interactive chat timeout (seconds)',

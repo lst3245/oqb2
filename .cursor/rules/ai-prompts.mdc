@@ -6,7 +6,7 @@ alwaysApply: false
 
 # AI Prompts (super-admin editable system / user / format templates)
 
-Editable storage for the prompts powering every AI feature: proofreading, MD generation, **solve-based ANS/SOL generation/checking**, **auto question tagging**, the dashboard **Explain** tutor, the figure-bbox detector, and PDF Batch Import (box detection, anchor/segment detection, and paper-name guess). 33 prompts total. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
+Editable storage for the prompts powering every AI feature: proofreading, MD generation, **solve-based ANS/SOL generation/checking**, **auto question tagging**, the dashboard **Explain** tutor, the figure-bbox detector, PDF Batch Import (box detection, anchor/segment detection, and paper-name guess), and **Smart Import** structure inference. 35 prompts total. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
 
 Three pillars:
 1. **Variants** — every key supports multiple named variants: one editable **built-in** row (NULL content = registry bootstrap default; reset = null the content, never delete the row) plus admin-created customs. Exactly one variant per key is **active** (the default for unpinned endpoints).
@@ -38,6 +38,7 @@ In declaration order (the UI renders them in this order, grouped by `group`). `�
 9. `PDF_GENERIC_BOX_JSON_CONTRACT` (format), `PDF_GENERIC_BOX_SYSTEM` (system), `PDF_GENERIC_BOX_USER` (user →`PDF_GENERIC_BOX_JSON_CONTRACT`)
 10. `PDF_ANCHOR_JSON_CONTRACT` (format), `PDF_ANCHOR_SYSTEM` (system), `PDF_ANCHOR_USER` (user →`PDF_ANCHOR_JSON_CONTRACT`)
 11. `PDF_PAPER_NAME_SYSTEM` (system, no format item), `PDF_PAPER_NAME_USER` (user, vars `filename`,`subjects`)
+12. `SMART_IMPORT_SYSTEM` (system, no format item), `SMART_IMPORT_USER` (user, vars `subject`,`versions`,`tree`) — Smart Import "Analyze with AI" folder structure inference; reply is a single JSON object of folder-level defaults parsed by `smart_import._parse_json_object` (not a registry parser)
 
 The box `*_JSON_CONTRACT` items double as BOTH the `{{json_contract}}` substitution into the system prompts AND the user-turn format block — one source of truth for each contract. Figure + PDF parsers share `_normalize_box` and honour `PDF_IMPORT_COORD_ORDER`.
 

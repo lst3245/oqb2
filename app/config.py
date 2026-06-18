@@ -136,6 +136,7 @@ class Config:
     MD_DEFAULT_LLM = os.getenv('MD_DEFAULT_LLM', '')
     CHECK_DEFAULT_LLM = os.getenv('CHECK_DEFAULT_LLM', '')
     PDF_IMPORT_DEFAULT_LLM = os.getenv('PDF_IMPORT_DEFAULT_LLM', '')
+    SMART_IMPORT_DEFAULT_LLM = os.getenv('SMART_IMPORT_DEFAULT_LLM', '')
     # Per-feature timeout override for interactive LLM chat (the dashboard
     # Explain tutor and the LLM Endpoints chat console). Reasoning models
     # can take several minutes thinking before they emit any visible output,

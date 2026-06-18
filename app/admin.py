@@ -3593,6 +3593,27 @@ def _smart_import_resolve_root(root_id):
     return root, None
 
 
+def _smart_import_source(data):
+    """Resolve the import source from a request body into ``(base_dir,
+    rel_path, error)``. Two kinds: an uploaded folder (``upload_token``,
+    staged under System/.smart_import_uploads) or a server folder
+    (``root_id`` + ``rel_path`` via the per-user RootRegistry)."""
+    from app import smart_import
+    token = (data.get('upload_token') or '').strip()
+    if token:
+        try:
+            base = smart_import.upload_dir(token)
+        except ValueError:
+            return None, None, 'Invalid upload token.'
+        if not os.path.isdir(base):
+            return None, None, 'Uploaded folder not found or expired.'
+        return base, '', None
+    root, err = _smart_import_resolve_root(data.get('root_id'))
+    if err:
+        return None, None, err
+    return root.path, (data.get('rel_path') or ''), None
+
+
 def _smart_import_filter_subjects(proposals):
     """Flag proposals whose subject the caller cannot admin as skipped."""
     admin_ids = {s.id for s in get_user_admin_subjects()}
@@ -3632,7 +3653,7 @@ def smart_import_analyze():
     from app import smart_import
 
     data = request.get_json(silent=True) or {}
-    root, err = _smart_import_resolve_root(data.get('root_id'))
+    base_dir, rel_path, err = _smart_import_source(data)
     if err:
         return jsonify({'error': err}), 403
 
@@ -3641,8 +3662,7 @@ def smart_import_analyze():
         qids = [q.strip() for q in qids.split(',') if q.strip()] or None
 
     result = smart_import.resolve_folder(
-        root.path, data.get('rel_path', ''), data.get('profile') or {},
-        qid_scope=qids)
+        base_dir, rel_path, data.get('profile') or {}, qid_scope=qids)
     if result.get('error'):
         return jsonify({'error': result['error']}), 400
 
@@ -3663,25 +3683,27 @@ def smart_import_analyze_llm():
         return jsonify({'error': 'AI features are disabled.'}), 400
 
     data = request.get_json(silent=True) or {}
-    root, err = _smart_import_resolve_root(data.get('root_id'))
+    base_dir, rel_path, err = _smart_import_source(data)
     if err:
         return jsonify({'error': err}), 403
 
-    # Resolve the endpoint (explicit id, else the PDF-import default chain).
+    # Resolve the endpoint (explicit id, else the Smart Import default).
+    # Structure inference is a TEXT task, so vision is not required.
     cfg = None
     endpoint_id = data.get('endpoint_id')
     if endpoint_id:
         from app.models import LLMConfig
         cfg = LLMConfig.query.filter_by(id=endpoint_id, enabled=True).first()
     if cfg is None:
-        cfg = _pdf_default_endpoint()
+        from app import llm_client
+        cfg = llm_client.resolve_default_endpoint('SMART_IMPORT_DEFAULT_LLM',
+                                                  vision_only=False)
     if cfg is None:
         return jsonify({'error': 'No enabled LLM endpoint is available.'}), 400
 
     profile = data.get('profile') or {}
     try:
-        rule, raw = smart_import.infer_structure_rule(
-            root.path, data.get('rel_path', ''), profile, cfg)
+        rule, raw = smart_import.infer_structure_rule(base_dir, rel_path, profile, cfg)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 400
 
@@ -3693,8 +3715,7 @@ def smart_import_analyze_llm():
     if isinstance(qids, str):
         qids = [q.strip() for q in qids.split(',') if q.strip()] or None
 
-    result = smart_import.resolve_folder(root.path, data.get('rel_path', ''), merged,
-                                         qid_scope=qids)
+    result = smart_import.resolve_folder(base_dir, rel_path, merged, qid_scope=qids)
     _smart_import_filter_subjects(result.get('proposals', []))
     result['stats'] = smart_import._summarize(result.get('proposals', []))
     result['rule'] = rule
@@ -3712,7 +3733,7 @@ def smart_import_prepare():
     from app import smart_import
 
     data = request.get_json(silent=True) or {}
-    root, err = _smart_import_resolve_root(data.get('root_id'))
+    base_dir, _rel, err = _smart_import_source(data)
     if err:
         return jsonify({'error': err}), 403
 
@@ -3724,7 +3745,7 @@ def smart_import_prepare():
     if not items:
         return jsonify({'error': 'No applicable items selected.'}), 400
 
-    plan = smart_import.build_plan(root.path, data.get('root_id'), items,
+    plan = smart_import.build_plan(base_dir, data.get('root_id'), items,
                                    data.get('profile') or {})
     if not plan['jobs']:
         return jsonify({'error': 'Nothing to apply.', 'skipped': plan['skipped']}), 400
@@ -3771,6 +3792,66 @@ def smart_import_apply():
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/import/upload', methods=['POST'])
+@login_required
+@admin_required
+def smart_import_upload():
+    """Stage a folder uploaded from the user's computer (webkitdirectory).
+    Files arrive as `files` with a parallel `paths` list of their relative
+    paths. Returns an `upload_token` usable as the import source."""
+    from app import smart_import
+
+    files = request.files.getlist('files')
+    paths = request.form.getlist('paths')
+    if not files:
+        return jsonify({'error': 'No files uploaded.'}), 400
+
+    token = smart_import.create_upload()
+    base = smart_import.upload_dir(token)
+    saved = 0
+    top = ''
+    for i, f in enumerate(files):
+        rel = (paths[i] if i < len(paths) else f.filename) or ''
+        rel = rel.replace('\\', '/').lstrip('/')
+        if not rel:
+            continue
+        if not top:
+            top = rel.split('/')[0]
+        dest = storage.safe_join(base, rel)
+        if not dest:
+            continue  # path escape attempt — skip
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        try:
+            f.save(dest)
+            saved += 1
+        except OSError:
+            pass
+
+    if saved == 0:
+        smart_import.discard_upload(token)
+        return jsonify({'error': 'No files could be saved.'}), 400
+
+    return jsonify({'upload_token': token, 'count': saved,
+                    'folder_name': top or 'uploaded folder'})
+
+
+@admin_bp.route('/import/uploaded-file')
+@login_required
+@admin_required
+def smart_import_uploaded_file():
+    """Serve one staged uploaded file for the review-grid preview."""
+    from app import smart_import
+    token = request.args.get('token', '')
+    try:
+        base = smart_import.upload_dir(token)
+    except ValueError:
+        return 'Invalid token', 400
+    full = storage.safe_join(base, request.args.get('path', ''))
+    if not full or not os.path.isfile(full):
+        return 'File not found', 404
+    return send_file(full)
 
 
 # ==================== PDF Batch Import (Admin) ====================
