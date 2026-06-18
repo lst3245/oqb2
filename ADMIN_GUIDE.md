@@ -200,6 +200,8 @@ Questions can be linked to both a topic AND a chapter — they serve different f
 ### Question List (`/admin/questions`)
 Full-featured list with the same filters as the dashboard. Useful for finding untagged questions or performing bulk operations.
 
+The **Status** filter can be narrowed with **Advanced** options: choose versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOCX`) to combine with **Has issues**, **All checked OK**, or **Has unchecked**. Reset returns to the default EN/CH/BI all-type/all-format status scope.
+
 ### Tagging a Question
 Click the edit (pencil) icon → a modal opens with three tabs:
 
@@ -215,6 +217,7 @@ Rules:
 
 ### Batch Operations
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
+- The header checkbox selects the questions visible on the current page. When the active filter has more results, a banner appears; click **Select all matching questions** to expand the selection to every matching question across all pages.
 - **Batch Update** — choose which fields to update (level, type, section, topics, correct %) and set their values. Only ticked fields are changed.
 - **Batch Delete** — permanently removes questions and their assets from DB and disk. Requires typing `DELETE` to confirm.
 - **Generate IMG from DOC/MD** — bulk-renders the DOC/MD source assets of the selected questions into PNG IMG assets via Microsoft Word. Modal options: asset types (QUE/ANS/SOL), versions (EN/CH/BI/ENO/CHO), source format preference (DOC > MD), one tall PNG per slot **or** one PNG per source page, overwrite existing IMG, render width (px), transparent background. Streams progress live; refresh-free.

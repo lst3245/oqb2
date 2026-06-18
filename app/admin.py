@@ -699,8 +699,14 @@ def delete_questions():
                 'error': 'Invalid question IDs'
             }), 400
         
-        # Get questions to delete
-        questions = Question.query.filter(Question.id.in_(question_ids)).all()
+        # Get questions to delete, restricted to subjects the caller can admin.
+        admin_subject_ids = [s.id for s in get_user_admin_subjects()]
+        questions = (
+            Question.query
+            .filter(Question.id.in_(question_ids))
+            .filter(Question.subject.in_(admin_subject_ids))
+            .all()
+        )
         
         if not questions:
             return jsonify({
@@ -1537,22 +1543,15 @@ def questions_page():
     )
 
 
-@admin_bp.route('/questions/api/list')
-@login_required
-@admin_required
-def questions_api_list():
-    """API: fetch paginated & filtered question list"""
-    qid_search = request.args.get('qid_search', '').strip()
-    selected_ids_str = request.args.get('selected_ids', '').strip()
+def _admin_questions_query_from_args(args):
+    """Build the admin-scoped question query used by the table and bulk selection."""
+    qid_search = args.get('qid_search', '').strip()
+    selected_ids_str = args.get('selected_ids', '').strip()
     # Explicit QID-string list filter (comma-separated). Used by the DB-Health
     # anomaly modal to jump straight to a specific set of questions.
-    qids_str = request.args.get('qids', '').strip()
-    sort_field = request.args.get('sort', 'created_at')
-    sort_dir = request.args.get('dir', 'desc')
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('page_size', 50))
-    if page_size not in (10, 20, 50, 100, 200):
-        page_size = 50
+    qids_str = args.get('qids', '').strip()
+    sort_field = args.get('sort', 'created_at')
+    sort_dir = args.get('dir', 'desc')
 
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     query = Question.query.filter(Question.subject.in_(admin_subjects))
@@ -1589,29 +1588,27 @@ def questions_api_list():
             query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
 
     # Verified filter (1/0)
-    verified_param = request.args.get('verified', '').strip().lower()
+    verified_param = args.get('verified', '').strip().lower()
     if verified_param in ('1', 'true', 'yes'):
         query = query.filter(Question.verified.is_(True))
     elif verified_param in ('0', 'false', 'no'):
         query = query.filter(Question.verified.is_(False))
 
     # Asset-check status rollup filter (issues / ok / unchecked) via correlated
-    # EXISTS subqueries. Only TYPED versions (EN/CH/BI) count — ENO/CHO are the
-    # official reference scans and never carry a proofread state. Rules:
-    #   issues    = any typed asset check_state in ('issues','error')
-    #   unchecked = any typed asset check_state still NULL
-    #   ok        = >=1 typed asset AND every typed asset is exactly 'ok'
-    check_status = request.args.get('check_status', '').strip().lower()
+    # EXISTS subqueries. Defaults to TYPED_VERSIONS (EN/CH/BI), but the advanced
+    # toolbar can narrow the scope by version, asset type, and file format.
+    check_status = args.get('check_status', '').strip().lower()
     if check_status in ('issues', 'ok', 'unchecked'):
         from sqlalchemy import exists, and_, or_, not_
         A = QuestionAsset
-        _typed = A.version.in_(TYPED_VERSIONS)
-        has_any_asset = exists().where(and_(A.question_id == Question.id, _typed))
-        has_issue = exists().where(and_(A.question_id == Question.id, _typed,
+        versions, atypes, formats = _admin_check_scope_from_args(args)
+        scope = _admin_check_scope_clauses(A, versions, atypes, formats)
+        has_any_asset = exists().where(and_(A.question_id == Question.id, *scope))
+        has_issue = exists().where(and_(A.question_id == Question.id, *scope,
                                         A.check_state.in_(['issues', 'error'])))
-        has_unchecked = exists().where(and_(A.question_id == Question.id, _typed,
+        has_unchecked = exists().where(and_(A.question_id == Question.id, *scope,
                                             A.check_state.is_(None)))
-        has_not_ok = exists().where(and_(A.question_id == Question.id, _typed,
+        has_not_ok = exists().where(and_(A.question_id == Question.id, *scope,
                                          or_(A.check_state.is_(None),
                                              A.check_state != 'ok')))
         if check_status == 'issues':
@@ -1662,25 +1659,85 @@ def questions_api_list():
         else:
             query = query.order_by(sort_col.desc())
 
+    return query
+
+
+def _admin_check_scope_from_args(args):
+    """Return asset-status scope filters from request args.
+
+    Defaults preserve the historical behaviour: status checks consider typed
+    versions only (EN/CH/BI), across all asset types and formats. Advanced
+    params narrow that scope when present.
+    """
+    if 'check_versions' in args:
+        versions = [v.strip().upper() for v in args.get('check_versions', '').split(',') if v.strip()]
+        versions = [v for v in versions if v in VERSIONS]
+    else:
+        versions = list(TYPED_VERSIONS)
+
+    atypes = None
+    if 'check_atypes' in args:
+        atypes = [t.strip().upper() for t in args.get('check_atypes', '').split(',') if t.strip()]
+        atypes = [t for t in atypes if t in ('QUE', 'ANS', 'SOL')]
+
+    formats = None
+    if 'check_formats' in args:
+        formats = [f.strip().upper() for f in args.get('check_formats', '').split(',') if f.strip()]
+        formats = [f for f in formats if f in ('IMG', 'MD', 'DOC')]
+
+    return versions, atypes, formats
+
+
+def _admin_check_scope_clauses(asset_model, versions, atypes, formats):
+    clauses = [asset_model.version.in_(versions)]
+    if atypes is not None:
+        clauses.append(asset_model.asset_type.in_(atypes))
+    if formats is not None:
+        clauses.append(asset_model.file_format.in_(formats))
+    return clauses
+
+
+@admin_bp.route('/questions/api/list')
+@login_required
+@admin_required
+def questions_api_list():
+    """API: fetch paginated & filtered question list"""
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 50))
+    if page_size not in (10, 20, 50, 100, 200):
+        page_size = 50
+
+    query = _admin_questions_query_from_args(request.args)
     total = query.count()
     questions = query.offset((page - 1) * page_size).limit(page_size).all()
 
     # Roll up asset check states for THIS page in one query (replaces the old
     # per-row assets.count() N+1). `asset_count` keeps the TRUE total (all
-    # versions), but the proofread status summary only considers TYPED versions
-    # (EN/CH/BI) — ENO/CHO are reference scans and don't get proofread.
+    # versions); the status summary follows the active Status advanced scope.
     from collections import defaultdict
     page_qids = [q.id for q in questions]
     total_by_q = defaultdict(int)
-    typed_states_by_q = defaultdict(list)
+    scoped_states_by_q = defaultdict(list)
     if page_qids:
+        versions, atypes, formats = _admin_check_scope_from_args(request.args)
+        scoped_assets_query = (
+            db.session.query(QuestionAsset.question_id, QuestionAsset.version,
+                             QuestionAsset.check_state)
+            .filter(QuestionAsset.question_id.in_(page_qids))
+            .filter(QuestionAsset.version.in_(versions))
+        )
+        if atypes is not None:
+            scoped_assets_query = scoped_assets_query.filter(QuestionAsset.asset_type.in_(atypes))
+        if formats is not None:
+            scoped_assets_query = scoped_assets_query.filter(QuestionAsset.file_format.in_(formats))
+
         for qid_, version, state in (db.session.query(QuestionAsset.question_id,
                                                        QuestionAsset.version,
                                                        QuestionAsset.check_state)
                                       .filter(QuestionAsset.question_id.in_(page_qids)).all()):
             total_by_q[qid_] += 1
-            if version in TYPED_VERSIONS:
-                typed_states_by_q[qid_].append(state)
+        for qid_, _version, state in scoped_assets_query.all():
+            scoped_states_by_q[qid_].append(state)
 
     def _check_summary(states):
         total_assets = len(states)
@@ -1715,7 +1772,7 @@ def questions_api_list():
             'created_at': utc_iso(q.created_at) or '',
             'asset_count': total_by_q.get(q.id, 0),
             'verified': bool(q.verified),
-            'check_summary': _check_summary(typed_states_by_q.get(q.id, [])),
+            'check_summary': _check_summary(scoped_states_by_q.get(q.id, [])),
         })
 
     return jsonify({
@@ -1724,6 +1781,21 @@ def questions_api_list():
         'page': page,
         'page_size': page_size,
         'total_pages': (total + page_size - 1) // page_size,
+    })
+
+
+@admin_bp.route('/questions/api/ids')
+@login_required
+@admin_required
+def questions_api_ids():
+    """API: fetch every question ID matching the current admin question filters."""
+    query = _admin_questions_query_from_args(request.args)
+    rows = query.with_entities(Question.id, Question.qid).all()
+    items = [{'id': row.id, 'qid': row.qid} for row in rows]
+    return jsonify({
+        'items': items,
+        'ids': [item['id'] for item in items],
+        'total': len(items),
     })
 
 

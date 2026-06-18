@@ -450,7 +450,7 @@ File is ~2500 lines. Key sections (use `# ===` comments to navigate):
 | Question Tagging | `/questions/<id>/update` |
 | Question Deletion | `/questions/delete` (batch) |
 | Batch Update | `/questions/batch-update` |
-| Question Management | `/questions`, `/questions/api/list`, `/questions/<id>/details`, `/questions/<id>/assets`, `/questions/<id>/rename`, `/questions/<id>/assets/upload`, `/questions/<id>/assets/<aid>/delete`, `/questions/<id>/assets/reorder`, `/questions/create` |
+| Question Management | `/questions`, `/questions/api/list`, `/questions/api/ids`, `/questions/<id>/details`, `/questions/<id>/assets`, `/questions/<id>/rename`, `/questions/<id>/assets/upload`, `/questions/<id>/assets/<aid>/delete`, `/questions/<id>/assets/reorder`, `/questions/create` |
 | Markdown Editor | `/questions/<id>/assets/<aid>/md/content` (GET; returns mtime_ns + content for optimistic concurrency), `/questions/<id>/assets/<aid>/md/save` (POST; 409 on mtime conflict unless `force`), `/questions/<id>/assets/md/create` (POST; 409 if slot already has MD), `/questions/<id>/assets/<aid>/md/edit` (GET fullscreen), `/questions/<id>/assets/md/new` (GET fullscreen create) — see `.cursor/rules/markdown-assets.mdc` for the full pipeline |
 | User Management | `/users`, `/users/add`, `/users/<id>/edit`, `/users/<id>/delete`, `/users/<id>/permissions`, `/users/<id>/permissions/get` |
 | Export / Import | `/export-import`, `/export/question-tags`, `/import/question-tags`, `/export/topics`, `/import/topics`, `/export/chapters`, `/import/chapters` |
@@ -560,6 +560,8 @@ POST /admin/questions/<id>/update           → {success: true}
 POST /admin/questions/batch-update          → {success, updated_count, qids}
 POST /admin/questions/delete                → {success, deleted_count, qids}
 POST /admin/questions/create                → {success, question_id, qid}
+GET  /admin/questions/api/ids               → {items: [{id, qid}], ids, total}
+     accepts same filters as /api/list, including check_versions/check_atypes/check_formats for Status scope
 POST /admin/questions/<id>/rename           → {success, new_qid}
 POST /admin/questions/<id>/assets/upload    → {success, asset_id}
 GET  /admin/health/stats                    → stats dict

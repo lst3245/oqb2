@@ -50,6 +50,10 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Question Management: advanced Status filter scope.** The Status filter now has an **Advanced** menu that combines `Has issues` / `All checked OK` / `Has unchecked` with selectable versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOC`). The default remains the previous EN/CH/BI all-type/all-format behaviour; changing the advanced scope also affects the new "select all matching questions" flow.
+
+- **Question Management: select all matching questions.** The header checkbox still selects the current page first, then shows a banner action to select **all questions matching the active filters** (QID search, dashboard selections, pinned QID list, Status, and Verified), so bulk tools can operate across every result instead of only the visible page. The selection uses a new subject-scoped `GET /admin/questions/api/ids` endpoint, and whole-question batch delete now also intersects submitted IDs with the caller's admin subjects.
+
 - **Dashboard: "Include tagged in minor" toggle is visually disabled when AND mode makes it implicit.** When AND mode is active with 2 or more topics (or subtopics) selected, the backend already searches both major and minor/M2M tags per selected ID — the toggle is redundant. The checkbox is now automatically disabled and force-checked in this state, with an **(implied by AND)** note next to the label. Switching back to OR mode (or dropping to one selection) re-enables it and restores the user's previous choice. The topic mode radio now also has a change listener (previously only subtopic mode had one). `saveStateToStorage` correctly persists the user's *intent* rather than the forced `true` value.
 
 - **Unified file selector remembers the current folder while the page stays open.** Reopening a same-purpose picker (for example Question PDF then Solution PDF in Batch PDF Import) now returns to the last browsed root/folder instead of resetting to My Files; a browser refresh still starts fresh.

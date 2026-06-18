@@ -90,7 +90,7 @@ python run.py
 - **Question Management** (`/admin/questions`) — full list with filter, edit modal with Details/Assets/Tags tabs
   - Create questions manually, rename QID, upload/delete/reorder assets
   - **Markdown live editor** (modal + fullscreen) for `.md` assets: EasyMDE editor, live KaTeX preview, base64 image insert, optimistic concurrency
-  - Batch update (level, type, section, topic/subtopic, correct %) and batch delete
+  - Batch update (level, type, section, topic/subtopic, correct %), batch delete, advanced Status filters, and select-all-across-filtered-results
   - **AI Tools** — call an OpenAI-compatible LLM (local or cloud) to proofread typed images against official scans (per-asset check state + issue badges) or transcribe images into Markdown (LaTeX math); live SSE log with a real server-side Stop
 - **LLM Endpoints** (`/admin/llm-endpoints`) — super admin only; manage named LLM endpoints (Chat Completions or Responses API, reasoning effort, encrypted keys, vision toggle, test ping) for AI Tools
 - **User Management** (`/admin/users`) — super admin only; per-subject permission assignment

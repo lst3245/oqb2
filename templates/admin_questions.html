@@ -129,6 +129,68 @@
                             <option value="ok">All checked OK</option>
                             <option value="unchecked">Has unchecked</option>
                         </select>
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button"
+                                id="checkAdvancedBtn" data-bs-toggle="dropdown"
+                                data-bs-auto-close="outside" aria-expanded="false">
+                            Advanced <span id="checkAdvancedBadge" class="badge bg-primary ms-1 d-none">0</span>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-end p-3 shadow" style="min-width: 320px;" onclick="event.stopPropagation();">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="fw-bold"><i class="bi bi-sliders"></i> Status scope</div>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetAdvancedStatusFilters()">
+                                    Reset
+                                </button>
+                            </div>
+                            <div class="small text-muted mb-2">These options narrow the selected status above.</div>
+
+                            <div class="fw-semibold small text-uppercase text-muted mb-1">Versions</div>
+                            <div class="row g-1 mb-2">
+                                {% for v in OQB_VERSIONS %}
+                                <div class="col-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input check-adv-version" type="checkbox"
+                                               id="checkAdvVer_{{ v }}" value="{{ v }}"{% if v in ['EN', 'CH', 'BI'] %} checked{% endif %}
+                                               onchange="advancedStatusChanged()">
+                                        <label class="form-check-label" for="checkAdvVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">
+                                            {{ v }}
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+
+                            <div class="fw-semibold small text-uppercase text-muted mb-1">Asset types</div>
+                            <div class="d-flex gap-3 flex-wrap mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-atype" type="checkbox" id="checkAdvType_QUE" value="QUE" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvType_QUE">QUE</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-atype" type="checkbox" id="checkAdvType_ANS" value="ANS" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvType_ANS">ANS</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-atype" type="checkbox" id="checkAdvType_SOL" value="SOL" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvType_SOL">SOL</label>
+                                </div>
+                            </div>
+
+                            <div class="fw-semibold small text-uppercase text-muted mb-1">Formats</div>
+                            <div class="d-flex gap-3 flex-wrap">
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-format" type="checkbox" id="checkAdvFmt_IMG" value="IMG" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvFmt_IMG">IMG</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-format" type="checkbox" id="checkAdvFmt_MD" value="MD" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvFmt_MD">MD</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input check-adv-format" type="checkbox" id="checkAdvFmt_DOC" value="DOC" checked onchange="advancedStatusChanged()">
+                                    <label class="form-check-label" for="checkAdvFmt_DOC">DOC/DOCX</label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="col-auto">
@@ -155,6 +217,22 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearQidsFilter()">
             <i class="bi bi-x-lg"></i> Clear list filter
         </button>
+    </div>
+
+    <!-- Selection banner: appears after the current page has been selected. -->
+    <div id="allResultsSelectionBanner" class="alert alert-primary py-2 px-3 d-none mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div id="allResultsSelectionText">
+            <i class="bi bi-check2-square"></i>
+            <span></span>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-primary" id="selectAllMatchingBtn" onclick="selectAllMatchingQuestions()">
+                Select all matching questions
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSelectedQuestions()">
+                Clear selection
+            </button>
+        </div>
     </div>
 
     <!-- Question list -->
@@ -1156,7 +1234,11 @@
 // ===================== STATE =====================
 let currentSort = { field: 'created_at', dir: 'desc' };
 let currentPage = 1;
-let selectedQIds = new Set();    // internal IDs selected on this page
+let selectedQIds = new Set();    // internal DB IDs selected for bulk actions
+let selectedQidById = new Map(); // DB ID -> QID string, populated as rows are loaded/selected
+let lastQuestionListMeta = { total: 0, pageItemCount: 0 };
+let selectedAllMatchingSignature = null;
+let selectedAllMatchingTotal = 0;
 let addCreatedQuestionId = null; // ID of question just created in add flow
 let addCreatedQid = null;
 // editQuestionData, currentAssetLang, allTopicsCache, allChaptersCache,
@@ -1172,6 +1254,78 @@ function getDashboardSelectedIds() {
 }
 
 const ADMIN_Q_FILTER_KEY = 'oqb_adminQuestionsFilters';
+const DEFAULT_CHECK_VERSIONS = ['EN', 'CH', 'BI'].filter(v => (window.OQB_VERSIONS || ['EN', 'CH', 'BI']).includes(v));
+const ALL_CHECK_ATYPES = ['QUE', 'ANS', 'SOL'];
+const ALL_CHECK_FORMATS = ['IMG', 'MD', 'DOC'];
+
+function checkedValues(selector) {
+    return Array.from(document.querySelectorAll(selector + ':checked')).map(cb => cb.value);
+}
+
+function arraysSameSet(a, b) {
+    if (a.length !== b.length) return false;
+    const want = new Set(b);
+    return a.every(v => want.has(v));
+}
+
+function getAdvancedStatusFilters() {
+    return {
+        versions: checkedValues('.check-adv-version'),
+        atypes: checkedValues('.check-adv-atype'),
+        formats: checkedValues('.check-adv-format')
+    };
+}
+
+function advancedStatusIsDefault(scope) {
+    scope = scope || getAdvancedStatusFilters();
+    return arraysSameSet(scope.versions, DEFAULT_CHECK_VERSIONS)
+        && arraysSameSet(scope.atypes, ALL_CHECK_ATYPES)
+        && arraysSameSet(scope.formats, ALL_CHECK_FORMATS);
+}
+
+function setCheckedValues(selector, values) {
+    const wanted = new Set(values || []);
+    document.querySelectorAll(selector).forEach(cb => { cb.checked = wanted.has(cb.value); });
+}
+
+function updateAdvancedStatusBadge() {
+    const badge = document.getElementById('checkAdvancedBadge');
+    if (!badge) return;
+    const scope = getAdvancedStatusFilters();
+    if (advancedStatusIsDefault(scope)) {
+        badge.classList.add('d-none');
+        badge.textContent = '0';
+        return;
+    }
+    let n = 0;
+    if (!arraysSameSet(scope.versions, DEFAULT_CHECK_VERSIONS)) n += 1;
+    if (!arraysSameSet(scope.atypes, ALL_CHECK_ATYPES)) n += 1;
+    if (!arraysSameSet(scope.formats, ALL_CHECK_FORMATS)) n += 1;
+    badge.textContent = n;
+    badge.classList.remove('d-none');
+}
+
+function advancedStatusChanged() {
+    updateAdvancedStatusBadge();
+    currentPage = 1;
+    saveAdminQuestionFilters();
+    loadQuestions();
+}
+
+function resetAdvancedStatusFilters() {
+    setCheckedValues('.check-adv-version', DEFAULT_CHECK_VERSIONS);
+    setCheckedValues('.check-adv-atype', ALL_CHECK_ATYPES);
+    setCheckedValues('.check-adv-format', ALL_CHECK_FORMATS);
+    advancedStatusChanged();
+}
+
+function appendAdvancedStatusParams(params) {
+    const scope = getAdvancedStatusFilters();
+    if (advancedStatusIsDefault(scope)) return;
+    params.set('check_versions', scope.versions.join(','));
+    params.set('check_atypes', scope.atypes.join(','));
+    params.set('check_formats', scope.formats.join(','));
+}
 
 function saveAdminQuestionFilters() {
     try {
@@ -1179,6 +1333,7 @@ function saveAdminQuestionFilters() {
             qidSearch: document.getElementById('qidSearchInput').value,
             showDashboardSelected: document.getElementById('showDashboardSelected').checked,
             checkStatus: document.getElementById('checkStatusFilter')?.value || '',
+            checkAdvanced: getAdvancedStatusFilters(),
             verified: document.getElementById('verifiedFilter')?.value || '',
             pageSize: document.getElementById('pageSizeSelect').value,
             page: currentPage,
@@ -1204,6 +1359,12 @@ function restoreAdminQuestionFilters(opts) {
         if (data.checkStatus != null && document.getElementById('checkStatusFilter')) {
             document.getElementById('checkStatusFilter').value = data.checkStatus;
         }
+        if (data.checkAdvanced) {
+            setCheckedValues('.check-adv-version', data.checkAdvanced.versions || DEFAULT_CHECK_VERSIONS);
+            setCheckedValues('.check-adv-atype', data.checkAdvanced.atypes || ALL_CHECK_ATYPES);
+            setCheckedValues('.check-adv-format', data.checkAdvanced.formats || ALL_CHECK_FORMATS);
+        }
+        updateAdvancedStatusBadge();
         if (data.verified != null && document.getElementById('verifiedFilter')) {
             document.getElementById('verifiedFilter').value = data.verified;
         }
@@ -1247,35 +1408,66 @@ document.getElementById('qidSearchInput').addEventListener('input', function() {
 // When non-empty, takes precedence over the search box and the dashboard-selected toggle.
 let pinnedQids = [];
 
-function loadQuestions() {
+function getQuestionFilterSignature() {
+    const showSelected = document.getElementById('showDashboardSelected').checked;
+    const dashIds = showSelected ? getDashboardSelectedIds().join(',') : '';
+    return JSON.stringify({
+        qidSearch: pinnedQids.length ? '' : document.getElementById('qidSearchInput').value.trim(),
+        pinnedQids: pinnedQids.join(','),
+        showSelected,
+        dashIds,
+        checkStatus: document.getElementById('checkStatusFilter')?.value || '',
+        checkAdvanced: getAdvancedStatusFilters(),
+        verified: document.getElementById('verifiedFilter')?.value || ''
+    });
+}
+
+function buildQuestionApiUrl(endpointUrl, opts) {
+    opts = opts || {};
     const search = document.getElementById('qidSearchInput').value.trim();
     const showSelected = document.getElementById('showDashboardSelected').checked;
     const pageSize = document.getElementById('pageSizeSelect').value;
 
-    // While the pinned QID list is active, default to preserving its order
+    // While the pinned QID list is active, default to preserving its order.
     const usingPinned = pinnedQids.length > 0;
     const sortField = (usingPinned || showSelected) && currentSort.field === 'created_at'
         ? 'selection_order' : currentSort.field;
-    let url = `{{ url_for('admin.questions_api_list') }}?page=${currentPage}&page_size=${pageSize}&sort=${sortField}&dir=${currentSort.dir}`;
+    const params = new URLSearchParams({
+        sort: sortField,
+        dir: currentSort.dir
+    });
+    if (opts.includePage !== false) {
+        params.set('page', opts.page || currentPage);
+        params.set('page_size', opts.pageSize || pageSize);
+    }
 
     // Asset-check status + verified filters (apply in every branch).
     const checkStatus = document.getElementById('checkStatusFilter')?.value || '';
     const verifiedFilter = document.getElementById('verifiedFilter')?.value || '';
-    if (checkStatus) url += '&check_status=' + encodeURIComponent(checkStatus);
-    if (verifiedFilter !== '') url += '&verified=' + encodeURIComponent(verifiedFilter);
+    if (checkStatus) params.set('check_status', checkStatus);
+    appendAdvancedStatusParams(params);
+    if (verifiedFilter !== '') params.set('verified', verifiedFilter);
 
     if (usingPinned) {
-        url += '&qids=' + encodeURIComponent(pinnedQids.join(','));
+        params.set('qids', pinnedQids.join(','));
     } else if (showSelected) {
         const dashIds = getDashboardSelectedIds();
-        if (dashIds.length > 0) {
-            url += '&selected_ids=' + dashIds.join(',');
-        } else {
-            renderEmptyTable('No questions selected on dashboard');
-            return;
-        }
+        if (dashIds.length === 0) return null;
+        params.set('selected_ids', dashIds.join(','));
     } else if (search) {
-        url += '&qid_search=' + encodeURIComponent(search);
+        params.set('qid_search', search);
+    }
+
+    return endpointUrl + '?' + params.toString();
+}
+
+function loadQuestions() {
+    const showSelected = document.getElementById('showDashboardSelected').checked;
+    const url = buildQuestionApiUrl(`{{ url_for('admin.questions_api_list') }}`);
+    if (!url) {
+        renderEmptyTable(showSelected ? 'No questions selected on dashboard' : 'No questions found');
+        saveAdminQuestionFilters();
+        return;
     }
 
     fetch(url)
@@ -1294,6 +1486,8 @@ function renderEmptyTable(msg) {
     document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="13" class="text-center text-muted py-4">${msg}</td></tr>`;
     document.getElementById('pageInfo').textContent = '0 questions';
     document.getElementById('pagination').innerHTML = '';
+    lastQuestionListMeta = { total: 0, pageItemCount: 0 };
+    updateSelectionUI();
 }
 
 function renderTable(data) {
@@ -1302,6 +1496,9 @@ function renderTable(data) {
         renderEmptyTable('No questions found');
         return;
     }
+
+    lastQuestionListMeta = { total: data.total || 0, pageItemCount: data.items.length };
+    data.items.forEach(q => selectedQidById.set(q.id, q.qid));
 
     tbody.innerHTML = data.items.map(q => {
         const sel = selectedQIds.has(q.id) ? 'selected-row' : '';
@@ -1330,6 +1527,7 @@ function renderTable(data) {
     const start = (data.page - 1) * data.page_size + 1;
     const end = Math.min(data.page * data.page_size, data.total);
     document.getElementById('pageInfo').textContent = `${start}-${end} of ${data.total} questions`;
+    updateSelectionUI();
 }
 
 // Small asset-proofreading indicator built from item.check_summary.
@@ -1408,41 +1606,151 @@ function sortBy(field) {
 }
 
 // ===================== SELECTION =====================
+function getCurrentPageQuestionIds() {
+    return Array.from(document.querySelectorAll('.q-checkbox'))
+        .map(c => parseInt(c.value, 10))
+        .filter(id => !isNaN(id));
+}
+
+function markSelectionChangedManually() {
+    selectedAllMatchingSignature = null;
+    selectedAllMatchingTotal = 0;
+}
+
 function toggleRowSelect(cb) {
     const id = parseInt(cb.value);
     const row = cb.closest('tr');
+    markSelectionChangedManually();
     if (cb.checked) {
         selectedQIds.add(id);
+        const qid = row?.dataset?.qid;
+        if (qid) selectedQidById.set(id, qid);
         row.classList.add('selected-row');
     } else {
         selectedQIds.delete(id);
+        selectedQidById.delete(id);
         row.classList.remove('selected-row');
     }
     updateSelectionUI();
 }
 
 function toggleSelectAll(cb) {
+    markSelectionChangedManually();
     document.querySelectorAll('.q-checkbox').forEach(c => {
         const id = parseInt(c.value);
         c.checked = cb.checked;
         const row = c.closest('tr');
         if (cb.checked) {
             selectedQIds.add(id);
+            const qid = row?.dataset?.qid;
+            if (qid) selectedQidById.set(id, qid);
             row.classList.add('selected-row');
         } else {
             selectedQIds.delete(id);
+            selectedQidById.delete(id);
             row.classList.remove('selected-row');
         }
     });
     updateSelectionUI();
 }
 
+function clearSelectedQuestions() {
+    selectedQIds.clear();
+    selectedQidById.clear();
+    selectedAllMatchingSignature = null;
+    selectedAllMatchingTotal = 0;
+    document.querySelectorAll('.q-checkbox').forEach(c => {
+        c.checked = false;
+        c.closest('tr')?.classList.remove('selected-row');
+    });
+    updateSelectionUI();
+}
+
+function updateAllResultsSelectionBanner() {
+    const banner = document.getElementById('allResultsSelectionBanner');
+    const textWrap = document.getElementById('allResultsSelectionText');
+    const textEl = textWrap?.querySelector('span');
+    const btn = document.getElementById('selectAllMatchingBtn');
+    if (!banner || !textEl || !btn) return;
+
+    const total = lastQuestionListMeta.total || 0;
+    const pageIds = getCurrentPageQuestionIds();
+    const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedQIds.has(id));
+    const allMatchingSelected = total > 0
+        && selectedAllMatchingSignature === getQuestionFilterSignature()
+        && selectedAllMatchingTotal === total;
+
+    if (allMatchingSelected) {
+        textEl.textContent = `All ${total} matching question${total === 1 ? '' : 's'} are selected.`;
+        btn.classList.add('d-none');
+        banner.classList.remove('d-none');
+        return;
+    }
+
+    if (pageSelected && total > pageIds.length) {
+        textEl.textContent = `All ${pageIds.length} question${pageIds.length === 1 ? '' : 's'} on this page are selected.`;
+        btn.textContent = `Select all ${total} matching questions`;
+        btn.classList.remove('d-none');
+        banner.classList.remove('d-none');
+        return;
+    }
+
+    banner.classList.add('d-none');
+}
+
+function selectAllMatchingQuestions() {
+    const url = buildQuestionApiUrl(`{{ url_for('admin.questions_api_ids') }}`, { includePage: false });
+    if (!url) {
+        showToast('No questions match the current selection filter.', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('selectAllMatchingBtn');
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Selecting...';
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const items = data.items || [];
+            selectedQIds = new Set();
+            selectedQidById = new Map();
+            items.forEach(item => {
+                const id = parseInt(item.id, 10);
+                if (!isNaN(id)) {
+                    selectedQIds.add(id);
+                    selectedQidById.set(id, item.qid);
+                }
+            });
+            selectedAllMatchingSignature = getQuestionFilterSignature();
+            selectedAllMatchingTotal = selectedQIds.size;
+
+            document.querySelectorAll('.q-checkbox').forEach(c => {
+                const id = parseInt(c.value, 10);
+                const checked = selectedQIds.has(id);
+                c.checked = checked;
+                c.closest('tr')?.classList.toggle('selected-row', checked);
+            });
+            updateSelectionUI();
+            showToast(`Selected ${selectedQIds.size} matching question(s).`, 'success');
+        })
+        .catch(err => showToast('Error selecting all questions: ' + err.message, 'danger'))
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = oldText;
+        });
+}
+
 function openSmartImport() {
-    // Collect the QIDs of selected rows on the current page to scope matching.
-    const qids = Array.from(document.querySelectorAll('#questionTableBody tr.q-row'))
-        .filter(tr => selectedQIds.has(parseInt(tr.dataset.id, 10)))
-        .map(tr => tr.dataset.qid)
-        .filter(Boolean);
+    // Use the selected QID map when available so all-results selections scope correctly.
+    let qids = Array.from(selectedQIds).map(id => selectedQidById.get(id)).filter(Boolean);
+    if (qids.length === 0 && selectedQIds.size > 0) {
+        qids = Array.from(document.querySelectorAll('#questionTableBody tr.q-row'))
+            .filter(tr => selectedQIds.has(parseInt(tr.dataset.id, 10)))
+            .map(tr => tr.dataset.qid)
+            .filter(Boolean);
+    }
     let url = '{{ url_for("admin.smart_import_page") }}?mode=folder';
     if (qids.length) url += '&qids=' + encodeURIComponent(qids.join(','));
     window.open(url, '_blank');
@@ -1490,6 +1798,7 @@ function updateSelectionUI() {
     else if (checked.length === all.length) { selectAllCb.checked = true; selectAllCb.indeterminate = false; }
     else if (checked.length > 0) { selectAllCb.checked = false; selectAllCb.indeterminate = true; }
     else { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+    updateAllResultsSelectionBanner();
 }
 
 // ===================== BULK DELETE =====================
@@ -1597,8 +1906,7 @@ function _execBulkDeleteQuestions() {
             if (data.success) {
                 bootstrap.Modal.getInstance(document.getElementById('bulkDeleteModal')).hide();
                 showToast(`Deleted ${data.deleted_count} question(s)`);
-                selectedQIds.clear();
-                updateSelectionUI();
+                clearSelectedQuestions();
                 loadQuestions();
             } else {
                 showToast(data.error || 'Error deleting', 'danger');
