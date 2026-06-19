@@ -686,12 +686,12 @@
                     </button>
                     <input type="file" id="explainAttachInput" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden>
                     <textarea id="explainInput" class="form-control" rows="1"
-                              placeholder="Ask a follow-up question…" style="resize:none; max-height:140px;"></textarea>
+                              placeholder="Ask a question, or leave this empty and press Send for a full explanation…" style="resize:none; max-height:140px;"></textarea>
                     <button type="button" id="explainSendBtn" class="btn btn-dark" onclick="sendExplainMessage()" title="Send">
                         <i class="bi bi-send"></i>
                     </button>
                 </div>
-                <small class="text-muted"><i class="bi bi-info-circle"></i> The question and its solution image are sent to the AI. Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach up to 6 images per message.</small>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> Type an optional question first, or leave the box empty and press Send for a full explanation. The source question and solution are sent to the AI. Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach up to 6 images per message.</small>
             </div>
         </div>
     </div>
@@ -4138,10 +4138,10 @@ function previewText(title, textContent) {
 }
 
 // ============== Explain (AI tutor chat) ==============
-// Opens a chat modal that sends the question (+ solution) image to the
-// chosen LLM and streams back an explanation. Follow-up turns post the
-// running transcript; the server re-attaches the source images to the
-// first turn each time.
+// Opens a chat modal that lets the user optionally type a first question,
+// then sends the question (+ solution) image to the chosen LLM and streams
+// back an explanation. Follow-up turns post the running transcript; the
+// server re-attaches the source images to the first turn each time.
 //
 // Two admin-controlled extras:
 //   * Endpoint picker (super-admin or subject-admin only) — swap the LLM
@@ -4153,9 +4153,9 @@ function previewText(title, textContent) {
 let explainModalInstance = null;
 // explainState shape:
 //   { questionId, qid, turns: [{role, content, images?: [dataUrl,...]}],
-//     busy: bool, endpointId: int|null, endpoints: [{id, name, model,
-//     supports_vision}], canPick: bool, supportsVision: bool, staged: [dataUrl,...],
-//     previewSlots: {QUE?: bool, ANS?: bool, SOL?: bool} }
+//     busy: bool, started: bool, endpointId: int|null, endpoints: [{id, name,
+//     model, supports_vision}], canPick: bool, supportsVision: bool,
+//     staged: [dataUrl,...], previewSlots: {QUE?: bool, ANS?: bool, SOL?: bool} }
 let explainState = null;
 
 const EXPLAIN_MAX_IMAGES_PER_TURN = 6;
@@ -4466,6 +4466,7 @@ function openExplainModal(questionId, qid, previewSlots) {
         qid: qid || '',
         turns: [],
         busy: false,
+        started: false,
         endpointId: null,
         endpoints: [],
         canPick: false,
@@ -4484,6 +4485,9 @@ function openExplainModal(questionId, qid, previewSlots) {
     _explainRenderStaged();
     const input = document.getElementById('explainInput');
     input.value = '';
+    input.placeholder = 'Ask a question, or leave this empty and press Send for a full explanation…';
+    input.style.height = 'auto';
+    _explainSetBusy(false);
 
     if (!explainModalInstance) {
         explainModalInstance = new bootstrap.Modal(modalEl);
@@ -4498,28 +4502,17 @@ function openExplainModal(questionId, qid, previewSlots) {
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 140) + 'px';
         });
-        // Endpoint picker change → update vision support + regenerate
-        // the current reply against the new model. The natural UX is
-        // "redo that answer with the model I just picked" — without it,
-        // the user has to manually retry, which is annoying when they
-        // didn't like the default's output. Cancels any in-flight
-        // stream cleanly; see ``_explainRegenerate`` for race handling.
+        // Endpoint picker change → update vision support. Once a chat has
+        // started, regenerate the current reply against the new model.
         const picker = document.getElementById('explainEndpointPicker');
         if (picker) {
             picker.addEventListener('change', () => {
                 if (!explainState) return;
                 explainState.endpointId = parseInt(picker.value, 10) || null;
                 _explainSyncVisionFromPicker();
-                // If we have nothing to regenerate yet (modal just opened
-                // and the initial request hasn't completed past the
-                // typing-dots stage), still abort + restart so the new
-                // model handles the initial explanation. _explainRegenerate
-                // is a no-op when there's nothing in-flight and no prior
-                // assistant turn — but the initial flow ALWAYS has a
-                // typing bubble + in-flight stream by the time the user
-                // could click the picker, so a regenerate is the right
-                // call.
-                _explainRegenerate();
+                if (explainState.started) {
+                    _explainRegenerate();
+                }
             });
         }
         // File picker → stage selected files.
@@ -4591,16 +4584,15 @@ function openExplainModal(questionId, qid, previewSlots) {
     explainModalInstance.show();
 
     // Fetch the endpoint list for the picker (and to learn vision status
-    // for non-admin users), then kick off the initial explanation. The
-    // initial request fires regardless of the listing result so the modal
-    // stays usable even if the listing endpoint is unreachable.
+    // for non-admin users). The AI request waits for the first Send so the
+    // user can type an optional initial question.
     fetch('/dashboard/api/question/' + questionId + '/explain/endpoints')
         .then((r) => r.ok ? r.json() : { can_pick: false, endpoints: [] })
         .catch(() => ({ can_pick: false, endpoints: [] }))
         .then((payload) => {
             _explainApplyEndpoints(payload || {});
-            _explainSend(null);
         });
+    setTimeout(() => input.focus(), 150);
 }
 
 function sendExplainMessage() {
@@ -4608,7 +4600,8 @@ function sendExplainMessage() {
     if (!input || !explainState || explainState.busy) return;
     const text = input.value.trim();
     const stagedCount = (explainState.staged || []).length;
-    if (!text && !stagedCount) return;
+    const isInitialSend = !explainState.started;
+    if (!text && !stagedCount && !isInitialSend) return;
     input.value = '';
     input.style.height = 'auto';
     // Snapshot the staged images for this turn, then clear so the next
@@ -4623,6 +4616,11 @@ function sendExplainMessage() {
 
 function _explainSend(userMessage, userImages) {
     if (!explainState) return;
+    explainState.started = true;
+    const input = document.getElementById('explainInput');
+    if (input) {
+        input.placeholder = 'Ask a follow-up question…';
+    }
     if (userMessage || (userImages && userImages.length)) {
         _explainAppendBubble('user',
             userMessage ? _explainEscape(userMessage) : '',
@@ -4691,7 +4689,7 @@ function _explainSend(userMessage, userImages) {
 // changes the model picker — the natural expectation is "redo that answer
 // with the new model". Cancels any in-flight stream first.
 function _explainRegenerate() {
-    if (!explainState) return;
+    if (!explainState || !explainState.started) return;
     // Abort the current stream (if any). The streaming consumer's catch
     // handler removes the partial bubble; the .finally is a no-op because
     // ``aborter`` is about to change.

@@ -50,6 +50,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Dashboard Explain: optional first question.** Opening Explain now waits for the user's first Send instead of immediately calling the AI, so users can type a specific question first or leave the box empty for the standard full explanation.
+
 - **Question Management: advanced Status filter scope.** The Status filter now has an **Advanced** menu that combines `Has issues` / `All checked OK` / `Has unchecked` with selectable versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOC`). The default remains the previous EN/CH/BI all-type/all-format behaviour; changing the advanced scope also affects the new "select all matching questions" flow.
 
 - **Question Management: select all matching questions.** The header checkbox still selects the current page first, then shows a banner action to select **all questions matching the active filters** (QID search, dashboard selections, pinned QID list, Status, and Verified), so bulk tools can operate across every result instead of only the visible page. The selection uses a new subject-scoped `GET /admin/questions/api/ids` endpoint, and whole-question batch delete now also intersects submitted IDs with the caller's admin subjects.
