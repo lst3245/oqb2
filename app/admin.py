@@ -3665,25 +3665,147 @@ def _smart_import_resolve_root(root_id):
     return root, None
 
 
-def _smart_import_source(data):
-    """Resolve the import source from a request body into ``(base_dir,
-    rel_path, error)``. Two kinds: an uploaded folder (``upload_token``,
-    staged under System/.smart_import_uploads) or a server folder
-    (``root_id`` + ``rel_path`` via the per-user RootRegistry)."""
+def _smart_import_sources(data):
+    """Resolve one or more import sources from a request body.
+
+    Newer Smart Import clients send ``sources: [{root_id, rel_path}, ...]`` for
+    multi-folder server imports. The legacy single-source shape and uploaded
+    folder shape are still accepted.
+    """
     from app import smart_import
+
     token = (data.get('upload_token') or '').strip()
     if token:
         try:
             base = smart_import.upload_dir(token)
         except ValueError:
-            return None, None, 'Invalid upload token.'
+            return None, 'Invalid upload token.'
         if not os.path.isdir(base):
-            return None, None, 'Uploaded folder not found or expired.'
-        return base, '', None
+            return None, 'Uploaded folder not found or expired.'
+        return [{
+            'root_id': None,
+            'root_label': 'Uploaded folder',
+            'base_dir': base,
+            'rel_path': '',
+        }], None
+
+    raw_sources = data.get('sources')
+    if isinstance(raw_sources, list) and raw_sources:
+        sources = []
+        seen = set()
+        for raw in raw_sources:
+            if not isinstance(raw, dict):
+                return None, 'Invalid folder selection.'
+            root, err = _smart_import_resolve_root(raw.get('root_id'))
+            if err:
+                return None, err
+            rel_path = str(raw.get('rel_path') or '').replace('\\', '/').strip().strip('/')
+            key = (root.id, rel_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            sources.append({
+                'root_id': root.id,
+                'root_label': root.label,
+                'base_dir': root.path,
+                'rel_path': rel_path,
+            })
+        if not sources:
+            return None, 'No folders selected.'
+        return sources, None
+
     root, err = _smart_import_resolve_root(data.get('root_id'))
     if err:
-        return None, None, err
-    return root.path, (data.get('rel_path') or ''), None
+        return None, err
+    return [{
+        'root_id': root.id,
+        'root_label': root.label,
+        'base_dir': root.path,
+        'rel_path': str(data.get('rel_path') or '').replace('\\', '/').strip().strip('/'),
+    }], None
+
+
+def _smart_import_folder_label(source):
+    return f"{source.get('root_label') or 'Folder'} / {source.get('rel_path') or '(root)'}"
+
+
+def _smart_import_resolve_source_set(sources, profile, qids):
+    """Run the deterministic resolver for every selected source and merge rows."""
+    from app import smart_import
+
+    proposals = []
+    folders = []
+    for source in sources:
+        result = smart_import.resolve_folder(
+            source['base_dir'], source['rel_path'], profile, qid_scope=qids)
+        if result.get('error'):
+            return None, f"{_smart_import_folder_label(source)}: {result['error']}"
+        folders.append({
+            'root_id': source.get('root_id'),
+            'root_label': source.get('root_label'),
+            'rel_path': source.get('rel_path') or '',
+            'label': _smart_import_folder_label(source),
+        })
+        for p in result.get('proposals', []):
+            if source.get('root_id'):
+                p['source_root_id'] = source['root_id']
+                p['source_root_label'] = source.get('root_label')
+                p['source_rel_path'] = source.get('rel_path') or ''
+            proposals.append(p)
+
+    for i, p in enumerate(proposals):
+        p['id'] = i
+
+    return {
+        'proposals': proposals,
+        'stats': smart_import._summarize(proposals),
+        'folder': '; '.join(f['label'] for f in folders),
+        'folders': folders,
+        'profile': smart_import.normalize_profile(profile),
+    }, None
+
+
+def _smart_import_build_plan_for_sources(sources, items, profile):
+    """Build one apply plan from accepted items that may span server roots."""
+    from app import smart_import
+
+    if len(sources) == 1:
+        source = sources[0]
+        return smart_import.build_plan(
+            source['base_dir'], source.get('root_id'), items, profile)
+
+    profile_norm = smart_import.normalize_profile(profile)
+    plan = {
+        'root_id': 'multi',
+        'base_dir': '',
+        'overwrite': bool(profile_norm['overwrite']),
+        'backup': bool(profile_norm['backup']),
+        'create_missing': bool(profile_norm['create_missing']),
+        'jobs': [],
+        'skipped': [],
+    }
+    sources_by_root = {
+        source['root_id']: source for source in sources if source.get('root_id')
+    }
+    items_by_root = {}
+    for item in items or []:
+        root_id = item.get('source_root_id')
+        if root_id in sources_by_root:
+            items_by_root.setdefault(root_id, []).append(item)
+        else:
+            plan['skipped'].append({
+                'src_rel': item.get('src_rel') or item.get('filename') or '',
+                'reason': 'source folder not selected',
+            })
+
+    for root_id, group in items_by_root.items():
+        source = sources_by_root[root_id]
+        subplan = smart_import.build_plan(
+            source['base_dir'], root_id, group, profile)
+        plan['jobs'].extend(subplan['jobs'])
+        plan['skipped'].extend(subplan['skipped'])
+
+    return plan
 
 
 def _smart_import_filter_subjects(proposals):
@@ -3725,7 +3847,7 @@ def smart_import_analyze():
     from app import smart_import
 
     data = request.get_json(silent=True) or {}
-    base_dir, rel_path, err = _smart_import_source(data)
+    sources, err = _smart_import_sources(data)
     if err:
         return jsonify({'error': err}), 403
 
@@ -3733,10 +3855,10 @@ def smart_import_analyze():
     if isinstance(qids, str):
         qids = [q.strip() for q in qids.split(',') if q.strip()] or None
 
-    result = smart_import.resolve_folder(
-        base_dir, rel_path, data.get('profile') or {}, qid_scope=qids)
-    if result.get('error'):
-        return jsonify({'error': result['error']}), 400
+    result, err = _smart_import_resolve_source_set(
+        sources, data.get('profile') or {}, qids)
+    if err:
+        return jsonify({'error': err}), 400
 
     _smart_import_filter_subjects(result['proposals'])
     result['stats'] = smart_import._summarize(result['proposals'])
@@ -3755,7 +3877,7 @@ def smart_import_analyze_llm():
         return jsonify({'error': 'AI features are disabled.'}), 400
 
     data = request.get_json(silent=True) or {}
-    base_dir, rel_path, err = _smart_import_source(data)
+    sources, err = _smart_import_sources(data)
     if err:
         return jsonify({'error': err}), 403
 
@@ -3775,7 +3897,9 @@ def smart_import_analyze_llm():
 
     profile = data.get('profile') or {}
     try:
-        rule, raw = smart_import.infer_structure_rule(base_dir, rel_path, profile, cfg)
+        first_source = sources[0]
+        rule, raw = smart_import.infer_structure_rule(
+            first_source['base_dir'], first_source['rel_path'], profile, cfg)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 400
 
@@ -3787,7 +3911,9 @@ def smart_import_analyze_llm():
     if isinstance(qids, str):
         qids = [q.strip() for q in qids.split(',') if q.strip()] or None
 
-    result = smart_import.resolve_folder(base_dir, rel_path, merged, qid_scope=qids)
+    result, err = _smart_import_resolve_source_set(sources, merged, qids)
+    if err:
+        return jsonify({'error': err}), 400
     _smart_import_filter_subjects(result.get('proposals', []))
     result['stats'] = smart_import._summarize(result.get('proposals', []))
     result['rule'] = rule
@@ -3805,7 +3931,7 @@ def smart_import_prepare():
     from app import smart_import
 
     data = request.get_json(silent=True) or {}
-    base_dir, _rel, err = _smart_import_source(data)
+    sources, err = _smart_import_sources(data)
     if err:
         return jsonify({'error': err}), 403
 
@@ -3817,8 +3943,8 @@ def smart_import_prepare():
     if not items:
         return jsonify({'error': 'No applicable items selected.'}), 400
 
-    plan = smart_import.build_plan(base_dir, data.get('root_id'), items,
-                                   data.get('profile') or {})
+    plan = _smart_import_build_plan_for_sources(
+        sources, items, data.get('profile') or {})
     if not plan['jobs']:
         return jsonify({'error': 'Nothing to apply.', 'skipped': plan['skipped']}), 400
 

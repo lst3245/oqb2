@@ -103,9 +103,9 @@ Two modes on one page (`admin_smart_import.html`). Replaces the old Ingestion pa
 - **Library scan** (strict): `GET /admin/ingestion/preview` (directory tree + parseable counts) and `GET /admin/ingestion/start?subject_id=MATC` (**SSE** `scan_directory_stream()`; event types `info|success|skip|error|progress|done`) — both still live and reused by this mode.
 - **Folder import** (heuristic, IMG/DOC/MD), engine `app/smart_import.py`:
   - `GET /admin/import` — page (`?mode=folder`, optional `?qids=` scope).
-  - `POST /admin/import/analyze` — `{root_id, rel_path, profile, qids?}` → match proposals (subject-admin filtered).
+  - `POST /admin/import/analyze` — `{sources: [{root_id, rel_path}], profile, qids?}` (legacy single `{root_id, rel_path}` and uploaded-folder token also accepted) → match proposals (subject-admin filtered). Server-folder proposals carry `source_root_id` so multi-folder preview/apply use the correct root.
   - `POST /admin/import/analyze-llm` — optional AI structure inference (gated on `AI_TOOLS_ENABLED`).
-  - `POST /admin/import/prepare` — `{root_id, items, profile}` → validated plan stashed under a token.
+  - `POST /admin/import/prepare` — `{sources[]|root_id|upload_token, items, profile}` → validated plan stashed under a token; multi-server imports are grouped by each accepted item's `source_root_id`.
   - `GET /admin/import/apply?token=` — **SSE** apply (copy into canonical `SOURCE_PATH`; IMG whole-slot replace, DOC/MD single-slot; optional backup + create-missing).
   - **Import Files** toolbar button on Question Management scopes Folder import to selected QIDs.
 

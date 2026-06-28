@@ -156,11 +156,11 @@ Select a subject and click "Start Ingestion" to begin a library scan.
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Source folder</label>
+                        <label class="form-label fw-bold">Source folder(s)</label>
                         <div class="input-group">
                             <input type="text" id="folderDisplay" class="form-control" readonly
-                                   placeholder="No folder selected" value="">
-                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()" title="Pick a folder already on the server">
+                                   placeholder="No folders selected" value="">
+                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()" title="Pick one or more folders already on the server">
                                 <i class="bi bi-hdd-network"></i> Server...
                             </button>
                             <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('folderUpload').click()" title="Upload a folder from this computer">
@@ -535,19 +535,21 @@ const VERSION_LABELS = window.OQB_VERSION_LABELS || {};
 let sourceMode = 'server';   // 'server' | 'upload'
 let selectedRoot = null;
 let selectedPath = '';
+let selectedSources = [];
 let uploadToken = null;
 let selectedFolderName = '';
 let proposals = [];
 let scopeQids = (INITIAL_QIDS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildSourceBody() {
-    return sourceMode === 'upload'
-        ? {upload_token: uploadToken}
-        : {root_id: selectedRoot, rel_path: selectedPath};
+    if (sourceMode === 'upload') return {upload_token: uploadToken};
+    return {
+        sources: selectedSources.map(s => ({root_id: s.root_id, rel_path: s.rel_path || ''})),
+    };
 }
 
 function sourceReady() {
-    return sourceMode === 'upload' ? !!uploadToken : !!selectedRoot;
+    return sourceMode === 'upload' ? !!uploadToken : selectedSources.length > 0;
 }
 
 function fiVersionOptions(selected) {
@@ -574,19 +576,35 @@ function fiToggleDetail() {
 function pickFolder() {
     OQBFileSelector.open({
         mode: 'folder',
-        title: 'Choose the folder to import',
+        multiple: true,
+        title: 'Choose folders to import',
         locationKey: 'smart-import',
-        onPick: function(sel) {
+        onPick: function(selection) {
+            const selections = Array.isArray(selection) ? selection : [selection];
+            if (!selections.length) return;
             sourceMode = 'server';
             uploadToken = null;
-            selectedRoot = sel.root_id;
-            selectedPath = sel.rel_path || '';
-            selectedFolderName = (sel.root_label || '') + ' / ' + (selectedPath || '(root)');
+            selectedSources = selections.map(sel => ({
+                root_id: sel.root_id,
+                root_label: sel.root_label || sel.root_id || '',
+                rel_path: sel.rel_path || '',
+                name: sel.name || '',
+                token: sel.token || ((sel.root_id || '') + '|' + (sel.rel_path || '')),
+            }));
+            selectedRoot = selectedSources[0].root_id;
+            selectedPath = selectedSources[0].rel_path || '';
+            selectedFolderName = selectedSources.length === 1
+                ? folderSelectionLabel(selectedSources[0])
+                : `${selectedSources.length} folders: ` + selectedSources.map(folderSelectionLabel).join('; ');
             document.getElementById('folderDisplay').value = selectedFolderName;
             document.getElementById('uploadStatus').textContent = '';
             document.getElementById('btnAnalyze').disabled = false;
         }
     });
+}
+
+function folderSelectionLabel(sel) {
+    return (sel.root_label || sel.root_id || '') + ' / ' + (sel.rel_path || '(root)');
 }
 
 function uploadFolder(input) {
@@ -618,6 +636,7 @@ function uploadFolderEntries(entries) {
             uploadToken = data.upload_token;
             selectedRoot = null;
             selectedPath = '';
+            selectedSources = [];
             selectedFolderName = (data.folder_name || 'uploaded folder');
             document.getElementById('folderDisplay').value = 'Uploaded: ' + selectedFolderName;
             status.textContent = `Uploaded ${data.count} file(s).`;
@@ -774,7 +793,7 @@ function newPreviewUrl(p) {
         const params = new URLSearchParams({token: uploadToken, path: p.src_rel});
         return `{{ url_for('admin.smart_import_uploaded_file') }}?` + params.toString();
     }
-    const params = new URLSearchParams({root: selectedRoot, scope: 'user', path: p.src_rel});
+    const params = new URLSearchParams({root: p.source_root_id || selectedRoot, scope: 'user', path: p.src_rel});
     return `{{ url_for('files.api_download') }}?` + params.toString();
 }
 

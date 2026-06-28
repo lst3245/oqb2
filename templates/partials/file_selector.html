@@ -8,12 +8,14 @@
 {#                                                                         #}
 {#    OQBFileSelector.open({                                               #}
 {#      mode: 'file',                // 'file' | 'folder'                   #}
+{#      multiple: false,             // true = multi-pick folders           #}
 {#      extensions: ['.pdf'],        // file mode filter (lowercase)       #}
 {#      title: 'Choose a PDF',                                             #}
 {#      preferRootId: 'shared:MATC', // optional initial root              #}
 {#      locationKey: 'pdf-import',   // optional in-page remembered dir    #}
 {#      onPick: function(sel) {                                            #}
 {#        // sel = {root_id, root_label, rel_path, name, token}           #}
+{#        // If multiple=true in folder mode, sel is an array of those.     #}
 {#      }                                                                  #}
 {#    });                                                                  #}
 {#                                                                         #}
@@ -58,6 +60,15 @@
           <div class="input-group input-group-sm" style="max-width:260px;">
             <span class="input-group-text"><i class="bi bi-funnel"></i></span>
             <input type="text" class="form-control" id="oqbFsFilter" placeholder="Filter by name…" autocomplete="off">
+          </div>
+          <div class="d-flex flex-wrap gap-2 align-items-center d-none" id="oqbFsMultiTools">
+            <button class="btn btn-sm btn-outline-primary" type="button" id="oqbFsAddCurrent">
+              <i class="bi bi-plus-lg"></i> Add current folder
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="oqbFsClearSelected">
+              Clear selected
+            </button>
+            <span class="small text-muted" id="oqbFsMultiCount">0 folders selected</span>
           </div>
         </div>
 
@@ -116,6 +127,7 @@
     currentPath: '',
     items: [],
     selected: null,      // {rel, name} for a picked file
+    selectedFolders: {}, // token -> folder selection (multi folder mode)
     sortField: 'name',
     sortDir: 'asc',
     filterText: '',
@@ -189,6 +201,26 @@
     return !!(r && r.can_write !== false);
   }
   function rootLabel(r) { return r ? (r.label || r.id) : ''; }
+  function isMultiFolder() {
+    const cfg = state.cfg || {};
+    return cfg.mode === 'folder' && !!cfg.multiple;
+  }
+  function folderKey(rootId, relPath) {
+    return (rootId || '') + '|' + (relPath || '');
+  }
+  function makeFolderSelection(rootId, rootLabelText, relPath) {
+    const rel = relPath || '';
+    return {
+      root_id: rootId,
+      root_label: rootLabelText || '',
+      rel_path: rel,
+      name: rel ? rel.split('/').pop() : '',
+      token: folderKey(rootId, rel),
+    };
+  }
+  function selectedFolderList() {
+    return Object.keys(state.selectedFolders).sort().map(k => state.selectedFolders[k]);
+  }
 
   function locationKey(cfg) {
     cfg = cfg || {};
@@ -361,13 +393,28 @@
       const sub = subParts.length
         ? '<div class="d-sm-none small text-muted text-truncate">' + subParts.join(' · ') + '</div>'
         : '';
+      const multiFolder = isMultiFolder() && it.is_dir;
+      const itemKey = folderKey(state.currentRoot, rel);
+      const checkHtml = multiFolder
+        ? '<input type="checkbox" class="form-check-input oqb-fs-folder-check me-2 mt-1 flex-shrink-0"'
+          + (state.selectedFolders[itemKey] ? ' checked' : '') + ' aria-label="Select folder">'
+        : '';
+      if (multiFolder && state.selectedFolders[itemKey]) tr.classList.add('table-primary');
       tr.innerHTML =
         '<td><div class="d-flex align-items-start">' +
+          checkHtml +
           '<i class="bi ' + iconPair[0] + ' ' + iconPair[1] + ' me-2 mt-1 flex-shrink-0"></i>' +
           '<div class="text-break" style="min-width:0;"><div>' + esc(it.name) + '</div>' + sub + '</div>' +
         '</div></td>' +
         '<td class="text-muted text-nowrap d-none d-sm-table-cell">' + (it.is_dir ? '—' : esc(sizeStr)) + '</td>' +
         '<td class="text-muted text-nowrap d-none d-sm-table-cell">' + esc(dateStr) + '</td>';
+      const cb = tr.querySelector('.oqb-fs-folder-check');
+      if (cb) {
+        cb.onclick = e => {
+          e.stopPropagation();
+          toggleFolderSelection(rel, cb.checked);
+        };
+      }
       if (it.is_dir) {
         tr.ondblclick = () => navigate(rel);
         tr.onclick = () => navigate(rel);
@@ -387,6 +434,33 @@
     Array.from(el('oqbFsBody').querySelectorAll('tr')).forEach(r => r.classList.remove('table-primary'));
     if (tr) tr.classList.add('table-primary');
     updateChoose();
+  }
+
+  function toggleFolderSelection(relPath, checked) {
+    const key = folderKey(state.currentRoot, relPath);
+    if (checked) {
+      state.selectedFolders[key] = makeFolderSelection(
+        state.currentRoot, rootLabel(currentRootObj()), relPath);
+    } else {
+      delete state.selectedFolders[key];
+    }
+    updateChoose();
+    render();
+  }
+
+  function addCurrentFolderSelection() {
+    if (!isMultiFolder()) return;
+    const key = folderKey(state.currentRoot, state.currentPath);
+    state.selectedFolders[key] = makeFolderSelection(
+      state.currentRoot, rootLabel(currentRootObj()), state.currentPath);
+    updateChoose();
+    render();
+  }
+
+  function clearFolderSelection() {
+    state.selectedFolders = {};
+    updateChoose();
+    render();
   }
 
   function renderCrumb() {
@@ -422,9 +496,18 @@
     const btn = el('oqbFsChoose');
     const info = el('oqbFsSelected');
     if (cfg.mode === 'folder') {
-      btn.disabled = !canWrite() && false; // folders can be chosen even read-only (e.g. pick a read dir) — keep enabled
-      btn.disabled = false;
-      info.textContent = 'Destination: ' + (rootLabel(currentRootObj())) + ' / ' + (state.currentPath || '(root)');
+      if (isMultiFolder()) {
+        const selected = selectedFolderList();
+        btn.disabled = selected.length === 0;
+        info.textContent = selected.length
+          ? (selected.length + ' folder(s) selected')
+          : 'Select one or more folders';
+        el('oqbFsMultiCount').textContent = selected.length + ' folder(s) selected';
+      } else {
+        btn.disabled = !canWrite() && false; // folders can be chosen even read-only (e.g. pick a read dir) — keep enabled
+        btn.disabled = false;
+        info.textContent = 'Destination: ' + (rootLabel(currentRootObj())) + ' / ' + (state.currentPath || '(root)');
+      }
     } else {
       btn.disabled = !state.selected;
       info.textContent = state.selected
@@ -437,13 +520,18 @@
     const cfg = state.cfg || {};
     let sel;
     if (cfg.mode === 'folder') {
-      sel = {
-        root_id: state.currentRoot,
-        root_label: rootLabel(currentRootObj()),
-        rel_path: state.currentPath,
-        name: state.currentPath ? state.currentPath.split('/').pop() : '',
-        token: state.currentRoot + '|' + state.currentPath,
-      };
+      if (isMultiFolder()) {
+        sel = selectedFolderList();
+        if (!sel.length) return;
+      } else {
+        sel = {
+          root_id: state.currentRoot,
+          root_label: rootLabel(currentRootObj()),
+          rel_path: state.currentPath,
+          name: state.currentPath ? state.currentPath.split('/').pop() : '',
+          token: state.currentRoot + '|' + state.currentPath,
+        };
+      }
     } else {
       if (!state.selected) return;
       sel = {
@@ -540,6 +628,8 @@
       }
     });
     el('oqbFsNewFolder').addEventListener('click', doNewFolder);
+    el('oqbFsAddCurrent').addEventListener('click', addCurrentFolderSelection);
+    el('oqbFsClearSelected').addEventListener('click', clearFolderSelection);
     el('oqbFsChoose').addEventListener('click', choose);
   }
 
@@ -547,14 +637,18 @@
   function open(options) {
     state.cfg = options || {};
     state.selected = null;
+    state.selectedFolders = {};
     state.filterText = '';
     el('oqbFsFilter').value = '';
     el('oqbFsPathInput').value = '';
     el('oqbFsTitle').innerHTML = '<i class="bi bi-folder2-open"></i> '
       + esc(state.cfg.title || (state.cfg.mode === 'folder' ? 'Choose a folder' : 'Choose a file'));
     el('oqbFsChoose').innerHTML = state.cfg.mode === 'folder'
-      ? '<i class="bi bi-check-lg"></i> Use this folder'
+      ? (isMultiFolder()
+          ? '<i class="bi bi-check-lg"></i> Use selected folders'
+          : '<i class="bi bi-check-lg"></i> Use this folder')
       : '<i class="bi bi-check-lg"></i> Choose';
+    el('oqbFsMultiTools').classList.toggle('d-none', !isMultiFolder());
 
     if (!state.modal) {
       state.modal = new bootstrap.Modal(el('oqbFsModal'));
