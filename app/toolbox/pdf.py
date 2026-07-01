@@ -462,6 +462,8 @@ def pdf_add_pages():
     mode = (data.get('mode') or 'none').strip().lower()
     if mode not in pdf_tools.SPLIT_MODES:
         mode = 'none'
+    mode1_pages_per_student = pdf_tools.mode1_pages_per_student(
+        data.get('mode1_pages_per_student'))
     try:
         pre_rotate = int(data.get('pre_rotate') or 0) % 360
     except (TypeError, ValueError):
@@ -474,13 +476,16 @@ def pdf_add_pages():
     dpi = max(72, min(600, dpi))
     filters = data.get('filters') or {}
 
-    frags = pdf_tools.split_descriptors(src['page_count'], mode)
+    frags = pdf_tools.split_descriptors(
+        src['page_count'], mode, mode1_pages_per_student)
     appended = []
     for frag in frags:
         ops = pdf_tools.build_op_chain(pre_rotate, frag['ops'], filters)
         page = {'id': uuid.uuid4().hex[:12], 'src': srcid,
                 'page': int(frag['page']), 'ops': ops, 'mode': mode,
                 'dpi': dpi, 'annots': []}
+        if mode == 'mode1':
+            page['mode1_pages_per_student'] = mode1_pages_per_student
         session['pages'].append(page)
         appended.append(page)
 
@@ -571,6 +576,9 @@ def pdf_duplicate():
                  'page': src['page'], 'ops': list(src.get('ops') or []),
                  'mode': src.get('mode', 'none'), 'dpi': src.get('dpi'),
                  'annots': json.loads(json.dumps(src.get('annots') or []))}
+        if clone['mode'] == 'mode1':
+            clone['mode1_pages_per_student'] = pdf_tools.mode1_pages_per_student(
+                src.get('mode1_pages_per_student'))
         clones.append(clone)
     if not clones:
         return jsonify({'error': 'Nothing to paste.'}), 400
@@ -623,14 +631,19 @@ def pdf_set_pages():
         mode = (it.get('mode') or 'none').strip().lower()
         if mode not in pdf_tools.SPLIT_MODES:
             mode = 'none'
+        mode1_pages_per_student = pdf_tools.mode1_pages_per_student(
+            it.get('mode1_pages_per_student'))
         try:
             dpi = max(72, min(600, int(it.get('dpi') or default_dpi)))
         except (TypeError, ValueError):
             dpi = default_dpi
-        clean.append({'id': pid, 'src': srcid, 'page': page,
-                      'ops': _sanitize_ops(it.get('ops') or []),
-                      'mode': mode, 'dpi': dpi,
-                      'annots': _sanitize_annots(it.get('annots') or [])})
+        item = {'id': pid, 'src': srcid, 'page': page,
+                'ops': _sanitize_ops(it.get('ops') or []),
+                'mode': mode, 'dpi': dpi,
+                'annots': _sanitize_annots(it.get('annots') or [])}
+        if mode == 'mode1':
+            item['mode1_pages_per_student'] = mode1_pages_per_student
+        clean.append(item)
     session['pages'] = clean
     _save_session(token, session)
     return jsonify({'ok': True, 'total': len(clean)})

@@ -4307,7 +4307,7 @@ def pdf_import_page():
 def pdf_import_stage():
     """Upload + rasterise the QUE/SOL PDFs for a paper. Returns the staging
     token and per-kind page lists."""
-    from app import pdf_import
+    from app import pdf_import, pdf_tools
 
     is_generic = (request.form.get('mode') or 'exam').strip().lower() == 'generic'
 
@@ -4399,6 +4399,8 @@ def pdf_import_stage():
     split_mode = (request.form.get('split_mode') or 'none').strip().lower()
     if split_mode not in ('none', 'simple', 'mode1', 'mode2'):
         split_mode = 'none'
+    mode1_pages_per_student = pdf_tools.mode1_pages_per_student(
+        request.form.get('mode1_pages_per_student'))
     filters = {}
     if _truthy('f_deskew'):
         filters['deskew'] = True
@@ -4425,7 +4427,8 @@ def pdf_import_stage():
             que_file if has_que else None,
             sol_file if has_sol else None,
             meta, raster_width, deskew=deskew,
-            pre_rotate=pre_rotate, split_mode=split_mode, filters=filters)
+            pre_rotate=pre_rotate, split_mode=split_mode, filters=filters,
+            mode1_pages_per_student=mode1_pages_per_student)
     except Exception as e:
         current_app.logger.exception('PDF import staging failed')
         return jsonify({'error': f'Could not process PDF: {e}'}), 500

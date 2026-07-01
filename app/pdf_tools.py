@@ -70,6 +70,8 @@ LEFT_HALF = [0.0, 0.0, 0.5, 1.0]
 RIGHT_HALF = [0.5, 0.0, 1.0, 1.0]
 
 SPLIT_MODES = ('none', 'simple', 'mode1', 'mode2')
+MODE1_DEFAULT_PAGES_PER_STUDENT = 4
+MODE1_MAX_PAGES_PER_STUDENT = 200
 
 
 def is_vector_safe(ops) -> bool:
@@ -377,7 +379,31 @@ def apply_annotations(img, annots):
 
 # ==================== A3 split / reorder descriptors ====================
 
-def split_descriptors(num_pages: int, mode: str):
+def mode1_pages_per_student(value=None) -> int:
+    """Clamp the Mode-1 pages-per-student setting to a practical range."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = MODE1_DEFAULT_PAGES_PER_STUDENT
+    return max(1, min(MODE1_MAX_PAGES_PER_STUDENT, n))
+
+
+def _mode1_chunk_order(start: int, scan_pages: int, _crop):
+    """Reading order for one folded booklet chunk of ``scan_pages`` A3 sides."""
+    out = []
+    for off in range(scan_pages):
+        use_right = (off % 2 == 0)
+        out.append({'page': start + off,
+                    'ops': _crop(RIGHT_HALF if use_right else LEFT_HALF)})
+    for off in range(scan_pages - 1, -1, -1):
+        use_right = (off % 2 == 1)
+        out.append({'page': start + off,
+                    'ops': _crop(RIGHT_HALF if use_right else LEFT_HALF)})
+    return out
+
+
+def split_descriptors(num_pages: int, mode: str,
+                      mode1_pages_per_student_value=None):
     """Return a list of ``{page, ops}`` fragments for ``mode``.
 
     ``ops`` here only ever holds the half-page crop (or nothing). The caller
@@ -385,9 +411,11 @@ def split_descriptors(num_pages: int, mode: str):
 
     * ``none``   — one fragment per page, no crop.
     * ``simple`` — split every A3 page down the middle: left then right.
-    * ``mode1``  — folded individual copies (2 A3 sheets → 4 pages/student):
-      per chunk ``(i, i+1)`` emit ``p(i)_R, p(i+1)_L, p(i+1)_R, p(i)_L``.
-      A trailing odd page is dropped (warned).
+    * ``mode1``  — folded individual copies/booklets. ``pages per student``
+      defaults to 4, so the legacy two-A3-side chunk still emits
+      ``p(i)_R, p(i+1)_L, p(i+1)_R, p(i)_L``. Other counts use
+      ``ceil(pages/2)`` A3 sides per student and drop padded trailing halves
+      from each chunk (for example, 7 keeps pages 1-7 and skips page 8).
     * ``mode2``  — destapled A4 booklet stack: reorder the split halves back
       into chronological reading order.
     """
@@ -406,16 +434,19 @@ def split_descriptors(num_pages: int, mode: str):
 
     if mode == 'mode1':
         out = []
+        pages_per_student = mode1_pages_per_student(
+            mode1_pages_per_student_value)
+        scan_pages_per_student = (pages_per_student + 1) // 2
         i = 0
-        while i + 1 < n:
-            out.append({'page': i,     'ops': _crop(RIGHT_HALF)})  # page 1
-            out.append({'page': i + 1, 'ops': _crop(LEFT_HALF)})   # page 2
-            out.append({'page': i + 1, 'ops': _crop(RIGHT_HALF)})  # page 3
-            out.append({'page': i,     'ops': _crop(LEFT_HALF)})   # page 4
-            i += 2
-        if n % 2 == 1:
-            logger.warning('split_descriptors mode1: odd page count (%s) — '
-                           'dropping trailing page.', n)
+        while i + scan_pages_per_student <= n:
+            out.extend(_mode1_chunk_order(
+                i, scan_pages_per_student, _crop)[:pages_per_student])
+            i += scan_pages_per_student
+        if i < n:
+            logger.warning(
+                'split_descriptors mode1: %s trailing A3 page(s) do not make '
+                'a complete %s-page student chunk; dropping them.',
+                n - i, pages_per_student)
         return out
 
     if mode == 'mode2':
@@ -499,7 +530,8 @@ def render_page_image(pdf_path: str, page_index: int, ops, width_px: int = None,
 
 
 def process_pdf_to_images(pdf_path: str, width_px: int, pre_rotate: int = 0,
-                          split_mode: str = 'none', filters=None):
+                          split_mode: str = 'none', filters=None,
+                          mode1_pages_per_student_value=None):
     """Rasterise + (optionally) rotate / split / filter every page of a PDF.
 
     Returns a list of PIL RGB Images in final reading order. Used by the Batch
@@ -511,7 +543,8 @@ def process_pdf_to_images(pdf_path: str, width_px: int, pre_rotate: int = 0,
     doc = fitz.open(pdf_path)
     try:
         page_count = doc.page_count
-        frags = split_descriptors(page_count, split_mode)
+        frags = split_descriptors(page_count, split_mode,
+                                  mode1_pages_per_student_value)
         images = []
         for frag in frags:
             ops = build_op_chain(pre_rotate, frag['ops'], filters)

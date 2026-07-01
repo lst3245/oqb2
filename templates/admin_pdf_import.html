@@ -255,6 +255,14 @@
                                     </select>
                                 </div>
                             </div>
+                            <div class="row g-2 mt-1" id="ppMode1PagesWrap" style="display:none;">
+                                <div class="col-12">
+                                    <label class="form-label small mb-0">Mode 1 pages per student</label>
+                                    <input type="number" id="ppMode1PagesPerStudent" class="form-control form-control-sm"
+                                           value="4" min="1" max="200" step="1">
+                                    <div class="form-text">Drops padding pages in each folded copy, e.g. 7 keeps pages 1-7 and skips page 8.</div>
+                                </div>
+                            </div>
                             <div class="row g-2 mt-1">
                                 <div class="col-4">
                                     <label class="form-label small mb-0">Bright.</label>
@@ -486,6 +494,12 @@ const deskewChk = document.getElementById('deskewChk');
 document.getElementById('ppBwThreshold').addEventListener('input', e => {
     document.getElementById('ppBwVal').textContent = e.target.value;
 });
+function updatePpMode1PagesVisibility() {
+    const isMode1 = document.getElementById('ppSplit').value === 'mode1';
+    document.getElementById('ppMode1PagesWrap').style.display = isMode1 ? '' : 'none';
+}
+document.getElementById('ppSplit').addEventListener('change', updatePpMode1PagesVisibility);
+updatePpMode1PagesVisibility();
 const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
 const trimWhiteChk = document.getElementById('trimWhiteChk');
@@ -799,6 +813,7 @@ function setRunning(on, phase) {
     const lockImport = on && phase === 'import';
     [paperInput, quePdf, solPdf, deskewChk,
      document.getElementById('ppRotate'), document.getElementById('ppSplit'),
+     document.getElementById('ppMode1PagesPerStudent'),
      document.getElementById('ppBrightness'), document.getElementById('ppContrast'),
      document.getElementById('ppSharpen'), document.getElementById('ppGray'),
      document.getElementById('ppBw'), document.getElementById('ppBwThreshold'),
@@ -855,6 +870,7 @@ async function loadPdf() {
     fd.append('deskew', deskewChk.checked ? '1' : '0');
     fd.append('pre_rotate', document.getElementById('ppRotate').value);
     fd.append('split_mode', document.getElementById('ppSplit').value);
+    fd.append('mode1_pages_per_student', document.getElementById('ppMode1PagesPerStudent').value);
     fd.append('f_brightness', document.getElementById('ppBrightness').value);
     fd.append('f_contrast', document.getElementById('ppContrast').value);
     fd.append('f_sharpen', document.getElementById('ppSharpen').value);

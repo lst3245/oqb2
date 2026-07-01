@@ -243,9 +243,15 @@
                         <select id="splitMode" class="form-select form-select-sm">
                             <option value="none">None (keep whole pages)</option>
                             <option value="simple">Split each A3 down the middle (L, R)</option>
-                            <option value="mode1">Mode 1 — folded individual copies (4 pages / student)</option>
+                            <option value="mode1">Mode 1 — folded individual copies / booklets</option>
                             <option value="mode2">Mode 2 — destapled A4 booklet stack (reorder)</option>
                         </select>
+                        <div id="mode1PagesWrap" class="mt-2" style="display:none;">
+                            <label class="form-label small mb-1" for="mode1PagesPerStudent">Pages per student</label>
+                            <input type="number" id="mode1PagesPerStudent" class="form-control form-control-sm"
+                                   min="1" max="200" step="1" value="4">
+                            <div class="form-text">Mode 1 keeps this many ordered A4 pages per student and drops padding pages, e.g. 7 drops the 8th page.</div>
+                        </div>
                         <div class="form-text" id="splitHelp"></div>
                     </div>
                     <hr class="my-2">
@@ -502,7 +508,7 @@
                     <div class="col-12" id="splitEveryWrap" style="display:none;">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="splitEveryChk">
-                            <label class="form-check-label small" for="splitEveryChk">Separate file every 4 pages (per student)</label>
+                            <label class="form-check-label small" for="splitEveryChk" id="splitEveryLabel">Separate file every 4 pages (per student)</label>
                         </div>
                     </div>
                     <div class="col-12">
@@ -656,7 +662,7 @@ const DEFAULT_SAVE_SUBDIR = {{ save_subdir | tojson }};
 let TOKEN = null;
 let activeSrc = null;
 const sources = {};          // srcid -> {filename, page_count}
-let pages = [];              // [{id, src, page, mode, baseOps, edit:{type->op}, dpi, annots:[], nonce}]
+let pages = [];              // [{id, src, page, mode, mode1_pages_per_student, baseOps, edit:{type->op}, dpi, annots:[], nonce}]
 let sortable = null;
 let selected = new Set();     // selected page ids
 let lastClickedId = null;     // for shift-range select
@@ -670,7 +676,7 @@ let previewRes = localStorage.getItem('oqb_tbPreviewRes') === 'full' ? 'full' : 
 const SPLIT_HELP = {
     none: 'Pages are added as-is.',
     simple: 'Each page is cut into a left and a right half (in that order).',
-    mode1: 'Two A3 sheets per student, scanned folded. Produces pages 1–4 per student. Use "Separate file every 4 pages" on export for one file per student.',
+    mode1: 'Folded individual copies/booklets. Enter the ordered A4 pages per student; extra padding pages in each booklet are dropped.',
     mode2: 'A whole booklet was destapled and the A3 sheets scanned as a stack. The split halves are reordered back into reading order. Assumes an even number of A3 pages.',
 };
 
@@ -702,11 +708,43 @@ function fullOps(p) {
     const edits = order.filter(t => p.edit[t]).map(t => p.edit[t]);
     return p.baseOps.concat(edits);
 }
+function normalizeMode1Pages(value) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return 4;
+    return Math.max(1, Math.min(200, n));
+}
+function mode1PagesValue() {
+    return normalizeMode1Pages(document.getElementById('mode1PagesPerStudent').value);
+}
+function pageFromServer(sp) {
+    const p = {id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
+               dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
+               annots: sp.annots || [], nonce: Date.now()};
+    if (p.mode === 'mode1') {
+        p.mode1_pages_per_student = normalizeMode1Pages(sp.mode1_pages_per_student);
+    }
+    return p;
+}
+function pagePayload(p) {
+    const item = {id: p.id, src: p.src, page: p.page,
+                  mode: p.mode, dpi: p.dpi, ops: fullOps(p),
+                  annots: p.annots || []};
+    if (p.mode === 'mode1') {
+        item.mode1_pages_per_student = normalizeMode1Pages(p.mode1_pages_per_student);
+    }
+    return item;
+}
+function updateSplitModeControls() {
+    const mode = document.getElementById('splitMode').value;
+    document.getElementById('splitHelp').textContent = SPLIT_HELP[mode] || '';
+    document.getElementById('mode1PagesWrap').style.display = mode === 'mode1' ? '' : 'none';
+}
 
 // ---------- undo ----------
 function snapshotPages() {
     return pages.map(p => ({
-        id: p.id, src: p.src, page: p.page, mode: p.mode, dpi: p.dpi,
+        id: p.id, src: p.src, page: p.page, mode: p.mode,
+        mode1_pages_per_student: p.mode1_pages_per_student, dpi: p.dpi,
         baseOps: JSON.parse(JSON.stringify(p.baseOps || [])),
         edit: JSON.parse(JSON.stringify(p.edit || {})),
         annots: JSON.parse(JSON.stringify(p.annots || [])),
@@ -725,15 +763,14 @@ async function pushServerPages() {
     // Mirror the current working set to the server (authoritative for thumbs/export).
     return postJSON(`${BASE}/set-pages`, {
         token: TOKEN,
-        pages: pages.map(p => ({id: p.id, src: p.src, page: p.page,
-                                mode: p.mode, dpi: p.dpi, ops: fullOps(p),
-                                annots: p.annots || []})),
+        pages: pages.map(pagePayload),
     });
 }
 async function doUndo() {
     if (!undoStack.length) { log('Nothing to undo.'); return; }
     const snap = undoStack.pop();
     pages = snap.map(p => ({id: p.id, src: p.src, page: p.page, mode: p.mode,
+                            mode1_pages_per_student: p.mode1_pages_per_student,
                             dpi: p.dpi, baseOps: p.baseOps, edit: p.edit,
                             annots: p.annots || [], nonce: Date.now()}));
     const ids = new Set(pages.map(p => p.id));
@@ -805,9 +842,7 @@ async function addPagesWithDefaults(srcid) {
     });
     pushUndo();
     data.pages.forEach(sp => {
-        pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
-                    annots: sp.annots || [], nonce: Date.now()});
+        pages.push(pageFromServer(sp));
     });
     log(`Added ${data.added} page(s).`, 'success');
     renderPreview();
@@ -897,6 +932,7 @@ async function addPages() {
         token: TOKEN,
         srcid: activeSrc,
         mode: document.getElementById('splitMode').value,
+        mode1_pages_per_student: mode1PagesValue(),
         pre_rotate: parseInt(document.getElementById('preRotate').value, 10),
         dpi: parseInt(document.getElementById('procDpi').value, 10),
         filters: gatherFilters(),
@@ -911,9 +947,7 @@ async function addPages() {
     }
     pushUndo();
     data.pages.forEach(sp => {
-        pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                    dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
-                    annots: sp.annots || [], nonce: Date.now()});
+        pages.push(pageFromServer(sp));
     });
     log(`Added ${data.added} page(s).`, 'success');
     setBtnLoading(btn, false);
@@ -1367,9 +1401,7 @@ async function pasteClipboard() {
         catch (e) { log('Paste failed: ' + e.message, 'error'); return; }
         const byId = {}; pages.forEach(p => byId[p.id] = p);
         data.pages.forEach(sp => {
-            byId[sp.id] = {id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                           dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
-                           annots: sp.annots || [], nonce: Date.now()};
+            byId[sp.id] = pageFromServer(sp);
         });
         pages = data.order.map(id => byId[id]).filter(Boolean);
         setSelection(data.pages.map(p => p.id));
@@ -1865,10 +1897,32 @@ function initAdjustMenus() {
 function updateCount() {
     document.getElementById('pageCount').textContent = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
 }
-function updateSplitEveryVisibility() {
-    const hasMode1 = pages.some(p => p.mode === 'mode1');
+function mode1CountsForPageIds(pageIds) {
+    const scope = pageIds ? new Set(pageIds) : null;
+    return [...new Set(
+        pages
+            .filter(p => p.mode === 'mode1' && (!scope || scope.has(p.id)))
+            .map(p => normalizeMode1Pages(p.mode1_pages_per_student))
+    )];
+}
+function updateSplitEveryVisibility(pageIds) {
+    const modalOpen = document.getElementById('exportSettingsModal').classList.contains('show');
+    const scopedIds = pageIds || (modalOpen ? pendingExportIds : null);
+    const counts = mode1CountsForPageIds(scopedIds);
+    const hasMode1 = counts.length > 0;
     const fmtPdf = document.getElementById('exportFmt').value === 'pdf';
-    document.getElementById('splitEveryWrap').style.display = (hasMode1 && fmtPdf) ? '' : 'none';
+    const wrap = document.getElementById('splitEveryWrap');
+    const chk = document.getElementById('splitEveryChk');
+    const label = document.getElementById('splitEveryLabel');
+    wrap.style.display = (hasMode1 && fmtPdf) ? '' : 'none';
+    if (counts.length === 1) {
+        chk.disabled = false;
+        label.textContent = `Separate file every ${counts[0]} pages (per student)`;
+    } else if (counts.length > 1) {
+        chk.checked = false;
+        chk.disabled = true;
+        label.textContent = 'Separate per student unavailable for mixed Mode 1 page counts';
+    }
     document.getElementById('outputModeWrap').style.display = fmtPdf ? '' : 'none';
     document.getElementById('compressWrap').style.display = fmtPdf ? '' : 'none';
     document.getElementById('targetMbWrap').style.display =
@@ -1974,9 +2028,7 @@ async function doRestoreSession(token) {
 
         // Re-populate pages (same shape as add-pages response)
         (data.pages || []).forEach(sp => {
-            pages.push({id: sp.id, src: sp.src, page: sp.page, mode: sp.mode,
-                        dpi: sp.dpi, baseOps: sp.ops || [], edit: {},
-                        annots: sp.annots || [], nonce: Date.now()});
+            pages.push(pageFromServer(sp));
         });
 
         // Rebuild UI
@@ -2048,6 +2100,7 @@ async function openExportSettings() {
     // the scope question never appears on top of another modal.
     pendingExportIds = await resolveExportScope();
     if (!pendingExportIds) return;   // dismissed
+    updateSplitEveryVisibility(pendingExportIds);
     if (!exportSettingsModalInst)
         exportSettingsModalInst = new bootstrap.Modal(document.getElementById('exportSettingsModal'));
     exportSettingsModalInst.show();
@@ -2089,8 +2142,10 @@ function resolveExportScope() {
 
 function exportBody(pageIds) {
     const fmt = document.getElementById('exportFmt').value;
+    const counts = mode1CountsForPageIds(pageIds);
     const splitEvery = (fmt === 'pdf' && document.getElementById('splitEveryChk').checked
-                        && document.getElementById('splitEveryWrap').style.display !== 'none') ? 4 : 0;
+                        && document.getElementById('splitEveryWrap').style.display !== 'none'
+                        && counts.length === 1) ? counts[0] : 0;
     return {token: TOKEN, page_ids: pageIds, fmt, split_every: splitEvery,
             output: document.getElementById('exportOutput').value,
             compress: document.getElementById('exportCompress').value,
@@ -2626,8 +2681,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pickBtn) pickBtn.addEventListener('click', () => openServerPicker());
 
     document.getElementById('activeSource').addEventListener('change', e => { activeSrc = e.target.value; renderSrcStrip(activeSrc, sources[activeSrc].page_count); });
-    document.getElementById('splitMode').addEventListener('change', e => { document.getElementById('splitHelp').textContent = SPLIT_HELP[e.target.value] || ''; });
-    document.getElementById('splitHelp').textContent = SPLIT_HELP.none;
+    document.getElementById('splitMode').addEventListener('change', updateSplitModeControls);
+    updateSplitModeControls();
     document.getElementById('addPagesBtn').addEventListener('click', addPages);
 
     // preview-grid thumbnail size slider (persisted per browser)

@@ -38,7 +38,7 @@ from datetime import datetime
 
 from flask import current_app
 
-from app import db
+from app import db, pdf_tools
 from app.models import Question
 
 logger = logging.getLogger(__name__)
@@ -248,7 +248,8 @@ def cleanup_old(max_age_hours: float = 6.0) -> None:
 def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
                   deskew: bool = False, pre_rotate: int = 0,
                   split_mode: str = 'none', filters: dict = None,
-                  workers: int = 1) -> list:
+                  workers: int = 1,
+                  mode1_pages_per_student: int = None) -> list:
     """Rasterise every page of ``pdf_path`` to ``page_NNNN.png`` in
     ``out_dir``. Returns a list of ``{index, filename, width, height}``.
 
@@ -260,8 +261,9 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
       ``filters``). Needs NumPy; silently skipped (warned) if absent.
     * ``pre_rotate``  — rotate every page 90/180/270° before splitting.
     * ``split_mode``  — ``'none'`` / ``'simple'`` / ``'mode1'`` / ``'mode2'``
-      A3-booklet split; splitting just yields more staged pages (the LLM
-      detector runs per page, so this is transparent downstream).
+      A3-booklet split; Mode 1 can use ``mode1_pages_per_student`` to drop
+      blank/padded booklet slots. Splitting just yields more staged pages (the
+      LLM detector runs per page, so this is transparent downstream).
     * ``filters``     — ``{deskew, brightness, contrast, sharpen, grayscale,
       bw, bw_threshold}`` image adjustments.
     * ``workers``     — render this many pages concurrently (CPU-bound page
@@ -286,11 +288,14 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
 
     pre_rotate = int(pre_rotate or 0) % 360
     split_mode = (split_mode or 'none').strip().lower()
+    mode1_pages_per_student = pdf_tools.mode1_pages_per_student(
+        mode1_pages_per_student)
 
     # One cheap open just to enumerate the page fragments + op chains.
     pdf = fitz.open(pdf_path)
     try:
-        frags = pdf_tools.split_descriptors(pdf.page_count, split_mode)
+        frags = pdf_tools.split_descriptors(
+            pdf.page_count, split_mode, mode1_pages_per_student)
     finally:
         pdf.close()
 
@@ -338,16 +343,16 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
 def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
           deskew: bool = False, pre_rotate: int = 0,
           split_mode: str = 'none', filters: dict = None,
-          workers: int = None):
+          workers: int = None, mode1_pages_per_student: int = None):
     """Save the uploaded PDFs and rasterise their pages.
 
     ``que_storage`` / ``sol_storage`` are Werkzeug ``FileStorage`` objects (or
     None). ``meta_in`` carries the parsed paper prefix + version. ``deskew`` /
-    ``pre_rotate`` / ``split_mode`` / ``filters`` drive the shared pre-processing
-    (see :func:`rasterize_pdf`). ``workers`` is the page-rasterisation
-    concurrency; ``None`` resolves it from ``PDF_IMPORT_RASTER_WORKERS`` (capped
-    by the CPU count). Returns ``(token, meta)`` where ``meta`` is the persisted
-    JSON.
+    ``pre_rotate`` / ``split_mode`` / ``filters`` / ``mode1_pages_per_student``
+    drive the shared pre-processing (see :func:`rasterize_pdf`). ``workers`` is
+    the page-rasterisation concurrency; ``None`` resolves it from
+    ``PDF_IMPORT_RASTER_WORKERS`` (capped by the CPU count). Returns
+    ``(token, meta)`` where ``meta`` is the persisted JSON.
     """
     if workers is None:
         try:
@@ -366,6 +371,8 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
     meta['deskew'] = bool(deskew)
     meta['pre_rotate'] = int(pre_rotate or 0) % 360
     meta['split_mode'] = (split_mode or 'none').strip().lower()
+    meta['mode1_pages_per_student'] = pdf_tools.mode1_pages_per_student(
+        mode1_pages_per_student)
     meta['filters'] = dict(filters or {})
     meta['que'] = None
     meta['sol'] = None
@@ -379,7 +386,9 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
         storage.save(pdf_path)
         pages = rasterize_pdf(pdf_path, kind_dir, raster_width, deskew=deskew,
                               pre_rotate=pre_rotate, split_mode=split_mode,
-                              filters=filters, workers=workers)
+                              filters=filters, workers=workers,
+                              mode1_pages_per_student=meta[
+                                  'mode1_pages_per_student'])
         meta[kind] = {'filename': storage.filename, 'pages': pages}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:

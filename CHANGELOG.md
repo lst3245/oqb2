@@ -50,6 +50,8 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Toolbox PDF Tool / Batch PDF Import: configurable Mode 1 folded split.** Mode 1 is no longer fixed at 4 A4 pages per student. Admins can enter the number of ordered pages per student (default 4); the splitter uses the required A3-side chunk size and drops padding slots, so a 7-page booklet keeps pages 1-7 and skips the 8th page for each student's scan. The PDF Tool's per-student ZIP export now follows the selected page count.
+
 - **Dashboard Explain: optional first question.** Opening Explain now waits for the user's first Send instead of immediately calling the AI, so users can type a specific question first or leave the box empty for the standard full explanation.
 
 - **Question Management: advanced Status filter scope.** The Status filter now has an **Advanced** menu that combines `Has issues` / `All checked OK` / `Has unchecked` with selectable versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOC`). The default remains the previous EN/CH/BI all-type/all-format behaviour; changing the advanced scope also affects the new "select all matching questions" flow.
