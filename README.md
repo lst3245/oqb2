@@ -38,7 +38,7 @@ python run.py
 - Level filter (1/2/3 + "Not Assigned")
 - Question type filter (MC / CQ)
 - **Direct QID search** with loose tokenised or strict wildcard (`*`) modes
-- **Multi-level sorting** — drag to set priority (e.g. Topic → Level → Year)
+- **Multi-level sorting** — drag to set priority (e.g. Topic → Level → Year), including numeric real-paper Question Number
 - Natural sort (Q1, Q2, Q10 — not Q1, Q10, Q2)
 - Configurable page size (10 / 20 / 50 / 100)
 - **Version priority** for previews — drag-to-reorder EN / CH / BI / ENO / CHO (top wins)
@@ -49,6 +49,7 @@ python run.py
 ### Document Generation
 - Generate **Word (`.docx`) or PDF (`.pdf`)** documents from selected questions (PDF via Microsoft Word + `ExportAsFixedFormat`)
 - **5 answer modes**: Questions Only, Q+Answer, Q+Solution, All Qs then Answers, All Qs then Solutions
+- Optional **compact MC answer keys** in All Qs then Answers mode — Word table or tabbed rows, configurable dimensions and runtime numbering
 - Answer content preference: image-first or text-first fallback
 - **Version priority**: drag-to-reorder EN / CH / BI / ENO / CHO (ENO/CHO = official public-exam scans); assets picked by `(format, version)` rank
 - **Native DOCX source merging** via Microsoft Word COM — MathType OLE objects, embedded images, drawings, custom fonts, and native tables come through unchanged. Source page setup is stripped so the master doc's layout always wins.

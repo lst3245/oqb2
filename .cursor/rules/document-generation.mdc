@@ -29,6 +29,15 @@ alwaysApply: false
 | `QUE_THEN_ANS` | All questions first, then all answers (new page + "ANSWERS" heading) |
 | `QUE_THEN_SOL` | All questions first, then all solutions (new page + "SOLUTIONS" heading) |
 
+### Compact MC keys (`QUE_THEN_ANS` only)
+`compact_mc_answers` replaces contiguous eligible MC answer runs with Answer Text blocks. Eligibility is `q_type == 'MC'` plus non-empty, trimmed, single-line `Question.answer` of at most 80 characters. CQ and ineligible MC answers retain full ANS rendering and split runs; MC QID headings are suppressed while compact mode is active.
+
+- `_partition_mc_answer_runs()` preserves document order and records runtime `seq_start + index`.
+- `_split_mc_answer_run()` applies optional `columns * max_rows` block capacity.
+- `_add_mc_answer_key_block()` emits either native `python-docx` `Table Grid` tables or tab-stop paragraphs.
+- Per-answer numbers and `Qx–Qy` titles use runtime sequential numbers and are gated by `show_seq_no`; they never use the stored real-paper `Question.qno`.
+- Compact blocks use Answer Text regardless of `answer_preference` and bypass per-question MC answer spacing. Normal CQ/ineligible entries retain the existing spacing option.
+
 ## Spacing Config
 Separate settings for MC and CQ questions:
 ```python
@@ -46,13 +55,19 @@ Smart logic: if the previous question already added a page break, skip the `befo
 | `sort_config` | JSON string | multi-level `[{field,direction}]` (Auto Sort only) |
 | `sort_group_order` | JSON string | optional manual block order `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter (Auto Sort only). Threaded into `apply_multi_sort(..., group_order=)` in `_generate_in_background`; ignored unless `fields` match the grouping fields in `sort_config` |
 | `answer_mode` | string | `QUE_ONLY` |
+| `compact_mc_answers` | bool | False — compact MC keys in `QUE_THEN_ANS` only |
+| `mc_key_layout` | `table`\|`tabs` | `table` |
+| `mc_key_columns` | int 1–20 | 5 answers per row |
+| `mc_key_max_rows` | nullable int 1–100 | null = automatic rows |
+| `mc_key_include_seq` | bool | effective only with `show_seq_no` |
+| `mc_key_range_title` | bool | effective only with `show_seq_no` |
 | `version_priority` | comma string | `EN,CH,BI,ENO,CHO` — ordered version preference; top wins. Legacy `preferred_language` (`EN`/`CH`) still read on load and converted via `parse_version_priority()` |
 | `answer_preference` | `image_first`\|`text_first` | `image_first` |
 | `output_format` | `DOCX` | always `DOCX` at generation time. PDF is built lazily from My Files via `GET /generate/pdf/<id>` (see Flow step 8). Old saved presets that still carry `PDF` here are silently ignored on load |
 | `show_qid` | bool | — |
 | `show_qid_answer` | bool | — |
 | `show_correct_pct` | bool | — format: `QID [75%]` |
-| `show_seq_no` | bool | — sequential 1. 2. 3. |
+| `show_seq_no` | bool | True on a new Generate form; regeneration/presets restore their saved value |
 | `seq_start` | int | 1 |
 | `show_page_no` | bool | — footer page numbers |
 | `keep_together` | bool | — Word keep_with_next on headings |
@@ -62,6 +77,15 @@ Smart logic: if the previous question already added a page break, skip the `befo
 | `section_fields` | dict | topic/subtopic/chapter/subchapter booleans — section headings on change |
 | `split_fields` | dict | topic/subtopic/chapter/subchapter booleans — split into separate .docx, zipped |
 | `format_priority` | string | comma list, default `IMG,MD,DOC` |
+
+## Generate-page UX
+`templates/generate.html` uses progressive disclosure rather than a separate Quick/Advanced mode:
+- Always-visible flow: file name → content/answer mode → numbering/headings → contextual compact-MC panel → question order.
+- Advanced Bootstrap collapses: Asset selection, Document structure, and Spacing/pagination. Controls remain enabled and submit normally while collapsed.
+- `syncAdvancedOptionSummaries()` marks non-default sections as customized and opens them after regeneration/preset restoration.
+- Generated sequential numbering is checked in HTML for new forms. `restoreGenerationOptions()` remains authoritative for saved `show_seq_no` values.
+- Compact-key numbering controls are hidden (not disabled or cleared) while `show_seq_no` is off; the compact key itself still works without labels.
+- `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer` choice when answer mode changes. Answer/solution spacing is visible only for `QUE_THEN_ANS` / `QUE_THEN_SOL`.
 
 ## Output Format
 - **Generation always produces DOCX.** `create_document()` no longer reads `output_format` from the form (the radio block in `generate.html` was removed); it pins `output_format = 'DOCX'` before spawning the worker.
@@ -118,7 +142,7 @@ The Generate page has a "Presets" bar (above the form) with:
 - A **Save as preset** button that opens a modal and POSTs to `/user/gen-profiles/save` with the current option state via JS helper `getCurrentGenerationOptions()`. Save is upsert-by-name; `question_ids` is stripped client- and server-side.
 - A **Manage** link to `/user/gen-profiles`.
 
-Loading a preset calls the same `restoreGenerationOptions()` used by regen-from-file, but never touches the hidden `question_ids`, `sort_config` (its hidden input), or `filter_data` inputs.
+Loading a preset calls the same `restoreGenerationOptions()` used by regen-from-file. It never touches `question_ids` or `filter_data`; it does restore generation sort configuration because sort settings are part of a preset.
 
 See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the full route list.
 

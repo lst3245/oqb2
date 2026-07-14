@@ -249,6 +249,11 @@ SORT_FIELDS = {
         'key': lambda q: q.qid,
         'natural': True  # Use natural sort for this field
     },
+    'qno': {
+        'label': 'Question Number',
+        'key': lambda q: q.qno,
+        'natural': False
+    },
     'year': {
         'label': 'Year',
         'key': lambda q: q.year if q.year else 0,

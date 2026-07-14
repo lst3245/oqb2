@@ -642,6 +642,11 @@ See `app/generator.py` and `.cursor/rules/document-generation.mdc` for full deta
 ### Answer Modes
 `QUE_ONLY`, `QUE_ANS`, `QUE_SOL`, `QUE_THEN_ANS`, `QUE_THEN_SOL`
 
+### Compact MC Answer Keys
+`QUE_THEN_ANS` accepts normalized `mc_answer_key_options` from `_parse_mc_answer_key_options()`. When enabled, `_partition_mc_answer_runs()` preserves document order by grouping only contiguous questions with `q_type == 'MC'` and short, non-empty, single-line `Question.answer` text. CQ and ineligible MC entries use normal ANS rendering; ineligible MC entries suppress their QID heading. `_split_mc_answer_run()` applies `columns × max_rows` capacity, and `_add_mc_answer_key_block()` emits either a native `python-docx` Table Grid or paragraphs with explicit tab stops. Optional labels use runtime `seq_start + index`, not `Question.qno`.
+
+The JSON options persisted in `GeneratedFile.generation_options` and generation presets are: `compact_mc_answers`, `mc_key_layout` (`table`/`tabs`), `mc_key_columns`, nullable `mc_key_max_rows`, `mc_key_include_seq`, and `mc_key_range_title`. The final two are effective only when `show_seq_no` is enabled.
+
 ### Custom Word Styles (defined in `_define_oqb_styles()`)
 | Style | Appearance | Used for |
 |---|---|---|
@@ -719,6 +724,8 @@ Add an entry to `SORT_FIELDS` in `app/utils.py`:
     'natural': False   # True = use natsort
 }
 ```
+
+Also add the field to the JavaScript `SORT_FIELDS` registries in both `templates/dashboard.html` and `templates/generate.html`. The built-in `qno` field uses the integer `Question.qno` (the real-paper QID suffix), while `show_seq_no` is unrelated runtime document numbering.
 
 ### Adding a New Blueprint
 1. Create `app/my_feature.py`, define `my_bp = Blueprint('my_feature', __name__, url_prefix='/my')`

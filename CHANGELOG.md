@@ -50,6 +50,10 @@ All notable changes to the Online Question Bank System are documented in this fi
 
 ### ✨ Enhanced Features
 
+- **Generate page: clearer basic workflow and progressive advanced options.** Generation controls are now grouped into Content, Numbering, Compact MC keys, Question order, and three collapsed advanced sections (Asset selection, Document structure, Spacing/pagination). Advanced headers show when settings are customized and saved/regenerated custom sections open automatically. Generated sequential numbering now defaults on for new documents (saved presets and regeneration still preserve their own value), and compact-key numbering choices are hidden with an explanation instead of appearing disabled when sequential numbering is off.
+
+- **Question Number sorting and compact MC answer keys.** Dashboard and generation multi-sort controls now include **Question Number**, using the stored numeric `qno` (the real-paper `QXX` part of the QID) so `Q2` sorts before `Q10`. In **All Questions, Then All Answers** mode, users can optionally replace contiguous runs of MC answer images with compact Answer Text in either a visible Word table or tab-aligned rows, configure answers per row and an optional maximum rows per block, and independently include generated sequential numbers and `Qx–Qy` block titles. Mixed CQ/MC answer order is preserved; CQ and invalid/missing MC answer text still use normal answer rendering.
+
 - **Toolbox PDF Tool / Batch PDF Import: configurable Mode 1 folded split.** Mode 1 is no longer fixed at 4 A4 pages per student. Admins can enter the number of ordered pages per student (default 4); the splitter uses the required A3-side chunk size and drops padding slots, so a 7-page booklet keeps pages 1-7 and skips the 8th page for each student's scan. The PDF Tool's per-student ZIP export now follows the selected page count.
 
 - **Dashboard Explain: optional first question.** Opening Explain now waits for the user's first Send instead of immediately calling the AI, so users can type a specific question first or leave the box empty for the standard full explanation.

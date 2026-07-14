@@ -131,7 +131,9 @@ Click the **Sort** button (or the sort icon) in the question header bar to open 
 - **Toggle direction** (↑ / ↓) per criterion
 - Click **Apply Sort**
 
-Available sort fields: QID, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Chapter, Subchapter, Created Time.
+Available sort fields: QID, Question Number, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Chapter, Subchapter, Created Time.
+
+**Question Number** is the numeric real-paper number stored in the QID (`Q2`, `Q10`, etc.), not the optional sequential number generated for a document. It sorts numerically, so Q2 comes before Q10.
 
 Sort configuration is preserved in your session as you navigate pages.
 
@@ -257,6 +259,13 @@ When a Share shortcut opens Markup with `?ios-share=paste`, the same Import shee
 
 ### Generation Options
 
+The page shows the most common choices first: file name, content/answers, numbering/headings, compact MC keys (when applicable), and question order. Less-common controls are grouped under **Advanced options**:
+- **Asset selection** — version and format priority
+- **Document structure** — info lines, section headings, split-to-ZIP, and cross-topic notation
+- **Spacing and pagination** — MC/CQ spacing, keep-together, and answer/solution spacing
+
+Advanced sections are collapsed initially. A **customized** badge appears when a section differs from its defaults, and loading a preset or regenerating a file automatically opens customized sections so active settings are not hidden.
+
 #### Sort Order
 - **Custom Sort** — drag-to-reorder multi-level sort (same as dashboard sort)
 - **Selection Order** — output questions in the exact order you selected them
@@ -274,6 +283,17 @@ When a Share shortcut opens Markup with `?ios-share=paste`, the same Import shee
 #### Answer Preference (for modes that include answers)
 - **Image First** — uses the ANS image; falls back to the Answer Text field if no image
 - **Text First** — uses the Answer Text field; falls back to the ANS image
+
+#### Compact MC Answer Keys
+In **All Questions, Then All Answers** mode, enable **Compact MC answer keys** to place each contiguous run of MC answers in a space-saving block. Compact keys always use the question's **Answer Text** field rather than the long ANS image.
+
+- Choose a visible **Word table** or **Whitespace / tabs and new lines**.
+- Set **Answers per row** (default 5).
+- Optionally set **Maximum rows**; leave it blank to calculate rows automatically. A full block is followed by another block.
+- When generated sequential numbering is enabled, independently choose per-answer numbers and/or a `Q21–Q40` title above each block.
+- If generated numbering is off, those two labeling choices are hidden and compact answers remain available without generated labels.
+- CQ answers keep their normal image/text rendering in their original position. An MC question with missing, multiline, or unusually long Answer Text also renders normally and separates adjacent compact blocks.
+- For MC answers in compact mode, **Answer Preference** and **Show Question ID as Heading** are ignored. CQ answer headings are unchanged.
 
 #### Output Format
 Generation always produces **Word (.docx)** — there is no longer a DOCX/PDF radio on this page.
@@ -306,7 +326,7 @@ In "All Questions Then..." modes, you can also choose whether to apply the same 
 | Show QID on questions | Prints the QID (e.g. `MATC_DSE_2024_P1_Q5`) above each question |
 | Show QID on answers | Same, but for the answer section |
 | Show correct % | Appends the correct percentage: `MATC_DSE_2024_P1_Q5 [75%]` |
-| Sequential numbering | Adds `1.`, `2.`, `3.` before each question |
+| Generate sequential question number | Adds runtime `1.`, `2.`, `3.` numbers to this generated paper; this is separate from the real-paper Question Number in the QID. Enabled by default for a new generation; regeneration and presets preserve their saved choice |
 | Starting number | The first sequential number (default 1) |
 | Page numbers | Adds a page number in the footer of every page |
 | Keep together | Prevents the QID/info line from being split from its image by a page break |
@@ -557,7 +577,7 @@ MATC_DSE_2024_P1_Q5
 ```
 
 ### Sort Fields Available
-QID · Year · Level · Topic · Subtopic · Source · Section · Question Type · Correct % · Chapter · Subchapter · Created Time
+QID · Question Number · Year · Level · Topic · Subtopic · Source · Section · Question Type · Correct % · Chapter · Subchapter · Created Time
 
 ### Answer Modes Summary
 | Code | Short name |

@@ -29,9 +29,11 @@ get_user_admin_subjects()       # → [Subject] where current_user has admin rol
 ### SORT_FIELDS dict
 Maps field name → `{label, key: lambda q, natural: bool}`.
 
-Current fields: `qid`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`
+Current fields: `qid`, `qno`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`
 
 `correct_percentage` uses a `(0, value)` / `(1, 0)` tuple so NULLs always sort last regardless of direction.
+
+`qno` is the integer real-paper question number stored on `Question` (the trailing `QXX` component of the QID). It is distinct from generation-time sequential numbering.
 
 ### apply_multi_sort(items, sort_config, group_order=None)
 - `items`: list of `Question` objects

@@ -41,6 +41,46 @@ def _require_generate_permission():
         abort(403)
 
 
+def _bounded_int(value, default, minimum, maximum, allow_none=False):
+    """Parse and clamp an integer form value."""
+    if value is None or str(value).strip() == '':
+        return None if allow_none else default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None if allow_none else default
+    return max(minimum, min(maximum, parsed))
+
+
+def _parse_mc_answer_key_options(form, answer_mode, show_seq_no):
+    """Return normalized compact-MC answer-key settings from form-like data."""
+    enabled = (
+        answer_mode == 'QUE_THEN_ANS'
+        and form.get('compact_mc_answers') == 'on'
+    )
+    layout = form.get('mc_key_layout', 'table')
+    if layout not in {'table', 'tabs'}:
+        layout = 'table'
+    return {
+        'enabled': enabled,
+        'layout': layout,
+        'columns': _bounded_int(form.get('mc_key_columns'), 5, 1, 20),
+        'max_rows': _bounded_int(
+            form.get('mc_key_max_rows'), None, 1, 100, allow_none=True
+        ),
+        'include_seq': (
+            enabled
+            and show_seq_no
+            and form.get('mc_key_include_seq') == 'on'
+        ),
+        'range_title': (
+            enabled
+            and show_seq_no
+            and form.get('mc_key_range_title') == 'on'
+        ),
+    }
+
+
 @generator_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
@@ -410,6 +450,9 @@ def create_document():
     show_correct_pct = request.form.get('show_correct_pct') == 'on'
     show_seq_no = request.form.get('show_seq_no') == 'on'
     seq_start = max(1, int(request.form.get('seq_start', 1) or 1))
+    mc_answer_key_options = _parse_mc_answer_key_options(
+        request.form, answer_mode, show_seq_no
+    )
     show_page_no = request.form.get('show_page_no') == 'on'
     keep_together = request.form.get('keep_together') == 'on'
     apply_spacing_to_ans = request.form.get('apply_spacing_to_ans') == 'on'
@@ -477,6 +520,12 @@ def create_document():
         'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
         'show_correct_pct': show_correct_pct,
         'show_seq_no': show_seq_no, 'seq_start': seq_start, 'show_page_no': show_page_no,
+        'compact_mc_answers': mc_answer_key_options['enabled'],
+        'mc_key_layout': mc_answer_key_options['layout'],
+        'mc_key_columns': mc_answer_key_options['columns'],
+        'mc_key_max_rows': mc_answer_key_options['max_rows'],
+        'mc_key_include_seq': mc_answer_key_options['include_seq'],
+        'mc_key_range_title': mc_answer_key_options['range_title'],
         'keep_together': keep_together,
         'apply_spacing_to_ans': apply_spacing_to_ans,
         'denote_cross_topic': denote_cross_topic,
@@ -551,7 +600,8 @@ def create_document():
               show_seq_no, seq_start, show_page_no, keep_together,
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
-              format_priority, output_format, sort_group_order_str)
+              format_priority, output_format, sort_group_order_str,
+              mc_answer_key_options)
     )
     thread.daemon = True
     thread.start()
@@ -566,7 +616,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename,
                             format_priority=None, output_format='DOCX',
-                            sort_group_order_str=''):
+                            sort_group_order_str='', mc_answer_key_options=None):
     """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     output_format = (output_format or 'DOCX').upper()
@@ -643,6 +693,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             apply_spacing_to_ans=apply_spacing_to_ans,
                             denote_cross_topic=denote_cross_topic,
                             format_priority=format_priority,
+                            mc_answer_key_options=mc_answer_key_options,
                         )
 
                         safe_label = _sanitize_filename(group_label)
@@ -688,6 +739,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     apply_spacing_to_ans=apply_spacing_to_ans,
                     denote_cross_topic=denote_cross_topic,
                     format_priority=format_priority,
+                    mc_answer_key_options=mc_answer_key_options,
                 )
 
                 # If we'll need Word for either DOC merging or PDF export, write
@@ -1076,6 +1128,125 @@ def get_question_spacing_config(question, spacing_config):
         return spacing_config['cq']
 
 
+_MC_KEY_MAX_ANSWER_LENGTH = 80
+
+
+def _compact_mc_answer_text(question):
+    """Return normalized compact answer text, or None when full rendering is needed."""
+    q_type = (getattr(question, 'q_type', '') or '').strip().upper()
+    if q_type != 'MC':
+        return None
+    answer = str(getattr(question, 'answer', '') or '').strip()
+    if (
+        not answer
+        or '\n' in answer
+        or '\r' in answer
+        or len(answer) > _MC_KEY_MAX_ANSWER_LENGTH
+    ):
+        return None
+    return answer
+
+
+def _partition_mc_answer_runs(questions, seq_start=1):
+    """
+    Partition document-order answers into compact MC runs and normal entries.
+
+    Each compact entry retains its zero-based document index and generated
+    sequential number so labels always match the question section.
+    """
+    segments = []
+    mc_run = []
+
+    def flush_mc_run():
+        nonlocal mc_run
+        if mc_run:
+            segments.append({'type': 'mc', 'entries': mc_run})
+            mc_run = []
+
+    for index, question in enumerate(questions):
+        answer = _compact_mc_answer_text(question)
+        if answer is not None:
+            mc_run.append({
+                'question': question,
+                'index': index,
+                'seq_no': seq_start + index,
+                'answer': answer,
+            })
+        else:
+            flush_mc_run()
+            segments.append({
+                'type': 'normal',
+                'question': question,
+                'index': index,
+                'seq_no': seq_start + index,
+            })
+
+    flush_mc_run()
+    return segments
+
+
+def _split_mc_answer_run(entries, columns, max_rows=None):
+    """Split a contiguous MC run into physical blocks using optional capacity."""
+    if not entries:
+        return []
+    columns = max(1, int(columns or 1))
+    if not max_rows:
+        return [entries]
+    capacity = columns * max(1, int(max_rows))
+    return [entries[i:i + capacity] for i in range(0, len(entries), capacity)]
+
+
+def _mc_key_cell_text(entry, include_seq):
+    if include_seq:
+        return f"{entry['seq_no']}. {entry['answer']}"
+    return entry['answer']
+
+
+def _add_mc_answer_key_block(doc, entries, options):
+    """Render one compact MC answer-key block as a table or tabbed text."""
+    if not entries:
+        return
+
+    columns = max(1, int(options.get('columns') or 5))
+    include_seq = bool(options.get('include_seq'))
+    if options.get('range_title'):
+        first_seq = entries[0]['seq_no']
+        last_seq = entries[-1]['seq_no']
+        title = f"Q{first_seq}" if first_seq == last_seq else f"Q{first_seq}–Q{last_seq}"
+        doc.add_paragraph(title, style='OQB Question ID')
+
+    rows = [
+        entries[i:i + columns]
+        for i in range(0, len(entries), columns)
+    ]
+
+    if options.get('layout') == 'tabs':
+        printable_width_cm = 18.46  # A4 width minus the document's two 1.27 cm margins
+        for row in rows:
+            paragraph = doc.add_paragraph(style='OQB Body Text')
+            tab_stops = paragraph.paragraph_format.tab_stops
+            for column_index in range(1, columns):
+                tab_stops.add_tab_stop(
+                    Cm((printable_width_cm / columns) * column_index)
+                )
+            paragraph.add_run(
+                '\t'.join(_mc_key_cell_text(entry, include_seq) for entry in row)
+            )
+    else:
+        table = doc.add_table(rows=len(rows), cols=columns)
+        table.style = 'Table Grid'
+        table.autofit = True
+        for row_index, row in enumerate(rows):
+            for column_index in range(columns):
+                cell = table.cell(row_index, column_index)
+                paragraph = cell.paragraphs[0]
+                paragraph.style = 'OQB Body Text'
+                if column_index < len(row):
+                    paragraph.add_run(
+                        _mc_key_cell_text(row[column_index], include_seq)
+                    )
+
+
 def add_before_spacing(doc, spacing, last_had_page_break, is_first):
     """
     Add spacing before a question based on settings.
@@ -1410,7 +1581,7 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         Composer(master_doc).append(fragment)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None, mc_answer_key_options=None):
     """
     Create Word document with questions.
 
@@ -1450,6 +1621,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                          available formats for the same asset type/language,
                          the first format in this list wins. Defaults to
                          ('IMG','MD','DOC').
+        mc_answer_key_options: Normalized compact MC answer-key settings. Only
+                               effective in QUE_THEN_ANS mode.
     """
     if not format_priority:
         format_priority = list(_DEFAULT_FORMAT_PRIORITY)
@@ -1534,12 +1707,54 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         doc.add_paragraph()
         last_had_page_break = False
         
-        for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
-            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
-            last_had_page_break = add_after_spacing(doc, spacing)
+        compact_options = mc_answer_key_options or {}
+        if compact_options.get('enabled'):
+            answer_content_started = False
+            for segment in _partition_mc_answer_runs(questions, seq_start):
+                if segment['type'] == 'mc':
+                    blocks = _split_mc_answer_run(
+                        segment['entries'],
+                        compact_options.get('columns', 5),
+                        compact_options.get('max_rows'),
+                    )
+                    for block in blocks:
+                        _add_mc_answer_key_block(doc, block, compact_options)
+                        doc.add_paragraph()
+                        answer_content_started = True
+                        last_had_page_break = False
+                    continue
+
+                question = segment['question']
+                spacing = (
+                    get_question_spacing_config(question, spacing_config)
+                    if apply_spacing_to_ans
+                    else minimal_ans_spacing
+                )
+                add_before_spacing(
+                    doc, spacing, last_had_page_break, not answer_content_started
+                )
+                q_type = (question.q_type or '').strip().upper()
+                # In compact mode the Question-ID answer heading is ignored for
+                # every MC item, including an invalid key rendered normally.
+                answer_show_qid = show_qid_answer and q_type != 'MC'
+                seq_no = segment['seq_no'] if show_seq_no else None
+                add_question_content_to_doc(
+                    doc, question, 'ANS', answer_show_qid, source_path,
+                    version_priority, show_correct_pct, answer_preference,
+                    seq_no=seq_no, keep_together=keep_together,
+                    denote_cross_topic=denote_cross_topic,
+                    format_priority=format_priority,
+                    doc_insertions=doc_insertions,
+                )
+                last_had_page_break = add_after_spacing(doc, spacing)
+                answer_content_started = True
+        else:
+            for i, question in enumerate(questions):
+                spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
+                add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+                seq_no = (seq_start + i) if show_seq_no else None
+                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+                last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
         # Add all questions first

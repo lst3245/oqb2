@@ -51,7 +51,7 @@ Backed by `SavedGenerationProfile` (user_id, name, options_data JSON, is_starred
 ### options_data JSON structure
 Same shape as `GeneratedFile.generation_options` (see [document-generation.mdc](mdc:.cursor/rules/document-generation.mdc)) minus `question_ids`.
 
-The Generate-page JS (`getCurrentGenerationOptions()` in `templates/generate.html`) builds this dict by reading every option control, and `restoreGenerationOptions()` applies it back. Loading a preset never touches the hidden `question_ids`, `sort_config`, or `filter_data` form inputs bound to the current selection.
+The Generate-page JS (`getCurrentGenerationOptions()` in `templates/generate.html`) builds this dict by reading every option control, and `restoreGenerationOptions()` applies it back, including `sort_config`, `sort_group_order`, and compact-MC options (`compact_mc_answers`, layout/dimensions, sequential labels). Loading a preset never touches `question_ids` or `filter_data` bound to the current selection.
 
 ### Starring
 Both `SavedFilter` and `SavedGenerationProfile` have an `is_starred` boolean column (indexed). List endpoints return starred items first; the Generate-page and Dashboard dropdowns group them under a `★ Starred` optgroup.

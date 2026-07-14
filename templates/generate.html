@@ -54,362 +54,371 @@
                         <input type="hidden" name="sort_mode" id="sortModeInput" value="custom">
                         <input type="hidden" name="filter_data" value='{{ filter_data if filter_data else "" }}'>
                         
-                        <!-- File Name -->
+                        <!-- Basic output -->
                         <div class="mb-3">
-                            <label class="form-label"><strong>File Name</strong></label>
+                            <label class="form-label fw-bold" for="displayName">File name</label>
                             <div class="input-group">
-                                <input type="text" class="form-control" name="display_name" id="displayName" 
+                                <input type="text" class="form-control" name="display_name" id="displayName"
                                        value="{{ regen_display_name or '' }}" placeholder="questions (auto-timestamped)">
                                 <span class="input-group-text" id="fileExtLabel">.docx</span>
                             </div>
+                            <small class="text-muted">A timestamp is added automatically. Generation produces Word files; PDF can be created after generation.</small>
                         </div>
 
-                        <!--
-                            Output format selection is intentionally not exposed here.
-                            Generation always produces a `.docx` (or a `.zip` of `.docx`
-                            for split jobs). Users can lazily build a PDF version of
-                            any completed file from the **My Files** page via the
-                            red PDF button next to Download (see /generate/<id>/pdf).
-                        -->
-
-                        <hr>
-                        
-                        <!-- Sort Options -->
-                        <div class="mb-4">
-                            <label class="form-label"><strong>Sort Order</strong></label>
-                            
-                            <!-- Sort mode toggle -->
-                            <div class="btn-group w-100 mb-3" role="group">
-                                <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeCustom" value="custom" checked>
-                                <label class="btn btn-outline-primary" for="sortModeCustom"
-                                       title="Sort automatically by tags such as Year, Level, Topic, etc.">
-                                    <i class="bi bi-magic"></i> Auto Sort
-                                </label>
-
-                                <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeSelection" value="selection">
-                                <label class="btn btn-outline-primary" for="sortModeSelection"
-                                       title="Use the order in the Selected Questions panel (drag to reorder)">
-                                    <i class="bi bi-hand-index"></i> Manual Sort
-                                </label>
+                        <!-- Content and answers -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2">
+                                <strong><i class="bi bi-file-text"></i> Content and answers</strong>
                             </div>
+                            <div class="card-body py-3">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" for="answerMode">Answer mode</label>
+                                    <select class="form-select" name="answer_mode" id="answerMode" onchange="updateAnswerQidVisibility()">
+                                        <option value="QUE_ONLY" selected>Questions Only</option>
+                                        <option value="QUE_ANS">Question + Answer</option>
+                                        <option value="QUE_SOL">Question + Solution</option>
+                                        <option value="QUE_THEN_ANS">All Questions, Then All Answers</option>
+                                        <option value="QUE_THEN_SOL">All Questions, Then All Solutions</option>
+                                    </select>
+                                </div>
 
-                            <!-- Auto sort panel -->
-                            <div id="customSortPanel">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <small class="text-muted">Drag to reorder. First criterion has highest priority.</small>
-                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSortCriterion()">
-                                        <i class="bi bi-plus"></i> Add
+                                <div id="answerPreferenceDiv" style="display: none;">
+                                    <label class="form-label fw-bold" for="answerPreference">Answer source</label>
+                                    <select class="form-select" name="answer_preference" id="answerPreference">
+                                        <option value="image_first" selected>Image First (fall back to text)</option>
+                                        <option value="text_first">Text First (fall back to image)</option>
+                                    </select>
+                                    <small class="text-muted" id="answerPreferenceHelp">Choose the preferred source for answer content.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Numbering and headings -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2">
+                                <strong><i class="bi bi-list-ol"></i> Numbering and headings</strong>
+                            </div>
+                            <div class="card-body py-3">
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input type="checkbox" class="form-check-input" id="showSeqNo"
+                                               name="show_seq_no" checked onchange="updateSequentialNumberUI()">
+                                        <label class="form-check-label fw-bold" for="showSeqNo">
+                                            Generate sequential numbers for this paper (1. 2. 3. ...)
+                                        </label>
+                                    </div>
+                                    <small class="text-muted d-block ms-4">
+                                        These are new numbers for this generated paper, not the real-paper Question Number in the QID.
+                                    </small>
+                                    <div id="seqStartDiv" class="d-flex align-items-center gap-2 mt-2 ms-4">
+                                        <label class="form-label small mb-0 text-muted" for="seqStart">Start from</label>
+                                        <input type="number" class="form-control form-control-sm" id="seqStart"
+                                               name="seq_start" value="1" min="1" style="width:80px;">
+                                    </div>
+                                </div>
+
+                                <div class="row g-2">
+                                    <div class="col-12 col-md-6">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="showQid"
+                                                   name="show_qid" checked>
+                                            <label class="form-check-label" for="showQid">Show Question ID above questions</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6" id="showQidAnswerDiv" style="display: none;">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="showQidAnswer"
+                                                   name="show_qid_answer" checked>
+                                            <label class="form-check-label" for="showQidAnswer">Show Question ID above answers/solutions</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6" id="showCorrectPctDiv">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="showCorrectPct"
+                                                   name="show_correct_pct" checked>
+                                            <label class="form-check-label" for="showCorrectPct">Show correct percentage when available</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="showPageNo"
+                                                   name="show_page_no" checked>
+                                            <label class="form-check-label" for="showPageNo">Show page numbers in the footer</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Compact MC answer keys (All Questions, Then All Answers only) -->
+                        <div class="card mb-3 border-primary" id="compactMcAnswerKeyPanel" style="display: none;">
+                            <div class="card-header bg-primary bg-opacity-10 py-2">
+                                <div class="form-check mb-0">
+                                    <input type="checkbox" class="form-check-input" id="compactMcAnswers"
+                                           name="compact_mc_answers" onchange="updateCompactMcAnswerKeyUI()">
+                                    <label class="form-check-label fw-bold" for="compactMcAnswers">Compact MC answer keys</label>
+                                </div>
+                            </div>
+                            <div class="card-body py-2" id="compactMcAnswerKeyOptions" style="display: none;">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyLayout">Layout</label>
+                                        <select class="form-select form-select-sm" id="mcKeyLayout" name="mc_key_layout">
+                                            <option value="table" selected>Word table (visible grid)</option>
+                                            <option value="tabs">Whitespace / tabs and new lines</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyColumns">Answers per row</label>
+                                        <input type="number" class="form-control form-control-sm" id="mcKeyColumns"
+                                               name="mc_key_columns" value="5" min="1" max="20">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyMaxRows">Maximum rows</label>
+                                        <input type="number" class="form-control form-control-sm" id="mcKeyMaxRows"
+                                               name="mc_key_max_rows" value="" min="1" max="100" placeholder="Auto">
+                                    </div>
+                                </div>
+                                <div id="mcKeyNumberingOptions">
+                                    <div class="form-check mb-1">
+                                        <input type="checkbox" class="form-check-input" id="mcKeyIncludeSeq"
+                                               name="mc_key_include_seq" checked>
+                                        <label class="form-check-label small" for="mcKeyIncludeSeq">
+                                            Show the generated paper number with each answer
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-1">
+                                        <input type="checkbox" class="form-check-input" id="mcKeyRangeTitle"
+                                               name="mc_key_range_title">
+                                        <label class="form-check-label small" for="mcKeyRangeTitle">
+                                            Show a generated-number range title above each block (for example Q21–Q40)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="alert alert-light border py-1 px-2 small mb-2" id="mcKeyNumberingHint" style="display:none;">
+                                    Compact answers will be shown without generated labels. Turn on sequential numbering above to add them.
+                                </div>
+                                <small class="text-muted d-block">
+                                    Compact MC cells always use Answer Text. Normal CQ and fallback MC answers still use the Answer source setting.
+                                    Question ID headings are ignored for MC answers in this mode.
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Sort order -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2">
+                                <strong><i class="bi bi-sort-down"></i> Question order</strong>
+                            </div>
+                            <div class="card-body py-3">
+                                <div class="btn-group w-100 mb-3" role="group">
+                                    <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeCustom" value="custom" checked>
+                                    <label class="btn btn-outline-primary" for="sortModeCustom"
+                                           title="Sort automatically by Question Number, Year, Topic, and other fields">
+                                        <i class="bi bi-magic"></i> Auto Sort
+                                    </label>
+                                    <input type="radio" class="btn-check" name="sort_mode_radio" id="sortModeSelection" value="selection">
+                                    <label class="btn btn-outline-primary" for="sortModeSelection"
+                                           title="Use the order in the Selected Questions panel">
+                                        <i class="bi bi-hand-index"></i> Manual Sort
+                                    </label>
+                                </div>
+                                <div id="customSortPanel">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small class="text-muted">Drag criteria to set priority; the first criterion wins.</small>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSortCriterion()">
+                                            <i class="bi bi-plus"></i> Add
+                                        </button>
+                                    </div>
+                                    <div id="sortCriteria" class="sort-criteria-container"></div>
+                                    <div id="reorderBlocksWrap" class="mt-2" style="display:none;">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="openReorderBlocksModal()">
+                                            <i class="bi bi-grip-horizontal"></i> Reorder blocks
+                                            <span id="reorderBlocksActive" class="badge bg-success ms-1" style="display:none;">custom</span>
+                                        </button>
+                                        <small id="reorderBlocksHint" class="text-muted d-block mt-1"></small>
+                                    </div>
+                                </div>
+                                <div id="selectionOrderInfo" style="display: none;">
+                                    <div class="alert alert-info mb-0 py-2">
+                                        <i class="bi bi-info-circle"></i>
+                                        Questions follow the Selected Questions panel. Drag them there to reorder.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced options -->
+                        <div class="d-flex align-items-center justify-content-between mt-4 mb-2">
+                            <div>
+                                <h5 class="mb-0">Advanced options</h5>
+                                <small class="text-muted">Open a section only when you need finer control.</small>
+                            </div>
+                        </div>
+                        <div class="accordion mb-3" id="advancedOptionsAccordion">
+                            <!-- Asset selection -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="assetOptionsHeading">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                            data-bs-target="#assetOptionsCollapse" aria-expanded="false" aria-controls="assetOptionsCollapse">
+                                        <span><i class="bi bi-layers me-2"></i>Asset selection</span>
+                                        <span class="badge bg-secondary ms-2" id="assetOptionsSummary">Defaults</span>
                                     </button>
+                                </h2>
+                                <div id="assetOptionsCollapse" class="accordion-collapse collapse" aria-labelledby="assetOptionsHeading">
+                                    <div class="accordion-body">
+                                        <div class="mb-3">
+                                            <label class="form-label d-flex align-items-center gap-2">
+                                                <span>Version Priority</span>
+                                                <span class="text-muted small fw-normal">drag to reorder · top wins</span>
+                                            </label>
+                                            <div id="versionPriorityWidget"></div>
+                                            <input type="hidden" name="version_priority" id="versionPriority"
+                                                   value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
+                                        </div>
+                                        <div>
+                                            <label class="form-label d-flex align-items-center gap-2">
+                                                <span>Format Priority</span>
+                                                <span class="text-muted small fw-normal">highest wins when several formats exist</span>
+                                            </label>
+                                            <div id="formatPriorityChips" class="d-flex gap-1 flex-wrap align-items-center"></div>
+                                            <input type="hidden" name="format_priority" id="formatPriority" value="IMG,MD,DOC">
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="sortCriteria" class="sort-criteria-container">
-                                    <!-- Sort criteria items will be added here dynamically -->
-                                </div>
-                                <!-- Manual block reordering (shown only when a grouping field is in the sort) -->
-                                <div id="reorderBlocksWrap" class="mt-2" style="display:none;">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="openReorderBlocksModal()">
-                                        <i class="bi bi-grip-horizontal"></i> Reorder blocks
-                                        <span id="reorderBlocksActive" class="badge bg-success ms-1" style="display:none;">custom</span>
+                            </div>
+
+                            <!-- Document structure -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="structureOptionsHeading">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                            data-bs-target="#structureOptionsCollapse" aria-expanded="false" aria-controls="structureOptionsCollapse">
+                                        <span><i class="bi bi-diagram-3 me-2"></i>Document structure</span>
+                                        <span class="badge bg-secondary ms-2" id="structureOptionsSummary">Defaults</span>
                                     </button>
-                                    <small id="reorderBlocksHint" class="text-muted d-block mt-1"></small>
+                                </h2>
+                                <div id="structureOptionsCollapse" class="accordion-collapse collapse" aria-labelledby="structureOptionsHeading">
+                                    <div class="accordion-body">
+                                        <div class="row g-3">
+                                            <div class="col-12 col-md-4">
+                                                <small class="text-muted fw-bold d-block mb-1">Info line under each question</small>
+                                                {% for field, label in [('Topic', 'Topic'), ('Subtopic', 'Subtopic'), ('Chapter', 'Chapter'), ('Subchapter', 'Subchapter')] %}
+                                                <div class="form-check form-check-sm mb-1">
+                                                    <input type="checkbox" class="form-check-input" id="info{{ field }}" name="info_{{ field | lower }}">
+                                                    <label class="form-check-label small" for="info{{ field }}">{{ label }}</label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                            <div class="col-12 col-md-4">
+                                                <small class="text-muted fw-bold d-block mb-1">Section heading when this changes</small>
+                                                {% for field, label in [('Topic', 'Topic'), ('Subtopic', 'Subtopic'), ('Chapter', 'Chapter'), ('Subchapter', 'Subchapter')] %}
+                                                <div class="form-check form-check-sm mb-1">
+                                                    <input type="checkbox" class="form-check-input" id="section{{ field }}" name="section_{{ field | lower }}">
+                                                    <label class="form-check-label small" for="section{{ field }}">{{ label }}</label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                            <div class="col-12 col-md-4">
+                                                <small class="text-muted fw-bold d-block mb-1">Split file when this changes</small>
+                                                {% for field, label in [('Topic', 'Topic'), ('Subtopic', 'Subtopic'), ('Chapter', 'Chapter'), ('Subchapter', 'Subchapter')] %}
+                                                <div class="form-check form-check-sm mb-1">
+                                                    <input type="checkbox" class="form-check-input" id="split{{ field }}" name="split_{{ field | lower }}">
+                                                    <label class="form-check-label small" for="split{{ field }}">{{ label }}</label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                        <hr>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="denoteCrossTopic" name="denote_cross_topic">
+                                            <label class="form-check-label" for="denoteCrossTopic">Denote cross-topic questions</label>
+                                            <small class="text-muted d-block">Adds <code>[Cross Topic: ...]</code> when minor topics exist.</small>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <!-- Manual sort info -->
-                            <div id="selectionOrderInfo" style="display: none;">
-                                <div class="alert alert-info mb-0 py-2">
-                                    <i class="bi bi-info-circle"></i>
-                                    Questions will be output in the exact order shown in the
-                                    <strong>Selected Questions</strong> panel. Drag items there to reorder.
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <hr>
-                        
-                        <!-- Answer Mode -->
-                        <div class="mb-3">
-                            <label class="form-label">Answer Mode</label>
-                            <select class="form-select" name="answer_mode" id="answerMode" onchange="updateAnswerQidVisibility()">
-                                <option value="QUE_ONLY" selected>Questions Only</option>
-                                <option value="QUE_ANS">Question + Answer</option>
-                                <option value="QUE_SOL">Question + Solution</option>
-                                <option value="QUE_THEN_ANS">All Questions, Then All Answers</option>
-                                <option value="QUE_THEN_SOL">All Questions, Then All Solutions</option>
-                            </select>
-                        </div>
-                        
-                        <!-- Answer Preference (shown only for ANS modes) -->
-                        <div class="mb-3" id="answerPreferenceDiv" style="display: none;">
-                            <label class="form-label">Answer Preference</label>
-                            <select class="form-select" name="answer_preference" id="answerPreference">
-                                <option value="image_first" selected>Image First (fall back to text)</option>
-                                <option value="text_first">Text First (fall back to image)</option>
-                            </select>
-                            <small class="text-muted">Choose whether to prefer the ANS image or the Answer Text field</small>
-                        </div>
-                        
-                        <!-- Version Priority -->
-                        <div class="mb-3">
-                            <label class="form-label d-flex align-items-center gap-2">
-                                <span>Version Priority</span>
-                                <span class="text-muted small fw-normal">drag to reorder · top wins</span>
-                            </label>
-                            <div id="versionPriorityWidget"></div>
-                            <input type="hidden" name="version_priority" id="versionPriority"
-                                   value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
-                        </div>
-
-                        <!-- Format Priority -->
-                        <div class="mb-3">
-                            <label class="form-label d-flex align-items-center gap-2">
-                                <span>Format Priority</span>
-                                <span class="text-muted small fw-normal">highest wins when a question has multiple formats</span>
-                            </label>
-                            <div id="formatPriorityChips" class="d-flex gap-1 flex-wrap align-items-center"></div>
-                            <input type="hidden" name="format_priority" id="formatPriority" value="IMG,MD,DOC">
-                        </div>
-                        
-                        <!-- Show Question ID -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="showQid" 
-                                   name="show_qid" checked>
-                            <label class="form-check-label" for="showQid">
-                                Show Question ID as Heading (for Questions)
-                            </label>
-                        </div>
-                        
-                        <!-- Show Question ID for Answers/Solutions -->
-                        <div class="mb-3 form-check" id="showQidAnswerDiv" style="display: none;">
-                            <input type="checkbox" class="form-check-input" id="showQidAnswer" 
-                                   name="show_qid_answer" checked>
-                            <label class="form-check-label" for="showQidAnswer">
-                                Show Question ID as Heading (for Answers/Solutions)
-                            </label>
-                        </div>
-                        
-                        <!-- Show Sequential Question Number -->
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input type="checkbox" class="form-check-input" id="showSeqNo"
-                                       name="show_seq_no"
-                                       onchange="document.getElementById('seqStartDiv').style.display = this.checked ? 'flex' : 'none'">
-                                <label class="form-check-label" for="showSeqNo">
-                                    Show Sequential Question Number (1. 2. 3. ...)
-                                </label>
-                            </div>
-                            <div id="seqStartDiv" style="display:none;" class="align-items-center gap-2 mt-1 ms-4">
-                                <label class="form-label small mb-0 text-muted">Start from:</label>
-                                <input type="number" class="form-control form-control-sm" id="seqStart"
-                                       name="seq_start" value="1" min="1" style="width:80px;">
-                            </div>
-                        </div>
-                        
-                        <!-- Show Correct Percentage -->
-                        <div class="mb-3 form-check" id="showCorrectPctDiv">
-                            <input type="checkbox" class="form-check-input" id="showCorrectPct" 
-                                   name="show_correct_pct" checked>
-                            <label class="form-check-label" for="showCorrectPct">
-                                Show Correct Percentage (if available)
-                            </label>
-                            <small class="text-muted d-block">Format: "1. MATC_DSE_2024_P1_Q5 [75%]" — numbering, QID, and percentage are each optional</small>
-                        </div>
-                        
-                        <!-- Show Page Numbers -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="showPageNo" 
-                                   name="show_page_no" checked>
-                            <label class="form-check-label" for="showPageNo">
-                                Show Page Numbers (bottom centre)
-                            </label>
-                        </div>
-                        
-                        <!-- Keep Together -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="keepTogether" 
-                                   name="keep_together" checked>
-                            <label class="form-check-label" for="keepTogether">
-                                Keep question info with image (prevent page split)
-                            </label>
-                        </div>
-                        
-                        
-                        <!-- Topic/Chapter Display Options (compact 3-column layout) -->
-                        <div class="card mb-3 border-secondary">
-                            <div class="card-header bg-secondary bg-opacity-10 py-2">
-                                <strong><i class="bi bi-tags"></i> Topic / Chapter Display</strong>
-                            </div>
-                            <div class="card-body py-2">
-                                <div class="row">
-                                    <!-- Per-Question Info Line -->
-                                    <div class="col-4">
-                                        <small class="text-muted fw-bold d-block mb-1">Info line under each Q:</small>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="infoTopic" name="info_topic">
-                                            <label class="form-check-label small" for="infoTopic">Topic</label>
+                            <!-- Spacing and pagination -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="spacingOptionsHeading">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                            data-bs-target="#spacingOptionsCollapse" aria-expanded="false" aria-controls="spacingOptionsCollapse">
+                                        <span><i class="bi bi-arrows-expand me-2"></i>Spacing and pagination</span>
+                                        <span class="badge bg-secondary ms-2" id="spacingOptionsSummary">Defaults</span>
+                                    </button>
+                                </h2>
+                                <div id="spacingOptionsCollapse" class="accordion-collapse collapse" aria-labelledby="spacingOptionsHeading">
+                                    <div class="accordion-body">
+                                        <div class="card mb-3 border-info">
+                                            <div class="card-header bg-info bg-opacity-10 py-2"><strong>MC questions</strong></div>
+                                            <div class="card-body py-2">
+                                                <div class="row g-2">
+                                                    <div class="col-12 col-lg-6">
+                                                        <label class="form-label small fw-bold mb-1">Before</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforeLines" value="lines" checked>
+                                                            <label class="form-check-label small" for="mcBeforeLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="mc_before_lines" value="0" min="0" max="10"> lines</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforePage" value="page">
+                                                            <label class="form-check-label small" for="mcBeforePage">Start on a new page</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-12 col-lg-6">
+                                                        <label class="form-label small fw-bold mb-1">After</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterLines" value="lines" checked>
+                                                            <label class="form-check-label small" for="mcAfterLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="mc_after_lines" value="1" min="0" max="10"> lines</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterPage" value="page">
+                                                            <label class="form-check-label small" for="mcAfterPage">Add a page break</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="infoSubtopic" name="info_subtopic">
-                                            <label class="form-check-label small" for="infoSubtopic">Subtopic</label>
+                                        <div class="card mb-3 border-success">
+                                            <div class="card-header bg-success bg-opacity-10 py-2"><strong>CQ questions</strong></div>
+                                            <div class="card-body py-2">
+                                                <div class="row g-2">
+                                                    <div class="col-12 col-lg-6">
+                                                        <label class="form-label small fw-bold mb-1">Before</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeLines" value="lines">
+                                                            <label class="form-check-label small" for="cqBeforeLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="cq_before_lines" value="0" min="0" max="10"> lines</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page" checked>
+                                                            <label class="form-check-label small" for="cqBeforePage">Start on a new page</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-12 col-lg-6">
+                                                        <label class="form-label small fw-bold mb-1">After</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterLines" value="lines">
+                                                            <label class="form-check-label small" for="cqAfterLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="cq_after_lines" value="0" min="0" max="10"> lines</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page" checked>
+                                                            <label class="form-check-label small" for="cqAfterPage">Add a page break</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="infoChapter" name="info_chapter">
-                                            <label class="form-check-label small" for="infoChapter">Chapter</label>
+                                        <div class="form-check mb-2">
+                                            <input type="checkbox" class="form-check-input" id="keepTogether" name="keep_together" checked>
+                                            <label class="form-check-label" for="keepTogether">Keep question heading/info with its content</label>
                                         </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="infoSubchapter" name="info_subchapter">
-                                            <label class="form-check-label small" for="infoSubchapter">Subchapter</label>
-                                        </div>
-                                    </div>
-                                    <!-- Section Heading on Change -->
-                                    <div class="col-4">
-                                        <small class="text-muted fw-bold d-block mb-1">Section heading on change:</small>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="sectionTopic" name="section_topic">
-                                            <label class="form-check-label small" for="sectionTopic">Topic</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="sectionSubtopic" name="section_subtopic">
-                                            <label class="form-check-label small" for="sectionSubtopic">Subtopic</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="sectionChapter" name="section_chapter">
-                                            <label class="form-check-label small" for="sectionChapter">Chapter</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="sectionSubchapter" name="section_subchapter">
-                                            <label class="form-check-label small" for="sectionSubchapter">Subchapter</label>
-                                        </div>
-                                    </div>
-                                    <!-- Split File on Change -->
-                                    <div class="col-4">
-                                        <small class="text-muted fw-bold d-block mb-1">Split file on change:</small>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="splitTopic" name="split_topic">
-                                            <label class="form-check-label small" for="splitTopic">Topic</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="splitSubtopic" name="split_subtopic">
-                                            <label class="form-check-label small" for="splitSubtopic">Subtopic</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="splitChapter" name="split_chapter">
-                                            <label class="form-check-label small" for="splitChapter">Chapter</label>
-                                        </div>
-                                        <div class="form-check form-check-sm mb-1">
-                                            <input type="checkbox" class="form-check-input" id="splitSubchapter" name="split_subchapter">
-                                            <label class="form-check-label small" for="splitSubchapter">Subchapter</label>
+                                        <div class="form-check" id="applySpacingToAnsDiv" style="display:none;">
+                                            <input type="checkbox" class="form-check-input" id="applySpacingToAns" name="apply_spacing_to_ans">
+                                            <label class="form-check-label" for="applySpacingToAns">Apply the same spacing to normal Answers/Solutions</label>
+                                            <small class="text-muted d-block">Compact MC key blocks stay compact even when this is enabled.</small>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Denote Cross-Topic Questions -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="denoteCrossTopic"
-                                   name="denote_cross_topic">
-                            <label class="form-check-label" for="denoteCrossTopic">
-                                Denote cross-topic questions
-                            </label>
-                            <small class="text-muted d-block">If a question has minor topics, force the info line to show major topic with <code>[Cross Topic: ...]</code></small>
-                        </div>
-                        
-                        <hr>
-                        
-                        <!-- MC Question Spacing -->
-                        <div class="card mb-3 border-info">
-                            <div class="card-header bg-info bg-opacity-10 py-2">
-                                <strong><i class="bi bi-check-square"></i> MC Questions Spacing</strong>
-                            </div>
-                            <div class="card-body py-2">
-                                <div class="row mb-2">
-                                    <div class="col-12">
-                                        <label class="form-label small fw-bold mb-1">Before Question:</label>
-                                        <div class="d-flex align-items-center gap-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforeLines" value="lines" checked>
-                                                <label class="form-check-label small" for="mcBeforeLines">
-                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="mc_before_lines" value="0" min="0" max="10"> lines
-                                                </label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforePage" value="page">
-                                                <label class="form-check-label small" for="mcBeforePage">Start from new page</label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-12">
-                                        <label class="form-label small fw-bold mb-1">After Question:</label>
-                                        <div class="d-flex align-items-center gap-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterLines" value="lines" checked>
-                                                <label class="form-check-label small" for="mcAfterLines">
-                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="mc_after_lines" value="1" min="0" max="10"> lines
-                                                </label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterPage" value="page">
-                                                <label class="form-check-label small" for="mcAfterPage">Add page break</label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- CQ Question Spacing -->
-                        <div class="card mb-3 border-success">
-                            <div class="card-header bg-success bg-opacity-10 py-2">
-                                <strong><i class="bi bi-pencil-square"></i> CQ Questions Spacing</strong>
-                            </div>
-                            <div class="card-body py-2">
-                                <div class="row mb-2">
-                                    <div class="col-12">
-                                        <label class="form-label small fw-bold mb-1">Before Question:</label>
-                                        <div class="d-flex align-items-center gap-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeLines" value="lines">
-                                                <label class="form-check-label small" for="cqBeforeLines">
-                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="cq_before_lines" value="0" min="0" max="10"> lines
-                                                </label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page" checked>
-                                                <label class="form-check-label small" for="cqBeforePage">Start from new page</label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-12">
-                                        <label class="form-label small fw-bold mb-1">After Question:</label>
-                                        <div class="d-flex align-items-center gap-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterLines" value="lines">
-                                                <label class="form-check-label small" for="cqAfterLines">
-                                                    Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width: 60px;" name="cq_after_lines" value="0" min="0" max="10"> lines
-                                                </label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page" checked>
-                                                <label class="form-check-label small" for="cqAfterPage">Add page break</label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Apply spacing to ANS/SOL -->
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="applySpacingToAns"
-                                   name="apply_spacing_to_ans">
-                            <label class="form-check-label" for="applySpacingToAns">
-                                Apply same spacing to Answers/Solutions
-                            </label>
-                            <small class="text-muted d-block">When unchecked (default), the Answers/Solutions section (in "All QUE then All ANS/SOL" modes) uses minimal spacing (1 line between items)</small>
                         </div>
                         
                         <div class="d-flex gap-2">
@@ -555,6 +564,7 @@ const IS_REGEN = {{ 'true' if is_regen else 'false' }};
 // Sort configuration - from session or default
 const SORT_FIELDS = {
     'qid': 'Question ID',
+    'qno': 'Question Number',
     'year': 'Year',
     'level': 'Level',
     'topic': 'Topic',
@@ -619,6 +629,7 @@ document.addEventListener('DOMContentLoaded', function() {
     renderSortCriteria();
     initQuestionDragDrop();
     updateAnswerQidVisibility();
+    updateSequentialNumberUI();
     updateFileExtLabel();
     
     // Listen to split checkbox changes to update file extension label
@@ -639,6 +650,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (savedGenerationOptions && Object.keys(savedGenerationOptions).length > 0) {
         restoreGenerationOptions(savedGenerationOptions);
         updateFileExtLabel();  // Update extension label after restoring split options
+    } else {
+        syncAdvancedOptionSummaries();
     }
     
     // Show question source choice banner for regen
@@ -648,6 +661,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load saved generation presets into the dropdown
     loadGenProfilesDropdown();
+
+    // Collapsed controls remain live. Keep their summaries current without
+    // opening sections merely because the user changed a value.
+    const form = document.getElementById('generateForm');
+    form.addEventListener('change', () => syncAdvancedOptionSummaries());
+    form.addEventListener('input', () => syncAdvancedOptionSummaries());
 });
 
 // ============== QUESTION SOURCE CHOICE (for regen) ==============
@@ -773,6 +792,30 @@ function restoreGenerationOptions(opts) {
     if (opts.answer_preference) {
         const el = document.getElementById('answerPreference');
         if (el) el.value = opts.answer_preference;
+    }
+
+    // Compact MC answer-key options
+    if (opts.compact_mc_answers !== undefined) {
+        document.getElementById('compactMcAnswers').checked =
+            (opts.compact_mc_answers === 'on' || opts.compact_mc_answers === true);
+    }
+    if (opts.mc_key_layout) {
+        document.getElementById('mcKeyLayout').value = opts.mc_key_layout;
+    }
+    if (opts.mc_key_columns !== undefined) {
+        document.getElementById('mcKeyColumns').value = opts.mc_key_columns;
+    }
+    if (opts.mc_key_max_rows !== undefined) {
+        document.getElementById('mcKeyMaxRows').value =
+            opts.mc_key_max_rows === null ? '' : opts.mc_key_max_rows;
+    }
+    if (opts.mc_key_include_seq !== undefined) {
+        document.getElementById('mcKeyIncludeSeq').checked =
+            (opts.mc_key_include_seq === 'on' || opts.mc_key_include_seq === true);
+    }
+    if (opts.mc_key_range_title !== undefined) {
+        document.getElementById('mcKeyRangeTitle').checked =
+            (opts.mc_key_range_title === 'on' || opts.mc_key_range_title === true);
     }
     
     // Version priority (comma list). Falls back to the legacy single-value
@@ -910,7 +953,6 @@ function restoreGenerationOptions(opts) {
         const el = document.getElementById('showSeqNo');
         if (el) {
             el.checked = (opts.show_seq_no === 'on' || opts.show_seq_no === true);
-            document.getElementById('seqStartDiv').style.display = el.checked ? 'flex' : 'none';
         }
     }
     
@@ -1006,6 +1048,10 @@ function restoreGenerationOptions(opts) {
             if (el) el.checked = (fields.subchapter === 'on' || fields.subchapter === true);
         }
     }
+
+    updateSequentialNumberUI();
+    updateCompactMcAnswerKeyUI();
+    syncAdvancedOptionSummaries({openCustomized: true});
 }
 
 // ============== SAVED GENERATION PRESETS ==============
@@ -1088,6 +1134,7 @@ function renderFormatPriorityChips() {
                 </button>
             </span>`;
     }).join('');
+    syncAdvancedOptionSummaries();
 }
 
 // Initial render on page load.
@@ -1108,7 +1155,9 @@ document.addEventListener('DOMContentLoaded', function() {
         container: 'versionPriorityWidget',
         hiddenInput: 'versionPriority',
         initial: document.getElementById('versionPriority')?.value || '',
+        onChange: () => syncAdvancedOptionSummaries(),
     });
+    syncAdvancedOptionSummaries();
 });
 
 function getCurrentGenerationOptions() {
@@ -1118,6 +1167,14 @@ function getCurrentGenerationOptions() {
         sort_config: sortConfigStr,
         sort_group_order: document.getElementById('sortGroupOrderInput')?.value || '',
         answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
+        compact_mc_answers: getCheckedValue('compactMcAnswers'),
+        mc_key_layout: document.getElementById('mcKeyLayout')?.value || 'table',
+        mc_key_columns: parseInt(document.getElementById('mcKeyColumns')?.value || '5', 10) || 5,
+        mc_key_max_rows: document.getElementById('mcKeyMaxRows')?.value
+            ? (parseInt(document.getElementById('mcKeyMaxRows').value, 10) || null)
+            : null,
+        mc_key_include_seq: getCheckedValue('mcKeyIncludeSeq'),
+        mc_key_range_title: getCheckedValue('mcKeyRangeTitle'),
         version_priority: readVersionPriority().join(','),
         answer_preference: document.getElementById('answerPreference')?.value || 'image_first',
         format_priority: readFormatPriority().join(','),
@@ -1311,23 +1368,40 @@ function updateFileExtLabel() {
 // throw if the saved preset still carries an `output_format` field.
 function onOutputFormatChange() { updateFileExtLabel(); }
 
+function updateSequentialNumberUI() {
+    const enabled = document.getElementById('showSeqNo').checked;
+    document.getElementById('seqStartDiv').style.display = enabled ? 'flex' : 'none';
+    updateCompactMcAnswerKeyUI();
+}
+
+function updateCompactMcAnswerKeyUI() {
+    const answerMode = document.getElementById('answerMode').value;
+    const panel = document.getElementById('compactMcAnswerKeyPanel');
+    const enabled = document.getElementById('compactMcAnswers').checked;
+    const options = document.getElementById('compactMcAnswerKeyOptions');
+    const hasSequentialNumbers = document.getElementById('showSeqNo').checked;
+    const numberingOptions = document.getElementById('mcKeyNumberingOptions');
+    const numberingHint = document.getElementById('mcKeyNumberingHint');
+    const answerPreferenceHelp = document.getElementById('answerPreferenceHelp');
+
+    panel.style.display = answerMode === 'QUE_THEN_ANS' ? 'block' : 'none';
+    options.style.display = enabled ? 'block' : 'none';
+    numberingOptions.style.display = hasSequentialNumbers ? 'block' : 'none';
+    numberingHint.style.display = hasSequentialNumbers ? 'none' : 'block';
+    answerPreferenceHelp.textContent = enabled && answerMode === 'QUE_THEN_ANS'
+        ? 'Compact MC cells always use Answer Text; this setting still applies to CQ and fallback MC answers.'
+        : 'Choose the preferred source for normal answer content.';
+}
+
 function updateAnswerQidVisibility() {
     const answerMode = document.getElementById('answerMode').value;
     const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');
-    const showQidAnswerCheckbox = document.getElementById('showQidAnswer');
     const answerPreferenceDiv = document.getElementById('answerPreferenceDiv');
+    const applySpacingToAnsDiv = document.getElementById('applySpacingToAnsDiv');
     
     // Show if answer mode includes ANS or SOL
     if (answerMode !== 'QUE_ONLY') {
         showQidAnswerDiv.style.display = 'block';
-        
-        // Default: checked for "All QUE first, Then All ANS/SOL" modes,
-        // unchecked for "QUE+ANS" / "QUE+SOL" modes (ANS/SOL right after each QUE)
-        if (answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL') {
-            showQidAnswerCheckbox.checked = true;
-        } else {
-            showQidAnswerCheckbox.checked = false;
-        }
     } else {
         showQidAnswerDiv.style.display = 'none';
     }
@@ -1337,6 +1411,72 @@ function updateAnswerQidVisibility() {
         answerPreferenceDiv.style.display = 'block';
     } else {
         answerPreferenceDiv.style.display = 'none';
+    }
+
+    applySpacingToAnsDiv.style.display =
+        (answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL')
+            ? 'block'
+            : 'none';
+    updateCompactMcAnswerKeyUI();
+}
+
+function _setAdvancedSummary(badgeId, count) {
+    const badge = document.getElementById(badgeId);
+    if (!badge) return;
+    badge.textContent = count ? `${count} customized` : 'Defaults';
+    badge.className = count
+        ? 'badge bg-warning text-dark ms-2'
+        : 'badge bg-secondary ms-2';
+}
+
+function _openAdvancedSection(collapseId) {
+    const collapse = document.getElementById(collapseId);
+    if (!collapse || collapse.classList.contains('show')) return;
+    bootstrap.Collapse.getOrCreateInstance(collapse, {toggle: false}).show();
+}
+
+function syncAdvancedOptionSummaries({openCustomized = false} = {}) {
+    const defaultVersions = window.oqbNormalizeVersionPriority(
+        window.OQB_DEFAULT_VERSION_PRIORITY || ['EN', 'CH', 'BI', 'ENO', 'CHO']
+    ).join(',');
+    const currentVersions = window.oqbNormalizeVersionPriority(
+        document.getElementById('versionPriority')?.value || ''
+    ).join(',');
+    const currentFormats = readFormatPriority().join(',');
+    const assetCount =
+        (currentVersions !== defaultVersions ? 1 : 0) +
+        (currentFormats !== 'IMG,MD,DOC' ? 1 : 0);
+
+    const structureIds = [
+        'infoTopic', 'infoSubtopic', 'infoChapter', 'infoSubchapter',
+        'sectionTopic', 'sectionSubtopic', 'sectionChapter', 'sectionSubchapter',
+        'splitTopic', 'splitSubtopic', 'splitChapter', 'splitSubchapter',
+        'denoteCrossTopic',
+    ];
+    const structureCount = structureIds.filter(id => document.getElementById(id)?.checked).length;
+
+    let spacingCount = 0;
+    if (!document.getElementById('mcBeforeLines').checked ||
+            parseInt(getInputValue('mc_before_lines') || '0', 10) !== 0) spacingCount++;
+    if (!document.getElementById('mcAfterLines').checked ||
+            parseInt(getInputValue('mc_after_lines') || '1', 10) !== 1) spacingCount++;
+    if (!document.getElementById('cqBeforePage').checked ||
+            parseInt(getInputValue('cq_before_lines') || '0', 10) !== 0) spacingCount++;
+    if (!document.getElementById('cqAfterPage').checked ||
+            parseInt(getInputValue('cq_after_lines') || '0', 10) !== 0) spacingCount++;
+    if (!document.getElementById('keepTogether').checked) spacingCount++;
+    const answerMode = document.getElementById('answerMode').value;
+    const isThenMode = answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL';
+    if (isThenMode && document.getElementById('applySpacingToAns').checked) spacingCount++;
+
+    _setAdvancedSummary('assetOptionsSummary', assetCount);
+    _setAdvancedSummary('structureOptionsSummary', structureCount);
+    _setAdvancedSummary('spacingOptionsSummary', spacingCount);
+
+    if (openCustomized) {
+        if (assetCount) _openAdvancedSection('assetOptionsCollapse');
+        if (structureCount) _openAdvancedSection('structureOptionsCollapse');
+        if (spacingCount) _openAdvancedSection('spacingOptionsCollapse');
     }
 }
 
