@@ -67,16 +67,20 @@
                             </h6>
                         </div>
                         <div>
-                            <button class="btn btn-sm btn-outline-primary" 
-                                    onclick="showEditTopicModal({{ topic.id }}, '{{ topic.name | e }}')">
+                            <button class="btn btn-sm btn-outline-primary"
+                                    data-topic-id="{{ topic.id }}"
+                                    data-topic-name="{{ topic.name }}"
+                                    onclick="showEditTopicModal(this.dataset.topicId, this.dataset.topicName)">
                                 <i class="bi bi-pencil"></i> Edit
                             </button>
                             <button class="btn btn-sm btn-outline-danger" 
                                     onclick="deleteTopic({{ topic.id }})">
                                 <i class="bi bi-trash"></i> Delete
                             </button>
-                            <button class="btn btn-sm btn-success" 
-                                    onclick="showAddSubtopicModal({{ topic.id }}, '{{ topic.name | e }}')">
+                            <button class="btn btn-sm btn-success"
+                                    data-topic-id="{{ topic.id }}"
+                                    data-topic-name="{{ topic.name }}"
+                                    onclick="showAddSubtopicModal(this.dataset.topicId, this.dataset.topicName)">
                                 <i class="bi bi-plus"></i> Add Subtopic
                             </button>
                         </div>
@@ -115,8 +119,11 @@
                                         title="{% if subtopic.hidden %}Show subtopic{% else %}Hide subtopic{% endif %}">
                                     <i class="bi bi-{% if subtopic.hidden %}eye{% else %}eye-slash{% endif %}"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-primary" 
-                                        onclick="showEditSubtopicModal({{ subtopic.id }}, '{{ subtopic.name | e }}', {{ 'true' if subtopic.hidden else 'false' }})">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        data-subtopic-id="{{ subtopic.id }}"
+                                        data-subtopic-name="{{ subtopic.name }}"
+                                        data-subtopic-hidden="{{ 'true' if subtopic.hidden else 'false' }}"
+                                        onclick="showEditSubtopicModal(this.dataset.subtopicId, this.dataset.subtopicName, this.dataset.subtopicHidden === 'true')">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger" 
