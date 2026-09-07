@@ -1,278 +1,49 @@
-# Online Question Bank System (OQB2)
+# OQB2 — Online Question Bank System
 
-**Version 2.3** | Last Updated: May 2026
+Flask web app for managing, tagging, and browsing a library of exam questions
+(images / Word / Markdown) and generating exam papers (`.docx`, `.pdf`) from any selection.
+Includes admin tooling: file ingestion, AI-assisted proofreading and tagging, PDF batch import,
+a PDF workbench, and a mobile handwriting PWA.
 
-A Flask web application for managing, browsing, tagging, and generating exam question papers from a structured library of image and document assets.
+**If you are an AI agent starting a task: read [OVERVIEW.md](OVERVIEW.md) first**, then
+[STATUS.md](STATUS.md) and [ARCHITECTURE.md](ARCHITECTURE.md). The `.cursor/rules/` bootloader
+tells you the rest.
 
----
+## Quick start (humans)
 
-## Quick Start
+Windows host with MariaDB running. Microsoft Word is required for DOC-source merging, PDF output,
+and DOC thumbnails; pandoc for Markdown sources; Tesseract (optional) for OCR in the PDF Tool.
 
 ```cmd
-# 1. Copy and configure environment
-copy env_template.txt .env
-# Edit .env with your MariaDB credentials and SOURCE_PATH
-
-# 2. Install dependencies
+copy .env.example .env          :: then edit DB_*, SECRET_KEY, SOURCE_PATH, STORAGE_PATH
 pip install -r requirements.txt
-
-# 3. Initialise database
-python init_db.py
-
-# 4. Start server
-python run.py
-
-# 5. Open browser
-# http://localhost:5000
-# Default login: admin / admin123  (change immediately)
+python init_db.py               :: ONLY on a fresh, empty database
+python run.py                   :: http://localhost:5000  (default login admin / admin123 - change it)
 ```
 
----
+`dev-server.bat` wraps `python run.py` in a restart loop; `quickstart.bat` does the steps above.
 
-## Features
-
-### Dashboard
-- Filter questions by subject, source (DSE/CE/AL/QB), year, section, paper
-- Topic and subtopic filtering with **AND/OR logic** and cross-topic/subtopic search
-- Chapter and subchapter filtering
-- Level filter (1/2/3 + "Not Assigned")
-- Question type filter (MC / CQ)
-- **Direct QID search** with loose tokenised or strict wildcard (`*`) modes
-- **Multi-level sorting** — drag to set priority (e.g. Topic → Level → Year), including numeric real-paper Question Number
-- Natural sort (Q1, Q2, Q10 — not Q1, Q10, Q2)
-- Configurable page size (10 / 20 / 50 / 100)
-- **Version priority** for previews — drag-to-reorder EN / CH / BI / ENO / CHO (top wins)
-- Question cards with image / Markdown / Word preview (Markdown rendered inline with KaTeX math), answer/solution modals, comment display
-- Select questions individually, by page, or all results
-- **Save and restore filter profiles** (named search presets)
-
-### Document Generation
-- Generate **Word (`.docx`) or PDF (`.pdf`)** documents from selected questions (PDF via Microsoft Word + `ExportAsFixedFormat`)
-- **5 answer modes**: Questions Only, Q+Answer, Q+Solution, All Qs then Answers, All Qs then Solutions
-- Optional **compact MC answer keys** in All Qs then Answers mode — Word table or tabbed rows, configurable dimensions and runtime numbering
-- Answer content preference: image-first or text-first fallback
-- **Version priority**: drag-to-reorder EN / CH / BI / ENO / CHO (ENO/CHO = official public-exam scans); assets picked by `(format, version)` rank
-- **Native DOCX source merging** via Microsoft Word COM — MathType OLE objects, embedded images, drawings, custom fonts, and native tables come through unchanged. Source page setup is stripped so the master doc's layout always wins.
-- **Reorderable format priority** (IMG / MD / DOC) when a question has multiple representations for the same slot
-- Separate **MC and CQ spacing** — before/after: N lines or new page
-- Optional QID labels on questions and/or answers
-- Optional correct percentage display (e.g. `MATC_DSE_2024_P1_Q5 [75%]`)
-- Optional sequential numbering with configurable start number
-- Optional footer page numbers
-- Per-question info line: topic / subtopic / chapter / subchapter
-- Section headings that auto-insert when a field changes
-- **Split to ZIP**: separate `.docx` (or `.pdf`) per topic / subtopic / chapter / subchapter group
-- Denote cross-topic questions with `[Cross Topic: X, Y]` annotation
-- Custom Word styles (OQB Section Heading, OQB Question ID, OQB Question Info, OQB Body Text)
-- **Background generation** — non-blocking; progress tracked in database
-- **Viewer / Presentation Mode** — slide-style question review with version-priority and ANS/SOL toggle (DOC assets show a server-rendered first-page thumbnail)
-- **Markup PWA** — mobile-friendly infinite canvas for handwritten solutions, image annotation, local autosave, and cropped PNG share/export (Android Share target; iOS install/upload/paste fallback)
-- Regenerate previous documents with saved options
-
-### My Files & Saved Profiles
-- **My Files** (`/user/files`) — section-organised library of generated documents
-  - Drag-and-drop files between custom sections (folders)
-  - Per-section sort + pagination + collapse, remembered per user
-  - Inline rename for files and sections
-  - Multi-select bulk **Download ZIP**, move, share, or delete
-  - Auto-refreshes only the sections that contain in-progress generations
-  - Super-admin can share any file or section to selected users (read-only "Shared with me" view for the recipient)
-- **Search Profiles** (`/user/profiles`) — save and restore named filter configurations
-  - Load a profile on the dashboard to instantly restore a complex filter set
-- **Question Sets** (`/user/sets`) — per-subject named lists of questions (built from a selection)
-  - Dashboard **Set** button opens a chip-builder for **Union (∪) / Intersection (∩) / Difference (\\)** of the live Selection and any saved sets
-  - Apply a saved set to instantly populate the dashboard selection; save a new set from the current selection or from an evaluated result
-  - Super admin can share a set with all users that have access to its subject
-- **File Browser** (`/files/browser`) — personal **My Files** home plus the **Shared** folder for each accessible subject (subject admins read/write, users read-only; pure viewers excluded)
-
-### Admin Panel
-- **Topic Management** (`/admin/topics`) — CRUD + drag-to-reorder for topics and subtopics; hidden subtopic flag
-- **Chapter Management** (`/admin/chapters`) — same structure as topics; textbook organisation
-- **Question Management** (`/admin/questions`) — full list with filter, edit modal with Details/Assets/Tags tabs
-  - Create questions manually, rename QID, upload/delete/reorder assets
-  - **Markdown live editor** (modal + fullscreen) for `.md` assets: EasyMDE editor, live KaTeX preview, base64 image insert, optimistic concurrency
-  - Batch update (level, type, section, topic/subtopic, correct %), batch delete, advanced Status filters, and select-all-across-filtered-results
-  - **AI Tools** — call an OpenAI-compatible LLM (local or cloud) to proofread typed images against official scans (per-asset check state + issue badges) or transcribe images into Markdown (LaTeX math); live SSE log with a real server-side Stop
-- **LLM Endpoints** (`/admin/llm-endpoints`) — super admin only; manage named LLM endpoints (Chat Completions or Responses API, reasoning effort, encrypted keys, vision toggle, test ping) for AI Tools
-- **User Management** (`/admin/users`) — super admin only; per-subject permission assignment
-- **Export / Import** (`/admin/export-import`) — CSV round-trip for question tags, topics, chapters
-- **Ingestion** (`/admin/ingestion`) — scan SOURCE_PATH and import files into DB; live streaming log
-- **Database Health** (`/admin/health`) — super admin only; DB stats, anomaly detection, orphan sync
-- **File Browser** (`/admin/files`) — super admin only; browse, upload, download, rename, delete, copy across `Source` + the whole `Storage` tree + registered extra roots (shares one root-aware backend with the per-user browser)
-- **Toolbox → PDF Tool** (`/admin/toolbox/pdf`) — admin PDF workbench: A3 booklet split (including configurable folded-copy pages per student), rotate/deskew/crop, image adjustments, drag/touch multi-select assembly, **redact / highlight / markup** (manual editor, fuzzy text or **OCR** search, **AI region detect**), and hybrid export (digital PDF with **true redaction**, or flattened images / PNG ZIP) with save-to-server
-
-### Security
-- Flask-Login session authentication
-- Subject-level RBAC: No Access / View Only / User / Admin / Super Admin
-- All file serving through authenticated routes (no direct filesystem access)
-
----
-
-## Project Structure
-
-```
-oqb2/
-├── app/
-│   ├── __init__.py        # App factory (create_app), extension init
-│   ├── models.py          # All DB models — source of truth for schema
-│   ├── auth.py            # Login / logout / register
-│   ├── dashboard.py       # Question browse/filter (dashboard_bp)
-│   ├── admin.py           # Admin panel (admin_bp) — ~2500 lines
-│   ├── generator.py       # Word doc generation + viewer (generator_bp)
-│   ├── user.py            # My Files + Saved Profiles (user_bp)
-│   ├── files.py           # Shared root-aware file browser API + user browser page (files_bp)
-│   ├── files_service.py   # Pure file ops + per-user RootRegistry
-│   ├── storage.py         # Storage-tree paths, hardened safe_join, per-user dirs
-│   ├── pwa.py             # Root-scope PWA manifest/service-worker routes
-│   ├── toolbox/           # Toolbox hub: Markup + admin PDF Tool
-│   ├── ingestor.py        # File scanner, sync, health stats
-│   ├── llm_client.py      # OpenAI-compatible LLM client + Fernet key crypto (AI Tools)
-│   ├── ai_prompts.py      # AI Tools prompts + output parsing
-│   ├── ai_tools.py        # AI Tools SSE generators + cancellation
-│   ├── config.py          # Config class reading from .env
-│   └── utils.py           # Permission decorators, sort helpers
-├── templates/             # Jinja2 HTML templates
-│   └── partials/          # HTMX partial templates
-├── static/                # CSS and JS assets
-├── output/                # Legacy generated-doc fallback (new docs live under STORAGE_PATH/User/<name>/generated)
-├── .cursor/rules/         # AI agent context rules
-├── cli.py                 # CLI commands (ingest, sync, migrate-storage)
-├── init_db.py             # DB initialisation + default data
-├── run.py                 # Dev server entry point
-├── requirements.txt       # Python dependencies
-└── .env                   # Environment config (not committed)
-```
-
----
-
-## File Naming Convention
-
-### Past Paper
-```
-SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
-MATC_DSE_2024_P1_Q5_EN_QUE.png
-MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← part 2 of a multi-image question
-MATC_DSE_2024_P1_Q5_ENO_QUE.png    ← official public-exam scan
-```
-
-### Question Bank
-```
-SUBJ_QB_DETAIL_QNO_VERSION_TYPE[_PART].EXT
-MATC_QB_MATHSMART2024_Q1_EN_QUE.png
-```
-
-| Component | Values |
-|---|---|
-| SUBJ | `MATC`, `MAT1`, `MAT2`, `ICT`, … |
-| SOURCE | `DSE`, `CE`, `AL` |
-| VERSION | `EN` (English), `CH` (Chinese), `BI` (Bilingual), `ENO` (English Official), `CHO` (Chinese Official) |
-| TYPE | `QUE` (Question), `ANS` (Answer), `SOL` (Solution) |
-| PART | Optional integer ≥ 2 for multi-image questions |
-| EXT | `png`, `jpg`, `jpeg`, `gif`, `bmp`, `doc`, `docx`, `md`, `markdown` |
-
-> `.md` files are self-contained (LaTeX math via `$...$` / `$$...$$`, base64-embedded images). They render inline on the dashboard/viewer and convert to `.docx` during generation via **pandoc** + docxcompose. Install pandoc separately (it is not a pip package): `apt install pandoc` / `brew install pandoc` / [Windows installer](https://github.com/jgm/pandoc/releases). If pandoc is not on `PATH`, set `PANDOC_PATH=...` in `.env`.
-
-> `.docx` source files are merged natively via **Microsoft Word** (COM automation through `pywin32`) — MathType OLE objects, embedded images, drawings, and custom fonts are preserved exactly. Same Word session also produces **PDF output** when requested. Windows + Word required for both features; without them, DOC source files render as a placeholder and PDF output is rejected. DOC assets also show a server-rendered first-page PNG thumbnail on the dashboard / viewer (lazy, cached at `<SYSTEM_PATH>/doc_thumbnails/`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#microsoft-word-requirement-for-doc-source-files--pdf-output--doc-thumbnails) for setup details.
-
----
-
-## Environment Variables (`.env`)
-
-| Variable | Description | Example |
-|---|---|---|
-| `DB_HOST` | MariaDB host | `localhost` |
-| `DB_USER` | DB username | `root` |
-| `DB_PASSWORD` | DB password | `secret` |
-| `DB_NAME` | Database name | `oqb2` |
-| `SECRET_KEY` | Flask secret key | `change-this` |
-| `FLASK_DEBUG` | Debug mode | `1` (dev) / `0` (prod) |
-| `SOURCE_PATH` | Path to question asset files | `Q:\Source` |
-| `STORAGE_PATH` | Unified storage tree (Shared/System/User); same drive as `SOURCE_PATH` | `Q:\Storage` |
-| `OUTPUT_PATH` | Legacy fallback for pre-migration generated files | `C:\oqb2\output` |
-
----
-
-## CLI Commands
-
-```bash
-# Ingest all questions from SOURCE_PATH into database
-python cli.py ingest
-
-# Ingest from a custom path
-python cli.py ingest --source-path "D:\Questions"
-
-# Preview orphaned DB records (dry-run, no deletions)
-python cli.py sync
-
-# Delete orphaned DB records
-python cli.py sync --no-dry-run
-```
-
-Ingestion and sync can also be run from the web UI at `/admin/ingestion` and `/admin/health`.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Backend | Python 3, Flask 3.0, SQLAlchemy 3.1, Flask-Login 0.6 |
-| Database | MariaDB / MySQL (pymysql driver) |
-| Document output | python-docx 1.1, Pillow 10 |
-| Frontend | Bootstrap 5.3, HTMX 1.9, Bootstrap Icons 1.11 |
-| Sorting | natsort 8.4 |
-
----
-
-## Default Subjects
-
-Created by `init_db.py`:
-
-| ID | Name |
-|---|---|
-| `MATC` | Mathematics Compulsory Part |
-| `MAT1` | Mathematics Module 1 (Calculus and Statistics) |
-| `MAT2` | Mathematics Module 2 (Algebra and Calculus) |
-| `ICT` | Information and Communication Technology |
-
-Additional subjects can be added via the database.
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| Can't login | Restart server, check DB connection |
-| Images not showing | Verify `SOURCE_PATH` in `.env`, check file exists at that path |
-| Ingestion skips files | Check filename matches the naming convention exactly |
-| Generation fails | Check `output/` directory exists and is writable (`OUTPUT_PATH`) |
-| Database error | Ensure MariaDB is running and credentials in `.env` are correct |
-| Port in use | Change port in `run.py` |
-
----
-
-## Production Deployment
-
-1. Set `FLASK_DEBUG=0` and a strong `SECRET_KEY` in `.env`
-2. Run with a production WSGI server: `gunicorn -w 4 "app:create_app()"`
-3. Put behind a reverse proxy (nginx / Apache) with HTTPS
-4. Change the default `admin` password immediately after first login
-5. Set up regular database backups
-
----
+Tests: `python -m unittest discover -s tests` (see [docs/core/01-runtime-and-ops.md](docs/core/01-runtime-and-ops.md)).
 
 ## Documentation
 
-| Document | Audience | Purpose |
-|---|---|---|
-| `README.md` | Everyone | Quick start, project overview |
-| `USER_MANUAL.md` | End users | Dashboard, generation, My Files, profiles |
-| `ADMIN_GUIDE.md` | Administrators | Setup, config, admin panel operations |
-| `DEVELOPER_SPEC.md` | Developers | Architecture, DB schema, API reference |
-| `CHANGELOG.md` | Everyone | Version history |
-| `.cursor/rules/` | AI agents | Context rules for efficient coding assistance |
+| Audience | Start here |
+|---|---|
+| AI agents / developers | [OVERVIEW.md](OVERVIEW.md) → [STATUS.md](STATUS.md) → [ARCHITECTURE.md](ARCHITECTURE.md) → `docs/core/`, `docs/modules/`, `docs/decisions/` |
+| End users (teachers) | [docs/manuals/USER_MANUAL.md](docs/manuals/USER_MANUAL.md) |
+| Administrators / operators | [docs/manuals/ADMIN_GUIDE.md](docs/manuals/ADMIN_GUIDE.md) |
+| Domain facts (filename grammar, schema history, seeded data) | [docs/reference/](docs/reference/) |
 
----
+## Layout
 
-Copyright © 2024–2026. Internal use only.
+```
+app/          Flask package: blueprints, services, models (app/models.py is the schema source of truth)
+templates/    Jinja2 templates; partials/ hold HTMX fragments and shared modals
+static/       logos, Markup PWA assets
+tests/        unittest suites
+docs/         agent-first documentation tree
+resources/    static PNGs used by batch operations
+cli.py        ingest | sync | migrate-storage
+```
+
+Internal use only.

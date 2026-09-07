@@ -1,0 +1,31 @@
+---
+description: Templates, partials, HTMX targets, shared JS helpers in base.html, SortableJS config, version-list and datetime helpers
+globs: templates/**,static/**
+alwaysApply: false
+---
+
+# Frontend conventions (bootloader — spec in `docs/frontend/conventions.md`)
+
+Server-rendered Jinja2 + Bootstrap 5.3 + HTMX 1.9; no bundler, no SPA (ADR-001). Reuse before you invent.
+
+## Must
+- Pages `{% extends "base.html" %}`; exceptions are `viewer.html` and `markup.html` (fullscreen, own minimal helper copies — duplicate deliberately if they need a new shared helper).
+- HTMX: target a specific `id`, return the matching `templates/partials/*.html`; hook post-swap work on `htmx:afterSwap`.
+- Build version UIs from `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` (Jinja globals) — never a literal `EN/CH/BI` list. Version ordering UI = `oqbInitVersionPriorityWidget` (hidden comma input `version_priority`).
+- Datetimes through `oqbFormatLocalTime` (`YYYY-MM-DD HH:mm`, 24 h); API values are naive-UTC ISO with `Z`.
+- Drag-to-reorder uses **SortableJS** with the standard config (`forceFallback: true`, `delayOnTouchOnly`, `.drag-handle`, idempotent init via `container._sortableInstance`). Never native HTML5 DnD (breaks touch).
+- Multi-select filters follow the custom Bootstrap dropdown + checkbox + hidden `<select multiple>` pattern.
+- Gate admin UI on `window.OQB_IS_ADMIN` and AI UI on `window.OQB_AI_TOOLS_ENABLED` — cosmetic only; the server decorators are the gate.
+- SSE consumers: `new EventSource(url)`, parse `{type, message, current, total}`, close on `type === 'done'`.
+- New localStorage keys are prefixed `oqb_` and listed in `docs/frontend/conventions.md`.
+
+## Shared pieces (do not re-implement)
+- `base.html` helpers: `oqbTypesetMath`, `oqbRenderMarkdownInto`, `oqbLoadMarkdownPreviewCards`, `oqbPollDocThumbnails`, `oqbRerenderThumb`, `_oqbBuildThumbHtml`, `oqbParseUtc`, `oqbFormatLocalTime`.
+- Partials: `question_list`, `edit_question_modal` + `edit_question_modal_js` (which already includes `tag_editor_js` — never include it twice), `tag_editor_form`, `md_editor`, `file_browser_{css,body,js}`, `file_selector` (`window.OQBFileSelector.open(...)`), `pdf_annotate_editor`, `_version_priority_widget_js`.
+- Edit-modal host contract: set `window.oqbAfterQuestionEdit` and `window.oqbEditNavSource` on the host page (see `docs/modules/admin-questions.md`).
+
+## Gotchas
+- `oqbPollDocThumbnails` must use the same cache-busted URL for probe and swap; per-element dedup via `data-doc-poller-active`.
+- Keyboard shortcuts must be ignored while typing or when a stacked child modal is open.
+- Reverse proxies need `proxy_buffering off` for SSE; nothing to do client-side.
+- A new page needs a navbar entry in `base.html` and a row in `STATUS.md` frontend table.

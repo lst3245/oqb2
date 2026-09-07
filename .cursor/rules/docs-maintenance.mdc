@@ -1,0 +1,58 @@
+---
+description: Documentation is part of done - which doc/rule to update for each kind of change, module doc template, STATUS discipline
+alwaysApply: true
+---
+
+# Docs maintenance — a change is not done until its docs are
+
+Future agents have no chat history. If they cannot reconstruct intent, invariants, and "what exists now" from the repo, the change is incomplete. Stale docs are worse than missing docs. There is **no CHANGELOG** — state lives in `STATUS.md`, behaviour in `docs/modules/`.
+
+## Change → update (do it in the same turn)
+
+| You changed... | Update |
+|---|---|
+| A component's state (new, partial → done, removed, blocked) | `STATUS.md` row (backend table and/or frontend routes table) |
+| A new feature area (models + routes + service + UI) | new `docs/modules/<area>.md` from the template below, `STATUS.md` row, `OVERVIEW.md` area map, scoped rule if it has invariants |
+| A route added / changed / removed | module doc **Routes** table |
+| A model / column / enum | `app/models.py` + boot patch, `docs/core/03-data-model-and-migrations.md` tables, `docs/reference/schema-history.md`, module doc **Tables** |
+| A tunable / `.env` key | `app/settings.py` REGISTRY + `app/config.py` + `.env.example` + `docs/core/06-system-settings.md` table |
+| Authz behaviour | `docs/core/02-auth-and-permissions.md` + module doc **Permissions** |
+| A cross-cutting convention (envelope, SSE, IDs, threading) | `docs/core/04-backend-conventions.md` |
+| Storage layout / path rule | `docs/core/05-storage-and-paths.md` |
+| Shared UI helper / partial / pattern | `docs/frontend/conventions.md` (+ `frontend-conventions.mdc` if it is a rule agents keep breaking) |
+| A page / nav destination | `templates/base.html` nav + `STATUS.md` frontend routes table |
+| An architectural choice future agents may reverse | new `docs/decisions/ADR-NNN-kebab.md` + one line in `OVERVIEW.md` key decisions |
+| Runtime ritual (command, interpreter, external binary) | `docs/core/01-runtime-and-ops.md` + `project-orientation.mdc` |
+| A footgun / incident / recurring mistake | the module doc **Gotchas** + the scoped `.cursor/rules/*.mdc` (or `safety-ops.mdc` if data can be destroyed) |
+| User-visible behaviour | `docs/manuals/USER_MANUAL.md` or `ADMIN_GUIDE.md` |
+
+Skip only for pure refactors (update code comments), styling-only, or typo fixes.
+
+## Module doc template (`docs/modules/<module>.md`)
+
+```markdown
+# <Module>
+> One line.
+## Files                      py / templates / static with roles
+## Tables                     models touched; link ../core/03
+## Routes                     Method | Path | Authz | Purpose (+ JSON/SSE shapes)
+## Business rules / invariants
+## Settings & config keys     link ../core/06
+## Permissions
+## Background work / SSE / threads
+## Gotchas                    footguns, "X wins over Y"
+## Related                    ADRs, other modules, core docs
+```
+
+Every route path in a module doc must exist in code (grep `.route(`). Use relative markdown links, not `mdc:` links, inside `docs/`.
+
+## Rules (`.cursor/rules/*.mdc`)
+
+- Frontmatter: `description`, and `alwaysApply: true` **only** for `project-orientation`, `docs-maintenance`, `safety-ops`; everything else uses `globs`.
+- Scoped rules are bootloaders: invariants, gotchas, file map, and `See docs/modules/<x>.md`. Keep them under ~60 lines; the spec lives in the doc. Do not duplicate a doc into a rule.
+- Add or extend a rule (do not wait to be asked) when a new invariant appears, a mistake recurs, a command ritual is non-obvious, or an incident happens. Prefer extending an existing rule over a near-duplicate.
+- If a rule and a doc describe the same convention, change both.
+
+## `STATUS.md` key
+
+`[done]` implemented + tested where tests exist + documented · `[partial]` skeleton, logic/UI incomplete · `[pending]` not started · `[blocked]` waiting on a named dependency. Never leave a resolved TODO in code while a doc still says it is unfinished.

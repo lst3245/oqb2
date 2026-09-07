@@ -1,118 +1,28 @@
 ---
-description: DB-backed runtime tunables — SystemSetting model, REGISTRY, hot-reload, and the .env vs DB precedence rules
-globs: app/settings.py,app/models.py,templates/admin_settings.html
+description: DB-backed runtime tunables - REGISTRY in app/settings.py, precedence .env < DB, hot reload, how to add a tunable
+globs: app/settings.py,app/config.py,templates/admin_settings.html,.env.example
 alwaysApply: false
 ---
 
-# System Settings (DB-backed, hot-reload)
+# System Settings (bootloader)
 
-`system_settings` is a key/value DB table whose entries override the `.env` / `Config` bootstrap default at runtime. The full source of truth for each tunable's type, default, label, and validator lives in `app/settings.py` (the REGISTRY); the table only stores admin-supplied overrides.
+Spec and the full key table: `docs/core/06-system-settings.md`. Decision: ADR-004.
 
-## Files map
+## Invariants
+- Precedence `module literal < Config default < .env < system_settings row`; `app.config[KEY]` holds the winner. **Consumers read `current_app.config[KEY]`** (or `app.config` inside a thread's `app_context`) — never `os.getenv` / `Config.KEY` at call time.
+- `REGISTRY` (`app/settings.py`) is the source of truth for type/default/label/help/validator; the table stores only overrides. `load_all()` must never raise — bad rows fall back to bootstrap defaults.
+- Secrets and filesystem paths are `.env`-only and never appear in the UI (`SECRET_KEY`, `DB_*`, `*_PATH`, `PANDOC_PATH`, `TESSERACT_CMD`, `LLM_API_KEY`, `LLM_KEY_SECRET`, `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`).
+- Settings routes (`/admin/settings`, `/data`, `/save`, `/reset/<key>`) are `@super_admin_required`; `@admin_required` is not enough.
+- Hot reload is per process; the app is single-process by assumption.
+- `FILE_BROWSER_EXTRA_ROOTS` lives in the table but not in the REGISTRY (list, managed by the file browser). LLM endpoints are rows in `llm_configs`, not settings.
 
-| Concern | File(s) |
-|---|---|
-| Model | [app/models.py](mdc:app/models.py) `SystemSetting` |
-| Registry + load/get/set/reset/as_dict | [app/settings.py](mdc:app/settings.py) |
-| Routes | [app/admin.py](mdc:app/admin.py) `settings_page`, `settings_data`, `settings_save`, `settings_reset` |
-| UI | [templates/admin_settings.html](mdc:templates/admin_settings.html) |
-| Bootstrap defaults | [app/config.py](mdc:app/config.py) `Config` class — these are the values returned by `reset()` |
+## Adding a tunable (all four, same turn)
+1. `REGISTRY`: `('KEY', _spec('KEY', 'int'|'float'|'bool'|'string', group=..., label=..., help=..., min/max | validator=_choice_validator(...) | choices_fn=_llm_endpoint_choices))`.
+2. `Config.KEY = os.getenv('KEY', default)` in `app/config.py` with the neighbours' coercion (bool via the `in ('1','true','yes','on')` idiom).
+3. Commented line in `.env.example` under the right group, marked `[tunable]`.
+4. Row in the table in `docs/core/06-system-settings.md`. The UI renders automatically (`choices_fn` → `<select>`).
 
-## Precedence
-
-```
-hardcoded module literal  <  app/config.py default  <  .env  <  system_settings row
-```
-
-`app.config[key]` always holds the winning value at runtime. Consumers MUST read via `current_app.config[key]` (or `app.config[key]` inside a thread closure under `app_context`) — never re-read `os.getenv` or the `Config` class directly, or you'll miss DB overrides.
-
-## REGISTRY structure
-
-Each entry: `{type, default, group, label, help, validator, choices_fn?}`.
-
-```python
-_spec('DOC_THUMBNAIL_WIDTH', 'int', group='Thumbnails',
-      label='Thumbnail width (px)',
-      help='Render width of DOC asset first-page PNG thumbnails.',
-      min=200, max=4000)
-```
-
-Types: `int`, `float`, `bool`, `string`. `min`/`max` are convenience shortcuts that build a numeric range validator. Custom validators receive the already-coerced value and may raise `ValueError`.
-
-**`choices_fn`** (optional, `string` type only): a zero-argument callable that returns `[{'value': str, 'label': str}, ...]`. Called lazily inside `as_dict()` (always inside a Flask request context). When present, the settings UI renders a `<select>` dropdown instead of a plain text input. Used by `EXPLAIN_DEFAULT_LLM` to list enabled LLM endpoints.
-
-## Current REGISTRY entries
-
-| Group | Key | Type | Default | Notes |
-|---|---|---|---|---|
-| Dashboard | `QUESTIONS_PER_PAGE` | int | 20 | Page size cap for question lists |
-| Markdown | `MD_MAX_SIZE_BYTES` | int | 5 MiB | Hard cap on `.md` asset uploads |
-| Word COM | `WORD_COM_TIMEOUT` | int | 300s | Per-job watchdog |
-| Word COM | `WORD_COM_LOCK_TIMEOUT` | int | 600s | Max wait for the global Word lock |
-| Thumbnails | `DOC_THUMBNAIL_WIDTH` | int | 1000 | Render width (px) |
-| Thumbnails | `THUMBNAIL_TRANSPARENT` | bool | False | Make white background transparent (alpha = 255 − luminance) |
-| Thumbnails | `THUMBNAIL_WHITENESS_THRESHOLD` | int 0–255 | 250 | Background-vs-content cutoff |
-| Thumbnails | `THUMBNAIL_BOTTOM_PADDING_PX` | int | 24 | Padding kept on every side after auto-crop |
-| Thumbnails | `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | bool | False | Cap left/right crop at `min(left_white, right_white)` so asymmetric content preserves its A4-relative position |
-| Batch IMG | `BATCH_IMG_DEFAULT_WIDTH` | int | 1500 | Pre-fills the bulk IMG-gen modal |
-| Batch IMG | `BATCH_IMG_DEFAULT_STITCH` | bool | True | Stitch multi-page sources by default |
-| AI Tools | `AI_TOOLS_ENABLED` | bool | True | Master switch for the AI Tools admin feature |
-| AI Tools | `LLM_IMAGE_MAX_DIM` | int 256–4096 | 1600 | Long-edge downscale (px) before images are sent to the LLM |
-| AI Tools | `EXPLAIN_DEFAULT_LLM` | string | `''` | Name of the LLM endpoint to use for the dashboard Explain tutor. Blank = auto (first enabled+vision by sort order). Rendered as a `<select>` of enabled endpoints via `choices_fn`. |
-| AI Tools | `AUTOTAG_DEFAULT_LLM` | string | `''` | Default LLM for **Auto-tag** (single + batch). Blank = first enabled+vision. |
-| AI Tools | `MD_DEFAULT_LLM` | string | `''` | Default LLM for **Generate Markdown** (per-slot + batch); also feeds the figure-bbox second pass. Blank = first enabled+vision. |
-| AI Tools | `CHECK_DEFAULT_LLM` | string | `''` | Default LLM for **Proofread / Quick check** (per-slot + batch). Blank = first enabled+vision. |
-| AI Tools | `PDF_IMPORT_DEFAULT_LLM` | string | `''` | Default LLM for **PDF Batch Import** bbox detect + paper-name guess. Blank = first enabled+vision (via `_pdf_default_endpoint`, which also falls back to `EXPLAIN_DEFAULT_LLM` for continuity). |
-| AI Tools | `SMART_IMPORT_DEFAULT_LLM` | string | `''` | Default LLM for **Smart Import** "Analyze with AI" folder structure inference. **Text-only** task (vision NOT required) — resolved via `resolve_default_endpoint('SMART_IMPORT_DEFAULT_LLM', vision_only=False)`. Blank = first enabled endpoint by sort order then name. |
-| AI Tools | `LLM_CHAT_TIMEOUT_SECONDS` | int 0–3600 | 600 | Per-feature timeout override for **interactive** LLM chat (dashboard Explain + admin Chat console). 0 = use the endpoint's own `timeout_seconds`. Reasoning models can think for several minutes. |
-| AI Tools | `LLM_REASONING_EFFORT_DEFAULT` | string | `off` | Default reasoning effort for endpoints that inherit (`off`/`low`/`medium`/`high`). `off` = no reasoning params sent. |
-| AI Tools | `LLM_REASONING_SUMMARY_DEFAULT` | string | `auto` | Default reasoning summary for Responses API endpoints that inherit (`auto`/`none`). |
-| Toolbox | `TOOLBOX_DEFAULT_DPI` | int | 200 | PDF Tool default resolution (DPI) |
-| Markup | `MARKUP_NORMALIZED_MAX_DIM` | int 400–8000 | 2400 | Longest-edge world units for imported Markup images |
-| PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int | 1700 | PDF page raster width (px) |
-| PDF Import | `PDF_IMPORT_RASTER_WORKERS` | int 1–32 | 4 | Concurrent page-rasterisation workers for the "Load PDF" staging step; capped by CPU count at runtime |
-| PDF Import | `PDF_IMPORT_COORD_ORDER` | string | `xyxy` | Bounding-box coordinate order (`xyxy` or `yxyx`); also used by MD figure cropping (`parse_figure_boxes`) |
-
-> AI Tools LLM **endpoints** are NOT registry scalars — they live in their own `llm_configs` table managed via the dedicated **Admin → LLM Endpoints** page (super-admin). See [.cursor/rules/ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
-
-> **Non-registry `system_settings` key:** `FILE_BROWSER_EXTRA_ROOTS` (JSON list of abs paths) is stored in the `system_settings` table but is **deliberately not in the REGISTRY** — it's a list, not a scalar, and is managed by the File Browser's own `/admin/files/roots/*` routes (`_load_extra_roots` / `_save_extra_roots` read/write the row directly). `load_all` logs+ignores it as an "unknown" key, which is fine. See [.cursor/rules/admin-panel.mdc](mdc:.cursor/rules/admin-panel.mdc).
-
-## Lifecycle
-
-1. **Startup** — `create_app()` calls `app/settings.load_all(app)`. It captures the current `app.config[key]` for every registry key into `_BOOTSTRAP_DEFAULTS` (so `reset()` knows what to restore), then reads each row of `system_settings` and overwrites `app.config[key]` with the parsed value. Missing tables / malformed JSON / failed validation are logged and skipped — the bootstrap defaults remain authoritative.
-2. **Save** — `POST /admin/settings/save` body `{key: value, ...}`. Each key is validated via the registry, upserted into `system_settings`, and mirrored to `app.config`. Response includes per-key results so partial saves succeed.
-3. **Reset** — `POST /admin/settings/reset/<key>` deletes the row and restores `app.config[key]` from `_BOOTSTRAP_DEFAULTS`.
-
-## Hot-reload guarantees
-
-- Single-process Flask dev server / single-worker prod WSGI: changes take effect on the **next** call to any consumer (most consumers read `app.config` per-request, so effectively immediate).
-- Multi-worker deployments: only the worker that handled the POST sees the new value. Other workers continue serving the old value until the process restarts. **Future improvement**: switch to a periodic DB poll or a Redis pubsub fanout.
-- Background threads (e.g. DOC thumbnail render in `app/doc_thumbnails.py`): run under `app.app_context()` and read `app.config[...]` at the time the work is performed, so they always see the latest values.
-
-## What stays in `.env` only
-
-Secrets and infrastructure paths are NOT exposed via the Settings UI:
-
-- `SECRET_KEY` — Flask session signing
-- DB credentials: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
-- Filesystem roots: `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`, `PDF_SOURCE_PATH` (server-side source-PDF folder for PDF Batch Import; defaults to a `Source_PDF` folder beside `SOURCE_PATH`)
-- External binaries: `PANDOC_PATH`
-- AI Tools secrets: `LLM_API_KEY` (global fallback key), `LLM_KEY_SECRET` (Fernet secret for encrypting UI-entered endpoint keys; falls back to `SECRET_KEY` when blank)
-
-Anything that needs a process restart to take effect (e.g. SQLAlchemy engine options, pre-fork Flask config) also stays in `.env`.
-
-## Adding a new tunable
-
-1. Add an entry to `REGISTRY` in `app/settings.py` (specify type, group, label, help, validator/min/max; add `choices_fn` for a dynamic dropdown).
-2. Add the matching `Config` attribute in `app/config.py` reading from `os.getenv` with a sensible default.
-3. Document the new key in `.env` (commented) so admins know it can be overridden via env.
-4. Update the consumer to read from `current_app.config[KEY]` (avoid hardcoding constants).
-5. The UI auto-renders the new row — no template changes needed (a `choices_fn` causes a `<select>` to render automatically).
-
-## Common gotchas
-
-1. **DO NOT** hardcode tunable values inside Python modules. Read from `current_app.config[KEY]` or accept it as a function argument with `None` fallback that resolves from config.
-2. **DO** capture `app = current_app._get_current_object()` before spawning a background thread, then `with app.app_context()` inside the thread. Inside the context, `current_app.config` reflects the latest hot-reloaded value.
-3. **DO** treat missing rows / malformed JSON in `system_settings` as "use bootstrap default" — never raise from `load_all`, the app must boot even with a corrupted settings table.
-4. **DO** validate at write time (in `set_value`) so admins get a clean error message. The Save endpoint returns a per-key `errors` map so partial saves still apply the good rows.
-5. The Settings page is **super-admin only**. The `admin_required` decorator (subject-admin) is NOT sufficient — system-wide changes need super-admin.
+## Gotchas
+- Blank `*_DEFAULT_LLM` means "first enabled vision endpoint by sort order"; `SMART_IMPORT_DEFAULT_LLM` is text-only (`vision_only=False`).
+- `TOOLBOX_SESSION_RETENTION_HOURS` has no `Config` attribute; code falls back to the registry default (48).
+- Thumbnail settings apply to new renders only; existing PNGs need Health → Force Re-render.

@@ -1,142 +1,21 @@
 ---
-description: AI Prompts admin feature — registry, variants, per-endpoint assignment, format blocks, resolver, gotchas
+description: AI prompt registry, variants, per-endpoint pins, format blocks, {{variables}}, parser coupling
 globs: app/ai_prompts.py,templates/admin_prompts.html
 alwaysApply: false
 ---
 
-# AI Prompts (super-admin editable system / user / format templates)
+# AI Prompts (bootloader — spec in `docs/modules/ai-prompts.md`)
 
-Editable storage for the prompts powering every AI feature: proofreading, MD generation, **solve-based ANS/SOL generation/checking**, **auto question tagging**, the dashboard **Explain** tutor, the figure-bbox detector, PDF Batch Import (box detection, anchor/segment detection, and paper-name guess), and **Smart Import** structure inference. 35 prompts total. Super-admin only — prompts shape global model behaviour, so the bar is the same as System Settings.
+## Invariants
+- Resolution order: endpoint pin (`PromptEndpointAssignment`, needs a truthy `endpoint_id`) → active variant → registry default. Blank/NULL content or any DB error falls back to the default; `get_prompt` raises only `KeyError` for unknown keys.
+- Format blocks (`*_FORMAT` / `*_JSON_CONTRACT`) are injected by `system_prompt()` **and** re-appended via `append_format()` under `OUTPUT FORMAT (mandatory):`; call sites must pass `config.id` so pins apply.
+- Variables are `{{name}}`, declared per key, substituted in a single pass; single braces are literal (JSON examples). Undeclared kwargs are ignored; missing declared vars stay literal.
+- JSON contracts are coupled to parsers (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`, `parse_generic_boxes`, `parse_question_anchors`, `parse_paper_name`). Custom variants must keep the contract; new parsers reuse `_json_candidates`.
+- Exactly one built-in row per key (never deleted; reset nulls `content`) and exactly one active row per key — enforced by `ensure_seeded()` and the helpers, not by DB constraints. `delete_variant` re-activates the built-in.
+- `ensure_seeded()` runs at boot and on `GET /admin/prompts/data`; migrates legacy `prompt_overrides` once; never overwrites admin edits.
+- `_PROMPT_CACHE` is per-process; every write path calls `invalidate_cache()`. `MAX_PROMPT_CHARS = 32000`.
 
-Three pillars:
-1. **Variants** — every key supports multiple named variants: one editable **built-in** row (NULL content = registry bootstrap default; reset = null the content, never delete the row) plus admin-created customs. Exactly one variant per key is **active** (the default for unpinned endpoints).
-2. **Per-endpoint assignment** — an LLM endpoint can be pinned to a specific variant per key (`prompt_endpoint_assignments`). Unpinned endpoints use the active variant.
-3. **Format-rule extraction** — output-formatting rules live in separate `*_FORMAT` items (role `format`), referenced by the spec's `format_key`. They are injected into the system prompt (`system_prompt()`) **and re-appended at the end of the user turn** (`append_format()` under the `OUTPUT FORMAT (mandatory):` header) because some models (GPT builds) under-weight system-role formatting rules.
-
-## Files map
-
-| Concern | File(s) |
-|---|---|
-| Registry + resolver + cache + variant CRUD + parsers | [app/ai_prompts.py](mdc:app/ai_prompts.py) `PROMPTS_REGISTRY`, `get_prompt(key, endpoint_id=None)`, `render_prompt(key, endpoint_id=None, **vars)`, `system_prompt`, `append_format`, `format_block`, `ensure_seeded`, `list_variants`/`create_variant`/`update_variant`/`delete_variant`/`set_active`/`reset_builtin`/`set_variant_endpoints`/`unassign_endpoint`, `invalidate_cache`, `as_dict` |
-| DB storage | [app/models.py](mdc:app/models.py) `PromptVariant` (`prompt_variants`), `PromptEndpointAssignment` (`prompt_endpoint_assignments`); legacy `PromptOverride` kept only for one-time migration |
-| Routes (super-admin) | [app/admin.py](mdc:app/admin.py) `prompts_page`, `prompts_data`, `prompts_variant_create/save/delete/activate`, `prompts_reset_builtin`, `prompts_variant_assign`, `prompts_unassign` |
-| Admin UI | [templates/admin_prompts.html](mdc:templates/admin_prompts.html) |
-| Auto-create tables + seed/migrate | [app/__init__.py](mdc:app/__init__.py) (`ensure_seeded()` after table create) |
-
-## Registered prompts
-
-In declaration order (the UI renders them in this order, grouped by `group`). `→F` marks the `format_key` link:
-
-1. `CHECK_SYSTEM` (system →`CHECK_FORMAT`), `CHECK_USER` (user →`CHECK_FORMAT`, vars `asset_type`,`ref_version`,`typed_version`), `CHECK_FORMAT` (format — STRICT JSON, parser `parse_check_result`)
-2. `MD_SYSTEM` (system →`MD_FORMAT`), `MD_USER` (user →`MD_FORMAT`, vars `asset_type`,`source_version`), `MD_FORMAT` (format — math delimiters, `8\.` numbering, MC layout, `[FIGURE: ...]` sentinel)
-3. `SOLVE_GEN_SYSTEM` (system →`SOLVE_GEN_FORMAT`), `SOLVE_GEN_USER` (user →`SOLVE_GEN_FORMAT`, vars `kind`,`target_version`,`asset_type`), `SOLVE_GEN_FORMAT` (format — ANS/SOL/ANS_TEXT output modes + language + math)
-4. `SOLVE_CHECK_SYSTEM` (system →`SOLVE_CHECK_FORMAT`), `SOLVE_CHECK_USER` (user →`SOLVE_CHECK_FORMAT`), `SOLVE_CHECK_FORMAT` (format — STRICT JSON, reuses `parse_check_result`)
-5. `TAG_SYSTEM` (system →`TAG_FORMAT`), `TAG_USER` (user →`TAG_FORMAT`, vars `subject_name`,`fields`,`taxonomy`), `TAG_FORMAT` (format — STRICT JSON, parser `parse_tag_result`)
-6. `EXPLAIN_SYSTEM` (system →`EXPLAIN_FORMAT`), `EXPLAIN_INITIAL_USER` (user →`EXPLAIN_FORMAT`), `EXPLAIN_FORMAT` (format — math delimiter rules)
-7. `FIGURE_BOX_JSON_CONTRACT` (format, sub-template), `FIGURE_BOX_SYSTEM` (system, var `json_contract`), `FIGURE_BOX_USER` (user →`FIGURE_BOX_JSON_CONTRACT`, var `box_pairs`)
-8. `PDF_BOX_JSON_CONTRACT` (format, sub-template), `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` (system, var `json_contract`), `PDF_BOX_USER` (user →`PDF_BOX_JSON_CONTRACT`, vars `what`,`box_pairs`)
-9. `PDF_GENERIC_BOX_JSON_CONTRACT` (format), `PDF_GENERIC_BOX_SYSTEM` (system), `PDF_GENERIC_BOX_USER` (user →`PDF_GENERIC_BOX_JSON_CONTRACT`)
-10. `PDF_ANCHOR_JSON_CONTRACT` (format), `PDF_ANCHOR_SYSTEM` (system), `PDF_ANCHOR_USER` (user →`PDF_ANCHOR_JSON_CONTRACT`)
-11. `PDF_PAPER_NAME_SYSTEM` (system, no format item), `PDF_PAPER_NAME_USER` (user, vars `filename`,`subjects`)
-12. `SMART_IMPORT_SYSTEM` (system, no format item), `SMART_IMPORT_USER` (user, vars `subject`,`versions`,`tree`) — Smart Import "Analyze with AI" folder structure inference; reply is a single JSON object of folder-level defaults parsed by `smart_import._parse_json_object` (not a registry parser)
-
-The box `*_JSON_CONTRACT` items double as BOTH the `{{json_contract}}` substitution into the system prompts AND the user-turn format block — one source of truth for each contract. Figure + PDF parsers share `_normalize_box` and honour `PDF_IMPORT_COORD_ORDER`.
-
-## Math delimiter contract
-
-`MD_FORMAT`, `SOLVE_GEN_FORMAT`, and `EXPLAIN_FORMAT` share `_MATH_DELIMITER_RULES` in [app/ai_prompts.py](mdc:app/ai_prompts.py): only `$...$` / `$$...$$` for math; never `[ ]` display blocks or bare `(AD)` labels (GPT habit). Only `normalize_inline_math` (tight `$ x $` → `$x$`) runs post-generation — do not add bracket/paren rewriting (breaks KaTeX).
-
-## Variable substitution
-
-Syntax is **`{{name}}`** (double-braces). Single `{` / `}` are literal — several prompts contain JSON examples (`{"status": "ok"}`) that must pass through unchanged. Only variables **declared** in the registry's `variables` list are substituted; unknown declared names stay literal so design errors surface in the model's reply. Single-pass (no recursive expansion of `{{json_contract}}` bodies).
-
-Helpers (all now take a trailing `endpoint_id=None` and append the user-turn format block themselves):
-- `build_check_user_text(typed, ref, asset_type, endpoint_id=None)`
-- `build_md_user_text(source_version, asset_type, endpoint_id=None)`
-- `build_solve_gen_user_text(kind, target_version, endpoint_id=None)` / `build_solve_check_user_text(...)`
-- `build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None)` (+ `build_tag_taxonomy`, `parse_tag_result`)
-- `build_explain_initial_user_text(endpoint_id=None)`
-- `build_figure_box_system/user_text(coord_order, endpoint_id=None)`
-- `build_pdf_box_system/user_text(asset_type, coord_order, endpoint_id=None)`, `build_pdf_generic_*`, `build_pdf_anchor_*`, `build_pdf_paper_name_*`
-
-**Call sites must pass `config.id` as `endpoint_id`** and use `ai_prompts.system_prompt(key, config.id)` for system prompts that carry a `format_key` (see `app/ai_tools.py`, `app/dashboard.py` Explain, `app/pdf_import.py`, `app/toolbox/pdf.py`).
-
-## Resolver flow
-
-```
-get_prompt(key, endpoint_id=None):
-  cache[(key, endpoint_id)] hit? → return
-  1. PromptEndpointAssignment(key, endpoint_id) → that variant
-  2. else the is_active variant for key
-  3. variant content blank/NULL (or DB down) → PROMPTS_REGISTRY[key]['default']
-  cache, return
-
-system_prompt(key, endpoint_id) = base + "\n\n" + format_block (if format_key)
-append_format(key, text, endpoint_id) = text + "\n\nOUTPUT FORMAT (mandatory):\n" + format_block
-```
-
-Any variant/assignment write calls `invalidate_cache()` (whole cache or per-key). Module-level `_PROMPT_CACHE` (dict + Lock), single-process assumption — same caveat as `system_settings`.
-
-## DB schema
-
-`prompt_variants`: `id` PK, `prompt_key` String(80) idx, `name` String(120) (unique per key), `content` Text NULL (NULL on built-in = bootstrap default), `is_builtin`, `is_active`, `sort_order`, `updated_at`, `updated_by`. Exactly one built-in and one active row per key (enforced by `ensure_seeded` + CRUD helpers, not DB constraints).
-
-`prompt_endpoint_assignments`: `id` PK, `prompt_key` idx, `endpoint_id` FK `llm_configs.id` ON DELETE CASCADE, `variant_id` FK `prompt_variants.id` ON DELETE CASCADE, unique `(prompt_key, endpoint_id)`.
-
-`ensure_seeded()` (called at boot + on `/prompts/data`): creates missing built-in rows, migrating any legacy `prompt_overrides` content into the built-in's content the FIRST time only — admin edits are never overwritten on restart.
-
-**Endpoint lifecycle** ([app/admin.py](mdc:app/admin.py)): create → no assignments (uses active variants); duplicate → clones the source's assignment rows; delete → explicit assignment cleanup + FK CASCADE, then `invalidate_cache()`.
-
-## Routes (all super-admin)
-
-| Method | URL | Purpose |
-|---|---|---|
-| GET  | `/admin/prompts` | Page |
-| GET  | `/admin/prompts/data` | `as_dict()`: `{groups, registry: {key: {label, role, format_key, default, variants: [{id, name, is_builtin, is_active, content, has_custom_content, assigned_endpoint_ids, ...}]}}, endpoints: [{id, name, enabled}]}` |
-| POST | `/admin/prompts/variant/create` | `{key, name, content}` |
-| POST | `/admin/prompts/variant/<id>/save` | `{name?, content?}` (built-in: content only) |
-| POST | `/admin/prompts/variant/<id>/delete` | custom only; pinned endpoints fall back to active |
-| POST | `/admin/prompts/variant/<id>/activate` | set active default for its key |
-| POST | `/admin/prompts/<key>/reset-builtin` | null built-in content → bootstrap default |
-| POST | `/admin/prompts/variant/<id>/assign` | `{endpoint_ids: [...]}` declarative pin set (re-points / unpins) |
-| POST | `/admin/prompts/<key>/unassign` | `{endpoint_id}` drop one pin |
-
-## UI
-
-[templates/admin_prompts.html](mdc:templates/admin_prompts.html) renders one card per prompt key:
-- **Variant pills** (built-in ★-marked when active, count badge per pill: explicit pin count; the active pill shows `default (+N)`), an **Add variant** button (seeds from the selected variant's content).
-- Editor textarea for the selected variant; per-variant unsaved-edit tracking (`edits` Map keyed by variant id — switching pills never loses work); char counter; role badge (`system` purple / `user` cyan / `format` orange); expandable bootstrap-default panel.
-- Buttons: Save, Set active, Rename (custom), Delete (custom) / Reset (built-in, enabled only when edited).
-- **Endpoint chips** under the editor: pinned endpoints with × to unpin, plus a picker to pin more. Pin/unpin POST immediately.
-- Group TOC, navigate-away guard, cross-links to System Settings / LLM Endpoints.
-
-## Gotchas / invariants
-
-1. **Don't break the JSON contracts** of `CHECK_FORMAT` / `SOLVE_CHECK_FORMAT` / `TAG_FORMAT` / `FIGURE_BOX_JSON_CONTRACT` / `PDF_BOX_JSON_CONTRACT` / `PDF_GENERIC_BOX_JSON_CONTRACT` / `PDF_ANCHOR_JSON_CONTRACT` / `PDF_PAPER_NAME_SYSTEM` without updating the corresponding parser (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`, `parse_generic_boxes`, `parse_question_anchors`, `parse_paper_name`). This now applies to **every variant** an admin creates, too.
-   - **Robust extraction.** All parsers route through `_strip_reasoning` + `_balanced_spans` + `_json_candidates(text, prefer='['|'{')` (strips `<think>` blocks, extracts balanced spans longest-first). **Reuse `_json_candidates` for any new LLM-JSON parser.**
-   - **Malformed-JSON salvage.** Box parsers fall back to `_salvage_box_objects` + targeted regexes so one corrupt object can't drop a page.
-2. **Variable syntax is `{{name}}`** not `{name}`. New variable = declare in `variables` + use `{{name}}` in the default + pass kwarg at call site.
-3. **Keep `[FIGURE: ...]` sentinel** in `MD_FORMAT` — `ai_tools._embed_figures` / `FIGURE_RE` depend on it.
-4. **Cache is per-process** — multi-worker deployments see staleness until each worker refreshes. Same caveat as system settings.
-5. **Limit is 32 KiB** per variant content (`MAX_PROMPT_CHARS`).
-6. **Plaintext only** — no secrets in prompts.
-7. **Built-in rows are never deleted** — reset nulls the content. `delete_variant` re-activates the built-in when the deleted variant was active.
-8. **`MD_FORMAT` numbering** — escaped dots after question numbers (`8\.`), one MC option per line; do not revert to bare `8. `.
-9. **Resolver works without the DB** — every step degrades to the bootstrap default, so boot order / broken DB never blocks LLM calls.
-
-## Adding a new prompt
-
-1. Add `_DEFAULT_NEW_KEY = (...)` near its category in `app/ai_prompts.py`; if it has output-format rules, put them in a separate `_DEFAULT_NEW_KEY_FORMAT` item.
-2. Append `('NEW_KEY', _prompt(group=..., label=..., description=..., default=..., variables=[...], role='system'|'user'|'format', format_key='NEW_FORMAT'|None))` entries in `PROMPTS_REGISTRY`.
-3. At the call site use `ai_prompts.system_prompt('NEW_KEY', config.id)` / `render_prompt('NEW_KEY', endpoint_id=config.id, **vars)` + `append_format` for the user turn.
-4. The UI + variant seeding auto-discover it (`ensure_seeded` creates the built-in row on next boot / data fetch).
-5. Document the prompt's purpose in its `description` (shown verbatim in the admin UI).
-
-## ⚠️ Checklist when adding ANY new LLM-powered feature
-
-Whenever you wire a new LLM call (a new feature, tool, or detection mode) into the app, do NOT inline a hard-coded prompt string at the call site. ALWAYS:
-
-1. **Register every system + user (+ format) prompt** in `PROMPTS_REGISTRY` so it appears on **Admin → AI Prompts**. Reuse an existing prompt where the contract matches — e.g. the Toolbox PDF Tool **Find & Mark "AI detect"** reuses `PDF_GENERIC_BOX_*`. If you reuse a prompt for a new surface, mention that surface in its `description`.
-2. **Register every tunable** in `app/settings.py` REGISTRY **and** `app/config.py` — never hard-code a magic number. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc).
-3. **Pick the endpoint** via a `*_DEFAULT_LLM` setting (with `choices_fn=_llm_endpoint_choices`) and **pass `config.id` as `endpoint_id`** to the prompt resolver so per-endpoint variant pins apply.
-4. **Long-running calls stream over SSE** (job → progress → done) with a real Stop via `pdf_import.new_job` / `app.parallel.run_parallel` — never a single blocking POST that can 504.
+## Gotchas
+- Keep `[FIGURE: ...]` markers in `MD_FORMAT` and the `8\.` escaped numbering; only `normalize_inline_math` post-processes math.
+- Adding a prompt key: registry entry (default, variables, format block) + parser if JSON + module doc table. The admin page renders keys automatically.
+- Routes are super-admin only: `/admin/prompts`, `/admin/prompts/data`, and the variant/assignment mutation routes listed in the doc.

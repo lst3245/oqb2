@@ -1,60 +1,28 @@
 ---
-description: Unified Storage tree, path resolution, root registry, and the file browser/selector
+description: Storage tree (SOURCE_PATH vs STORAGE_PATH Shared/System/User), safe_join, RootRegistry scopes, file browser/selector invariants
 globs: app/storage.py,app/files_service.py,app/files.py,templates/partials/file_browser_*.html,templates/partials/file_selector.html,templates/files_browser.html,templates/admin_files.html
 alwaysApply: false
 ---
 
-# Storage Tree, Roots & File Browser
+# Storage and file browser (bootloader)
 
-## Layout (under `STORAGE_PATH`, default `Q:\Storage`)
+Spec: `docs/core/05-storage-and-paths.md` (tree, config keys, `app/storage.py`) and `docs/modules/file-browser.md` (API, registry, UI). Decision: ADR-005.
 
-```
-Q:\Source                       SOURCE_PATH — question-bank assets (unchanged)
-Q:\Storage                      STORAGE_PATH (parent of three roots)
-  Shared\                       SHARED_PATH — per-subject, role-gated
-    <SUBJECT_ID>\               one per Subject (admin=rw, user=ro)
-    _archive\                   migrated legacy Source_PDF (super-admin only)
-  System\                       SYSTEM_PATH — caches/temp
-    doc_thumbnails\             DOC_THUMBNAIL_PATH default
-    .pdf_import\  .toolbox\     staging
-  User\                         USER_PATH
-    <username>\                 personal home (owner = full CRUD)
-      generated\                relocated generated docs (read-only in browser)
-```
-
-`PDF_SOURCE_PATH` defaults to `SHARED_PATH`; `OUTPUT_PATH` is a **legacy fallback** for un-migrated generated files. Storage **must be on the same drive as `SOURCE_PATH`** (the browser drive-gate enforces this).
-
-## `app/storage.py` (single source of truth)
-- `safe_join(base, *rel)` — hardened join using `commonpath`/`normcase` (fixes the sibling-prefix trap, e.g. `Q:\Source` vs `Q:\SourceBackup`; cross-drive → `None`). **Use this everywhere**, not `startswith`.
-- Root accessors: `source_path/storage_path/shared_path/system_path/user_path/output_path`.
-- `safe_username(user)` → filesystem-safe folder (validated names pass verbatim; legacy names sanitised, never empty). `user_home`, `user_generated_dir`, `ensure_user_generated_dir`, `shared_subject_dir`, `shared_archive_dir`.
-- `ensure_storage_tree()` runs at startup (`app/__init__.py`); best-effort, swallows OSError.
-
-## `app/files_service.py` — pure ops + `RootRegistry`
-- `RootRegistry(user, scope=None)` builds the roots a user may see, each a `Root{id,label,path,can_write,removable}`. **Two scopes:**
-  - **admin scope** (`scope='admin'`, honoured only for super-admins): `Source`, `Storage`, + `FILE_BROWSER_EXTRA_ROOTS` (stored in `SystemSetting`). Used **only** by `/admin/files`.
-  - **user scope** (default — incl. super-admins): personal `user` root (rw); per subject `shared:<SID>` — rw for role `admin`, ro for role `user`; `viewer`/no-role subjects excluded. Used by `/files/browser`, the file selector, and the PDF Import / Toolbox resolvers. A super-admin in user scope gets every subject as `admin` (so all Shared folders are rw) plus their own `User/<name>`.
-  - A non-super user requesting `scope='admin'` is silently downgraded to user scope (no escalation).
-  - `.resolve(root_id)` (blank → first root), `.list()` / `.list_dicts()`.
-- Pure functions take `(base_dir, rel_path, …, can_write)` and raise `FileServiceError(status, message)`: `list_dir` (→ `{current_path, items:[{name,is_dir,size,modified}]}`), `get_download_path`, `save_uploads`, `rename`, `delete`, `mkdir`, `copy`, `move`. Read-only roots reject mutating ops.
-  - `save_uploads(..., rel_paths=None)`: when `rel_paths` (parallel to `files`) carry a relative path (a folder upload's `webkitRelativePath` or a dropped directory tree), intermediate folders are created and every path component is `secure_filename`-sanitised, so a whole folder tree uploads at once while staying inside the root. Blank → file lands directly in the target dir.
-  - `move(base_dir, sources, dest_dir, can_write)`: cut/paste within one root via `shutil.move`; rejects moving a folder into its own subtree and no-ops when already in `dest_dir`; auto-uniquifies name collisions (`_unique_copy_name`).
-
-## `app/files.py` (`files_bp`, `/files`)
-- One root-aware, permission-checked API backing **both** browsers + the selector: `GET /api/roots|/api/list|/api/download`, `POST /api/upload|/api/rename|/api/delete|/api/mkdir|/api/copy|/api/move`, super-admin-only `POST /api/roots/add|/api/roots/remove`. `/api/upload` also forwards `paths[]` (folder upload) to `save_uploads`; `/api/move` (cut/paste) blocks moving into **or out of** the read-only `generated/` folder. Each resolves `root` via the per-user registry and enforces `can_write`. The client passes `scope` (query/form/JSON) on every call — `admin_files.html` sends `scope=admin`, the user browser + selector send `scope=user`; `_request_scope()` re-validates it (admin only for super-admins).
-- `GET /files/browser` renders `files_browser.html`; gated to `is_super_admin or not is_all_view_only()` (pure viewers → 403).
-- `User/<name>/generated` is **read-only** here (managed by My Files) so browser edits never orphan `GeneratedFile` rows.
+## Invariants
+- Two roots: `SOURCE_PATH` (question library, read-mostly) and `STORAGE_PATH` = `Shared/<SUBJECT>` (admin rw / user ro / viewer hidden, `_archive` super-admin) + `System/` (caches, staging) + `User/<username>/` (`generated/` is read-only in the browser; owned by My Files).
+- **Every join goes through `storage.safe_join(base, *rel)`**; `None` = outside the root = 403/404. Never `startswith`. Storage must be on the same drive as Source (drive gate).
+- Paths come from `storage.source_path()/shared_path()/system_path()/user_path()/...` (which read `current_app.config`), never `os.getenv`.
+- Username = folder name: validated by `utils.validate_username` (`^[A-Za-z0-9._-]{1,80}$`, no leading/trailing dot, reserved names); renaming a user moves `User/<old>` → `User/<new>`. `storage.safe_username` sanitises legacy names.
+- `RootRegistry(user, scope)`: **user scope** (default; also for super admins) = personal `user` root + `shared:<SID>` per subject; **admin scope** (`Source`, `Storage`, `FILE_BROWSER_EXTRA_ROOTS`) only for super admins — a non-super request for `scope=admin` is silently downgraded. `/admin/files` is the only admin-scope client.
+- All mutating ops check `Root.can_write`; read-only roots reject upload/rename/delete/mkdir/copy/move. `/files/api/move` refuses moving into or out of `generated/`.
+- Uploads: every path component through `secure_filename`; folder uploads preserve structure via `paths[]` but stay inside the target.
+- `FILE_BROWSER_EXTRA_ROOTS` is a JSON list row in `system_settings`, deliberately outside the settings REGISTRY; managed by the roots routes only.
+- Backends that accept a location take `{root, rel_path}` and resolve through the user's registry (PDF Import `_resolve_server_pdf`, Toolbox `_resolve_root_base(root_id, require_write)`).
 
 ## Frontend
-- Shared partials: `partials/file_browser_{css,body,js}.html` (both browser pages), `partials/file_selector.html` (modal module `window.OQBFileSelector`).
-- Clipboard supports **copy** and **cut** (`clipboardMode`): per-row + selection Copy/Cut buttons; Paste calls `/api/copy` or `/api/move` and relabels (“Paste here” / “Move here”). Cut clears the clipboard after a successful move.
-- Upload modal accepts **files and whole folders** (Add files / Add folder `webkitdirectory`, plus drag-and-drop that recurses dropped directories via `webkitGetAsEntry`, Google-Drive style); folder structure is preserved through `paths[]`.
-- `OQBFileSelector.open({mode:'file'|'folder', extensions, title, preferRootId, locationKey, multiple, onPick})` → `onPick({root_id, root_label, rel_path, name, token})`. In folder mode, `multiple:true` enables checkbox/current-folder selection and returns an array of the same selection objects. `token` = `root_id|rel_path` (copy/paste to jump). Always user scope. Sort by clicking column headers (no sort dropdown). It remembers the last browsed `{root,path}` in JS memory per `locationKey` (default: `mode|extensions`) until page reload, so related pickers can reopen nearby without localStorage persistence. Adopted by PDF Import + PDF Tool pickers; Smart Import uses the multi-folder mode.
-- Pass `fb_can_manage_roots=True` + `fb_scope='admin'` only on the super-admin page; the user page passes `fb_scope='user'`.
+- Both browser pages share `partials/file_browser_{css,body,js}.html`; the picker is `partials/file_selector.html` → `OQBFileSelector.open({mode:'file'|'folder', extensions, multiple, preferRootId, locationKey, onPick})` returning `{root_id, root_label, rel_path, name, token}`; always user scope. Pass `fb_scope='admin'` + `fb_can_manage_roots=True` only on `admin_files.html`.
 
-## Backends that accept `{root, rel_path}`
-- PDF Import `_resolve_server_pdf(rel, root_id=None)` (root-aware; legacy `PDF_SOURCE_PATH` fallback when blank). Stage reads `que_server_root`/`sol_server_root`; guess-paper reads `server_root`.
-- Toolbox `_resolve_root_base(root_id, require_write)` for upload `server_root`, `export-save-start` `dest_root`, `mkdir` `dest_root`.
-
-## Migration
-`python cli.py migrate-storage [--dry-run|--no-dry-run] [--old-pdf-source P] [--old-thumbnails P]` — tree + per-subject Shared, thumbnails → System, generated docs (+ PDF sibling) → owner `generated/`, Source_PDF → `Shared/_archive`. Idempotent; skips existing targets.
+## Gotchas
+- Sibling-prefix trap (`Q:\Source` vs `Q:\SourceBackup`) is exactly why `safe_join` exists.
+- `ensure_storage_tree()` is best-effort at boot; missing dirs are not an error path you should "fix" with chmod-style hacks.
+- `cli.py migrate-storage` is idempotent and dry-run by default; never pass `--no-dry-run` unasked.

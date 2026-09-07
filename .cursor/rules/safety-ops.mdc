@@ -1,0 +1,48 @@
+---
+description: Safety - the live database, live server, real secrets, destructive scripts, Word COM; NEVER/ALWAYS lists and recovery
+alwaysApply: true
+---
+
+# Safety and operations — what you can destroy here
+
+## Live resources (there are no disposable twins)
+
+| Resource | Live target | Disposable alternative |
+|---|---|---|
+| Database | MariaDB `DB_NAME` from `.env` — the only DB; production data for a school department | **none** (ask the user for a dump restored under another name if you need one) |
+| Server | `python run.py` already running in the user's terminal on `:5000`, serving LAN clients | none — debug reloader picks up code edits |
+| Question library | `SOURCE_PATH` (`D:\oqb_data\Source`) | none |
+| Users' generated docs | `STORAGE_PATH\User\<name>\generated` + `generated_files` rows | none |
+| Caches / staging | `STORAGE_PATH\System\*` | safe to clear when idle |
+| Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`) | `.env.example` |
+
+## NEVER
+
+- Never run `python init_db.py`, `migrate_versions.py`, `migrate_starring.py`, `migrate_md_format.py`, `import_dse_p2.py`, `tag_topics.py`, or `debug_env.py`. They write to the live DB / library or leak secrets.
+- Never run `python cli.py sync --no-dry-run` or `cli.py migrate-storage --no-dry-run` unless the user asked for that exact command in this session.
+- Never kill, restart, or start a second dev server; never bind `:5000` yourself. Do not `taskkill` PIDs from the terminal file to "reset" anything.
+- Never print, `cat`, copy, or commit `.env`; never echo `DB_PASSWORD` / `LLM_API_KEY`; never hardcode a credential (one leftover already exists in `debug_env.py` — do not repeat it).
+- Never rotate `SECRET_KEY` or `LLM_KEY_SECRET` — it invalidates every Fernet-encrypted LLM endpoint key in `llm_configs`.
+- Never issue raw `ALTER TABLE` / `DELETE` / `UPDATE` against the DB from a shell or ad-hoc script. Schema changes go through the boot-patch pattern in `app/__init__.py` and are reviewed by the user before the server reloads them.
+- Never rename or move files under `SOURCE_PATH` by hand; use the app's rename/asset routes (they keep `question_assets.file_path` in sync).
+- Never spawn Word / `win32com` outside `app/word_com.py`; never `taskkill` `WINWORD.EXE` yourself (a teacher may have Word open on the host).
+- Never write scratch files, test artefacts, or notes into the repo; use `$env:TEMP`.
+
+## ALWAYS
+
+- Treat any call to `create_app()` (server, `cli.py`, `init_db.py`, `tests/test_llm_client.py`) as a **write** to the live schema: it runs the idempotent boot patches. Make a patch MariaDB-correct before saving the file — the running server will reload and execute it.
+- Prefer dry runs: `cli.py sync` and `cli.py migrate-storage` default to dry-run; keep it that way.
+- Run tests as targeted modules (`python -m unittest tests.test_sorting`) rather than the whole suite when you only need pure-logic checks.
+- Read tunables from `current_app.config`; read paths via `app/storage.py` accessors; join with `safe_join`.
+- When a task needs data you would have to fabricate (a test DB, sample assets), stop and ask; do not create rows in the live DB.
+
+## Why (scenario, not history)
+
+Request logs in the dev-server terminal show other LAN machines browsing the dashboard. A "harmless" `init_db.py` on a non-empty DB is a no-op today only because the seed guard checks `subjects`; a future edit to that guard would wipe or duplicate seed data in production. `sync --no-dry-run` deletes every question whose files are momentarily unreachable (e.g. the data drive is not mounted). These are the two commands an agent is most tempted to run "to be safe".
+
+## Recovery (without touching prod)
+
+1. Stop. Do not attempt compensating writes.
+2. Report exactly what ran (command, time, tables/paths touched).
+3. The user restores from `mysqldump` / file backup (see `docs/core/01-runtime-and-ops.md`). If a schema patch is at fault, fix the patch code first so the reload does not re-apply it.
+4. If Word is wedged: `word_session` quits its own instance on exit; there is no enforced job timeout, so a stuck instance is closed by the user from Task Manager. The Flask process is never the thing to kill.

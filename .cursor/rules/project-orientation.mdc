@@ -1,0 +1,44 @@
+---
+description: OQB2 orientation - what the system is, required reading order, hard invariants, how to run it on this host
+alwaysApply: true
+---
+
+# OQB2 — orientation (read this first, every session)
+
+OQB2 is a Flask 3 + SQLAlchemy + MariaDB web app (server-rendered Jinja + Bootstrap 5 + HTMX, no SPA) that manages a library of exam questions (IMG / DOC / MD assets, versions `EN/CH/BI/ENO/CHO`, tagged by subject / topic / chapter / level) and generates exam papers (`.docx`, lazy `.pdf` via Microsoft Word COM). Admin tooling: ingestion, AI proofreading/transcription/tagging via OpenAI-compatible LLMs, PDF batch import, a PDF workbench, and a mobile handwriting PWA. This repo is **built by AI agents**; docs and rules are deliverables, not afterthoughts.
+
+## Required reading order for every new task
+
+1. `OVERVIEW.md` — purpose, stack, area map, key decisions
+2. `STATUS.md` — what exists / is partial / pending; check before building
+3. `ARCHITECTURE.md` — layering, flows, where new code goes
+4. Only the relevant `docs/core/0N-*.md` (01 runtime, 02 authz, 03 data model, 04 conventions, 05 storage, 06 settings)
+5. The relevant `docs/modules/<module>.md` (one per area; routes, rules, gotchas)
+6. Relevant `docs/decisions/ADR-*.md`
+7. `docs/manuals/*` only when user-facing behaviour matters
+
+Then code. Do not scan the whole repo when the orientation files already say where to drill in. `app/models.py` is the schema source of truth; `app/admin.py` is 7k+ lines — grep for the route name, do not read it whole.
+
+## Hard invariants
+
+- **One live MariaDB, no test DB.** `create_app()` runs schema patches against it. Never run `init_db.py`, `migrate_*.py`, `cli.py sync --no-dry-run`, or one-off root scripts unless the user explicitly asks. See `safety-ops.mdc`.
+- **`.env` contains real secrets.** Never print, copy, or commit it. `.env.example` is the template.
+- **Authz at the route edge** with `@login_required` + a decorator from `app/utils.py`; when a route targets a question/asset rather than a subject, check the object's subject explicitly (the subject decorators pass through when no `subject_id` is found).
+- **Files only via `storage.safe_join` and authenticated routes.** Never `startswith`, never static-serve a data root.
+- **Tunables via `current_app.config[KEY]`** — DB-backed System Settings override `.env` at runtime.
+- **Schema change = model edit + idempotent boot patch in `app/__init__.py` + `docs/reference/schema-history.md`.** No Alembic.
+- **Versions come from `app/utils.VERSIONS`** (templates: `OQB_VERSIONS`). Never hardcode the list.
+- **QIDs, `Subject.id`, asset filenames are stable identifiers** mirrored on disk. Rename only through the app's rename flows.
+- **Dashboard Selection is independent of Filter** (ADR-008).
+- **Word COM only through `app/word_com.py`** (global lock, single WINWORD per session).
+
+## Runtime on this host (exact)
+
+- Windows, PowerShell. Repo `D:\oqb2`. **System Python 3.14**: `C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe` (`python` on PATH). **No venv exists** — do not conclude deps are missing because there is no venv; `pip install -r requirements.txt` already happened.
+- Dev server: `python run.py` → `0.0.0.0:5000`, debug reloader on. It is normally **already running in the user's terminal serving LAN users**; never start a second one or kill it. Python edits hot-reload; templates reload per request.
+- Tests: `python -m unittest discover -s tests` (or `python -m unittest tests.test_sorting -v`). `pytest` is not installed. `tests/test_llm_client.py` calls `create_app()` and touches the live DB — run targeted modules instead.
+- Data roots (from `.env`): `SOURCE_PATH=D:\oqb_data\Source`, `STORAGE_PATH=D:\oqb_data\Storage`. Comments mentioning `Q:\Source` are historical examples.
+- Scratch files go to `$env:TEMP`, never into the repo.
+- External deps: Microsoft Word (DOC merge / PDF / thumbnails), pandoc (MD → docx), Tesseract (optional OCR). Absent on Linux — do not "fix" Windows-only imports.
+
+Full detail: `docs/core/01-runtime-and-ops.md`.

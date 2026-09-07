@@ -1,6 +1,6 @@
 # Online Question Bank System — User Manual
 
-**Version 2.3** | Last Updated: May 2026
+> End-user manual for teachers. Developers and AI agents should start at [OVERVIEW.md](../../OVERVIEW.md).
 
 ---
 

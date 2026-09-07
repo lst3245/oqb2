@@ -1,150 +1,27 @@
 ---
-description: Word document generation, viewer mode, background threading, and generation options
-globs: app/generator.py,templates/generate.html,templates/viewer.html
+description: Document generation - DOCX/ZIP background job, answer modes, compact MC keys, split, Word COM merge, lazy PDF, viewer
+globs: app/generator.py,app/word_com.py,templates/generate.html,templates/viewer.html
 alwaysApply: false
 ---
 
-# Document Generation
+# Generator (bootloader — spec in `docs/modules/generator.md`, `docs/modules/doc-format.md`, ADR-003)
 
-## Flow Overview
-1. User selects questions on dashboard → POSTs to `GET /generate/` (question_ids in form)
-2. User configures options on `generate.html` → POSTs to `POST /generate/create`
-3. `create_document()` creates a `GeneratedFile` DB record (status=`pending`), spawns a **background thread**. The output is **always DOCX** (or a `.zip` of `.docx` for split jobs); the historical `output_format=PDF` choice is no longer accepted from the form.
-4. Background thread builds the master `.docx` via python-docx (markers for DOC asset slots).
-5. If any DOC markers were emitted → open the docx in **Word COM** (`app/word_com.word_session`) and replace markers with `Selection.InsertFile`. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the full Word pipeline. PDF is **not** produced at this stage anymore.
-6. Frontend polls `GET /generate/status/<id>` until status is `completed` or `failed`.
-7. User downloads the docx/zip via `GET /generate/download/<id>` (mimetype `.docx`/`.zip`).
-8. **Optional PDF (lazy)** — both the **Generate-page success banner** ("Get PDF" button beside the Download / My Files links) and the **My Files row** (red PDF button beside Download) hit `GET /generate/pdf/<id>`, which:
-   - Computes the sibling filename (`<stem>.pdf` for `.docx`, `<stem>.pdf.zip` for `.zip`).
-   - If it already exists on disk, sends it directly.
-   - Else opens a Word session and runs `word_com.export_to_pdf` once per inner doc, caches the result, then sends it. Subsequent clicks are instant downloads.
-   - On row deletion, both the source and the cached PDF sibling are removed.
+## Invariants
+- Create always produces **DOCX** (or a ZIP of DOCX for split jobs); `create_document()` pins `output_format='DOCX'`. There is no Output Format radio; the `onOutputFormatChange` shim and PDF branches in `_generate_in_background` are dead code — do not resurrect them.
+- **PDF is lazy**: `GET /generate/pdf/<int:file_id>` runs Word synchronously, writes a sibling (`x.docx → x.pdf`, `x.zip → x.pdf.zip`), caches on disk, returns JSON errors 403/409/400/404/503/500. Deleting the file removes the PDF.
+- Output goes to `storage.ensure_user_generated_dir(user)` (`User/<name>/generated/`); resolve existing files with `generated_file_dir()` (legacy `OUTPUT_PATH` fallback). Never write to `OUTPUT_PATH` directly.
+- Generation runs in a daemon thread that receives `current_app._get_current_object()`; status `pending → generating → completed|failed`, polled via `GET /generate/status/<id>`; stale rows are failed at boot.
+- One `word_session` per job; `_WORD_COM_LOCK` is global and non-reentrant; `word_com.IS_AVAILABLE` is the single gate. DOC slots merge via marker `__OQB_DOC_INSERT_<uuid>__` + `Selection.InsertFile` of a sectPr-stripped copy (master layout wins). Never use docxcompose for DOC.
+- MD slots convert with pandoc; absence degrades to italic placeholders and generation continues.
+- Asset pick order for generation: **format priority then version priority** (`format_priority`, `version_priority`, user-reorderable; parse with `parse_version_priority`).
+- Compact MC answer keys: `QUE_THEN_ANS` mode only, use runtime sequential numbers (never `Question.qno`), always Answer Text; `mc_key_include_seq` / `mc_key_range_title` are forced off when `show_seq_no` is off.
+- Split groups the already-sorted list, so `sort_group_order` propagates; it is honoured only when `sort_mode='custom'` and its `fields` equal the grouping fields of `sort_config`.
 
-## Answer Modes
-| Mode | Behaviour |
-|---|---|
-| `QUE_ONLY` | Questions only |
-| `QUE_ANS` | Each question immediately followed by its answer |
-| `QUE_SOL` | Each question immediately followed by its solution |
-| `QUE_THEN_ANS` | All questions first, then all answers (new page + "ANSWERS" heading) |
-| `QUE_THEN_SOL` | All questions first, then all solutions (new page + "SOLUTIONS" heading) |
+## Authz
+- `/generate/download/<id>` is owner / super-admin only, while `/generate/pdf/<id>` and `/user/files/bulk-download` also accept share recipients (`_user_can_view_file`). Known asymmetry — listed in STATUS; align both if you touch either.
+- Viewer routes are `@subject_access_required` style; `viewer.html` does not extend `base.html`.
 
-### Compact MC keys (`QUE_THEN_ANS` only)
-`compact_mc_answers` replaces contiguous eligible MC answer runs with Answer Text blocks. Eligibility is `q_type == 'MC'` plus non-empty, trimmed, single-line `Question.answer` of at most 80 characters. CQ and ineligible MC answers retain full ANS rendering and split runs; MC QID headings are suppressed while compact mode is active.
-
-- `_partition_mc_answer_runs()` preserves document order and records runtime `seq_start + index`.
-- `_split_mc_answer_run()` applies optional `columns * max_rows` block capacity.
-- `_add_mc_answer_key_block()` emits either native `python-docx` `Table Grid` tables or tab-stop paragraphs.
-- Per-answer numbers and `Qx–Qy` titles use runtime sequential numbers and are gated by `show_seq_no`; they never use the stored real-paper `Question.qno`.
-- Compact blocks use Answer Text regardless of `answer_preference` and bypass per-question MC answer spacing. Normal CQ/ineligible entries retain the existing spacing option.
-
-## Spacing Config
-Separate settings for MC and CQ questions:
-```python
-spacing_config = {
-    'mc': {'before_mode': 'lines'|'page', 'before_lines': int, 'after_mode': 'lines'|'page', 'after_lines': int},
-    'cq': { ... same ... }
-}
-```
-Smart logic: if the previous question already added a page break, skip the `before_mode='page'` to avoid a blank page.
-
-## Generation Options (stored as JSON in GeneratedFile.generation_options)
-| Option | Type | Default |
-|---|---|---|
-| `sort_mode` | `custom`\|`selection` | `custom` (Auto Sort). `selection` = raw Selected-Questions order |
-| `sort_config` | JSON string | multi-level `[{field,direction}]` (Auto Sort only) |
-| `sort_group_order` | JSON string | optional manual block order `{fields:[...], order:[[id,...],...]}` for Topic/Subtopic/Chapter/Subchapter (Auto Sort only). Threaded into `apply_multi_sort(..., group_order=)` in `_generate_in_background`; ignored unless `fields` match the grouping fields in `sort_config` |
-| `answer_mode` | string | `QUE_ONLY` |
-| `compact_mc_answers` | bool | False — compact MC keys in `QUE_THEN_ANS` only |
-| `mc_key_layout` | `table`\|`tabs` | `table` |
-| `mc_key_columns` | int 1–20 | 5 answers per row |
-| `mc_key_max_rows` | nullable int 1–100 | null = automatic rows |
-| `mc_key_include_seq` | bool | effective only with `show_seq_no` |
-| `mc_key_range_title` | bool | effective only with `show_seq_no` |
-| `version_priority` | comma string | `EN,CH,BI,ENO,CHO` — ordered version preference; top wins. Legacy `preferred_language` (`EN`/`CH`) still read on load and converted via `parse_version_priority()` |
-| `answer_preference` | `image_first`\|`text_first` | `image_first` |
-| `output_format` | `DOCX` | always `DOCX` at generation time. PDF is built lazily from My Files via `GET /generate/pdf/<id>` (see Flow step 8). Old saved presets that still carry `PDF` here are silently ignored on load |
-| `show_qid` | bool | — |
-| `show_qid_answer` | bool | — |
-| `show_correct_pct` | bool | — format: `QID [75%]` |
-| `show_seq_no` | bool | True on a new Generate form; regeneration/presets restore their saved value |
-| `seq_start` | int | 1 |
-| `show_page_no` | bool | — footer page numbers |
-| `keep_together` | bool | — Word keep_with_next on headings |
-| `apply_spacing_to_ans` | bool | False — use minimal spacing for ANS/SOL in THEN modes |
-| `denote_cross_topic` | bool | — appends `[Cross Topic: X, Y]` to info line |
-| `info_fields` | dict | topic/subtopic/chapter/subchapter booleans — per-question info line |
-| `section_fields` | dict | topic/subtopic/chapter/subchapter booleans — section headings on change |
-| `split_fields` | dict | topic/subtopic/chapter/subchapter booleans — split into separate .docx, zipped |
-| `format_priority` | string | comma list, default `IMG,MD,DOC` |
-
-## Generate-page UX
-`templates/generate.html` uses progressive disclosure rather than a separate Quick/Advanced mode:
-- Always-visible flow: file name → content/answer mode → numbering/headings → contextual compact-MC panel → question order.
-- Advanced Bootstrap collapses: Asset selection, Document structure, and Spacing/pagination. Controls remain enabled and submit normally while collapsed.
-- `syncAdvancedOptionSummaries()` marks non-default sections as customized and opens them after regeneration/preset restoration.
-- Generated sequential numbering is checked in HTML for new forms. `restoreGenerationOptions()` remains authoritative for saved `show_seq_no` values.
-- Compact-key numbering controls are hidden (not disabled or cleared) while `show_seq_no` is off; the compact key itself still works without labels.
-- `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer` choice when answer mode changes. Answer/solution spacing is visible only for `QUE_THEN_ANS` / `QUE_THEN_SOL`.
-
-## Output Format
-- **Generation always produces DOCX.** `create_document()` no longer reads `output_format` from the form (the radio block in `generate.html` was removed); it pins `output_format = 'DOCX'` before spawning the worker.
-- Final output is therefore a `.docx` (single doc) or a `.zip` of `.docx` (split job). Word COM is only opened when DOC source assets are present (for `Selection.InsertFile` merging); a pure-image / pure-MD job stays in python-docx land entirely.
-- **PDF is opt-in via My Files.** `GET /generate/pdf/<id>` lazily converts the DOCX (or each DOCX inside the ZIP) to PDF using the same `word_com.export_to_pdf()` helper that the old generation path used, caches the sibling on disk, and serves it. See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the row-button UX.
-- Sibling layout on disk: `myname_20260528_001500.docx` ↔ `myname_20260528_001500.pdf`, `myname_20260528_001500.zip` ↔ `myname_20260528_001500.pdf.zip`. The helper `_pdf_sibling_filename()` in `app/generator.py` encapsulates this mapping; passing a `.pdf` (or any other extension) returns `None`, which the UI uses to hide the PDF button.
-
-## Split to ZIP
-If any `split_fields` are enabled, output is a `.zip` file containing one `.docx` per group.
-Groups are built by `_split_questions_into_groups()`. Group labels become filenames (sanitised).
-Because it groups the **already-sorted** question list by first appearance, split ordering automatically inherits any manual block order (`sort_group_order`) — no extra wiring needed.
-
-## Manual block reordering (Auto Sort)
-When `sort_config` contains a grouping field (`topic`/`subtopic`/`chapter`/`subchapter`), the Auto-sort panel shows a **Reorder blocks** button. It `POST`s the selected `question_ids` + `group_fields` to `POST /generate/api/sort-groups` (returns blocks via `enumerate_sort_groups`) and renders a SortableJS drag list. The chosen order is stored in hidden `#sortGroupOrderInput`, included in `getCurrentGenerationOptions()` as `sort_group_order`, persisted in `GeneratedFile.generation_options` + `SavedGenerationProfile.options_data`, and restored by `restoreGenerationOptions()` (regen + preset load). The dashboard also forwards its `sort_group_order` to the Generate page via `submitQuestionIds()`, and it rides inside `filter_data` for My Files re-filter. The control is hidden in **Manual Sort** mode. See `apply_multi_sort(..., group_order=)` in `utils-sorting.mdc`.
-
-## Custom Word Styles
-Defined in `_define_oqb_styles()` — these appear in Word's Styles gallery:
-- `OQB Section Heading` — centred bold 14pt (section change headings)
-- `OQB Question ID` — bold 12pt (QID / seq number line)
-- `OQB Question Info` — italic 10pt grey (topic/chapter info line)
-- `OQB Body Text` — 11pt (text answers, placeholders)
-
-## Asset Selection Logic
-Assets are sorted by `(format_rank, version_rank, part_number)`:
-- **Version**: ordered by the **Version Priority** drag-to-reorder widget on the Generate page (default `EN,CH,BI,ENO,CHO`). `version_rank = version_priority.index(asset.version)`. Stored in `generation_options.version_priority` (comma list), parsed/normalised by `parse_version_priority()` (in `app/utils.py`), threaded through `_generate_in_background → create_word_document → add_question_content_to_doc(version_priority=...)`. Legacy `preferred_language` is converted to a list on load.
-- **Format**: defaults to **`IMG` > `MD` > `DOC`** (mirror of the dashboard's preview resolver in `app/dashboard.py`), but **user-configurable per generation** via the **Format Priority** widget. Stored in `generation_options.format_priority` (e.g. `MD,IMG,DOC`), parsed by `_parse_format_priority()`.
-
-All parts sharing the best `(format, version)` group are included in order of `part_number`.
-
-For `ANS` with `answer_preference='text_first'`: use `question.answer` text if available, fall back to image.  
-For `ANS` with `answer_preference='image_first'`: use image if available, fall back to `question.answer` text.
-
-### Asset rendering by format
-`add_question_content_to_doc()` has three format branches:
-- `IMG` → `doc.add_picture()` (auto-resized by `_DPI`)
-- `MD`  → `_append_md_via_pandoc()` calls `pandoc <md> -o tmp.docx --from=markdown+tex_math_dollars --to=docx` then `docxcompose.Composer(doc).append(fragment)`. Requires `PANDOC_PATH` (default: `pandoc` on `PATH`); errors fall through to an italic placeholder. Math comes through as native Word equations (OMML).
-- `DOC` → emits a unique marker paragraph (`__OQB_DOC_INSERT_<uuid>__`) and pushes `{marker: abs_path}` into the `doc_insertions` dict that `create_word_document` returns. The post-save Word COM step finds each marker and replaces it via `Selection.InsertFile` of a section-property-stripped copy of the source. Falls back to the legacy italic placeholder when Word COM isn't available. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc).
-
-`create_word_document(...)` returns `(doc, doc_insertions)` instead of just `doc`. The caller (`_generate_in_background`) saves the docx to a temp path first when `doc_insertions` is non-empty, opens a single Word session via `app/word_com.word_session`, performs the merge, then moves the final artifact into `OUTPUT_PATH/<filename>`. The `output_format` parameter to `_generate_in_background` is now always `'DOCX'` so the PDF-export branch never fires at generation time — that path now lives in the lazy `/generate/pdf/<id>` route instead.
-
-## Viewer / Presentation Mode
-Route: `POST /generate/viewer` → `viewer.html`  
-Separate page for slide-style question review (not Word generation).  
-Asset API: `GET /generate/api/viewer_asset/<question_id>/<asset_type>?version_priority=EN,CH,BI,ENO,CHO` (legacy `?lang=EN` still accepted). Present mode exposes the same drag-to-reorder Version Priority widget.  
-Also supports ANS ↔ SOL fallback if one type is missing.
-
-## Regeneration
-Pass `?regen_file_id=<id>` to `GET /generate/` to pre-fill options from a previously generated file.
-Options are loaded from `GeneratedFile.generation_options` JSON.
-
-## Saved Generation Presets (independent of any specific selection)
-The Generate page has a "Presets" bar (above the form) with:
-- A **load dropdown** that lists `SavedGenerationProfile` rows (starred first under a `★ Starred` optgroup).
-- A **Save as preset** button that opens a modal and POSTs to `/user/gen-profiles/save` with the current option state via JS helper `getCurrentGenerationOptions()`. Save is upsert-by-name; `question_ids` is stripped client- and server-side.
-- A **Manage** link to `/user/gen-profiles`.
-
-Loading a preset calls the same `restoreGenerationOptions()` used by regen-from-file. It never touches `question_ids` or `filter_data`; it does restore generation sort configuration because sort settings are part of a preset.
-
-See [user-files-profiles.mdc](mdc:.cursor/rules/user-files-profiles.mdc) for the full route list.
-
-## Background Thread
-`_generate_in_background()` runs inside `with app.app_context()`. Always use `current_app._get_current_object()` to pass the real app object to the thread (not the proxy).
+## Gotchas
+- `WORD_COM_TIMEOUT` is defined but **not enforced** anywhere; only `WORD_COM_LOCK_TIMEOUT` (lock wait) is live. Do not describe a watchdog that does not exist; implement it if needed.
+- Word COM code lives only in `app/word_com.py`; never import `win32com` elsewhere.
+- Generation options JSON must stay backward compatible (`preferred_language` legacy key still read).

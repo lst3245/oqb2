@@ -19,7 +19,7 @@ REM Check if .env exists
 if not exist ".env" (
     echo.
     echo ERROR: .env file not found!
-    echo Please copy env_template.txt to .env and configure your database settings.
+    echo Please copy .env.example to .env and configure your database settings.
     echo.
     pause
     exit /b 1

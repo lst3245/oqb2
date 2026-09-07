@@ -1,6 +1,6 @@
 # Online Question Bank System — Administrator Guide
 
-**Version 2.3** | Last Updated: May 2026
+> Operator manual for humans. Agents and developers should start at [OVERVIEW.md](../../OVERVIEW.md); the runtime facts for the current host are in [docs/core/01-runtime-and-ops.md](../core/01-runtime-and-ops.md) and the full settings table in [docs/core/06-system-settings.md](../core/06-system-settings.md).
 
 ---
 
@@ -45,7 +45,7 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 
 # 4. Configure environment (see Section 2)
-copy env_template.txt .env
+copy .env.example .env
 
 # 5. Create the database in MariaDB
 # In MySQL client:
@@ -66,7 +66,7 @@ Run `quickstart.bat` to set up the virtual environment and install dependencies 
 
 ## 2. Environment Configuration
 
-Copy `env_template.txt` to `.env` and edit:
+Copy `.env.example` (in the repo root; it documents every key) to `.env` and edit:
 
 ```ini
 # Database
@@ -527,7 +527,11 @@ A DB-backed page for runtime tunables. Changes apply immediately to the running 
 | Thumbnails | `DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_TRANSPARENT`, `THUMBNAIL_WHITENESS_THRESHOLD`, `THUMBNAIL_BOTTOM_PADDING_PX` | Apply to new renders only — after changing, run **Database Health → DOC Asset Thumbnails → Force Re-render All** to apply to existing cache. |
 | Batch IMG Generation | `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` | Pre-fill the **Generate IMG** modal in Question Management. |
 | AI Tools | `AI_TOOLS_ENABLED`, `LLM_IMAGE_MAX_DIM`, `*_DEFAULT_LLM` | Master on/off switch, image downscale size, and per-feature default LLM endpoints (`AUTOTAG`, `MD`, `CHECK`, `SOLVEGEN`, `SOLVECHECK`, `PDF_IMPORT`, `EXPLAIN`). |
+| PDF Import | `PDF_IMPORT_RASTER_WIDTH`, `PDF_IMPORT_RASTER_WORKERS`, `PDF_IMPORT_COORD_ORDER`, `PDF_IMPORT_DESKEW_DEFAULT`, `PDF_IMPORT_DEFAULT_METHOD`, `PDF_IMPORT_CROP_PAD_PCT`, `PDF_IMPORT_REFINE_GROW_PCT`, `PDF_IMPORT_ASSIST_PAD_PCT`, `PDF_IMPORT_TRIM_WHITE_DEFAULT`, `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` | Raster quality / parallelism, bounding-box axis order for the vision model, and the defaults pre-ticked in the PDF Batch Import wizard. |
+| Toolbox | `TOOLBOX_DEFAULT_DPI`, `TOOLBOX_OCR_DPI`, `TOOLBOX_OCR_WORKERS`, `TOOLBOX_OCR_AUTO_ORIENT`, `TOOLBOX_SESSION_RETENTION_HOURS` | PDF Tool export DPI, Find & Mark OCR settings, and how many hours staging sessions stay in the **Restore session** list before purge (default 48). |
 | Markup | `MARKUP_NORMALIZED_MAX_DIM` | Longest-edge canvas size (world units) for imported Markup images (default 2400). Larger = bigger default fit view and thicker default pen sizes. |
+
+The authoritative list with types, ranges, and defaults is [docs/core/06-system-settings.md](../core/06-system-settings.md).
 
 ### LLM Endpoints (AI Tools)
 

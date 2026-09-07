@@ -1583,7 +1583,7 @@ def files_bulk_download():
 
     # Build the ZIP in-memory. The output_path docs already produce files
     # on the order of a few MB each; if usage outgrows this we can switch
-    # to a streaming `stream_zip` implementation. Tracked in CHANGELOG.
+    # to a streaming `stream_zip` implementation (see docs/modules/my-files.md).
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
         for src, arcname in files_to_zip:

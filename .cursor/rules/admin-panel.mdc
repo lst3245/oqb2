@@ -1,132 +1,30 @@
 ---
-description: Admin panel sections, permissions, ingestion, export/import, and health checks
-globs: app/admin.py,templates/admin_*.html
+description: Admin panel - subjects/topics/chapters/users/export-import/health pages and Question Management (Edit modal, assets, batch ops)
+globs: app/admin.py,app/batch_image_gen.py,templates/admin_*.html,templates/partials/edit_question_modal*.html,templates/partials/tag_editor_*.html
 alwaysApply: false
 ---
 
-# Admin Panel (`app/admin.py`)
+# Admin panel (bootloader — spec in `docs/modules/admin-panel.md` and `docs/modules/admin-questions.md`)
 
-Very large file (~3700 lines). Organised into clearly labelled sections with `# ===` comments.
+`app/admin.py` is ~7.3k lines: grep `@admin_bp.route('<path>'` for the function you need; never read it whole. Routes keyed by `question_id` must check the question's subject explicitly (`_require_md_admin` pattern) — the subject decorators pass through without a `subject_id`.
 
-## Permission Tiers
-- Most routes: `@admin_required` — any subject admin or super admin
-- User management: `@super_admin_required` — super admin only
-- Health / File Browser: `@super_admin_required`
-- Ingestion: `@admin_required` (filtered by user's admin subjects)
+## Panel invariants
+- `Subject.id` is immutable; only `name` is editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → Subject (topics/chapters cascade). Disk is untouched.
+- Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot edit/delete yourself. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key.
+- Health: `/admin/health/sync?mode=dry_run|delete` (dry run default; 24 h grace for asset-less questions); `/health/stats` is DB-only. Anomaly hand-off to lists via `?qids=` or `?qids_token=<localStorage key>` (consumed once).
+- `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
+- Super-admin-only pages: Users, Subjects, Settings, LLM Endpoints, Prompts, Health, `/admin/files`.
 
-## Sections
+## Question Management invariants
+- Canonical asset path = `_build_asset_file_path`; IMG is multi-part, MD/DOC single-slot (upload rejects a second one; reorder ignores MD/DOC). Asset delete is `POST|DELETE .../assets/<asset_id>/delete`.
+- Every IMG/DOC row mutation calls the `doc_thumbnails.on_*` hooks **after commit**; every MD write calls `md_render.invalidate`.
+- List filters `qids` > `selected_ids` > `qid_search` are exclusive; `verified` and `check_status` (+ `check_versions/atypes/formats`, default `TYPED_VERSIONS`) combine. `asset_count` is never subject-scoped.
+- Shared Edit modal: `openEditModal(id, {preserveView, preserveAssetScroll})`; hosts define `window.oqbAfterQuestionEdit` and `window.oqbEditNavSource()`; include `edit_question_modal_js.html` only (it pulls `tag_editor_js.html` and `md_editor.html`). Add-question wizard borrows the tag form (`borrowTagFormForAdd` / `returnTagFormToEditModal`).
+- localStorage: `oqb_adminQuestionsFilters`, `oqb_selectedQuestions`, `oqb_assetThumbsCompact`; `BULK_DELETE_TYPED_THRESHOLD = 10`.
+- QID rename renames files only when `confirm_rename_files` is true.
+- Batch ops intersect `question_ids` with `get_user_admin_subjects()`. Generate IMG: `find_best_source` DOC > MD, whole-slot `replace_img_assets`, one `word_session` per run, defaults `BATCH_IMG_DEFAULT_WIDTH/STITCH`, accepts `symmetric_horizontal`. Set MCQ ANS: `q_type='MC'`, answer A–D, PNGs from `resources/mcq_answer_img/`, default `versions=EN`. `batch-set-check-state` skips checked slots unless `overwrite`. Batch update (incl. chapters) UI lives in the **dashboard** Bulk Edit modal.
+- `verified` is a whole-question manual flag independent of per-asset `check_state`; UI soft-warns only.
 
-### Subject Management (`/admin/subjects`) — super admin only
-CRUD for the `Subject` model (historically only seeded by `init_db.py`).
-- `GET /admin/subjects` — page (`admin_subjects.html`); table with per-subject question/topic/chapter counts.
-- `GET /admin/subjects/<id>/usage` — JSON `{questions, topics, chapters, saved_filters, question_sets, permissions}` driving the delete-confirm modal. `saved_filters` is computed by parsing each `SavedFilter.filter_data` JSON for `subject == id` (helper `_saved_filter_subject_count`).
-- `POST /admin/subjects/add` — `{id, name}`. ID is validated against `^[A-Z0-9]{1,10}$`, uppercased, must be unique (PK).
-- `POST /admin/subjects/<id>/edit` — `{name}`. **Name only** — the ID is the PK, embedded in QIDs + the `SOURCE_PATH/<subject>/` layout, so it's immutable.
-- `POST /admin/subjects/<id>/delete` — rejected (400) if any `Question` references it. Otherwise deletes `SavedQuestionSet`, stale `SavedFilter` rows (JSON match), `UserSubjectPermission`, then the `Subject` (topics/subtopics/chapters/subchapters cascade). Disk folder under `SOURCE_PATH` is left untouched.
-
-### Topic Management (`/admin/topics`)
-CRUD + reorder for Topics and Subtopics per subject.
-- Topics/Subtopics have `sort_order` for drag-and-drop reorder
-- Subtopics have `hidden` flag (hidden subtopics excluded from dashboard, but shown in admin with `include_hidden=1`)
-- Same structure for Chapters/Subchapters at `/admin/chapters`
-
-### Question Tagging (`POST /admin/questions/<id>/update`)
-Updates question metadata fields: `major_topic_id`, `major_subtopic_id`, `minor_topics` (M2M), `subtopics` (M2M), `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `description`, `correct_percentage`, `answer`, `comment`.  
-Validation: `major_subtopic_id` must belong to `major_topic_id` when both are set.
-
-### Question Management (`/admin/questions`)
-- List with full filter support (same params as dashboard)
-- `GET /admin/questions/api/list` accepts these mutually exclusive filters (first match wins):
-  - `qids=Q1,Q2,...` — exact QID list (used by DB-Health anomaly view, preserves supplied order when sort is `selection_order`/`created_at`)
-  - `selected_ids=1,2,3` — internal int IDs (used by "Show dashboard selections")
-  - `qid_search=...` — LIKE substring/wildcard pattern
-  - plus two **non-exclusive** filters: `verified` (`1`/`0`) and `check_status` (`issues`/`ok`/`unchecked` — asset-check rollup via correlated EXISTS). By default the status rollup/filter considers `TYPED_VERSIONS` (EN/CH/BI); optional advanced scope params `check_versions=EN,CH,...`, `check_atypes=QUE,ANS,SOL`, and `check_formats=IMG,MD,DOC` narrow the status logic. Each returned item carries `verified` and `check_summary` (active status scope) for the **Status** + **Verified** columns, plus `asset_count` (TRUE total across all versions).
-- `GET /admin/questions/api/ids` reuses the same filter/sort helper as `/api/list` and returns every matching `{id, qid}` for the caller's admin subjects. `admin_questions.html` uses it for the page-level checkbox banner: first tick selects visible rows; the banner action selects all matching filtered questions for bulk operations.
-- Page reads `?qids=…` (or `?qids_token=…` → localStorage fallback) from URL on load and shows a dismissible banner; user typing in search or toggling dashboard-selections drops the pinned QID list. Toolbar filters (QID search, Show dashboard selections, Status, Verified, page size, sort, page) persist in `localStorage` (`oqb_adminQuestionsFilters`) across refresh. Dashboard **Manage** link uses `?from=dashboard` to auto-enable Show dashboard selections on first open.
-- `POST /admin/questions/create` — create a question manually (without ingestor)
-- `POST /admin/questions/<id>/rename` — change QID (renames files on disk too, via `_build_asset_file_path`)
-- `POST /admin/questions/<id>/assets/upload` — upload new asset file (IMG/DOC/MD; form field `version` (legacy `language` accepted); rejects a second MD for the same QUE/ANS/SOL × version (EN/CH/BI/ENO/CHO) slot and enforces `MD_MAX_SIZE_BYTES`)
-- `DELETE /admin/questions/<id>/assets/<asset_id>` — delete asset (removes file from disk; invalidates MD render cache)
-- `POST /admin/questions/<id>/assets/reorder` — update part_number ordering
-
-### Markdown asset editor (MD only)
-- `GET  /admin/questions/<id>/assets/<asset_id>/md/content` — JSON: raw text + `mtime_ns`
-- `POST /admin/questions/<id>/assets/<asset_id>/md/save` — body `{content, expected_mtime_ns?, force?}`; 409 on optimistic conflict
-- `POST /admin/questions/<id>/assets/md/create` — body `{version, asset_type, content}` (legacy `language` accepted); rejects 409 if MD exists in slot
-- `GET  /admin/questions/<id>/assets/<asset_id>/md/edit` — fullscreen editor page (`templates/admin_md_editor.html`)
-- `GET  /admin/questions/<id>/assets/md/new?version=&asset_type=` — fullscreen editor in create mode (legacy `language=` accepted)
-
-Editor frontend lives in `templates/partials/md_editor.html` (EasyMDE + marked + KaTeX). The Edit Question modal in `admin_questions.html` includes both an **inline modal** editor (`#mdEditorModal`) and a link to the fullscreen variant per MD asset card.
-
-### Batch Operations
-`POST /admin/questions/batch-update` — selectively update multiple questions:
-- Checkbox flags: `update_level`, `update_q_type`, `update_section`, `update_topics`, `update_correct_pct`
-- `POST /admin/questions/delete` — delete multiple questions + cascade assets + delete files from disk; submitted IDs are intersected with caller's admin subjects.
-- `POST /admin/questions/batch_delete_assets` — delete a **filtered subset of assets** for the selected questions. Form params: `question_ids` (repeated), `formats` (repeated; IMG/MD/DOC), `versions` (repeated; EN/CH/BI/ENO/CHO; legacy `langs` accepted), `atypes` (repeated; QUE/ANS/SOL), `delete_files` (`true`/`false`, default `true`). Each axis must be non-empty (AND of three `IN(...)` clauses). Scope is intersected with the caller's admin subjects. Mirrors `delete_question_asset`'s DOC-thumbnail lifecycle hooks (`on_doc_asset_deleted` / `on_img_asset_deleted`) so cached PNGs stay consistent.
-- `GET /admin/questions/batch-generate-images` — **SSE stream** that renders DOC/MD source assets into IMG PNGs in bulk. Query params: `question_ids` (csv), `types` (QUE/ANS/SOL), `versions` (EN/CH/BI/ENO/CHO; legacy `langs` accepted), `sources` (DOC/MD), `stitch` (1/0), `overwrite` (1/0), `width`, `transparent`. UI lives in the **Generate IMG** bulk button on `templates/admin_questions.html`. Backed by `app/batch_image_gen.py` (`render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`). Word COM serialised through the same global lock as DOC thumbnails / docx generation.
-- `GET /admin/questions/batch-mcq-ans` — **SSE stream** that assigns MCQ answer images. For each selected question, reads `question.answer` (must be `A`/`B`/`C`/`D`) and `q_type` (must be `MC`), then copies the matching PNG from `resources/mcq_answer_img/{A|B|C|D}.png` into the canonical ANS slot on disk and upserts the `QuestionAsset` row. Query params: `question_ids` (csv), `versions` (csv, default `EN`; legacy `langs` accepted), `overwrite` (1/0, default `0`). Subject-admin permission. UI: **Set MCQ ANS** bulk button on `admin_questions.html`.
-- `GET /admin/questions/batch-asset-ops` — **SSE stream** for the **Copy/Move Assets** bulk button on `admin_questions.html`. Query params: `question_ids` (csv) and `ops` (JSON list). Each op has `action` (`copy`/`move`), source/target `versions`, `atypes`, `formats`, and `overwrite`. Runs ops sequentially within each selected question. Mapping is per axis: a single source version/atype can fan out to any selected targets (e.g. `QUE→SOL`); multiple source versions/atypes lock that target axis and map by name. Formats are always same-format only. IMG remains multi-part with preserved part numbers; MD/DOC remain single-slot. Overwrite deletes/replaces target rows/files and fires MD render-cache + DOC-thumbnail lifecycle hooks; Move removes the source slot only after every requested target slot for that source succeeds.
-
-### AI Tools (LLM proofreading / Markdown generation)
-- `GET /admin/questions/ai/check` and `GET /admin/questions/ai/generate-md` — **SSE streams** that call a configured LLM endpoint per question slot, with a real server-side Stop (`POST /admin/questions/ai/cancel` + `job_id`). `GET /admin/questions/ai/endpoints` lists enabled endpoints for the modal. **Proofreading (check)** runs **per format** (IMG / MD / DOC): each selected format that exists in a typed slot is compared to the reference (MD/DOC rendered to images on the fly). Batch route accepts `formats=IMG,MD,DOC`. Synchronous per-slot variants: `POST /admin/questions/<id>/assets/ai/generate-md`, `POST /admin/questions/<id>/assets/ai/check` (Quick Check — all present formats; optional `formats[]`), `POST /admin/questions/<id>/assets/generate-img`. `POST /admin/questions/<id>/assets/check-state` manually sets/clears proofread status for the whole slot. UI: **AI Tools** modal (`formats` checkboxes on the Check op) + per-format badges on the edit-modal asset cards. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
-- **Auto Question Tagging** — `POST /admin/questions/<id>/ai/suggest-tags` (synchronous, **no write**: returns LLM suggestions for the edit modal to populate + highlight; user clicks Save Tags to commit) and `GET /admin/questions/ai/auto-tag` (**SSE** batch tagging, writes per question, reuses `/ai/cancel`). The model is sent QUE/SOL images (IMG → MD text → DOC-thumbnail fallback) + the subject's allowed tag values; returned names map back to Topic/Subtopic/Chapter/Subchapter IDs. Subject-admin scoped; gated on `AI_TOOLS_ENABLED`. UI: **Auto Tag** button + `#autoTagModal` in the edit modal, **Auto tag** op in `aiToolsModal` for batch. See [ai-tools.mdc](mdc:.cursor/rules/ai-tools.mdc).
-- **Verification + batch check-state** — `POST /admin/questions/<id>/verify` (`{verified}`; response carries `unchecked_assets` for the modal soft-warn), `POST /admin/questions/batch-set-verified` (`{question_ids[], verified}`), `POST /admin/questions/batch-set-check-state` (`{question_ids[], versions[], atypes[], state, note?, severity?, overwrite?}` — applies the per-slot proofread write across the selection). UI: **Set Check State** + **Set Verified** batch buttons on `admin_questions.html`; Verified toggle in the edit modal Details tab; **Status** + **Verified** filter dropdowns in the toolbar.
-- **LLM Endpoints** (`/admin/llm-endpoints`, super-admin) — CRUD for `LLMConfig` rows: `llm_endpoints_page`, `llm_endpoints_data` (keys masked), `llm_endpoints_save` (encrypts a newly entered key; blank keeps existing; `clear_key` removes it), `llm_endpoints_<id>_delete`, `llm_endpoints_<id>_duplicate` (clones all fields including stored `api_key_enc` when set, with auto-generated unique name), `llm_endpoints_<id>_test` (connectivity ping), `llm_endpoints_<id>_chat` (raw chat — passes `turns` straight to `llm_client.chat_messages` with no system prompt or context). UI `templates/admin_llm_endpoints.html`, linked from System Settings + Admin navbar.
-
-The `Delete Selected` button on `admin_questions.html` opens a single two-tab modal — **Whole questions** (POSTs to `delete_questions`) and **Specific assets** (POSTs to `batch_delete_assets`). The shared confirm gate uses an "I understand" checkbox at ≤ 10 selected questions and requires typing `DELETE` above that threshold (`BULK_DELETE_TYPED_THRESHOLD = 10`). Switching tabs invalidates the confirm to force re-confirmation. The assets tab starts with **all checkboxes deselected** so nothing gets removed by accident.
-- `POST /admin/questions/<qid>/assets/<aid>/rerender-thumb` — force a re-render of a single DOC asset thumbnail. Subject-admin only. Drives the per-preview "Re-render" button in dashboard cards / preview modal / inline preview helper. See [docx-source-format.mdc](mdc:.cursor/rules/docx-source-format.mdc) for the frontend flow.
-
-### System Settings (`/admin/settings`) — super admin only
-DB-backed runtime tunables that override `.env` / `Config` defaults without a restart. See [system-settings.mdc](mdc:.cursor/rules/system-settings.mdc) for the full reference.
-- `GET  /admin/settings` — page (`templates/admin_settings.html`).
-- `GET  /admin/settings/data` — `{groups, registry}` JSON for the UI.
-- `POST /admin/settings/save` — body `{key: value, ...}`; per-key validation; partial saves succeed.
-- `POST /admin/settings/reset/<key>` — drop DB override, restore bootstrap default.
-
-The registry covers Dashboard / Markdown / Word COM / Thumbnails / Batch IMG / AI Tools groups. Secrets (DB creds, `SECRET_KEY`, paths, `PANDOC_PATH`, `DOC_THUMBNAIL_PATH`, `LLM_API_KEY`, `LLM_KEY_SECRET`) stay `.env`-only.
-
-### User Management (`/admin/users`) — super admin only
-- Add/edit/delete users
-- `POST /admin/users/<id>/permissions` — set subject permissions (replaces all permissions for that user)
-- Payload: `{subject_id: role}` dict where role is `'viewer'`, `'user'`, `'admin'`, or `''` to remove
-
-### Export / Import (`/admin/export-import`)
-All exports are CSV. Imports are idempotent (upsert logic).
-- **Question Tags CSV**: `qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, description, answer, comment`
-  - `GET /admin/export/question-tags` accepts either `subject_id` (full subject export) **or** `question_ids` (csv of DB IDs, exports only those questions filtered to the caller's admin subjects — used by the "Dashboard selections only" toggle on the Export page).
-  - Output filename: `question_tags_{subject_id}.csv` or `question_tags_selected_{N}.csv`.
-- **Topics CSV**: `subject_id, topic_name, subtopic_name, subtopic_hidden`. Row order = sort order.
-- **Chapters CSV**: `subject_id, chapter_name, subchapter_name, subchapter_hidden`. Row order = sort order.
-
-### Smart Import (`/admin/import`) — unified ingestion + folder import
-Two modes on one page (`admin_smart_import.html`). Replaces the old Ingestion page; `GET /admin/ingestion` 302-redirects to `/admin/import`. See [smart-import.mdc](mdc:.cursor/rules/smart-import.mdc).
-- **Library scan** (strict): `GET /admin/ingestion/preview` (directory tree + parseable counts) and `GET /admin/ingestion/start?subject_id=MATC` (**SSE** `scan_directory_stream()`; event types `info|success|skip|error|progress|done`) — both still live and reused by this mode.
-- **Folder import** (heuristic, IMG/DOC/MD), engine `app/smart_import.py`:
-  - `GET /admin/import` — page (`?mode=folder`, optional `?qids=` scope).
-  - `POST /admin/import/analyze` — `{sources: [{root_id, rel_path}], profile, qids?}` (legacy single `{root_id, rel_path}` and uploaded-folder token also accepted) → match proposals (subject-admin filtered). Server-folder proposals carry `source_root_id` so multi-folder preview/apply use the correct root.
-  - `POST /admin/import/analyze-llm` — optional AI structure inference (gated on `AI_TOOLS_ENABLED`).
-  - `POST /admin/import/prepare` — `{sources[]|root_id|upload_token, items, profile}` → validated plan stashed under a token; multi-server imports are grouped by each accepted item's `source_root_id`.
-  - `GET /admin/import/apply?token=` — **SSE** apply (copy into canonical `SOURCE_PATH`; IMG whole-slot replace, DOC/MD single-slot; optional backup + create-missing).
-  - **Import Files** toolbar button on Question Management scopes Folder import to selected QIDs.
-
-### PDF Batch Import (`/admin/pdf-import`)
-Three-step UI: **Load PDF** (stage/rasterise) → **define bounding boxes** (optional vision-LLM detect + manual box editor) → **import** (exam: crop + `QUE`/`SOL` IMG assets; generic: ZIP). PP only for DB import; subject-admin scoped. Staging works without AI; detect/commit need `AI_TOOLS_ENABLED` + vision endpoint. Backed by `app/pdf_import.py`. Routes: `pdf_import_page`, `stage`, `page/<token>/<kind>/<int:page>.png`, `detect` (SSE), `redo-page`, `plan`, `commit` (SSE), `cancel`, `discard`, `export-zip`, etc. See [pdf-import.mdc](mdc:.cursor/rules/pdf-import.mdc).
-
-### Database Health (`/admin/health`) — super admin only
-- `GET /admin/health/stats` — fast DB-only stats (counts, untagged, no-asset questions, duplicates, path mismatches)
-- `GET /admin/health/untracked` — files on disk not in DB
-- `GET /admin/health/sync?dry_run=1` — **SSE stream** to find/remove orphaned DB records
-  - Grace period: questions created < 24h ago are skipped
-- `GET /admin/health/doc-thumbnails/backfill?force=0|1` — **SSE stream** that walks every DOC asset and renders any missing PNG (or all PNGs when `force=1`).
-- `POST /admin/health/doc-thumbnails/clear` — delete every cached PNG from `DOC_THUMBNAIL_PATH`. Lazy resolver re-creates them on demand.
-- Anomaly modal (in `templates/admin_health.html`) tracks two parallel maps: `anomalyData` (display strings shown in the modal body) and `anomalyDataQids` (raw QIDs used by the "View in Dashboard" / "View in Question Management" footer buttons). For `duplicate_assets_list` and `path_mismatches_list`, the QID prefix is extracted from each formatted entry via `extractQidPrefix()`. The buttons pass QIDs via `?qids=…` URL param (or `?qids_token=…` with localStorage fallback when the joined list exceeds ~6 KB).
-
-### File Browser — shared backend (`files_bp` `/files/api/*`)
-Both the **super-admin** browser page (`/admin/files`, still `@super_admin_required`) and the **per-user** browser page (`/files/browser`, gated to `is_super_admin or not is_all_view_only()`) are thin wrappers over one root-aware, permission-checked API. Pure ops + the `RootRegistry` live in `app/files_service.py`; path safety in `app/storage.py` (`safe_join`). See [.cursor/rules/storage.mdc](mdc:.cursor/rules/storage.mdc).
-- **Scopes.** `/admin/files` uses **admin scope** (`Source` + `Storage` + extra roots; super-admin only). The user browser + every file selector use **user scope** (personal `User/<name>` rw + `Shared/<subject>` — rw for subject admins, ro for users), *including for super-admins* — so My Stuff → File Browser looks the same for everyone; the admin root set lives only on `/admin/files`. The client sends `scope`; `_request_scope()` re-validates (admin only for super-admins). `User/<name>/generated` is read-only (managed by My Files).
-- **Extra roots** (super-admin only) persist in `system_settings` under `FILE_BROWSER_EXTRA_ROOTS` (JSON abs-path list; managed by dedicated routes, **not** in the settings REGISTRY). All roots must be on the **same drive as `SOURCE_PATH`** (`allowed_drive()` / `path_on_allowed_drive()`).
-- **API:** `GET /files/api/roots|/api/list|/api/download`, `POST /files/api/upload|/api/rename|/api/delete|/api/mkdir|/api/copy`, super-admin-only `POST /files/api/roots/add|/api/roots/remove`. `copy` body `{sources, dest_dir, root}` (name conflicts → `_copy`/`_copy2` suffixes via `_unique_copy_name`; can't copy a folder into itself).
-- **Frontend:** shared partials `partials/file_browser_{css,body,js}.html`; pass `fb_can_manage_roots=True` only on the super-admin page. Per-row + batch **Copy** stash paths in an in-page `clipboard[]`; **Paste here** copies into `currentPath`; **Duplicate** (files only) copies into the item's own parent. Folder delete requires typing `DELETE`.
-
-## Key Helper Function
-`_build_asset_file_path(question, asset)` — reconstructs the canonical relative file path for an asset based on question fields. Used by rename and health path-mismatch check.
+## Gotchas
+- SSE routes gather rows in request context, stream under `app.app_context()`.
+- DOC thumbnails are keyed by `asset_id`; changing width needs Health → Force Re-render.

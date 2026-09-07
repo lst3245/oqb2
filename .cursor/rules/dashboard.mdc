@@ -1,0 +1,26 @@
+---
+description: Dashboard - filter params and precedence, Python-side sorting, Selection vs Filter independence, Show Selected Only, Set Operations, Explain SSE
+globs: app/dashboard.py,templates/dashboard.html,templates/partials/question_list.html
+alwaysApply: false
+---
+
+# Dashboard (bootloader — spec in `docs/modules/dashboard.md`, ADR-008)
+
+## Invariants
+- Filter precedence: `qids` > `ids` > `qid_search`; the first two null every other filter and are intersected with the user's accessible subjects only.
+- Sorting and pagination are **Python-side** (`apply_multi_sort`, natural sort, NULL handling, `sort_group_order` manual blocks). Never move to SQL `ORDER BY` / `LIMIT`.
+- **Selection** (`localStorage.oqb_selectedQuestions`) and **Filter** (`oqb_filterSettings`) are independent. No flow couples them as a side effect; HTMX `afterSwap` may reorder but never prunes. The **only** implicit clear is a subject change (`suppressSelectionClearOnSubjectChange` bypasses it during `?question_set_id=` apply across subjects).
+- **Show Selected Only** is server-side: `syncShowSelectedOnlyToServer()` writes the selection into `#idsInput` and submits; `applyShowSelectedOnly()` is cosmetic only. Call the sync whenever the selection changes while the toggle is on.
+- Topic/subtopic AND mode with ≥ 2 selections: server ignores `is_crosstopic` / `is_crosssubtopic`; UI force-checks + disables "Include tagged in minor", stashes intent in `dataset.userValue`, persists the **intent** to localStorage. `getCurrentFilterValues()` (profile save / modified check) reads the forced `true` — known nuance, do not "fix" one side alone.
+- Preview resolver ranks **version before format**; viewer and generator rank **format before version**. Keep that asymmetry unless you change both and the docs.
+- Set Operations chips: live Selection, Filter Result, browser-only Scratch Sets (`oqb_scratchSets`, subject-scoped), saved Question Sets; chip ids are strings; Apply actions are selection-only.
+- Explain tutor: stateless SSE (`preamble → delta* → done|error`), gated on `AI_TOOLS_ENABLED`; `endpoint_id` honoured only for super/subject admins; ≤ 6 images per turn, 32 MB per request; guard stale streams with the `aborter`.
+
+## Entry points
+- URL params: `?profile_id=` (filter only), `?filter_data_id=` (filter + selection), `?question_set_id=` (selection, Show Selected Only on), `?qids=` / `?qids_token=` (one-shot override + banner, token consumed from localStorage).
+- Routes: `POST /dashboard/filter` (HTMX partial), `/dashboard/api/*` lookups, `/dashboard/api/sort-groups`, previews `/dashboard/api/question/<id>/preview/<type>`, `/dashboard/api/question/<id>/explain[/endpoints]`.
+
+## Gotchas
+- Server ints vs client string ids — coerce at the boundary.
+- Selections may contain ids of deleted questions; every consumer tolerates that.
+- Edit modal on the dashboard is admin-gated; host sets `window.oqbAfterQuestionEdit = refreshCurrentPage` and `oqbEditNavSource` → `#allQuestionIds`.

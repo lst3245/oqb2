@@ -1,0 +1,38 @@
+---
+description: Backend layering, route/authz/envelope/SSE/thread patterns, identifiers (QID, versions), sort helpers, schema-change rule
+globs: app/**/*.py,cli.py,run.py,init_db.py
+alwaysApply: false
+---
+
+# Backend conventions (bootloader — spec in `docs/core/`)
+
+Read `docs/core/04-backend-conventions.md`, `docs/core/02-auth-and-permissions.md`, `docs/core/03-data-model-and-migrations.md` before non-trivial backend work.
+
+## Layering
+- Routes are thin: parse → authz decorator → service/query → template | JSON | SSE. Put logic in a service module (`app/<area>_service.py`, `ai_tools.py`, `ingestor.py`, ...), not in `app/admin.py`.
+- One blueprint per area; register in `create_app()`. Prefer a new module over growing `admin.py`.
+
+## Authz
+- Decorator order: `@bp.route` → `@login_required` → one of `@admin_required` / `@super_admin_required` / `@subject_access_required` / `@subject_admin_required`.
+- The subject decorators **pass through when no `subject_id` is found**. Routes keyed by `question_id` / `asset_id` / `file_id` must load the object and check `current_user.is_subject_admin(obj.subject_id)` (or ownership) explicitly. Pattern: `_require_md_admin(question)` in `app/admin.py`.
+- `users.is_admin` is legacy; never read it.
+
+## Responses
+- Use the envelope of the surrounding route family: `{'success': True/False, 'message'}` (modal/asset/My Files routes) or payload-with-2xx / `{'error': ...}`-with-4xx (data APIs). Never mix within one family.
+- Datetimes → `utils.utc_iso(dt)`; HTMX → return the partial when `HX-Request` is present.
+- SSE: `Response(gen(), mimetype='text/event-stream', headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})`; events `{type: info|success|skip|error|done, message, current?, total?}`; gather work in request context, stream under `with app.app_context()` where `app = current_app._get_current_object()`. Cancellable ops reuse the registry in `app/ai_tools.py`; parallel LLM fan-out uses `app/parallel.run_parallel`.
+- Threads: capture `app = current_app._get_current_object()` first; read `app.config[...]` inside the context (hot-reloaded settings).
+
+## Identifiers and data
+- Versions from `app.utils.VERSIONS` / `TYPED_VERSIONS` / `OFFICIAL_VERSIONS`; parse user input with `parse_version_priority`. Never hardcode `['EN','CH','BI']`.
+- Asset identity is `(question_id, asset_type, version, file_format, part_number)`; `file_path` is forward-slash relative to `SOURCE_PATH`. MD and DOC are single-slot; only IMG has parts.
+- Sorting is Python-side via `apply_multi_sort` (natsort, NULL handling, manual block order). Do not move it to SQL. New sort field → `SORT_FIELDS` + both dropdowns (`dashboard.html`, `generate.html`).
+- Paths: `storage.safe_join` (returns `None` when escaping the root) and the `storage.*_path()` accessors. Never `startswith`, never `os.getenv` for paths at call time.
+- Tunables: `current_app.config[KEY]`. New tunable → REGISTRY + `Config` + `.env.example` + `docs/core/06`.
+
+## Schema
+- Edit `app/models.py` **and** add an idempotent boot patch in `app/__init__.py` (`create(checkfirst=True)` or `INFORMATION_SCHEMA` guard + `ALTER TABLE`, wrapped in `try/except`). Append `docs/reference/schema-history.md`. No Alembic, no new `migrate_*.py`.
+- The patch runs against the live DB on the next reload — get the MariaDB syntax right the first time.
+
+## Tests
+- `unittest` in `tests/test_<module>.py`; test pure helpers with plain inputs; avoid `create_app()`.

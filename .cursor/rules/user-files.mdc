@@ -1,0 +1,25 @@
+---
+description: My Files (sections, sharing, lazy PDF, ZIP), saved search profiles, generation presets, Question Sets
+globs: app/user.py,templates/my_files.html,templates/saved_filters.html,templates/saved_gen_profiles.html,templates/saved_question_sets.html
+alwaysApply: false
+---
+
+# My Stuff — files, profiles, presets, sets (bootloader — spec in `docs/modules/my-files.md`, `docs/modules/question-sets.md`)
+
+## My Files invariants
+- Exactly one default "Latest" `FileSection` per user, lazily created on `/user/files`, `/user/sections`, and `create_document()` (race-safe). It cannot be renamed / deleted / reordered / shared; deleting another section moves its files back to it. Nothing is ever orphaned.
+- Read gate `_user_can_view_file` (owner, super admin, direct or section share); write gate `_user_owns_file` (owner or super admin). Section shares resolve at query time (transitive, never materialised). Share toggles are super-admin only.
+- Viewers (`can_generate()` false) get 403 on `/user/files` and cannot create sections.
+- Delete removes the DB row, the file, and its PDF sibling; rename is DB-only. `/user/files/reorder` sets `manual_position` and flips the section to `manual/asc`.
+- Lazy PDF button is driven by row fields `pdf_supported` / `pdf_available` and calls `GET /generate/pdf/<id>`. Known asymmetry: `/generate/download/<id>` is owner-only while PDF and bulk ZIP accept share recipients (STATUS pending).
+- Search is server-side (`q=`, 250 ms debounce); poll every 5 s only while `.status-generating` exists; both SortableJS lists need `preventOnFilter: false`.
+- ZIP bulk download is built in memory (`io.BytesIO`); fine at current sizes.
+
+## Profiles and presets
+- `profiles_save` is insert-only (duplicates allowed); `gen_profiles_save` upserts by name and strips `question_ids`. `SavedFilter` has no `updated_at`.
+- Shared profile/preset `/data` is readable by any logged-in user; blobs are opaque JSON (`filter_data`, `options_data`, may contain `sort_group_order`, `version_priority`, legacy `preferred_language`).
+
+## Question Sets
+- Subject-scoped materialised id lists; `sets_save` int-coerces, dedupes, drops ids outside the subject, upserts on `(user_id, subject, name)` in code (rename collision → 409). Server ints ↔ client strings.
+- Shared sets are readable only with subject access (`_can_view_set`) — stricter than profiles. Set button gated on `can_generate()`.
+- Dashboard apply: `?question_set_id=` same subject = selection-only + Show Selected Only on; different subject = suppress-clear flag, reset filter to subject-only, seed, submit. Set Ops Apply is selection-only (ADR-008).
