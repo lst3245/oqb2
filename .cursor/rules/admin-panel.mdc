@@ -19,9 +19,11 @@ alwaysApply: false
 - Canonical asset path = `_build_asset_file_path`; IMG is multi-part, MD/DOC single-slot (upload rejects a second one; reorder ignores MD/DOC). Asset delete is `POST|DELETE .../assets/<asset_id>/delete`.
 - Every IMG/DOC row mutation calls the `doc_thumbnails.on_*` hooks **after commit**; every MD write calls `md_render.invalidate`.
 - List filters `qids` > `selected_ids` > `qid_search` are exclusive; `verified` and `check_status` (+ `check_versions/atypes/formats`, default `TYPED_VERSIONS`) combine. `asset_count` is never subject-scoped.
-- Shared Edit modal: `openEditModal(id, {preserveView, preserveAssetScroll})`; hosts define `window.oqbAfterQuestionEdit` and `window.oqbEditNavSource()`; include `edit_question_modal_js.html` only (it pulls `tag_editor_js.html` and `md_editor.html`). Add-question wizard borrows the tag form (`borrowTagFormForAdd` / `returnTagFormToEditModal`).
-- localStorage: `oqb_adminQuestionsFilters`, `oqb_selectedQuestions`, `oqb_assetThumbsCompact`; `BULK_DELETE_TYPED_THRESHOLD = 10`.
+- Shared Edit modal: `openEditModal(id, {preserveView, preserveAssetScroll})`; hosts define `window.oqbAfterQuestionEdit` and `window.oqbEditNavSource()`; include `edit_question_modal_js.html` only (it pulls `tag_editor_js.html` and `md_editor.html`). Add-question wizard borrows the tag form (`borrowTagFormForAdd` / `returnTagFormToEditModal`). Details tab: breadcrumb, create child (`POST .../children`), set parent (`POST .../parent`), Split link (`GET .../split`, IMG only). Stems cannot be tagged.
+- localStorage: `oqb_adminQuestionsFilters` (includes `treeScope`), `oqb_selectedQuestions`, `oqb_assetThumbsCompact`; `BULK_DELETE_TYPED_THRESHOLD = 10`.
 - QID rename renames files only when `confirm_rename_files` is true.
+- Question list `tree_scope=all|roots|leaves`; Part column indents by `depth`.
+- `Subject.split_parts_default` is on the Subjects add/edit form and seeds the PDF wizard **Split questions into parts** checkbox.
 - Batch ops intersect `question_ids` with `get_user_admin_subjects()`. Generate IMG: `find_best_source` DOC > MD, whole-slot `replace_img_assets`, one `word_session` per run, defaults `BATCH_IMG_DEFAULT_WIDTH/STITCH`, accepts `symmetric_horizontal`. Set MCQ ANS: `q_type='MC'`, answer A–D, PNGs from `resources/mcq_answer_img/`, default `versions=EN`. `batch-set-check-state` skips checked slots unless `overwrite`. Batch update (incl. chapters) UI lives in the **dashboard** Bulk Edit modal.
 - `verified` is a whole-question manual flag independent of per-asset `check_state`; UI soft-warns only.
 

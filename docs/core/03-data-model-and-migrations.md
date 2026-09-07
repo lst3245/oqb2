@@ -13,6 +13,7 @@ erDiagram
   subjects ||--o{ chapters : owns
   chapters ||--o{ subchapters : owns
   subjects ||--o{ questions : contains
+  questions ||--o{ questions : parent
   questions ||--o{ question_assets : has
   questions }o--o{ topics : minor_topics
   questions }o--o{ subtopics : subtopics
@@ -35,10 +36,10 @@ erDiagram
 |---|---|---|---|
 | `User` | `users` | Login + `is_super_admin` | `is_admin` is legacy, ignore it. Helpers: [02-auth-and-permissions.md](02-auth-and-permissions.md) |
 | `UserSubjectPermission` | `user_subject_permissions` | `role` ∈ `viewer` / `user` / `admin` per subject | unique `(user_id, subject_id)` |
-| `Subject` | `subjects` | `id` is a **string PK** (`MATC`), `name` | `id` is embedded in QIDs and the `SOURCE_PATH/<id>/` layout → immutable. Topics/chapters cascade on delete; delete is blocked while questions reference it (see [../modules/admin-panel.md](../modules/admin-panel.md)) |
+| `Subject` | `subjects` | `id` is a **string PK** (`MATC`), `name`; `split_parts_default` bool (default false) | `id` is embedded in QIDs and the `SOURCE_PATH/<id>/` layout → immutable. Topics/chapters cascade on delete; delete is blocked while questions reference it (see [../modules/admin-panel.md](../modules/admin-panel.md)). `split_parts_default` is on the Subjects form and seeds the PDF-import split checkbox. |
 | `Topic` / `Subtopic` | `topics` / `subtopics` | Curriculum tagging; `sort_order`; `Subtopic.hidden` | Subtopics cascade from topic |
 | `Chapter` / `Subchapter` | `chapters` / `subchapters` | Textbook organisation; `sort_order`; `Subchapter.hidden` | `questions.chapter_id/subchapter_id` are `ON DELETE SET NULL` |
-| `Question` | `questions` | One logical question | `qid` unique; `subject`, `source` (`DSE/CE/AL/QB`), `year` (NULL for QB), `paper`, `section`, `qno` int, `q_type` (`MC/CQ`/NULL), `level` 1–3/NULL, `major_topic_id`, `major_subtopic_id` (must belong to major topic — enforced in code, not DB), `chapter_id`, `subchapter_id`, `description`, `correct_percentage` 0–100, `answer` text, `comment`, `verified/verified_at/verified_by`, `created_at`. M2M `minor_topics` (`question_minor_topics`), `subtopics` (`question_subtopics`) |
+| `Question` | `questions` | One logical question (standalone, stem, or part) | `qid` unique (the only identity — `(subject, source, year, paper, qno)` is **not** unique). `subject`, `source` (`DSE/CE/AL/QB`), `year` (NULL for QB), `paper`, `section`, `qno` int (start of the QNO token), `qno_end` (inclusive end of a range stem; NULL otherwise), `parent_id` self-FK `ON DELETE RESTRICT` (NULL = root), `part` (own label `a`/`i`, not the full path), `part_sort` (letter 1–26, roman 101–110), `q_type` (`MC/CQ`/NULL), `level` 1–3/NULL, `major_topic_id`, `major_subtopic_id` (must belong to major topic — enforced in code, not DB), `chapter_id`, `subchapter_id`, `description`, `correct_percentage` 0–100, `answer` text, `comment`, `verified/verified_at/verified_by`, `created_at`. Relationships `parent` / `children`. M2M `minor_topics` (`question_minor_topics`), `subtopics` (`question_subtopics`). Grammar: [../modules/question-hierarchy.md](../modules/question-hierarchy.md) |
 | `QuestionAsset` | `question_assets` | One file slot | `asset_type` enum `QUE/ANS/SOL`; `file_format` enum `IMG/DOC/MD`; `version` enum `EN/CH/BI/ENO/CHO`; `file_path` forward-slash relative to `SOURCE_PATH`; `part_number` ≥ 1 (IMG multi-part only; DOC and MD are single-slot). **Unique `(question_id, asset_type, version, file_format, part_number)`**. AI check fields: `check_state` (NULL/`checking`/`ok`/`issues`/`error`), `check_result` JSON, `check_raw`, `checked_at` — per format (IMG parts share one state) |
 | `SavedFilter` | `saved_filters` | Dashboard search profile | `filter_data` JSON (includes `subject`, `sort_group_order`), `is_starred`, `is_shared` |
 | `SavedGenerationProfile` | `saved_generation_profiles` | Generation options preset | `options_data` JSON (no question ids) |
@@ -58,7 +59,7 @@ JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation
 
 - `major_subtopic_id` must belong to `major_topic_id` (checked in the tag-editor save path).
 - `SavedFilter.filter_data['subject']` is the only link between a saved filter and a subject (no FK) — subject deletion scans JSON to clean up.
-- `Question.subject` must equal the `SUBJ` token in `qid`; `qno` must equal the trailing `Q<n>`.
+- `Question.subject` must equal the `SUBJ` token in `qid`. `qno` is the integer **start** of the QNO token (`Q5` / `Q5a` / `Q23-24` → 5); `qno_end` and `part` hold the rest. Source of truth: `app/hierarchy.py`, not a second regex.
 - Exactly one default `FileSection` per user; the code lazily creates it.
 - `PromptVariant`: exactly one active row per key — enforced by the admin routes and `ensure_seeded()`.
 
@@ -89,7 +90,7 @@ with db.engine.begin() as conn:
 | Operation | Tool | Safety |
 |---|---|---|
 | Ingest files → rows | `python cli.py ingest` or Admin → Smart Import | Additive upsert; safe |
-| Remove rows whose files vanished | `python cli.py sync` (dry-run) / `--no-dry-run`; Admin → Health → Sync | Destructive with `--no-dry-run`; 24-hour grace on newly created questions |
+| Remove rows whose files vanished | `python cli.py sync` (dry-run) / `--no-dry-run`; Admin → Health → Sync | Destructive with `--no-dry-run`; 24-hour grace on newly created questions; never drops a row that still has children |
 | Storage relocation | `python cli.py migrate-storage` | Idempotent; skips existing targets |
 | Fresh install | `python init_db.py` | Only on an empty DB |
 | Backup / restore | `mysqldump` + file copies | See [01-runtime-and-ops.md](01-runtime-and-ops.md) |

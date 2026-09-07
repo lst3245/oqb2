@@ -1328,7 +1328,7 @@ def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
 _DEFAULT_PDF_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
-    '{"qno": <integer printed question number>, "box": {{box_array}}, '
+    '{"qno": <printed question number>, "box": {{box_array}}, '
     '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of the page. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
@@ -1337,12 +1337,15 @@ _DEFAULT_PDF_BOX_JSON_CONTRACT = (
     "fills the TOP THIRD of the page across almost the full width is "
     '{"qno": 1, "box": {{box_example}}, "continues_prev": false, '
     '"continues_next": false} — note the small vertical values because it is '
-    "near the TOP. \"qno\" is the PRINTED question number you can read on the "
-    "page (an integer; for a part like \"5\" use 5). Set \"continues_prev\" to "
-    "true when the topmost region is the tail of a question that began on the "
-    "previous page, and \"continues_next\" to true when the bottom region is "
-    "cut off and continues on the next page. If the page has no question "
-    "content, return []."
+    "near the TOP. \"qno\" is the PRINTED question number: an integer (5), a "
+    "shared-preamble range (\"23-24\") when several questions share one "
+    "stimulus, or (rarely) a part token (\"3a\"). Do NOT invent (a)(b)(c) "
+    "splits here — keep one box per numbered question; a later pass splits "
+    "parts. Set \"continues_prev\" to true when the topmost region is the "
+    "tail of a question that began on the previous page, and "
+    "\"continues_next\" to true when the bottom region is cut off and "
+    "continues on the next page. If the page has no question content, "
+    "return []."
 )
 
 _DEFAULT_PDF_QUE_BOX_SYSTEM = (
@@ -1390,7 +1393,69 @@ _DEFAULT_PDF_BOX_USER = (
     "List the bounding boxes of every {{what}} on this page as STRICT JSON. "
     "Use integer coordinates on a 0-1000 grid in the order {{box_pairs}}, "
     "measured from the top-left corner. Include the printed question number "
-    "for each. Return [] if the page has no {{what}}."
+    "for each (integer, range like 23-24, or a part token). Return [] if "
+    "the page has no {{what}}."
+)
+
+
+# ---- Pass 2: split one question crop into stem + lettered parts ------------
+#
+# The crop is already one numbered question from pass 1. Coordinates are
+# relative to THIS crop (still 0-1000). Parser: parse_part_boxes.
+_DEFAULT_PDF_PART_BOX_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom reading order, of objects of the form\n"
+    '{"label": <"stem" or a part path like "a" or "ci">, "box": {{box_array}}, '
+    '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
+    "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
+    "of THIS crop (not the full page). The box is {{box_corner}}. Example: a "
+    "shared preamble occupying the top fifth is "
+    '{"label": "stem", "box": {{box_example}}, "continues_prev": false, '
+    '"continues_next": false}. Labels: use \"stem\" for the shared background '
+    "/ stimulus that is not itself a lettered part; use letters only for "
+    "parts (\"a\", \"b\", \"ci\", \"ii\") — never include the question number. "
+    "Set continues_prev / continues_next when a region is cut off at the top "
+    "or bottom of this crop. If this crop has no lettered parts, return []."
+)
+
+_DEFAULT_PDF_PART_QUE_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE exam papers. "
+    "You are given a crop of ONE exam QUESTION (already isolated from the "
+    "page). Split it into a shared background and lettered parts.\n"
+    "- Draw a \"stem\" box around shared stimulus / preamble / background "
+    "text and figures that apply to several parts. Exclude the lettered "
+    "parts themselves from the stem box.\n"
+    "- Draw one box per lettered part ((a), (b), (c), (i), (ii), …). The "
+    "label is letters only (a, b, ci). Include that part's marks allocation.\n"
+    "- EXCLUDE blank answering space. Crop tightly to printed content.\n"
+    "- If the crop is a single undivided question with no (a)/(b)/(c) "
+    "parts, return [].\n"
+    "- If there ARE lettered parts, you MUST also return a stem box when "
+    "any shared text or figure sits above or beside those parts.\n\n"
+    "{{json_contract}}"
+)
+
+_DEFAULT_PDF_PART_SOL_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE marking "
+    "schemes. You are given a crop of ONE question's SOLUTION. Split it "
+    "into a shared background and lettered parts that match the question "
+    "paper.\n"
+    "- Draw a \"stem\" box around any shared working or notes that are not "
+    "a lettered part.\n"
+    "- Draw one box per lettered solution part. Labels are letters only "
+    "(a, b, ci). Include right-hand marking annotations that belong to "
+    "that part.\n"
+    "- {{expected_note}}\n"
+    "- Omit any expected label you cannot find. If there are no lettered "
+    "parts, return [].\n\n"
+    "{{json_contract}}"
+)
+
+_DEFAULT_PDF_PART_BOX_USER = (
+    "List the stem and lettered-part bounding boxes of this {{what}} crop "
+    "as STRICT JSON. Coordinates are relative to this crop, integers on a "
+    "0-1000 grid in the order {{box_pairs}}, measured from the top-left. "
+    "{{expected_note}} Return [] if there are no lettered parts."
 )
 
 
@@ -1518,7 +1583,8 @@ _DEFAULT_SMART_IMPORT_SYSTEM = (
     "You analyse a folder of exam-question asset files and infer how to map "
     "them onto a question bank. The canonical filename schema is "
     "SUBJECT_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].ext for past papers "
-    "(e.g. MATC_DSE_2024_P1_Q5_EN_QUE.png) and SUBJECT_QB_DETAIL_QNO_VERSION_TYPE "
+    "(e.g. MATC_DSE_2024_P1_Q5_EN_QUE.png; QNO may be Q5, Q5a, Q3ci, or "
+    "Q23-24) and SUBJECT_QB_DETAIL_QNO_VERSION_TYPE "
     "for question banks. SOURCE is one of DSE/CE/AL/QB. VERSION is one of "
     "EN/CH/BI/ENO/CHO. TYPE is one of QUE/ANS/SOL. A dumped folder usually "
     "omits some of these dimensions (often only year/paper/question-number are "
@@ -1881,6 +1947,63 @@ PROMPTS_REGISTRY = OrderedDict([
         role='user',
         format_key='PDF_BOX_JSON_CONTRACT',
     )),
+    ('PDF_PART_BOX_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF part-split: JSON contract (shared)',
+        description=(
+            'Response contract for pass-2 part detection: the model returns '
+            '{label, box, continues_prev, continues_next} for the stem and '
+            'each lettered part of ONE already-cropped question. Substituted '
+            'into both QUE and SOL part-split system prompts via '
+            '{{json_contract}}. Parser parse_part_boxes is coupled to this '
+            'shape. The {{box_array}} / {{box_corner}} / {{box_example}} '
+            'placeholders are filled from PDF_IMPORT_COORD_ORDER. ALSO powers '
+            'the Question Management "Split into parts" Auto-detect button.'
+        ),
+        default=_DEFAULT_PDF_PART_BOX_JSON_CONTRACT,
+        variables=['box_array', 'box_corner', 'box_example'],
+        role='format',
+    )),
+    ('PDF_PART_BOX_SYSTEM', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF part-split: Question-crop system prompt',
+        description=(
+            'Pass 2 on a QUE crop: split one numbered question into a stem '
+            'box plus lettered parts. {{json_contract}} is the shared part '
+            'contract. Used by PDF Batch Import split-detect and the Split '
+            'tool Auto-detect button.'
+        ),
+        default=_DEFAULT_PDF_PART_QUE_SYSTEM,
+        variables=['json_contract'],
+        role='system',
+    )),
+    ('PDF_PART_SOL_BOX_SYSTEM', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF part-split: Solution-crop system prompt',
+        description=(
+            'Pass 2 on a SOL crop. {{expected_note}} lists part labels found '
+            'on the question side (stem, a, b, ci) so the marking scheme can '
+            'match them. Omit missing labels. {{json_contract}} is the shared '
+            'part contract.'
+        ),
+        default=_DEFAULT_PDF_PART_SOL_SYSTEM,
+        variables=['json_contract', 'expected_note'],
+        role='system',
+    )),
+    ('PDF_PART_BOX_USER', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF part-split: User-turn instruction',
+        description=(
+            "Accompanies one question (or solution) crop. {{what}} is "
+            "'question' or 'solution'. {{expected_note}} is empty on QUE and "
+            "lists expected labels on SOL. {{box_pairs}} comes from "
+            "PDF_IMPORT_COORD_ORDER."
+        ),
+        default=_DEFAULT_PDF_PART_BOX_USER,
+        variables=['what', 'expected_note', 'box_pairs'],
+        role='user',
+        format_key='PDF_PART_BOX_JSON_CONTRACT',
+    )),
     ('PDF_GENERIC_BOX_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Generic Extraction',
         label='PDF generic: JSON contract (shared)',
@@ -2093,6 +2216,47 @@ def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy',
     return render_prompt(key, endpoint_id=endpoint_id, json_contract=contract)
 
 
+def _part_expected_note(expected_labels) -> str:
+    labels = [str(x).strip() for x in (expected_labels or []) if str(x).strip()]
+    if not labels:
+        return ''
+    return ('Expected part labels from the question: '
+            + ', '.join(labels)
+            + '. Omit any label you cannot find.')
+
+
+def build_pdf_part_system(asset_type: str, expected_labels=None,
+                          coord_order: str = 'xyxy', endpoint_id=None) -> str:
+    """Resolved system prompt for pass-2 part split on one question crop."""
+    contract = render_prompt('PDF_PART_BOX_JSON_CONTRACT',
+                             endpoint_id=endpoint_id,
+                             **pdf_box_order_vars(coord_order))
+    note = _part_expected_note(expected_labels)
+    if asset_type == 'SOL':
+        return render_prompt('PDF_PART_SOL_BOX_SYSTEM',
+                             endpoint_id=endpoint_id,
+                             json_contract=contract,
+                             expected_note=note or (
+                                 'No expected labels were supplied; detect '
+                                 'stem plus every lettered part you can see.'))
+    return render_prompt('PDF_PART_BOX_SYSTEM', endpoint_id=endpoint_id,
+                         json_contract=contract)
+
+
+def build_pdf_part_user_text(asset_type: str, expected_labels=None,
+                             coord_order: str = 'xyxy', endpoint_id=None) -> str:
+    """User-turn instruction for pass-2, with the part JSON contract appended."""
+    what = 'question' if asset_type == 'QUE' else 'solution'
+    order_vars = pdf_box_order_vars(coord_order)
+    note = _part_expected_note(expected_labels)
+    if asset_type == 'QUE' and not note:
+        note = 'Detect the stem and every lettered part.'
+    text = render_prompt('PDF_PART_BOX_USER', endpoint_id=endpoint_id,
+                         what=what, expected_note=note, **order_vars)
+    return append_format('PDF_PART_BOX_USER', text, endpoint_id=endpoint_id,
+                         **order_vars)
+
+
 def build_pdf_generic_system(instruction: str, coord_order: str = 'xyxy',
                              endpoint_id=None) -> str:
     """Resolved system prompt for Generic Extraction (no exam context).
@@ -2287,14 +2451,59 @@ def _normalize_box(coords, img_w=None, img_h=None, coord_order='xyxy'):
     return [min(max(v, 0.0), 1.0) for v in coords]
 
 
+def _coerce_qno_label(raw):
+    """Map a model ``qno`` / ``label`` value to ``(qno_int, plan_label)``.
+
+    Keeps range tokens (``23-24``) and part tokens (``3a``) instead of taking
+    only the first digit group. Falls back to the first integer when the
+    string is not a valid QNO token.
+    """
+    from app.hierarchy import normalize_plan_label, parse_qno_token
+
+    if raw is None or isinstance(raw, bool):
+        return None, None
+    if isinstance(raw, float) and not raw.is_integer():
+        return None, None
+    if isinstance(raw, (int, float)):
+        n = int(raw)
+        parsed = parse_qno_token(n)
+        if parsed:
+            return parsed.qno, normalize_plan_label(parsed.token)
+        return None, None
+    s = str(raw).strip()
+    if not s:
+        return None, None
+    parsed = parse_qno_token(s)
+    if parsed:
+        return parsed.qno, normalize_plan_label(parsed.token)
+    m = re.search(r'\d+', s)
+    if m:
+        n = int(m.group(0))
+        if n >= 1:
+            return n, str(n)
+    return None, None
+
+
+def _salvage_qno_label(raw: str):
+    """Salvage ``qno`` from a broken JSON object, preferring a quoted token."""
+    s = _salvage_str(raw, 'qno', 'label', 'question_number')
+    if s:
+        return _coerce_qno_label(s)
+    n = _salvage_int(raw, 'qno', 'question_number', 'number')
+    if n is not None:
+        return _coerce_qno_label(n)
+    return None, None
+
+
 def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     """Parse the page-detection model output into a list of
-    ``{qno, box:[x1,y1,x2,y2], continues_prev, continues_next}``.
+    ``{qno, label, box:[x1,y1,x2,y2], continues_prev, continues_next}``.
 
     Tolerant of code fences and surrounding prose (mirrors
     ``parse_figure_boxes``). Coordinates are normalised + clamped to 0..1 via
     :func:`_normalize_box` (honouring ``coord_order`` and ``img_w``/``img_h``).
-    ``qno`` is coerced to an int when possible, else ``None``. Returns ``[]``
+    ``qno`` is the integer start; ``label`` is the canonical plan token
+    without a leading ``Q`` (``5``, ``5a``, ``23-24``). Returns ``[]``
     on total failure.
     """
     if not text:
@@ -2313,14 +2522,12 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
             except (ValueError, TypeError):
                 continue
             x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
-            qno_raw = it.get('qno', it.get('question_number', it.get('number')))
-            qno = None
-            if qno_raw is not None:
-                mqn = re.search(r'\d+', str(qno_raw))
-                if mqn:
-                    qno = int(mqn.group(0))
+            qno_raw = it.get('qno', it.get('question_number',
+                                          it.get('number', it.get('label'))))
+            qno, label = _coerce_qno_label(qno_raw)
             out.append({
                 'qno': qno,
+                'label': label,
                 'box': [x1, y1, x2, y2],
                 'continues_prev': bool(it.get('continues_prev', False)),
                 'continues_next': bool(it.get('continues_next', False)),
@@ -2344,8 +2551,75 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     out = []
     for raw, box in _salvage_box_objects(text):
         x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)
+        qno, label = _salvage_qno_label(raw)
         out.append({
-            'qno': _salvage_int(raw, 'qno', 'question_number', 'number'),
+            'qno': qno,
+            'label': label,
+            'box': [x1, y1, x2, y2],
+            'continues_prev': _salvage_bool(raw, 'continues_prev'),
+            'continues_next': _salvage_bool(raw, 'continues_next'),
+        })
+    return out
+
+
+def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
+    """Parse pass-2 part-split output into
+    ``{label, box, continues_prev, continues_next}``.
+
+    ``label`` is ``stem`` or a letter path (``a``, ``ci``). Invalid labels
+    are dropped. Coordinates are crop-relative fractions 0..1.
+    """
+    from app.hierarchy import normalize_part_box_label
+
+    if not text:
+        return []
+
+    def _emit(items):
+        out = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            box = it.get('box') or it.get('bbox') or it.get('bounding_box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                coords = [float(v) for v in box]
+            except (ValueError, TypeError):
+                continue
+            label = normalize_part_box_label(
+                it.get('label', it.get('part', it.get('name'))))
+            if not label:
+                continue
+            x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
+            out.append({
+                'label': label,
+                'box': [x1, y1, x2, y2],
+                'continues_prev': bool(it.get('continues_prev', False)),
+                'continues_next': bool(it.get('continues_next', False)),
+            })
+        return out
+
+    for c in _json_candidates(text, '['):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        items = _as_item_list(data, ('parts', 'boxes', 'regions', 'questions'))
+        if items is None:
+            continue
+        parsed = _emit(items)
+        if parsed:
+            return parsed
+
+    out = []
+    for raw, box in _salvage_box_objects(text):
+        label = normalize_part_box_label(
+            _salvage_str(raw, 'label', 'part', 'name'))
+        if not label:
+            continue
+        x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)
+        out.append({
+            'label': label,
             'box': [x1, y1, x2, y2],
             'continues_prev': _salvage_bool(raw, 'continues_prev'),
             'continues_next': _salvage_bool(raw, 'continues_next'),

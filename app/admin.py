@@ -9,7 +9,7 @@ import json
 import shutil
 import uuid
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file, abort
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
@@ -21,6 +21,13 @@ from app.utils import (admin_required, super_admin_required, get_user_admin_subj
                        validate_username)
 from app import md_render
 from app import storage
+from app.hierarchy import (
+    parse_qid, parse_qno_token, ensure_question, HierarchyError,
+    rewrite_descendant_token, rename_shape_ok, collect_subtree_ids,
+    subtree_deepest_first, relink_parent, part_sort_value,
+    breadcrumb_parts, is_stem, descendants, format_qno_token,
+    token_fits_under, stem_id_query,
+)
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -109,11 +116,14 @@ def add_subject():
     if Subject.query.get(subject_id):
         return jsonify({'error': f'Subject {subject_id} already exists'}), 400
 
-    subject = Subject(id=subject_id, name=name)
+    subject = Subject(id=subject_id, name=name, split_parts_default=False)
+    if request.form.get('split_parts_default') in ('on', '1', 'true'):
+        subject.split_parts_default = True
     db.session.add(subject)
     db.session.commit()
 
-    return jsonify({'id': subject.id, 'name': subject.name})
+    return jsonify({'id': subject.id, 'name': subject.name,
+                    'split_parts_default': bool(subject.split_parts_default)})
 
 
 @admin_bp.route('/subjects/<subject_id>/edit', methods=['POST'])
@@ -128,9 +138,12 @@ def edit_subject(subject_id):
         return jsonify({'error': 'Name is required'}), 400
 
     subject.name = name
+    if 'split_parts_default' in request.form:
+        subject.split_parts_default = request.form.get('split_parts_default') in ('on', '1', 'true')
     db.session.commit()
 
-    return jsonify({'id': subject.id, 'name': subject.name})
+    return jsonify({'id': subject.id, 'name': subject.name,
+                    'split_parts_default': bool(subject.split_parts_default)})
 
 
 @admin_bp.route('/subjects/<subject_id>/delete', methods=['POST', 'DELETE'])
@@ -537,13 +550,14 @@ def update_question(question_id):
     """Update question metadata and tags"""
     try:
         question = Question.query.get_or_404(question_id)
+        stem_row = is_stem(question)
         
         # Update basic fields
-        if 'level' in request.form:
+        if not stem_row and 'level' in request.form:
             level = request.form.get('level')
             question.level = int(level) if level and level != '' else None
         
-        if 'q_type' in request.form:
+        if not stem_row and 'q_type' in request.form:
             q_type = request.form.get('q_type')
             question.q_type = q_type if q_type and q_type != '' else None
         
@@ -574,77 +588,79 @@ def update_question(question_id):
             else:
                 question.correct_percentage = None
         
-        # Update major topic
-        if 'major_topic_id' in request.form:
-            major_topic_id = request.form.get('major_topic_id')
-            new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+        # Tags live on leaves. Ignore topic/chapter writes on stems.
+        if not stem_row:
+            # Update major topic
+            if 'major_topic_id' in request.form:
+                major_topic_id = request.form.get('major_topic_id')
+                new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
+                
+                # If major topic changed, clear major subtopic (it may no longer be valid)
+                if new_major_topic_id != question.major_topic_id:
+                    question.major_subtopic_id = None
+                
+                question.major_topic_id = new_major_topic_id
             
-            # If major topic changed, clear major subtopic (it may no longer be valid)
-            if new_major_topic_id != question.major_topic_id:
-                question.major_subtopic_id = None
-            
-            question.major_topic_id = new_major_topic_id
-        
-        # Update major subtopic
-        if 'major_subtopic_id' in request.form:
-            major_subtopic_id = request.form.get('major_subtopic_id')
-            if major_subtopic_id and major_subtopic_id != '':
-                subtopic = Subtopic.query.get(int(major_subtopic_id))
-                # Validate that subtopic belongs to the major topic
-                if subtopic and question.major_topic_id and subtopic.topic_id == question.major_topic_id:
-                    question.major_subtopic_id = subtopic.id
+            # Update major subtopic
+            if 'major_subtopic_id' in request.form:
+                major_subtopic_id = request.form.get('major_subtopic_id')
+                if major_subtopic_id and major_subtopic_id != '':
+                    subtopic = Subtopic.query.get(int(major_subtopic_id))
+                    # Validate that subtopic belongs to the major topic
+                    if subtopic and question.major_topic_id and subtopic.topic_id == question.major_topic_id:
+                        question.major_subtopic_id = subtopic.id
+                    else:
+                        question.major_subtopic_id = None
                 else:
                     question.major_subtopic_id = None
+            
+            # Update minor topics
+            minor_topic_ids = request.form.getlist('minor_topic_ids')
+            if minor_topic_ids:
+                question.minor_topics.clear()
+                for tid in minor_topic_ids:
+                    if tid:
+                        topic = Topic.query.get(int(tid))
+                        if topic:
+                            question.minor_topics.append(topic)
             else:
-                question.major_subtopic_id = None
-        
-        # Update minor topics
-        minor_topic_ids = request.form.getlist('minor_topic_ids')
-        if minor_topic_ids:
-            question.minor_topics.clear()
-            for tid in minor_topic_ids:
-                if tid:
-                    topic = Topic.query.get(int(tid))
-                    if topic:
-                        question.minor_topics.append(topic)
-        else:
-            question.minor_topics.clear()
-        
-        # Update subtopics
-        subtopic_ids = request.form.getlist('subtopic_ids')
-        if subtopic_ids:
-            question.subtopics.clear()
-            for sid in subtopic_ids:
-                if sid:
-                    subtopic = Subtopic.query.get(int(sid))
-                    if subtopic:
-                        question.subtopics.append(subtopic)
-        else:
-            question.subtopics.clear()
-        
-        # Update chapter
-        if 'chapter_id' in request.form:
-            chapter_id = request.form.get('chapter_id')
-            new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
+                question.minor_topics.clear()
             
-            # If chapter changed, clear subchapter (it may no longer be valid)
-            if new_chapter_id != question.chapter_id:
-                question.subchapter_id = None
+            # Update subtopics
+            subtopic_ids = request.form.getlist('subtopic_ids')
+            if subtopic_ids:
+                question.subtopics.clear()
+                for sid in subtopic_ids:
+                    if sid:
+                        subtopic = Subtopic.query.get(int(sid))
+                        if subtopic:
+                            question.subtopics.append(subtopic)
+            else:
+                question.subtopics.clear()
             
-            question.chapter_id = new_chapter_id
-        
-        # Update subchapter
-        if 'subchapter_id' in request.form:
-            subchapter_id = request.form.get('subchapter_id')
-            if subchapter_id and subchapter_id != '':
-                subchapter = Subchapter.query.get(int(subchapter_id))
-                # Validate that subchapter belongs to the chapter
-                if subchapter and question.chapter_id and subchapter.chapter_id == question.chapter_id:
-                    question.subchapter_id = subchapter.id
+            # Update chapter
+            if 'chapter_id' in request.form:
+                chapter_id = request.form.get('chapter_id')
+                new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
+                
+                # If chapter changed, clear subchapter (it may no longer be valid)
+                if new_chapter_id != question.chapter_id:
+                    question.subchapter_id = None
+                
+                question.chapter_id = new_chapter_id
+            
+            # Update subchapter
+            if 'subchapter_id' in request.form:
+                subchapter_id = request.form.get('subchapter_id')
+                if subchapter_id and subchapter_id != '':
+                    subchapter = Subchapter.query.get(int(subchapter_id))
+                    # Validate that subchapter belongs to the chapter
+                    if subchapter and question.chapter_id and subchapter.chapter_id == question.chapter_id:
+                        question.subchapter_id = subchapter.id
+                    else:
+                        question.subchapter_id = None
                 else:
                     question.subchapter_id = None
-            else:
-                question.subchapter_id = None
         
         db.session.commit()
         
@@ -683,6 +699,7 @@ def delete_questions():
         # Get question IDs from request
         question_ids = request.form.getlist('question_ids')
         delete_files = request.form.get('delete_files', 'false') == 'true'
+        delete_children = request.form.get('delete_children', 'false') == 'true'
         
         if not question_ids:
             return jsonify({
@@ -713,14 +730,51 @@ def delete_questions():
                 'success': False,
                 'error': 'No questions found with the given IDs'
             }), 404
+
+        selected_ids = {q.id for q in questions}
+        extra = []
+        for q in questions:
+            for cid in collect_subtree_ids(q)[1:]:
+                if cid not in selected_ids:
+                    extra.append(cid)
+        extra = list(dict.fromkeys(extra))
+        if extra and not delete_children:
+            extra_rows = Question.query.filter(Question.id.in_(extra)).all()
+            extra_rows = [r for r in extra_rows if r.subject in admin_subject_ids]
+            return jsonify({
+                'success': False,
+                'error': (
+                    'Some selected questions have parts/children. '
+                    'Tick "Also delete child parts" or delete the parts first.'
+                ),
+                'blocking_qids': [r.qid for r in extra_rows],
+            }), 409
+        if extra:
+            extra_rows = (
+                Question.query
+                .filter(Question.id.in_(extra))
+                .filter(Question.subject.in_(admin_subject_ids))
+                .all()
+            )
+            questions = questions + extra_rows
+
+        questions = subtree_deepest_first(questions)
         
         deleted_count = 0
         deleted_qids = []
         files_deleted = 0
         source_path = current_app.config['SOURCE_PATH']
+        doc_ids_to_drop = []
+        md_ids_to_drop = []
         
         for question in questions:
             deleted_qids.append(question.qid)
+
+            for asset in question.assets:
+                if asset.file_format == 'DOC':
+                    doc_ids_to_drop.append(asset.id)
+                elif asset.file_format == 'MD':
+                    md_ids_to_drop.append(asset.id)
             
             # Optionally delete associated files from disk
             if delete_files:
@@ -738,6 +792,19 @@ def delete_questions():
             deleted_count += 1
         
         db.session.commit()
+
+        if doc_ids_to_drop:
+            try:
+                from app import doc_thumbnails
+                for aid in doc_ids_to_drop:
+                    doc_thumbnails.on_doc_asset_deleted(aid)
+            except Exception:
+                pass
+        for aid in md_ids_to_drop:
+            try:
+                md_render.invalidate(aid)
+            except Exception:
+                pass
         
         msg = f'Successfully deleted {deleted_count} question(s) from database'
         if delete_files:
@@ -1052,36 +1119,35 @@ def batch_update_questions():
 
 # ==================== Question Management ====================
 
-# QID validation patterns (same as ingestor)
-PP_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_(?P<source>DSE|CE|AL)_(?P<year>\d{4})_(?P<paper>P[A-Za-z0-9]+)_Q(?P<qno>\d+)$')
-QB_QID_PATTERN = re.compile(r'^(?P<subj>[A-Z0-9]+)_QB_(?P<detail>[^_]+)_Q(?P<qno>\d+)$')
-
-
 def validate_qid_format(qid):
     """Validate a QID matches the expected format. Returns (parsed_dict, error_msg)."""
-    m = PP_QID_PATTERN.match(qid)
-    if m:
-        d = m.groupdict()
-        return {
-            'subject': d['subj'], 'source': d['source'],
-            'year': int(d['year']), 'paper': d['paper'], 'qno': int(d['qno'])
-        }, None
-    m = QB_QID_PATTERN.match(qid)
-    if m:
-        d = m.groupdict()
-        return {
-            'subject': d['subj'], 'source': 'QB',
-            'detail': d['detail'], 'qno': int(d['qno'])
-        }, None
-    return None, 'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO (e.g. MATC_DSE_2024_P1_Q5 or MATC_DSE_2024_P2A_Q1) or SUBJ_QB_DETAIL_QNO (e.g. MATC_QB_BOOK1_Q1)'
+    parsed = parse_qid(qid)
+    if not parsed:
+        return None, (
+            'Invalid QID format. Expected SUBJ_SOURCE_YEAR_PAPER_QNO '
+            '(e.g. MATC_DSE_2024_P1_Q5, MATC_DSE_2024_P1_Q5a, '
+            'ECON_DSE_2023_P1_Q23-24) or SUBJ_QB_DETAIL_QNO '
+            '(e.g. MATC_QB_BOOK1_Q1). QNO is Q<n>, Q<n><part>, or Q<n>-<n>.'
+        )
+    return {
+        'subject': parsed.subject,
+        'source': parsed.source,
+        'year': parsed.year,
+        'paper': parsed.paper,
+        'detail': parsed.detail,
+        'qno': parsed.qno.qno,
+        'qno_end': parsed.qno.qno_end,
+        'part': parsed.qno.own_part,
+        'part_path': parsed.qno.part_path,
+        'qno_token': parsed.token,
+    }, None
 
 
 def _extract_qb_detail(qid):
-    """Extract the 'detail' component from a QB-style QID (SUBJ_QB_DETAIL_QNO).
-    Uses the QB regex for robust parsing, falls back to string split."""
-    m = QB_QID_PATTERN.match(qid)
-    if m:
-        return m.group('detail')
+    """Extract the 'detail' component from a QB-style QID (SUBJ_QB_DETAIL_QNO)."""
+    parsed = parse_qid(qid)
+    if parsed and parsed.detail:
+        return parsed.detail
     parts = qid.split('_')
     return parts[2] if len(parts) >= 4 else 'UNKNOWN'
 
@@ -1594,6 +1660,12 @@ def _admin_questions_query_from_args(args):
     elif verified_param in ('0', 'false', 'no'):
         query = query.filter(Question.verified.is_(False))
 
+    tree_scope = (args.get('tree_scope') or 'all').strip().lower()
+    if tree_scope == 'roots':
+        query = query.filter(Question.parent_id.is_(None))
+    elif tree_scope == 'leaves':
+        query = query.filter(~Question.id.in_(stem_id_query()))
+
     # Asset-check status rollup filter (issues / ok / unchecked) via correlated
     # EXISTS subqueries. Defaults to TYPED_VERSIONS (EN/CH/BI), but the advanced
     # toolbar can narrow the scope by version, asset type, and file format.
@@ -1632,16 +1704,35 @@ def _admin_questions_query_from_args(args):
         ordering = case(*whens, value=Question.id, else_=len(selected_ids))
         query = query.order_by(ordering)
     elif sort_field == 'qid':
-        # Natural sort for QID: sort by component fields (subject, source, year, paper, qno)
+        # Paper identity + integer qno, roots before children, then part_sort.
+        from sqlalchemy import case
+        child_flag = case((Question.parent_id.is_(None), 0), else_=1)
         if sort_dir == 'asc':
             query = query.order_by(
                 Question.subject.asc(), Question.source.asc(),
-                Question.year.asc(), Question.paper.asc(), Question.qno.asc()
+                Question.year.asc(), Question.paper.asc(), Question.qno.asc(),
+                child_flag.asc(), Question.qno_end.asc(),
+                Question.part_sort.asc(), Question.id.asc(),
             )
         else:
             query = query.order_by(
                 Question.subject.desc(), Question.source.desc(),
-                Question.year.desc(), Question.paper.desc(), Question.qno.desc()
+                Question.year.desc(), Question.paper.desc(), Question.qno.desc(),
+                child_flag.desc(), Question.qno_end.desc(),
+                Question.part_sort.desc(), Question.id.desc(),
+            )
+    elif sort_field == 'qno':
+        from sqlalchemy import case
+        child_flag = case((Question.parent_id.is_(None), 0), else_=1)
+        if sort_dir == 'asc':
+            query = query.order_by(
+                Question.qno.asc(), child_flag.asc(), Question.qno_end.asc(),
+                Question.part_sort.asc(), Question.id.asc(),
+            )
+        else:
+            query = query.order_by(
+                Question.qno.desc(), child_flag.desc(), Question.qno_end.desc(),
+                Question.part_sort.desc(), Question.id.desc(),
             )
     else:
         sort_col_map = {
@@ -1767,6 +1858,11 @@ def questions_api_list():
             'paper': q.paper,
             'section': q.section,
             'qno': q.qno,
+            'qno_end': q.qno_end,
+            'parent_id': q.parent_id,
+            'part': q.part,
+            'depth': (2 if (q.parent_id and q.parent and q.parent.parent_id) else (1 if q.parent_id else 0)),
+            'is_stem': bool(q.qno_end) or bool(q.children),
             'q_type': q.q_type,
             'level': q.level,
             'created_at': utc_iso(q.created_at) or '',
@@ -1811,6 +1907,11 @@ def question_details(question_id):
     if question.subject not in admin_subjects:
         return jsonify({'error': 'Access denied'}), 403
 
+    kids = sorted(list(question.children), key=lambda c: (c.part_sort or 0, c.id or 0))
+    stem_row = is_stem(question)
+    crumbs = breadcrumb_parts(question)
+    tag_union = _descendant_tag_union(question) if stem_row else None
+
     return jsonify({
         'id': question.id,
         'qid': question.qid,
@@ -1820,6 +1921,14 @@ def question_details(question_id):
         'paper': question.paper,
         'section': question.section,
         'qno': question.qno,
+        'qno_end': question.qno_end,
+        'parent_id': question.parent_id,
+        'part': question.part,
+        'child_count': len(kids),
+        'is_stem': stem_row,
+        'breadcrumb': crumbs,
+        'children': [{'id': c.id, 'qid': c.qid, 'part': c.part} for c in kids],
+        'tag_union': tag_union,
         'q_type': question.q_type,
         'level': question.level,
         'major_topic_id': question.major_topic_id,
@@ -1837,6 +1946,224 @@ def question_details(question_id):
         'verified_at': utc_iso(question.verified_at),
         'verified_by': (question.verified_by_user.username if question.verified_by_user else None),
     })
+
+
+def _descendant_tag_union(question):
+    """Unique tag names collected from descendant leaves (for stem display)."""
+    nodes = descendants(question)
+    topics, minors, subs, chapters, levels, types = [], [], [], [], [], []
+    seen = {k: set() for k in ('t', 'm', 's', 'c', 'l', 'q')}
+    for n in nodes:
+        if n.major_topic and n.major_topic_id not in seen['t']:
+            seen['t'].add(n.major_topic_id)
+            topics.append(n.major_topic.name)
+        for t in n.minor_topics:
+            if t.id not in seen['m']:
+                seen['m'].add(t.id)
+                minors.append(t.name)
+        if n.major_subtopic and n.major_subtopic_id not in seen['s']:
+            seen['s'].add(n.major_subtopic_id)
+            subs.append(n.major_subtopic.name)
+        for s in n.subtopics:
+            if s.id not in seen['s']:
+                seen['s'].add(s.id)
+                subs.append(s.name)
+        if n.chapter and n.chapter_id not in seen['c']:
+            seen['c'].add(n.chapter_id)
+            chapters.append(n.chapter.name)
+        if n.level is not None and n.level not in seen['l']:
+            seen['l'].add(n.level)
+            levels.append(n.level)
+        if n.q_type and n.q_type not in seen['q']:
+            seen['q'].add(n.q_type)
+            types.append(n.q_type)
+    return {
+        'topics': topics,
+        'minor_topics': minors,
+        'subtopics': subs,
+        'chapters': chapters,
+        'levels': levels,
+        'q_types': types,
+    }
+
+
+@admin_bp.route('/questions/<int:question_id>/children', methods=['POST'])
+@login_required
+@admin_required
+def create_child_part(question_id):
+    """Create a child part under this question (same paper, QNO token + label)."""
+    parent = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(parent)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    part = (data.get('part') or '').strip().lower()
+    if not part or not part.isalpha():
+        return jsonify({'error': 'Part label must be letters only (a, b, ci, …)'}), 400
+    parsed = parse_qid(parent.qid)
+    if not parsed:
+        return jsonify({'error': 'Parent QID is invalid'}), 400
+    if parsed.qno.qno_end:
+        return jsonify({
+            'error': 'Range stems use existing Qn children; add those as standalone question numbers.'
+        }), 400
+    new_path = (parsed.qno.part_path or '') + part
+    try:
+        token = format_qno_token(parsed.qno.qno, None, new_path)
+        child, created = ensure_question(
+            parsed.subject, parsed.source, token,
+            year=parsed.year, paper=parsed.paper, detail=parsed.detail,
+        )
+        db.session.commit()
+    except HierarchyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    return jsonify({
+        'id': child.id, 'qid': child.qid, 'created': created, 'part': child.part,
+    })
+
+
+@admin_bp.route('/questions/<int:question_id>/parent', methods=['POST'])
+@login_required
+@admin_required
+def set_question_parent(question_id):
+    """Attach or detach this question. Child QID must already sit under the parent token."""
+    child = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(child)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    parent_id = data.get('parent_id')
+    if parent_id in ('', None):
+        if child.part:
+            return jsonify({
+                'error': 'Cannot detach a labelled part; rename it to a standalone Qn first.'
+            }), 400
+        child.parent_id = None
+        db.session.commit()
+        return jsonify({'success': True, 'parent_id': None})
+    try:
+        parent_id = int(parent_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid parent_id'}), 400
+    parent = Question.query.get_or_404(parent_id)
+    if parent.subject != child.subject:
+        return jsonify({'error': 'Parent must be in the same subject'}), 400
+    if parent.id == child.id or parent.id in collect_subtree_ids(child):
+        return jsonify({'error': 'Cannot set a descendant as parent'}), 400
+    if not token_fits_under(child.qid, parent.qid):
+        return jsonify({'error': 'Child QID is not under that parent token'}), 400
+    child.parent_id = parent.id
+    db.session.commit()
+    return jsonify({'success': True, 'parent_id': parent.id})
+
+
+@admin_bp.route('/questions/<int:question_id>/split', methods=['GET'])
+@login_required
+@admin_required
+def split_question(question_id):
+    """Dedicated IMG crop page: stem + part boxes → child questions."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    from app import question_split as qsplit
+    try:
+        meta = qsplit.stage_question(question)
+    except ValueError as e:
+        flash(str(e), 'warning')
+        return redirect(url_for('admin.questions_page'))
+    endpoints = _pdf_vision_endpoints()
+    default_ep = _pdf_default_endpoint()
+    return render_template(
+        'admin_question_split.html',
+        question=question,
+        meta=meta,
+        token=meta['token'],
+        versions=list(meta['versions'].keys()),
+        endpoints=[{'id': e.id, 'name': e.name, 'model_name': e.model_name}
+                   for e in endpoints],
+        default_endpoint_id=default_ep.id if default_ep else None,
+        ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
+    )
+
+
+@admin_bp.route('/questions/<int:question_id>/split/image/<version>')
+@login_required
+@admin_required
+def split_question_image(question_id, version):
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    token = (request.args.get('token') or '').strip()
+    from app import question_split as qsplit
+    try:
+        path = qsplit.staged_image_path(token, version)
+    except (ValueError, FileNotFoundError, OSError):
+        abort(404)
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='image/png')
+
+
+@admin_bp.route('/questions/<int:question_id>/split/commit', methods=['POST'])
+@login_required
+@admin_required
+def split_question_commit(question_id):
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    boxes = data.get('boxes') or []
+    copy_tags = bool(data.get('copy_tags'))
+    versions = data.get('versions')
+    from app import question_split as qsplit
+    try:
+        result = qsplit.commit_split(
+            question, token, boxes, copy_tags=copy_tags, versions=versions,
+        )
+    except (ValueError, HierarchyError) as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('split commit failed')
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'success': True, **result})
+
+
+@admin_bp.route('/questions/<int:question_id>/split/detect', methods=['POST'])
+@login_required
+@admin_required
+def split_question_detect(question_id):
+    """Run pass-2 part detection on the staged Split-tool image."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return jsonify({'error': 'AI features are disabled.'}), 400
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    version = (data.get('version') or '').strip().upper()
+    cfg, err_resp, status = _ai_load_endpoint_from_body(
+        data, 'PDF_IMPORT_DEFAULT_LLM')
+    if err_resp is not None:
+        return err_resp, status
+    from app import question_split as qsplit
+    try:
+        boxes, raw = qsplit.detect_boxes(
+            token, version, cfg,
+            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception('split auto-detect failed')
+        return jsonify({'error': str(e)}), 502
+    return jsonify({'success': True, 'boxes': boxes, 'raw': (raw or '')[:4000]})
 
 
 @admin_bp.route('/questions/<int:question_id>/assets')
@@ -2006,39 +2333,98 @@ def rename_question(question_id):
         return jsonify({'error': f'A question with QID {new_qid} already exists'}), 409
 
     old_qid = question.qid
+    old_parsed_qid = parse_qid(old_qid)
     source_path = current_app.config['SOURCE_PATH']
 
-    # Update the question record
-    question.qid = new_qid
-    question.subject = parsed['subject']
-    question.source = parsed['source']
-    question.year = parsed.get('year')
-    question.paper = parsed.get('paper')
-    question.qno = parsed['qno']
+    subtree_ids = collect_subtree_ids(question)
+    has_descendants = len(subtree_ids) > 1
+    old_token = old_parsed_qid.token if old_parsed_qid else None
+    new_token = parsed['qno_token']
+    if old_token:
+        shape_err = rename_shape_ok(old_token, new_token, has_descendants)
+        if shape_err:
+            return jsonify({'error': shape_err}), 400
+
+    subtree = Question.query.filter(Question.id.in_(subtree_ids)).all()
+    new_parsed_full = parse_qid(new_qid)
+    new_prefix = new_parsed_full.prefix
+    plans = []  # (question, new_qid, ParsedQno)
+    new_qids = []
+    for node in subtree:
+        node_parsed = parse_qid(node.qid)
+        if not node_parsed:
+            return jsonify({'error': f'Cannot parse existing QID {node.qid}'}), 400
+        try:
+            if node.id == question.id:
+                node_new_token = new_token
+            else:
+                node_new_token = rewrite_descendant_token(
+                    node_parsed.token, old_token, new_token
+                )
+        except HierarchyError as e:
+            return jsonify({'error': str(e)}), 400
+        node_new_qid = f'{new_prefix}_{node_new_token}'
+        plans.append((node, node_new_qid, parse_qno_token(node_new_token)))
+        new_qids.append(node_new_qid)
+
+    if len(set(new_qids)) != len(new_qids):
+        return jsonify({'error': 'Rename would produce duplicate QIDs in the subtree'}), 409
+
+    collisions = (
+        Question.query
+        .filter(Question.qid.in_(new_qids))
+        .filter(~Question.id.in_(subtree_ids))
+        .all()
+    )
+    if collisions:
+        return jsonify({
+            'error': f'A question with QID {collisions[0].qid} already exists'
+        }), 409
+
+    # Apply QID + hierarchy columns. parent_id is recomputed after all QIDs
+    # exist so ensure_question can find the new parents.
+    for node, node_new_qid, node_tok in plans:
+        node.qid = node_new_qid
+        node.subject = parsed['subject']
+        node.source = parsed['source']
+        node.year = parsed.get('year')
+        node.paper = parsed.get('paper')
+        node.qno = node_tok.qno
+        node.qno_end = node_tok.qno_end
+        node.part = node_tok.own_part
+        node.part_sort = part_sort_value(node_tok.own_part) if node_tok.own_part else None
+
+    db.session.flush()
+    for node, _nid, _tok in plans:
+        relink_parent(node)
 
     renamed_files = []
     errors = []
 
     if confirm_rename_files:
-        # Rename/move physical files
-        for asset in question.assets.all():
-            old_full = os.path.join(source_path, asset.file_path)
-            new_rel = _build_asset_file_path(question, asset)
-            new_full = os.path.join(source_path, new_rel)
+        for node, _nid, _tok in plans:
+            for asset in node.assets.all():
+                old_full = os.path.join(source_path, asset.file_path)
+                new_rel = _build_asset_file_path(node, asset)
+                new_full = os.path.join(source_path, new_rel)
 
-            if os.path.exists(old_full):
-                try:
-                    os.makedirs(os.path.dirname(new_full), exist_ok=True)
-                    shutil.move(old_full, new_full)
-                    renamed_files.append({'old': asset.file_path, 'new': new_rel})
+                if os.path.exists(old_full):
+                    try:
+                        os.makedirs(os.path.dirname(new_full), exist_ok=True)
+                        shutil.move(old_full, new_full)
+                        renamed_files.append({'old': asset.file_path, 'new': new_rel})
+                        asset.file_path = new_rel
+                    except Exception as e:
+                        errors.append(f'Error moving {asset.file_path}: {str(e)}')
+                else:
                     asset.file_path = new_rel
-                except Exception as e:
-                    errors.append(f'Error moving {asset.file_path}: {str(e)}')
-            else:
-                # File doesn't exist, just update the path in DB
-                asset.file_path = new_rel
 
     db.session.commit()
+
+    n_extra = len(plans) - 1
+    msg = f'Question renamed from {old_qid} to {new_qid}'
+    if n_extra:
+        msg += f' ({n_extra} descendant QID(s) updated)'
 
     return jsonify({
         'success': True,
@@ -2046,7 +2432,8 @@ def rename_question(question_id):
         'new_qid': new_qid,
         'renamed_files': renamed_files,
         'errors': errors,
-        'message': f'Question renamed from {old_qid} to {new_qid}'
+        'descendant_count': n_extra,
+        'message': msg
     })
 
 
@@ -2677,7 +3064,7 @@ def create_question():
     qno = data.get('qno')
     detail = data.get('detail', '').strip()  # For QB source
 
-    if not subject or not source or not qno:
+    if not subject or not source or qno in (None, ''):
         return jsonify({'error': 'Subject, source, and question number are required'}), 400
 
     # Check subject exists
@@ -2690,19 +3077,24 @@ def create_question():
         if subject not in admin_subjects:
             return jsonify({'error': f'You do not have admin access to subject {subject}'}), 403
 
+    qno_parsed = parse_qno_token(qno)
+    if not qno_parsed:
+        return jsonify({
+            'error': 'Invalid question number. Use 5, 5a, 3ci, or 23-24.'
+        }), 400
+
     # Build QID
-    qno_int = int(qno)
     if source in ('DSE', 'CE', 'AL'):
         if not year or not paper:
             return jsonify({'error': 'Year and paper are required for PP questions'}), 400
         year_int = int(year)
-        qid = f"{subject}_{source}_{year_int}_{paper}_Q{qno_int}"
+        qid = f"{subject}_{source}_{year_int}_{paper}_{qno_parsed.token}"
     elif source == 'QB':
         if not detail:
             return jsonify({'error': 'Detail/book name is required for QB questions'}), 400
         if '_' in detail:
             return jsonify({'error': 'Detail/book name cannot contain underscores'}), 400
-        qid = f"{subject}_QB_{detail}_Q{qno_int}"
+        qid = f"{subject}_QB_{detail}_{qno_parsed.token}"
         year_int = None
         paper = None
     else:
@@ -2713,19 +3105,22 @@ def create_question():
     if err:
         return jsonify({'error': err}), 400
 
-    # Check duplicate
-    if Question.query.filter_by(qid=qid).first():
+    try:
+        from app.ingestor import determine_question_type
+        question, created = ensure_question(
+            subject, source, qno_parsed.token,
+            year=year_int if source != 'QB' else None,
+            paper=paper if source != 'QB' else None,
+            detail=detail or None,
+            qid=qid,
+            q_type=determine_question_type(subject, source, paper if source != 'QB' else None),
+        )
+    except HierarchyError as e:
+        return jsonify({'error': str(e)}), 400
+
+    if not created:
         return jsonify({'error': f'Question {qid} already exists'}), 409
 
-    question = Question(
-        qid=qid,
-        subject=subject,
-        source=source,
-        year=year_int if source != 'QB' else None,
-        paper=paper if source != 'QB' else None,
-        qno=qno_int,
-    )
-    db.session.add(question)
     db.session.commit()
 
     return jsonify({
@@ -2977,7 +3372,7 @@ def export_question_tags():
       ignored in this mode.
     * ``subject_id`` — original mode: export all questions for the subject.
     """
-    from natsort import natsorted
+    from app.hierarchy import sort_key as hierarchy_sort_key
 
     admin_subjects = get_user_admin_subjects()
     admin_subject_ids = [s.id for s in admin_subjects]
@@ -2995,7 +3390,7 @@ def export_question_tags():
         if not current_user.is_super_admin:
             qs = [q for q in qs if q.subject in admin_subject_ids]
 
-        questions = natsorted(qs, key=lambda q: q.qid)
+        questions = sorted(qs, key=hierarchy_sort_key)
         filename = f'question_tags_selected_{len(questions)}.csv'
     else:
         # Subject-based export (original behaviour)
@@ -3008,9 +3403,9 @@ def export_question_tags():
             flash('Access denied for this subject.', 'danger')
             return redirect(url_for('admin.export_import'))
 
-        questions = natsorted(
+        questions = sorted(
             Question.query.filter_by(subject=subject_id).all(),
-            key=lambda q: q.qid
+            key=hierarchy_sort_key,
         )
         filename = f'question_tags_{subject_id}.csv'
 
@@ -4440,6 +4835,11 @@ def pdf_import_stage():
         return [{'index': p['index'], 'width': p['width'], 'height': p['height']}
                 for p in info['pages']]
 
+    split_default = False
+    if saved_meta.get('mode') != 'generic' and meta.get('subject'):
+        subj = Subject.query.get(meta['subject'])
+        split_default = bool(subj and subj.split_parts_default)
+
     return jsonify({
         'token': token,
         'mode': saved_meta.get('mode', 'exam'),
@@ -4450,6 +4850,7 @@ def pdf_import_stage():
         'que_version': que_version, 'sol_version': sol_version,
         'version': que_version,
         'deskew': bool(saved_meta.get('deskew')),
+        'split_parts_default': split_default,
         'que': {'filename': (que_file.filename if has_que else None), 'pages': _pages('que')},
         'sol': {'filename': (sol_file.filename if has_sol else None), 'pages': _pages('sol')},
     })
@@ -4566,6 +4967,77 @@ def pdf_import_detect():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@admin_bp.route('/pdf-import/split-detect')
+@login_required
+@admin_required
+def pdf_import_split_detect():
+    """SSE: pass-2 split of whole-question crops into stem + lettered parts."""
+    from app import pdf_import
+    from app.models import LLMConfig
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return _pdf_sse_error('AI features are disabled.')
+
+    token = request.args.get('token', '')
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return _pdf_sse_error(err)
+    if meta.get('mode') == 'generic':
+        return _pdf_sse_error('Part split is only available for exam papers.')
+
+    try:
+        endpoint_id = int(request.args.get('endpoint_id', '0'))
+    except (ValueError, TypeError):
+        endpoint_id = 0
+    if endpoint_id <= 0:
+        cfg = _pdf_default_endpoint()
+        if cfg is None:
+            return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
+        endpoint_id = cfg.id
+    else:
+        cfg = LLMConfig.query.get(endpoint_id)
+        if cfg is None or not cfg.enabled:
+            return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+        if not cfg.supports_vision:
+            return _pdf_sse_error('The selected endpoint is not vision-capable.')
+
+    kind = (request.args.get('kind') or 'both').strip().lower()
+    if kind not in ('que', 'sol', 'both'):
+        kind = 'both'
+    debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    labels_raw = (request.args.get('labels') or '').strip()
+    labels_filter = [s.strip() for s in labels_raw.split(',') if s.strip()] or None
+
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+
+    def generate():
+        with app.app_context():
+            yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
+            try:
+                from app.models import LLMConfig as _Cfg
+                live_cfg = _Cfg.query.get(endpoint_id)
+                live_cfg._batch = True
+                image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+                workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
+                do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
+                for ev in pdf_import.iter_split_detect(
+                        app, cancel, token, live_cfg, image_max_dim,
+                        kinds=kind, labels_filter=labels_filter, debug=debug,
+                        parallel=do_par, max_workers=(workers if do_par else 1)):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except Exception as e:
+                current_app.logger.exception('PDF import split-detect aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 @admin_bp.route('/pdf-import/redo-page', methods=['POST'])
 @login_required
 @admin_required
@@ -4659,26 +5131,8 @@ def pdf_import_save_plan():
         return jsonify({'error': err}), 404
 
     raw = data.get('plan') or {}
-    clean = {'que': [], 'sol': []}
-    for kind in ('que', 'sol'):
-        for item in (raw.get(kind) or []):
-            if not isinstance(item, dict):
-                continue
-            box = item.get('box')
-            if not (isinstance(box, (list, tuple)) and len(box) == 4):
-                continue
-            try:
-                box = [float(v) for v in box]
-                page = int(item.get('page', 0))
-            except (ValueError, TypeError):
-                continue
-            qno_raw = item.get('qno')
-            qno = None
-            if qno_raw is not None and str(qno_raw).strip() != '':
-                m = re.search(r'\d+', str(qno_raw))
-                if m:
-                    qno = int(m.group(0))
-            clean[kind].append({'page': page, 'qno': qno, 'box': box})
+    is_generic = (_meta or {}).get('mode') == 'generic'
+    clean = pdf_import.sanitize_plan(raw, generic=is_generic)
     try:
         pdf_import.save_plan(token, clean)
     except (ValueError, OSError) as e:

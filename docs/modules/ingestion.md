@@ -13,8 +13,9 @@ One admin page, `/admin/import` (`templates/admin_smart_import.html`), exposes b
 
 | File | Role |
 |---|---|
-| `app/ingestor.py` | `PP_PATTERN`, `QB_PATTERN`, `parse_filename`, `construct_qid`, `parse_qno`, `extract_folder_metadata`, `determine_file_format`, `determine_question_type`, `upsert_question`, `upsert_asset`, `scan_directory`, `scan_directory_stream`, `sync_database`, `sync_database_stream`, `sync_command`, `ingest_command`, `preview_source_directory`, `get_database_stats`, `find_untracked_files`. |
-| `app/smart_import.py` | Folder-import engine: `normalize_profile`, `_apply_rule_to_profile`, `_scan_tokens`, `_resolve_file`, `resolve_folder`, `_summarize`, `_canonical_rel`, plan stash (`build_plan`, `save_plan`, `load_plan`, `discard_plan`), upload staging (`create_upload`, `upload_dir`, `discard_upload`), apply (`iter_apply`, `_apply_img`, `_apply_doc`, `_apply_md`, `_ensure_question`, `_backup_files`), AI assist (`list_sample_paths`, `infer_structure_rule`). |
+| `app/ingestor.py` | `PP_PATTERN` / `QB_PATTERN` embed `QNO_TOKEN_PATTERN`; `parse_filename`, `construct_qid`, `parse_qno` (integer start via `parse_qno_token`), `extract_folder_metadata`, `determine_file_format`, `determine_question_type`, `upsert_question` (`ensure_question`), `upsert_asset`, `scan_directory`, `scan_directory_stream`, `sync_database`, `sync_database_stream`, `sync_command`, `ingest_command`, `preview_source_directory`, `get_database_stats`, `find_untracked_files`. |
+| `app/hierarchy.py` | QNO grammar + `ensure_question`. Spec: [question-hierarchy.md](question-hierarchy.md). |
+| `app/smart_import.py` | Folder-import engine: `normalize_profile`, `_apply_rule_to_profile`, `_scan_tokens` (qno via `QNO_TOKEN_RE` on the unsplit stem), `_resolve_file`, `resolve_folder`, `_summarize`, `_canonical_rel`, plan stash (`build_plan`, `save_plan`, `load_plan`, `discard_plan`), upload staging (`create_upload`, `upload_dir`, `discard_upload`), apply (`iter_apply`, `_apply_img`, `_apply_doc`, `_apply_md`, `_ensure_question` → `ensure_question`, `_backup_files`), AI assist (`list_sample_paths`, `infer_structure_rule`). |
 | `app/admin.py` | Sections `Ingestion (Admin)` and `Smart Import`: routes below plus helpers `_smart_import_resolve_root`, `_smart_import_sources`, `_smart_import_resolve_source_set`, `_smart_import_build_plan_for_sources`, `_smart_import_filter_subjects`. |
 | `cli.py` | Click group: `ingest`, `sync`, `migrate-storage`. |
 | `app/batch_image_gen.py` | `replace_img_assets` used by the IMG apply path. |
@@ -29,7 +30,7 @@ Schema reference: [../core/03-data-model-and-migrations.md](../core/03-data-mode
 
 | Model | Written |
 |---|---|
-| `Question` | Created by `upsert_question` / `_ensure_question` with `qid, subject, source, year, paper (PP only), qno, q_type` (`determine_question_type`), `level = NULL`, `section = NULL`. Existing rows are fetched, never modified by ingest. Deleted by sync when they have no assets and are > 24 h old. |
+| `Question` | Created by `upsert_question` / `_ensure_question` via `ensure_question` (find-or-creates ancestors; may insert an empty stem so `..._Q3a` has a parent). Fields: `qid, subject, source, year, paper (PP only), qno, qno_end, parent_id, part, part_sort, q_type` (`determine_question_type`), `level = NULL`, `section = NULL`. Existing rows are fetched, never modified by ingest. Deleted by sync when they have no assets, are > 24 h old, **and** have no children. |
 | `QuestionAsset` | Upserted on `(question_id, asset_type, version, file_format, part_number)`; ingest updates `file_path` on an existing row. Deleted by sync when the file is missing. Smart Import replaces/creates rows per format. |
 | `Subject` | Read (health stats, admin scoping). Ingest does **not** create subjects; the subject folder name must match an existing `Subject.id`. |
 
@@ -63,7 +64,7 @@ Paths relative to `/admin`; all `@login_required` + `@admin_required` (`A`) and 
 
 Full grammar: [../reference/filename-convention.md](../reference/filename-convention.md). Summary of what `parse_filename` enforces:
 
-- PP: `SUBJ_(DSE|CE|AL)_YEAR_PAPER_Qn_VERSION_TYPE[_PART].EXT` (e.g. `MATC_DSE_2025_P2_Q5_EN_QUE_2.png`). QB: `SUBJ_QB_DETAIL_Qn_VERSION_TYPE[_PART].EXT` (`DETAIL` has no `_`).
+- PP: `SUBJ_(DSE|CE|AL)_YEAR_PAPER_<QNO>_VERSION_TYPE[_PART].EXT` (e.g. `MATC_DSE_2025_P2_Q5_EN_QUE_2.png`, `ECON_DSE_2023_P1_Q23-24_ENO_QUE.png`). QB: `SUBJ_QB_DETAIL_<QNO>_VERSION_TYPE[_PART].EXT` (`DETAIL` has no `_`). `<QNO>` is `Q5` / `Q5a` / `Q3ci` / `Q23-24` (`QNO_TOKEN_PATTERN`). The optional `_PART` after TYPE is IMG page N, not a sub-question letter.
 - `VERSION` in `ENO|CHO|EN|CH|BI` — the regex lists the longer official tokens first so `ENO` is not shadowed by `EN`. Parsed key is `parsed['version']`.
 - `TYPE` in `QUE|ANS|SOL`; `PART` optional int (default 1); `EXT` maps via `determine_file_format`: `png|jpg|jpeg|gif|bmp` -> IMG, `doc|docx` -> DOC, `md|markdown` -> MD, anything else -> `None` (skipped).
 - Expected folders under `SOURCE_PATH`: `<SUBJ>/PP/<SOURCE>/<YEAR>/<PAPER>/` and `<SUBJ>/QB/<DETAIL>/`. `extract_folder_metadata` reads these but the QID is built from the **filename** (`construct_qid`), so a misplaced file still ingests under its filename QID with the actual relative path stored.
@@ -71,9 +72,9 @@ Full grammar: [../reference/filename-convention.md](../reference/filename-conven
 - **MD is single-part**: `upsert_asset` skips any `.md` with `part_number != 1` (logged warning).
 - Auto `q_type` (`determine_question_type`): `MATC DSE P1` -> `CQ`, `MATC DSE P2` -> `MC`, `MAT1`/`MAT2` DSE -> `CQ`, everything else (other subjects, QB, CE, AL) -> `NULL`. Only applied when the question is created.
 - `scan_directory` (CLI) processes files in `natsorted` order, commits per file, writes unparseable/errored paths to `ingest_errors.log` in the CWD. `scan_directory_stream` yields per-file events instead. Both fire `doc_thumbnails.on_doc_asset_created` / `on_img_asset_created` for newly created rows (best effort).
-- **Sync** (`sync_database[_stream]`): deletes `QuestionAsset` rows whose `SOURCE_PATH/<file_path>` is missing (dropping DOC thumbnails), then `Question` rows with zero assets — except those created within the last **24 hours** (grace period for questions mid-creation in the Add wizard). `dry_run=True` reports only.
+- **Sync** (`sync_database[_stream]`): deletes `QuestionAsset` rows whose `SOURCE_PATH/<file_path>` is missing (dropping DOC thumbnails), then `Question` rows with zero assets — except those created within the last **24 hours** (grace period for questions mid-creation in the Add wizard) and except rows that still have **children** (empty stems created so a `..._Q3a` file has a parent). `dry_run=True` reports only.
 - `find_untracked_files`: parseable files on disk whose relative path is not in any `QuestionAsset.file_path` ("reverse orphans").
-- `get_database_stats`: DB-only counts and anomaly lists (cap 500), see [admin-panel.md](admin-panel.md#database-health-admin_healthhtml).
+- `get_database_stats`: DB-only counts and anomaly lists (cap 500), see [admin-panel.md](admin-panel.md#database-health-admin_healthhtml). `questions_no_assets*` / untagged / no-type / no-level exclude stems. Extra keys: `stems_with_tags`, `parts_missing_que`, `empty_range_stems`.
 
 ### CLI (`cli.py`)
 
@@ -88,9 +89,9 @@ python cli.py sync   [--source-path P] [--dry-run|--no-dry-run] [--force]
 ### Smart Import engine
 
 - **Profile** (`normalize_profile`): `{subject, source (default DSE), detail, version (default EN), asset_type (default QUE), overwrite (default true), backup (default false), create_missing (default false), rule{}}`. Invalid enum values fall back to defaults. `_apply_rule_to_profile` lets `rule.{subject,source,version,asset_type,detail}` override the defaults.
-- **Resolve order per file** (`_resolve_file`): (1) strict `parse_filename` -> `method:'strict'`, `confidence:'high'`; (2) heuristic `_scan_tokens` over folder segments + filename stem: `qno` from stem first (`Q?0*(\d{1,3})$`), `year` (`(19|20)\d{2}`) and `paper` (`P\d{1,3}[A-Za-z]?`) from folders first, `version`/`asset_type` from any token; gaps filled from the profile. Heuristic confidence: PP with year+paper = `high` if version or type was found in the data else `medium`; only one of year/paper = `low`; QB = `medium` with detail else `low`; no qno = `none`.
+- **Resolve order per file** (`_resolve_file`): (1) strict `parse_filename` -> `method:'strict'`, `confidence:'high'`; (2) heuristic `_scan_tokens` over folder segments + filename stem: `qno` from the **unsplit** stem first via `QNO_TOKEN_RE` (`Q5` / `Q5a` / `Q23-24` — hyphens in a range token are not split), then a digits-only fallback, then folder segments; `year` (`(19|20)\d{2}`) and `paper` (`P\d{1,3}[A-Za-z]?`) from folders first, `version`/`asset_type` from any token; gaps filled from the profile. Heuristic confidence: PP with year+paper = `high` if version or type was found in the data else `medium`; only one of year/paper = `low`; QB = `medium` with detail else `low`; no qno = `none`.
 - **Status**: `skip` (unsupported ext, no QID, no subject-admin access, outside `qid_scope`), `ambiguous` (no subject in profile, or low confidence), `unmatched` (QID not in DB; `accept` = `create_missing`), `overwrite` (slot occupied; `accept` = profile `overwrite`), `add` (empty slot; accepted).
-- **Proposal shape**: `{id, src_rel, filename, ext, format, subject, source, year, paper, detail, qno, version, asset_type, part, method, confidence, status, qid, note, existing[], existing_count, accept}` plus `source_root_id`, `source_root_label`, `source_rel_path` for server sources. `existing[]` entries: `{asset_id, file_path, part_number, file_format, check_state, issue_text}` (`issue_text` rendered from the existing asset's proofread `check_result` by `_issue_text`).
+- **Proposal shape**: `{id, src_rel, filename, ext, format, subject, source, year, paper, detail, qno, qno_token, version, asset_type, part, method, confidence, status, qid, note, existing[], existing_count, accept}` plus `source_root_id`, `source_root_label`, `source_rel_path` for server sources. `existing[]` entries: `{asset_id, file_path, part_number, file_format, check_state, issue_text}` (`issue_text` rendered from the existing asset's proofread `check_result` by `_issue_text`).
 - **Plan** (`build_plan`): re-validates each edited item (source file exists under the root via `safe_join`, enum values valid, PP has year+paper, QID + subject present) into jobs `{src_abs, src_rel, filename, ext, format, qid, subject, source, year, paper, detail, qno, version, asset_type}`; invalid items go to `skipped[{src_rel, reason}]`. Persisted as JSON at `System/.smart_import/<32-hex token>.json`.
 - **Apply** (`iter_apply`), per job, after `_ensure_question` (creates the question only when `create_missing`):
   - IMG -> `batch_image_gen.replace_img_assets(question, atype, version, [PIL.Image], stitch=False, source_path)` — whole-slot replace (all existing IMG parts removed).
@@ -139,10 +140,10 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). Al
 - `base_path` vs `source_path`: the Library scan walks `SOURCE_PATH/<SUBJ>` but must store paths relative to `SOURCE_PATH`. A path without the subject prefix will be reported as a path mismatch and fail to resolve.
 - The QID comes from the filename, not the folder. A canonically named file in the wrong folder ingests fine but shows up in `path_mismatches`; Smart Import (or rename with file move) fixes it.
 - Ingest never deletes; `sync` never creates. Run `ingest` after adding files, `sync --no-dry-run` after removing files — in that order if both happened.
-- `sync` grace period is 24 h from `Question.created_at`; a question created via the Add wizard and left without assets survives sync for a day, then is deleted.
+- `sync` grace period is 24 h from `Question.created_at`; a question created via the Add wizard and left without assets survives sync for a day, then is deleted — unless it still has children (do not "clean up" empty stems).
 - `scan_directory` (CLI) writes `ingest_errors.log` to the current working directory, not to `STORAGE_PATH`.
 - Ingest does not create `Subject` rows; a new subject folder under `SOURCE_PATH` must be added via Manage Subjects first or `Question.subject` will reference a non-existent id.
-- Heuristic mode takes `qno` from the filename stem first; a folder named `Q3` containing `1.png` resolves to Q1, not Q3.
+- Heuristic mode takes `qno` from the filename stem first (`QNO_TOKEN_RE` before `_SPLIT_RE`); a folder named `Q3` containing `1.png` still resolves to Q1, not Q3. `Q23-24` in the stem is one token, not `Q23` + `24`.
 - `analyze-llm` runs inference on the **first** selected source only, then applies the rule to all sources.
 - Proposals edited client-side are re-validated by `build_plan`; edits that produce an invalid slot are dropped into `skipped`, not applied.
 - Server-source previews and multi-folder apply depend on `source_root_id` — a proposal without it (legacy single-source shape) can only be applied when exactly one source is selected.
@@ -153,6 +154,7 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). Al
 
 ## Related
 
+- [question-hierarchy.md](question-hierarchy.md) — `ensure_question`, QNO token, sync stem skip.
 - [admin-panel.md](admin-panel.md) — Database Health (stats, untracked, orphan sync) which reuses this module.
 - [admin-questions.md](admin-questions.md) — canonical path helper, upload route, `replace_img_assets`.
 - [file-browser.md](file-browser.md) — `RootRegistry`, `OQBFileSelector`, `/files/api/download`.

@@ -118,6 +118,15 @@ class FormatCompositionTests(unittest.TestCase):
         self.assertNotIn('{{box_array}}', text)
         self.assertIn('[x1, y1, x2, y2]', text)
 
+    def test_pdf_part_user_appends_rendered_contract(self):
+        text = ai_prompts.build_pdf_part_user_text('QUE', coord_order='xyxy')
+        self.assertIn(ai_prompts.FORMAT_EMPHASIS_HEADER, text)
+        self.assertNotIn('{{box_array}}', text)
+        self.assertIn('[x1, y1, x2, y2]', text)
+        sol = ai_prompts.build_pdf_part_user_text(
+            'SOL', expected_labels=['stem', 'a', 'ci'], coord_order='xyxy')
+        self.assertIn('stem, a, ci', sol)
+
     def test_explain_initial_user_appends_math_rules(self):
         text = ai_prompts.build_explain_initial_user_text()
         self.assertIn(ai_prompts.FORMAT_EMPHASIS_HEADER, text)
@@ -151,6 +160,43 @@ class ParserContractTests(unittest.TestCase):
             '[{"caption": "right triangle", "box": [40, 70, 960, 330]}]')
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]['caption'], 'right triangle')
+
+    def test_parse_question_boxes_keeps_range_and_part_labels(self):
+        out = ai_prompts.parse_question_boxes(
+            '[{"qno": "23-24", "box": [40, 70, 960, 330], '
+            '"continues_prev": false, "continues_next": false},'
+            ' {"qno": 5, "box": [40, 400, 960, 700]},'
+            ' {"qno": "3a", "box": [40, 720, 960, 900]}]')
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out[0]['qno'], 23)
+        self.assertEqual(out[0]['label'], '23-24')
+        self.assertEqual(out[1]['qno'], 5)
+        self.assertEqual(out[1]['label'], '5')
+        self.assertEqual(out[2]['qno'], 3)
+        self.assertEqual(out[2]['label'], '3a')
+
+    def test_parse_question_boxes_salvages_range_string(self):
+        # Trailing garbage so json.loads fails and salvage runs.
+        raw = '[{"qno": "23-24", "box": [40, 70, 960, 330],}]'
+        out = ai_prompts.parse_question_boxes(raw)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['qno'], 23)
+        self.assertEqual(out[0]['label'], '23-24')
+
+    def test_parse_part_boxes_stem_and_letters(self):
+        out = ai_prompts.parse_part_boxes(
+            '[{"label": "stem", "box": [0, 0, 1000, 200]},'
+            ' {"label": "a", "box": [0, 200, 1000, 500]},'
+            ' {"label": "ci", "box": [0, 500, 1000, 800]},'
+            ' {"label": "3b", "box": [0, 800, 1000, 950]}]')
+        self.assertEqual([b['label'] for b in out], ['stem', 'a', 'ci', 'b'])
+        self.assertTrue(all(0 <= v <= 1 for b in out for v in b['box']))
+
+    def test_parse_part_boxes_drops_invalid_labels(self):
+        out = ai_prompts.parse_part_boxes(
+            '[{"label": "", "box": [0, 0, 100, 100]},'
+            ' {"label": "??", "box": [0, 0, 100, 100]}]')
+        self.assertEqual(out, [])
 
 
 if __name__ == '__main__':

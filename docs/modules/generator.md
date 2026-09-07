@@ -7,6 +7,7 @@
 | File | Role |
 |---|---|
 | `app/generator.py` | `generator_bp` (`/generate`). Options page, `create_document()` → background `_generate_in_background()`, `create_word_document()`, `add_question_content_to_doc()` (IMG / MD / DOC branches), compact MC key helpers, `_run_word_postprocess_single/_split`, `_split_questions_into_groups`, lazy PDF (`download_pdf`, `_pdf_sibling_filename`, `_build_pdf_from_docx`, `_build_pdf_zip_from_docx_zip`), `generated_file_dir()`, viewer routes, `md_to_docx_via_pandoc` / `_append_md_via_pandoc`, `_parse_format_priority`. |
+| `app/hierarchy.py` | `resolve_render_plan`, `eager_load_tree`, seq-owner helpers. Called from create, background generate, and viewer. Spec: [question-hierarchy.md](question-hierarchy.md). |
 | `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `word_session(lock_timeout)`, `merge_doc_into_master`, `export_to_pdf`, `sanitize_docx_for_insertion`, `render_first_page_png`, `_WORD_COM_LOCK`, `WordComUnavailable`. |
 | `templates/generate.html` | Options form (progressive disclosure), Presets bar, Version Priority + Format Priority widgets, Reorder-blocks modal, `submitGeneration()` → status polling → success banner with Download / Get PDF / My Files. |
 | `templates/viewer.html` | Standalone Present mode page (does **not** extend `base.html`); `loadAsset`, `loadAnswerAsset`, zoom/layout/theatre controls, Version Priority widget include. |
@@ -29,13 +30,13 @@ All routes are `@login_required`. `_require_generate_permission()` aborts 403 wh
 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
-| GET, POST | `/generate/` | login + can_generate | Options page. POST carries `question_ids[]`, `filter_data`, `sort_config`, `sort_group_order` from the dashboard (`submitQuestionIds()`); stored in `session['generator_question_ids']`, `session['generator_filter_data']`, `session['sort_config']`, `session['sort_group_order']` so refresh works. GET falls back to the session. `?regen_file_id=<id>` (owner or super admin) pre-fills options, question IDs (unless explicit IDs were POSTed), filter data, sort config and block order from a `GeneratedFile`; the trailing `_YYYYMMDD_HHMMSS` is stripped from the display name. Redirects to the dashboard with a flash when no IDs. |
+| GET, POST | `/generate/` | login + can_generate | Options page. POST carries `question_ids[]`, `filter_data`, `sort_config`, `sort_group_order` from the dashboard (`submitQuestionIds()`); stored in `session['generator_question_ids']`, `session['generator_filter_data']`, `session['sort_config']`, `session['sort_group_order']` so refresh works. GET falls back to the session. `?regen_file_id=<id>` (owner or super admin) pre-fills options, question IDs (unless explicit IDs were POSTed), filter data, sort config and block order from a `GeneratedFile`; the trailing `_YYYYMMDD_HHMMSS` is stripped from the display name. Redirects to the dashboard with a flash when no IDs. Form includes `hierarchy_mode` (`selected` default / `whole`). |
+| GET, POST | `/generate/viewer` | login | Present mode. Accepts `question_ids[]`, `sort_config`, `sort_group_order`, `hierarchy_mode` (form or query; session fallback `viewer_question_ids`, `viewer_sort_config`). Applies `apply_multi_sort` then `resolve_render_plan`; `viewer.html` slides/drawer are **leaves** with `part`, `stem_id`, `breadcrumb`. Stem QUE loads in `#stemPanel` via `viewer_asset`. Not gated on `can_generate` server-side (the dashboard button is). |
 | POST | `/generate/create` | login + can_generate | Starts a job. Form fields = generation options (below) + `question_ids[]`, `display_name`, `filter_data`. Filters out questions from subjects where the user's role is not `user`/`admin` (403 if none remain). Returns `{id, status:'pending', filename}`. |
 | GET | `/generate/status/<int:file_id>` | login; owner or super admin (403 JSON) | `{id, status, error_message, display_name, filename}`. Polled every 2 s by `generate.html`. |
 | GET | `/generate/download/<int:file_id>` | login + can_generate; owner or super admin | Sends the `.docx` / `.zip` with mimetype from the extension. Non-completed or missing file → flash + redirect to `/user/files`. |
 | GET | `/generate/pdf/<int:file_id>` | login; `_user_can_view_file` (owner, super admin, or shared-with) | **Lazy PDF.** Serves the cached sibling if present, else builds it synchronously with Word COM, caches, then sends. JSON errors: 403 access, 409 not completed, 400 not convertible (filename not `.docx`/`.zip`), 404 source missing on disk, 503 Word COM unavailable, 500 build failed. Download name is `<display_name>.pdf` or `<display_name>.pdf.zip`. |
 | POST | `/generate/api/sort-groups` | login + can_generate | Body `question_ids[]` + `group_fields` (JSON array or csv). Scopes to accessible subjects. Returns `{group_fields, blocks:[{key, labels, count}]}` for the Reorder-blocks modal. |
-| GET, POST | `/generate/viewer` | login | Present mode. Accepts `question_ids[]`, `sort_config`, `sort_group_order` (form or query; session fallback `viewer_question_ids`, `viewer_sort_config`). Applies `apply_multi_sort` and renders `viewer.html` with per-question `has_que/has_ans/has_sol`, `answer`, `comment`. Not gated on `can_generate` server-side (the dashboard button is). |
 | GET | `/generate/api/viewer_asset/<int:question_id>/<asset_type>?version_priority=EN,CH,BI,ENO,CHO` | login | Best `(format, version)` group for the viewer. Falls back ANS ↔ SOL when the requested type is missing (`asset_type` in the response reports the type actually used). Returns `{parts:[{id,type,format,version,part_number,url}], id, question_id, type, format, version, url, asset_type, html?, thumbnail_url?}`; `html` for MD, `thumbnail_url` for DOC when a cached PNG exists (else one is scheduled). Legacy `?lang=EN` accepted. |
 
 ## Business rules / invariants
@@ -45,7 +46,7 @@ All routes are `@login_required`. `_require_generate_permission()` aborts 403 wh
 1. Dashboard `submitQuestionIds()` POSTs the selection to `GET|POST /generate/`.
 2. User configures options; `submitGeneration()` POSTs to `/generate/create`.
 3. `create_document()` writes a `GeneratedFile` (status `pending`, `section_id` = owner's default section) and spawns a **daemon thread** running `_generate_in_background(app, ...)` with the real app object (`current_app._get_current_object()`).
-4. The thread sorts, splits, builds each docx with python-docx (`create_word_document` → `(doc, doc_insertions)`), and writes to `storage.ensure_user_generated_dir(gen_file.user)` (`User/<name>/generated/`).
+4. The thread sorts, splits, expands with `hierarchy.resolve_render_plan(mode=hierarchy_mode)`, builds each docx with python-docx (`create_word_document` → `(doc, doc_insertions)`), and writes to `storage.ensure_user_generated_dir(gen_file.user)` (`User/<name>/generated/`). Stems emit QUE only (no seq/info). Leaves get seq via `seq_owner_id`. A leaf without ANS/SOL uses the nearest ancestor once per stem run.
 5. If any DOC markers were emitted, the docx is saved to a temp dir, a single `word_com.word_session` replaces each marker via `merge_doc_into_master`, and the result is moved to the final path. Pure IMG/MD jobs never open Word.
 6. Frontend polls `/generate/status/<id>` (2 s) until `completed`/`failed`, then shows Download, **Get PDF** (only when filename ends `.docx`/`.zip`) and My Files.
 7. PDF is produced **lazily on demand** by `GET /generate/pdf/<id>` from the success banner (`buildPdfFromBanner`) or the My Files row button (`buildAndDownloadPdf`).
@@ -76,7 +77,7 @@ All routes are `@login_required`. `_require_generate_permission()` aborts 403 wh
 
 `compact_mc_answers` replaces contiguous eligible MC answer runs with Answer Text blocks. Eligibility (`_compact_mc_answer_text`): `q_type == 'MC'` and non-empty, single-line, trimmed `Question.answer` of at most 80 chars (`_MC_KEY_MAX_ANSWER_LENGTH`). CQ and ineligible MC answers keep full ANS rendering and split the run; MC QID headings are suppressed while compact mode is active.
 
-- `_partition_mc_answer_runs(questions, seq_start)` preserves document order and records `seq_start + index`.
+- `_partition_mc_answer_runs(questions, seq_start, seq_nos=)` preserves document order. When `seq_nos` is passed (generator), those are the render-plan leaf numbers; otherwise `seq_start + index`.
 - `_split_mc_answer_run(entries, columns, max_rows)` applies the optional `columns * max_rows` block capacity.
 - `_add_mc_answer_key_block` emits native `Table Grid` tables (`mc_key_layout='table'`) or tab-stop paragraphs (`'tabs'`).
 - Per-answer numbers and `Qx–Qy` range titles use runtime sequential numbers and are gated by `show_seq_no` (`mc_key_include_seq`, `mc_key_range_title` are forced false without it). They never use the stored real-paper `Question.qno`.
@@ -118,6 +119,7 @@ Form defaults: MC `lines/0` before, `lines/1` after; CQ `page/0` before, `page/0
 | `keep_together` | bool | `keep_with_next` on headings |
 | `apply_spacing_to_ans` | bool | False |
 | `denote_cross_topic` | bool | appends `[Cross Topic: X, Y]` to the info line |
+| `hierarchy_mode` | `selected` / `whole` | default `selected`. `selected` = stem + chosen leaves; `whole` = expand every selected node's root. Selecting a stem always expands to all descendants. |
 | `info_fields`, `section_fields`, `split_fields` | dict of `topic/subtopic/chapter/subchapter` bools | per-question info line / section heading on change / split into separate docx |
 | `question_ids` | list[str] | stored for regeneration; stripped from presets |
 
@@ -151,7 +153,7 @@ If any `split_fields` are enabled, `_split_questions_into_groups()` groups the *
 
 - Progressive disclosure: file name → content/answer mode → numbering/headings → contextual compact-MC panel → question order; Bootstrap collapses for Asset selection, Document structure, Spacing/pagination. Collapsed controls still submit.
 - `syncAdvancedOptionSummaries({openCustomized})` flags non-default sections and opens them after regen/preset restore.
-- `getCurrentGenerationOptions()` serialises every control (incl. `sort_config`, `sort_group_order`, compact-MC options); `restoreGenerationOptions(opts)` is the single restore path for regen and presets.
+- `getCurrentGenerationOptions()` serialises every control (incl. `sort_config`, `sort_group_order`, compact-MC options, `hierarchy_mode`); `restoreGenerationOptions(opts)` is the single restore path for regen and presets.
 - Compact-key numbering controls are hidden (not disabled/cleared) while `show_seq_no` is off. `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer`; answer/solution spacing is shown only for THEN modes. `updateFileExtLabel()` shows `.zip` vs `.docx`.
 - Reorder blocks (Auto Sort only, hidden in Manual Sort): `openReorderBlocksModal()` POSTs `question_ids` + `group_fields` to `/generate/api/sort-groups`, stores order in `#sortGroupOrderInput`, persisted in `generation_options` and presets.
 - The selected-questions list reads `localStorage['oqb_selectedQuestions']` to stay in sync with the dashboard.
@@ -159,7 +161,7 @@ If any `split_fields` are enabled, `_split_questions_into_groups()` groups the *
 
 ### Viewer / Present mode
 
-`viewer.html` is a self-contained page (own copies of `oqbTypesetMath` / `oqbRenderMarkdownInto`; no rerender-thumbnail button). `loadAsset(type, qid)` and `loadAnswerAsset(qid)` fetch `/generate/api/viewer_asset/...?version_priority=` and render image parts, MD `html`, or the DOC `thumbnail_url` (polling until ready). Supports answer preference (ANS/SOL primary with fallback), zoom per panel, layouts, theatre/fullscreen, question drawer, keyboard shortcuts, and a Markup hand-off (`markupUrlFromAsset`).
+`viewer.html` is a self-contained page (own copies of `oqbTypesetMath` / `oqbRenderMarkdownInto`; no rerender-thumbnail button). Slides and the drawer list **leaves** from `resolve_render_plan`. `loadStemQue` fetches the root QUE into `#stemPanel` when `stem_has_que`. `loadAsset(type, qid)` and `loadAnswerAsset(qid)` fetch `/generate/api/viewer_asset/...?version_priority=` and render image parts, MD `html`, or the DOC `thumbnail_url` (polling until ready). Supports answer preference (ANS/SOL primary with fallback), zoom per panel, layouts, theatre/fullscreen, question drawer, keyboard shortcuts, and a Markup hand-off (`markupUrlFromAsset`).
 
 ## Settings & config keys
 
@@ -205,9 +207,11 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 12. **pandoc absence degrades, it does not fail**: MD slots become italic placeholders. Freshly installed pandoc may be invisible to a long-running process (PATH); set `PANDOC_PATH`.
 13. **Regen (`?regen_file_id`) honours explicit POSTed `question_ids` over the saved ones** so "regenerate with my current selection" works; filter data always comes from the original file.
 14. **`viewer.html` does not extend `base.html`** — duplicate any shared helper you need there.
+15. **Stem/part expansion is only `hierarchy.resolve_render_plan`** (ADR-009). Dashboard selection stays ADR-008. Do not expand in the browser or by walking `children` in `create_word_document`.
 
 ## Related
 
+- [question-hierarchy.md](question-hierarchy.md) — `resolve_render_plan`, seq owner, ANS/SOL fallback.
 - [dashboard.md](dashboard.md) — source of `question_ids`, `sort_config`, `sort_group_order`, `filter_data`; preview resolver semantics.
 - [my-files.md](my-files.md) — My Files rows, lazy PDF button, regen / re-filter links, Saved Generation Presets.
 - [doc-format.md](doc-format.md) — DOC asset format, thumbnails, `word_com` internals, security model.

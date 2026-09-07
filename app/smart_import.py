@@ -48,6 +48,9 @@ from app.ingestor import (
     parse_filename, construct_qid, determine_file_format,
     determine_question_type, parse_qno,
 )
+from app.hierarchy import (
+    QNO_TOKEN_RE, parse_qno_token, parse_qid, ensure_question, HierarchyError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +83,10 @@ def _scan_tokens(segments, stem):
     ``year, paper, qno, version, asset_type`` (only keys actually found).
 
     Preference rules:
-      * ``qno`` is taken from the **filename stem** first (e.g. ``Q9``), then
-        from folder segments.
+      * ``qno`` is taken from the **filename stem** first (e.g. ``Q9`` /
+        ``Q3a`` / ``Q23-24``), then from folder segments. Hyphenated range
+        tokens are matched on the unsplit stem so ``Q23-24`` is not broken
+        into ``Q23`` + ``24``.
       * ``year`` / ``paper`` are taken from folder segments first (the common
         ``<year>/<paper>/`` layout), then the stem.
       * ``version`` / ``asset_type`` from any token.
@@ -93,12 +98,24 @@ def _scan_tokens(segments, stem):
     for seg in segments:
         seg_tokens.extend(_tokenize(seg))
 
-    # qno: filename stem wins. Accept a bare number or Q<number>.
-    for tok in stem_tokens + seg_tokens:
-        m = _QNO_RE.match(tok)
+    # qno: unsplit stem first so range tokens survive `_SPLIT_RE` hyphens.
+    parsed_tok = None
+    for text in [stem] + list(segments):
+        m = QNO_TOKEN_RE.search(text or '')
         if m:
-            found['qno'] = int(m.group(1))
-            break
+            parsed_tok = parse_qno_token(m.group(1))
+            if parsed_tok:
+                break
+    if parsed_tok:
+        found['qno'] = parsed_tok.qno
+        found['qno_token'] = parsed_tok.token
+    else:
+        for tok in stem_tokens + seg_tokens:
+            m = _QNO_RE.match(tok)
+            if m:
+                found['qno'] = int(m.group(1))
+                found['qno_token'] = f"Q{int(m.group(1))}"
+                break
 
     # year / paper: folders first, then stem.
     for tok in seg_tokens + stem_tokens:
@@ -277,19 +294,23 @@ def infer_structure_rule(base_dir, rel_path, profile, config):
 # QID construction (heuristic)
 # ---------------------------------------------------------------------------
 
-def _build_qid(subject, source, year, paper, detail, qno):
+def _build_qid(subject, source, year, paper, detail, qno, qno_token=None):
     """Build a QID from resolved components, or return ``None`` when a required
     piece is missing for the chosen source."""
-    if not subject or qno is None:
+    if not subject or (qno is None and not qno_token):
         return None
+    if qno_token:
+        tok = qno_token if str(qno_token).startswith('Q') else f'Q{qno_token}'
+    else:
+        tok = f'Q{int(qno)}'
     if source in PP_SOURCES:
         if year is None or not paper:
             return None
-        return f"{subject}_{source}_{year}_{paper}_Q{qno}"
+        return f"{subject}_{source}_{year}_{paper}_{tok}"
     # QB
     if not detail:
         return None
-    return f"{subject}_QB_{detail}_Q{qno}"
+    return f"{subject}_QB_{detail}_{tok}"
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +379,7 @@ def _resolve_file(rel_path, filename, profile):
         'year': None,
         'paper': None,
         'qno': None,
+        'qno_token': None,
         'version': profile['version'],
         'asset_type': profile['asset_type'],
         'part': 1,
@@ -391,6 +413,8 @@ def _resolve_file(rel_path, filename, profile):
         else:
             base['detail'] = parsed.get('detail', '')
         base['qno'] = parse_qno(parsed['qno'])
+        tok = parse_qno_token(parsed['qno'])
+        base['qno_token'] = tok.token if tok else parsed['qno']
         base['qid'] = construct_qid(parsed)
     else:
         # 2) Heuristic path/token scan + profile defaults.
@@ -402,13 +426,15 @@ def _resolve_file(rel_path, filename, profile):
         base['year'] = found.get('year')
         base['paper'] = found.get('paper')
         base['qno'] = found.get('qno')
+        base['qno_token'] = found.get('qno_token')
         if found.get('version'):
             base['version'] = found['version']
         if found.get('asset_type'):
             base['asset_type'] = found['asset_type']
 
         base['qid'] = _build_qid(base['subject'], base['source'], base['year'],
-                                 base['paper'], base['detail'], base['qno'])
+                                 base['paper'], base['detail'], base['qno'],
+                                 qno_token=base.get('qno_token'))
 
         # Confidence: how many key dimensions came from the data vs guessed.
         if base['qno'] is None:
@@ -715,32 +741,30 @@ def _ensure_question(job):
     if q:
         return q, False
 
-    # Create-missing path: build a question from the resolved components.
-    q = Question(qid=job['qid'])
-    q.subject = job['subject']
-    q.source = job['source']
-    if job['source'] in PP_SOURCES:
-        q.year = job['year']
-        q.paper = job['paper']
-    else:
-        q.year = None
-        q.paper = None
+    parsed = parse_qid(job['qid'])
+    token = parsed.token if parsed else (job.get('qno_token') or job.get('qid', '').rsplit('_', 1)[-1])
     try:
-        q.qno = int(job['qno']) if job.get('qno') not in (None, '') else parse_qno_from_qid(job['qid'])
-    except (TypeError, ValueError):
-        q.qno = parse_qno_from_qid(job['qid'])
-    q.q_type = determine_question_type(job['subject'], job['source'], job.get('paper'))
-    q.level = None
-    q.section = None
-    db.session.add(q)
+        q, created = ensure_question(
+            job['subject'],
+            job['source'],
+            token,
+            year=job.get('year'),
+            paper=job.get('paper'),
+            detail=job.get('detail'),
+            qid=job['qid'],
+            q_type=determine_question_type(job['subject'], job['source'], job.get('paper')),
+        )
+    except HierarchyError as e:
+        logger.warning('Smart Import cannot create %s: %s', job.get('qid'), e)
+        return None, False
     db.session.commit()
-    return q, True
+    return q, created
 
 
 def parse_qno_from_qid(qid):
-    """Last-resort qno extraction from a QID's trailing ``_Q<n>``."""
-    m = re.search(r'_Q(\d+)$', qid or '')
-    return int(m.group(1)) if m else 0
+    """Last-resort qno extraction from a QID's trailing QNO token."""
+    parsed = parse_qid(qid or '')
+    return parsed.qno.qno if parsed else 0
 
 
 def _apply_img(question, job, source_path, overwrite, backup, batch_dir):

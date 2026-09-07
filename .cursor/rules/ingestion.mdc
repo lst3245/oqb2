@@ -7,12 +7,12 @@ alwaysApply: false
 # Ingestion and Smart Import (bootloader — spec in `docs/modules/ingestion.md`, grammar in `docs/reference/filename-convention.md`)
 
 ## Invariants
-- QID comes from the **filename**, never the folder. `PP_PATTERN` / `QB_PATTERN` in `app/ingestor.py`; `VERSION` alternation lists `ENO|CHO` before `EN|CH`. `.md` with `part > 1` is skipped; DOC/MD are single-slot.
+- QID comes from the **filename**, never the folder. `PP_PATTERN` / `QB_PATTERN` in `app/ingestor.py` embed `hierarchy.QNO_TOKEN_PATTERN` (`Q5`, `Q5a`, `Q23-24`). `VERSION` alternation lists `ENO|CHO` before `EN|CH`. `.md` with `part > 1` is skipped; DOC/MD are single-slot. Filename `_N` after TYPE is IMG page, not a sub-question.
 - `file_path` is stored forward-slash relative to `base_path`. When scanning a subject subfolder pass `source_path=SOURCE_PATH/<SUBJ>` **and** `base_path=SOURCE_PATH`.
 - `q_type` auto-detection only for `MATC DSE P1→CQ`, `MATC DSE P2→MC`, `MAT1/MAT2 DSE→CQ`; everything else NULL.
-- **Ingest never deletes; sync never creates.** Sync skips questions created < 24 h ago. `cli.py sync` is dry-run by default; `--no-dry-run` deletes orphan rows — never run it unasked. `ingest_errors.log` is written to the CWD.
-- Smart Import (`/admin/import`) resolve order: strict parse → heuristic tokens (qno from the stem first) → profile defaults; statuses `skip / ambiguous / unmatched / overwrite / add`. Profile `overwrite` defaults **true**, `backup` false.
-- Apply is per format: IMG whole-slot replace; DOC delete + copy + thumbnail hooks; MD copy + `md_render.invalidate`. Backups go to `System/ImportBackups/<ts>/`; plans to `System/.smart_import/<token>.json`; uploads to `System/.smart_import_uploads/<token>/`.
+- **Ingest never deletes; sync never creates.** Sync skips questions created < 24 h ago **and** questions that still have children (empty stems). `cli.py sync` is dry-run by default; `--no-dry-run` deletes orphan rows — never run it unasked. `ingest_errors.log` is written to the CWD.
+- Smart Import (`/admin/import`) resolve order: strict parse → heuristic tokens (qno from the **unsplit** stem via `QNO_TOKEN_RE` so `Q23-24` survives hyphens) → profile defaults; statuses `skip / ambiguous / unmatched / overwrite / add`. Profile `overwrite` defaults **true**, `backup` false.
+- Apply is per format: IMG whole-slot replace; DOC delete + copy + thumbnail hooks; MD copy + `md_render.invalidate`. `_ensure_question` → `ensure_question`. Backups go to `System/ImportBackups/<ts>/`; plans to `System/.smart_import/<token>.json`; uploads to `System/.smart_import_uploads/<token>/`.
 - Multi-folder: proposals carry `source_root_id`; prepare groups by root; `analyze-llm` infers from the first source only, using `SMART_IMPORT_DEFAULT_LLM` (text-only).
 - Legacy `/admin/ingestion*` routes redirect to Smart Import; the SSE library scan is Smart Import's "Library scan" mode.
 

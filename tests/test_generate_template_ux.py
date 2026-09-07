@@ -57,6 +57,12 @@ class GenerationOptionsTemplateTests(unittest.TestCase):
         self.assertNotIn('showQidAnswerCheckbox.checked', self.template)
         self.assertIn('id="applySpacingToAnsDiv"', self.template)
 
+    def test_hierarchy_mode_control_exists(self):
+        self.assertIn('id="hierarchyMode"', self.template)
+        self.assertIn('name="hierarchy_mode"', self.template)
+        self.assertIn('value="selected"', self.template)
+        self.assertIn('value="whole"', self.template)
+
 
 if __name__ == '__main__':
     unittest.main()

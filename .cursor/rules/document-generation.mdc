@@ -14,8 +14,9 @@ alwaysApply: false
 - One `word_session` per job; `_WORD_COM_LOCK` is global and non-reentrant; `word_com.IS_AVAILABLE` is the single gate. DOC slots merge via marker `__OQB_DOC_INSERT_<uuid>__` + `Selection.InsertFile` of a sectPr-stripped copy (master layout wins). Never use docxcompose for DOC.
 - MD slots convert with pandoc; absence degrades to italic placeholders and generation continues.
 - Asset pick order for generation: **format priority then version priority** (`format_priority`, `version_priority`, user-reorderable; parse with `parse_version_priority`).
-- Compact MC answer keys: `QUE_THEN_ANS` mode only, use runtime sequential numbers (never `Question.qno`), always Answer Text; `mc_key_include_seq` / `mc_key_range_title` are forced off when `show_seq_no` is off.
+- Compact MC answer keys: `QUE_THEN_ANS` mode only, use runtime sequential numbers (never `Question.qno`), always Answer Text; `mc_key_include_seq` / `mc_key_range_title` are forced off when `show_seq_no` is off. Compact runs iterate **leaves** after `resolve_render_plan`.
 - Split groups the already-sorted list, so `sort_group_order` propagates; it is honoured only when `sort_mode='custom'` and its `fields` equal the grouping fields of `sort_config`.
+- Stem/part expansion is **only** `hierarchy.resolve_render_plan` (`hierarchy_mode` in `generation_options`, default `selected`). Do not invent a second expansion path. Stems emit QUE only (no seq/info); leaves own seq via `seq_owner_id`; ANS/SOL fall back to the nearest ancestor once per stem run.
 
 ## Authz
 - `/generate/download/<id>` is owner / super-admin only, while `/generate/pdf/<id>` and `/user/files/bulk-download` also accept share recipients (`_user_can_view_file`). Known asymmetry — listed in STATUS; align both if you touch either.

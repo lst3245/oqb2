@@ -31,7 +31,7 @@ Schema reference: [../core/03-data-model-and-migrations.md](../core/03-data-mode
 
 | Model | Touched by |
 |---|---|
-| `Subject` (`id` string PK, `name`) | Subjects CRUD. `id` is immutable (embedded in QIDs and `SOURCE_PATH/<subject>/`). |
+| `Subject` (`id` string PK, `name`, `split_parts_default`) | Subjects CRUD. `id` is immutable (embedded in QIDs and `SOURCE_PATH/<subject>/`). `split_parts_default` is on the add/edit form and seeds the PDF-import **Split questions into parts** checkbox. |
 | `Topic` / `Subtopic` (`subject_id`, `sort_order`; Subtopic `hidden`) | Topics page, Topics CSV. Cascade-deleted with their Subject. |
 | `Chapter` / `Subchapter` (same shape as Topic/Subtopic) | Chapters page, Chapters CSV. |
 | `Question` | Counted for subject delete-block; Question Tags CSV writes `major_topic_id`, `major_subtopic_id`, `minor_topics`, `subtopics`, `chapter_id`, `subchapter_id`, `section`, `level`, `q_type`, `correct_percentage`, `description`, `answer`, `comment`. |
@@ -59,8 +59,8 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 |---|---|---|---|
 | GET | `/subjects` | S | Page; table with per-subject question/topic/chapter counts. |
 | GET | `/subjects/<subject_id>/usage` | S | JSON `{id, name, questions, topics, chapters, saved_filters, question_sets, permissions}` for the delete-confirm modal. `saved_filters` comes from `_saved_filter_subject_count()` parsing every `SavedFilter.filter_data`. |
-| POST | `/subjects/add` | S | Form `{id, name}`. `id` is stripped, uppercased, must match `^[A-Z0-9]{1,10}$` and be unique. Returns `{id, name}`. |
-| POST | `/subjects/<subject_id>/edit` | S | Form `{name}`. Name only; the ID cannot change. |
+| POST | `/subjects/add` | S | Form `{id, name, split_parts_default?}`. `id` is stripped, uppercased, must match `^[A-Z0-9]{1,10}$` and be unique. Returns `{id, name, split_parts_default}`. |
+| POST | `/subjects/<subject_id>/edit` | S | Form `{name, split_parts_default?}`. Name and the split-default flag; the ID cannot change. |
 | POST/DELETE | `/subjects/<subject_id>/delete` | S | 400 if any `Question.subject == id`. Otherwise deletes `SavedQuestionSet`, matching `SavedFilter` rows, `UserSubjectPermission`, then the `Subject` (topics/subtopics/chapters/subchapters cascade). The `SOURCE_PATH/<subject>/` folder is left untouched. |
 
 ### Topic Management (`admin_topics.html`)
@@ -110,7 +110,7 @@ All exports are CSV (`text/csv; charset=utf-8`, attachment). Imports read `utf-8
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
 | GET | `/export-import` | A | Page; subject picker limited to admin subjects. |
-| GET | `/export/question-tags` | A | Either `?question_ids=1,2,3` (DB ids, filtered to the caller's admin subjects unless super admin; filename `question_tags_selected_{N}.csv`, used by the "Dashboard selections only" toggle) **or** `?subject_id=MATC` (whole subject; `question_tags_{subject_id}.csv`). `question_ids` wins when both present. Rows natsorted by QID. Columns: `qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, description, answer, comment`. Multi-valued columns are `; `-joined names. |
+| GET | `/export/question-tags` | A | Either `?question_ids=1,2,3` (DB ids, filtered to the caller's admin subjects unless super admin; filename `question_tags_selected_{N}.csv`, used by the "Dashboard selections only" toggle) **or** `?subject_id=MATC` (whole subject; `question_tags_{subject_id}.csv`). `question_ids` wins when both present. Rows sorted by `hierarchy.sort_key`. Columns: `qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, description, answer, comment`. Multi-valued columns are `; `-joined names. |
 | POST | `/import/question-tags` | A | Multipart `file` (`.csv`) + repeated `import_fields` checkboxes (subset of the 13 non-key columns; none submitted = import all). Only fields both selected and present in the CSV are applied. Matches by `qid`; rows for unknown QIDs or non-admin subjects are skipped. Names resolve within the question's subject; unknown names null the field and add a warning. `major_subtopic` requires a resolved `major_topic`; `subchapter` requires a resolved `chapter`. `correct_percentage` outside 0-100 becomes NULL. |
 | GET | `/export/topics` | A | `?subject_id=`; columns `subject_id, topic_name, subtopic_name, subtopic_hidden`; row order = `sort_order`. |
 | POST | `/import/topics` | A | Requires `subject_id` + `topic_name` columns. Row position defines `sort_order` (topics and subtopics renumbered from 1). Creates missing topics/subtopics; `subtopic_hidden` `0`/`1` updates the flag when present. |
@@ -131,7 +131,7 @@ All exports are CSV (`text/csv; charset=utf-8`, attachment). Imports read `utf-8
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
 | GET | `/health` | S | Page (`source_path` passed for display). |
-| GET | `/health/stats` | S | `get_database_stats()` JSON: `total_questions`, `total_assets`, `total_subjects`, `subjects[]`, `untagged_questions(_list)`, `questions_no_subtopic(_list)`, `questions_no_assets(_list)` (older than 24 h), `questions_no_assets_recent(_list)`, `assets_missing_files` (always `null`, see Gotchas), `duplicate_qids[]`, `duplicate_assets(_list)`, `path_mismatches(_list)`, `questions_no_type(_list)`, `questions_no_level(_list)`. Lists are capped at 500 entries. DB-only; no filesystem access. |
+| GET | `/health/stats` | S | `get_database_stats()` JSON: `total_questions`, `total_assets`, `total_subjects`, `subjects[]`, `untagged_questions(_list)` (**excluding stems**), `questions_no_subtopic(_list)` (excluding stems), `questions_no_assets(_list)` (older than 24 h, **excluding** stems that still have children), `questions_no_assets_recent(_list)`, `assets_missing_files` (always `null`, see Gotchas), `duplicate_qids[]`, `duplicate_assets(_list)`, `path_mismatches(_list)`, `questions_no_type(_list)` (excluding stems), `questions_no_level(_list)` (excluding stems), `stems_with_tags(_list)`, `parts_missing_que(_list)` (child has no QUE and neither does its root), `empty_range_stems(_list)`. Lists are capped at 500 entries. DB-only; no filesystem access. |
 | GET | `/health/untracked` | S | `{count, files[:500]}` of parseable files on disk with no `QuestionAsset.file_path`. Each entry `{file_path, qid, filename}`. |
 | GET | `/health/sync` | S | **SSE.** `?mode=dry_run` (default) or `?mode=delete`. Streams `sync_database_stream()` events `info|warning|progress|success|error|done`; `done.stats = {orphaned_assets, orphaned_questions, deleted_assets, deleted_questions, skipped_grace, dry_run}`. Delete mode removes asset rows whose file is missing, then questions with zero assets (skipping those created < 24 h ago), and drops cached DOC thumbnails for deleted DOC rows. |
 | GET | `/health/doc-thumbnails/backfill` | S | **SSE.** `?force=0|1`. 400 (JSON) when Word COM is unavailable. Walks every DOC asset; skips slots where an IMG exists (`IMG wins slot`), skips cached PNGs unless `force=1`, else `render_doc_thumbnail_sync`. `done.stats = {rendered, skipped_img, skipped_existing, failed}`. |
@@ -174,7 +174,7 @@ Super-admin only; see [ai-tools.md](ai-tools.md). Routes: `GET /llm-endpoints` (
 - Renaming a user moves `User/<safe_username(old)>` to `User/<safe_username(new)>` via `shutil.move`, only when the source exists and the destination does not; `OSError` is logged and swallowed so a locked folder never blocks the rename.
 - You cannot edit or delete your own account from the Users page.
 - CSV imports never create questions; unknown `qid` rows are skipped. Topic/Chapter imports do create hierarchy rows.
-- Health orphan sync uses a **24-hour grace period**: questions created less than 24 h ago with no assets are reported separately and never deleted (they may be mid-upload from the Add Question wizard).
+- Health orphan sync uses a **24-hour grace period**: questions created less than 24 h ago with no assets are reported separately and never deleted (they may be mid-upload from the Add Question wizard). Empty stems that still have children are also excluded from the no-assets counts (they are not orphans).
 - `/health/stats` intentionally does no file-existence checks (network drives are slow); `assets_missing_files` is always `null`. Use the orphan sync for that.
 - Path-mismatch check compares `asset.file_path` with `_build_asset_file_path(question, asset)` for at most 5000 assets.
 
@@ -218,6 +218,7 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
 ## Related
 
+- [question-hierarchy.md](question-hierarchy.md) — `split_parts_default` (Subjects form + PDF wizard checkbox).
 - [admin-questions.md](admin-questions.md) — Question Management, Edit modal, batch operations.
 - [ingestion.md](ingestion.md) — Library scan, Smart Import, CLI ingest/sync.
 - [file-browser.md](file-browser.md) — `/admin/files` and `files_bp`.

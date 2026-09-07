@@ -110,6 +110,62 @@ def _abs(source_path, rel_path):
     return os.path.join(source_path, *rel_path.split('/'))
 
 
+def load_ancestor_que_images(question, versions, source_path, image_max_dim):
+    """QUE images of ancestors, root first. IMG preferred, else a DOC thumbnail.
+
+    Used so tagging / transcription / Explain see the shared background of a
+    lettered part. Returns a list of ``(b64, mime)``.
+    """
+    from app.hierarchy import ancestors
+    out = []
+    for anc in ancestors(question):
+        got = False
+        for version in versions or []:
+            img_parts = _slot_img_parts(anc.id, 'QUE', version)
+            if img_parts:
+                try:
+                    for a in img_parts:
+                        out.append(llm_client.prepare_image(
+                            _abs(source_path, a.file_path), image_max_dim))
+                    got = True
+                    break
+                except Exception:
+                    logger.exception('Ancestor QUE IMG prep failed for q%s %s',
+                                     anc.id, version)
+                    continue
+            doc = (QuestionAsset.query
+                   .filter_by(question_id=anc.id, asset_type='QUE',
+                              version=version, file_format='DOC')
+                   .first())
+            if doc:
+                png = _doc_thumb_png(doc.id)
+                if png:
+                    try:
+                        out.append(llm_client.prepare_image(png, image_max_dim))
+                        got = True
+                        break
+                    except Exception:
+                        logger.exception('Ancestor QUE DOC thumb failed for q%s',
+                                         anc.id)
+                        continue
+        if not got:
+            continue
+    return out
+
+
+def prepend_ancestor_que(question, images, user_text, versions, source_path,
+                         image_max_dim):
+    """Prepend ancestor QUE images and a short note. No-op when there are none."""
+    anc = load_ancestor_que_images(question, versions, source_path, image_max_dim)
+    if not anc:
+        return images, user_text
+    n = len(anc)
+    note = (f'Images 1–{n} are the shared background of the question; '
+            'the part to work on follows.')
+    text = note + ('\n\n' + (user_text or '') if user_text else '')
+    return list(anc) + list(images or []), text
+
+
 def _empty_reply_hint(info):
     """Turn an LLM response's finish_reason into an actionable hint for the
     common 'empty reply' failure modes."""
@@ -667,6 +723,11 @@ def generate_md_slot(question, asset_type, source_version, target_version, *,
 
     user_text = ai_prompts.build_md_user_text(source_version, asset_type,
                                               endpoint_id=config.id)
+    if asset_type == 'QUE':
+        from app.utils import VERSIONS as _ALL_VERS
+        ver_order = [source_version] + [v for v in _ALL_VERS if v != source_version]
+        imgs, user_text = prepend_ancestor_que(
+            question, imgs, user_text, ver_order, source_path, image_max_dim)
     try:
         text, info = llm_client.chat(config,
                                      ai_prompts.system_prompt('MD_SYSTEM',
@@ -905,6 +966,15 @@ def _resolve_tag_inputs(question, versions, source_path, image_max_dim):
                         continue
         if atype == 'QUE' and got:
             found_que = True
+
+    anc = load_ancestor_que_images(question, versions, source_path, image_max_dim)
+    if anc:
+        n = len(anc)
+        images = anc + images
+        text_blocks.insert(
+            0,
+            f'Images 1–{n} are the shared background of the question; '
+            'the part to work on follows.')
 
     return images, text_blocks, found_que
 
@@ -1771,7 +1841,11 @@ def _auto_tag_one(question, versions, fields, overwrite, config, image_max_dim,
     """Suggest + apply tags for a single question. Returns a normalised result
     dict ``{status: 'tagged'|'skip'|'error', message}``. Pure per-item unit
     shared by the sequential and parallel branches of ``iter_auto_tag``."""
+    from app.hierarchy import is_stem
     label = question.qid
+    if is_stem(question):
+        return {'status': 'skip',
+                'message': f'{label} — stem (tags live on parts)'}
     try:
         res = suggest_tags(question, versions, fields, config,
                            image_max_dim, source_path)

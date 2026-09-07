@@ -356,6 +356,8 @@ function openEditModal(questionId, opts) {
                 data.verified_at ? window.oqbFormatLocalTime(data.verified_at) : null,
                 data.verified_by);
 
+            populateHierarchyDetails(data);
+
             // Load assets (deferred — Assets tab is hidden until user clicks)
             const assetsPromise = loadAssetsForEdit(data.id);
             if (preserve && opts.preserveAssetScroll) {
@@ -419,6 +421,91 @@ function saveQuestionTags() {
 }
 
 // ==================== VERIFY (whole-question flag) ====================
+function populateHierarchyDetails(data) {
+    const crumbEl = document.getElementById('editHierarchyBreadcrumb');
+    const kidsEl = document.getElementById('editHierarchyChildren');
+    const splitLink = document.getElementById('editSplitLink');
+    const parentInput = document.getElementById('editSetParentId');
+    if (parentInput) parentInput.value = data.parent_id || '';
+    if (crumbEl) {
+        const crumbs = data.breadcrumb || [];
+        if (!crumbs.length) {
+            crumbEl.innerHTML = '';
+        } else {
+            crumbEl.innerHTML = crumbs.map((c, i) => {
+                const label = c.label || c.qid;
+                if (c.id && c.id !== data.id) {
+                    return `<a href="#" onclick="openEditModal(${c.id}, {preserveView:true}); return false;">${label}</a>`;
+                }
+                return `<strong>${label}</strong>`;
+            }).join(' <span class="text-muted">›</span> ');
+        }
+    }
+    if (kidsEl) {
+        const kids = data.children || [];
+        if (!kids.length) {
+            kidsEl.innerHTML = '<span class="text-muted small">No child parts</span>';
+        } else {
+            kidsEl.innerHTML = '<div class="small mb-1">Parts:</div>' + kids.map(c =>
+                `<a href="#" class="badge bg-light text-dark border me-1" onclick="openEditModal(${c.id}, {preserveView:true}); return false;">${c.qid}${c.part ? ' ('+c.part+')' : ''}</a>`
+            ).join('');
+        }
+    }
+    if (splitLink) {
+        splitLink.href = `/admin/questions/${data.id}/split`;
+        const alreadyStem = !!data.is_stem;
+        splitLink.style.display = alreadyStem ? 'none' : '';
+        splitLink.title = alreadyStem
+            ? 'This question already has parts'
+            : 'Crop this image into a shared background and lettered parts';
+    }
+}
+
+function createChildPart() {
+    const qId = document.getElementById('editQId').value;
+    const part = (document.getElementById('editNewChildPart').value || '').trim();
+    const status = document.getElementById('editHierarchyStatus');
+    if (!part) { if (status) status.textContent = 'Enter a part label.'; return; }
+    fetch(`{{ url_for('admin.create_child_part', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({part})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Failed');
+        if (status) status.textContent = `Created ${d.qid}`;
+        document.getElementById('editNewChildPart').value = '';
+        openEditModal(qId, {preserveView: true});
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+    })
+    .catch(err => { if (status) status.textContent = err.message; showToast(err.message, 'danger'); });
+}
+
+function setQuestionParent() {
+    const qId = document.getElementById('editQId').value;
+    const raw = (document.getElementById('editSetParentId').value || '').trim();
+    const status = document.getElementById('editHierarchyStatus');
+    const parent_id = raw === '' ? null : parseInt(raw, 10);
+    if (raw !== '' && Number.isNaN(parent_id)) {
+        if (status) status.textContent = 'Parent ID must be a number or blank.';
+        return;
+    }
+    fetch(`{{ url_for('admin.set_question_parent', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({parent_id})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Failed');
+        if (status) status.textContent = 'Parent updated';
+        openEditModal(qId, {preserveView: true});
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+    })
+    .catch(err => { if (status) status.textContent = err.message; showToast(err.message, 'danger'); });
+}
+
 function setVerifiedUI(verified, verifiedAt, verifiedBy) {
     const toggle = document.getElementById('editVerifiedToggle');
     const badge = document.getElementById('editVerifiedBadge');
@@ -667,6 +754,17 @@ function renameQuestion() {
     document.getElementById('renameOldQid').textContent = oldQid;
     document.getElementById('renameNewQid').textContent = newQid;
     document.getElementById('renameFilesCheck').checked = true;
+    const note = document.getElementById('renameDescendantNote');
+    const nKids = (editQuestionData && editQuestionData.child_count) || 0;
+    if (note) {
+        if (nKids > 0) {
+            note.textContent = `This question has ${nKids} direct child part(s). Their QIDs and files will be rewritten to stay under the new identity.`;
+            note.classList.remove('d-none');
+        } else {
+            note.textContent = '';
+            note.classList.add('d-none');
+        }
+    }
     new bootstrap.Modal(document.getElementById('renameConfirmModal')).show();
 }
 

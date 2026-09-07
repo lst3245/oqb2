@@ -9,6 +9,7 @@ from flask import current_app
 from natsort import natsorted
 from app import db
 from app.models import Question, QuestionAsset, Subject
+from app.hierarchy import QNO_TOKEN_PATTERN, parse_qno_token, ensure_question, HierarchyError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,14 +19,20 @@ logger = logging.getLogger(__name__)
 # The version token (formerly "lang") accepts EN/CH/BI plus the official
 # public-exam scans ENO/CHO. Longer tokens are listed first in the alternation
 # so `ENO` isn't shadowed by a partial `EN` match.
-# PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png  or  MATC_DSE_2025_P2_Q5_EN_QUE_2.png (multi-part)
+# QNO token (from app.hierarchy): Q5, Q5a, Q3ci, Q23-24. The optional `_N`
+# after TYPE is IMG multi-file part_number, not a sub-question label.
+# PP format: MATC_DSE_2025_P2_Q5_EN_QUE.png  or  MATC_DSE_2025_P2_Q5_EN_QUE_2.png
 PP_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_(?P<qno>Q\d+)_(?P<version>ENO|CHO|EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_'
+    r'(?P<qno>' + QNO_TOKEN_PATTERN + r')_(?P<version>ENO|CHO|EN|CH|BI)_'
+    r'(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 # QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png  or  ..._QUE_2.png (multi-part)
 QB_PATTERN = re.compile(
-    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_(?P<qno>Q\d+)_(?P<version>ENO|CHO|EN|CH|BI)_(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_'
+    r'(?P<qno>' + QNO_TOKEN_PATTERN + r')_(?P<version>ENO|CHO|EN|CH|BI)_'
+    r'(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 def parse_filename(filename):
@@ -67,8 +74,11 @@ def construct_qid(parsed):
         return f"{subj}_{source}_{detail}_{qno}"
 
 def parse_qno(qno_str):
-    """Extract integer from question number like Q5 -> 5"""
-    return int(qno_str[1:]) if qno_str.startswith('Q') else int(qno_str)
+    """Extract the integer start of a QNO token (`Q5` / `Q3a` / `Q23-24` → 5 / 3 / 23)."""
+    parsed = parse_qno_token(qno_str)
+    if parsed is None:
+        raise ValueError(f'Invalid question number: {qno_str!r}')
+    return parsed.qno
 
 def extract_folder_metadata(file_path, source_path):
     """
@@ -140,39 +150,24 @@ def upsert_question(qid, parsed, folder_meta):
     Insert or update question in database
     Returns question object
     """
-    question = Question.query.filter_by(qid=qid).first()
-    
-    if not question:
-        # Create new question
-        question = Question(qid=qid)
-        
-        # Set subject
-        question.subject = parsed['subj']
-        
-        # Set source
-        question.source = parsed['source']
-        
-        # Set year (PP only)
-        if parsed['source'] in ['DSE', 'CE', 'AL']:
-            question.year = int(parsed['year'])
-            question.paper = parsed['paper']
-        else:
-            question.year = None
-            question.paper = None
-        
-        # Set question number
-        question.qno = parse_qno(parsed['qno'])
-        
-        # Set question type based on subject/source/paper rules
-        question.q_type = determine_question_type(parsed['subj'], parsed['source'], parsed.get('paper'))
-        
-        # Level is always NULL on ingestion (to be tagged manually)
-        question.level = None
-        question.section = None
-        
-        db.session.add(question)
+    try:
+        question, created = ensure_question(
+            parsed['subj'],
+            parsed['source'],
+            parsed['qno'],
+            year=parsed.get('year'),
+            paper=parsed.get('paper'),
+            detail=parsed.get('detail'),
+            qid=qid,
+            q_type=determine_question_type(
+                parsed['subj'], parsed['source'], parsed.get('paper')
+            ),
+        )
+    except HierarchyError as e:
+        logger.error(f"Cannot ingest {qid}: {e}")
+        raise
+    if created:
         logger.info(f"Created new question: {qid}")
-    
     return question
 
 def upsert_asset(question, parsed, file_path, source_path):
@@ -374,10 +369,19 @@ def sync_database(source_path, dry_run=False):
     
     # Check for questions with no assets remaining
     # Grace period: skip questions created within the last 24 hours (may be mid-upload via admin)
+    # Stems with children are never dropped: the stem may have no assets of its
+    # own (empty root created so a `..._Q3a` file has a parent).
     grace_cutoff = datetime.utcnow() - timedelta(hours=24)
+    ids_with_children = {
+        pid for (pid,) in db.session.query(Question.parent_id)
+        .filter(Question.parent_id.isnot(None)).distinct().all()
+    }
     all_questions = Question.query.all()
     for question in all_questions:
         if question.assets.count() == 0:
+            if question.id in ids_with_children:
+                logger.info(f"Skipping stem with children (no assets of its own): {question.qid} (ID: {question.id})")
+                continue
             if question.created_at > grace_cutoff:
                 logger.info(f"Skipping recently created question (grace period): {question.qid} (ID: {question.id})")
                 continue
@@ -722,7 +726,11 @@ def sync_database_stream(source_path, dry_run=True):
     # Check for questions with no assets
     # Grace period: skip questions created within the last 24 hours (may be mid-upload via admin)
     grace_cutoff = datetime.utcnow() - timedelta(hours=24)
-    yield {'type': 'info', 'message': 'Checking for questions with no assets (skipping < 24h old)...'}
+    yield {'type': 'info', 'message': 'Checking for questions with no assets (skipping < 24h old and stems with children)...'}
+    ids_with_children = {
+        pid for (pid,) in db.session.query(Question.parent_id)
+        .filter(Question.parent_id.isnot(None)).distinct().all()
+    }
     all_questions = Question.query.all()
     total_questions = len(all_questions)
     skipped_grace = 0
@@ -730,6 +738,14 @@ def sync_database_stream(source_path, dry_run=True):
     orphaned_questions = []
     for i, question in enumerate(all_questions):
         if question.assets.count() == 0:
+            if question.id in ids_with_children:
+                yield {
+                    'type': 'info',
+                    'message': f'Skipping stem with children (no assets of its own): {question.qid}',
+                    'current': i + 1,
+                    'total': total_questions
+                }
+                continue
             if question.created_at > grace_cutoff:
                 skipped_grace += 1
                 yield {
@@ -822,23 +838,39 @@ def get_database_stats(source_path=None):
     
     # Cap for QID lists returned in anomaly details
     LIST_CAP = 500
+
+    ids_with_children = {
+        pid for (pid,) in db.session.query(Question.parent_id)
+        .filter(Question.parent_id.isnot(None)).distinct().all()
+    }
     
-    # Untagged questions (no major topic)
-    untagged_q = Question.query.filter(Question.major_topic_id == None).all()
+    # Untagged questions (no major topic) — exclude stems (tags live on leaves)
+    untagged_q = Question.query.filter(Question.major_topic_id == None)
+    if ids_with_children:
+        untagged_q = untagged_q.filter(~Question.id.in_(ids_with_children))
+    untagged_q = untagged_q.filter(Question.qno_end.is_(None)).all()
     stats['untagged_questions'] = len(untagged_q)
     stats['untagged_questions_list'] = [q.qid for q in untagged_q[:LIST_CAP]]
     
-    # Questions with no major subtopic
-    no_subtopic_q = Question.query.filter(Question.major_subtopic_id == None).all()
+    # Questions with no major subtopic — exclude stems
+    no_subtopic_q = Question.query.filter(Question.major_subtopic_id == None)
+    if ids_with_children:
+        no_subtopic_q = no_subtopic_q.filter(~Question.id.in_(ids_with_children))
+    no_subtopic_q = no_subtopic_q.filter(Question.qno_end.is_(None)).all()
     stats['questions_no_subtopic'] = len(no_subtopic_q)
     stats['questions_no_subtopic_list'] = [q.qid for q in no_subtopic_q[:LIST_CAP]]
     
-    # Questions with no assets — split into "recent" (< 24h, grace period) and "stale"
+    # Questions with no assets — split into "recent" (< 24h, grace period) and "stale".
+    # Stems that still have children are not orphans: ingest of `..._Q3a` creates
+    # an empty parent on purpose (same skip as sync_database).
     grace_cutoff = datetime.utcnow() - timedelta(hours=24)
     questions_with_assets = db.session.query(QuestionAsset.question_id).distinct().subquery()
-    no_asset_questions = Question.query.filter(
-        ~Question.id.in_(db.session.query(questions_with_assets))
-    ).all()
+    no_asset_questions = [
+        q for q in Question.query.filter(
+            ~Question.id.in_(db.session.query(questions_with_assets))
+        ).all()
+        if q.id not in ids_with_children
+    ]
     stale_no_assets = [q for q in no_asset_questions if q.created_at <= grace_cutoff]
     recent_no_assets = [q for q in no_asset_questions if q.created_at > grace_cutoff]
     stats['questions_no_assets'] = len(stale_no_assets)
@@ -896,15 +928,68 @@ def get_database_stats(source_path=None):
     stats['path_mismatches'] = len(path_mismatches)
     stats['path_mismatches_list'] = path_mismatches[:LIST_CAP]
     
-    # Questions without q_type
-    no_type_q = Question.query.filter(Question.q_type == None).all()
+    # Questions without type — exclude stems (tags live on leaves)
+    no_type_q = Question.query.filter(Question.q_type == None)
+    if ids_with_children:
+        no_type_q = no_type_q.filter(~Question.id.in_(ids_with_children))
+    no_type_q = no_type_q.filter(Question.qno_end.is_(None)).all()
     stats['questions_no_type'] = len(no_type_q)
     stats['questions_no_type_list'] = [q.qid for q in no_type_q[:LIST_CAP]]
     
-    # Questions without level
-    no_level_q = Question.query.filter(Question.level == None).all()
+    # Questions without level — exclude stems
+    no_level_q = Question.query.filter(Question.level == None)
+    if ids_with_children:
+        no_level_q = no_level_q.filter(~Question.id.in_(ids_with_children))
+    no_level_q = no_level_q.filter(Question.qno_end.is_(None)).all()
     stats['questions_no_level'] = len(no_level_q)
     stats['questions_no_level_list'] = [q.qid for q in no_level_q[:LIST_CAP]]
+
+    # Hierarchy-aware anomalies
+    range_stem_ids = {q.id for q in Question.query.filter(Question.qno_end.isnot(None)).all()}
+    stem_like_ids = set(ids_with_children) | range_stem_ids
+    tagged_stems = []
+    if stem_like_ids:
+        for q in Question.query.filter(Question.id.in_(stem_like_ids)).all():
+            if (
+                q.major_topic_id or q.major_subtopic_id or q.chapter_id
+                or q.minor_topics or q.subtopics
+            ):
+                tagged_stems.append(q)
+    stats['stems_with_tags'] = len(tagged_stems)
+    stats['stems_with_tags_list'] = [q.qid for q in tagged_stems[:LIST_CAP]]
+
+    que_qids = {
+        row[0] for row in db.session.query(QuestionAsset.question_id)
+        .filter(QuestionAsset.asset_type == 'QUE').distinct().all()
+    }
+    missing_que = []
+    children = Question.query.filter(Question.parent_id.isnot(None)).all()
+    root_cache = {}
+    for c in children:
+        if c.id in que_qids:
+            continue
+        rid = c.parent_id
+        node = c
+        seen = set()
+        while node is not None and node.parent_id and node.id not in seen:
+            seen.add(node.id)
+            if node.parent_id in root_cache:
+                node = root_cache[node.parent_id]
+                break
+            node = Question.query.get(node.parent_id)
+        if node is not None:
+            root_cache[node.id] = node
+            if node.id not in que_qids:
+                missing_que.append(c)
+    stats['parts_missing_que'] = len(missing_que)
+    stats['parts_missing_que_list'] = [q.qid for q in missing_que[:LIST_CAP]]
+
+    empty_ranges = [
+        q for q in Question.query.filter(Question.qno_end.isnot(None)).all()
+        if q.id not in ids_with_children
+    ]
+    stats['empty_range_stems'] = len(empty_ranges)
+    stats['empty_range_stems_list'] = [q.qid for q in empty_ranges[:LIST_CAP]]
     
     return stats
 

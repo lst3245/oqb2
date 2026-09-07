@@ -233,7 +233,7 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                                         <i class="bi bi-arrow-repeat"></i> Rename
                                     </button>
                                 </div>
-                                <small class="text-muted">Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO</small>
+                                <small class="text-muted">Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO. QNO may be <code>Q5</code>, <code>Q5a</code>, <code>Q3ci</code>, or <code>Q23-24</code>.</small>
                                 <div id="renameStatus" class="mt-2"></div>
                             </div>
                             <div class="col-md-4">
@@ -256,6 +256,33 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                             </label>
                         </div>
                         <div id="editVerifiedMeta" class="small text-muted mt-1"></div>
+
+                        <hr class="my-3">
+                        <h6 class="mb-2"><i class="bi bi-diagram-3"></i> Hierarchy</h6>
+                        <p class="small text-muted mb-2">
+                            A long question has a <strong>shared background</strong> (stem) and lettered <strong>parts</strong>
+                            (a, b, ci). Parts must belong to a question in the same paper; the parent QID has to exist first
+                            (for example <code>Q3a</code> sits under <code>Q3</code>).
+                        </p>
+                        <div id="editHierarchyBreadcrumb" class="mb-2"></div>
+                        <div id="editHierarchyChildren" class="mb-2"></div>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <div class="input-group input-group-sm" style="max-width: 16rem;">
+                                <span class="input-group-text">Part</span>
+                                <input type="text" class="form-control" id="editNewChildPart" placeholder="a, b, ci">
+                                <button type="button" class="btn btn-outline-primary" id="editCreateChildBtn" onclick="createChildPart()">Create child</button>
+                            </div>
+                            <div class="input-group input-group-sm" style="max-width: 18rem;">
+                                <span class="input-group-text">Parent ID</span>
+                                <input type="text" class="form-control" id="editSetParentId" placeholder="id or blank to detach">
+                                <button type="button" class="btn btn-outline-secondary" onclick="setQuestionParent()">Set</button>
+                            </div>
+                            <a class="btn btn-sm btn-outline-dark" id="editSplitLink" href="#" style="display:none;">
+                                <i class="bi bi-scissors"></i> Split into parts
+                            </a>
+                        </div>
+                        <div class="form-text mb-2">Parent ID is the numeric database id of the stem (same paper), shown in the address bar when you open that question. Leave blank and click Set to detach a standalone question. Labelled parts cannot be detached.</div>
+                        <div id="editHierarchyStatus" class="small"></div>
                     </div>
                 </div>
             </div>
@@ -277,6 +304,7 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                     The model is sent the question's image(s) (and solution if present) plus this
                     subject's allowed tag values, and suggests tags. Suggestions <strong>populate the
                     form for review</strong> — nothing is saved until you click <em>Save Tags</em>.
+                    Shared-background rows (stems) cannot be tagged here; tag each lettered part instead.
                 </div>
 
                 <div class="row g-3">
@@ -363,6 +391,7 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
             </div>
             <div class="modal-body">
                 <p>Rename question from <strong id="renameOldQid"></strong> to <strong id="renameNewQid"></strong>?</p>
+                <p class="small text-muted d-none mb-2" id="renameDescendantNote"></p>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="renameFilesCheck" checked>
                     <label class="form-check-label" for="renameFilesCheck">

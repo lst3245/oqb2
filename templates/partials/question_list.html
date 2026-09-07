@@ -10,7 +10,7 @@
                 <input class="form-check-input" type="checkbox" id="selectAll" 
                        onchange="toggleSelectAll(this, true)">
                 <label class="form-check-label" for="selectAll">
-                    <strong>Select All ({{ total }} questions)</strong>
+                    <strong>Select All ({{ all_question_ids|length }} questions)</strong>
                 </label>
             </div>
             <div class="form-check">
@@ -27,8 +27,69 @@
     </div>
 
     <!-- Questions -->
-    {% for question in questions %}
-    <div class="card question-card" data-question-id="{{ question.id }}" onclick="toggleQuestionSelection(event, this)">
+    {% set groups = question_groups if question_groups is defined and question_groups else none %}
+    {% if groups is none %}
+        {% set groups = [{'stem': none, 'leaves': questions}] %}
+    {% endif %}
+    {% for group in groups %}
+    {% if group.stem %}
+    <div class="card question-card stem-header-card" data-question-id="{{ group.stem.id }}" data-stem="1"
+         onclick="toggleQuestionSelection(event, this)">
+        <div class="card-body py-2">
+            <div class="row align-items-center">
+                <div class="col-auto">
+                    <input class="form-check-input stem-checkbox" type="checkbox"
+                           name="stem_checkbox" value="{{ group.stem.id }}"
+                           onchange="updateSelection(this)"
+                           title="Select the whole question">
+                </div>
+                <div class="col-md-3">
+                    <h6 class="mb-1">
+                        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1 stem-collapse-btn"
+                                onclick="event.stopPropagation(); toggleStemGroup(this);"
+                                title="Show or hide parts" aria-expanded="true">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                        {{ group.stem.qid }}
+                        <span class="badge bg-secondary">{{ group.stem.child_count }} part{{ 's' if group.stem.child_count != 1 else '' }}</span>
+                    </h6>
+                    <small class="text-muted">Whole question · shared background — tick this to include every part</small>
+                </div>
+                <div class="col-md-6">
+                    {% set sp = group.stem %}
+                    {% if sp.preview_mode == 'image' and sp.que_asset_ids %}
+                        {% for asset_id in sp.que_asset_ids %}
+                        <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
+                             class="question-image"
+                             style="display:block; margin-bottom:2px; max-height:140px;"
+                             onerror="this.style.display='none'">
+                        {% endfor %}
+                    {% elif sp.preview_mode == 'html' %}
+                        <div class="md-preview-card" data-preview-q="{{ sp.id }}" data-preview-type="QUE"
+                             data-preview-version="{{ sp.preview_version or 'EN' }}">
+                            <div class="text-muted small fst-italic">Rendering markdown...</div>
+                        </div>
+                    {% elif sp.has_que %}
+                        <span class="text-muted small">Preview available</span>
+                    {% else %}
+                        <span class="text-muted small">No stem image</span>
+                    {% endif %}
+                </div>
+                <div class="col-md-2">
+                    {% if group.stem.subject in admin_subjects %}
+                    <button type="button" class="btn btn-sm btn-outline-warning"
+                            onclick="openEditModal({{ group.stem.id }})">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="hierarchy-children">
+    {% endif %}
+    {% for question in group.leaves %}
+    <div class="card question-card{% if group.stem %} hierarchy-leaf{% endif %}" data-question-id="{{ question.id }}" onclick="toggleQuestionSelection(event, this)">
         <div class="card-body">
             <div class="row">
                 <!-- Checkbox -->
@@ -40,7 +101,11 @@
                 
                 <!-- Question Info -->
                 <div class="col-md-3">
-                    <h6 class="mb-1">{{ question.qid }}</h6>
+                    <h6 class="mb-1">{{ question.qid }}
+                        {% if question.part_label or question.part %}
+                        <span class="badge bg-light text-dark border">part ({{ question.part_label or question.part }}) of {{ question.stem_qid or 'the whole question' }}</span>
+                        {% endif %}
+                    </h6>
                     <small class="text-muted">
                         {{ question.source }}
                         {% if question.year %} {{ question.year }}{% endif %}
@@ -99,6 +164,25 @@
                 
                 <!-- Preview Image(s) / Markdown / Doc -->
                 <div class="col-md-6">
+                    {% if question.stem_preview and question.stem_preview.has_que %}
+                    <div class="stem-que-preview mb-2">
+                        <div class="small text-muted mb-1">Shared background ({{ question.stem_qid }})</div>
+                        {% set sp = question.stem_preview %}
+                        {% if sp.preview_mode == 'image' and sp.que_asset_ids %}
+                            {% for asset_id in sp.que_asset_ids %}
+                            <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
+                                 class="question-image"
+                                 style="display:block; margin-bottom:2px; max-height:120px; opacity:0.92;"
+                                 onerror="this.style.display='none'">
+                            {% endfor %}
+                        {% elif sp.preview_mode == 'html' %}
+                            <div class="md-preview-card" data-preview-q="{{ sp.id }}" data-preview-type="QUE"
+                                 data-preview-version="{{ sp.preview_version or 'EN' }}">
+                                <div class="text-muted small fst-italic">Rendering markdown...</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     {% if question.preview_mode == 'image' and question.que_asset_ids %}
                         {% for asset_id in question.que_asset_ids %}
                         <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
@@ -220,6 +304,10 @@
             </div>
         </div>
     </div>
+    {% endfor %}
+    {% if group.stem %}
+    </div>
+    {% endif %}
     {% endfor %}
 
     <!-- Pagination -->

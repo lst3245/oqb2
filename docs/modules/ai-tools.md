@@ -9,7 +9,7 @@ AI Tools call an `LLMConfig` endpoint over selected questions to proofread typed
 | File | Role |
 |---|---|
 | `app/llm_client.py` | Single transport adapter: Chat Completions + Responses API, streaming, image prep, Fernet key storage, `resolve_default_endpoint`, `test_endpoint` |
-| `app/ai_tools.py` | SSE generators (`iter_check`, `iter_generate_md`, `iter_solve_generate`, `iter_solve_check`, `iter_auto_tag`), per-slot workers, cancel registry `_AI_CANCEL`, `_LazyWord`, tag mapping |
+| `app/ai_tools.py` | SSE generators (`iter_check`, `iter_generate_md`, `iter_solve_generate`, `iter_solve_check`, `iter_auto_tag`), per-slot workers, `load_ancestor_que_images` / `prepend_ancestor_que`, cancel registry `_AI_CANCEL`, `_LazyWord`, tag mapping |
 | `app/parallel.py` | `run_parallel(app, cancel, items, worker_fn, max_workers)` thread-pool executor + `CANCELLED` sentinel |
 | `app/ai_prompts.py` | Prompt registry, resolver, parsers (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `FIGURE_RE`). See [ai-prompts.md](ai-prompts.md) |
 | `app/admin.py` | Routes: `ai_*`, `generate_img_slot`, `set_asset_check_state`, `set_question_verified`, `batch_set_verified`, `batch_set_check_state`, `llm_endpoints_*`; helpers `_ai_tools_guard`, `_ai_parse_qs`, `_ai_parallel`, `_ai_load_endpoint`, `_ai_load_endpoint_from_body`, `_ai_stream`, `_serialize_llm_config` |
@@ -154,7 +154,7 @@ Client side: `_aiPickDefaultEndpointId(eps, defaults, opKey)` in the edit modal;
 ### MD generation
 
 - `generate_md_slot(question, atype, source_version, target_version, *, embed_image, overwrite, config, image_max_dim, md_max_bytes, source_path)` returns `{status: created|updated|skip|error, message, asset_id?}`.
-- Pipeline: source IMG parts → `MD_SYSTEM` call → `strip_md_fences` → `normalize_inline_math` (tightens `$ x $` → `$x$`; pandoc's `tex_math_dollars` rejects spaced delimiters).
+- Pipeline: source IMG parts → `MD_SYSTEM` call → `strip_md_fences` → `normalize_inline_math` (tightens `$ x $` → `$x$`; pandoc's `tex_math_dollars` rejects spaced delimiters). For **QUE** slots, `prepend_ancestor_que` inserts ancestor QUE images (root first) and a "shared background" note so a lettered part is transcribed with its stem visible. The written MD is still this part's own slot.
 - Figures are embedded only when the transcription contains a `[FIGURE: ...]` placeholder (`ai_prompts.FIGURE_RE` / `figure_captions`). With `embed_image` on and a single-part source, `_embed_figures` runs a second "locate figures" pass (`build_figure_box_system()` → `parse_figure_boxes`, 0-1000 grid, honours `PDF_IMPORT_COORD_ORDER`) and replaces each placeholder with a cropped base64 image (`crop_image_data_uri`). Falls back to the whole source image when the box is missing / degenerate / near-full-page (`_box_is_useful`) or the slot has multiple parts.
 - Skips + logs when the result exceeds `MD_MAX_SIZE_BYTES`. Writes to the canonical MD path (`_md_rel_path`, mirrors `admin.create_md_asset`), upserts the `QuestionAsset(file_format='MD')`, and calls `md_render.invalidate(asset.id)`.
 - The UI shows the per-slot button when any version has IMG for that atype and offers a source-version picker (`source_version` defaults to `version`).
@@ -168,10 +168,10 @@ Client side: `_aiPickDefaultEndpointId(eps, defaults, opKey)` in the edit modal;
 
 ### Auto-tagging
 
-- Inputs (`_resolve_tag_inputs`): for QUE then SOL, across requested versions in order, the FIRST available content per type — IMG parts (`prepare_image`) → MD text (data-URIs stripped via `_strip_data_uris`) → DOC rendered via `doc_thumbnails.ensure_thumbnail` (polled briefly). QUE required; SOL optional.
+- Inputs (`_resolve_tag_inputs`): for QUE then SOL, across requested versions in order, the FIRST available content per type — IMG parts (`prepare_image`) → MD text (data-URIs stripped via `_strip_data_uris`) → DOC rendered via `doc_thumbnails.ensure_thumbnail` (polled briefly). QUE required; SOL optional. Ancestor QUE images are prepended (root first) with a shared-background note so a part is tagged in context.
 - Prompt: `TAG_SYSTEM` + `TAG_USER` (vars `subject_name`, `fields`, `taxonomy`); `build_tag_taxonomy(subject_id, fields)` renders only the requested fields' allowed values.
 - `parse_tag_result` → `_map_tag_names`: names matched case-insensitively within the subject; subtopics validated as children of their resolved topic; `major_subtopic` must belong to `major_topic`; unmatched names are reported, never invented.
-- `suggest_tags` returns suggestions + display names + unmatched (no write). `apply_tags` writes only requested fields and, with `overwrite` off, skips any field already holding a value (scalar and M2M). `iter_auto_tag` = suggest + apply + commit per question.
+- `suggest_tags` returns suggestions + display names + unmatched (no write). `apply_tags` writes only requested fields and, with `overwrite` off, skips any field already holding a value (scalar and M2M). `iter_auto_tag` = suggest + apply + commit per question. **Stems are skipped** (`tags live on parts`).
 - Field keys (`TAG_FIELDS`): `q_type`, `level`, `section`, `major_topic`, `major_subtopic`, `minor_topics[]`, `subtopics[]`, `chapter`, `subchapter`. UI pre-selects `q_type, major_topic, major_subtopic, chapter`.
 
 ### Edit-modal Prev/Next navigation
@@ -229,12 +229,14 @@ DB-backed tunables live in `app/settings.py` REGISTRY (group "AI Tools") and hot
 15. Cancel registries (`_AI_CANCEL`, prompt cache, settings cache) are per-process; multi-worker deployments must route the cancel POST to the streaming worker.
 16. Parallel workers must not touch counters or yield events; only the consumer thread does. Each parallel `iter_check` worker opens and closes its own `_LazyWord`.
 17. `ai_endpoints` lists ALL enabled endpoints including text-only ones; the batch routes will still reject a text-only choice, so pick vision endpoints in the UI.
+18. Ancestor QUE images are prepended for parts in auto-tag, MD QUE transcription, and Explain. Proofread does not. `_auto_tag_one` skips stems.
 
 ## Related
 
 - [dashboard.md](dashboard.md) — Explain tutor chat (`/dashboard/api/question/<id>/explain`, `EXPLAIN_DEFAULT_LLM`, `_can_pick_explain_endpoint`)
 - [ai-prompts.md](ai-prompts.md) — prompt registry, variants, per-endpoint pins, parsers
 - [pdf-import.md](pdf-import.md) — vision detection using the same transport, cancel pattern, and parallel gate
+- [question-hierarchy.md](question-hierarchy.md) — ancestor QUE context; auto-tag skips stems
 - [md-format.md](md-format.md) — MD asset path, `md_render`, `normalize_inline_math`, `MD_MAX_SIZE_BYTES`
 - [admin-questions.md](admin-questions.md) — edit-question modal, `questions_api_list`, batch operations that host the AI Tools modal
 - [../core/06-system-settings.md](../core/06-system-settings.md), [../decisions/ADR-004-db-backed-settings-with-env-bootstrap.md](../decisions/ADR-004-db-backed-settings-with-env-bootstrap.md)

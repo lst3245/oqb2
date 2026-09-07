@@ -29,6 +29,10 @@ from app import db
 from app.models import Question, QuestionAsset, GeneratedFile
 from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups,
                        GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY)
+from app.hierarchy import (
+    HIERARCHY_MODE_SELECTED, HIERARCHY_MODE_WHOLE, ancestors, breadcrumb_parts,
+    eager_load_tree, is_stem, resolve_render_plan, root as hier_root,
+)
 from app import word_com
 from app import ai_prompts
 
@@ -50,6 +54,87 @@ def _bounded_int(value, default, minimum, maximum, allow_none=False):
     except (TypeError, ValueError):
         return None if allow_none else default
     return max(minimum, min(maximum, parsed))
+
+
+def _normalize_hierarchy_mode(value):
+    mode = str(value if value is not None else HIERARCHY_MODE_SELECTED).strip().lower()
+    if mode not in (HIERARCHY_MODE_SELECTED, HIERARCHY_MODE_WHOLE):
+        return HIERARCHY_MODE_SELECTED
+    return mode
+
+
+def _question_has_content(question, asset_type):
+    """Whether *question* can supply *asset_type* (asset row and/or answer text).
+
+    Test stubs without an integer ``id`` skip the DB: QUE is assumed present,
+    ANS follows ``question.answer``.
+    """
+    qid = getattr(question, 'id', None)
+    if isinstance(qid, int):
+        try:
+            if QuestionAsset.query.filter_by(
+                question_id=qid, asset_type=asset_type
+            ).first() is not None:
+                return True
+        except Exception:
+            pass
+    if asset_type == 'ANS' and getattr(question, 'answer', None):
+        return True
+    if not isinstance(qid, int):
+        return asset_type != 'ANS'
+    return False
+
+
+def _pick_asset_source(question, asset_type, emitted_ids):
+    """Leaf's own content, else nearest ancestor, at most once per ancestor id."""
+    if _question_has_content(question, asset_type):
+        return question
+    for anc in reversed(ancestors(question)):
+        if not _question_has_content(anc, asset_type):
+            continue
+        aid = getattr(anc, 'id', None)
+        if aid is not None and aid in emitted_ids:
+            return question
+        if aid is not None:
+            emitted_ids.add(aid)
+        return anc
+    return question
+
+
+def _plan_document_entries(questions, hierarchy_mode, seq_start, show_seq_no):
+    """Expand *questions* into stem/leaf entries with assigned sequence numbers."""
+    plan = resolve_render_plan(questions, mode=_normalize_hierarchy_mode(hierarchy_mode))
+    seq_map = {}
+    next_seq = seq_start
+    entries = []
+    for item in plan:
+        if item.role == 'stem':
+            entries.append({
+                'question': item.question,
+                'role': 'stem',
+                'seq_no': None,
+            })
+            continue
+        owner = item.seq_owner_id
+        if owner not in seq_map:
+            seq_map[owner] = next_seq
+            next_seq += 1
+        entries.append({
+            'question': item.question,
+            'role': 'leaf',
+            'seq_no': seq_map[owner] if show_seq_no else None,
+        })
+    return entries
+
+
+def _stem_que_spacing(spacing_config):
+    cq = (spacing_config or {}).get('cq') or {}
+    return {
+        'before_mode': cq.get('before_mode', 'page'),
+        'before_lines': cq.get('before_lines', 0),
+        'after_mode': 'lines',
+        'after_lines': 0,
+    }
 
 
 def _parse_mc_answer_key_options(form, answer_mode, show_seq_no):
@@ -173,7 +258,10 @@ def index():
         return redirect(url_for('dashboard.index'))
     
     # Get questions - preserve the selection order by using a dict
-    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+    questions_dict = {
+        str(q.id): q
+        for q in eager_load_tree(Question.query.filter(Question.id.in_(question_ids))).all()
+    }
     questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
     
     # Get sort config from session (from dashboard)
@@ -234,7 +322,10 @@ def viewer():
         return redirect(url_for('dashboard.index'))
     
     # Get questions - preserve the selection order by using a dict
-    questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+    questions_dict = {
+        str(q.id): q
+        for q in eager_load_tree(Question.query.filter(Question.id.in_(question_ids))).all()
+    }
     questions_list = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
     
     # Optional manual block ordering (carried from dashboard via form or session)
@@ -247,26 +338,43 @@ def viewer():
     else:
         sort_group_order = session.get('sort_group_order')
 
+    hierarchy_mode = _normalize_hierarchy_mode(
+        request.form.get('hierarchy_mode') or request.args.get('hierarchy_mode')
+    )
+
     # Apply sort if custom sort mode
     questions_list = apply_multi_sort(questions_list, sort_config, group_order=sort_group_order)
-    
-    # Prepare question data with assets
+    plan = resolve_render_plan(questions_list, mode=hierarchy_mode)
+    leaf_questions = [item.question for item in plan if item.role == 'leaf']
+
+    # Prepare question data with assets (slides / drawer = leaves only)
     questions_data = []
-    for q in questions_list:
-        # Get all assets for this question
+    for q in leaf_questions:
         assets = QuestionAsset.query.filter_by(question_id=q.id).all()
-        
-        # Group assets by type
         que_assets = [a for a in assets if a.asset_type == 'QUE']
         ans_assets = [a for a in assets if a.asset_type == 'ANS']
         sol_assets = [a for a in assets if a.asset_type == 'SOL']
-        
+        r = hier_root(q)
+        stem = r if (is_stem(r) and getattr(r, 'id', None) != q.id) else None
+        stem_has_que = False
+        if stem is not None:
+            stem_has_que = QuestionAsset.query.filter_by(
+                question_id=stem.id, asset_type='QUE'
+            ).first() is not None
+        crumbs = breadcrumb_parts(q)
         questions_data.append({
             'id': q.id,
             'qid': q.qid,
             'year': q.year,
             'level': q.level,
             'q_type': q.q_type,
+            'part': q.part,
+            'parent_id': q.parent_id,
+            'root_id': getattr(r, 'id', q.id) if r is not None else q.id,
+            'stem_qid': stem.qid if stem is not None else None,
+            'stem_id': stem.id if stem is not None else None,
+            'stem_has_que': stem_has_que,
+            'breadcrumb': crumbs,
             'has_que': len(que_assets) > 0,
             'has_ans': len(ans_assets) > 0,
             'has_sol': len(sol_assets) > 0,
@@ -457,6 +565,7 @@ def create_document():
     keep_together = request.form.get('keep_together') == 'on'
     apply_spacing_to_ans = request.form.get('apply_spacing_to_ans') == 'on'
     denote_cross_topic = request.form.get('denote_cross_topic') == 'on'
+    hierarchy_mode = _normalize_hierarchy_mode(request.form.get('hierarchy_mode'))
     
     # Topic/Chapter display options
     info_fields = {
@@ -529,6 +638,7 @@ def create_document():
         'keep_together': keep_together,
         'apply_spacing_to_ans': apply_spacing_to_ans,
         'denote_cross_topic': denote_cross_topic,
+        'hierarchy_mode': hierarchy_mode,
         'info_fields': info_fields, 'section_fields': section_fields,
         'split_fields': split_fields,
         'version_priority': ','.join(version_priority),
@@ -601,7 +711,7 @@ def create_document():
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
               format_priority, output_format, sort_group_order_str,
-              mc_answer_key_options)
+              mc_answer_key_options, hierarchy_mode)
     )
     thread.daemon = True
     thread.start()
@@ -616,7 +726,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             apply_spacing_to_ans, denote_cross_topic,
                             info_fields, section_fields, split_fields, filename,
                             format_priority=None, output_format='DOCX',
-                            sort_group_order_str='', mc_answer_key_options=None):
+                            sort_group_order_str='', mc_answer_key_options=None,
+                            hierarchy_mode=HIERARCHY_MODE_SELECTED):
     """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     output_format = (output_format or 'DOCX').upper()
@@ -630,7 +741,12 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
         
         try:
             # Get questions
-            questions_dict = {str(q.id): q for q in Question.query.filter(Question.id.in_(question_ids)).all()}
+            questions_dict = {
+                str(q.id): q
+                for q in eager_load_tree(
+                    Question.query.filter(Question.id.in_(question_ids))
+                ).all()
+            }
             
             if not questions_dict:
                 gen_file.status = 'failed'
@@ -694,6 +810,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             denote_cross_topic=denote_cross_topic,
                             format_priority=format_priority,
                             mc_answer_key_options=mc_answer_key_options,
+                            hierarchy_mode=hierarchy_mode,
                         )
 
                         safe_label = _sanitize_filename(group_label)
@@ -740,6 +857,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     denote_cross_topic=denote_cross_topic,
                     format_priority=format_priority,
                     mc_answer_key_options=mc_answer_key_options,
+                    hierarchy_mode=hierarchy_mode,
                 )
 
                 # If we'll need Word for either DOC merging or PDF export, write
@@ -1147,12 +1265,14 @@ def _compact_mc_answer_text(question):
     return answer
 
 
-def _partition_mc_answer_runs(questions, seq_start=1):
+def _partition_mc_answer_runs(questions, seq_start=1, seq_nos=None):
     """
     Partition document-order answers into compact MC runs and normal entries.
 
     Each compact entry retains its zero-based document index and generated
     sequential number so labels always match the question section.
+    ``seq_nos`` (optional) is a parallel list of already-assigned numbers;
+    used when parts share a seq or stems were stripped from the list.
     """
     segments = []
     mc_run = []
@@ -1164,12 +1284,16 @@ def _partition_mc_answer_runs(questions, seq_start=1):
             mc_run = []
 
     for index, question in enumerate(questions):
+        if seq_nos is not None and index < len(seq_nos) and seq_nos[index] is not None:
+            seq_no = seq_nos[index]
+        else:
+            seq_no = seq_start + index
         answer = _compact_mc_answer_text(question)
         if answer is not None:
             mc_run.append({
                 'question': question,
                 'index': index,
-                'seq_no': seq_start + index,
+                'seq_no': seq_no,
                 'answer': answer,
             })
         else:
@@ -1178,7 +1302,7 @@ def _partition_mc_answer_runs(questions, seq_start=1):
                 'type': 'normal',
                 'question': question,
                 'index': index,
-                'seq_no': seq_start + index,
+                'seq_no': seq_no,
             })
 
     flush_mc_run()
@@ -1581,7 +1705,7 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         Composer(master_doc).append(fragment)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None, mc_answer_key_options=None):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None, mc_answer_key_options=None, hierarchy_mode=HIERARCHY_MODE_SELECTED):
     """
     Create Word document with questions.
 
@@ -1597,7 +1721,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             text inline (see the DOC branch in add_question_content_to_doc).
 
     Args:
-        questions: List of Question objects
+        questions: List of Question objects (the generation selection, pre-expansion)
         answer_mode: One of QUE_ONLY, QUE_ANS, QUE_SOL, QUE_THEN_ANS, QUE_THEN_SOL
         spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines
         show_qid: Show question ID for questions
@@ -1623,6 +1747,8 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                          ('IMG','MD','DOC').
         mc_answer_key_options: Normalized compact MC answer-key settings. Only
                                effective in QUE_THEN_ANS mode.
+        hierarchy_mode: ``selected`` (default) or ``whole``. See
+            ``app.hierarchy.resolve_render_plan``.
     """
     if not format_priority:
         format_priority = list(_DEFAULT_FORMAT_PRIORITY)
@@ -1679,7 +1805,63 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     last_had_page_break = False
     # Track section heading key for change detection
     prev_section_key = None
-    
+
+    entries = _plan_document_entries(questions, hierarchy_mode, seq_start, show_seq_no)
+    que_entries = [
+        e for e in entries
+        if not (e['role'] == 'stem' and not _question_has_content(e['question'], 'QUE'))
+    ]
+    leaf_entries = [e for e in entries if e['role'] == 'leaf']
+    stem_spacing = _stem_que_spacing(spacing_config)
+    emitted_ans = set()
+    emitted_sol = set()
+
+    def emit_que_pass(with_inline_answer=None):
+        """Render stem + leaf QUE items. ``with_inline_answer`` is ANS/SOL/None."""
+        nonlocal last_had_page_break, prev_section_key
+        for i, entry in enumerate(que_entries):
+            question = entry['question']
+            if entry['role'] == 'stem':
+                add_before_spacing(doc, stem_spacing, last_had_page_break, i == 0)
+                add_question_content_to_doc(
+                    doc, question, 'QUE', show_qid, source_path, version_priority,
+                    show_correct_pct, seq_no=None, info_fields={},
+                    keep_together=keep_together, denote_cross_topic=False,
+                    format_priority=format_priority, doc_insertions=doc_insertions,
+                )
+                last_had_page_break = add_after_spacing(doc, stem_spacing)
+                continue
+
+            spacing = get_question_spacing_config(question, spacing_config)
+            if any_section_heading:
+                prev_section_key = _add_section_heading(
+                    doc, question, prev_section_key, section_fields, keep_together
+                )
+            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
+            add_question_content_to_doc(
+                doc, question, 'QUE', show_qid, source_path, version_priority,
+                show_correct_pct, seq_no=entry['seq_no'], info_fields=info_fields,
+                keep_together=keep_together, denote_cross_topic=denote_cross_topic,
+                format_priority=format_priority, doc_insertions=doc_insertions,
+            )
+            if with_inline_answer == 'ANS':
+                source = _pick_asset_source(question, 'ANS', emitted_ans)
+                add_question_content_to_doc(
+                    doc, source, 'ANS', show_qid_answer, source_path,
+                    version_priority, show_correct_pct, answer_preference,
+                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    format_priority=format_priority, doc_insertions=doc_insertions,
+                )
+            elif with_inline_answer == 'SOL':
+                source = _pick_asset_source(question, 'SOL', emitted_sol)
+                add_question_content_to_doc(
+                    doc, source, 'SOL', show_qid_answer, source_path,
+                    version_priority, show_correct_pct,
+                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    format_priority=format_priority, doc_insertions=doc_insertions,
+                )
+            last_had_page_break = add_after_spacing(doc, spacing)
+
     # Answer modes:
     # QUE_ONLY - questions only
     # QUE_ANS - question followed by answer
@@ -1688,18 +1870,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     # QUE_THEN_SOL - all questions first, then all solutions
     
     if answer_mode == 'QUE_THEN_ANS':
-        # Add all questions first
-        for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config)
-            
-            # Section heading on change (only for QUE section)
-            if any_section_heading:
-                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
-            
-            had_pb = add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
-            last_had_page_break = add_after_spacing(doc, spacing)
+        emit_que_pass()
         
         # Then add all answers - always start on new page
         doc.add_page_break()
@@ -1708,9 +1879,14 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         last_had_page_break = False
         
         compact_options = mc_answer_key_options or {}
+        leaf_questions = [e['question'] for e in leaf_entries]
+        leaf_seq_nos = [e['seq_no'] if e['seq_no'] is not None else (seq_start + i)
+                        for i, e in enumerate(leaf_entries)]
         if compact_options.get('enabled'):
             answer_content_started = False
-            for segment in _partition_mc_answer_runs(questions, seq_start):
+            for segment in _partition_mc_answer_runs(
+                leaf_questions, seq_start, seq_nos=leaf_seq_nos
+            ):
                 if segment['type'] == 'mc':
                     blocks = _split_mc_answer_run(
                         segment['entries'],
@@ -1725,6 +1901,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                     continue
 
                 question = segment['question']
+                source = _pick_asset_source(question, 'ANS', emitted_ans)
                 spacing = (
                     get_question_spacing_config(question, spacing_config)
                     if apply_spacing_to_ans
@@ -1739,7 +1916,7 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 answer_show_qid = show_qid_answer and q_type != 'MC'
                 seq_no = segment['seq_no'] if show_seq_no else None
                 add_question_content_to_doc(
-                    doc, question, 'ANS', answer_show_qid, source_path,
+                    doc, source, 'ANS', answer_show_qid, source_path,
                     version_priority, show_correct_pct, answer_preference,
                     seq_no=seq_no, keep_together=keep_together,
                     denote_cross_topic=denote_cross_topic,
@@ -1749,60 +1926,49 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 last_had_page_break = add_after_spacing(doc, spacing)
                 answer_content_started = True
         else:
-            for i, question in enumerate(questions):
+            for i, entry in enumerate(leaf_entries):
+                question = entry['question']
+                source = _pick_asset_source(question, 'ANS', emitted_ans)
                 spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
                 add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-                seq_no = (seq_start + i) if show_seq_no else None
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+                add_question_content_to_doc(
+                    doc, source, 'ANS', show_qid_answer, source_path,
+                    version_priority, show_correct_pct, answer_preference,
+                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    denote_cross_topic=denote_cross_topic,
+                    format_priority=format_priority, doc_insertions=doc_insertions,
+                )
                 last_had_page_break = add_after_spacing(doc, spacing)
     
     elif answer_mode == 'QUE_THEN_SOL':
-        # Add all questions first
-        for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config)
-            
-            # Section heading on change (only for QUE section)
-            if any_section_heading:
-                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
-            
-            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
-            last_had_page_break = add_after_spacing(doc, spacing)
+        emit_que_pass()
         
-        # Then add all solutions - always start on new page
         doc.add_page_break()
         heading = doc.add_paragraph('SOLUTIONS', style='OQB Section Heading')
         doc.add_paragraph()
         last_had_page_break = False
         
-        for i, question in enumerate(questions):
+        for i, entry in enumerate(leaf_entries):
+            question = entry['question']
+            source = _pick_asset_source(question, 'SOL', emitted_sol)
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, version_priority, show_correct_pct, seq_no=seq_no, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
+            add_question_content_to_doc(
+                doc, source, 'SOL', show_qid_answer, source_path,
+                version_priority, show_correct_pct,
+                seq_no=entry['seq_no'], keep_together=keep_together,
+                denote_cross_topic=denote_cross_topic,
+                format_priority=format_priority, doc_insertions=doc_insertions,
+            )
             last_had_page_break = add_after_spacing(doc, spacing)
     
     else:
-        # Add questions with optional answers/solutions
-        for i, question in enumerate(questions):
-            spacing = get_question_spacing_config(question, spacing_config)
-            
-            # Section heading on change
-            if any_section_heading:
-                prev_section_key = _add_section_heading(doc, question, prev_section_key, section_fields, keep_together)
-            
-            add_before_spacing(doc, spacing, last_had_page_break, i == 0)
-            seq_no = (seq_start + i) if show_seq_no else None
-            add_question_content_to_doc(doc, question, 'QUE', show_qid, source_path, version_priority, show_correct_pct, seq_no=seq_no, info_fields=info_fields, keep_together=keep_together, denote_cross_topic=denote_cross_topic, format_priority=format_priority, doc_insertions=doc_insertions)
-            
-            # Add answer/solution if requested (no extra spacing between Q and A/S)
-            if answer_mode == 'QUE_ANS':
-                add_question_content_to_doc(doc, question, 'ANS', show_qid_answer, source_path, version_priority, show_correct_pct, answer_preference, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
-            elif answer_mode == 'QUE_SOL':
-                add_question_content_to_doc(doc, question, 'SOL', show_qid_answer, source_path, version_priority, show_correct_pct, keep_together=keep_together, format_priority=format_priority, doc_insertions=doc_insertions)
-            
-            last_had_page_break = add_after_spacing(doc, spacing)
+        inline = None
+        if answer_mode == 'QUE_ANS':
+            inline = 'ANS'
+        elif answer_mode == 'QUE_SOL':
+            inline = 'SOL'
+        emit_que_pass(with_inline_answer=inline)
     
     return doc, doc_insertions
 

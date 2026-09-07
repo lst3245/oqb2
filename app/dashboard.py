@@ -9,6 +9,10 @@ from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapte
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
                        enumerate_sort_groups, GROUPING_FIELDS,
                        parse_version_priority, VERSIONS, DEFAULT_VERSION_PRIORITY)
+from app.hierarchy import (
+    breadcrumb_parts, eager_load_tree, group_for_dashboard, is_stem,
+    root as hier_root, stem_id_query,
+)
 from app import md_render
 import os
 import re
@@ -174,7 +178,123 @@ def _build_filtered_query(params):
     if q_type and q_type != 'all':
         query = query.filter(Question.q_type == q_type)
 
+    # Leaves only unless the caller asked for a specific id/qid list (Show
+    # Selected Only / health jump may include stem ids).
+    if not qid_list and not id_list:
+        query = query.filter(~Question.id.in_(stem_id_query()))
+
     return query
+
+
+_PREVIEW_FORMAT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
+
+
+def _dashboard_card(q, version_order, *, role='leaf'):
+    """Card payload for the dashboard list (leaf or stem header)."""
+    que_assets = QuestionAsset.query.filter_by(
+        question_id=q.id,
+        asset_type='QUE'
+    ).filter(
+        QuestionAsset.version.in_(VERSIONS)
+    ).order_by(
+        version_order,
+        QuestionAsset.part_number
+    ).all()
+
+    que_asset_ids = []
+    preview_mode = None
+    preview_format = None
+    preview_version = None
+    preview_doc_asset_id = None
+    preview_doc_filename = None
+    preview_doc_file_path = None
+    if que_assets:
+        best_lang = que_assets[0].version
+        preview_version = best_lang
+        same_lang = [a for a in que_assets if a.version == best_lang]
+        same_lang.sort(key=lambda a: (_PREVIEW_FORMAT_RANK.get(a.file_format, 99),
+                                      a.part_number))
+        best_fmt = same_lang[0].file_format
+        selected = [a for a in same_lang if a.file_format == best_fmt]
+        selected.sort(key=lambda a: a.part_number)
+        preview_format = best_fmt
+        if best_fmt == 'IMG':
+            preview_mode = 'image'
+            que_asset_ids = [a.id for a in selected]
+        elif best_fmt == 'MD':
+            preview_mode = 'html'
+        else:
+            doc_asset = selected[0]
+            preview_doc_asset_id = doc_asset.id
+            preview_doc_file_path = doc_asset.file_path
+            preview_doc_filename = doc_asset.file_path.rsplit('/', 1)[-1]
+            from app import doc_thumbnails as _doc_thumbnails
+            if _doc_thumbnails.ensure_thumbnail(doc_asset.id):
+                preview_mode = 'thumbnail'
+            else:
+                preview_mode = 'download'
+
+    has_ans = QuestionAsset.query.filter_by(
+        question_id=q.id, asset_type='ANS'
+    ).first() is not None
+    has_sol = QuestionAsset.query.filter_by(
+        question_id=q.id, asset_type='SOL'
+    ).first() is not None
+
+    r = hier_root(q)
+    card = {
+        'id': q.id,
+        'qid': q.qid,
+        'source': q.source,
+        'year': q.year,
+        'paper': q.paper,
+        'section': q.section,
+        'qno': q.qno,
+        'qno_end': q.qno_end,
+        'parent_id': q.parent_id,
+        'part': q.part,
+        'root_id': getattr(r, 'id', q.id),
+        'is_stem': role == 'stem',
+        'level': q.level,
+        'q_type': q.q_type,
+        'subject': q.subject,
+        'major_topic': q.major_topic.name if q.major_topic else 'N/A',
+        'major_topic_id': q.major_topic_id,
+        'major_subtopic': q.major_subtopic.name if q.major_subtopic else None,
+        'major_subtopic_id': q.major_subtopic_id,
+        'minor_topic_ids': [t.id for t in q.minor_topics],
+        'minor_topics': [t.name for t in q.minor_topics],
+        'subtopic_ids': [s.id for s in q.subtopics],
+        'subtopics': [s.name for s in q.subtopics],
+        'chapter': q.chapter.name if q.chapter else None,
+        'chapter_id': q.chapter_id,
+        'subchapter': q.subchapter.name if q.subchapter else None,
+        'subchapter_id': q.subchapter_id,
+        'description': q.description,
+        'correct_percentage': q.correct_percentage,
+        'que_asset_id': que_asset_ids[0] if que_asset_ids else None,
+        'que_asset_ids': que_asset_ids,
+        'preview_mode': preview_mode,
+        'preview_format': preview_format,
+        'preview_version': preview_version,
+        'preview_doc_asset_id': preview_doc_asset_id,
+        'preview_doc_filename': preview_doc_filename,
+        'preview_doc_file_path': preview_doc_file_path,
+        'has_que': bool(que_assets),
+        'has_ans': has_ans,
+        'has_sol': has_sol,
+        'answer': q.answer,
+        'comment': q.comment,
+        'has_answer_text': bool(q.answer),
+        'has_comment': bool(q.comment),
+        'breadcrumb': breadcrumb_parts(q),
+        'stem_qid': None,
+        'stem_preview': None,
+        'part_label': q.part,
+        'child_count': 0,
+    }
+    return card
+
 
 @dashboard_bp.route('/')
 @login_required
@@ -306,7 +426,7 @@ def filter_questions():
     session['sort_group_order'] = sort_group_order
 
     # Build query (shared with the sort-groups API via _build_filtered_query)
-    query = _build_filtered_query(session['filter_params'])
+    query = eager_load_tree(_build_filtered_query(session['filter_params']))
 
     # Get all matching questions for sorting
     all_questions = query.all()
@@ -319,7 +439,7 @@ def filter_questions():
     total = len(sorted_questions)
     start = (page - 1) * per_page
     end = start + per_page
-    questions = sorted_questions[start:end]
+    page_items = sorted_questions[start:end]
     
     total_pages = (total + per_page - 1) // per_page
     
@@ -329,118 +449,47 @@ def filter_questions():
         *[(QuestionAsset.version == v, i) for i, v in enumerate(version_priority)],
         else_=len(version_priority),
     )
-    
-    question_data = []
-    for q in questions:
-        # Get all QUE assets with version preference ordering, ordered by part_number
-        que_assets = QuestionAsset.query.filter_by(
-            question_id=q.id,
-            asset_type='QUE'
-        ).filter(
-            QuestionAsset.version.in_(VERSIONS)
-        ).order_by(
-            version_order,  # By version priority
-            QuestionAsset.part_number  # Then by part number
-        ).all()
 
-        # Pick the best version group: take the version of the first result
-        # then filter to only that version so all parts share the same version.
-        # Within that version pick the best format (IMG > MD > DOC) so the
-        # dashboard card knows which preview mode to render.
-        que_asset_ids = []
-        preview_mode = None  # 'image' | 'html' | 'thumbnail' | 'download' | None
-        preview_format = None  # 'IMG' | 'MD' | 'DOC'
-        preview_version = None  # the resolved winning version code
-        preview_doc_asset_id = None  # set when preview_mode in ('thumbnail', 'download')
-        preview_doc_filename = None
-        preview_doc_file_path = None
-        if que_assets:
-            best_lang = que_assets[0].version
-            preview_version = best_lang
-            same_lang = [a for a in que_assets if a.version == best_lang]
-            # IMG=0, MD=1, DOC=2 (mirror dashboard._PREVIEW_FORMAT_ORDER)
-            fmt_rank = {'IMG': 0, 'MD': 1, 'DOC': 2}
-            same_lang.sort(key=lambda a: (fmt_rank.get(a.file_format, 99),
-                                          a.part_number))
-            best_fmt = same_lang[0].file_format
-            selected = [a for a in same_lang if a.file_format == best_fmt]
-            selected.sort(key=lambda a: a.part_number)
-            preview_format = best_fmt
-            if best_fmt == 'IMG':
-                preview_mode = 'image'
-                que_asset_ids = [a.id for a in selected]
-            elif best_fmt == 'MD':
-                preview_mode = 'html'
-            else:
-                # DOC: prefer a server-rendered first-page PNG thumbnail when
-                # cached on disk; otherwise schedule a render in the
-                # background and fall back to the download stub for now.
-                # The thumbnail will appear on the user's next refresh.
-                doc_asset = selected[0]
-                preview_doc_asset_id = doc_asset.id
-                preview_doc_file_path = doc_asset.file_path
-                preview_doc_filename = doc_asset.file_path.rsplit('/', 1)[-1]
-                from app import doc_thumbnails as _doc_thumbnails
-                if _doc_thumbnails.ensure_thumbnail(doc_asset.id):
-                    preview_mode = 'thumbnail'
-                else:
-                    preview_mode = 'download'
-        
-        # Check for ANS and SOL
-        has_ans = QuestionAsset.query.filter_by(
-            question_id=q.id,
-            asset_type='ANS'
-        ).first() is not None
-        
-        has_sol = QuestionAsset.query.filter_by(
-            question_id=q.id,
-            asset_type='SOL'
-        ).first() is not None
-        
-        question_data.append({
-            'id': q.id,
-            'qid': q.qid,
-            'source': q.source,
-            'year': q.year,
-            'paper': q.paper,
-            'section': q.section,
-            'qno': q.qno,
-            'level': q.level,
-            'q_type': q.q_type,
-            'subject': q.subject,
-            'major_topic': q.major_topic.name if q.major_topic else 'N/A',
-            'major_topic_id': q.major_topic_id,
-            'major_subtopic': q.major_subtopic.name if q.major_subtopic else None,
-            'major_subtopic_id': q.major_subtopic_id,
-            'minor_topic_ids': [t.id for t in q.minor_topics],
-            'minor_topics': [t.name for t in q.minor_topics],
-            'subtopic_ids': [s.id for s in q.subtopics],
-            'subtopics': [s.name for s in q.subtopics],
-            'chapter': q.chapter.name if q.chapter else None,
-            'chapter_id': q.chapter_id,
-            'subchapter': q.subchapter.name if q.subchapter else None,
-            'subchapter_id': q.subchapter_id,
-            'description': q.description,
-            'correct_percentage': q.correct_percentage,
-            'que_asset_id': que_asset_ids[0] if que_asset_ids else None,
-            'que_asset_ids': que_asset_ids,
-            'preview_mode': preview_mode,
-            'preview_format': preview_format,
-            'preview_version': preview_version,
-            'preview_doc_asset_id': preview_doc_asset_id,
-            'preview_doc_filename': preview_doc_filename,
-            'preview_doc_file_path': preview_doc_file_path,
-            'has_que': bool(que_assets),
-            'has_ans': has_ans,
-            'has_sol': has_sol,
-            'answer': q.answer,
-            'comment': q.comment,
-            'has_answer_text': bool(q.answer),
-            'has_comment': bool(q.comment)
-        })
+    groups_raw = group_for_dashboard(page_items)
+    question_data = []
+    question_groups = []
+    for g in groups_raw:
+        stem_card = None
+        if g['stem'] is not None:
+            stem_card = _dashboard_card(g['stem'], version_order, role='stem')
+            stem_card['child_count'] = len(g['leaves'])
+            stem_card['is_stem'] = True
+        leaves = []
+        for q in g['leaves']:
+            card = _dashboard_card(q, version_order, role='leaf')
+            stem_obj = g['stem']
+            if stem_obj is None:
+                r = hier_root(q)
+                if is_stem(r) and getattr(r, 'id', None) != q.id:
+                    stem_obj = r
+            if stem_obj is not None and getattr(stem_obj, 'id', None) != q.id:
+                src = stem_card or _dashboard_card(stem_obj, version_order, role='stem')
+                card['stem_qid'] = src['qid']
+                card['stem_preview'] = {
+                    'id': src['id'],
+                    'qid': src['qid'],
+                    'preview_mode': src['preview_mode'],
+                    'preview_format': src['preview_format'],
+                    'preview_version': src['preview_version'],
+                    'que_asset_ids': src['que_asset_ids'],
+                    'preview_doc_asset_id': src['preview_doc_asset_id'],
+                    'preview_doc_filename': src['preview_doc_filename'],
+                    'preview_doc_file_path': src['preview_doc_file_path'],
+                    'has_que': src['has_que'],
+                }
+            leaves.append(card)
+            question_data.append(card)
+        if stem_card is not None and not leaves:
+            question_data.append(stem_card)
+        question_groups.append({'stem': stem_card, 'leaves': leaves})
     
-    # Get all question IDs for selection purposes
-    all_question_ids = [q.id for q in sorted_questions]
+    # Select-all uses leaves only so a stem header is not double-counted.
+    all_question_ids = [q.id for q in sorted_questions if not is_stem(q)]
     
     # Get subjects user has admin access to for showing edit buttons
     admin_subjects = current_user.get_admin_subjects()
@@ -449,6 +498,7 @@ def filter_questions():
     if request.headers.get('HX-Request'):
         return render_template('partials/question_list.html', 
                              questions=question_data,
+                             question_groups=question_groups,
                              page=page,
                              total_pages=total_pages,
                              total=total,
@@ -461,6 +511,7 @@ def filter_questions():
     return render_template('dashboard.html', 
                          subjects=subjects,
                          questions=question_data,
+                         question_groups=question_groups,
                          page=page,
                          total_pages=total_pages,
                          total=total,
@@ -590,6 +641,7 @@ def get_subtopics():
         # Filter by question type if not 'all'
         if q_type and q_type != 'all':
             q_query = q_query.filter(Question.q_type == q_type)
+        q_query = q_query.filter(~Question.id.in_(stem_id_query()))
         
         count = q_query.count()
         result.append({
@@ -1150,9 +1202,19 @@ def explain_question(question_id):
     if not (que_imgs or que_text):
         return jsonify({'error': 'This question has no image or Markdown to explain.'}), 400
 
+    from app.ai_tools import load_ancestor_que_images
+    anc_imgs = load_ancestor_que_images(
+        question, version_priority, source_path, image_max_dim)
+
     parts = []
+    if anc_imgs:
+        n = len(anc_imgs)
+        parts.append({'type': 'text', 'text': (
+            f'Shared background image(s) (images 1–{n}; the part to work on follows):')})
+        parts += [llm_client._image_block(b, m) for (b, m) in anc_imgs]
     if que_imgs:
-        parts.append({'type': 'text', 'text': 'QUESTION image(s):'})
+        parts.append({'type': 'text', 'text': ('QUESTION (this part) image(s):'
+                                               if anc_imgs else 'QUESTION image(s):')})
         parts += [llm_client._image_block(b, m) for (b, m) in que_imgs]
     elif que_text:
         parts.append({'type': 'text', 'text': 'QUESTION (Markdown):\n' + que_text[:6000]})

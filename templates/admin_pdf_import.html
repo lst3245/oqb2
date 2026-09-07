@@ -96,20 +96,33 @@
 
     .pdf-box-list .box-row {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.35rem 0.5rem;
         padding: 0.35rem 0;
         border-bottom: 1px solid #f0f0f0;
+        min-width: 0;
     }
     .pdf-box-list .box-row canvas {
         border: 1px solid #dee2e6;
         background: #fff;
         max-height: 70px;
+        max-width: 45%;
         width: auto;
         cursor: zoom-in;
     }
     .pdf-box-list .box-row canvas:hover { border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13,110,253,.25); }
-    .pdf-box-list .qno-input { width: 5.5rem; }
+    .pdf-box-list .qno-input { width: 6rem; flex: 0 1 6rem; min-width: 4rem; }
+    .pdf-box-list .box-row .btn { white-space: nowrap; }
+    .pdf-box.role-stem { border-color: #6c757d; background: rgba(108, 117, 125, 0.14); }
+    .pdf-box.role-stem .pdf-box-label { background: #6c757d; }
+    .pdf-box.role-part { border-color: #fd7e14; background: rgba(253, 126, 20, 0.14); }
+    .pdf-box.role-part .pdf-box-label { background: #fd7e14; }
+    .pdf-box.kind-sol.role-part { border-color: #fd7e14; }
+    .pdf-box.kind-sol.role-stem { border-color: #6c757d; }
+    .box-row .split-actions { display: flex; gap: 0.2rem; flex-shrink: 0; }
+    .box-row > .btn-outline-danger { margin-left: auto; }
+    .box-row .role-chip { font-size: 0.65rem; min-width: 2.6rem; }
     .page-card { margin-bottom: 1rem; }
     .page-card .card-header { font-size: 0.9rem; }
 
@@ -355,6 +368,15 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 </div>
                 <div class="col-md-4 d-flex flex-column justify-content-end">
                     <div class="form-check exam-only">
+                        <input class="form-check-input" type="checkbox" id="splitPartsChk">
+                        <label class="form-check-label" for="splitPartsChk" title="After finding each numbered question, run a second pass that cuts the shared background (stem) and lettered parts (a)(b)(c).">
+                            <i class="bi bi-scissors"></i> Split questions into parts
+                        </label>
+                    </div>
+                    <div class="form-text exam-only mb-2" style="margin-left: 1.5rem;">
+                        Tick this for long structured papers (economics, BAFS). After numbered questions are found, a second pass cuts the shared background (grey) and lettered parts (amber). Leave it off for one-box-per-number papers (maths). The subject’s default is applied when you load the PDF.
+                    </div>
+                    <div class="form-check exam-only">
                         <input class="form-check-input" type="checkbox" id="customPromptChk">
                         <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
                             <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
@@ -383,6 +405,9 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
                     <i class="bi bi-robot"></i> Run LLM detection
                 </button>
+                <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled>
+                    <i class="bi bi-scissors"></i> Detect parts
+                </button>
                 <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
                 <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
                 <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
@@ -390,9 +415,11 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
                 {% endif %}
             </div>
-            <p class="text-muted small mb-3">Optional: run detection above, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong box. Click <strong>Add box</strong> then drag on the page to draw a missing one &mdash; adding or deleting a box automatically shifts the following question numbers (manual number edits and move/resize do not). Per page you can pick a different <strong>method</strong>/<strong>endpoint</strong> and hit <strong>Re-run</strong>. <strong>Click a crop preview</strong> to enlarge it full-size. When boxes are ready, use Step 3 to import.
+            <p class="text-muted small mb-3">Optional: run detection, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong one. <strong>Add box</strong> then drag on the page &mdash; adding or deleting a numbered box shifts later Q# values (manual edits and move/resize do not). Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. If <em>Split into parts</em> is ticked, detection automatically runs a second pass; you can also click <strong>Detect parts</strong> or per-question <strong>Re-split</strong>. <strong>Click a crop preview</strong> to enlarge it. Then use Step 3 to import.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
+                <span class="badge" style="background:#6c757d;">stem</span>
+                <span class="badge" style="background:#fd7e14;">part</span>
             </p>
             <div id="orderWarning" class="alert alert-danger d-none border-2 fw-semibold" role="alert">
                 <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> Question numbers look out of order</h5>
@@ -507,6 +534,8 @@ const uniformWidthChk = document.getElementById('uniformWidthChk');
 const debugChk = document.getElementById('debugChk');
 const btnLoadPdf = document.getElementById('btnLoadPdf');
 const btnRunDetect = document.getElementById('btnRunDetect');
+const btnSplitDetect = document.getElementById('btnSplitDetect');
+const splitPartsChk = document.getElementById('splitPartsChk');
 const btnStop = document.getElementById('btnStop');
 const btnReset = document.getElementById('btnReset');
 const btnCommit = document.getElementById('btnCommit');
@@ -766,6 +795,15 @@ function showProgress(label) {
 // ----- Step flow -----
 btnLoadPdf.addEventListener('click', loadPdf);
 btnRunDetect.addEventListener('click', runDetect);
+if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDetect());
+if (splitPartsChk) {
+    splitPartsChk.addEventListener('change', () => {
+        refreshSplitDetectBtn();
+        if (shouldAutoSplit() && staging && !running && planRegionCount() > 0) {
+            startSplitDetect();
+        }
+    });
+}
 btnStop.addEventListener('click', stopRun);
 btnReset.addEventListener('click', resetAll);
 btnCommit.addEventListener('click', startCommit);
@@ -820,11 +858,12 @@ function setRunning(on, phase) {
      document.getElementById('taskExam'), document.getElementById('taskGeneric')]
         .forEach(el => { if (el) el.disabled = lockSetup; });
     [endpointSelect, methodSelect, pdfParallelChk, instructionInput,
-     customPromptChk, uniformWidthChk, debugChk]
+     customPromptChk, splitPartsChk, uniformWidthChk, debugChk]
         .forEach(el => { if (el) el.disabled = lockDetect || !staging; });
     if (btnRunDetect) {
         btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
     }
+    refreshSplitDetectBtn();
     [queVersionSelect, solVersionSelect, overwriteChk, trimWhiteChk]
         .forEach(el => { if (el) el.disabled = lockImport || !staging; });
     btnLoadPdf.disabled = lockSetup;
@@ -906,6 +945,9 @@ async function loadPdf() {
     staging = data;
     staging.method = methodSelect.value;
     staging.custom_prompt = false;
+    if (splitPartsChk && data.split_parts_default != null) {
+        splitPartsChk.checked = !!data.split_parts_default;
+    }
     const qn = (data.que && data.que.pages || []).length;
     const sn = (data.sol && data.sol.pages || []).length;
     if (isGeneric()) {
@@ -970,6 +1012,7 @@ function startDetect() {
                 // raise the max (the shared width only ever grows).
                 const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
                                cp: !!b.continues_prev, cn: !!b.continues_next };
+                if (!item.label && item.qno != null) applyExamLabel(item, String(item.qno));
                 plan[kind].push(item);
             });
             if (ev.page.raw !== undefined) {
@@ -982,18 +1025,17 @@ function startDetect() {
 
         if (ev.type === 'done') {
             closeStream();
-            finishDetect();
+            finishDetect({ autoSplit: true });
         }
     };
     eventSource.onerror = () => {
-        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishDetect(); }
+        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishDetect({ autoSplit: true }); }
     };
 }
 
-function finishDetect() {
+function finishDetect(opts) {
+    opts = opts || {};
     progressBar.classList.remove('progress-bar-animated');
-    setRunning(false);
-    setStatus('Review', 'bg-primary');
     document.querySelectorAll('.page-card').forEach(card => {
         const k = card.dataset.kind, i = parseInt(card.dataset.page, 10);
         if (card.dataset.pending === '1') fillPageCard(k, i);
@@ -1005,6 +1047,200 @@ function finishDetect() {
     if (planRegionCount() === 0) {
         appendLog('No regions detected — draw boxes manually or re-run detection.', 'warning');
     }
+    if (opts.autoSplit && shouldAutoSplit() && planRegionCount() > 0) {
+        startSplitDetect();
+        return;
+    }
+    setRunning(false);
+    setStatus('Review', 'bg-primary');
+}
+
+function shouldAutoSplit() {
+    return !isGeneric() && splitPartsChk && splitPartsChk.checked;
+}
+function refreshSplitDetectBtn() {
+    if (!btnSplitDetect) return;
+    const lockDetect = running;
+    btnSplitDetect.disabled = lockDetect || !staging || isGeneric()
+        || !AI_ENABLED || !HAS_ENDPOINTS || planRegionCount() === 0;
+    const emphasize = shouldAutoSplit() && !btnSplitDetect.disabled;
+    btnSplitDetect.classList.toggle('btn-primary', emphasize);
+    btnSplitDetect.classList.toggle('btn-outline-primary', !emphasize);
+}
+
+function examLabel(it) {
+    if (it && it.label != null && String(it.label).trim() !== '') {
+        return String(it.label).replace(/^Q/i, '');
+    }
+    if (it && Number.isFinite(it.qno)) return String(it.qno);
+    return '';
+}
+function prefixInt(it) {
+    const lab = examLabel(it);
+    const m = lab.match(/^(\d+)/);
+    if (m) return parseInt(m[1], 10);
+    return Number.isFinite(it && it.qno) ? it.qno : null;
+}
+function isPartItem(it) {
+    if (it && it.role === 'part') return true;
+    return /[a-z]/i.test(examLabel(it));
+}
+function applyExamLabel(it, raw) {
+    const s = String(raw || '').trim().replace(/^Q/i, '');
+    it.label = s || null;
+    const m = s.match(/^(\d+)/);
+    it.qno = m ? parseInt(m[1], 10) : null;
+}
+function serializePlanItem(it) {
+    return {
+        page: it.page,
+        qno: it.qno,
+        label: examLabel(it) || null,
+        box: it.box,
+        role: it.role || null,
+        source_label: it.source_label || null,
+        source_page: it.source_page,
+        source_box: it.source_box || null,
+    };
+}
+async function savePlanToServer() {
+    const payload = {
+        token: staging.token,
+        plan: {
+            que: plan.que.map(serializePlanItem),
+            sol: plan.sol.map(serializePlanItem),
+        }
+    };
+    const r = await fetch(`${IMPORT_BASE}/plan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    return d;
+}
+function applyServerPlan(serverPlan) {
+    ['que', 'sol'].forEach(kind => {
+        plan[kind] = (serverPlan[kind] || []).map(it => ({
+            page: it.page,
+            qno: it.qno,
+            label: it.label,
+            box: it.box,
+            role: it.role || null,
+            source_label: it.source_label || null,
+            source_page: it.source_page,
+            source_box: it.source_box || null,
+            _uid: nextUid(),
+        }));
+    });
+    document.querySelectorAll('.page-card').forEach(card => {
+        fillPageCard(card.dataset.kind, parseInt(card.dataset.page, 10));
+    });
+    updateReviewSummary();
+}
+async function startSplitDetect(opts) {
+    opts = opts || {};
+    if (!staging || isGeneric()) return;
+    if (!AI_ENABLED || !HAS_ENDPOINTS) {
+        alert('Configure a vision-capable LLM endpoint to detect parts.');
+        return;
+    }
+    if (planRegionCount() === 0) {
+        alert('Run question detection or draw boxes first.');
+        return;
+    }
+    try {
+        await savePlanToServer();
+    } catch (err) {
+        appendLog('Could not save plan before part split: ' + err.message, 'error');
+        setRunning(false);
+        return;
+    }
+    setRunning(true, 'detect');
+    setStatus('Splitting parts', 'bg-success');
+    showProgress('Splitting questions into parts...');
+    appendLog('Pass 2: detecting stem and lettered parts...', 'info');
+
+    let url = `${IMPORT_BASE}/split-detect?token=${encodeURIComponent(staging.token)}`
+        + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
+        + `&kind=${encodeURIComponent(opts.kind || 'both')}`
+        + (debugChk.checked ? '&debug=1' : '')
+        + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '');
+    if (opts.labels) url += `&labels=${encodeURIComponent(opts.labels)}`;
+    eventSource = new EventSource(url);
+    eventSource.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8), 'job'); return; }
+        if (ev.message) appendLog(ev.message, ev.type);
+        updateProgress(ev);
+        if (ev.type === 'done') {
+            closeStream();
+            if (ev.plan) applyServerPlan(ev.plan);
+            if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+            progressBar.classList.remove('progress-bar-animated');
+            setRunning(false);
+            setStatus('Review', 'bg-primary');
+        }
+    };
+    eventSource.onerror = () => {
+        if (running) {
+            appendLog('Part-split connection closed.', 'warning');
+            closeStream();
+            progressBar.classList.remove('progress-bar-animated');
+            setRunning(false);
+            setStatus('Review', 'bg-primary');
+        }
+    };
+}
+
+function parentLabelOf(item) {
+    if (item.source_label) return examLabel({ label: item.source_label });
+    const lab = examLabel(item);
+    const m = lab.match(/^(\d+(?:-\d+)?)/);
+    return m ? m[1] : lab;
+}
+function unsplitParent(kind, parentLabel) {
+    const kids = plan[kind].filter(it => parentLabelOf(it) === parentLabel);
+    if (!kids.length) return;
+    const seen = new Set();
+    const restored = [];
+    kids.forEach(it => {
+        if (it.source_box && it.source_page != null) {
+            const key = it.source_page + ':' + JSON.stringify(it.source_box);
+            if (seen.has(key)) return;
+            seen.add(key);
+            restored.push({
+                page: it.source_page, box: it.source_box.slice(),
+                qno: prefixInt({ label: parentLabel }),
+                label: parentLabel, role: 'question', _uid: nextUid(),
+            });
+        }
+    });
+    if (!restored.length) {
+        const byPage = {};
+        kids.forEach(it => {
+            byPage[it.page] = byPage[it.page] || [];
+            byPage[it.page].push(it.box);
+        });
+        Object.keys(byPage).forEach(p => {
+            const boxes = byPage[p];
+            const x1 = Math.min(...boxes.map(b => b[0]));
+            const y1 = Math.min(...boxes.map(b => b[1]));
+            const x2 = Math.max(...boxes.map(b => b[2]));
+            const y2 = Math.max(...boxes.map(b => b[3]));
+            restored.push({
+                page: parseInt(p, 10), box: [x1, y1, x2, y2],
+                qno: prefixInt({ label: parentLabel }),
+                label: parentLabel, role: 'question', _uid: nextUid(),
+            });
+        });
+    }
+    plan[kind] = plan[kind].filter(it => parentLabelOf(it) !== parentLabel).concat(restored);
+    document.querySelectorAll(`.page-card[data-kind="${kind}"]`).forEach(card => {
+        fillPageCard(kind, parseInt(card.dataset.page, 10));
+    });
+    updateReviewSummary();
 }
 
 // ----- Review rendering -----
@@ -1168,6 +1404,8 @@ function addBoxDom(card, kind, item) {
     // Overlay rectangle (draggable to move, with 8 resize handles).
     const boxEl = document.createElement('div');
     boxEl.className = 'pdf-box ' + (kind === 'sol' ? 'kind-sol' : 'kind-que');
+    if (item.role === 'stem') boxEl.classList.add('role-stem');
+    else if (item.role === 'part' || isPartItem(item)) boxEl.classList.add('role-part');
     boxEl.id = 'box-' + item._uid;
     applyBoxStyle(boxEl, item.box);
 
@@ -1213,11 +1451,11 @@ function addBoxDom(card, kind, item) {
         qInput.value = (item.label ?? '');
         qInput.placeholder = 'label (filename)';
     } else {
-        qInput.type = 'number';
-        qInput.min = '1';
+        qInput.type = 'text';
         qInput.className = 'form-control form-control-sm qno-input';
-        qInput.value = (item.qno ?? '');
-        qInput.placeholder = 'Q#';
+        qInput.value = examLabel(item);
+        qInput.placeholder = '3 / 3a / 23-24';
+        qInput.title = 'Question number: 3, 3a, or 23-24';
     }
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-outline-danger';
@@ -1230,6 +1468,53 @@ function addBoxDom(card, kind, item) {
     row.appendChild(canvas);
     row.appendChild(qLabel);
     row.appendChild(qInput);
+    if (!generic) {
+        const chip = document.createElement('span');
+        chip.className = 'badge role-chip';
+        if (item.role === 'stem') {
+            chip.style.background = '#6c757d';
+            chip.textContent = 'stem';
+            chip.title = 'Shared background for this question';
+        } else if (item.role === 'part' || isPartItem(item)) {
+            chip.style.background = '#fd7e14';
+            chip.textContent = 'part';
+            chip.title = 'Lettered part — imported as its own question';
+        } else {
+            chip.className = 'badge role-chip text-bg-light border';
+            chip.textContent = 'Q';
+            chip.title = 'Whole numbered question';
+        }
+        row.appendChild(chip);
+        const actions = document.createElement('div');
+        actions.className = 'split-actions';
+        const isPart = isPartItem(item);
+        const isSplitChild = !!item.source_label;
+        if (!isPart || item.role === 'stem') {
+            const reBtn = document.createElement('button');
+            reBtn.type = 'button';
+            reBtn.className = 'btn btn-sm btn-outline-primary';
+            reBtn.title = 'Re-run part detection on this question';
+            reBtn.innerHTML = '<i class="bi bi-scissors"></i> Re-split';
+            reBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                startSplitDetect({ kind, labels: parentLabelOf(item) });
+            });
+            actions.appendChild(reBtn);
+        }
+        if (isSplitChild && (item.role === 'stem' || !isPart)) {
+            const unBtn = document.createElement('button');
+            unBtn.type = 'button';
+            unBtn.className = 'btn btn-sm btn-outline-secondary';
+            unBtn.title = 'Merge parts back into one question box';
+            unBtn.textContent = 'Unsplit';
+            unBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                unsplitParent(kind, parentLabelOf(item));
+            });
+            actions.appendChild(unBtn);
+        }
+        if (actions.childNodes.length) row.appendChild(actions);
+    }
     row.appendChild(delBtn);
     list.appendChild(row);
 
@@ -1238,8 +1523,7 @@ function addBoxDom(card, kind, item) {
         if (generic) {
             item.label = qInput.value.trim() || null;
         } else {
-            const v = parseInt(qInput.value, 10);
-            item.qno = Number.isFinite(v) ? v : null;
+            applyExamLabel(item, qInput.value);
         }
         lbl.textContent = boxLabelText(item);
         updateOrderWarning();
@@ -1553,7 +1837,10 @@ function finishDraw(d) {
 
 function boxLabelText(item) {
     if (isGeneric()) return item.label || 'region';
-    return 'Q' + (item.qno ?? '?');
+    const lab = examLabel(item);
+    if (item.role === 'stem') return 'Q' + (lab || '?') + ' stem';
+    if (item.role === 'part' || isPartItem(item)) return 'Q' + (lab || '?');
+    return lab ? ('Q' + lab) : 'Q?';
 }
 
 // ----- Auto-renumber (relative shift) -----
@@ -1565,31 +1852,46 @@ function readingKey(it) { return it.page * 2 + it.box[1]; }   // box[1] (top) is
 function readingOrder(kind) {
     return plan[kind].slice().sort((a, b) => readingKey(a) - readingKey(b));
 }
+function bumpLabel(it, delta) {
+    const lab = examLabel(it);
+    const m = lab.match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) return;
+    const a = parseInt(m[1], 10) + delta;
+    if (a < 1) return;
+    if (m[2]) {
+        const b = parseInt(m[2], 10) + delta;
+        if (b <= a) return;
+        applyExamLabel(it, a + '-' + b);
+    } else {
+        applyExamLabel(it, String(a));
+    }
+}
+function isRenumberTarget(it) {
+    return !isPartItem(it) && prefixInt(it) != null;
+}
 function renumberAfterInsert(kind, item) {
     const order = readingOrder(kind);
     const idx = order.indexOf(item);
     if (idx < 0) return;
     let base = 0;
     for (let i = idx - 1; i >= 0; i--) {
-        if (Number.isFinite(order[i].qno)) { base = order[i].qno; break; }
+        if (isRenumberTarget(order[i])) { base = prefixInt(order[i]); break; }
     }
-    item.qno = base + 1;
+    applyExamLabel(item, String(base + 1));
     for (let i = idx + 1; i < order.length; i++) {
-        if (Number.isFinite(order[i].qno)) order[i].qno += 1;
+        if (isRenumberTarget(order[i])) bumpLabel(order[i], 1);
     }
 }
 function renumberAfterDelete(kind, removed) {
     const key = readingKey(removed);
     plan[kind].forEach(it => {
-        if (readingKey(it) > key && Number.isFinite(it.qno)) {
-            it.qno = Math.max(1, it.qno - 1);
-        }
+        if (readingKey(it) > key && isRenumberTarget(it)) bumpLabel(it, -1);
     });
 }
 // Assign 1..N to every box in reading order (used by custom-prompt exam runs,
 // where the model returns no printed numbers — the numbers are ours).
 function renumberAllSequential(kind) {
-    readingOrder(kind).forEach((it, i) => { it.qno = i + 1; });
+    readingOrder(kind).forEach((it, i) => { applyExamLabel(it, String(i + 1)); });
     refreshNumbersUI(kind);
 }
 // Re-link multi-page questions (standard exam): a page-top region flagged
@@ -1602,17 +1904,30 @@ function stitchContinuations(kind) {
     const items = readingOrder(kind);
     for (let i = 1; i < items.length; i++) {
         const cur = items[i], prev = items[i - 1];
-        if (cur.page > prev.page && (cur.cp || prev.cn) && Number.isFinite(prev.qno)) {
+        if (cur.page > prev.page && (cur.cp || prev.cn) && (Number.isFinite(prev.qno) || examLabel(prev))) {
             cur.qno = prev.qno;
+            if (prev.label) cur.label = prev.label;
+            // Continuation pages lack the margin question number, so the model's
+            // box starts at the indented body; inherit the head page's x-span.
+            cur.box = [prev.box[0], cur.box[1], prev.box[2], cur.box[3]];
+            restyleItem(cur);
         }
     }
 }
 function refreshNumbersUI(kind) {
     plan[kind].forEach(it => {
         const lbl = document.getElementById('lbl-' + it._uid);
-        if (lbl) lbl.textContent = 'Q' + (it.qno ?? '?');
+        if (lbl) lbl.textContent = boxLabelText(it);
         const row = document.getElementById('row-' + it._uid);
-        if (row) { const inp = row.querySelector('.qno-input'); if (inp) inp.value = (it.qno ?? ''); }
+        if (row) {
+            const inp = row.querySelector('.qno-input');
+            if (inp) inp.value = examLabel(it);
+        }
+        const boxEl = document.getElementById('box-' + it._uid);
+        if (boxEl) {
+            boxEl.classList.toggle('role-stem', it.role === 'stem');
+            boxEl.classList.toggle('role-part', it.role === 'part' || isPartItem(it));
+        }
     });
 }
 
@@ -1647,6 +1962,7 @@ function updateReviewSummary() {
         ? `${plan.que.length} region(s)`
         : `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
     updateOrderWarning();
+    refreshSplitDetectBtn();
 }
 
 // Big red banner if a side's question numbers don't read in ascending order
@@ -1659,11 +1975,11 @@ function updateOrderWarning() {
     if (isGeneric()) { orderWarning.classList.add('d-none'); return; }
     const msgs = [];
     ['que', 'sol'].forEach(kind => {
-        const order = readingOrder(kind).filter(it => Number.isFinite(it.qno));
+        const order = readingOrder(kind).filter(it => prefixInt(it) != null);
         const label = kind === 'que' ? 'Questions' : 'Solutions';
         for (let i = 1; i < order.length; i++) {
-            if (order[i].qno < order[i - 1].qno) {
-                msgs.push(`<strong>${label}:</strong> Q${order[i].qno} (page ${order[i].page + 1}) appears after Q${order[i - 1].qno} (page ${order[i - 1].page + 1}).`);
+            if (prefixInt(order[i]) < prefixInt(order[i - 1])) {
+                msgs.push(`<strong>${label}:</strong> Q${examLabel(order[i])} (page ${order[i].page + 1}) appears after Q${examLabel(order[i - 1])} (page ${order[i - 1].page + 1}).`);
             }
         }
     });
@@ -1814,11 +2130,11 @@ async function startCommit() {
     const payload = {
         token: staging.token,
         plan: {
-            que: plan.que.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
-            sol: plan.sol.map(it => ({ page: it.page, qno: it.qno, box: it.box })),
+            que: plan.que.map(serializePlanItem),
+            sol: plan.sol.map(serializePlanItem),
         }
     };
-    const missing = [...plan.que, ...plan.sol].filter(it => it.qno == null).length;
+    const missing = [...plan.que, ...plan.sol].filter(it => !examLabel(it) && it.qno == null).length;
     if (missing > 0 && !confirm(`${missing} region(s) have no question number and will be skipped. Continue?`)) return;
     try {
         const r = await fetch(`${IMPORT_BASE}/plan`, {

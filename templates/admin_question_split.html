@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block title %}Split {{ question.qid }} into parts{% endblock %}
+
+{% block extra_css %}
+<style>
+.split-canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
+#splitCanvas { display: block; max-width: 100%; height: auto; cursor: crosshair; background: #111; }
+.box-list .box-row.active { background: #e7f1ff; }
+.box-swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; vertical-align: middle; margin-right: 0.35rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 px-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-scissors"></i> Split into parts</h4>
+            <div class="text-muted">{{ question.qid }} — mark the <strong>shared background</strong> as <code>stem</code>, then each lettered part (<code>a</code>, <code>b</code>, <code>ci</code>, …)</div>
+        </div>
+        <a href="{{ url_for('admin.questions_page') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Question Management
+        </a>
+    </div>
+
+    <div class="alert alert-info py-2 small">
+        This question becomes the <strong>shared background</strong> (stem). Each lettered box becomes its own question
+        (for example <code>{{ question.qid }}a</code>) so you can tag and print parts separately.
+        Draw boxes by hand, or use <strong>Auto-detect parts</strong> then adjust.
+        The stem keeps answer/solution images. Tick the box below to copy this question’s tags onto every part (the stem is then cleared).
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-9">
+            <div class="card">
+                <div class="card-header py-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="small fw-bold">Preview version</span>
+                        <select id="splitVersion" class="form-select form-select-sm" style="max-width: 8rem;">
+                            {% for v in versions %}
+                            <option value="{{ v }}">{{ v }}</option>
+                            {% endfor %}
+                        </select>
+                        <span class="text-muted small me-auto">Same boxes are applied to every version on commit.</span>
+                        {% if ai_enabled and endpoints %}
+                        <select id="splitEndpoint" class="form-select form-select-sm" style="max-width: 16rem;" title="Vision endpoint for Auto-detect">
+                            {% for e in endpoints %}
+                            <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="btn btn-sm btn-primary" id="autoDetectBtn" onclick="autoDetect()">
+                            <i class="bi bi-robot"></i> Auto-detect parts
+                        </button>
+                        {% else %}
+                        <span class="text-muted small">Configure a vision LLM endpoint to auto-detect boxes.</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-muted mt-2">
+                        <span class="box-swatch" style="background:#6c757d;"></span>stem = shared background
+                        <span class="box-swatch ms-3" style="background:#fd7e14;"></span>part = lettered region
+                        <span class="box-swatch ms-3" style="background:#0d6efd;"></span>selected
+                    </div>
+                </div>
+                <div class="card-body p-2 overflow-auto">
+                    <div class="split-canvas-wrap">
+                        <canvas id="splitCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Boxes</strong></div>
+                <div class="card-body p-2">
+                    <div id="boxList" class="box-list list-group list-group-flush small mb-2"></div>
+                    <div class="input-group input-group-sm mb-2">
+                        <span class="input-group-text">Label</span>
+                        <input type="text" class="form-control" id="boxLabel" placeholder="stem / a / b / ci">
+                        <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">Set</button>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">Delete selected box</button>
+                    <div class="form-text">Click-drag on the image to add a box. Click a box to select it. Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="copyTags" checked>
+                        <label class="form-check-label" for="copyTags">Copy this question’s tags onto every part, then clear tags on the shared background</label>
+                    </div>
+                    <button type="button" class="btn btn-primary w-100" id="commitBtn" onclick="commitSplit()">
+                        <i class="bi bi-check-lg"></i> Commit split
+                    </button>
+                    <div id="splitStatus" class="small mt-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const TOKEN = {{ token | tojson }};
+const QUESTION_ID = {{ question.id }};
+const VERSIONS = {{ versions | tojson }};
+const AI_ENABLED = {{ (ai_enabled|default(false)) | tojson }};
+const IMAGE_URLS = {};
+{% for v in versions %}
+IMAGE_URLS[{{ v | tojson }}] = {{ url_for('admin.split_question_image', question_id=question.id, version=v, token=token) | tojson }};
+{% endfor %}
+
+let img = new Image();
+let boxes = []; // {label, x1,y1,x2,y2} fractional
+let selected = -1;
+let drag = null;
+const canvas = document.getElementById('splitCanvas');
+const ctx = canvas.getContext('2d');
+
+function currentVersion() {
+    return document.getElementById('splitVersion').value;
+}
+
+function loadVersion() {
+    const v = currentVersion();
+    img = new Image();
+    img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        draw();
+    };
+    img.src = IMAGE_URLS[v];
+}
+
+function boxColor(b, selected) {
+    if (selected) return '#0d6efd';
+    return (b.label || '') === 'stem' ? '#6c757d' : '#fd7e14';
+}
+function boxFill(b, selected) {
+    if (selected) return 'rgba(13,110,253,0.12)';
+    return (b.label || '') === 'stem' ? 'rgba(108,117,125,0.18)' : 'rgba(253,126,20,0.14)';
+}
+function boxCaption(b) {
+    if ((b.label || '') === 'stem') return 'Shared background (stem)';
+    if (b.label) return 'Part (' + b.label + ')';
+    return '(unlabelled)';
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (img.complete) ctx.drawImage(img, 0, 0);
+    boxes.forEach((b, i) => {
+        const x = b.x1 * canvas.width, y = b.y1 * canvas.height;
+        const w = (b.x2 - b.x1) * canvas.width, h = (b.y2 - b.y1) * canvas.height;
+        const sel = i === selected;
+        ctx.strokeStyle = boxColor(b, sel);
+        ctx.lineWidth = sel ? 4 : 2;
+        ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = boxFill(b, sel);
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#000';
+        ctx.font = '24px sans-serif';
+        ctx.fillText(b.label || '?', x + 6, y + 26);
+    });
+    renderList();
+}
+
+function renderList() {
+    const el = document.getElementById('boxList');
+    el.innerHTML = boxes.map((b, i) =>
+        `<button type="button" class="list-group-item list-group-item-action box-row ${i===selected?'active':''}" onclick="selectBox(${i})">${boxCaption(b)}</button>`
+    ).join('') || '<div class="text-muted px-2">No boxes yet — auto-detect or draw them</div>';
+}
+
+function canvasPoint(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+    return {
+        x: (ev.clientX - rect.left) * sx / canvas.width,
+        y: (ev.clientY - rect.top) * sy / canvas.height,
+    };
+}
+
+canvas.addEventListener('mousedown', ev => {
+    const p = canvasPoint(ev);
+    let hit = -1;
+    for (let i = boxes.length - 1; i >= 0; i--) {
+        const b = boxes[i];
+        if (p.x >= Math.min(b.x1,b.x2) && p.x <= Math.max(b.x1,b.x2) &&
+            p.y >= Math.min(b.y1,b.y2) && p.y <= Math.max(b.y1,b.y2)) {
+            hit = i; break;
+        }
+    }
+    if (hit >= 0) {
+        selected = hit;
+        document.getElementById('boxLabel').value = boxes[hit].label;
+        drag = null;
+        draw();
+        return;
+    }
+    drag = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+});
+canvas.addEventListener('mousemove', ev => {
+    if (!drag) return;
+    const p = canvasPoint(ev);
+    drag.x2 = p.x; drag.y2 = p.y;
+    draw();
+    const x = Math.min(drag.x1, drag.x2) * canvas.width;
+    const y = Math.min(drag.y1, drag.y2) * canvas.height;
+    const w = Math.abs(drag.x2 - drag.x1) * canvas.width;
+    const h = Math.abs(drag.y2 - drag.y1) * canvas.height;
+    ctx.strokeStyle = '#0d6efd';
+    ctx.strokeRect(x, y, w, h);
+});
+window.addEventListener('mouseup', () => {
+    if (!drag) return;
+    const x1 = Math.min(drag.x1, drag.x2), x2 = Math.max(drag.x1, drag.x2);
+    const y1 = Math.min(drag.y1, drag.y2), y2 = Math.max(drag.y1, drag.y2);
+    drag = null;
+    if ((x2 - x1) < 0.01 || (y2 - y1) < 0.01) { draw(); return; }
+    const label = (document.getElementById('boxLabel').value || '').trim().toLowerCase() || guessLabel();
+    boxes.push({ label, x1, y1, x2, y2 });
+    selected = boxes.length - 1;
+    document.getElementById('boxLabel').value = label;
+    draw();
+});
+
+function guessLabel() {
+    const used = new Set(boxes.map(b => b.label));
+    if (!used.has('stem')) return 'stem';
+    const letters = 'abcdefghijklmnopqrstuvwxyz';
+    for (const ch of letters) if (!used.has(ch)) return ch;
+    return '';
+}
+function selectBox(i) {
+    selected = i;
+    document.getElementById('boxLabel').value = boxes[i].label;
+    draw();
+}
+function applyLabel() {
+    if (selected < 0) return;
+    boxes[selected].label = (document.getElementById('boxLabel').value || '').trim().toLowerCase();
+    draw();
+}
+function deleteSelected() {
+    if (selected < 0) return;
+    boxes.splice(selected, 1);
+    selected = -1;
+    draw();
+}
+
+document.getElementById('splitVersion').addEventListener('change', loadVersion);
+document.getElementById('boxLabel').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); applyLabel(); }
+});
+document.addEventListener('keydown', ev => {
+    if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
+    const tag = (ev.target && ev.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (selected < 0) return;
+    ev.preventDefault();
+    deleteSelected();
+});
+
+function autoDetect() {
+    const status = document.getElementById('splitStatus');
+    const btn = document.getElementById('autoDetectBtn');
+    const ep = document.getElementById('splitEndpoint');
+    if (!AI_ENABLED) { status.textContent = 'AI tools are disabled.'; return; }
+    if (boxes.length && !confirm('Replace the boxes you already drew with the model’s detection?')) return;
+    if (btn) btn.disabled = true;
+    status.textContent = 'Detecting stem and parts…';
+    fetch(`/admin/questions/${QUESTION_ID}/split/detect`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            token: TOKEN,
+            version: currentVersion(),
+            endpoint_id: ep ? ep.value : 0,
+        }),
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Detect failed');
+        const found = d.boxes || [];
+        if (!found.length) {
+            status.textContent = 'No lettered parts found — draw a stem box and part boxes by hand.';
+            return;
+        }
+        boxes = found.map(b => ({
+            label: b.label,
+            x1: b.box[0], y1: b.box[1], x2: b.box[2], y2: b.box[3],
+        }));
+        selected = boxes.length ? 0 : -1;
+        if (selected >= 0) document.getElementById('boxLabel').value = boxes[selected].label;
+        draw();
+        const stems = boxes.filter(b => b.label === 'stem').length;
+        const parts = boxes.length - stems;
+        status.textContent = `Found ${stems ? 'a stem and ' : ''}${parts} part${parts === 1 ? '' : 's'}. Adjust if needed, then commit.`;
+    })
+    .catch(err => { status.textContent = err.message; })
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function commitSplit() {
+    const status = document.getElementById('splitStatus');
+    const payload = {
+        token: TOKEN,
+        copy_tags: document.getElementById('copyTags').checked,
+        boxes: boxes.map(b => ({
+            label: b.label,
+            box: [b.x1, b.y1, b.x2, b.y2],
+        })),
+    };
+    document.getElementById('commitBtn').disabled = true;
+    status.textContent = 'Saving…';
+    fetch(`/admin/questions/${QUESTION_ID}/split/commit`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Commit failed');
+        window.location.href = '{{ url_for("admin.questions_page") }}';
+    })
+    .catch(err => {
+        status.textContent = err.message;
+        document.getElementById('commitBtn').disabled = false;
+    });
+}
+
+loadVersion();
+</script>
+{% endblock %}

@@ -460,16 +460,26 @@ function renderAnomalies(data) {
     }
 
     addRow('bi-tag', 'Untagged Questions (No Major Topic)', data.untagged_questions, 'text-info',
-        'untagged', data.untagged_questions_list, 'Questions not yet assigned a major topic.');
+        'untagged', data.untagged_questions_list, 'Leaves not yet assigned a major topic (stems excluded).');
 
     addRow('bi-tag', 'Questions Without Major Subtopic', data.questions_no_subtopic, 'text-info',
         'no_subtopic', data.questions_no_subtopic_list, 'Questions that have no major subtopic assigned.');
 
     addRow('bi-question-circle', 'Questions Without Type', data.questions_no_type, 'text-secondary',
-        'no_type', data.questions_no_type_list, 'Questions where q_type (MC/CQ) has not been set.');
+        'no_type', data.questions_no_type_list, 'Leaves where q_type (MC/CQ) has not been set (stems excluded).');
 
     addRow('bi-speedometer2', 'Questions Without Level', data.questions_no_level, 'text-secondary',
-        'no_level', data.questions_no_level_list, 'Questions where difficulty level has not been set.');
+        'no_level', data.questions_no_level_list, 'Leaves where difficulty level has not been set (stems excluded).');
+
+    addRow('bi-diagram-3', 'Stems with their own tags', data.stems_with_tags || 0, 'text-warning',
+        'stems_with_tags', data.stems_with_tags_list,
+        'A stem (has children or a qno range) still has topic/chapter tags; tags should live on parts.');
+    addRow('bi-image', 'Parts with no QUE (root also has none)', data.parts_missing_que || 0, 'text-warning',
+        'parts_missing_que', data.parts_missing_que_list,
+        'A child part has no question image and neither does its root stem.');
+    addRow('bi-collection', 'Range stems with no children', data.empty_range_stems || 0, 'text-info',
+        'empty_range_stems', data.empty_range_stems_list,
+        'A Q23-24 preamble exists but no Q23/Q24 children are attached.');
 
     if (totalIssues === 0) {
         anomalyResults.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> No anomalies detected. Database looks healthy!</div>';

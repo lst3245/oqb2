@@ -20,7 +20,8 @@ class QuestionNumberSortTests(unittest.TestCase):
     def test_question_number_field_uses_integer_qno(self):
         self.assertEqual(SORT_FIELDS['qno']['label'], 'Question Number')
         self.assertFalse(SORT_FIELDS['qno']['natural'])
-        self.assertEqual(SORT_FIELDS['qno']['key'](self.questions[0]), 10)
+        key = SORT_FIELDS['qno']['key'](self.questions[0])
+        self.assertEqual(key[0], 10)
 
     def test_question_number_sorts_numerically(self):
         result = apply_multi_sort(

@@ -9,7 +9,8 @@ alwaysApply: false
 ## Invariants
 - `PDF_IMPORT_COORD_ORDER` drives **both** prompt wording (`pdf_box_order_vars`) and parsing (`_normalize_box`). Range is auto-detected (≤ 1 fractional, ≤ 1024 → /1000, else pixels ÷ downscaled dims); only axis order is configurable. Use `debug=1` before flipping it.
 - The LLM sees the `LLM_IMAGE_MAX_DIM` copy; crops are cut from the `PDF_IMPORT_RASTER_WIDTH` PNG; boxes are stored fractional.
-- `_finalize_detect` runs once after all pages: custom-prompt numbering 1..N in `(page, top-Y)` order, otherwise `_stitch_continuations` re-links `continues_prev/next`; transient `_cp/_cn` are stripped before `plan.json`. Deterministic under parallel detection.
+- `_finalize_detect` runs once after all pages: custom-prompt numbering 1..N in `(page, top-Y)` order, otherwise `_stitch_continuations` re-links `continues_prev/next` and gives the continuation the head box's x1/x2 (JS mirror `stitchContinuations` does the same); transient `_cp/_cn` are stripped before `plan.json`. Deterministic under parallel detection. Exam plan items carry `label` (`5` / `5a` / `23-24`) plus optional `role` / `source_*` after pass 2.
+- Optional pass 2 (`iter_split_detect` / `/split-detect`): per whole-question crop, `detect_parts` then `full_width_child_box` (children inherit the parent's x1/x2 — never let pass 2 move the left edge, it breaks uniform-width alignment). Crops for pass 2 use `pad_frac=0`; one retry on `LLMError`. `parallel=1` is gated like pass 1 (cloud + `max_concurrency > 1`); QUE is merged before SOL fans out. `Subject.split_parts_default` seeds the wizard checkbox; the live tick auto-runs pass 2.
 - `replace_img_assets` deletes existing IMG rows first — commit **is** overwrite; the `slot_has_img` skip is the only guard.
 - Crop = box + `PDF_IMPORT_CROP_PAD_PCT`; `trim_white` defaults from `PDF_IMPORT_TRIM_WHITE_DEFAULT` (OFF); ZIP export pads but never trims. `shrink_sides` applies to QUE only.
 - Commit uses the live Step 1 paper + Step 3 versions (persisted to meta); subject change is blocked; a plan can be imported repeatedly.
@@ -20,8 +21,9 @@ alwaysApply: false
 - Server-side PDF picker resolves `{root, rel_path}` through the user's `RootRegistry` (`_resolve_server_pdf`); `PDF_SOURCE_PATH` defaults to `SHARED_PATH`.
 
 ## Routes
-`/admin/pdf-import` + `/stage`, `/detect` (SSE), `/redo-page`, `/plan`, `/guess-paper`, `/commit`, `/export-zip`, `/discard`, `/cancel`, `/source-list` — all subject-admin scoped.
+`/admin/pdf-import` + `/stage`, `/detect` (SSE), `/split-detect` (SSE), `/redo-page`, `/plan`, `/guess-paper`, `/commit`, `/export-zip`, `/discard`, `/cancel`, `/source-list` — all subject-admin scoped.
 
 ## Gotchas
 - Tunables in `core/06`: raster width/workers, coord order, deskew/method/trim/uniform-width defaults, pad percentages. Read via `current_app.config`.
-- Prompts (`PDF_*` keys) and their parsers live in `app/ai_prompts.py`; keep the JSON contracts in sync.
+- Prompts (`PDF_*` including `PDF_PART_*`) and their parsers live in `app/ai_prompts.py`; keep the JSON contracts in sync. Pass-2 crops use `pad_frac=0` before `full_width_child_box`.
+- Do not re-import `Subject` inside `pdf_import_stage` — it is already imported at the top of `admin.py`. A local import shadows the earlier existence check and 500s Load PDF.

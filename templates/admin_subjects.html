@@ -28,6 +28,7 @@
                     <tr>
                         <th style="width: 12%;">ID</th>
                         <th>Name</th>
+                        <th class="text-center" style="width: 14%;">Split default</th>
                         <th class="text-end" style="width: 12%;">Questions</th>
                         <th class="text-end" style="width: 10%;">Topics</th>
                         <th class="text-end" style="width: 10%;">Chapters</th>
@@ -39,12 +40,13 @@
                     <tr data-subject-id="{{ data.subject.id }}">
                         <td><span class="badge bg-primary">{{ data.subject.id }}</span></td>
                         <td class="subject-name">{{ data.subject.name }}</td>
+                        <td class="text-center">{{ 'Yes' if data.subject.split_parts_default else 'No' }}</td>
                         <td class="text-end">{{ data.question_count }}</td>
                         <td class="text-end">{{ data.topic_count }}</td>
                         <td class="text-end">{{ data.chapter_count }}</td>
                         <td class="text-end">
                             <button class="btn btn-sm btn-outline-primary"
-                                    onclick="showEditSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}')">
+                                    onclick="showEditSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}', {{ 1 if data.subject.split_parts_default else 0 }})">
                                 <i class="bi bi-pencil"></i> Rename
                             </button>
                             <button class="btn btn-sm btn-outline-danger"
@@ -86,6 +88,13 @@
                         <input type="text" class="form-control" id="addSubjectName"
                                placeholder="e.g. Mathematics Compulsory Part" required>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="addSplitPartsDefault">
+                        <label class="form-check-label" for="addSplitPartsDefault">
+                            Split questions into parts by default (PDF import)
+                        </label>
+                        <div class="form-text">Seeds the PDF-import checkbox later. The wizard does not read this yet.</div>
+                    </div>
                     <div class="alert alert-danger d-none" id="addSubjectError"></div>
                 </form>
             </div>
@@ -115,6 +124,12 @@
                     <div class="mb-3">
                         <label class="form-label">Name</label>
                         <input type="text" class="form-control" id="editSubjectName" required>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="editSplitPartsDefault">
+                        <label class="form-check-label" for="editSplitPartsDefault">
+                            Split questions into parts by default (PDF import)
+                        </label>
                     </div>
                     <div class="alert alert-danger d-none" id="editSubjectError"></div>
                 </form>
@@ -219,6 +234,7 @@ function hideError(elId) {
 function showAddSubjectModal() {
     document.getElementById('addSubjectId').value = '';
     document.getElementById('addSubjectName').value = '';
+    document.getElementById('addSplitPartsDefault').checked = false;
     hideError('addSubjectError');
     addSubjectModal.show();
 }
@@ -236,6 +252,9 @@ function saveNewSubject() {
     const formData = new FormData();
     formData.append('id', id);
     formData.append('name', name);
+    if (document.getElementById('addSplitPartsDefault').checked) {
+        formData.append('split_parts_default', '1');
+    }
 
     fetch(`{{ url_for('admin.add_subject') }}`, { method: 'POST', body: formData })
         .then(r => r.json().then(data => ({ ok: r.ok, data })))
@@ -252,10 +271,11 @@ function saveNewSubject() {
 
 // ============== Rename ==============
 
-function showEditSubjectModal(id, name) {
+function showEditSubjectModal(id, name, splitParts) {
     document.getElementById('editSubjectId').value = id;
     document.getElementById('editSubjectIdDisplay').value = id;
     document.getElementById('editSubjectName').value = name;
+    document.getElementById('editSplitPartsDefault').checked = !!splitParts;
     hideError('editSubjectError');
     editSubjectModal.show();
 }
@@ -272,6 +292,7 @@ function saveEditSubject() {
 
     const formData = new FormData();
     formData.append('name', name);
+    formData.append('split_parts_default', document.getElementById('editSplitPartsDefault').checked ? '1' : '0');
 
     fetch(`{{ url_for('admin.edit_subject', subject_id='__ID__') }}`.replace('__ID__', encodeURIComponent(id)), {
         method: 'POST', body: formData

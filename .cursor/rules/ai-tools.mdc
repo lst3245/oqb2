@@ -24,5 +24,5 @@ alwaysApply: false
 
 ## Gotchas
 - New LLM feature = prompt key in `ai_prompts.PROMPTS_REGISTRY` + worker in `ai_tools.py` + `<FEATURE>_DEFAULT_LLM` setting + docs (`ai-tools.md`, `ai-prompts.md`, `core/06`).
-- Images are downscaled to `LLM_IMAGE_MAX_DIM` before sending; MD/DOC slots are rendered to images first.
+- Images are downscaled to `LLM_IMAGE_MAX_DIM` before sending; MD/DOC slots are rendered to images first. Auto-tag / MD QUE / Explain prepend ancestor QUE images for parts; auto-tag skips stems; proofread stays per-row.
 - Cancel registry is in-process; a multi-worker deployment would break it.

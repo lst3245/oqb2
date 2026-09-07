@@ -508,6 +508,33 @@ function clearEditSubchapterSearch() {
  * @param {Object} questionData - question data including level, q_type, section, major_topic_id, etc.
  */
 function populateTagForm(questionData) {
+    const stemNote = document.getElementById('editStemTagsNote');
+    const tagFields = ['editLevel', 'editQType', 'editMajorTopic', 'editMajorSubtopic',
+                       'editChapter', 'editSubchapter'];
+    const isStem = !!questionData.is_stem;
+    if (stemNote) {
+        stemNote.classList.toggle('d-none', !isStem);
+        if (isStem && questionData.tag_union) {
+            const u = questionData.tag_union;
+            const bits = [];
+            if (u.topics && u.topics.length) bits.push('Topics: ' + u.topics.join(', '));
+            if (u.subtopics && u.subtopics.length) bits.push('Subtopics: ' + u.subtopics.join(', '));
+            if (u.chapters && u.chapters.length) bits.push('Chapters: ' + u.chapters.join(', '));
+            if (u.levels && u.levels.length) bits.push('Levels: ' + u.levels.join(', '));
+            if (u.q_types && u.q_types.length) bits.push('Types: ' + u.q_types.join(', '));
+            stemNote.querySelector('.union-text').textContent = bits.length
+                ? ('Inherited from parts — ' + bits.join('. '))
+                : 'Tags live on parts; this stem inherits the union at filter time.';
+        }
+    }
+    tagFields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = isStem;
+    });
+    document.querySelectorAll('.edit-minor-topic-checkbox, .edit-subtopic-checkbox').forEach(cb => {
+        cb.disabled = isStem;
+    });
+
     // Set simple field values
     document.getElementById('editLevel').value = questionData.level !== null && questionData.level !== undefined ? questionData.level : '';
     document.getElementById('editQType').value = questionData.q_type || '';

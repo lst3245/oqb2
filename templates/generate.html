@@ -117,6 +117,17 @@
                                     </div>
                                 </div>
 
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold mb-1" for="hierarchyMode">Long questions / shared stems</label>
+                                    <select class="form-select form-select-sm" id="hierarchyMode" name="hierarchy_mode" style="max-width: 28rem;">
+                                        <option value="selected" selected>Only the parts I selected (plus their shared background)</option>
+                                        <option value="whole">Every part of each selected question</option>
+                                    </select>
+                                    <small class="text-muted d-block mt-1">
+                                        Tick the grey header on the dashboard to print a whole long question. This option matters when you only ticked some of its parts.
+                                    </small>
+                                </div>
+
                                 <div class="row g-2">
                                     <div class="col-12 col-md-6">
                                         <div class="form-check">
@@ -451,6 +462,16 @@
                             <span class="priority-num badge bg-primary">{{ loop.index }}</span>
                             <div class="flex-grow-1">
                                 <div class="fw-medium" style="font-size: 0.875rem;">{{ question.qid }}</div>
+                                {% if question.parent_id or (question.children and question.children|length) %}
+                                <div class="small text-muted">
+                                    {% if question.children and question.children|length %}
+                                    <span class="badge bg-secondary">whole question · {{ question.children|length }} parts</span>
+                                    {% endif %}
+                                    {% if question.part %}
+                                    <span class="badge bg-light text-dark border">part ({{ question.part }})</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
                                 <small class="text-muted">
                                     {% if question.level %}
                                     <span class="badge bg-secondary">L{{ question.level }}</span>
@@ -961,6 +982,11 @@ function restoreGenerationOptions(opts) {
         const el = document.getElementById('seqStart');
         if (el) el.value = opts.seq_start;
     }
+
+    if (opts.hierarchy_mode) {
+        const el = document.getElementById('hierarchyMode');
+        if (el) el.value = (opts.hierarchy_mode === 'whole') ? 'whole' : 'selected';
+    }
     
     // Page numbers checkbox
     if (opts.show_page_no !== undefined) {
@@ -1183,6 +1209,7 @@ function getCurrentGenerationOptions() {
         show_correct_pct: getCheckedValue('showCorrectPct'),
         show_seq_no: getCheckedValue('showSeqNo'),
         seq_start: parseInt(document.getElementById('seqStart')?.value || '1', 10) || 1,
+        hierarchy_mode: document.getElementById('hierarchyMode')?.value || 'selected',
         show_page_no: getCheckedValue('showPageNo'),
         keep_together: getCheckedValue('keepTogether'),
         apply_spacing_to_ans: getCheckedValue('applySpacingToAns'),

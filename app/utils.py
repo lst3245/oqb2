@@ -7,6 +7,8 @@ from flask import abort, request
 from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
+from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key
+
 
 # ==================== Asset Versions ====================
 #
@@ -246,12 +248,15 @@ def natural_sort(items, key_func=None):
 SORT_FIELDS = {
     'qid': {
         'label': 'Question ID',
-        'key': lambda q: q.qid,
-        'natural': True  # Use natural sort for this field
+        # Tuple from app.hierarchy.sort_key (paper + qno + stem-before-parts).
+        # Not a string, so natural=False — natsort of the raw QID string
+        # cannot order Q3ci / Q3civ / Q23-24 correctly.
+        'key': hierarchy_sort_key,
+        'natural': False
     },
     'qno': {
         'label': 'Question Number',
-        'key': lambda q: q.qno,
+        'key': qno_sort_key,
         'natural': False
     },
     'year': {
@@ -522,13 +527,6 @@ def apply_multi_sort(items, sort_config, group_order=None):
     
     return sorted(items, key=cmp_to_key(compare_items))
 
-def parse_qno(qno_str):
-    """
-    Parse question number string like 'Q5' to integer 5
-    """
-    if qno_str.startswith('Q'):
-        return int(qno_str[1:])
-    return int(qno_str)
 
 def get_file_extension(filename):
     """Get file extension from filename"""

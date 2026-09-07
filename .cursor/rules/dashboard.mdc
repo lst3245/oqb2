@@ -15,6 +15,7 @@ alwaysApply: false
 - Preview resolver ranks **version before format**; viewer and generator rank **format before version**. Keep that asymmetry unless you change both and the docs.
 - Set Operations chips: live Selection, Filter Result, browser-only Scratch Sets (`oqb_scratchSets`, subject-scoped), saved Question Sets; chip ids are strings; Apply actions are selection-only.
 - Explain tutor: stateless SSE (`preamble → delta* → done|error`), gated on `AI_TOOLS_ENABLED`; `endpoint_id` honoured only for super/subject admins; ≤ 6 images per turn, 32 MB per request; guard stale streams with the `aborter`.
+- Filter results are **leaves** (rows that have children are excluded) unless `qids`/`ids` override. Consecutive parts sharing a root wrap under a stem header. `#allQuestionIds` is leaves only — Select All must not add stem ids. Stem header checkbox = whole question (stem id); `resolve_render_plan` expands it downstream.
 
 ## Entry points
 - URL params: `?profile_id=` (filter only), `?filter_data_id=` (filter + selection), `?question_set_id=` (selection, Show Selected Only on), `?qids=` / `?qids_token=` (one-shot override + banner, token consumed from localStorage).

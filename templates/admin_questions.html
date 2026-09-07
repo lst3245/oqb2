@@ -203,6 +203,16 @@
                         </select>
                     </div>
                 </div>
+                <div class="col-auto">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-diagram-3"></i> Tree</span>
+                        <select id="treeScopeFilter" class="form-select form-select-sm" onchange="currentPage=1; loadQuestions();">
+                            <option value="all">All</option>
+                            <option value="roots">Roots only</option>
+                            <option value="leaves">Leaves only</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -248,6 +258,7 @@
                         <th data-sort="year" onclick="sortBy('year')">Year <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th data-sort="paper" onclick="sortBy('paper')">Paper <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th data-sort="qno" onclick="sortBy('qno')">Q# <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th>Part</th>
                         <th data-sort="q_type" onclick="sortBy('q_type')">Type <i class="bi bi-arrow-down-up sort-icon"></i></th>
                         <th>Assets</th>
                         <th title="Asset proofreading status">Status</th>
@@ -257,7 +268,7 @@
                     </tr>
                 </thead>
                 <tbody id="questionTableBody">
-                    <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
+                    <tr><td colspan="14" class="text-center text-muted py-4">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -327,7 +338,10 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Question Number</label>
-                            <input type="number" class="form-control" id="addQno" value="1" min="1" onchange="updateAddQidPreview()">
+                            <input type="text" class="form-control" id="addQno" value="1"
+                                   placeholder="e.g. 1, 3a, 3ci, 23-24"
+                                   oninput="updateAddQidPreview()">
+                            <small class="text-muted">Plain number, part (<code>3a</code>, <code>3ci</code>), or range stem (<code>23-24</code>)</small>
                         </div>
                     </div>
                     <div class="mt-3 p-3 bg-light rounded">
@@ -439,6 +453,12 @@
                             <input class="form-check-input" type="checkbox" id="bulkDeleteFiles" onchange="toggleDeleteFilesWarning()">
                             <label class="form-check-label" for="bulkDeleteFiles">
                                 Also delete asset files from disk
+                            </label>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="bulkDeleteChildren">
+                            <label class="form-check-label" for="bulkDeleteChildren">
+                                Also delete child parts (required when a selected question is a stem)
                             </label>
                         </div>
                         <div class="alert alert-warning py-2 mt-2 mb-0 d-none" id="deleteFilesWarning">
@@ -1335,6 +1355,7 @@ function saveAdminQuestionFilters() {
             checkStatus: document.getElementById('checkStatusFilter')?.value || '',
             checkAdvanced: getAdvancedStatusFilters(),
             verified: document.getElementById('verifiedFilter')?.value || '',
+            treeScope: document.getElementById('treeScopeFilter')?.value || 'all',
             pageSize: document.getElementById('pageSizeSelect').value,
             page: currentPage,
             sortField: currentSort.field,
@@ -1367,6 +1388,9 @@ function restoreAdminQuestionFilters(opts) {
         updateAdvancedStatusBadge();
         if (data.verified != null && document.getElementById('verifiedFilter')) {
             document.getElementById('verifiedFilter').value = data.verified;
+        }
+        if (data.treeScope != null && document.getElementById('treeScopeFilter')) {
+            document.getElementById('treeScopeFilter').value = data.treeScope || 'all';
         }
         if (data.pageSize && document.getElementById('pageSizeSelect')) {
             document.getElementById('pageSizeSelect').value = String(data.pageSize);
@@ -1418,7 +1442,8 @@ function getQuestionFilterSignature() {
         dashIds,
         checkStatus: document.getElementById('checkStatusFilter')?.value || '',
         checkAdvanced: getAdvancedStatusFilters(),
-        verified: document.getElementById('verifiedFilter')?.value || ''
+        verified: document.getElementById('verifiedFilter')?.value || '',
+        treeScope: document.getElementById('treeScopeFilter')?.value || 'all'
     });
 }
 
@@ -1447,6 +1472,8 @@ function buildQuestionApiUrl(endpointUrl, opts) {
     if (checkStatus) params.set('check_status', checkStatus);
     appendAdvancedStatusParams(params);
     if (verifiedFilter !== '') params.set('verified', verifiedFilter);
+    const treeScope = document.getElementById('treeScopeFilter')?.value || 'all';
+    if (treeScope && treeScope !== 'all') params.set('tree_scope', treeScope);
 
     if (usingPinned) {
         params.set('qids', pinnedQids.join(','));
@@ -1483,7 +1510,7 @@ function loadQuestions() {
 }
 
 function renderEmptyTable(msg) {
-    document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="13" class="text-center text-muted py-4">${msg}</td></tr>`;
+    document.getElementById('questionTableBody').innerHTML = `<tr><td colspan="14" class="text-center text-muted py-4">${msg}</td></tr>`;
     document.getElementById('pageInfo').textContent = '0 questions';
     document.getElementById('pagination').innerHTML = '';
     lastQuestionListMeta = { total: 0, pageItemCount: 0 };
@@ -1510,7 +1537,13 @@ function renderTable(data) {
             <td><span class="badge ${q.source === 'QB' ? 'bg-info' : 'bg-secondary'}">${q.source}</span></td>
             <td>${q.year || '-'}</td>
             <td>${q.paper || '-'}</td>
-            <td>${q.qno}</td>
+            <td>${q.qno}${q.qno_end ? '–' + q.qno_end : ''}</td>
+            <td>${(() => {
+                const depth = q.depth || 0;
+                const pad = depth * 12;
+                const label = q.part ? `(${q.part})` : (q.is_stem ? 'stem' : '—');
+                return `<span style="padding-left:${pad}px">${label}</span>`;
+            })()}</td>
             <td>${q.q_type || '-'}</td>
             <td><span class="badge text-dark bg-light border">${q.asset_count}</span></td>
             <td>${renderCheckStatusIndicator(q.check_summary)}</td>
@@ -1836,6 +1869,8 @@ function bulkDeleteSelected() {
     // Reset Tab 1 state.
     document.getElementById('bulkDeleteFiles').checked = false;
     document.getElementById('deleteFilesWarning').classList.add('d-none');
+    const delKids = document.getElementById('bulkDeleteChildren');
+    if (delKids) delKids.checked = false;
 
     // Reset Tab 2 state — default deselect-all so the user opts in to each axis.
     document.querySelectorAll('.bd-asset-fmt, .bd-asset-lang, .bd-asset-type').forEach(cb => cb.checked = false);
@@ -1892,9 +1927,11 @@ function executeBulkDelete() {
 function _execBulkDeleteQuestions() {
     const ids = Array.from(selectedQIds);
     const deleteFiles = document.getElementById('bulkDeleteFiles').checked;
+    const deleteChildren = document.getElementById('bulkDeleteChildren')?.checked;
     const formData = new FormData();
     ids.forEach(id => formData.append('question_ids', id));
     if (deleteFiles) formData.append('delete_files', 'true');
+    if (deleteChildren) formData.append('delete_children', 'true');
 
     const btn = document.getElementById('bulkDeleteExecBtn');
     btn.disabled = true;
@@ -1909,7 +1946,12 @@ function _execBulkDeleteQuestions() {
                 clearSelectedQuestions();
                 loadQuestions();
             } else {
-                showToast(data.error || 'Error deleting', 'danger');
+                let msg = data.error || 'Error deleting';
+                if (data.blocking_qids && data.blocking_qids.length) {
+                    msg += ' (' + data.blocking_qids.slice(0, 8).join(', ')
+                        + (data.blocking_qids.length > 8 ? ', …' : '') + ')';
+                }
+                showToast(msg, 'danger');
             }
         })
         .catch(err => showToast('Error: ' + err.message, 'danger'))
@@ -2519,14 +2561,16 @@ function updateAddQidPreview() {
     const source = document.getElementById('addSource').value;
     const year = document.getElementById('addYear').value;
     const paper = document.getElementById('addPaper').value;
-    const qno = document.getElementById('addQno').value;
+    let qno = (document.getElementById('addQno').value || '').trim();
     const detail = document.getElementById('addDetail').value.trim();
+    if (qno && !/^q/i.test(qno)) qno = 'Q' + qno;
+    if (!qno) qno = 'Q?';
 
     let qid = '';
     if (source === 'QB') {
-        qid = detail ? `${subject}_QB_${detail}_Q${qno}` : `${subject}_QB_???_Q${qno}`;
+        qid = detail ? `${subject}_QB_${detail}_${qno}` : `${subject}_QB_???_${qno}`;
     } else {
-        qid = `${subject}_${source}_${year}_${paper}_Q${qno}`;
+        qid = `${subject}_${source}_${year}_${paper}_${qno}`;
     }
     document.getElementById('addQidPreview').textContent = qid;
 }
@@ -2632,12 +2676,12 @@ function createQuestionStep1() {
     const source = document.getElementById('addSource').value;
     const year = document.getElementById('addYear').value;
     const paper = document.getElementById('addPaper').value;
-    const qno = document.getElementById('addQno').value;
+    const qno = document.getElementById('addQno').value.trim();
     const detail = document.getElementById('addDetail').value.trim();
 
     document.getElementById('addStep1Error').textContent = '';
 
-    const body = { subject, source, qno: parseInt(qno) };
+    const body = { subject, source, qno };
     if (source !== 'QB') {
         body.year = parseInt(year);
         body.paper = paper;

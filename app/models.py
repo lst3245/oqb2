@@ -133,6 +133,10 @@ class Subject(db.Model):
     
     id = db.Column(db.String(10), primary_key=True)  # e.g., 'MATC'
     name = db.Column(db.String(100), nullable=False)  # e.g., 'Mathematics Compulsory'
+    # Seeds the PDF-import "split into parts" checkbox. False for math-style
+    # subjects (one image per numbered question). Wired in the import wizard
+    # in a later phase; the column is additive and defaults off.
+    split_parts_default = db.Column(db.Boolean, default=False, nullable=False)
     
     # Relationships
     topics = db.relationship('Topic', backref='subject', lazy='dynamic', cascade='all, delete-orphan')
@@ -211,7 +215,18 @@ class Question(db.Model):
     year = db.Column(db.Integer, nullable=True, index=True)  # NULL for QB
     paper = db.Column(db.String(10), nullable=True)  # P1, P2, etc.
     section = db.Column(db.String(50), nullable=True)  # A, B, Section I, Section II, etc.
-    qno = db.Column(db.Integer, nullable=False)  # Question number (integer part of Q5)
+    qno = db.Column(db.Integer, nullable=False)  # Integer start of the QNO token (Q5 → 5, Q23-24 → 23)
+    # Inclusive end of a range stem (`Q23-24`). NULL for standalone questions
+    # and for letter/roman parts. Mutually exclusive with `part`.
+    qno_end = db.Column(db.Integer, nullable=True)
+    # Self-FK: a part/leaf points at its stem (or intermediate parent). NULL
+    # for roots. ON DELETE RESTRICT — drop children first (see delete_questions).
+    parent_id = db.Column(db.Integer, db.ForeignKey('questions.id', ondelete='RESTRICT'),
+                          nullable=True, index=True)
+    # Own label under the parent only (`a`, `i`, `ii`), not the full path.
+    # Distinct from QuestionAsset.part_number (IMG page N of one slot).
+    part = db.Column(db.String(10), nullable=True)
+    part_sort = db.Column(db.Integer, nullable=True)  # letter 1–26, roman 101–110
     q_type = db.Column(db.String(10), nullable=True)  # MC, CQ, or NULL
     level = db.Column(db.Integer, nullable=True)  # 1, 2, 3, or NULL
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)
@@ -242,7 +257,13 @@ class Question(db.Model):
                                backref=db.backref('questions', lazy='dynamic'))
     chapter = db.relationship('Chapter', foreign_keys=[chapter_id])
     subchapter = db.relationship('Subchapter', foreign_keys=[subchapter_id])
-    
+    parent = db.relationship(
+        'Question',
+        remote_side='Question.id',
+        foreign_keys='Question.parent_id',
+        backref=db.backref('children', lazy='select'),
+    )
+
     def __repr__(self):
         return f'<Question {self.qid}>'
 

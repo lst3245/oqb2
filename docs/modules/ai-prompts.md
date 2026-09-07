@@ -1,8 +1,8 @@
 # AI Prompts
 
-> Super-admin editable storage for every prompt that powers an LLM feature: a code registry of 35 keys, named variants per key, per-endpoint variant pins, separate format-rule blocks, and a cached resolver that degrades to the bootstrap default when the DB is unavailable.
+> Super-admin editable storage for every prompt that powers an LLM feature: a code registry of 39 keys, named variants per key, per-endpoint variant pins, separate format-rule blocks, and a cached resolver that degrades to the bootstrap default when the DB is unavailable.
 
-The prompts cover proofreading, MD generation, solve-based ANS/SOL generation and checking, auto question tagging, the dashboard Explain tutor, the figure-bbox detector used during MD generation, PDF Batch Import (box detection, anchor detection, generic extraction, paper-name guess) and Smart Import structure inference. Editing prompts shapes global model behaviour, so the permission bar is the same as System Settings: super-admin only.
+The prompts cover proofreading, MD generation, solve-based ANS/SOL generation and checking, auto question tagging, the dashboard Explain tutor, the figure-bbox detector used during MD generation, PDF Batch Import (whole-question boxes, pass-2 stem/parts, anchor detection, generic extraction, paper-name guess) and Smart Import structure inference. Editing prompts shapes global model behaviour, so the permission bar is the same as System Settings: super-admin only.
 
 Three pillars:
 
@@ -64,11 +64,12 @@ Declaration order = UI order, grouped by `group`. "→F" marks the `format_key` 
 | 5 | `TAG_SYSTEM` (system →`TAG_FORMAT`), `TAG_USER` (user →`TAG_FORMAT`; vars `subject_name`, `fields`, `taxonomy`), `TAG_FORMAT` (format) | STRICT JSON; parser `parse_tag_result` |
 | 6 | `EXPLAIN_SYSTEM` (system →`EXPLAIN_FORMAT`), `EXPLAIN_INITIAL_USER` (user →`EXPLAIN_FORMAT`), `EXPLAIN_FORMAT` (format) | Math-delimiter rules; follow-up turns are free text with no prompt |
 | 7 | `FIGURE_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `FIGURE_BOX_SYSTEM` (system; var `json_contract`), `FIGURE_BOX_USER` (user →`FIGURE_BOX_JSON_CONTRACT`; var `box_pairs`) | Parser `parse_figure_boxes` |
-| 8 | `PDF_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` (system; var `json_contract`), `PDF_BOX_USER` (user →`PDF_BOX_JSON_CONTRACT`; vars `what`, `box_pairs`) | Parser `parse_question_boxes` |
-| 9 | `PDF_GENERIC_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `PDF_GENERIC_BOX_SYSTEM` (system; vars `instruction`, `json_contract`), `PDF_GENERIC_BOX_USER` (user →`PDF_GENERIC_BOX_JSON_CONTRACT`; vars `instruction`, `box_pairs`) | Parser `parse_generic_boxes`. Also powers Toolbox → PDF Tool → Find & Mark "AI detect" |
-| 10 | `PDF_ANCHOR_JSON_CONTRACT` (format), `PDF_ANCHOR_SYSTEM` (system; vars `what`, `json_contract`), `PDF_ANCHOR_USER` (user →`PDF_ANCHOR_JSON_CONTRACT`; var `what`) | Parser `parse_question_anchors` (`segment` method) |
-| 11 | `PDF_PAPER_NAME_SYSTEM` (system, no format item), `PDF_PAPER_NAME_USER` (user; vars `filename`, `subjects`) | STRICT JSON `{paper, confidence}`; parser `parse_paper_name` |
-| 12 | `SMART_IMPORT_SYSTEM` (system, no format item), `SMART_IMPORT_USER` (user; vars `subject`, `versions`, `tree`) | Reply is one JSON object of folder-level defaults parsed by `smart_import._parse_json_object` (not a registry parser) |
+| 8 | `PDF_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` (system; var `json_contract`), `PDF_BOX_USER` (user →`PDF_BOX_JSON_CONTRACT`; vars `what`, `box_pairs`) | Parser `parse_question_boxes` (label may be `5`, `5a`, `23-24`; pass 1 still does not split `(a)(b)(c)`) |
+| 9 | `PDF_PART_BOX_JSON_CONTRACT` (format; same box vars), `PDF_PART_BOX_SYSTEM` / `PDF_PART_SOL_BOX_SYSTEM` (system; vars `json_contract`, `expected_labels` on SOL), `PDF_PART_BOX_USER` (user →`PDF_PART_BOX_JSON_CONTRACT`; vars `what`, `box_pairs`, `expected_labels`) | Parser `parse_part_boxes`. Pass-2 crop-relative boxes; labels `stem` / `a` / `ci`. Used by PDF split-detect and the Split tool |
+| 10 | `PDF_GENERIC_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `PDF_GENERIC_BOX_SYSTEM` (system; vars `instruction`, `json_contract`), `PDF_GENERIC_BOX_USER` (user →`PDF_GENERIC_BOX_JSON_CONTRACT`; vars `instruction`, `box_pairs`) | Parser `parse_generic_boxes`. Also powers Toolbox → PDF Tool → Find & Mark "AI detect" |
+| 11 | `PDF_ANCHOR_JSON_CONTRACT` (format), `PDF_ANCHOR_SYSTEM` (system; vars `what`, `json_contract`), `PDF_ANCHOR_USER` (user →`PDF_ANCHOR_JSON_CONTRACT`; var `what`) | Parser `parse_question_anchors` (`segment` method) |
+| 12 | `PDF_PAPER_NAME_SYSTEM` (system, no format item), `PDF_PAPER_NAME_USER` (user; vars `filename`, `subjects`) | STRICT JSON `{paper, confidence}`; parser `parse_paper_name` |
+| 13 | `SMART_IMPORT_SYSTEM` (system, no format item), `SMART_IMPORT_USER` (user; vars `subject`, `versions`, `tree`) | Reply is one JSON object of folder-level defaults parsed by `smart_import._parse_json_object` (not a registry parser) |
 
 The `*_JSON_CONTRACT` items serve double duty: they are substituted into the system prompt via `{{json_contract}}` AND appended to the user turn as the format block — one source of truth per contract. Figure + PDF parsers share `_normalize_box` and honour `PDF_IMPORT_COORD_ORDER`.
 
@@ -91,6 +92,7 @@ Helper builders (all accept a trailing `endpoint_id=None` and append the user-tu
 - `build_explain_initial_user_text(endpoint_id=None)`
 - `build_figure_box_system(coord_order, endpoint_id=None)` / `build_figure_box_user_text(coord_order, endpoint_id=None)`
 - `build_pdf_box_system(asset_type, coord_order, endpoint_id=None)` / `build_pdf_box_user_text(asset_type, coord_order, endpoint_id=None)`
+- `build_pdf_part_system(asset_type, coord_order, expected_labels=None, endpoint_id=None)` / `build_pdf_part_user_text(asset_type, coord_order, expected_labels=None, endpoint_id=None)`
 - `build_pdf_generic_system(instruction, coord_order, endpoint_id=None)` / `build_pdf_generic_user_text(instruction, coord_order, endpoint_id=None)`
 - `build_pdf_anchor_system(asset_type, endpoint_id=None)` / `build_pdf_anchor_user_text(asset_type, endpoint_id=None)`
 - `build_pdf_paper_name_system(endpoint_id=None)` / `build_pdf_paper_name_user_text(filename, subjects, endpoint_id=None)`
@@ -132,7 +134,7 @@ Every variant / assignment write calls `invalidate_cache()` (whole cache, or per
 ### Parsers
 
 - All LLM-JSON parsers route through `_strip_reasoning` (drops `<think>`-style blocks — tags `think|thinking|reason|reasoning|analysis|scratchpad`) → `_balanced_spans` → `_json_candidates(text, prefer='['|'{')` (balanced spans, longest first). Reuse `_json_candidates` for any new LLM-JSON parser.
-- Box parsers (`parse_question_boxes`, `parse_generic_boxes`, `parse_figure_boxes`) fall back to `_salvage_box_objects` + targeted regexes so one corrupt object cannot drop a whole page.
+- Box parsers (`parse_question_boxes`, `parse_part_boxes`, `parse_generic_boxes`, `parse_figure_boxes`) fall back to `_salvage_box_objects` + targeted regexes so one corrupt object cannot drop a whole page.
 - `_normalize_box(coords, img_w, img_h, coord_order)`: applies axis order (`xyxy` / `yxyx`) then auto-detects range — max ≤ 1 → fractional; max ≤ 1024 → /1000; else pixels divided by the downscaled dims the model saw, else /max.
 - `parse_check_result` returns `{status: ok|issues, issues: [{severity, location, description}]}` or `None`.
 - `parse_paper_name` returns `(paper_or_None, confidence)`.
@@ -178,7 +180,7 @@ None. Resolution is synchronous with a process-local cache; `_CACHE_LOCK` makes 
 
 ## Gotchas
 
-1. Do not change the JSON contracts of `CHECK_FORMAT`, `SOLVE_CHECK_FORMAT`, `TAG_FORMAT`, `FIGURE_BOX_JSON_CONTRACT`, `PDF_BOX_JSON_CONTRACT`, `PDF_GENERIC_BOX_JSON_CONTRACT`, `PDF_ANCHOR_JSON_CONTRACT`, `PDF_PAPER_NAME_SYSTEM` without updating the coupled parser (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`, `parse_generic_boxes`, `parse_question_anchors`, `parse_paper_name`). This applies to every admin-created variant too — a variant that breaks the contract breaks the feature for whichever endpoints resolve to it.
+1. Do not change the JSON contracts of `CHECK_FORMAT`, `SOLVE_CHECK_FORMAT`, `TAG_FORMAT`, `FIGURE_BOX_JSON_CONTRACT`, `PDF_BOX_JSON_CONTRACT`, `PDF_PART_BOX_JSON_CONTRACT`, `PDF_GENERIC_BOX_JSON_CONTRACT`, `PDF_ANCHOR_JSON_CONTRACT`, `PDF_PAPER_NAME_SYSTEM` without updating the coupled parser (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`, `parse_part_boxes`, `parse_generic_boxes`, `parse_question_anchors`, `parse_paper_name`). This applies to every admin-created variant too — a variant that breaks the contract breaks the feature for whichever endpoints resolve to it.
 2. Variable syntax is `{{name}}`, not `{name}`. New variable = declare in `variables` + use `{{name}}` in the default + pass the kwarg at the call site. Undeclared kwargs are ignored silently.
 3. Keep the `[FIGURE: ...]` sentinel in `MD_FORMAT`; `ai_tools._embed_figures` / `FIGURE_RE` depend on it.
 4. Cache is per process — multi-worker deployments see stale prompts until each worker refreshes (same caveat as system settings).

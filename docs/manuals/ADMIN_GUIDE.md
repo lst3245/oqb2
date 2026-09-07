@@ -193,6 +193,8 @@ Same CRUD and reorder behaviour as topics.
 
 Questions can be linked to both a topic AND a chapter — they serve different filtering purposes.
 
+**Subjects** (`/admin/subjects`, Super Admin): add/rename subjects. Tick **Split questions into parts by default (PDF import)** so the PDF import wizard starts with that checkbox on for papers of this subject.
+
 ---
 
 ## 7. Question Management & Tagging
@@ -200,14 +202,16 @@ Questions can be linked to both a topic AND a chapter — they serve different f
 ### Question List (`/admin/questions`)
 Full-featured list with the same filters as the dashboard. Useful for finding untagged questions or performing bulk operations.
 
+Use the **Tree** filter to show **All**, **Roots only**, or **Leaves only**. The **Part** column shows `(a)` / `(i)` indented under a stem, or `stem` for a shared-background row.
+
 The **Status** filter can be narrowed with **Advanced** options: choose versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOCX`) to combine with **Has issues**, **All checked OK**, or **Has unchecked**. Reset returns to the default EN/CH/BI all-type/all-format status scope.
 
 ### Tagging a Question
 Click the edit (pencil) icon → a modal opens with three tabs:
 
-**Details tab**: level, question type, section, description, correct percentage, answer text, comment
+**Details tab**: level, question type, section, description, correct percentage, answer text, comment, plus **Hierarchy** (breadcrumb, child parts, create child, set parent, **Split into parts**)
 
-**Tags tab**: major topic, major subtopic, minor topics (M2M), subtopics (M2M), chapter, subchapter
+**Tags tab**: major topic, major subtopic, minor topics (M2M), subtopics (M2M), chapter, subchapter. On a stem these fields are disabled — tags live on the parts; the stem shows the union of descendant tags.
 
 **Assets tab**: view, upload, delete, and reorder asset files
 
@@ -219,7 +223,7 @@ Rules:
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
 - The header checkbox selects the questions visible on the current page. When the active filter has more results, a banner appears; click **Select all matching questions** to expand the selection to every matching question across all pages.
 - **Batch Update** — choose which fields to update (level, type, section, topics, correct %) and set their values. Only ticked fields are changed.
-- **Batch Delete** — permanently removes questions and their assets from DB and disk. Requires typing `DELETE` to confirm.
+- **Batch Delete** — permanently removes questions and their assets from DB and disk. Requires typing `DELETE` to confirm (or an "I understand" checkbox for small selections). If a selected question has child parts, tick **Also delete child parts** or delete the parts first; otherwise the server refuses the delete.
 - **Generate IMG from DOC/MD** — bulk-renders the DOC/MD source assets of the selected questions into PNG IMG assets via Microsoft Word. Modal options: asset types (QUE/ANS/SOL), versions (EN/CH/BI/ENO/CHO), source format preference (DOC > MD), one tall PNG per slot **or** one PNG per source page, overwrite existing IMG, render width (px), transparent background. Streams progress live; refresh-free.
 
   **Use cases:**
@@ -243,12 +247,15 @@ Select multiple questions (checkboxes or "Select All"), then use the toolbar:
 
 ### Creating a Question Manually
 Click **Add Question** → 3-step wizard:
-1. Question details (QID, subject, source, year, paper, etc.)
+1. Question details (subject, source, year, paper, **question number**). The number field accepts a plain integer (`5`), a part (`3a`, `3ci`), or a range stem (`23-24`). A part also creates the parent stem if it does not exist yet.
 2. Upload asset files
 3. Set tags
 
 ### Renaming a Question (QID Change)
-Edit → Details tab → change QID field. This renames all associated files on disk to match the new QID.
+Edit → Details tab → change QID field. This rewrites that question's QID and, if it has child parts, rewrites those QIDs too. Associated files on disk are renamed to match when you confirm the file move. You cannot change a stem into a part (e.g. `Q3` → `Q3a`) while children still hang off it.
+
+### Split into parts
+From Edit → Details, **Split into parts** opens a crop page for an **IMG** question that is not already a stem (Markdown/Word QUE is refused). Draw a **stem** box for the shared background and one box per part (`a`, `b`, `ci`, …), or click **Auto-detect parts** to let the vision model propose boxes, then adjust. Grey = stem, amber = part. The same boxes are applied to every version that has an image. Optionally copy this question's tags onto every part (the stem is then cleared).
 
 ### Asset Management
 Edit → Assets tab:
@@ -338,10 +345,12 @@ SOURCE_PATH/
 ```
 SUBJ_SOURCE_YEAR_PAPER_QNO_VERSION_TYPE[_PART].EXT
 MATC_DSE_2024_P1_Q5_EN_QUE.png
-MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← multi-image part 2
+MATC_DSE_2024_P1_Q5_EN_QUE_2.png   ← second image of the same question (not a sub-part)
+ECON_DSE_2023_P1_Q3a_ENO_QUE.png   ← sub-question 3a (different QID)
 MATC_DSE_2024_P1_Q5_EN_QUE.md      ← Markdown (no _PART; single-part only)
 MATC_DSE_2024_P1_Q5_ENO_QUE.png    ← ENO = official public-exam scan
 ```
+`QNO` may be `Q5`, `Q5a`, `Q3ci`, or `Q23-24` (shared preamble covering questions 23–24). `_2.png` is a second image of the same QID, not a lettered part.
 `VERSION` ∈ `EN` / `CH` / `BI` / `ENO` (English Official) / `CHO` (Chinese Official).
 
 ### Running a Library scan
@@ -431,7 +440,7 @@ Navigate to **Admin → Health** (Super Admin only).
 ### DB Statistics (auto-loads on page open)
 - Total questions, assets, subjects
 - Per-subject question and asset counts
-- Anomalies: untagged questions, questions with no assets, questions with no level or q_type, duplicate QIDs, path mismatches
+- Anomalies: untagged questions, questions with no assets, questions with no level or q_type, duplicate QIDs, path mismatches, stems that still have their own tags, parts with no QUE (when the root also has none), empty range stems
 
 Click any anomaly count to see the full list of affected QIDs.
 
@@ -441,7 +450,7 @@ Click **Scan Untracked Files** to find files on disk that have no corresponding 
 ### Orphan Sync
 Click **Dry Run** first to preview what would be removed:
 - **Orphaned assets** — DB records whose file no longer exists on disk
-- **Orphaned questions** — questions with no assets remaining (grace period: < 24h old questions are skipped)
+- **Orphaned questions** — questions with no assets remaining (grace period: < 24h old questions are skipped; a stem that still has child parts is not treated as an orphan even if it has no files of its own)
 
 Click **Delete Mode** (or run `python cli.py sync --no-dry-run`) to execute the deletions.
 
@@ -490,7 +499,7 @@ The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
 ### PDF Batch Import (3 steps)
 
 1. **Setup** — choose Exam paper or Generic extraction, enter the paper name (exam), upload or pick question/solution PDFs, set deskew/pre-process, then **Load PDF**.
-2. **Bounding boxes** — optionally **Run LLM detection**, or draw/edit boxes on each page (drag, resize, Add box, per-page Re-run). Set detection method, custom prompt, uniform width, and debug here.
+2. **Bounding boxes** — optionally **Run LLM detection**, or draw/edit boxes on each page (drag, resize, Add box, per-page Re-run). For long structured papers tick **Split questions into parts** (starts on if the subject’s default is on): after numbered questions are found, a second pass cuts the shared background (grey) and lettered parts (amber). You can also click **Detect parts**, or per-question **Re-split** / **Unsplit**. Q# can be `3`, `3a`, or `23-24`. Set detection method, custom prompt, uniform width, and debug here.
 3. **Import** — exam: pick QUE/SOL versions, overwrite/trim options, **Import to database**; generic: **Download all as ZIP**.
 - Config keys: `TOOLBOX_DEFAULT_DPI` (default resolution; also in Admin → System Settings), `TOOLBOX_OCR_DPI`, `TOOLBOX_OCR_WORKERS`, `TOOLBOX_OCR_AUTO_ORIENT` (System Settings), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, `TESSERACT_CMD` (`.env` only). Dependencies: `pypdf>=4.0`, `rapidfuzz`, `pytesseract` (+ local Tesseract install for OCR).
 

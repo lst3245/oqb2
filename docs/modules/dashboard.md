@@ -6,9 +6,9 @@
 
 | File | Role |
 |---|---|
-| `app/dashboard.py` | `dashboard_bp` (`/dashboard`). `_build_filtered_query(params)` (shared query builder), `filter_questions()`, `get_sort_groups()`, taxonomy lookups, asset preview resolver (`_resolve_preview_assets`, `get_question_preview`), `serve_file`, `doc_thumbnail`, Explain routes (`explain_endpoints`, `explain_question`) + helpers (`_default_explain_endpoint`, `_can_pick_explain_endpoint`, `_explain_slot_context`). |
-| `templates/dashboard.html` | Full page. Sidebar `#filterForm`, hidden `#qidsInput` / `#idsInput` / `#sortConfigInput` / `#sortGroupOrderInput`, View menu (Version Priority widget, page size, Show Selected Only), Sort By panel + Reorder-blocks modal, `#setOpsModal`, `#explainModal`, filter-profile save/load, all selection state JS. |
-| `templates/partials/question_list.html` | HTMX target fragment swapped into `#questionList`. Emits `#allQuestionIds[data-ids]` (every matching ID across all pages), per-card checkbox / Explain / preview buttons, pagination links (`hx-get` with `hx-include="#filterForm"`). |
+| `app/dashboard.py` | `dashboard_bp` (`/dashboard`). `_build_filtered_query(params)` (shared query builder; excludes stem ids unless `qids`/`ids`), `filter_questions()` (group via `hierarchy.group_for_dashboard`), `get_sort_groups()`, taxonomy lookups, asset preview resolver (`_resolve_preview_assets`, `get_question_preview`), `serve_file`, `doc_thumbnail`, Explain routes (`explain_endpoints`, `explain_question`) + helpers (`_default_explain_endpoint`, `_can_pick_explain_endpoint`, `_explain_slot_context`). Explain prepends ancestor QUE via `ai_tools.load_ancestor_que_images`. |
+| `templates/dashboard.html` | Full page. Sidebar `#filterForm`, hidden `#qidsInput` / `#idsInput` / `#sortConfigInput` / `#sortGroupOrderInput`, View menu (Version Priority widget, page size, Show Selected Only), Sort By panel + Reorder-blocks modal, `#setOpsModal`, `#explainModal`, filter-profile save/load, all selection state JS (leaf + `.stem-checkbox`). |
+| `templates/partials/question_list.html` | HTMX target fragment swapped into `#questionList`. Emits `#allQuestionIds[data-ids]` (**leaves only** across all pages), stem header cards + indented part cards, pagination links (`hx-get` with `hx-include="#filterForm"`). |
 | `templates/base.html` | Shared preview helpers used by the cards: `oqbLoadMarkdownPreviewCards`, `oqbPollDocThumbnails`, `oqbRerenderThumb`, `_oqbBuildThumbHtml`, Version Priority widget (`partials/_version_priority_widget_js.html`). |
 | `app/utils.py` | `apply_multi_sort`, `SORT_FIELDS`, `GROUPING_FIELDS`, `enumerate_sort_groups`, `parse_version_priority`, `VERSIONS`, `get_user_accessible_subjects`. |
 | `app/md_render.py` | Server-side Markdown render (`render_file`, `render_text`) for MD previews and Explain replies. |
@@ -31,7 +31,7 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 | GET, POST | `/dashboard/filter` | login; 403 if `subject` not accessible | Core filter. Reads params from args or form (see table below). With `HX-Request` header returns `partials/question_list.html`; otherwise the full `dashboard.html`. |
 | POST | `/dashboard/api/sort-groups` | login; 403 if `subject` not accessible | Same filter fields as `/filter` plus `group_fields` (JSON array or csv of `topic|subtopic|chapter|subchapter`). Returns `{group_fields, blocks:[{key, labels, count}]}` in natural-name order for the Reorder-blocks modal. Uses `_build_filtered_query` so it sees exactly the same result set as `/filter`. |
 | GET | `/dashboard/api/topics/<subject_id>` | login; `[]` if no access | `[{id, name}]` ordered by `sort_order`. |
-| GET | `/dashboard/api/subtopics?topic_ids=1,2&include_hidden=0&q_type=all` | login | `[{id, name, topic_id, hidden, count}]`. `count` = questions with the subtopic as major OR in the M2M, optionally restricted by `q_type`. Hidden subtopics excluded unless `include_hidden=1`. |
+| GET | `/dashboard/api/subtopics?topic_ids=1,2&include_hidden=0&q_type=all` | login | `[{id, name, topic_id, hidden, count}]`. `count` = **leaf** questions with the subtopic as major OR in the M2M, optionally restricted by `q_type`. Hidden subtopics excluded unless `include_hidden=1`. Stems are excluded from counts. |
 | GET | `/dashboard/api/chapters/<subject_id>` | login; `[]` if no access | `[{id, name}]`. |
 | GET | `/dashboard/api/subchapters?chapter_ids=1,2&include_hidden=0` | login | `[{id, name, chapter_id, hidden}]`. |
 | GET | `/dashboard/api/years/<subject_id>/<source>` | login; `[]` if no access | Distinct years, descending. |
@@ -72,7 +72,7 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 | `sort_config` | JSON string | `[{field, direction}, ...]`. Invalid JSON falls back to `qid asc`. |
 | `sort_group_order` | JSON string | `{fields:[...], order:[[id,...],...]}` manual block order. Passed to `apply_multi_sort(..., group_order=)`; ignored unless `fields` match the grouping fields in `sort_config`. |
 
-Response context for the partial: `questions` (dicts with `preview_mode`, `preview_format`, `preview_version`, `que_asset_ids`, `has_que/has_ans/has_sol`, `has_answer_text`, tag ids + names, ...), `page`, `total_pages`, `total`, `all_question_ids`, `sort_config`, `admin_subjects`.
+Response context for the partial: `questions` (flat leaf dicts), `question_groups` (`[{stem, leaves}]` — `stem` is null for standalone cards), `page`, `total_pages`, `total` (leaf count), `all_question_ids` (leaves only), `sort_config`, `admin_subjects`. Each leaf may include `stem_qid` / `stem_preview` so the part card can show the shared background above its own QUE.
 
 ### Preview resolver response shapes (`/preview/<type>`)
 
@@ -89,7 +89,7 @@ Response context for the partial: `questions` (dicts with `preview_mode`, `previ
 
 Request body: `{turns:[{role:'user'|'assistant', content, images?:[dataURL]}], version_priority?, endpoint_id?}`.
 
-- `turns` is the conversation AFTER the server-built initial turn; the server rebuilds turn 1 (system `EXPLAIN_SYSTEM` + labelled QUE/SOL context via `_explain_slot_context`) on every call, so source images are never uploaded by the browser. Only the last 20 turns are kept; text is capped at 8000 chars per turn; empty turns are dropped.
+- `turns` is the conversation AFTER the server-built initial turn; the server rebuilds turn 1 (system `EXPLAIN_SYSTEM` + labelled QUE/SOL context via `_explain_slot_context`, plus ancestor QUE images labelled "Shared background" when the row is a part) on every call, so source images are never uploaded by the browser. Only the last 20 turns are kept; text is capped at 8000 chars per turn; empty turns are dropped.
 - `endpoint_id` is honoured only when `_can_pick_explain_endpoint(question)` (super admin or subject admin of the question's subject); otherwise silently ignored and `_default_explain_endpoint()` is used. 400 if no endpoint resolves.
 - User images: max `EXPLAIN_MAX_IMAGES_PER_TURN = 6` per turn (extra silently dropped), `EXPLAIN_MAX_IMAGES_TOTAL_BYTES = 32 MB` post-encode across the request (413). Each is run through `llm_client.prepare_image_from_data_url(du, LLM_IMAGE_MAX_DIM)`. Images on a non-vision endpoint return 400 `"The selected LLM endpoint can't see images..."`. Undecodable image returns 400.
 - 400 if the question has neither a QUE image nor QUE Markdown.
@@ -135,7 +135,9 @@ Response is `text/event-stream` with headers `Cache-Control: no-cache`, `X-Accel
 
 ### Sorting and pagination are in Python
 
-`query.all()` then `apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)` then list slicing. This is intentional: natural sort (Q1, Q2, Q10), multi-field sort with null handling and manual block order cannot be expressed as a simple `ORDER BY`. Do not move sorting into SQLAlchemy without reproducing all of that. Sort fields come from `SORT_FIELDS` in `app/utils.py`: `qid`, `qno`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`. `qno` (stored real-paper number) is a sort criterion only, never a filter or grouping field.
+`query.all()` then `apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)` then list slicing. This is intentional: multi-field sort with null handling, manual block order, and hierarchy-aware `qid`/`qno` keys (`hierarchy.sort_key` / `qno_sort_key` so `Q3ci` / `Q23-24` order correctly) cannot be expressed as a simple `ORDER BY`. Do not move sorting into SQLAlchemy without reproducing all of that. Sort fields come from `SORT_FIELDS` in `app/utils.py`: `qid`, `qno`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`. `qno` (integer start of the paper token) is a sort criterion only, never a filter or grouping field.
+
+Unless `qids` or `ids` override, `_build_filtered_query` excludes stem ids (`~id.in_(stem_id_query())`). After pagination, `group_for_dashboard` wraps consecutive leaves that share a root under a stem header (collapsible). Standalone roots stay ungrouped. Select All uses `#allQuestionIds` (leaves). A stem header checkbox adds the stem id; generate/viewer expand it with `resolve_render_plan`. Topic filters match tagged **leaves**; the stem is only a header.
 
 ### Manual block reordering
 
@@ -262,9 +264,11 @@ Runtime-tunable keys hot-reload from System Settings: [../core/06-system-setting
 11. **DOC thumbnail endpoint must stay `no-cache, must-revalidate`**; the rerender button relies on it.
 12. **`/api/subtopics` counts are OR-style** (major or M2M) regardless of the sidebar's mode, and are recomputed when `q_type` changes.
 13. **Explain JSON error responses** (400/403/413) happen before the stream starts; once streaming, errors arrive as `{type:'error'}` events. The frontend handles both.
+14. **`#allQuestionIds` must stay leaves-only.** Adding stem ids there would make Select All double-count (stem + parts). Stem header checkboxes are a separate `name="stem_checkbox"` and are not included in Select All / Select This Page.
 
 ## Related
 
+- [question-hierarchy.md](question-hierarchy.md) — tree model, `group_for_dashboard`, `#allQuestionIds` leaves-only.
 - [generator.md](generator.md) — receives `question_ids`, `sort_config`, `sort_group_order`, `filter_data` from `submitQuestionIds()`; viewer asset resolver.
 - [question-sets.md](question-sets.md) — saved sets used by the Set Ops modal and `?question_set_id=`.
 - [my-files.md](my-files.md) — saved search profiles (`?profile_id=`), My Files Re-filter (`?filter_data_id=`).

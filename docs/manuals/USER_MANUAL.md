@@ -110,6 +110,7 @@ Each card shows:
 - QID, year, level, section, type badge
 - Topic and subtopic
 - Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page. Word thumbnails appear shortly after the first card load (a small "preview rendering…" placeholder is replaced live with the rendered PNG once the server has it).
+- For a long question that has been split into parts, matching parts are grouped under a **stem header** (shared background). The header checkbox selects the whole question. **Select All** still counts parts only, so you do not double-select. You can collapse the parts under the header.
 - Answer/Solution buttons (if assets exist)
 - **Explain** opens an AI tutor chat. You can type an optional first question before sending, or leave the box empty for a full explanation. The modal includes small QUE / ANS / SOL preview buttons for any assets that exist, so you can inspect the source material without leaving the chat.
 - Comment text (if set)
@@ -133,7 +134,7 @@ Click the **Sort** button (or the sort icon) in the question header bar to open 
 
 Available sort fields: QID, Question Number, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Chapter, Subchapter, Created Time.
 
-**Question Number** is the numeric real-paper number stored in the QID (`Q2`, `Q10`, etc.), not the optional sequential number generated for a document. It sorts numerically, so Q2 comes before Q10.
+**Question Number** is the numeric start of the paper token stored in the QID (`Q2`, `Q10`, `Q3a` → 3), not the optional sequential number generated for a document. It sorts numerically, so Q2 comes before Q10, and lettered parts follow their stem.
 
 Sort configuration is preserved in your session as you navigate pages.
 
@@ -326,7 +327,8 @@ In "All Questions Then..." modes, you can also choose whether to apply the same 
 | Show QID on questions | Prints the QID (e.g. `MATC_DSE_2024_P1_Q5`) above each question |
 | Show QID on answers | Same, but for the answer section |
 | Show correct % | Appends the correct percentage: `MATC_DSE_2024_P1_Q5 [75%]` |
-| Generate sequential question number | Adds runtime `1.`, `2.`, `3.` numbers to this generated paper; this is separate from the real-paper Question Number in the QID. Enabled by default for a new generation; regeneration and presets preserve their saved choice |
+| Generate sequential question number | Adds runtime `1.`, `2.`, `3.` numbers to this generated paper; this is separate from the real-paper Question Number in the QID. Enabled by default for a new generation; regeneration and presets preserve their saved choice. Parts of the same long question share one number; a shared MC preamble does not consume a number. |
+| Long questions / shared stems | **Only the parts I selected (plus their shared background)** (default) prints the stem plus the parts you ticked. **Every part of each selected question** prints the whole tree even if you only selected some parts. Ticking the grey header on the dashboard always includes every part. |
 | Starting number | The first sequential number (default 1) |
 | Page numbers | Adds a page number in the footer of every page |
 | Keep together | Prevents the QID/info line from being split from its image by a page break |
@@ -569,12 +571,14 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 ### QID Format
 ```
 MATC_DSE_2024_P1_Q5
- │     │    │   │  └─ Question number
+ │     │    │   │  └─ Question number (Q5, or Q5a / Q3ci for parts, or Q23-24 for a shared preamble)
  │     │    │   └──── Paper
  │     │    └──────── Year
  │     └───────────── Source (DSE/CE/AL)
  └─────────────────── Subject
 ```
+
+The dashboard groups lettered parts under their shared stem when those parts exist. Math questions that were never split still appear as one card each.
 
 ### Sort Fields Available
 QID · Question Number · Year · Level · Topic · Subtopic · Source · Section · Question Type · Correct % · Chapter · Subchapter · Created Time

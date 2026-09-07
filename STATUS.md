@@ -10,12 +10,12 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 |---|---|---|---|---|
 | Auth (login / logout / register) | `[done]` | `app/auth.py` | [core/02](docs/core/02-auth-and-permissions.md) | Flask-Login sessions; first user bootstrap via `init_db.py` (`admin/admin123`) |
 | Subject RBAC (super admin / admin / user / viewer) | `[done]` | `app/utils.py`, `app/models.py` | [core/02](docs/core/02-auth-and-permissions.md) | Decorators + `User` helper methods |
-| Dashboard filter / search / multi-sort / pagination | `[done]` | `app/dashboard.py` | [modules/dashboard.md](docs/modules/dashboard.md) | Python-side sort with manual block order |
+| Dashboard filter / search / multi-sort / pagination | `[done]` | `app/dashboard.py` | [modules/dashboard.md](docs/modules/dashboard.md) | Python-side sort with manual block order; leaves-only list grouped under stem headers |
 | Dashboard Selection + Set Operations (union / intersection / difference, scratch sets) | `[done]` | `app/dashboard.py`, `templates/dashboard.html` | [modules/dashboard.md](docs/modules/dashboard.md) | Selection independent of filter (ADR-008) |
 | Explain (AI tutor chat, SSE streaming) | `[done]` | `app/dashboard.py` | [modules/dashboard.md](docs/modules/dashboard.md) | Gated on `AI_TOOLS_ENABLED`; endpoint picker for admins |
-| Document generation (.docx, answer modes, compact MC keys, split ZIP, styles) | `[done]` | `app/generator.py` | [modules/generator.md](docs/modules/generator.md) | Background thread; status polling |
+| Document generation (.docx, answer modes, compact MC keys, split ZIP, styles) | `[done]` | `app/generator.py` | [modules/generator.md](docs/modules/generator.md) | Background thread; status polling; `hierarchy_mode` + `resolve_render_plan` |
 | PDF output (lazy, on demand from My Files) | `[done]` | `app/generator.py`, `app/word_com.py` | [modules/generator.md](docs/modules/generator.md) | Requires Word; rejected without it |
-| Viewer / presentation mode | `[done]` | `app/generator.py`, `templates/viewer.html` | [modules/generator.md](docs/modules/generator.md) | Does not extend `base.html` |
+| Viewer / presentation mode | `[done]` | `app/generator.py`, `templates/viewer.html` | [modules/generator.md](docs/modules/generator.md) | Does not extend `base.html`. Slides are leaves; stem QUE in `#stemPanel` |
 | My Files (sections, drag-move, share, ZIP, rename, auto-refresh) | `[done]` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) | Files live under `User/<name>/generated/` |
 | Saved search profiles (star, share, load on dashboard) | `[done]` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) | |
 | Saved generation presets | `[done]` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) | |
@@ -25,14 +25,15 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 | Admin: Users + per-subject permissions, username policy, rename moves home dir | `[done]` | `app/admin.py`, `app/utils.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
 | Admin: Export / Import CSV | `[done]` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
 | Admin: Database Health + orphan sync + anomaly jump links | `[done]` | `app/admin.py`, `app/ingestor.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
-| Question Management (list, filters, Status filter, select-all-matching) | `[done]` | `app/admin.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) | |
-| Unified Edit modal (Tags / Assets / Details, Prev/Next, rename) | `[done]` | `templates/partials/edit_question_modal*.html` | [modules/admin-questions.md](docs/modules/admin-questions.md) | Shared by dashboard + admin |
-| Batch ops (update tags, delete, delete assets, copy/move assets, Set MCQ ANS, Generate IMG, verify, check-state) | `[done]` | `app/admin.py`, `app/batch_image_gen.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) | SSE where long-running |
-| AI Tools: proofread / generate MD / solve gen+check / auto-tag / verify | `[done]` | `app/ai_tools.py`, `app/llm_client.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) | Batch SSE + per-slot sync routes; parallel for cloud endpoints |
+| Question Management (list, filters, Status filter, select-all-matching) | `[done]` | `app/admin.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) | Create/rename/delete understand stems/parts; Part column + Tree filter (`all`/`roots`/`leaves`) |
+| Unified Edit modal (Tags / Assets / Details, Prev/Next, rename) | `[done]` | `templates/partials/edit_question_modal*.html` | [modules/admin-questions.md](docs/modules/admin-questions.md) | Shared by dashboard + admin. Rename cascades descendants. Details: breadcrumb, create child, set parent, Split link. Stems cannot be tagged |
+| Batch ops (update tags, delete, delete assets, copy/move assets, Set MCQ ANS, Generate IMG, verify, check-state) | `[done]` | `app/admin.py`, `app/batch_image_gen.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) | SSE where long-running. Whole-question delete 409s unless `delete_children` when a stem is selected |
+| AI Tools: proofread / generate MD / solve gen+check / auto-tag / verify | `[done]` | `app/ai_tools.py`, `app/llm_client.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) | Batch SSE + per-slot sync routes; parallel for cloud endpoints. Ancestor QUE images prepended for parts (tag / MD QUE / Explain); auto-tag skips stems |
 | LLM Endpoints (CRUD, Chat/Responses protocol, reasoning, service tier, duplicate, chat console) | `[done]` | `app/admin.py`, `app/llm_client.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) | Super admin |
-| AI Prompts (registry, variants, per-endpoint pins, format blocks) | `[done]` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) | Seeded at boot |
-| PDF Batch Import (3-step wizard, LLM/refine/segment detection, review, commit) | `[done]` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) | |
-| Ingestion (library scan) + Smart Import (folder heuristics, AI analyze) | `[done]` | `app/ingestor.py`, `app/smart_import.py`, `cli.py` | [modules/ingestion.md](docs/modules/ingestion.md) | Legacy `/admin/ingestion` redirects to Smart Import |
+| AI Prompts (registry, variants, per-endpoint pins, format blocks) | `[done]` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) | Seeded at boot. Includes PDF pass-2 `PDF_PART_*` keys |
+| PDF Batch Import (3-step wizard, LLM/refine/segment detection, review, commit) | `[done]` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) | Plan labels `5` / `5a` / `23-24`. Optional pass-2 part split (`split_parts_default` seeds the checkbox). Commit uses `ensure_question` |
+| Question hierarchy (stem / parts) | `[done]` | `app/hierarchy.py`, `app/question_split.py`, `app/models.py` | [modules/question-hierarchy.md](docs/modules/question-hierarchy.md) | Schema, grammar, ingest/create/rename/delete, dashboard grouping, generator/viewer render plan, admin tree UI, IMG Split + auto-detect, PDF two-pass, AI ancestor images. ADR-009 |
+| Ingestion (library scan) + Smart Import (folder heuristics, AI analyze) | `[done]` | `app/ingestor.py`, `app/smart_import.py`, `cli.py` | [modules/ingestion.md](docs/modules/ingestion.md) | QNO token from `hierarchy.py`; sync skips stems that still have children. Legacy `/admin/ingestion` redirects to Smart Import |
 | Unified Storage tree + `safe_join` + per-user dirs | `[done]` | `app/storage.py` | [core/05](docs/core/05-storage-and-paths.md) | `cli.py migrate-storage` is idempotent |
 | File Browser (user scope + super-admin scope, extra roots, selector modal) | `[done]` | `app/files.py`, `app/files_service.py` | [modules/file-browser.md](docs/modules/file-browser.md) | |
 | Toolbox PDF Tool (split, adjust, assemble, Find & Mark, redact, export, sessions) | `[done]` | `app/toolbox/pdf.py`, `app/pdf_tools.py`, `app/pdf_text.py` | [modules/toolbox-pdf.md](docs/modules/toolbox-pdf.md) | Admin only; OCR needs Tesseract |
@@ -61,6 +62,7 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 | Admin index | `/admin` | `admin_index.html` | Admin dropdown | `[done]` |
 | Topics / Chapters / Subjects | `/admin/topics`, `/admin/chapters`, `/admin/subjects` | `admin_topics.html`, `admin_chapters.html`, `admin_subjects.html` | Admin dropdown | `[done]` |
 | Question Management | `/admin/questions` | `admin_questions.html` | Admin dropdown | `[done]` |
+| Split into parts | `/admin/questions/<id>/split` | `admin_question_split.html` | from Edit modal | `[done]` |
 | MD fullscreen editor | `/admin/questions/<qid>/assets/<aid>/md/edit` | `admin_md_editor.html` | from Edit modal | `[done]` |
 | Users | `/admin/users` | `admin_users.html` | Admin dropdown (super) | `[done]` |
 | Export / Import | `/admin/export-import` | `admin_export_import.html` | Admin dropdown | `[done]` |
@@ -78,7 +80,7 @@ Exact paths for module-internal routes are in each module doc; verify against `@
 
 | Item | State | Notes |
 |---|---|---|
-| Automated tests | `[partial]` | 6 `unittest` modules in `tests/` (sorting, MC keys, generate template UX, PDF tool split, AI prompts, LLM client). No DB-backed tests, no pytest, no CI. `tests/test_llm_client.py` calls `create_app()` and therefore touches the live DB. |
+| Automated tests | `[partial]` | 8 `unittest` modules in `tests/` (hierarchy incl. grouping/split-box, PDF import plan labels, sorting, MC keys, generate template UX, PDF tool split, AI prompts, LLM client). No DB-backed tests, no pytest, no CI. `tests/test_hierarchy.py` and `tests/test_pdf_import_plan.py` are pure (no `create_app()`). `tests/test_llm_client.py` calls `create_app()` and therefore touches the live DB. |
 | Test / disposable database | `[pending]` | Only the live MariaDB exists. Any DB-touching test or script runs against production data. |
 | Migration framework | `[done]` (by decision) | Boot patches instead of Alembic — [ADR-002](docs/decisions/ADR-002-no-migration-framework-boot-patches.md). |
 | `.env.example` complete vs `app/config.py` | `[done]` | Replaces the former `env_template.txt`. |

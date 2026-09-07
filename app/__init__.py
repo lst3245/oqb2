@@ -325,6 +325,62 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
 
+        # Question hierarchy (stem / parts) + per-subject PDF-import default.
+        # Additive nullable columns; existing rows stay standalone roots.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                q_cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions'"
+                ))}
+                if 'parent_id' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN parent_id INT NULL"
+                    ))
+                if 'part' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN part VARCHAR(10) NULL"
+                    ))
+                if 'part_sort' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN part_sort INT NULL"
+                    ))
+                if 'qno_end' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN qno_end INT NULL"
+                    ))
+                idx_names = {row[0] for row in conn.execute(text(
+                    "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions'"
+                ))}
+                if 'ix_questions_parent_id' not in idx_names:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD INDEX ix_questions_parent_id (parent_id)"
+                    ))
+                fk_names = {row[0] for row in conn.execute(text(
+                    "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions' "
+                    "AND CONSTRAINT_TYPE = 'FOREIGN KEY'"
+                ))}
+                if 'fk_questions_parent' not in fk_names:
+                    conn.execute(text(
+                        "ALTER TABLE questions "
+                        "ADD CONSTRAINT fk_questions_parent "
+                        "FOREIGN KEY (parent_id) REFERENCES questions(id) ON DELETE RESTRICT"
+                    ))
+                s_cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subjects'"
+                ))}
+                if 'split_parts_default' not in s_cols:
+                    conn.execute(text(
+                        "ALTER TABLE subjects "
+                        "ADD COLUMN split_parts_default TINYINT(1) NOT NULL DEFAULT 0"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

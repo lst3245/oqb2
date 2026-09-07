@@ -16,13 +16,15 @@ D:\oqb2\
     __init__.py          app factory: extensions, blueprints, boot schema patches, settings.load_all
     config.py            Config class: .env bootstrap defaults + build_database_uri()
     models.py            ALL SQLAlchemy models (schema source of truth)
+    hierarchy.py         QNO token grammar, question tree helpers, dashboard grouping, render-plan
+    question_split.py    IMG crop stage/commit for Split-into-parts (admin)
     utils.py             authz decorators, VERSIONS, username policy, multi-sort helpers
     settings.py          System Settings REGISTRY + load/get/set/reset (DB-backed tunables)
     storage.py           STORAGE_PATH tree, safe_join, per-user dirs
     auth.py dashboard.py generator.py user.py admin.py files.py pwa.py   blueprints
     toolbox/             toolbox_bp: __init__ (hub), pdf.py (PDF Tool), markup.py (PWA), common.py
     files_service.py     pure filesystem ops + RootRegistry (user/admin scopes)
-    ingestor.py smart_import.py            ingestion engine + heuristic folder import
+    ingestor.py smart_import.py            ingestion engine + heuristic folder import (QNO via hierarchy.py)
     word_com.py doc_thumbnails.py batch_image_gen.py   Word COM merge/PDF, DOC thumbnails, DOC/MD -> IMG
     md_render.py         Markdown -> sanitised HTML
     llm_client.py ai_tools.py ai_prompts.py parallel.py   LLM transport, AI batch ops, prompt registry
@@ -45,7 +47,7 @@ are `D:\oqb_data\Source` and `D:\oqb_data\Storage`. See [docs/core/05-storage-an
 ```mermaid
 flowchart LR
   Browser["Browser (Bootstrap + HTMX + small JS)"] --> Routes["Blueprint routes (thin: parse, authz decorator, call service, render/JSON/SSE)"]
-  Routes --> Services["Service modules (ingestor, smart_import, ai_tools, pdf_import, pdf_tools, files_service, word_com, md_render, settings)"]
+  Routes --> Services["Service modules (hierarchy, ingestor, smart_import, ai_tools, pdf_import, pdf_tools, files_service, word_com, md_render, settings)"]
   Services --> Models["SQLAlchemy models (app/models.py)"]
   Services --> FS["Filesystem: SOURCE_PATH / STORAGE_PATH via storage.safe_join"]
   Services --> Ext["External: Word COM, pandoc, Tesseract, LLM HTTP APIs"]
@@ -62,7 +64,7 @@ flowchart LR
 1. `create_app()` (`app/__init__.py`): load `.env`, build DB URI, init `db` + `login_manager`, register 8 blueprints, inject `OQB_VERSIONS` into templates, ensure storage tree, mark stale `GeneratedFile` rows failed, run **idempotent boot schema patches**, seed prompt variants, then `settings.load_all(app)` overlays DB-backed tunables onto `app.config`.
 2. A request hits a blueprint route; `@login_required` + an authz decorator gate it; `subject_id` is extracted from URL kwargs, query, form, or JSON body.
 3. Dashboard filtering: `POST /dashboard/filter` builds a SQLAlchemy query, then sorts **in Python** with `apply_multi_sort` (natural sort, NULL handling, manual block order) and paginates; returns `partials/question_list.html`.
-4. Generation: `POST /generate` records a `GeneratedFile` (`pending`) and spawns a background thread that builds the `.docx` (python-docx + docxcompose; DOC slots merged natively through Word COM under a global lock), writes to `User/<name>/generated/`, and flips status to `completed`/`failed`. The page polls `GET /generate/status/<id>`. PDF is produced lazily on request via Word `ExportAsFixedFormat`.
+4. Generation: `POST /generate` records a `GeneratedFile` (`pending`) and spawns a background thread that expands the selection with `hierarchy.resolve_render_plan`, builds the `.docx` (python-docx + docxcompose; DOC slots merged natively through Word COM under a global lock), writes to `User/<name>/generated/`, and flips status to `completed`/`failed`. The page polls `GET /generate/status/<id>`. PDF is produced lazily on request via Word `ExportAsFixedFormat`.
 5. Long admin batch operations (ingest, sync, batch IMG, AI check/generate/solve/tag, MCQ ANS) stream **SSE** (`text/event-stream`, events `{type, message, current?, total?}`, `type='done'` ends the stream) and support a server-side cancel registry where documented.
 
 ## Conventions you must follow
@@ -85,6 +87,7 @@ flowchart LR
 | A new shared UI behaviour | `templates/base.html` helper or a `templates/partials/*.html` | `docs/frontend/conventions.md` |
 | A new long-running admin op | SSE generator in a service module + route in `app/admin.py` following the existing contract | module doc Background work section |
 | A new LLM-backed feature | prompt key in `app/ai_prompts.PROMPTS_REGISTRY`, worker in `app/ai_tools.py`, default-LLM setting `<FEATURE>_DEFAULT_LLM` | `docs/modules/ai-tools.md`, `docs/modules/ai-prompts.md`, `docs/core/06` |
+| A new QID / QNO form (part, range, filename regex) | `app/hierarchy.py` first, then the caller | [docs/modules/question-hierarchy.md](docs/modules/question-hierarchy.md), [docs/reference/filename-convention.md](docs/reference/filename-convention.md) |
 | A test | `tests/test_<module>.py` using `unittest`; avoid `create_app()` (it touches the live DB) unless unavoidable | `docs/core/01` if the run ritual changes |
 
 ## Known structural hazards

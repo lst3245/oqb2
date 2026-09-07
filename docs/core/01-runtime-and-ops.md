@@ -37,6 +37,7 @@ python run.py
 # Tests (unittest; fast; no network)
 python -m unittest discover -s tests
 python -m unittest tests.test_sorting -v          # one module
+python -m unittest tests.test_hierarchy -v        # QNO grammar / sort / render plan / grouping / split-box (no live DB)
 
 # CLI
 python cli.py ingest                              # additive scan of SOURCE_PATH into the live DB
@@ -48,6 +49,7 @@ python cli.py migrate-storage --dry-run           # storage tree migration previ
 
 Test caveats:
 - `tests/test_llm_client.py` calls `create_app()` in `setUp`, which **connects to the live DB and runs boot patches**. Prefer not to run it casually; run targeted modules instead.
+- `tests/test_hierarchy.py` is pure logic (no `create_app()`). Use it when changing QNO grammar, `resolve_render_plan`, dashboard grouping, or split-box labels.
 - Tests import `app.*` directly; run from the repo root so `app` is importable.
 - There is no coverage tooling or CI. Add a `tests/test_<module>.py` with the change when you touch pure logic (sorting, parsers, layout helpers, prompt builders).
 

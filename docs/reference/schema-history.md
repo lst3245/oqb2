@@ -24,6 +24,7 @@ Order is roughly chronological (oldest first). "Boot patch" = idempotent code in
 | `question_assets.check_state`, `check_result`, `checked_at`, `check_raw` | boot patch | |
 | `questions.verified`, `verified_at`, `verified_by` | boot patch | |
 | `prompt_overrides` (legacy), `prompt_variants`, `prompt_endpoint_assignments` | boot patch (`create checkfirst`) + `ai_prompts.ensure_seeded()` migrates override content into built-in variants once | |
+| `questions.parent_id` (self-FK `fk_questions_parent`, `ON DELETE RESTRICT`, index `ix_questions_parent_id`), `questions.part`, `questions.part_sort`, `questions.qno_end`; `subjects.split_parts_default` (TINYINT NOT NULL DEFAULT 0) | boot patch (`INFORMATION_SCHEMA` guard) | Additive/nullable (except the subject flag). Existing rows stay standalone roots. See [ADR-009](../decisions/ADR-009-question-hierarchy-over-linking.md). |
 
 Non-schema data conventions that behave like migrations:
 

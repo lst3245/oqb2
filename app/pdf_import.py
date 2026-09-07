@@ -12,10 +12,13 @@ Pipeline
    vision LLM and ask it for a tight bounding box + printed question number
    per question (one image per call keeps a small local model within its
    context window). Detected boxes are accumulated into ``plan.json``.
+   Optional pass-2 ``iter_split_detect`` splits each whole-question crop
+   into a stem + lettered parts.
 3. (optional) the admin reviews / edits the plan in the browser.
-4. ``iter_commit`` — group boxes by question number, crop each box out of the
-   high-res page PNG, and create ``Question`` + ``QuestionAsset`` rows. A
-   question that spans two pages becomes a multi-part IMG asset.
+4. ``iter_commit`` — group boxes by label (``5``, ``5a``, ``23-24``), crop
+   each box, and create ``Question`` + ``QuestionAsset`` rows via
+   ``ensure_question``. A question that spans two pages becomes a multi-part
+   IMG asset.
 
 Heavy lifting (atomic disk + DB write, canonical path building, DOC-thumbnail
 lifecycle) is delegated to :mod:`app.batch_image_gen`. PDF rasterisation
@@ -39,7 +42,6 @@ from datetime import datetime
 from flask import current_app
 
 from app import db, pdf_tools
-from app.models import Question
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +218,120 @@ def load_plan(token: str) -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         data = {}
-    return {'que': data.get('que') or [], 'sol': data.get('sol') or []}
+    plan = {'que': data.get('que') or [], 'sol': data.get('sol') or []}
+    for kind in ('que', 'sol'):
+        plan[kind] = [coerce_plan_item(it) for it in plan[kind]
+                      if isinstance(it, dict)]
+    return plan
+
+
+def coerce_plan_item(item: dict) -> dict:
+    """Fill canonical ``label`` + integer ``qno`` on an exam plan item.
+
+    Legacy items that only have integer ``qno`` become ``label='5'``. Generic
+    free-text labels that are not QNO tokens are left unchanged.
+    """
+    from app.hierarchy import normalize_plan_label, parse_qno_token
+
+    out = dict(item)
+    raw = out.get('label')
+    if raw is None or str(raw).strip() == '':
+        raw = out.get('qno')
+    lab = normalize_plan_label(raw)
+    if lab:
+        out['label'] = lab
+        parsed = parse_qno_token(lab)
+        if parsed:
+            out['qno'] = parsed.qno
+    elif out.get('qno') is not None:
+        try:
+            out['qno'] = int(out['qno'])
+            if not out.get('label'):
+                out['label'] = str(out['qno'])
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def plan_item_label(item: dict) -> str | None:
+    """Canonical exam label for a plan item, or ``None``."""
+    from app.hierarchy import normalize_plan_label
+    raw = item.get('label')
+    if raw is None or str(raw).strip() == '':
+        raw = item.get('qno')
+    return normalize_plan_label(raw)
+
+
+def map_crop_box_to_page(parent_box, crop_box):
+    """Map a crop-relative 0..1 box onto the parent page-fraction box."""
+    x1, y1, x2, y2 = [float(v) for v in parent_box]
+    w, h = x2 - x1, y2 - y1
+    cx1, cy1, cx2, cy2 = [float(v) for v in crop_box]
+    return [
+        x1 + cx1 * w,
+        y1 + cy1 * h,
+        x1 + cx2 * w,
+        y1 + cy2 * h,
+    ]
+
+
+def sanitize_plan(raw, *, generic: bool = False) -> dict:
+    """Validate a browser-posted plan into ``{que: [...], sol: [...]}``."""
+    from app.hierarchy import normalize_plan_label, parse_qno_token
+
+    clean = {'que': [], 'sol': []}
+    roles = {'stem', 'part', 'question'}
+    for kind in ('que', 'sol'):
+        for item in (raw.get(kind) or []):
+            if not isinstance(item, dict):
+                continue
+            box = item.get('box')
+            if not (isinstance(box, (list, tuple)) and len(box) == 4):
+                continue
+            try:
+                box = [float(v) for v in box]
+                page = int(item.get('page', 0))
+            except (ValueError, TypeError):
+                continue
+            if generic:
+                label = item.get('label')
+                label = str(label).strip() if label not in (None, '') else None
+                clean[kind].append({'page': page, 'label': label, 'box': box})
+                continue
+            raw_lab = item.get('label')
+            if raw_lab is None or str(raw_lab).strip() == '':
+                raw_lab = item.get('qno')
+            parsed = parse_qno_token(raw_lab) if raw_lab not in (None, '') else None
+            label = normalize_plan_label(parsed.token) if parsed else None
+            qno = parsed.qno if parsed else None
+            role = item.get('role') if item.get('role') in roles else None
+            source_label = None
+            sl = item.get('source_label')
+            if sl not in (None, ''):
+                source_label = normalize_plan_label(sl) or str(sl).strip()
+            source_box = None
+            sb = item.get('source_box')
+            if isinstance(sb, (list, tuple)) and len(sb) == 4:
+                try:
+                    source_box = [float(v) for v in sb]
+                except (ValueError, TypeError):
+                    source_box = None
+            source_page = item.get('source_page')
+            try:
+                source_page = int(source_page) if source_page is not None else None
+            except (TypeError, ValueError):
+                source_page = None
+            row = {'page': page, 'qno': qno, 'label': label, 'box': box}
+            if role:
+                row['role'] = role
+            if source_label:
+                row['source_label'] = source_label
+            if source_box:
+                row['source_box'] = source_box
+            if source_page is not None:
+                row['source_page'] = source_page
+            clean[kind].append(row)
+    return clean
 
 
 def discard(token: str) -> bool:
@@ -439,10 +554,10 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     side-notes are never trimmed.
 
     Returns ``(boxes, raw_text)`` where ``boxes`` is a list of
-    ``{qno, box:[x1,y1,x2,y2], continues_prev, continues_next}`` (fractional
-    coords) and ``raw_text`` is the model's verbatim reply (kept for the debug
-    view). Raises on transport failure or when an assisted method is requested
-    without NumPy.
+    ``{qno, label, box:[x1,y1,x2,y2], continues_prev, continues_next}`` (fractional
+    coords; ``label`` is the canonical token without ``Q``) and ``raw_text`` is
+    the model's verbatim reply (kept for the debug view). Raises on transport
+    failure or when an assisted method is requested without NumPy.
     """
     from app import ai_prompts, llm_client
 
@@ -486,7 +601,7 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         if mode == 'generic':
             boxes = [{'label': g.get('label'), 'box': g['box']} for g in gboxes]
         else:
-            boxes = [{'qno': None, 'box': g['box'],
+            boxes = [{'qno': None, 'label': None, 'box': g['box'],
                       'continues_prev': False, 'continues_next': False} for g in gboxes]
         return boxes, (text or '')
 
@@ -501,8 +616,17 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         gray = pdf_layout.load_gray(png_path)
         seg = pdf_layout.segment_page(gray, anchors, shrink_sides=shrink_sides,
                                       pad_frac=assist_pad)
-        boxes = [{'qno': s['qno'], 'box': s['box'],
-                  'continues_prev': False, 'continues_next': False} for s in seg]
+        from app.hierarchy import normalize_plan_label
+        boxes = []
+        for s in seg:
+            qno = s.get('qno')
+            boxes.append({
+                'qno': qno,
+                'label': normalize_plan_label(qno),
+                'box': s['box'],
+                'continues_prev': False,
+                'continues_next': False,
+            })
         return boxes, (text or '')
 
     # 'llm' or 'refine': the model returns full boxes.
@@ -755,17 +879,29 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
 
     def _ingest(kind, idx, boxes):
         """Accumulate one page's boxes into the plan (consumer-thread only)."""
+        from app.hierarchy import normalize_plan_label, parse_qno_token
         for b in boxes:
             if is_generic:
                 plan[kind].append({'page': idx, 'label': b.get('label'), 'box': b['box']})
             elif custom_prompt:
                 # qno assigned at the end in reading order (see _number_custom).
-                plan[kind].append({'page': idx, 'qno': None, 'box': b['box']})
+                plan[kind].append({'page': idx, 'qno': None, 'label': None,
+                                   'box': b['box']})
             else:
+                qno = b.get('qno')
+                label = b.get('label') or normalize_plan_label(qno)
+                if not label and qno is not None:
+                    parsed = parse_qno_token(qno)
+                    label = parsed.token[1:] if parsed else str(qno)
+                if qno is None and label:
+                    parsed = parse_qno_token(label)
+                    if parsed:
+                        qno = parsed.qno
                 # Keep the continuation flags transiently so _stitch_continuations
                 # can re-link multi-page questions in reading order regardless of
                 # the (possibly parallel) page-completion order.
-                plan[kind].append({'page': idx, 'qno': b.get('qno'), 'box': b['box'],
+                plan[kind].append({'page': idx, 'qno': qno, 'label': label,
+                                   'box': b['box'],
                                    '_cp': bool(b.get('continues_prev')),
                                    '_cn': bool(b.get('continues_next'))})
 
@@ -787,19 +923,29 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
         reading-order sequence; for a standard run it means re-linking
         multi-page questions via the continuation flags. Generic mode keeps its
         labels. Finally the transient continuation flags are dropped so
-        ``plan.json`` stays ``{page, qno, box}``.
+        ``plan.json`` stays ``{page, qno, label, box}``.
         """
+        from app.hierarchy import normalize_plan_label, parse_qno_token
         if custom_prompt:
             for kind in ('que', 'sol'):
                 ordered = sorted(plan[kind], key=lambda it: (it['page'], it['box'][1]))
                 for i, it in enumerate(ordered, 1):
                     it['qno'] = i
+                    it['label'] = str(i)
         elif not is_generic:
             _stitch_continuations(plan)
         for k in ('que', 'sol'):
             for it in plan[k]:
                 it.pop('_cp', None)
                 it.pop('_cn', None)
+                if is_generic:
+                    continue
+                lab = normalize_plan_label(it.get('label') or it.get('qno'))
+                if lab:
+                    it['label'] = lab
+                    parsed = parse_qno_token(lab)
+                    if parsed:
+                        it['qno'] = parsed.qno
 
     def _worker(item):
         png = page_png_path(token, item['kind'], item['idx'])
@@ -906,54 +1052,120 @@ def _stitch_continuations(plan: dict):
     page is reported as a separate top-of-page region flagged ``continues_prev``
     (and the page above is flagged ``continues_next``). Walking each side in
     reading order ``(page, top-Y)``, the topmost region of a page that is a
-    continuation inherits the qno of the box immediately before it — so the
-    tail joins the right question regardless of the order pages were detected
-    (parallel detection returns pages out of order). The link only crosses a
-    page boundary (``cur.page > prev.page``); within-page boxes are untouched.
-    Chains (a question spanning 3+ pages) resolve because we process in order.
+    continuation inherits the qno **and label** of the box immediately before
+    it — so the tail joins the right question regardless of the order pages
+    were detected (parallel detection returns pages out of order). The link
+    only crosses a page boundary (``cur.page > prev.page``); within-page boxes
+    are untouched. Chains (a question spanning 3+ pages) resolve because we
+    process in order.
 
-    Relies on the transient ``_cp`` / ``_cn`` keys set by ``iter_detect``;
-    boxes without a usable predecessor qno are left as-is.
+    Relies on the transient ``_cp`` / ``_cn`` keys set by ``iter_detect`` /
+    pass-2; boxes without a usable predecessor qno/label are left as-is.
     """
     for kind in ('que', 'sol'):
         items = sorted(plan.get(kind, []) or [],
                        key=lambda it: (it.get('page', 0), it['box'][1]))
         for i in range(1, len(items)):
             cur, prev = items[i], items[i - 1]
-            if (cur.get('page', 0) > prev.get('page', 0)
-                    and (cur.get('_cp') or prev.get('_cn'))
-                    and prev.get('qno') is not None):
+            if not (cur.get('page', 0) > prev.get('page', 0)
+                    and (cur.get('_cp') or prev.get('_cn'))):
+                continue
+            if prev.get('label'):
+                cur['label'] = prev['label']
+            if prev.get('qno') is not None:
                 cur['qno'] = prev['qno']
+            if prev.get('role') and not cur.get('role'):
+                cur['role'] = prev['role']
+            if prev.get('source_label') and not cur.get('source_label'):
+                cur['source_label'] = prev['source_label']
+            # A continuation page has no question number in the margin, so
+            # the model boxes only the indented body and x1 drifts right.
+            # Pages of one paper share a layout: inherit the head's x-span.
+            pb, cb = prev.get('box'), cur.get('box')
+            if (isinstance(pb, (list, tuple)) and len(pb) == 4
+                    and isinstance(cb, (list, tuple)) and len(cb) == 4):
+                cur['box'] = [float(pb[0]), float(cb[1]),
+                              float(pb[2]), float(cb[3])]
+
+
+def _label_sort_key(label):
+    from app.hierarchy import parse_qno_token, part_segments
+    p = parse_qno_token(label)
+    if not p:
+        return (10**9, 0, 99, str(label or ''))
+    depth = 0 if not p.part_path else len(part_segments(p.part_path))
+    return (p.qno, p.qno_end or p.qno, depth, p.part_path or '')
+
+
+def _is_part_label(label) -> bool:
+    from app.hierarchy import parse_qno_token
+    p = parse_qno_token(label)
+    return bool(p and p.part_path)
+
+
+def _parent_key(label):
+    from app.hierarchy import format_qno_token, parse_qno_token
+    p = parse_qno_token(label)
+    if not p:
+        return None
+    return format_qno_token(p.qno, p.qno_end, None)[1:]
+
+
+def _same_question(label, parent_label) -> bool:
+    from app.hierarchy import parse_qno_token
+    a, b = parse_qno_token(label), parse_qno_token(parent_label)
+    return bool(a and b and a.qno == b.qno and a.qno_end == b.qno_end)
 
 
 def _group_plan(plan: dict):
-    """Group plan boxes by (kind, qno) into ordered commit groups.
+    """Group plan boxes by (kind, label) into ordered commit groups.
 
-    Returns a list of ``(kind, atype, qno, parts)`` where ``parts`` is the
-    list of ``{page, box}`` ordered by (page, top-Y) so a spanning question's
-    parts come out in reading order.
+    Returns a list of ``(kind, atype, label, parts)`` where ``parts`` is the
+    list of ``{page, box}`` ordered by (page, top-Y). Roots/stems (no part
+    path) come before lettered parts so ``ensure_question`` can create
+    parents first.
     """
     groups = []
     for kind in ('que', 'sol'):
         atype = 'QUE' if kind == 'que' else 'SOL'
-        by_qno: 'dict[int, list]' = {}
+        by_label: dict[str, list] = {}
         for item in plan.get(kind, []) or []:
-            qno = item.get('qno')
-            if qno is None or str(qno) == '':
-                continue
-            try:
-                qno_int = int(qno)
-            except (ValueError, TypeError):
+            label = plan_item_label(item)
+            if not label:
                 continue
             box = item.get('box')
             if not (isinstance(box, (list, tuple)) and len(box) == 4):
                 continue
-            by_qno.setdefault(qno_int, []).append(
-                {'page': int(item.get('page', 0)), 'box': [float(v) for v in box]})
-        for qno_int in sorted(by_qno.keys()):
-            parts = sorted(by_qno[qno_int], key=lambda it: (it['page'], it['box'][1]))
-            groups.append((kind, atype, qno_int, parts))
+            by_label.setdefault(label, []).append(
+                {'page': int(item.get('page', 0)),
+                 'box': [float(v) for v in box]})
+        for label in sorted(by_label.keys(), key=_label_sort_key):
+            parts = sorted(by_label[label],
+                           key=lambda it: (it['page'], it['box'][1]))
+            groups.append((kind, atype, label, parts))
     return groups
+
+
+def _que_label_set(plan: dict) -> set:
+    return {plan_item_label(it) for it in (plan.get('que') or [])
+            if plan_item_label(it)}
+
+
+def _resolve_sol_commit_label(label: str, que_labels: set):
+    """Map a SOL plan label onto a QUE node.
+
+    Exact match wins. An unmatched lettered part is dropped (leaf SOL stays
+    empty). A whole-question SOL with no QUE counterpart attaches to the stem.
+    """
+    from app.hierarchy import format_qno_token, parse_qno_token
+    if label in que_labels:
+        return label
+    parsed = parse_qno_token(label)
+    if not parsed:
+        return None
+    if parsed.part_path:
+        return None
+    return format_qno_token(parsed.qno, parsed.qno_end, None)[1:]
 
 
 def iter_commit(app, cancel, token: str, plan: dict, versions,
@@ -966,13 +1178,13 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     imported under different versions. A bare string is accepted for backward
     compatibility and applied to both kinds.
 
-    When ``trim_white`` is true (the default) each crop is tightened to its
-    non-white content (drops blank answer space / loose margins). When false
-    the crop respects the selected bounding box exactly (only the crop safety
-    margin ``PDF_IMPORT_CROP_PAD_PCT`` is applied).
+    Labels may be ``5``, ``5a``, or ``23-24``. ``ensure_question`` creates
+    missing ancestors. Unmatched lettered SOL groups are skipped; a leftover
+    whole-question SOL attaches to the stem.
     """
     if isinstance(versions, str):
         versions = {'que': versions, 'sol': versions}
+    from app.hierarchy import ensure_question, parse_qno_token
     from app.ingestor import determine_question_type
     from app.batch_image_gen import replace_img_assets, slot_has_img
 
@@ -984,6 +1196,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
     crop_pad = max(0.0, float(app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
 
+    que_labels = _que_label_set(plan)
     groups = _group_plan(plan)
     total = len(groups)
     if total == 0:
@@ -1002,7 +1215,8 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
 
     created_q = assets_written = skipped = errors = 0
     done = 0
-    for (kind, atype, qno, parts) in groups:
+    q_type = determine_question_type(subject, source, paper)
+    for (kind, atype, label, parts) in groups:
         if cancel.is_set():
             yield {'type': 'done', 'message': 'Import cancelled.',
                    'current': done, 'total': total,
@@ -1012,20 +1226,34 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
             return
 
         version = versions.get(kind)
-        qid = f'{subject}_{source}_{year}_{paper}_Q{qno}'
+        commit_label = label
+        if kind == 'sol':
+            commit_label = _resolve_sol_commit_label(label, que_labels)
+            if not commit_label:
+                skipped += 1
+                done += 1
+                yield {'type': 'skip',
+                       'message': f'SOL Q{label}: no matching question part — skipped.',
+                       'current': done, 'total': total}
+                continue
+
+        parsed = parse_qno_token(commit_label)
+        if not parsed:
+            skipped += 1
+            done += 1
+            yield {'type': 'skip',
+                   'message': f'{atype} {commit_label}: invalid question number — skipped.',
+                   'current': done, 'total': total}
+            continue
+        qid = f'{subject}_{source}_{year}_{paper}_{parsed.token}'
         try:
-            question = Question.query.filter_by(qid=qid).first()
-            is_new = False
-            if question is None:
-                question = Question(
-                    qid=qid, subject=subject, source=source,
-                    year=int(year), paper=paper, qno=int(qno),
-                    q_type=determine_question_type(subject, source, paper),
-                )
-                db.session.add(question)
-                db.session.commit()
+            question, created = ensure_question(
+                subject, source, parsed.token, year=year, paper=paper,
+                q_type=q_type)
+            db.session.commit()
+            is_new = created
+            if created:
                 created_q += 1
-                is_new = True
 
             if slot_has_img(question.id, atype, version) and not overwrite:
                 skipped += 1
@@ -1067,3 +1295,390 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
            'stats': {'questions_created': created_q,
                      'assets_written': assets_written,
                      'skipped': skipped, 'errors': errors}}
+
+
+def detect_parts(config, crop_png: str, atype: str, image_max_dim: int,
+                 expected_labels=None):
+    """Pass-2: detect stem + lettered parts on one already-cropped question.
+
+    ``crop_png`` is an absolute path. ``atype`` is ``QUE`` or ``SOL``.
+    ``expected_labels`` (SOL) is a list like ``['stem', 'a', 'ci']``.
+    Returns ``(boxes, raw_text)`` where each box is crop-relative 0..1 with
+    ``label`` ``stem`` or a letter path.
+    """
+    from app import ai_prompts, llm_client
+
+    coord_order = str(current_app.config.get(
+        'PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
+    b64, mime = llm_client.prepare_image(crop_png, image_max_dim)
+    sw, sh = _sent_image_size(crop_png, image_max_dim)
+    system = ai_prompts.build_pdf_part_system(
+        atype, expected_labels, coord_order, endpoint_id=config.id)
+    user_text = ai_prompts.build_pdf_part_user_text(
+        atype, expected_labels, coord_order, endpoint_id=config.id)
+    text, _info = llm_client.chat(config, system, user_text,
+                                  images=[(b64, mime)])
+    boxes = ai_prompts.parse_part_boxes(text, img_w=sw, img_h=sh,
+                                        coord_order=coord_order)
+    return boxes, (text or '')
+
+
+def expected_part_labels_for(parent_label, que_items) -> list:
+    """Relative pass-2 labels (``stem``, ``a``, ``ci``) already on the QUE side."""
+    from app.hierarchy import parse_qno_token
+    parent = parse_qno_token(parent_label)
+    if not parent:
+        return []
+    seen = []
+    for it in que_items or []:
+        lab = plan_item_label(it)
+        p = parse_qno_token(lab)
+        if not p or p.qno != parent.qno or p.qno_end != parent.qno_end:
+            continue
+        if not p.part_path:
+            rel = 'stem'
+        else:
+            pp = parent.part_path or ''
+            cp = p.part_path or ''
+            if pp and not cp.startswith(pp):
+                continue
+            rel = cp[len(pp):] or 'stem'
+        if rel not in seen:
+            seen.append(rel)
+    return seen
+
+
+def original_group_parts(items, parent_label) -> list:
+    """Page crops to send to pass-2 for ``parent_label``.
+
+    Prefers stored ``source_box`` / ``source_page`` (already split); otherwise
+    the unsplit items whose label is exactly the parent.
+    """
+    from app.hierarchy import normalize_plan_label
+    parent = normalize_plan_label(parent_label) or parent_label
+    sourced = []
+    for it in items or []:
+        src = (normalize_plan_label(it.get('source_label'))
+               if it.get('source_label') else None)
+        if src == parent:
+            sourced.append(it)
+    if sourced:
+        seen = set()
+        parts = []
+        for it in sourced:
+            sb = it.get('source_box')
+            if not (isinstance(sb, (list, tuple)) and len(sb) == 4):
+                continue
+            sp = it.get('source_page', it.get('page', 0))
+            try:
+                sp = int(sp)
+                box = [float(v) for v in sb]
+            except (TypeError, ValueError):
+                continue
+            key = (sp, tuple(box))
+            if key in seen:
+                continue
+            seen.add(key)
+            parts.append({'page': sp, 'box': box})
+        if parts:
+            return sorted(parts, key=lambda p: (p['page'], p['box'][1]))
+    exact = []
+    for it in items or []:
+        if plan_item_label(it) != parent:
+            continue
+        box = it.get('box')
+        if not (isinstance(box, (list, tuple)) and len(box) == 4):
+            continue
+        exact.append({'page': int(it.get('page', 0)),
+                      'box': [float(v) for v in box]})
+    return sorted(exact, key=lambda p: (p['page'], p['box'][1]))
+
+
+def _write_split_crop(token, kind, page, box) -> str:
+    d = os.path.join(token_dir(token), '_split_crops')
+    os.makedirs(d, exist_ok=True)
+    img = crop_page(page_png_path(token, kind, page), box,
+                    pad_frac=0.0, trim_white=False)
+    dest = os.path.join(d, f'{kind}_{page}_{uuid.uuid4().hex[:8]}.png')
+    img.save(dest, 'PNG')
+    return dest
+
+
+def full_width_child_box(parent_box, crop_box):
+    """Map a crop-relative pass-2 box onto the page, keeping the parent's
+    horizontal span.
+
+    Pass 2 only needs to segment a question vertically; the stem and every
+    part share the parent's left/right edges so they stay aligned with each
+    other and with the side's uniform width.
+    """
+    x1, _y1, x2, _y2 = [float(v) for v in parent_box]
+    mapped = map_crop_box_to_page(parent_box, crop_box)
+    return [x1, mapped[1], x2, mapped[3]]
+
+
+def _llm_error_cls():
+    from app.llm_client import LLMError
+    return LLMError
+
+
+def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
+                     expected_labels=None, debug: bool = False):
+    """Run pass-2 on each page crop of one question. Returns (children|None, raws)."""
+    from app.hierarchy import compose_part_label, parse_qno_token
+    atype = 'QUE' if kind == 'que' else 'SOL'
+    children = []
+    raws = []
+    for prt in parts:
+        crop_path = None
+        try:
+            crop_path = _write_split_crop(token, kind, prt['page'], prt['box'])
+            try:
+                boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
+                                          expected_labels=expected_labels)
+            except _llm_error_cls() as e:
+                # One retry: cloud gateways occasionally stall a single
+                # request past the endpoint timeout; the call is idempotent.
+                logger.warning('pdf-import pass-2 %s Q%s: %s — retrying once',
+                               kind, parent_label, e)
+                boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
+                                          expected_labels=expected_labels)
+            if debug:
+                raws.append(raw)
+            parsed_p = parse_qno_token(parent_label)
+            for b in boxes:
+                child_label = compose_part_label(parent_label, b.get('label'))
+                if not child_label:
+                    continue
+                parsed_c = parse_qno_token(child_label)
+                is_stem_box = (parsed_c and parsed_p
+                               and parsed_c.part_path == parsed_p.part_path)
+                children.append({
+                    'page': int(prt['page']),
+                    'qno': parsed_c.qno if parsed_c else None,
+                    'label': child_label,
+                    'box': full_width_child_box(prt['box'], b['box']),
+                    'role': 'stem' if is_stem_box else 'part',
+                    'source_label': parent_label,
+                    'source_page': int(prt['page']),
+                    'source_box': [float(v) for v in prt['box']],
+                    '_cp': bool(b.get('continues_prev')),
+                    '_cn': bool(b.get('continues_next')),
+                })
+        except Exception:
+            logger.exception('pdf-import pass-2 failed for %s Q%s',
+                             kind, parent_label)
+        finally:
+            if crop_path:
+                try:
+                    os.remove(crop_path)
+                except OSError:
+                    pass
+    if not any(it.get('role') == 'part' for it in children):
+        return None, raws
+    return children, raws
+
+
+def _replace_group(items, parent_label, new_items):
+    from app.hierarchy import normalize_plan_label
+    parent = normalize_plan_label(parent_label) or parent_label
+    kept = []
+    for it in items or []:
+        lab = plan_item_label(it)
+        src = (normalize_plan_label(it.get('source_label'))
+               if it.get('source_label') else None)
+        if src == parent or (lab and _same_question(lab, parent)):
+            continue
+        kept.append(it)
+    return kept + list(new_items or [])
+
+
+def _split_parent_labels(items, filter_set=None):
+    """Parent labels to run pass-2 on, in reading order.
+
+    With no filter, only unsplit whole-question boxes. With a filter, those
+    parents are re-split even if they already have part boxes.
+    """
+    from app.hierarchy import normalize_plan_label
+    seen = []
+    seen_set = set()
+    ordered = sorted(
+        items or [],
+        key=lambda x: (x.get('page', 0),
+                       (x.get('box') or [0, 0, 0, 0])[1]))
+    if filter_set is not None:
+        for it in ordered:
+            src = (normalize_plan_label(it.get('source_label'))
+                   if it.get('source_label') else None)
+            lab = plan_item_label(it)
+            parent = src or (lab if lab and not _is_part_label(lab) else None)
+            if parent and parent in filter_set and parent not in seen_set:
+                seen_set.add(parent)
+                seen.append(parent)
+        return seen
+    for it in ordered:
+        if it.get('source_label'):
+            continue
+        lab = plan_item_label(it)
+        if not lab or _is_part_label(lab):
+            continue
+        if lab not in seen_set:
+            seen_set.add(lab)
+            seen.append(lab)
+    return seen
+
+
+def _strip_split_flags(plan: dict) -> dict:
+    for k in ('que', 'sol'):
+        for it in plan.get(k) or []:
+            it.pop('_cp', None)
+            it.pop('_cn', None)
+    return plan
+
+
+def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
+                      kinds=None, labels_filter=None, debug: bool = False,
+                      parallel: bool = False, max_workers: int = 1):
+    """SSE generator: pass-2 part split on each whole-question crop.
+
+    ``kinds`` is ``'que'``, ``'sol'``, or ``'both'`` / ``None``.
+    ``labels_filter`` is an optional iterable of parent labels to re-split.
+    QUE is processed before SOL so SOL can use QUE labels as ``expected_labels``.
+
+    With ``parallel`` (cloud endpoints), the crops of one side fan out across
+    ``app.parallel.run_parallel``; QUE finishes before SOL starts so the SOL
+    ``expected_labels`` come from the already-split QUE plan. Plan mutation
+    happens only on this consumer thread.
+    """
+    from app.hierarchy import normalize_plan_label
+
+    meta = load_meta(token)
+    if meta.get('mode') == 'generic':
+        yield {'type': 'error',
+               'message': 'Part split is only available for exam papers.'}
+        yield {'type': 'done', 'message': 'Aborted.', 'current': 0, 'total': 0,
+               'plan': {'que': [], 'sol': []}}
+        return
+
+    plan = load_plan(token)
+    if kinds in (None, '', 'both'):
+        kind_list = [k for k in ('que', 'sol') if plan.get(k)]
+    elif kinds in ('que', 'sol'):
+        kind_list = [kinds]
+    else:
+        kind_list = [k for k in ('que', 'sol') if k in str(kinds)]
+
+    filter_set = None
+    if labels_filter:
+        filter_set = set()
+        for raw in labels_filter:
+            lab = normalize_plan_label(raw)
+            if lab:
+                filter_set.add(lab)
+
+    work = []
+    for kind in kind_list:
+        parents = _split_parent_labels(plan.get(kind) or [], filter_set)
+        for parent in parents:
+            parts = original_group_parts(plan.get(kind) or [], parent)
+            if parts:
+                work.append((kind, parent, parts))
+
+    total = len(work)
+    if total == 0:
+        yield {'type': 'info',
+               'message': 'No whole-question regions to split into parts.'}
+        yield {'type': 'done', 'message': 'Nothing to split.', 'current': 0,
+               'total': 0, 'plan': plan}
+        return
+
+    yield {'type': 'info',
+           'message': (f'Splitting {total} question crop(s) into parts with '
+                       f'{config.model_name}...'),
+           'current': 0, 'total': total}
+
+    done = 0
+    use_parallel = bool(parallel and max_workers and max_workers > 1)
+
+    def _emit(kind, parent, children):
+        if children:
+            plan[kind] = _replace_group(plan.get(kind) or [], parent, children)
+            return {'type': 'success',
+                    'message': f'{kind.upper()} Q{parent}: {len(children)} part region(s).'}
+        return {'type': 'skip',
+                'message': (f'{kind.upper()} Q{parent}: no lettered parts '
+                            'detected — kept as one question.')}
+
+    if use_parallel:
+        from app.parallel import run_parallel, CANCELLED
+
+        for kind in kind_list:
+            side = [w for w in work if w[0] == kind]
+            if not side:
+                continue
+            # expected_labels are read from the plan before this side fans out;
+            # QUE is fully merged before SOL starts.
+            items = []
+            for _k, parent, parts in side:
+                expected = None
+                if kind == 'sol':
+                    expected = expected_part_labels_for(parent, plan.get('que') or [])
+                items.append({'kind': kind, 'parent': parent, 'parts': parts,
+                              'expected': expected})
+
+            def _worker(item):
+                children, _raws = _split_one_group(
+                    token, item['kind'], item['parent'], item['parts'],
+                    config, image_max_dim,
+                    expected_labels=item['expected'], debug=debug)
+                return children
+
+            cancelled = False
+            for r in run_parallel(app, cancel, items, _worker, max_workers):
+                if r['result'] is CANCELLED:
+                    cancelled = True
+                    continue
+                done += 1
+                it = r['item']
+                if r['error'] is not None:
+                    logger.warning('pdf-import pass-2 failed (%s Q%s): %s',
+                                   it['kind'], it['parent'], r['error'])
+                    yield {'type': 'error',
+                           'message': f'{it["kind"].upper()} Q{it["parent"]}: part split failed ({r["error"]}).',
+                           'current': done, 'total': total}
+                    continue
+                ev = _emit(it['kind'], it['parent'], r['result'])
+                ev['current'] = done
+                ev['total'] = total
+                yield ev
+            if cancelled or cancel.is_set():
+                _stitch_continuations(plan)
+                plan = _strip_split_flags(plan)
+                save_plan(token, plan)
+                yield {'type': 'done', 'message': 'Split cancelled.',
+                       'current': done, 'total': total, 'plan': plan}
+                return
+    else:
+        for kind, parent, parts in work:
+            if cancel.is_set():
+                save_plan(token, _strip_split_flags(plan))
+                yield {'type': 'done', 'message': 'Split cancelled.',
+                       'current': done, 'total': total, 'plan': plan}
+                return
+            expected = None
+            if kind == 'sol':
+                expected = expected_part_labels_for(parent, plan.get('que') or [])
+            children, _raws = _split_one_group(
+                token, kind, parent, parts, config, image_max_dim,
+                expected_labels=expected, debug=debug)
+            done += 1
+            ev = _emit(kind, parent, children)
+            ev['current'] = done
+            ev['total'] = total
+            yield ev
+
+    _stitch_continuations(plan)
+    plan = _strip_split_flags(plan)
+    save_plan(token, plan)
+    yield {'type': 'done', 'message': 'Part split complete.',
+           'current': total, 'total': total, 'plan': plan}

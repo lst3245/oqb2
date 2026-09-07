@@ -85,7 +85,7 @@ Used by generation (`app/generator.py`), DOC thumbnails (`app/doc_thumbnails.py`
 
 ## Identifiers
 
-- **QID** `SUBJ_SOURCE_YEAR_PAPER_QNO` (past paper) or `SUBJ_QB_DETAIL_QNO` (question bank). Grammar and filename rules: [../reference/filename-convention.md](../reference/filename-convention.md). `Question.id` (int) is used in URLs and JSON; `qid` is the stable human identifier.
+- **QID** `SUBJ_SOURCE_YEAR_PAPER_QNO` (past paper) or `SUBJ_QB_DETAIL_QNO` (question bank). `QNO` is `Q<n>`, `Q<n><part-path>`, or `Q<n>-<n>` (range stem). Parse/build only via `app.hierarchy.parse_qid` / `build_qid` / `QNO_TOKEN_PATTERN` — do not add another `Q\\d+` regex. Filename rules: [../reference/filename-convention.md](../reference/filename-convention.md). Tree rules: [../modules/question-hierarchy.md](../modules/question-hierarchy.md). `Question.id` (int) is used in URLs and JSON; `qid` is the stable human identifier.
 - **Subject ids** are short uppercase strings and are immutable.
 - **Asset identity** is the unique tuple `(question_id, asset_type, version, file_format, part_number)`.
 - **Versions**: `app/utils.VERSIONS = ['EN','CH','BI','ENO','CHO']`, `VERSION_LABELS`, `TYPED_VERSIONS = ['EN','CH','BI']`, `OFFICIAL_VERSIONS = ['ENO','CHO']`, `DEFAULT_VERSION_PRIORITY`. `parse_version_priority(raw, legacy_preferred)` parses the comma list from forms and accepts the legacy single `preferred_language` value. Templates receive `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` from a context processor — build version UIs from these, never a hardcoded list.
@@ -93,7 +93,7 @@ Used by generation (`app/generator.py`), DOC thumbnails (`app/doc_thumbnails.py`
 
 ## Sorting (`app/utils.py`)
 
-- `SORT_FIELDS` maps field → `{label, key(q), natural}`. Fields: `qid, qno, year, level, topic, subtopic, source, section, q_type, correct_percentage, chapter, subchapter, created_time`. `correct_percentage` sorts NULLs last via a `(0, v)/(1, 0)` tuple key. `qno` is the integer real-paper number (distinct from generation numbering).
+- `SORT_FIELDS` maps field → `{label, key(q), natural}`. Fields: `qid, qno, year, level, topic, subtopic, source, section, q_type, correct_percentage, chapter, subchapter, created_time`. `correct_percentage` sorts NULLs last via a `(0, v)/(1, 0)` tuple key. `qid` and `qno` use `hierarchy.sort_key` / `qno_sort_key` (tuples, `natural=False`) so `Q3ci` / `Q3civ` / `Q23-24` order correctly — do not natsort the raw QID string. `qno` is the integer start of the paper token (distinct from generation numbering). The admin list SQL `ORDER BY` for `qid`/`qno` mirrors that (roots before children, then `part_sort`).
 - `apply_multi_sort(items, sort_config, group_order=None)` sorts **in Python** (natsort for `natural` fields, per-level direction via `cmp_to_key`). Do not move it to SQL `ORDER BY`.
 - Manual block ordering: when the sort includes a grouping field (`GROUPING_FIELDS = topic, subtopic, chapter, subchapter`), `group_order = {"fields": [...], "order": [[ids...], ...]}` (integer ids, `0` = untagged) is prepended to the key; it is ignored unless `group_order['fields'] == grouping_fields_in_config(sort_config)`. `enumerate_sort_groups()` powers `POST /dashboard/api/sort-groups` and `POST /generate/api/sort-groups`. The frontend persists it as `sort_group_order` inside `SavedFilter.filter_data`, `SavedGenerationProfile.options_data`, and `GeneratedFile` blobs.
 - Adding a sort field: add to `SORT_FIELDS` and to the dropdowns in `templates/dashboard.html` and `templates/generate.html`.

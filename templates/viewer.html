@@ -1009,6 +1009,7 @@
                     <div class="q-id">{{ q.qid }}</div>
                     <div class="q-meta">
                         {% if q.year %}<span class="q-badge">{{ q.year }}</span>{% endif %}
+                        {% if q.part %}<span class="q-badge">({{ q.part }})</span>{% endif %}
                         {% if q.level %}<span class="q-badge">L{{ q.level }}</span>{% endif %}
                         {% if q.q_type %}<span class="q-badge">{{ q.q_type }}</span>{% endif %}
                     </div>
@@ -1128,6 +1129,13 @@
                 </div>
             </div>
             <div class="panel-body" id="quePanelBody">
+                <div id="stemPanel" class="d-none px-3 pt-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="stemToggle"
+                            onclick="document.getElementById('stemContainer').classList.toggle('d-none')">
+                        Shared background
+                    </button>
+                    <div id="stemContainer" class="asset-container mb-2"></div>
+                </div>
                 <div class="asset-container" id="queContainer">
                     <div class="loading-spinner">
                         <div class="spinner-border text-primary" role="status">
@@ -1396,7 +1404,9 @@
             
             // Update UI (desktop)
             document.getElementById('currentIndex').textContent = index + 1;
-            document.getElementById('currentQid').textContent = question.qid;
+            document.getElementById('currentQid').textContent = (
+                question.breadcrumb && question.breadcrumb.length > 1
+            ) ? question.breadcrumb.map(c => c.label).join(' › ') : question.qid;
             
             // Update UI (mobile)
             document.getElementById('currentIndexMobile').textContent = index + 1;
@@ -1407,6 +1417,7 @@
             });
             
             // Load assets
+            loadStemQue(question);
             loadAsset('QUE', question.id);
             loadAnswerAsset(question.id);
             
@@ -1457,6 +1468,46 @@
         }
         
         // Load assets (supports multi-part images)
+        async function loadStemQue(question) {
+            const panel = document.getElementById('stemPanel');
+            const container = document.getElementById('stemContainer');
+            if (!panel || !container) return;
+            if (!question.stem_has_que || !question.stem_id) {
+                panel.classList.add('d-none');
+                container.innerHTML = '';
+                return;
+            }
+            panel.classList.remove('d-none');
+            container.classList.remove('d-none');
+            const toggle = document.getElementById('stemToggle');
+            if (toggle) toggle.textContent = 'Shared background' + (question.stem_qid ? ' · ' + question.stem_qid : '');
+            container.innerHTML = '<div class="text-muted small">Loading shared background…</div>';
+            try {
+                const response = await fetch(`/generate/api/viewer_asset/${question.stem_id}/QUE?version_priority=${encodeURIComponent(preferredLanguage)}`);
+                if (!response.ok) throw new Error('not found');
+                const data = await response.json();
+                if (data.format === 'IMG') {
+                    const parts = data.parts || [data];
+                    container.innerHTML = parts.map(p =>
+                        `<img src="${p.url}" alt="stem" onload="applyZoom('QUE')" style="display:block;">`
+                    ).join('');
+                } else if (data.format === 'MD' && data.html) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'md-preview p-3';
+                    container.innerHTML = '';
+                    container.appendChild(wrap);
+                    if (window.oqbRenderMarkdownInto) window.oqbRenderMarkdownInto(wrap, data.html || '');
+                    else wrap.innerHTML = data.html || '';
+                } else if (data.format === 'DOC' && data.thumbnail_url) {
+                    container.innerHTML = `<img src="${data.thumbnail_url}" alt="stem" style="display:block;">`;
+                } else {
+                    container.innerHTML = '<div class="text-muted small">Shared background has no preview.</div>';
+                }
+            } catch (e) {
+                container.innerHTML = '<div class="text-muted small">Shared background not available.</div>';
+            }
+        }
+
         async function loadAsset(type, questionId) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
             setMarkupUrl(type === 'QUE' ? 'que' : 'ans', null);
