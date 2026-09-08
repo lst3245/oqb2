@@ -14,7 +14,8 @@ Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard groupin
 | `app/models.py` | `Question.parent_id` / `part` / `part_sort` / `qno_end`; `Subject.split_parts_default` |
 | `app/ingestor.py` | Filename regexes use `QNO_TOKEN_PATTERN`; `upsert_question` → `ensure_question`; sync skips stems that still have children; health anomalies exclude stems from untagged/no-type/no-level |
 | `app/smart_import.py` | Heuristic qno match via `QNO_TOKEN_RE`; `_ensure_question` → `ensure_question` |
-| `app/dashboard.py` | Leaves-only filter (unless `qids`/`ids`); `group_for_dashboard` after sort/paginate; Explain prepends ancestor QUE |
+| `app/dashboard.py` | Leaves-only filter (unless `qids`/`ids`); `group_for_dashboard` after sort/paginate, then builds `rows` (substem + leaf, with `depth`) per group; Explain prepends ancestor QUE |
+| `templates/partials/question_list.html` | Macros `tag_badges`, `que_preview`, `action_buttons(compact)`, `leaf_card` (standalone), `part_row`, `substem_row`; group = header card + `.hierarchy-children` |
 | `app/generator.py` | `hierarchy_mode` + `resolve_render_plan` in create/viewer; seq owner; ANS/SOL ancestor fallback |
 | `app/admin.py` | Create/rename(cascade)/delete(guard); children/parent/split + split detect; list `tree_scope`; tag skip on stems; PDF `/split-detect` |
 | `app/utils.py` | `SORT_FIELDS['qid']` / `['qno']` use hierarchy sort keys |
@@ -58,7 +59,7 @@ Changed behaviour on existing routes plus new admin routes:
 | GET/POST | `/dashboard/filter` | login | Result set is **leaves** unless `qids`/`ids` override. Cards grouped under stem headers. `#allQuestionIds` is leaves only. |
 | GET/POST | `/generate/` | login + can_generate | Option `hierarchy_mode` (`selected` default / `whole`). Stored in `generation_options` and presets. |
 | POST | `/generate/create` | login + can_generate | Background job expands via `resolve_render_plan`. |
-| GET/POST | `/generate/viewer` | login | Slides/drawer are **leaves**; stem QUE loads in `#stemPanel`. |
+| GET/POST | `/generate/viewer` | login | Slides/drawer are **leaves**; each carries `context` = the `stem`-role items of `resolve_render_plan([leaf])` (root, nested stems, earlier parts), all shown in `#stemPanel`. |
 
 ## Business rules / invariants
 
@@ -72,7 +73,8 @@ Changed behaviour on existing routes plus new admin routes:
 - **Rename cascade** rewrites descendant tokens relative to the renamed node, then `relink_parent`. Cannot rename `Q3` → `Q3a` while children exist.
 - **Delete** is blocked while children exist unless `delete_children` is set. Sync never deletes a question that still has children.
 - **`ensure_question`** find-or-creates the root, intermediate parents, and the node; flushes, does not commit. New range stems **adopt** existing parentless same-paper rows whose `qno` sits in `[qno, qno_end]` and `part` is NULL. New plain `Qn` rows **attach** to a covering range stem when one exists.
-- **Dashboard `#allQuestionIds` is leaves only.** Stem header checkboxes store the stem id; Select All / Select This Page only touch leaf checkboxes. `resolve_render_plan` dedupes a stem plus its parts.
+- **Dashboard selection is leaves only.** `#allQuestionIds` and `selectedQuestions` hold leaf ids; stem header / substem checkboxes are aggregates over `data-leaf-ids` (tick = select all those parts, indeterminate = some). Stem ids can still reach the generator/viewer from saved sets or `ids` overrides — `resolve_render_plan` expands and dedupes them.
+- **Dashboard tree view.** A split question renders as one `.hierarchy-group`: a header card (root QID, part count, shared background shown **once**) followed by `.hierarchy-children` rows built by `filter_questions` as `group.rows = [{kind: 'substem'|'leaf', card}]`. Intermediate stems (e.g. `Q1c`, the shared intro of `(c)(i)`/`(c)(ii)`) are emitted once, right before their first part, via `ancestors(leaf)` minus the root; every card carries `depth` (root 0, its parts 1, sub-parts 2) and the CSS indents with `--depth`. Part rows are compact (label `(a)`, tags, own QUE only, icon actions) and never repeat the background; a substem row has an aggregate `stem-checkbox` over its sub-parts and an Explain button that sends the intro plus every sub-part. `stem_preview` on a leaf is rendered only when the leaf is shown **outside** its group (standalone `leaf_card`, e.g. `ids`/`qids` overrides).
 - **Split tool** is IMG QUE only. Requires a `stem` box plus ≥1 part label. Range stems cannot be split here. Auto-detect uses the same pass-2 prompt as PDF import (`PDF_PART_*`).
 - **PDF import two-pass.** Pass 1 still one box per numbered question (or range). Pass 2 (opt-in, auto-runs when the checkbox is on) splits each crop into stem + lettered parts. SOL pass 2 uses QUE labels as `expected_labels`; unmatched lettered SOL is skipped and leftover whole-question SOL attaches to the stem.
 - **AI ancestor QUE.** Auto-tag, MD transcription of QUE, and Explain prepend ancestor QUE images (root first) labelled as shared background. Proofread stays per-row. Auto-tag skips stems.

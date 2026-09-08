@@ -27,79 +27,222 @@
     </div>
 
     <!-- Questions -->
-    {% set groups = question_groups if question_groups is defined and question_groups else none %}
-    {% if groups is none %}
-        {% set groups = [{'stem': none, 'leaves': questions}] %}
-    {% endif %}
-    {% for group in groups %}
-    {% if group.stem %}
-    <div class="card question-card stem-header-card" data-question-id="{{ group.stem.id }}" data-stem="1"
-         onclick="toggleQuestionSelection(event, this)">
-        <div class="card-body py-2">
-            <div class="row align-items-center">
-                <div class="col-auto">
-                    <input class="form-check-input stem-checkbox" type="checkbox"
-                           name="stem_checkbox" value="{{ group.stem.id }}"
-                           onchange="updateSelection(this)"
-                           title="Select the whole question">
-                </div>
-                <div class="col-md-3">
-                    <h6 class="mb-1">
-                        <button type="button" class="btn btn-sm btn-link text-muted p-0 me-1 stem-collapse-btn"
-                                onclick="event.stopPropagation(); toggleStemGroup(this);"
-                                title="Show or hide parts" aria-expanded="true">
-                            <i class="bi bi-chevron-down"></i>
-                        </button>
-                        {{ group.stem.qid }}
-                        <span class="badge bg-secondary">{{ group.stem.child_count }} part{{ 's' if group.stem.child_count != 1 else '' }}</span>
-                    </h6>
-                    <small class="text-muted">Whole question · shared background — tick this to include every part</small>
-                </div>
-                <div class="col-md-6">
-                    {% set sp = group.stem %}
-                    {% if sp.preview_mode == 'image' and sp.que_asset_ids %}
-                        {% for asset_id in sp.que_asset_ids %}
-                        <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
-                             class="question-image"
-                             style="display:block; margin-bottom:2px; max-height:140px;"
-                             onerror="this.style.display='none'">
-                        {% endfor %}
-                    {% elif sp.preview_mode == 'html' %}
-                        <div class="md-preview-card" data-preview-q="{{ sp.id }}" data-preview-type="QUE"
-                             data-preview-version="{{ sp.preview_version or 'EN' }}">
-                            <div class="text-muted small fst-italic">Rendering markdown...</div>
-                        </div>
-                    {% elif sp.has_que %}
-                        <span class="text-muted small">Preview available</span>
-                    {% else %}
-                        <span class="text-muted small">No stem image</span>
-                    {% endif %}
-                </div>
-                <div class="col-md-2">
-                    {% if group.stem.subject in admin_subjects %}
-                    <button type="button" class="btn btn-sm btn-outline-warning"
-                            onclick="openEditModal({{ group.stem.id }})">
-                        <i class="bi bi-pencil"></i> Edit
+    {#
+       Presentation model (see docs/modules/question-hierarchy.md, "Dashboard tree view"):
+       - A standalone question renders as one full card (macro leaf_card, compact=false).
+       - A split question renders as ONE group: a header card (whole question,
+         shared background shown once), then a tree of compact rows: intermediate
+         stems (e.g. Q1c, the shared intro of (c)(i)/(c)(ii)) and part rows.
+         Backgrounds are never repeated on the part rows; only the part's own
+         QUE is shown. Rows indent by `depth`.
+    #}
+
+    {% macro tag_badges(question) %}
+        <span class="tag-level">
+        {% if question.level %}
+        <span class="badge bg-secondary">Level {{ question.level }}</span>
+        {% else %}
+        <span class="badge bg-secondary text-muted">Level -</span>
+        {% endif %}
+        </span>
+        <span class="tag-qtype">
+        {% if question.q_type %}
+        <span class="badge bg-info">{{ question.q_type }}</span>
+        {% else %}
+        <span class="badge bg-info text-muted">Type -</span>
+        {% endif %}
+        </span>
+        <span class="tag-major-topic"><span class="badge bg-primary">{{ question.major_topic }}</span></span>
+        {% if question.major_subtopic %}
+        <span class="tag-major-subtopic"><span class="badge" style="background-color: #17a2b8; color: white;">{{ question.major_subtopic }}</span></span>
+        {% endif %}
+        {% if question.minor_topics %}
+        <span class="tag-minor-topics">
+            {% for minor in question.minor_topics %}
+            <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ minor }}</span>
+            {% endfor %}
+        </span>
+        {% endif %}
+        {% if question.subtopics %}
+        <span class="tag-subtopics">
+            {% for subtopic in question.subtopics %}
+            <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ subtopic }}</span>
+            {% endfor %}
+        </span>
+        {% endif %}
+        {% if question.chapter %}
+        <span class="tag-chapter"><span class="badge" style="background-color: #20c997; color: white;"><i class="bi bi-book"></i> {{ question.chapter }}</span></span>
+        {% endif %}
+        {% if question.subchapter %}
+        <span class="tag-subchapter"><span class="badge" style="background-color: #6f42c1; color: white;">{{ question.subchapter }}</span></span>
+        {% endif %}
+    {% endmacro %}
+
+    {% macro que_preview(question, max_height=none) %}
+        {% set mh = ('max-height:' ~ max_height ~ ';') if max_height else '' %}
+        {% if question.preview_mode == 'image' and question.que_asset_ids %}
+            {% for asset_id in question.que_asset_ids %}
+            <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
+                 class="question-image"
+                 style="display:block; margin-bottom:2px; {{ mh }}"
+                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">
+            {% endfor %}
+        {% elif question.preview_mode == 'html' %}
+            <div class="md-preview-card" data-preview-q="{{ question.id }}" data-preview-type="QUE"
+                 data-preview-version="{{ question.preview_version or 'EN' }}">
+                <div class="text-muted small fst-italic">Rendering markdown...</div>
+            </div>
+        {% elif question.preview_mode == 'thumbnail' and question.preview_doc_asset_id %}
+            <div data-doc-thumb-container>
+                <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
+                     class="question-image oqb-doc-thumb"
+                     style="display:block; margin-bottom:4px; max-width:100%;"
+                     alt="QUE preview"
+                     data-doc-asset-id="{{ question.preview_doc_asset_id }}"
+                     data-doc-question-id="{{ question.id }}"
+                     onerror="this.style.display='none'">
+                <div class="text-muted small">
+                    <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
+                    <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
+                       target="_blank" class="ms-1">download .docx</a>
+                    {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
+                    <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline"
+                            title="Re-render thumbnail"
+                            onclick="oqbRerenderThumb({{ question.id }}, {{ question.preview_doc_asset_id }}, this); return false;">
+                        <i class="bi bi-arrow-clockwise"></i>
                     </button>
                     {% endif %}
                 </div>
             </div>
+        {% elif question.preview_mode == 'download' %}
+            <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2"
+                 {% if question.preview_doc_asset_id %}
+                 data-doc-pending-id="{{ question.preview_doc_asset_id }}"
+                 data-doc-pending-question-id="{{ question.id }}"
+                 data-doc-pending-filename="{{ question.preview_doc_filename or '' }}"
+                 data-doc-pending-downloadurl="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
+                 {% endif %}>
+                <i class="bi bi-file-earmark-word fs-4 text-primary"></i>
+                <div class="flex-grow-1 small">
+                    Word document — preview rendering…
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary ms-2"
+                            onclick="previewAsset({{ question.id }}, 'QUE')">
+                        <i class="bi bi-eye"></i> Open
+                    </button>
+                </div>
+            </div>
+        {% elif question.has_que %}
+            <span class="text-muted small">Preview available</span>
+        {% else %}
+            <div class="alert alert-warning py-1 px-2 mb-0 small">No preview available</div>
+        {% endif %}
+    {% endmacro %}
+
+    {% macro action_buttons(question, compact=false) %}
+        {% set sz = 'btn-sm' %}
+        {% if compact %}
+        {# One wrapping row of icon buttons; labels appear as tooltips. #}
+        <div class="d-flex flex-wrap gap-1 oqb-compact-actions justify-content-md-end" role="group" aria-label="Actions">
+            {% if question.has_ans %}
+            <button type="button" class="btn {{ sz }} btn-outline-primary" title="View Answer"
+                    onclick="previewAsset({{ question.id }}, 'ANS')"><i class="bi bi-eye"></i></button>
+            {% endif %}
+            {% if question.has_sol %}
+            <button type="button" class="btn {{ sz }} btn-outline-success" title="View Solution"
+                    onclick="previewAsset({{ question.id }}, 'SOL')"><i class="bi bi-journal-check"></i></button>
+            {% endif %}
+            {% if question.has_answer_text %}
+            <button type="button" class="btn {{ sz }} btn-outline-info" title="View Answer Text"
+                    data-text-title="Answer Text" data-text-content="{{ question.answer | e }}"
+                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-card-text"></i></button>
+            {% endif %}
+            {% if question.has_comment %}
+            <button type="button" class="btn {{ sz }} btn-outline-secondary" title="Comment"
+                    data-text-title="Comment" data-text-content="{{ question.comment | e }}"
+                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-chat-text"></i></button>
+            {% endif %}
+            {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
+            <button type="button" class="btn {{ sz }} btn-outline-dark" title="Explain with AI"
+                    onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'><i class="bi bi-stars"></i></button>
+            {% endif %}
+            {% if question.subject in admin_subjects %}
+            <button type="button" class="btn {{ sz }} btn-outline-warning" title="Edit"
+                    onclick="openEditModal({{ question.id }})"><i class="bi bi-pencil"></i></button>
+            {% endif %}
         </div>
-    </div>
-    <div class="hierarchy-children">
-    {% endif %}
-    {% for question in group.leaves %}
-    <div class="card question-card{% if group.stem %} hierarchy-leaf{% endif %}" data-question-id="{{ question.id }}" onclick="toggleQuestionSelection(event, this)">
+        {% else %}
+        <div class="d-flex flex-column w-100 gap-1">
+            {# Answer / Solution / Ans Text: separate stacked buttons on
+               tablet/desktop (col-md-2 is too narrow for 3 side-by-side),
+               but combined into one connected split button on mobile to
+               save vertical space. The split⇄stack switch is CSS-only
+               (.oqb-action-group, see dashboard.html). #}
+            {% if question.has_ans or question.has_sol or question.has_answer_text %}
+            <div class="btn-group btn-group-sm w-100 oqb-action-group" role="group" aria-label="View answer, solution and answer text">
+                {% if question.has_ans %}
+                <button type="button" class="btn btn-outline-primary px-1"
+                        title="View Answer"
+                        onclick="previewAsset({{ question.id }}, 'ANS')">
+                    <i class="bi bi-eye"></i> Answer
+                </button>
+                {% endif %}
+                {% if question.has_sol %}
+                <button type="button" class="btn btn-outline-success px-1"
+                        title="View Solution"
+                        onclick="previewAsset({{ question.id }}, 'SOL')">
+                    <i class="bi bi-eye"></i> Solution
+                </button>
+                {% endif %}
+                {% if question.has_answer_text %}
+                <button type="button" class="btn btn-outline-info px-1"
+                        title="View Answer Text"
+                        data-text-title="Answer Text"
+                        data-text-content="{{ question.answer | e }}"
+                        onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
+                    <i class="bi bi-card-text"></i> Ans Text
+                </button>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if question.has_comment %}
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-text-title="Comment"
+                    data-text-content="{{ question.comment | e }}"
+                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
+                <i class="bi bi-chat-text"></i> Comment
+            </button>
+            {% endif %}
+            {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
+            {# AI tutor: sends the question (+ solution) image to the default
+               LLM and opens a follow-up chat. Gated by AI_TOOLS_ENABLED. #}
+            <button type="button" class="btn btn-sm btn-outline-dark"
+                    onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'>
+                <i class="bi bi-stars"></i> Explain
+            </button>
+            {% endif %}
+            {% if question.subject in admin_subjects %}
+            {# Opens the shared question Edit modal (Tags / Assets / Details tabs).
+               Modal self-fetches the full question record via /admin/questions/<id>/details. #}
+            <button type="button" class="btn btn-sm btn-outline-warning"
+                    onclick="openEditModal({{ question.id }})">
+                <i class="bi bi-pencil"></i> Edit
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% endmacro %}
+
+    {# Full card for a standalone (unsplit) question. #}
+    {% macro leaf_card(question) %}
+    <div class="card question-card" data-question-id="{{ question.id }}" onclick="toggleQuestionSelection(event, this)">
         <div class="card-body">
             <div class="row">
-                <!-- Checkbox -->
                 <div class="col-auto">
-                    <input class="form-check-input question-checkbox" type="checkbox" 
-                           name="question_checkbox" value="{{ question.id }}" 
+                    <input class="form-check-input question-checkbox" type="checkbox"
+                           name="question_checkbox" value="{{ question.id }}"
                            onchange="updateSelection(this)">
                 </div>
-                
-                <!-- Question Info -->
                 <div class="col-md-3">
                     <h6 class="mb-1">{{ question.qid }}
                         {% if question.part_label or question.part %}
@@ -115,44 +258,7 @@
                         {% if question.paper %} {{ question.paper }}{% endif %}
                         {% if question.section %} Sec {{ question.section }}{% endif %}
                     </small><br>
-                    <span class="tag-level">
-                    {% if question.level %}
-                    <span class="badge bg-secondary">Level {{ question.level }}</span>
-                    {% else %}
-                    <span class="badge bg-secondary text-muted">Level -</span>
-                    {% endif %}
-                    </span>
-                    <span class="tag-qtype">
-                    {% if question.q_type %}
-                    <span class="badge bg-info">{{ question.q_type }}</span>
-                    {% else %}
-                    <span class="badge bg-info text-muted">Type -</span>
-                    {% endif %}
-                    </span>
-                    <span class="tag-major-topic"><span class="badge bg-primary">{{ question.major_topic }}</span></span>
-                    {% if question.major_subtopic %}
-                    <span class="tag-major-subtopic"><span class="badge" style="background-color: #17a2b8; color: white;">{{ question.major_subtopic }}</span></span>
-                    {% endif %}
-                    {% if question.minor_topics %}
-                    <span class="tag-minor-topics">
-                        {% for minor in question.minor_topics %}
-                        <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ minor }}</span>
-                        {% endfor %}
-                    </span>
-                    {% endif %}
-                    {% if question.subtopics %}
-                    <span class="tag-subtopics">
-                        {% for subtopic in question.subtopics %}
-                        <span class="badge" style="background-color: #e0e0e0; color: #6c757d; font-weight: normal;">{{ subtopic }}</span>
-                        {% endfor %}
-                    </span>
-                    {% endif %}
-                    {% if question.chapter %}
-                    <span class="tag-chapter"><span class="badge" style="background-color: #20c997; color: white;"><i class="bi bi-book"></i> {{ question.chapter }}</span></span>
-                    {% endif %}
-                    {% if question.subchapter %}
-                    <span class="tag-subchapter"><span class="badge" style="background-color: #6f42c1; color: white;">{{ question.subchapter }}</span></span>
-                    {% endif %}
+                    {{ tag_badges(question) }}
                     {% if question.description %}
                     <div class="mt-2">
                         <small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small>
@@ -164,152 +270,175 @@
                     </div>
                     {% endif %}
                 </div>
-                
-                <!-- Preview Image(s) / Markdown / Doc -->
                 <div class="col-md-6">
                     {% if question.stem_preview and question.stem_preview.has_que %}
+                    {# Only reached when a part is listed outside its group
+                       (e.g. Show Selected Only / qids jump): show the shared
+                       background once above the part. #}
                     <div class="stem-que-preview mb-2">
                         <div class="small text-muted mb-1">Shared background ({{ question.stem_qid }})</div>
-                        {% set sp = question.stem_preview %}
-                        {% if sp.preview_mode == 'image' and sp.que_asset_ids %}
-                            {% for asset_id in sp.que_asset_ids %}
-                            <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
-                                 class="question-image"
-                                 style="display:block; margin-bottom:2px; max-height:120px; opacity:0.92;"
-                                 onerror="this.style.display='none'">
-                            {% endfor %}
-                        {% elif sp.preview_mode == 'html' %}
-                            <div class="md-preview-card" data-preview-q="{{ sp.id }}" data-preview-type="QUE"
-                                 data-preview-version="{{ sp.preview_version or 'EN' }}">
-                                <div class="text-muted small fst-italic">Rendering markdown...</div>
-                            </div>
-                        {% endif %}
+                        {{ que_preview(question.stem_preview, '120px') }}
                     </div>
                     {% endif %}
-                    {% if question.preview_mode == 'image' and question.que_asset_ids %}
-                        {% for asset_id in question.que_asset_ids %}
-                        <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
-                             class="question-image"
-                             style="display:block; margin-bottom:2px;"
-                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">
-                        {% endfor %}
-                    {% elif question.preview_mode == 'html' %}
-                        <div class="md-preview-card" data-preview-q="{{ question.id }}" data-preview-type="QUE"
-                             data-preview-version="{{ question.preview_version or 'EN' }}">
-                            <div class="text-muted small fst-italic">Rendering markdown...</div>
-                        </div>
-                    {% elif question.preview_mode == 'thumbnail' and question.preview_doc_asset_id %}
-                        <div data-doc-thumb-container>
-                            <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
-                                 class="question-image oqb-doc-thumb"
-                                 style="display:block; margin-bottom:4px; max-width:100%;"
-                                 alt="QUE preview"
-                                 data-doc-asset-id="{{ question.preview_doc_asset_id }}"
-                                 data-doc-question-id="{{ question.id }}"
-                                 onerror="this.style.display='none'">
-                            <div class="text-muted small">
-                                <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
-                                <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
-                                   target="_blank" class="ms-1">download .docx</a>
-                                {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
-                                <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline"
-                                        title="Re-render thumbnail"
-                                        onclick="oqbRerenderThumb({{ question.id }}, {{ question.preview_doc_asset_id }}, this); return false;">
-                                    <i class="bi bi-arrow-clockwise"></i>
-                                </button>
-                                {% endif %}
-                            </div>
-                        </div>
-                    {% elif question.preview_mode == 'download' %}
-                        <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2"
-                             {% if question.preview_doc_asset_id %}
-                             data-doc-pending-id="{{ question.preview_doc_asset_id }}"
-                             data-doc-pending-question-id="{{ question.id }}"
-                             data-doc-pending-filename="{{ question.preview_doc_filename or '' }}"
-                             data-doc-pending-downloadurl="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
-                             {% endif %}>
-                            <i class="bi bi-file-earmark-word fs-4 text-primary"></i>
-                            <div class="flex-grow-1 small">
-                                Word document — preview rendering…
-                                <button type="button"
-                                        class="btn btn-sm btn-outline-primary ms-2"
-                                        onclick="previewAsset({{ question.id }}, 'QUE')">
-                                    <i class="bi bi-eye"></i> Open
-                                </button>
-                            </div>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-warning">No preview available</div>
+                    {{ que_preview(question) }}
+                </div>
+                <div class="col-md-2">
+                    {{ action_buttons(question, false) }}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endmacro %}
+
+    {# Compact row for a part inside its question group. #}
+    {% macro part_row(question) %}
+    <div class="card question-card hierarchy-leaf" data-question-id="{{ question.id }}"
+         style="--depth: {{ question.depth or 1 }};" onclick="toggleQuestionSelection(event, this)">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-start">
+                <div class="col-auto pt-1">
+                    <input class="form-check-input question-checkbox" type="checkbox"
+                           name="question_checkbox" value="{{ question.id }}"
+                           onchange="updateSelection(this)" title="Select this part only">
+                </div>
+                <div class="col-3 col-md-2">
+                    <div class="part-label">({{ question.part_label or question.part }})</div>
+                    <div class="small text-muted text-truncate" title="{{ question.qid }}">{{ question.qid }}</div>
+                    {% if question.needs_prev_parts %}
+                    <span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background"><i class="bi bi-link-45deg"></i> uses earlier parts</span>
+                    {% endif %}
+                    <div class="mt-1 oqb-tags-compact">{{ tag_badges(question) }}</div>
+                    {% if question.description %}
+                    <div class="mt-1"><small class="text-muted"><i class="bi bi-info-circle"></i> {{ question.description }}</small></div>
+                    {% endif %}
+                    {% if question.correct_percentage is not none %}
+                    <div class="mt-1"><small class="text-success"><i class="bi bi-check-circle"></i> {{ question.correct_percentage }}% correct</small></div>
                     {% endif %}
                 </div>
-                
-                <!-- Actions -->
-                <div class="col-md-2">
-                    <div class="d-flex flex-column w-100 gap-1">
-                        {# Answer / Solution / Ans Text: separate stacked buttons on
-                           tablet/desktop (col-md-2 is too narrow for 3 side-by-side),
-                           but combined into one connected split button on mobile to
-                           save vertical space. The split⇄stack switch is CSS-only
-                           (.oqb-action-group, see dashboard.html). #}
-                        {% if question.has_ans or question.has_sol or question.has_answer_text %}
-                        <div class="btn-group btn-group-sm w-100 oqb-action-group" role="group" aria-label="View answer, solution and answer text">
-                            {% if question.has_ans %}
-                            <button type="button" class="btn btn-outline-primary px-1"
-                                    title="View Answer"
-                                    onclick="previewAsset({{ question.id }}, 'ANS')">
-                                <i class="bi bi-eye"></i> Answer
-                            </button>
-                            {% endif %}
-                            {% if question.has_sol %}
-                            <button type="button" class="btn btn-outline-success px-1"
-                                    title="View Solution"
-                                    onclick="previewAsset({{ question.id }}, 'SOL')">
-                                <i class="bi bi-eye"></i> Solution
-                            </button>
-                            {% endif %}
-                            {% if question.has_answer_text %}
-                            <button type="button" class="btn btn-outline-info px-1"
-                                    title="View Answer Text"
-                                    data-text-title="Answer Text"
-                                    data-text-content="{{ question.answer | e }}"
-                                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
-                                <i class="bi bi-card-text"></i> Ans Text
-                            </button>
-                            {% endif %}
-                        </div>
-                        {% endif %}
-                        {% if question.has_comment %}
-                        <button type="button" class="btn btn-sm btn-outline-secondary" 
-                                data-text-title="Comment"
-                                data-text-content="{{ question.comment | e }}"
-                                onclick="previewText(this.dataset.textTitle, this.dataset.textContent)">
-                            <i class="bi bi-chat-text"></i> Comment
-                        </button>
-                        {% endif %}
+                <div class="col-9 col-md">
+                    {{ que_preview(question) }}
+                </div>
+                <div class="col-12 col-md-auto oqb-row-actions">
+                    {{ action_buttons(question, true) }}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endmacro %}
+
+    {# Row for an intermediate stem (a part that itself has sub-parts, e.g. Q1c). #}
+    {% macro substem_row(sub) %}
+    <div class="card question-card hierarchy-substem" data-question-id="{{ sub.id }}" data-stem="1"
+         data-leaf-ids="{{ (sub.leaf_ids or [])|join(',') }}"
+         style="--depth: {{ sub.depth or 1 }};" onclick="toggleQuestionSelection(event, this)">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-start">
+                <div class="col-auto pt-1">
+                    <input class="form-check-input stem-checkbox" type="checkbox"
+                           name="stem_checkbox" value="{{ sub.id }}"
+                           onchange="updateSelection(this)"
+                           title="Select / deselect all sub-parts of ({{ sub.part_label or sub.part }})">
+                </div>
+                <div class="col-3 col-md-2">
+                    <div class="part-label">({{ sub.part_label or sub.part }})</div>
+                    <div class="small text-muted">shared intro · {{ sub.child_count }} sub-part{{ 's' if sub.child_count != 1 else '' }}</div>
+                    <div class="small text-muted text-truncate" title="{{ sub.qid }}">{{ sub.qid }}</div>
+                </div>
+                <div class="col-9 col-md">
+                    {% if sub.has_que %}
+                    {{ que_preview(sub, '160px') }}
+                    {% else %}
+                    <span class="text-muted small fst-italic">No shared text for this part — the sub-parts stand alone.</span>
+                    {% endif %}
+                </div>
+                <div class="col-12 col-md-auto oqb-row-actions">
+                    <div class="d-flex flex-wrap gap-1 oqb-compact-actions justify-content-md-end">
                         {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
-                        {# AI tutor: sends the question (+ solution) image to the default
-                           LLM and opens a follow-up chat. Gated by AI_TOOLS_ENABLED. #}
-                        <button type="button" class="btn btn-sm btn-outline-dark"
-                                onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'>
-                            <i class="bi bi-stars"></i> Explain
-                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-dark" title="Explain ({{ sub.part_label or sub.part }}) with all its sub-parts"
+                                onclick='openExplainModal({{ sub.id }}, {{ sub.qid|tojson }}, {{ {"QUE": sub.has_que, "ANS": sub.has_ans, "SOL": sub.has_sol}|tojson }})'><i class="bi bi-stars"></i></button>
                         {% endif %}
-                        {% if question.subject in admin_subjects %}
-                        {# Opens the shared question Edit modal (Tags / Assets / Details tabs).
-                           Modal self-fetches the full question record via /admin/questions/<id>/details. #}
-                        <button type="button" class="btn btn-sm btn-outline-warning"
-                                onclick="openEditModal({{ question.id }})">
-                            <i class="bi bi-pencil"></i> Edit
-                        </button>
+                        {% if sub.subject in admin_subjects %}
+                        <button type="button" class="btn btn-sm btn-outline-warning" title="Edit"
+                                onclick="openEditModal({{ sub.id }})"><i class="bi bi-pencil"></i></button>
                         {% endif %}
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    {% endfor %}
+    {% endmacro %}
+
+    {% set groups = question_groups if question_groups is defined and question_groups else none %}
+    {% if groups is none %}
+        {% set groups = [{'stem': none, 'leaves': questions, 'rows': none}] %}
+    {% endif %}
+    {% for group in groups %}
     {% if group.stem %}
+    {% set stem = group.stem %}
+    <div class="hierarchy-group">
+    <div class="card question-card stem-header-card" data-question-id="{{ stem.id }}" data-stem="1"
+         data-leaf-ids="{{ (stem.leaf_ids or [])|join(',') }}"
+         onclick="toggleQuestionSelection(event, this)">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-start">
+                <div class="col-auto pt-1">
+                    <input class="form-check-input stem-checkbox" type="checkbox"
+                           name="stem_checkbox" value="{{ stem.id }}"
+                           onchange="updateSelection(this)"
+                           title="Select / deselect every part of this question">
+                </div>
+                <div class="col">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                        <button type="button" class="btn btn-sm btn-link text-muted p-0 stem-collapse-btn"
+                                onclick="event.stopPropagation(); toggleStemGroup(this);"
+                                title="Show or hide parts" aria-expanded="true">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                        <h6 class="mb-0">{{ stem.qid }}</h6>
+                        <span class="badge bg-secondary">{{ stem.child_count }} part{{ 's' if stem.child_count != 1 else '' }}</span>
+                        <small class="text-muted">
+                            {{ stem.source }}{% if stem.year %} {{ stem.year }}{% endif %}{% if stem.paper %} {{ stem.paper }}{% endif %}{% if stem.section %} Sec {{ stem.section }}{% endif %}
+                        </small>
+                        <small class="text-muted ms-md-auto"><i class="bi bi-info-circle"></i> Tick here to select every part, or tick parts individually below</small>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-9">
+                            {% if stem.has_que %}
+                            <div class="small text-muted mb-1">Shared background (shown once; every part below builds on it)</div>
+                            {{ que_preview(stem, '220px') }}
+                            {% else %}
+                            <span class="text-muted small fst-italic">No shared background text.</span>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-3">
+                            <div class="d-flex flex-wrap gap-1 oqb-compact-actions justify-content-md-end">
+                                {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
+                                <button type="button" class="btn btn-sm btn-outline-dark" title="Explain the whole question (background + every part)"
+                                        onclick='openExplainModal({{ stem.id }}, {{ stem.qid|tojson }}, {{ {"QUE": stem.has_que, "ANS": stem.has_ans, "SOL": stem.has_sol}|tojson }})'><i class="bi bi-stars"></i> Explain</button>
+                                {% endif %}
+                                {% if stem.subject in admin_subjects %}
+                                <button type="button" class="btn btn-sm btn-outline-warning" title="Edit whole question"
+                                        onclick="openEditModal({{ stem.id }})"><i class="bi bi-pencil"></i> Edit</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+    <div class="hierarchy-children">
+        {% if group.rows %}
+            {% for row in group.rows %}
+                {% if row.kind == 'substem' %}{{ substem_row(row.card) }}{% else %}{{ part_row(row.card) }}{% endif %}
+            {% endfor %}
+        {% else %}
+            {% for question in group.leaves %}{{ part_row(question) }}{% endfor %}
+        {% endif %}
+    </div>
+    </div>
+    {% else %}
+    {% for question in group.leaves %}{{ leaf_card(question) }}{% endfor %}
     {% endif %}
     {% endfor %}
 

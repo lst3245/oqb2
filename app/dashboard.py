@@ -10,7 +10,8 @@ from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subje
                        enumerate_sort_groups, GROUPING_FIELDS,
                        parse_version_priority, VERSIONS, DEFAULT_VERSION_PRIORITY)
 from app.hierarchy import (
-    breadcrumb_parts, eager_load_tree, group_for_dashboard, is_stem,
+    ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
+    children as hier_children, group_for_dashboard, is_stem,
     root as hier_root, stem_id_query,
 )
 from app import md_render
@@ -452,6 +453,18 @@ def filter_questions():
     )
 
     groups_raw = group_for_dashboard(page_items)
+
+    # Stem / substem checkboxes are aggregates over their descendant leaves in
+    # the *whole* result set (not just this page), so ticking Q1 selects every
+    # matched part of Q1 even when they spill onto the next page. Selection
+    # itself stores leaf ids only (see docs/modules/dashboard.md).
+    leaf_ids_under: dict = {}
+    for q in sorted_questions:
+        if is_stem(q):
+            continue
+        for anc in hier_ancestors(q):
+            leaf_ids_under.setdefault(getattr(anc, 'id', None), []).append(q.id)
+
     question_data = []
     question_groups = []
     for g in groups_raw:
@@ -460,7 +473,15 @@ def filter_questions():
             stem_card = _dashboard_card(g['stem'], version_order, role='stem')
             stem_card['child_count'] = len(g['leaves'])
             stem_card['is_stem'] = True
+            stem_card['depth'] = 0
+            stem_card['leaf_ids'] = leaf_ids_under.get(g['stem'].id, [])
         leaves = []
+        # Ordered rows for the tree view: intermediate stems (e.g. Q1c, the
+        # shared intro of (c)(i)/(c)(ii)) appear once, just before their first
+        # part; every row carries `depth` for indentation.
+        rows = []
+        seen_substems = set()
+        root_id = getattr(g['stem'], 'id', None)
         for q in g['leaves']:
             card = _dashboard_card(q, version_order, role='leaf')
             stem_obj = g['stem']
@@ -483,11 +504,30 @@ def filter_questions():
                     'preview_doc_file_path': src['preview_doc_file_path'],
                     'has_que': src['has_que'],
                 }
+            if stem_card is not None:
+                chain = [a for a in hier_ancestors(q)
+                         if getattr(a, 'id', None) != root_id]
+                for depth_i, anc in enumerate(chain, start=1):
+                    aid = getattr(anc, 'id', None)
+                    if aid in seen_substems:
+                        continue
+                    seen_substems.add(aid)
+                    sub = _dashboard_card(anc, version_order, role='stem')
+                    sub['is_stem'] = True
+                    sub['depth'] = depth_i
+                    sub['child_count'] = len(hier_children(anc))
+                    sub['stem_qid'] = stem_card['qid']
+                    sub['leaf_ids'] = leaf_ids_under.get(aid, [])
+                    rows.append({'kind': 'substem', 'card': sub})
+                card['depth'] = len(chain) + 1
+            else:
+                card['depth'] = 0
+            rows.append({'kind': 'leaf', 'card': card})
             leaves.append(card)
             question_data.append(card)
         if stem_card is not None and not leaves:
             question_data.append(stem_card)
-        question_groups.append({'stem': stem_card, 'leaves': leaves})
+        question_groups.append({'stem': stem_card, 'leaves': leaves, 'rows': rows})
     
     # Select-all uses leaves only so a stem header is not double-counted.
     all_question_ids = [q.id for q in sorted_questions if not is_stem(q)]
@@ -1200,7 +1240,26 @@ def explain_question(question_id):
     sol_imgs, sol_text = _explain_slot_context(
         question_id, 'SOL', version_priority, source_path, image_max_dim)
 
-    if not (que_imgs or que_text):
+    # Explain on a stem (whole question or a nested intro such as Q1c) sends
+    # the stem's own text as the shared background followed by every
+    # descendant part's QUE (and SOL), labelled relative to the stem, so the
+    # tutor can walk through the whole question.
+    from app.hierarchy import descendants as hier_descendants, depth_of, sort_key
+    part_ctx = []
+    if is_stem(question):
+        base_depth = depth_of(question)
+        for d in sorted(hier_descendants(question), key=sort_key):
+            dq_imgs, dq_text = _explain_slot_context(
+                d.id, 'QUE', version_priority, source_path, image_max_dim)
+            ds_imgs, ds_text = _explain_slot_context(
+                d.id, 'SOL', version_priority, source_path, image_max_dim)
+            if not (dq_imgs or dq_text or ds_imgs or ds_text):
+                continue
+            crumbs = breadcrumb_parts(d)
+            label = ''.join(c['label'] for c in crumbs[base_depth + 1:]) or d.qid
+            part_ctx.append((label, dq_imgs, dq_text, ds_imgs, ds_text))
+
+    if not (que_imgs or que_text or part_ctx):
         return jsonify({'error': 'This question has no image or Markdown to explain.'}), 400
 
     from app.ai_tools import load_ancestor_que_images
@@ -1213,12 +1272,56 @@ def explain_question(question_id):
         parts.append({'type': 'text', 'text': (
             f'Shared background image(s) (images 1–{n}; the part to work on follows):')})
         parts += [llm_client._image_block(b, m) for (b, m) in anc_imgs]
-    if que_imgs:
-        parts.append({'type': 'text', 'text': ('QUESTION (this part) image(s):'
-                                               if anc_imgs else 'QUESTION image(s):')})
-        parts += [llm_client._image_block(b, m) for (b, m) in que_imgs]
-    elif que_text:
-        parts.append({'type': 'text', 'text': 'QUESTION (Markdown):\n' + que_text[:6000]})
+    if part_ctx:
+        parts.append({'type': 'text', 'text': (
+            f'This question is split into {len(part_ctx)} labelled part(s) that share the '
+            'background below. Treat them as ONE question: explain the shared context '
+            'once, then work through every part in order, keeping the part labels.')})
+        if que_imgs:
+            parts.append({'type': 'text', 'text': (
+                'QUESTION shared text image(s) — the whole question follows as parts:')})
+            parts += [llm_client._image_block(b, m) for (b, m) in que_imgs]
+        elif que_text:
+            parts.append({'type': 'text', 'text': (
+                'QUESTION shared text (Markdown) — the whole question follows as parts:\n'
+                + que_text[:6000])})
+        for label, dq_imgs, dq_text, _si, _st in part_ctx:
+            if dq_imgs:
+                parts.append({'type': 'text', 'text': f'PART {label} image(s):'})
+                parts += [llm_client._image_block(b, m) for (b, m) in dq_imgs]
+            elif dq_text:
+                parts.append({'type': 'text', 'text': f'PART {label} (Markdown):\n' + dq_text[:4000]})
+        for label, _qi, _qt, ds_imgs, ds_text in part_ctx:
+            if ds_imgs:
+                parts.append({'type': 'text', 'text': f'Official SOLUTION for part {label} image(s):'})
+                parts += [llm_client._image_block(b, m) for (b, m) in ds_imgs]
+            elif ds_text:
+                parts.append({'type': 'text', 'text': (
+                    f'Official SOLUTION for part {label} (Markdown):\n' + ds_text[:4000])})
+    else:
+        # A part flagged "uses earlier parts" refers to its earlier siblings
+        # ("using your answer in (a)"), so include them the same way the
+        # generator and the viewer do.
+        if getattr(question, 'needs_prev_parts', False):
+            from app.hierarchy import earlier_siblings
+            for sib in earlier_siblings(question):
+                s_imgs, s_text = _explain_slot_context(
+                    sib.id, 'QUE', version_priority, source_path, image_max_dim)
+                crumbs = breadcrumb_parts(sib)
+                label = crumbs[-1]['label'] if crumbs else sib.qid
+                if s_imgs:
+                    parts.append({'type': 'text', 'text': (
+                        f'Earlier part {label} (context only; the part to work on follows) image(s):')})
+                    parts += [llm_client._image_block(b, m) for (b, m) in s_imgs]
+                elif s_text:
+                    parts.append({'type': 'text', 'text': (
+                        f'Earlier part {label} (context only, Markdown):\n' + s_text[:4000])})
+        if que_imgs:
+            parts.append({'type': 'text', 'text': ('QUESTION (this part) image(s):'
+                                                   if anc_imgs else 'QUESTION image(s):')})
+            parts += [llm_client._image_block(b, m) for (b, m) in que_imgs]
+        elif que_text:
+            parts.append({'type': 'text', 'text': 'QUESTION (Markdown):\n' + que_text[:6000]})
     if sol_imgs:
         parts.append({'type': 'text', 'text': 'Official SOLUTION image(s):'})
         parts += [llm_client._image_block(b, m) for (b, m) in sol_imgs]
@@ -1234,7 +1337,8 @@ def explain_question(question_id):
     ]
     messages.extend(turns)
 
-    has_solution = bool(sol_imgs or sol_text)
+    has_solution = bool(sol_imgs or sol_text
+                        or any(si or st for _l, _qi, _qt, si, st in part_ctx))
     app = current_app._get_current_object()
 
     def generate():

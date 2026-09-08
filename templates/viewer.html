@@ -346,6 +346,11 @@
             display: none;
         }
         
+        .stem-context-block + .stem-context-block {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px dashed #dee2e6;
+        }
         .asset-container {
             background: white;
             padding: 1rem;
@@ -1468,11 +1473,22 @@
         }
         
         // Load assets (supports multi-part images)
+        // Background for the current slide: every item the generator would
+        // print before this part on its own — root stem, nested stems (Q1c),
+        // and earlier parts when the part "uses earlier parts". Comes from
+        // question.context (server-side resolve_render_plan); the legacy
+        // stem_id/stem_has_que pair is the fallback for older payloads.
         async function loadStemQue(question) {
             const panel = document.getElementById('stemPanel');
             const container = document.getElementById('stemContainer');
             if (!panel || !container) return;
-            if (!question.stem_has_que || !question.stem_id) {
+            let ctx = Array.isArray(question.context) ? question.context : null;
+            if (ctx === null) {
+                ctx = (question.stem_has_que && question.stem_id)
+                    ? [{ id: question.stem_id, qid: question.stem_qid, label: question.stem_qid, kind: 'stem' }]
+                    : [];
+            }
+            if (!ctx.length) {
                 panel.classList.add('d-none');
                 container.innerHTML = '';
                 return;
@@ -1480,32 +1496,50 @@
             panel.classList.remove('d-none');
             container.classList.remove('d-none');
             const toggle = document.getElementById('stemToggle');
-            if (toggle) toggle.textContent = 'Shared background' + (question.stem_qid ? ' · ' + question.stem_qid : '');
-            container.innerHTML = '<div class="text-muted small">Loading shared background…</div>';
-            try {
-                const response = await fetch(`/generate/api/viewer_asset/${question.stem_id}/QUE?version_priority=${encodeURIComponent(preferredLanguage)}`);
-                if (!response.ok) throw new Error('not found');
-                const data = await response.json();
-                if (data.format === 'IMG') {
-                    const parts = data.parts || [data];
-                    container.innerHTML = parts.map(p =>
-                        `<img src="${p.url}" alt="stem" onload="applyZoom('QUE')" style="display:block;">`
-                    ).join('');
-                } else if (data.format === 'MD' && data.html) {
-                    const wrap = document.createElement('div');
-                    wrap.className = 'md-preview p-3';
-                    container.innerHTML = '';
-                    container.appendChild(wrap);
-                    if (window.oqbRenderMarkdownInto) window.oqbRenderMarkdownInto(wrap, data.html || '');
-                    else wrap.innerHTML = data.html || '';
-                } else if (data.format === 'DOC' && data.thumbnail_url) {
-                    container.innerHTML = `<img src="${data.thumbnail_url}" alt="stem" style="display:block;">`;
-                } else {
-                    container.innerHTML = '<div class="text-muted small">Shared background has no preview.</div>';
-                }
-            } catch (e) {
-                container.innerHTML = '<div class="text-muted small">Shared background not available.</div>';
+            if (toggle) {
+                const nEarlier = ctx.filter(c => c.kind === 'earlier').length;
+                toggle.textContent = 'Shared background' + (nEarlier ? ` + ${nEarlier} earlier part${nEarlier === 1 ? '' : 's'}` : '');
             }
+            container.innerHTML = '';
+            const blocks = ctx.map(c => {
+                const block = document.createElement('div');
+                block.className = 'stem-context-block';
+                const cap = document.createElement('div');
+                cap.className = 'text-muted small mb-1';
+                cap.textContent = (c.kind === 'earlier' ? 'Earlier part ' : 'Shared background ') + (c.label || '') + (c.qid ? ` · ${c.qid}` : '');
+                const body = document.createElement('div');
+                body.innerHTML = '<div class="text-muted small">Loading…</div>';
+                block.appendChild(cap);
+                block.appendChild(body);
+                container.appendChild(block);
+                return { c, body };
+            });
+            await Promise.all(blocks.map(async ({ c, body }) => {
+                try {
+                    const response = await fetch(`/generate/api/viewer_asset/${c.id}/QUE?version_priority=${encodeURIComponent(preferredLanguage)}`);
+                    if (!response.ok) throw new Error('not found');
+                    const data = await response.json();
+                    if (data.format === 'IMG') {
+                        const parts = data.parts || [data];
+                        body.innerHTML = parts.map(p =>
+                            `<img src="${p.url}" alt="stem" onload="applyZoom('QUE')" style="display:block;">`
+                        ).join('');
+                    } else if (data.format === 'MD' && data.html) {
+                        const wrap = document.createElement('div');
+                        wrap.className = 'md-preview p-3';
+                        body.innerHTML = '';
+                        body.appendChild(wrap);
+                        if (window.oqbRenderMarkdownInto) window.oqbRenderMarkdownInto(wrap, data.html || '');
+                        else wrap.innerHTML = data.html || '';
+                    } else if (data.format === 'DOC' && data.thumbnail_url) {
+                        body.innerHTML = `<img src="${data.thumbnail_url}" alt="stem" style="display:block;">`;
+                    } else {
+                        body.innerHTML = '<div class="text-muted small">No preview.</div>';
+                    }
+                } catch (e) {
+                    body.innerHTML = '<div class="text-muted small">Not available.</div>';
+                }
+            }));
         }
 
         async function loadAsset(type, questionId) {
@@ -1819,8 +1853,14 @@
         function applyZoom(type) {
             const container = type === 'QUE' ? document.getElementById('queContainer') : document.getElementById('ansContainer');
             const zoom = type === 'QUE' ? queZoom : ansZoom;
-            // Apply zoom to ALL images in the container (multi-part support)
-            const imgs = container.querySelectorAll('img');
+            // Apply zoom to ALL images in the container (multi-part support).
+            // The QUE panel also zooms the shared-background block so stems,
+            // nested intros and earlier parts scale with the part itself.
+            let imgs = Array.from(container.querySelectorAll('img'));
+            if (type === 'QUE') {
+                const stemContainer = document.getElementById('stemContainer');
+                if (stemContainer) imgs = imgs.concat(Array.from(stemContainer.querySelectorAll('img')));
+            }
             
             imgs.forEach(img => {
                 // At 100% zoom, image fits in half of initial window width

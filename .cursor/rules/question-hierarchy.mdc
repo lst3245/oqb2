@@ -13,7 +13,7 @@ alwaysApply: false
 - `ensure_question` is the only create path that must understand parents (ingest, Smart Import, admin create, Split commit, PDF commit).
 - Sort by `hierarchy.sort_key` / `qno_sort_key`, not natsort of the QID string (`Q3ci` vs `Q3civ`).
 - Delete stem blocked while children exist unless `delete_children`. Sync never drops a childless-asset row that still has children.
-- Generator/viewer expansion is **only** `resolve_render_plan` (`hierarchy_mode` `selected`|`whole`). Dashboard `#allQuestionIds` stays **leaves only**. Selection semantics stay ADR-008.
+- Generator/viewer expansion is **only** `resolve_render_plan` (`hierarchy_mode` `selected`|`whole`). Dashboard selection (`selectedQuestions`, `#allQuestionIds`) stays **leaves only**; stem / substem checkboxes are aggregates over `data-leaf-ids`, never stored ids. Anything that shows a part's background (viewer `context`, Explain, docx) must go through `resolve_render_plan([leaf])` / `ancestors` + `earlier_siblings`, never just the root. Selection semantics stay ADR-008.
 - Tags live on leaves. Do not write topic/type/level onto stems. Auto-tag skips stems.
 - PDF import: pass 1 = whole numbered questions; pass 2 (`iter_split_detect`) = stem+(a)(b)(c), nested as plain labels (`4d` + `4di`). `Subject.split_parts_default` seeds the wizard checkbox.
 - Plan roles are **derived** (`derive_roles` / `label_is_ancestor`), never stored from model output. A nested stem is just a node with children.

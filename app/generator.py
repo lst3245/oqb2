@@ -361,6 +361,25 @@ def viewer():
             stem_has_que = QuestionAsset.query.filter_by(
                 question_id=stem.id, asset_type='QUE'
             ).first() is not None
+        # Full background for this slide: every `stem`-role item that
+        # resolve_render_plan would print before the leaf on its own (root
+        # stem, nested stems such as Q1c, earlier parts when
+        # needs_prev_parts). Same rule as the .docx, so Present matches Generate.
+        context = []
+        anc_ids = {getattr(a, 'id', None) for a in ancestors(q)}
+        for item in resolve_render_plan([q], mode=HIERARCHY_MODE_SELECTED):
+            if item.role != 'stem' or getattr(item.question, 'id', None) == q.id:
+                continue
+            node = item.question
+            if QuestionAsset.query.filter_by(question_id=node.id, asset_type='QUE').first() is None:
+                continue
+            crumb = breadcrumb_parts(node)
+            context.append({
+                'id': node.id,
+                'qid': node.qid,
+                'label': crumb[-1]['label'] if crumb else node.qid,
+                'kind': 'stem' if node.id in anc_ids else 'earlier',
+            })
         crumbs = breadcrumb_parts(q)
         questions_data.append({
             'id': q.id,
@@ -374,6 +393,7 @@ def viewer():
             'stem_qid': stem.qid if stem is not None else None,
             'stem_id': stem.id if stem is not None else None,
             'stem_has_que': stem_has_que,
+            'context': context,
             'breadcrumb': crumbs,
             'has_que': len(que_assets) > 0,
             'has_ans': len(ans_assets) > 0,

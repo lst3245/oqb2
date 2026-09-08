@@ -18,6 +18,10 @@
             border-radius: var(--bs-border-radius, 0.375rem) !important;
         }
     }
+    /* Split-question tree view (partials/question_list.html).
+       header card (whole question) → .hierarchy-children → rows indented by --depth */
+    .hierarchy-group { margin-bottom: 1.25rem; }
+    .hierarchy-group > .stem-header-card { margin-bottom: 0.25rem; }
     .stem-header-card {
         border-left: 4px solid #6c757d;
         background: #f8f9fa;
@@ -27,8 +31,32 @@
         padding-left: 0.75rem;
         border-left: 3px solid #dee2e6;
     }
-    .hierarchy-children .hierarchy-leaf {
-        margin-top: 0.5rem;
+    .hierarchy-children .question-card {
+        --depth: 1;
+        margin-top: 0.25rem;
+        margin-bottom: 0;
+        margin-left: calc((var(--depth) - 1) * 1.5rem);
+    }
+    .question-card.partially-selected {
+        border-color: #9ec5fe;
+        background-color: #f3f8ff;
+    }
+    .hierarchy-children .hierarchy-substem {
+        background: #fbfbfd;
+        border-left: 3px solid #adb5bd;
+    }
+    .hierarchy-children .hierarchy-leaf .question-image { max-height: 260px; }
+    .part-label {
+        font-weight: 600;
+        font-size: 1.05rem;
+        line-height: 1.2;
+    }
+    .oqb-tags-compact .badge { font-size: 0.68em; }
+    .oqb-compact-actions .btn { padding: 0.15rem 0.45rem; }
+    /* Actions sit in a fixed right-hand column on md+ (never wrap between parts). */
+    @media (min-width: 768px) {
+        .oqb-row-actions { width: 5.5rem; flex: 0 0 5.5rem; }
+        .oqb-row-actions .oqb-compact-actions { justify-content: flex-end; }
     }
     .stem-que-preview {
         padding-bottom: 0.5rem;
@@ -2166,8 +2194,21 @@ function applySortFromSettings(settings) {
 
 // Initialize selection state after page content changes
 function initializeSelectionState() {
-    const checkboxes = document.querySelectorAll('input[name="question_checkbox"], input.stem-checkbox');
-    checkboxes.forEach(cb => {
+    // Selection stores LEAF ids only. A stem / substem checkbox is an
+    // aggregate over its descendant leaves (data-leaf-ids on the card), so a
+    // legacy stem id found in the stored selection is expanded to its leaves.
+    let migrated = false;
+    document.querySelectorAll('.question-card[data-stem="1"]').forEach(card => {
+        const stemId = card.dataset.questionId;
+        if (stemId && selectedQuestions.has(stemId)) {
+            selectedQuestions.delete(stemId);
+            stemLeafIds(card).forEach(id => selectedQuestions.add(id));
+            migrated = true;
+        }
+    });
+    if (migrated) saveStateToStorage();
+
+    document.querySelectorAll('input[name="question_checkbox"]').forEach(cb => {
         const card = cb.closest('.question-card');
         const isSelected = selectedQuestions.has(cb.value);
         cb.checked = isSelected;
@@ -2178,6 +2219,38 @@ function initializeSelectionState() {
     reorderSelectedQuestions();
     updateSelectAllCheckbox();
     updateSelectionCounter();
+}
+
+// Leaf ids a stem/substem card stands for (all matched parts, every page).
+function stemLeafIds(card) {
+    return (card?.dataset?.leafIds || '').split(',').filter(id => id);
+}
+
+// Derive every stem / substem checkbox from its leaves:
+// all selected → checked, some → indeterminate, none → clear.
+function refreshStemCheckboxes() {
+    document.querySelectorAll('.question-card[data-stem="1"]').forEach(card => {
+        const cb = card.querySelector('input.stem-checkbox');
+        if (!cb) return;
+        const ids = stemLeafIds(card);
+        const n = ids.filter(id => selectedQuestions.has(id)).length;
+        const all = ids.length > 0 && n === ids.length;
+        cb.checked = all;
+        cb.indeterminate = n > 0 && !all;
+        card.classList.toggle('selected', all);
+        card.classList.toggle('partially-selected', n > 0 && !all);
+    });
+}
+
+// Set one leaf's membership and mirror it on any visible checkbox / card.
+function setLeafSelected(id, on) {
+    if (on) selectedQuestions.add(id); else selectedQuestions.delete(id);
+    const cb = document.querySelector(`input[name="question_checkbox"][value="${id}"]`);
+    if (cb) {
+        cb.checked = on;
+        const card = cb.closest('.question-card');
+        if (card) card.classList.toggle('selected', on);
+    }
 }
 
 // Reorder the selectedQuestions set to match the current filter/sort display order
@@ -2232,27 +2305,24 @@ function toggleQuestionSelection(event, card) {
     
     const checkbox = card.querySelector('input[name="question_checkbox"], input.stem-checkbox');
     if (checkbox) {
-        checkbox.checked = !checkbox.checked;
+        // An indeterminate stem (some parts selected) becomes fully selected.
+        checkbox.checked = checkbox.indeterminate ? true : !checkbox.checked;
+        checkbox.indeterminate = false;
         updateSelection(checkbox);
-        
-        // Update card selected class
-        if (checkbox.checked) {
-            card.classList.add('selected');
-        } else {
-            card.classList.remove('selected');
-        }
     }
 }
 
-// Update individual question selection
+// Update individual question selection (leaf checkbox or stem aggregate)
 function updateSelection(checkbox) {
     const card = checkbox.closest('.question-card');
-    if (checkbox.checked) {
-        selectedQuestions.add(checkbox.value);
-        if (card) card.classList.add('selected');
+    const on = checkbox.checked;
+    const affected = [];
+    if (checkbox.classList.contains('stem-checkbox')) {
+        // Stem / substem: apply to every descendant leaf (all pages).
+        stemLeafIds(card).forEach(id => { setLeafSelected(id, on); affected.push(id); });
     } else {
-        selectedQuestions.delete(checkbox.value);
-        if (card) card.classList.remove('selected');
+        setLeafSelected(checkbox.value, on);
+        affected.push(checkbox.value);
     }
     updateSelectAllCheckbox();
     updateSelectionCounter();
@@ -2263,14 +2333,22 @@ function updateSelection(checkbox) {
     // We hide it locally for instant feedback; the next pagination / refresh fetch
     // will already exclude it server-side via the `ids` override.
     const showSelectedToggle = document.getElementById('showSelectedOnly');
-    if (showSelectedToggle && showSelectedToggle.checked && !checkbox.checked) {
-        if (card) card.style.display = 'none';
+    if (showSelectedToggle && showSelectedToggle.checked && !on) {
+        affected.forEach(id => {
+            const leafCb = document.querySelector(`input[name="question_checkbox"][value="${id}"]`);
+            const leafCard = leafCb?.closest('.question-card');
+            if (leafCard) leafCard.style.display = 'none';
+        });
+        if (card && card.dataset.stem === '1') card.style.display = 'none';
         updateVisibleCountDisplay();
     }
 }
 
 // Update the "Select All" checkbox state
 function updateSelectAllCheckbox() {
+    // Every selection mutator ends here, so this is also where the
+    // stem / substem aggregate checkboxes are re-derived from their leaves.
+    refreshStemCheckboxes();
     const selectAllCheckbox = document.getElementById('selectAll');
     const selectPageCheckbox = document.getElementById('selectPage');
     const checkboxes = document.querySelectorAll('input[name="question_checkbox"]');

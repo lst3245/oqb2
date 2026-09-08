@@ -453,6 +453,11 @@ def _children(q) -> list:
     return list(kids)
 
 
+def children(q) -> list:
+    """Direct children of ``q`` (works for ORM rows and duck-typed nodes)."""
+    return _children(q)
+
+
 def is_stem(q) -> bool:
     """True for a range preamble or any node that already has children."""
     if getattr(q, 'qno_end', None):

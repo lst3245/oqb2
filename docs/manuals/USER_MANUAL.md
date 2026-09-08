@@ -110,7 +110,7 @@ Each card shows:
 - QID, year, level, section, type badge
 - Topic and subtopic
 - Preview — image (click to expand full-size), inline Markdown (rendered with KaTeX math), or a Word-document first-page thumbnail (auto-generated; click to expand) with a download link for the original `.docx`. Format priority is **image > markdown > Word** by default; you can override it on the Generate page. Word thumbnails appear shortly after the first card load (a small "preview rendering…" placeholder is replaced live with the rendered PNG once the server has it).
-- For a long question that has been split into parts, matching parts are grouped under a **stem header** (shared background). The header checkbox selects the whole question. **Select All** still counts parts only, so you do not double-select. You can collapse the parts under the header.
+- A question that has been split into parts shows as one **group**: a header (QID, part count, the shared background shown once) and, indented below it, one compact row per part — the part label `(a)`, its tags, its own text, and icon buttons (Answer, Solution, Explain, Edit). A part that has its own sub-parts, e.g. `(c)` with `(i)` and `(ii)`, appears as a **shared intro** row with the `(i)`/`(ii)` rows indented under it. Ticking the header ticks every part of that question (including parts on other pages of the result); ticking a shared-intro row ticks all its sub-parts; ticking a part row selects that part only. When only some parts are ticked the header shows a dash (partially selected); clicking it then selects the rest. The background is always added automatically when you generate or view, so the selection count is simply the number of parts. **Select All** ticks every part and therefore every header too. The chevron on the header collapses the parts. **Explain** on a header or shared-intro row sends the background together with every part below it, so the tutor walks through the whole question; Explain on a part sends that part with its background (and any earlier parts it depends on).
 - Answer/Solution buttons (if assets exist)
 - **Explain** opens an AI tutor chat. You can type an optional first question before sending, or leave the box empty for a full explanation. The modal includes small QUE / ANS / SOL preview buttons for any assets that exist, so you can inspect the source material without leaving the chat.
 - Comment text (if set)
@@ -197,6 +197,8 @@ The viewer lets you review questions one by one in a large, clean layout — use
 - Keyboard shortcut: `Q` = question, `A` = answer, `S` = solution
 
 The viewer automatically falls back to ANS if SOL is not available and vice versa.
+
+For a part of a split question, the Question panel first shows a collapsible **Shared background** block: the whole-question text, any intermediate intro (for example the text of `(c)` when you are viewing `(c)(ii)`), and — when the part is marked "uses earlier parts" — the earlier parts it refers to. This matches what the generated Word document prints before that part.
 
 In each Question or Solution panel, a pencil button appears when the displayed asset is an image or a Word thumbnail. Click it to open that image in **Markup** in a new tab.
 
