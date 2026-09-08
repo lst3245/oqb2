@@ -245,15 +245,6 @@
                     {% endif %}
                 </div>
                 <div class="col-12">
-                    <div class="form-check exam-only">
-                        <input class="form-check-input" type="checkbox" id="agentAutoChk" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
-                        <label class="form-check-label" for="agentAutoChk" title="After loading, the AI agent reads the whole paper, finds every question and part, checks its own boxes and lists anything doubtful for you to review.">
-                            <i class="bi bi-stars"></i> <strong>Auto-process with AI agent</strong> after loading
-                        </label>
-                    </div>
-                    <div class="form-text exam-only mb-2" style="margin-left: 1.5rem;">
-                        Recommended for past papers. The agent outlines the paper, locates questions, splits multi-part questions (nested parts included), verifies the boxes and repairs what it can. Anything it is unsure about appears in a <em>Needs attention</em> list; you review only those, then import.
-                    </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
                         <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
@@ -320,6 +311,13 @@
                 </div>
             </div>
 
+            <div class="row g-2 mt-3 align-items-end">
+                <div class="col-md-6">
+                    <label for="pageRangeInput" class="form-label fw-bold">Pages <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="text" id="pageRangeInput" class="form-control" placeholder="All pages" autocomplete="off">
+                    <div class="form-text">Source PDF page numbers (1-based), e.g. <code>1-8</code> or <code>3,5,12-14</code>. Leave blank to load every page. Applied before A3 split.</div>
+                </div>
+            </div>
             <div class="mt-3 d-flex gap-2">
                 <button id="btnLoadPdf" class="btn btn-warning">
                     <i class="bi bi-file-earmark-arrow-up"></i> Load PDF
@@ -346,7 +344,8 @@
             <span id="logStatus" class="badge bg-secondary">Idle</span>
         </div>
         <div id="logConsole" class="log-console">Welcome to PDF Batch Import.
-Step 1: choose your task and PDF(s), then click "Load PDF".
+Step 1: choose your task, PDF(s) and optional page range, then click "Load PDF".
+Step 2: draw boxes, run LLM detection, or run the AI agent.
 </div>
     </div>
 
@@ -433,6 +432,7 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
                 {% endif %}
             </div>
+            <p class="text-muted small mb-2 exam-only"><strong>Run AI agent</strong> (after the PDF is loaded) outlines the paper, locates every question, splits multi-part questions, verifies the boxes and lists anything doubtful. It replaces boxes already in this session. Recommended for past papers.</p>
             <p class="text-muted small mb-3">Optional: run detection, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong one. <strong>Add box</strong> then drag on the page &mdash; adding or deleting a numbered box shifts later Q# values (manual edits and move/resize do not). Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. If <em>Split into parts</em> is ticked, detection automatically runs a second pass; you can also click <strong>Detect parts</strong> or per-question <strong>Re-split</strong>. Roles are worked out from the labels: typing 4d and 4di makes 4d a nested stem. Use the + button on a row to add the next part beneath it. <strong>Click a crop preview</strong> to enlarge it. Then use Step 3 to import.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
@@ -863,7 +863,6 @@ function planRegionCount() {
 
 // ----- AI agent -----
 const btnRunAgent = document.getElementById('btnRunAgent');
-const agentAutoChk = document.getElementById('agentAutoChk');
 const agentStage = document.getElementById('agentStage');
 const agentStageMsg = document.getElementById('agentStageMsg');
 const attentionPanel = document.getElementById('attentionPanel');
@@ -1125,6 +1124,7 @@ function setRunning(on, phase) {
      document.getElementById('ppBrightness'), document.getElementById('ppContrast'),
      document.getElementById('ppSharpen'), document.getElementById('ppGray'),
      document.getElementById('ppBw'), document.getElementById('ppBwThreshold'),
+     document.getElementById('pageRangeInput'),
      document.getElementById('taskExam'), document.getElementById('taskGeneric')]
         .forEach(el => { if (el) el.disabled = lockSetup; });
     [endpointSelect, methodSelect, pdfParallelChk, instructionInput,
@@ -1187,6 +1187,8 @@ async function loadPdf() {
     fd.append('f_grayscale', document.getElementById('ppGray').checked ? '1' : '0');
     fd.append('f_bw', document.getElementById('ppBw').checked ? '1' : '0');
     fd.append('f_bw_threshold', document.getElementById('ppBwThreshold').value);
+    const pageRange = (document.getElementById('pageRangeInput').value || '').trim();
+    if (pageRange) fd.append('page_range', pageRange);
     if (!generic) fd.append('paper', paper);
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     else if (serverPdf.que) {
@@ -1221,10 +1223,12 @@ async function loadPdf() {
     }
     const qn = (data.que && data.que.pages || []).length;
     const sn = (data.sol && data.sol.pages || []).length;
+    const rangeNote = data.page_range ? ' (pages ' + data.page_range + ')' : '';
+    const deskewNote = data.deskew ? ', deskewed' : '';
     if (isGeneric()) {
-        appendLog(`Loaded: ${qn} page(s)${data.deskew ? ', deskewed' : ''}. Draw boxes or run LLM detection.`, 'success');
+        appendLog(`Loaded: ${qn} page(s)${deskewNote}${rangeNote}. Draw boxes or run LLM detection.`, 'success');
     } else {
-        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${data.deskew ? ', deskewed' : ''}. Draw boxes or run LLM detection.`, 'success');
+        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${deskewNote}${rangeNote}. Draw boxes, run LLM detection, or run the AI agent.`, 'success');
     }
 
     setRunning(false);
@@ -1233,9 +1237,6 @@ async function loadPdf() {
     renderReview({ pending: false });
     updateReviewSummary();
     bboxCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (!isGeneric() && agentAutoChk && agentAutoChk.checked && AI_ENABLED && HAS_ENDPOINTS) {
-        startAgent({ confirm: false });
-    }
 }
 
 function runDetect() {

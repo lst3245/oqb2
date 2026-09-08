@@ -2166,6 +2166,7 @@ def split_question(question_id):
     if denial:
         return denial
     from app import question_split as qsplit
+    from app import pdf_import, pdf_layout
     try:
         meta = qsplit.stage_question(question)
     except ValueError as e:
@@ -2173,6 +2174,9 @@ def split_question(question_id):
         return redirect(url_for('admin.questions_page'))
     endpoints = _pdf_vision_endpoints()
     default_ep = _pdf_default_endpoint()
+    default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
+    if default_method in ('refine', 'segment') and not pdf_layout.numpy_available():
+        default_method = 'llm'
     return render_template(
         'admin_question_split.html',
         question=question,
@@ -2182,6 +2186,8 @@ def split_question(question_id):
         endpoints=[{'id': e.id, 'name': e.name, 'model_name': e.model_name}
                    for e in endpoints],
         default_endpoint_id=default_ep.id if default_ep else None,
+        default_method=default_method,
+        numpy_available=pdf_layout.numpy_available(),
         ai_enabled=bool(current_app.config.get('AI_TOOLS_ENABLED', True)),
     )
 
@@ -2233,35 +2239,95 @@ def split_question_commit(question_id):
     return jsonify({'success': True, **result})
 
 
-@admin_bp.route('/questions/<int:question_id>/split/detect', methods=['POST'])
+@admin_bp.route('/questions/<int:question_id>/split/detect', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def split_question_detect(question_id):
-    """Run pass-2 part detection on the staged Split-tool image."""
+    """SSE: stitch multi-image QUE, then PDF-import pass 2 once.
+
+    POST is only kept so a stale tab gets a JSON error instead of HTML 405.
+    """
+    if request.method == 'POST':
+        return jsonify({
+            'error': 'Reload this page — Auto-detect now streams progress '
+                     'like PDF import (stitches images first, then one split).',
+        }), 400
+
     question = Question.query.get_or_404(question_id)
     denial = _require_md_admin(question)
     if denial:
-        return denial
+        return _pdf_sse_error('Access denied')
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
-    data = request.get_json(silent=True) or {}
-    token = (data.get('token') or '').strip()
-    version = (data.get('version') or '').strip().upper()
-    cfg, err_resp, status = _ai_load_endpoint_from_body(
-        data, 'PDF_IMPORT_DEFAULT_LLM')
-    if err_resp is not None:
-        return err_resp, status
+        return _pdf_sse_error('AI features are disabled.')
+
     from app import question_split as qsplit
+    from app import pdf_import
+    from app.models import LLMConfig
+
+    token = (request.args.get('token') or '').strip()
+    version = (request.args.get('version') or '').strip().upper()
+    method = (request.args.get('method') or '').strip().lower()
+    find_parent = (request.args.get('find_parent') or '').strip().lower() in (
+        '1', 'true', 'yes', 'on')
+    if method not in pdf_import.DETECT_METHODS:
+        method = 'llm'
+
     try:
-        boxes, raw = qsplit.detect_boxes(
-            token, version, cfg,
-            image_max_dim=int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600)))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        current_app.logger.exception('split auto-detect failed')
-        return jsonify({'error': str(e)}), 502
-    return jsonify({'success': True, 'boxes': boxes, 'raw': (raw or '')[:4000]})
+        endpoint_id = int(request.args.get('endpoint_id', '0'))
+    except (ValueError, TypeError):
+        endpoint_id = 0
+    if endpoint_id <= 0:
+        cfg = _pdf_default_endpoint()
+        if cfg is None:
+            return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
+        endpoint_id = cfg.id
+    else:
+        cfg = LLMConfig.query.get(endpoint_id)
+        if cfg is None or not cfg.enabled:
+            return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+        if not cfg.supports_vision:
+            return _pdf_sse_error('The selected endpoint is not vision-capable.')
+
+    try:
+        qsplit.load_meta(token)
+    except (ValueError, FileNotFoundError, OSError):
+        return _pdf_sse_error('Staging session not found or expired. Reload the split page.')
+
+    app = current_app._get_current_object()
+    job_id, cancel = pdf_import.new_job()
+
+    def generate():
+        with app.app_context():
+            yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
+            try:
+                from app.models import LLMConfig as _Cfg
+                live_cfg = _Cfg.query.get(endpoint_id)
+                if live_cfg is None:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'LLM endpoint disappeared.'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+                    return
+                live_cfg._batch = True
+                image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+                for ev in qsplit.iter_detect_boxes(
+                        token, version, live_cfg, image_max_dim,
+                        method=method, find_parent=find_parent,
+                        cancel=cancel):
+                    if ev.get('type') == 'done' and ev.get('raw'):
+                        ev = dict(ev)
+                        ev['raw'] = (ev.get('raw') or '')[:4000]
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except ValueError as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            except Exception as e:
+                current_app.logger.exception('split auto-detect stream aborted')
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Aborted: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Aborted.'})}\n\n"
+            finally:
+                pdf_import.finish_job(job_id)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @admin_bp.route('/questions/<int:question_id>/assets')
@@ -4922,13 +4988,17 @@ def pdf_import_stage():
         except (TypeError, ValueError):
             filters['bw_threshold'] = 160
 
+    page_range = (request.form.get('page_range') or '').strip() or None
     try:
         token, saved_meta = pdf_import.stage(
             que_file if has_que else None,
             sol_file if has_sol else None,
             meta, raster_width, deskew=deskew,
             pre_rotate=pre_rotate, split_mode=split_mode, filters=filters,
-            mode1_pages_per_student=mode1_pages_per_student)
+            mode1_pages_per_student=mode1_pages_per_student,
+            page_range=page_range)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         current_app.logger.exception('PDF import staging failed')
         return jsonify({'error': f'Could not process PDF: {e}'}), 500
@@ -4955,6 +5025,7 @@ def pdf_import_stage():
         'que_version': que_version, 'sol_version': sol_version,
         'version': que_version,
         'deskew': bool(saved_meta.get('deskew')),
+        'page_range': saved_meta.get('page_range') or '',
         'split_parts_default': split_default,
         'que': {'filename': (que_file.filename if has_que else None), 'pages': _pages('que')},
         'sol': {'filename': (sol_file.filename if has_sol else None), 'pages': _pages('sol')},

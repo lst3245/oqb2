@@ -8,9 +8,9 @@ Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard groupin
 | File | Role |
 |---|---|
 | `app/hierarchy.py` | QNO token grammar (`parse_qno_token`, `QNO_TOKEN_PATTERN`), QID parse/build, part segmentation, `sort_key` / `qno_sort_key`, `ensure_question`, tree walks (`ancestors`, `descendants`, `earlier_siblings`), `group_for_dashboard`, `breadcrumb_parts`, `resolve_render_plan`, rename rewrite helpers, `stem_id_query`, `eager_load_tree`; plan-label helpers `label_is_ancestor`, `derive_roles`, `next_part_label`, `compose_part_label` |
-| `app/question_split.py` | Stage/commit IMG crops for the Split-into-parts page (`SYSTEM_PATH/.question_split/<token>/`); `detect_boxes` reuses `pdf_import.detect_parts`. Root commit writes `WHOLE` from the staged PNG when that slot is empty, then crops QUE. |
+| `app/question_split.py` | Stage/commit IMG crops for the Split-into-parts page (`SYSTEM_PATH/.question_split/<token>/`); stage stacks multi-image QUE into one PNG; `iter_detect_boxes` runs PDF-import pass 2 (`detect_parts`) **once on that stitch** (SSE). Optional `find_parent` adds pass 1 for a full exam page. Root commit writes `WHOLE` from the staged PNG when that slot is empty, then crops QUE. |
 | `app/question_combine.py` | Combine-parts: `choose_mode` / `preview_combine` / `combine_parts` / `combine_many`. Restore WHOLE→QUE on a root that has an archive; otherwise reconstruct IMG pages onto the survivor (optional stitch / `save_whole`). Range stems 409. |
-| `app/pdf_import.py` | Plan labels; `detect_parts` / `iter_split_detect`; `whole_source_crops`; `iter_commit` via `ensure_question` (writes `WHOLE` for split roots before tight stem QUE) |
+| `app/pdf_import.py` | Plan labels; `detect_parts` / `iter_split_detect`; `split_question_png` (shared two-pass used by the Split tool); `whole_source_crops`; `iter_commit` via `ensure_question` (writes `WHOLE` for split roots before tight stem QUE) |
 | `app/ai_tools.py` | `load_ancestor_que_images` / `prepend_ancestor_que`; auto-tag skips stems |
 | `app/models.py` | `Question.parent_id` / `part` / `part_sort` / `qno_end`; `Subject.split_parts_default`; `QuestionAsset.asset_type` includes `WHOLE` |
 | `app/ingestor.py` | Filename regexes use `QNO_TOKEN_PATTERN` and `QUE\|ANS\|SOL\|WHOLE`; `upsert_question` → `ensure_question`; `upsert_asset` skips WHOLE unless IMG on a root QID; sync skips stems that still have children; health anomalies exclude stems from untagged/no-type/no-level |
@@ -20,11 +20,11 @@ Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard groupin
 | `app/generator.py` | `hierarchy_mode` + `resolve_render_plan` in create/viewer; seq owner; ANS/SOL ancestor fallback; QUE/ANS/SOL only |
 | `app/admin.py` | Create/rename(cascade)/delete(guard); children/parent/split + split detect; combine preview/POST + bulk combine; list `tree_scope`; tag skip on stems; PDF `/split-detect`; WHOLE upload on roots |
 | `app/utils.py` | `SORT_FIELDS['qid']` / `['qno']` use hierarchy sort keys |
-| `templates/admin_question_split.html` | Canvas crop UI + Auto-detect parts |
+| `templates/admin_question_split.html` | Canvas crop UI + SSE Auto-detect (stitch multi-image QUE, then PDF pass 2 once; optional full-page pass 1) |
 | `templates/admin_pdf_import.html` | Split-into-parts checkbox, pass-2 Detect parts, Re-split / Unsplit |
 | `tests/test_hierarchy.py` | Grammar, segmentation, rewrite, sort, render plan, dashboard grouping, split-box normalize (no live DB) |
 | `tests/test_question_combine.py` | WHOLE filenames, `choose_mode`, `collapse_maximal_stems`, `whole_source_crops` (no live DB) |
-| `tests/test_pdf_import_plan.py` | Plan labels / `sanitize_plan` (no live DB) |
+| `tests/test_pdf_import_plan.py` | Plan labels / `sanitize_plan`; `parse_page_range`; `pick_pass1_parent_box` / stitch mapping (no live DB) |
 
 ## Tables
 
@@ -55,7 +55,7 @@ Changed behaviour on existing routes plus new admin routes:
 | POST | `/admin/questions/<id>/needs-prev-parts` | A, scoped | JSON `{value}`. Toggles `needs_prev_parts`; 400 when turning it on for a root. Details payload carries `needs_prev_parts`; dashboard cards carry it too (badge). |
 | GET | `/admin/questions/<id>/split` | A, scoped | Stages IMG QUE and renders the crop page. MD/DOC QUE flash-redirects to the question list. Hidden in the Edit modal when the row is already a stem. |
 | GET | `/admin/questions/<id>/split/image/<version>?token=` | A, scoped | Staged PNG. |
-| POST | `/admin/questions/<id>/split/detect` | A, scoped | JSON `{token, version, endpoint_id}`. Pass-2 vision detect on the staged IMG → `{boxes, raw}`. |
+| GET | `/admin/questions/<id>/split/detect` | A, scoped | SSE. Query `token`, `version`, `endpoint_id`, `method?`, `find_parent?`. Stitches multi-image QUE then pass-2 `detect_parts` once. `done` carries `{boxes, raw}` on the stitch. POST returns 400 asking to reload (stale tab). |
 | POST | `/admin/questions/<id>/split/commit` | A, scoped | JSON `{token, boxes, copy_tags}`. Crops per version; optional copy tags then clear the stem. Root: writes WHOLE from the staged PNG if that slot is empty. |
 | GET | `/admin/questions/<id>/combine/preview` | A, scoped | JSON from `preview_combine`: `{ok, mode: restore\|reconstruct, is_root, has_whole, whole_pages, reconstruct_pages, descendants, descendant_count, can_save_whole, md_doc_lost, tag_source_qid}`. 400/409 when `ok` is false (leaf / range stem). |
 | POST | `/admin/questions/<id>/combine` | A, scoped | JSON `{stitch?, save_whole?}`. Restore or reconstruct, then delete descendants. |
@@ -80,7 +80,7 @@ Changed behaviour on existing routes plus new admin routes:
 - **`ensure_question`** find-or-creates the root, intermediate parents, and the node; flushes, does not commit. New range stems **adopt** existing parentless same-paper rows whose `qno` sits in `[qno, qno_end]` and `part` is NULL. New plain `Qn` rows **attach** to a covering range stem when one exists.
 - **Dashboard selection is leaves only.** `#allQuestionIds` and `selectedQuestions` hold leaf ids; stem header / substem checkboxes are aggregates over `data-leaf-ids` (tick = select all those parts, indeterminate = some). Stem ids can still reach the generator/viewer from saved sets or `ids` overrides — `resolve_render_plan` expands and dedupes them.
 - **Dashboard tree view.** A split question renders as one `.hierarchy-group`: a header card (root QID, part count, shared background shown **once**) followed by `.hierarchy-children` rows built by `filter_questions` as `group.rows = [{kind: 'substem'|'leaf', card}]`. Intermediate stems (e.g. `Q1c`, the shared intro of `(c)(i)`/`(c)(ii)`) are emitted once, right before their first part, via `ancestors(leaf)` minus the root; every card carries `depth` (root 0, its parts 1, sub-parts 2) and the CSS indents with `--depth`. Part rows are compact (label `(a)`, tags, own QUE only, icon actions) and never repeat the background; a substem row has an aggregate `stem-checkbox` over its sub-parts and an Explain button that sends the intro plus every sub-part. `stem_preview` on a leaf is rendered only when the leaf is shown **outside** its group (standalone `leaf_card`, e.g. `ids`/`qids` overrides).
-- **Split tool** is IMG QUE only. Requires a `stem` box plus ≥1 part label. Range stems cannot be split here. Auto-detect uses the same pass-2 prompt as PDF import (`PDF_PART_*`). On a root, commit snapshots the staged full PNG as `WHOLE` (if that slot is empty) before cropping QUE.
+- **Split tool** is IMG QUE only. Requires a `stem` box plus ≥1 part label. Range stems cannot be split here. Auto-detect **stitches** every QUE image for the version (reconstructed part crops, multi-page WHOLE, …) then runs PDF import **pass 2** once on that stitch (`detect_parts` + `full_width_child_box`, one retry on `LLMError`, SSE). A single-image QUE is unchanged. Do not run pass 1 (`detect_page`) unless **Image is a full exam page** is ticked. On a root, commit snapshots the staged full PNG as `WHOLE` (if that slot is empty) before cropping QUE.
 - **Combine** (`app/question_combine.py`) folds a stem's parts back onto that stem, then deletes descendants (MD/DOC on children die with those rows). Modes:
   | Target | Action |
   |---|---|
@@ -106,7 +106,7 @@ Create / rename / delete / children / parent / split / combine stay subject-admi
 
 ## Background work / SSE / threads
 
-None in this module's own routes except Split detect (synchronous JSON) and PDF `/split-detect` (SSE; see [pdf-import.md](pdf-import.md)). Ingest/Smart Import SSE unchanged. Split commit and Combine are synchronous JSON (`replace_img_assets` per version/slot).
+None in this module's own routes except Split detect (SSE, same job-cancel registry as PDF import) and PDF `/split-detect` (SSE; see [pdf-import.md](pdf-import.md)). Ingest/Smart Import SSE unchanged. Split commit and Combine are synchronous JSON (`replace_img_assets` per version/slot).
 
 ## Gotchas
 
@@ -115,6 +115,7 @@ None in this module's own routes except Split detect (synchronous JSON) and PDF 
 - **Two regex families** (filename `PP_PATTERN` / `QB_PATTERN` vs QID `PP_QID_RE` / `QB_QID_RE`) both import `QNO_TOKEN_PATTERN` / `parse_qid`. Do not add a third `Q\\d+` copy.
 - **`qid` sort is no longer natsort of the string.** `SORT_FIELDS['qid']` uses a tuple so `Q3ci` / `Q3civ` / `Q23-24` order correctly.
 - A stem whose QUE image is still the **full** question plus children will double-render. Only the Split tool or PDF pass 2 should create children from a full-page crop.
+- Split auto-detect must not treat each reconstructed part crop as its own page. Stage already stacks them; detect runs **once on the stitch**. Do not run pass 1 (`detect_page`) on an already-cropped question unless `find_parent=1`.
 - **`replace_img_assets` commits per version/slot during split and combine.** A later version failing can leave earlier crops already on disk. Combine loads subtree pages into memory first, writes the survivor, then deletes descendants — do not reverse that order.
 - Combine on a root **with** WHOLE always restores (it does not reconstruct QUE from parts). Delete the archive in the Assets tab first if you want a reconstruct from the current parts.
 - PDF re-import without overwrite skips a root that already has QUE, so a historical split paper will not gain a WHOLE archive until you upload one or re-import with overwrite.

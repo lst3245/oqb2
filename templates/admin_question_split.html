@@ -27,6 +27,7 @@
         This question becomes the <strong>shared background</strong> (stem). Each lettered box becomes its own question
         (for example <code>{{ question.qid }}a</code>) so you can tag and print parts separately.
         Draw boxes by hand, or use <strong>Auto-detect parts</strong> then adjust.
+        Auto-detect stitches every image of this question into one picture (if there is more than one), then runs the same <strong>Detect parts</strong> pass as PDF import. Tick <em>full exam page</em> only when that picture still contains other questions or a large margin.
         The stem keeps answer/solution images. Tick the box below to copy this question’s tags onto every part (the stem is then cleared).
     </div>
 
@@ -48,8 +49,16 @@
                             <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }}</option>
                             {% endfor %}
                         </select>
+                        <select id="splitMethod" class="form-select form-select-sm d-none" style="max-width: 14rem;" title="Pass-1 detection method (only used when the image is a full exam page)">
+                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only</option>
+                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>LLM + refine</option>
+                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>LLM + segment</option>
+                        </select>
                         <button type="button" class="btn btn-sm btn-primary" id="autoDetectBtn" onclick="autoDetect()">
                             <i class="bi bi-robot"></i> Auto-detect parts
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger d-none" id="stopDetectBtn" onclick="stopDetect()">
+                            <i class="bi bi-stop-fill"></i> Stop
                         </button>
                         {% else %}
                         <span class="text-muted small">Configure a vision LLM endpoint to auto-detect boxes.</span>
@@ -60,6 +69,12 @@
                         <span class="box-swatch ms-3" style="background:#fd7e14;"></span>part = lettered region
                         <span class="box-swatch ms-3" style="background:#0d6efd;"></span>selected
                     </div>
+                    {% if ai_enabled and endpoints %}
+                    <div class="form-check mt-2 mb-0">
+                        <input class="form-check-input" type="checkbox" id="findParentChk">
+                        <label class="form-check-label small" for="findParentChk">Image is a full exam page (find the question first, then split parts)</label>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="card-body p-2 overflow-auto">
                     <div class="split-canvas-wrap">
@@ -266,25 +281,36 @@ function autoDetect() {
     const status = document.getElementById('splitStatus');
     const btn = document.getElementById('autoDetectBtn');
     const ep = document.getElementById('splitEndpoint');
+    const methodEl = document.getElementById('splitMethod');
+    const fp = document.getElementById('findParentChk');
     if (!AI_ENABLED) { status.textContent = 'AI tools are disabled.'; return; }
     if (boxes.length && !confirm('Replace the boxes you already drew with the model’s detection?')) return;
-    if (btn) btn.disabled = true;
-    status.textContent = 'Detecting stem and parts…';
-    fetch(`/admin/questions/${QUESTION_ID}/split/detect`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            token: TOKEN,
-            version: currentVersion(),
-            endpoint_id: ep ? ep.value : 0,
-        }),
-    })
-    .then(r => r.json().then(d => ({ok: r.ok, d})))
-    .then(({ok, d}) => {
-        if (!ok) throw new Error(d.error || 'Detect failed');
-        const found = d.boxes || [];
+    closeDetect();
+    detectJobId = null;
+    detectFinished = false;
+    setDetectRunning(true);
+    status.textContent = 'Connecting…';
+    const params = new URLSearchParams({
+        token: TOKEN,
+        version: currentVersion(),
+        endpoint_id: ep ? ep.value : '0',
+        method: methodEl ? methodEl.value : 'llm',
+    });
+    if (fp && fp.checked) params.set('find_parent', '1');
+    detectSource = new EventSource(`/admin/questions/${QUESTION_ID}/split/detect?${params}`);
+    detectSource.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+        if (ev.type === 'job') { detectJobId = ev.job_id; return; }
+        if (ev.message) status.textContent = ev.message;
+        if (ev.type !== 'done') return;
+        detectFinished = true;
+        closeDetect();
+        setDetectRunning(false);
+        detectJobId = null;
+        const found = ev.boxes || [];
         if (!found.length) {
-            status.textContent = 'No lettered parts found — draw a stem box and part boxes by hand.';
+            status.textContent = ev.message || 'No lettered parts found — draw a stem box and part boxes by hand.';
             return;
         }
         boxes = found.map(b => ({
@@ -294,13 +320,60 @@ function autoDetect() {
         selected = boxes.length ? 0 : -1;
         if (selected >= 0) document.getElementById('boxLabel').value = boxes[selected].label;
         draw();
-        const stems = boxes.filter(b => b.label === 'stem').length;
-        const parts = boxes.length - stems;
-        status.textContent = `Found ${stems ? 'a stem and ' : ''}${parts} part${parts === 1 ? '' : 's'}. Adjust if needed, then commit.`;
-    })
-    .catch(err => { status.textContent = err.message; })
-    .finally(() => { if (btn) btn.disabled = false; });
+        status.textContent = ev.message || 'Detection finished.';
+    };
+    detectSource.onerror = () => {
+        closeDetect();
+        setDetectRunning(false);
+        detectJobId = null;
+        if (!detectFinished) {
+            status.textContent = 'Detection connection dropped. Try again.';
+        }
+    };
 }
+
+let detectSource = null;
+let detectJobId = null;
+let detectFinished = false;
+
+function closeDetect() {
+    if (detectSource) { detectSource.close(); detectSource = null; }
+}
+
+function setDetectRunning(on) {
+    const btn = document.getElementById('autoDetectBtn');
+    const stop = document.getElementById('stopDetectBtn');
+    const ep = document.getElementById('splitEndpoint');
+    const methodEl = document.getElementById('splitMethod');
+    const fp = document.getElementById('findParentChk');
+    const ver = document.getElementById('splitVersion');
+    if (btn) btn.disabled = on;
+    if (stop) stop.classList.toggle('d-none', !on);
+    if (ep) ep.disabled = on;
+    if (methodEl) methodEl.disabled = on;
+    if (fp) fp.disabled = on;
+    if (ver) ver.disabled = on;
+}
+
+function stopDetect() {
+    if (detectJobId) {
+        fetch('/admin/pdf-import/cancel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({job_id: detectJobId}),
+        }).catch(() => {});
+    }
+    const status = document.getElementById('splitStatus');
+    if (status) status.textContent = 'Stopping…';
+}
+
+function syncFindParentUi() {
+    const fp = document.getElementById('findParentChk');
+    const methodEl = document.getElementById('splitMethod');
+    if (methodEl) methodEl.classList.toggle('d-none', !(fp && fp.checked));
+}
+document.getElementById('findParentChk')?.addEventListener('change', syncFindParentUi);
+syncFindParentUi();
 
 function commitSplit() {
     const status = document.getElementById('splitStatus');
@@ -319,7 +392,13 @@ function commitSplit() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload),
     })
-    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(async r => {
+        const text = await r.text();
+        let d;
+        try { d = JSON.parse(text); }
+        catch { throw new Error(r.ok ? 'Unexpected response from server.' : `Server error (${r.status}). Reload and try again.`); }
+        return {ok: r.ok, d};
+    })
     .then(({ok, d}) => {
         if (!ok) throw new Error(d.error || 'Commit failed');
         window.location.href = '{{ url_for("admin.questions_page") }}';

@@ -158,5 +158,71 @@ class PlanLabelHelpersTests(unittest.TestCase):
         self.assertEqual(labels, ['4', '3a'])
 
 
+class PageRangeTests(unittest.TestCase):
+    def test_blank_means_all(self):
+        from app.pdf_import import parse_page_range
+        self.assertIsNone(parse_page_range('', 12))
+        self.assertIsNone(parse_page_range('  ', 12))
+        self.assertIsNone(parse_page_range(None, 12))
+
+    def test_list_and_range(self):
+        from app.pdf_import import parse_page_range
+        self.assertEqual(parse_page_range('1-3,5,8-9', 10), [0, 1, 2, 4, 7, 8])
+
+    def test_clamps_to_pdf_length(self):
+        from app.pdf_import import parse_page_range
+        self.assertEqual(parse_page_range('1-5', 3), [0, 1, 2])
+
+    def test_out_of_range_is_error(self):
+        from app.pdf_import import parse_page_range
+        with self.assertRaises(ValueError):
+            parse_page_range('20', 5)
+        with self.assertRaises(ValueError):
+            parse_page_range('abc', 5)
+
+
+class SplitPipelineHelperTests(unittest.TestCase):
+    def test_single_pass1_box_is_parent(self):
+        from app.pdf_import import pick_pass1_parent_box
+        self.assertEqual(
+            pick_pass1_parent_box([{'box': [0.1, 0.2, 0.9, 0.8]}]),
+            [0.1, 0.2, 0.9, 0.8])
+
+    def test_zero_or_many_pass1_boxes_use_full_image(self):
+        from app.pdf_import import pick_pass1_parent_box
+        self.assertEqual(pick_pass1_parent_box([]), [0.0, 0.0, 1.0, 1.0])
+        self.assertEqual(
+            pick_pass1_parent_box([
+                {'box': [0.1, 0.1, 0.9, 0.4]},
+                {'box': [0.1, 0.4, 0.9, 0.8]},
+            ]),
+            [0.0, 0.0, 1.0, 1.0])
+
+    def test_merge_unions_same_label_stem_first(self):
+        from app.pdf_import import merge_part_boxes_by_label
+        out = merge_part_boxes_by_label([
+            {'label': 'a', 'box': [0.1, 0.5, 0.9, 0.7]},
+            {'label': 'stem', 'box': [0.1, 0.0, 0.9, 0.3]},
+            {'label': 'a', 'box': [0.1, 0.8, 0.9, 1.0]},
+        ])
+        self.assertEqual([x['label'] for x in out], ['stem', 'a'])
+        self.assertEqual(out[1]['box'], [0.1, 0.5, 0.9, 1.0])
+
+    def test_map_page_box_to_stitch(self):
+        from app.pdf_import import map_page_box_to_stitch
+        # Second page of two equal 100x200 pages stitched to 100x400.
+        box = map_page_box_to_stitch(100, 200, 100, 400, 200, [0, 0, 1, 0.5])
+        self.assertAlmostEqual(box[0], 0.0)
+        self.assertAlmostEqual(box[1], 0.5)
+        self.assertAlmostEqual(box[2], 1.0)
+        self.assertAlmostEqual(box[3], 0.75)
+
+    def test_split_png_skips_pass1_by_default(self):
+        import inspect
+        from app.pdf_import import split_question_png
+        self.assertFalse(
+            inspect.signature(split_question_png).parameters['find_parent'].default)
+
+
 if __name__ == '__main__':
     unittest.main()

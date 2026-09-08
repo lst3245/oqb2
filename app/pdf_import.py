@@ -386,13 +386,64 @@ def cleanup_old(max_age_hours: float = 6.0) -> None:
 
 # ==================== Rasterisation ====================
 
+def parse_page_range(spec, page_count: int) -> list[int] | None:
+    """Parse a 1-based page spec into sorted unique 0-based indices.
+
+    ``spec`` is ``''`` / ``None`` (all pages), ``'3'``, ``'1-8'``, or a
+    comma/semicolon list (``'1-5,8,12-14'``). Ranges are inclusive.
+    Pages outside ``1..page_count`` are skipped. Raises ``ValueError`` when
+    the spec is non-empty but matches nothing, or contains junk.
+    """
+    text = str(spec or '').strip()
+    if not text:
+        return None
+    try:
+        n = int(page_count)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        raise ValueError('This PDF has no pages.')
+    keep: set[int] = set()
+    for part in text.replace(';', ',').split(','):
+        token = part.strip()
+        if not token:
+            continue
+        if '-' in token:
+            left, right = token.split('-', 1)
+            try:
+                start, end = int(left.strip()), int(right.strip())
+            except ValueError as e:
+                raise ValueError(f'Invalid page range {token!r}.') from e
+            if start > end:
+                start, end = end, start
+            for p in range(start, end + 1):
+                if 1 <= p <= n:
+                    keep.add(p - 1)
+        else:
+            try:
+                p = int(token)
+            except ValueError as e:
+                raise ValueError(f'Invalid page number {token!r}.') from e
+            if 1 <= p <= n:
+                keep.add(p - 1)
+    if not keep:
+        raise ValueError(
+            f'Page range {text!r} does not match any of this PDF’s {n} page(s).')
+    return sorted(keep)
+
+
 def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
                   deskew: bool = False, pre_rotate: int = 0,
                   split_mode: str = 'none', filters: dict = None,
                   workers: int = 1,
-                  mode1_pages_per_student: int = None) -> list:
-    """Rasterise every page of ``pdf_path`` to ``page_NNNN.png`` in
+                  mode1_pages_per_student: int = None,
+                  page_range: str | None = None) -> list:
+    """Rasterise pages of ``pdf_path`` to ``page_NNNN.png`` in
     ``out_dir``. Returns a list of ``{index, filename, width, height}``.
+
+    ``page_range`` is a 1-based source-PDF spec (see :func:`parse_page_range`);
+    blank means every page. Applied to **source** page numbers before A3
+    split, so ``1-4`` keeps PDF pages 1–4 (and both halves if split is on).
 
     Rasterisation + all per-page processing is delegated to the shared
     :mod:`app.pdf_tools` primitives (the same ones the PDF Toolbox uses), so
@@ -435,10 +486,20 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
     # One cheap open just to enumerate the page fragments + op chains.
     pdf = fitz.open(pdf_path)
     try:
+        page_count = pdf.page_count
         frags = pdf_tools.split_descriptors(
-            pdf.page_count, split_mode, mode1_pages_per_student)
+            page_count, split_mode, mode1_pages_per_student)
     finally:
         pdf.close()
+
+    keep = parse_page_range(page_range, page_count)
+    if keep is not None:
+        allow = set(keep)
+        frags = [f for f in frags if int(f['page']) in allow]
+        if not frags:
+            raise ValueError(
+                f'Page range {page_range!r} left no pages to rasterise '
+                f'(PDF has {page_count} page(s)).')
 
     tasks = [{'out_index': out_index, 'page': int(frag['page']),
               'ops': pdf_tools.build_op_chain(pre_rotate, frag['ops'], filt)}
@@ -484,13 +545,16 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
 def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
           deskew: bool = False, pre_rotate: int = 0,
           split_mode: str = 'none', filters: dict = None,
-          workers: int = None, mode1_pages_per_student: int = None):
+          workers: int = None, mode1_pages_per_student: int = None,
+          page_range: str | None = None):
     """Save the uploaded PDFs and rasterise their pages.
 
     ``que_storage`` / ``sol_storage`` are Werkzeug ``FileStorage`` objects (or
     None). ``meta_in`` carries the parsed paper prefix + version. ``deskew`` /
     ``pre_rotate`` / ``split_mode`` / ``filters`` / ``mode1_pages_per_student``
-    drive the shared pre-processing (see :func:`rasterize_pdf`). ``workers`` is
+    drive the shared pre-processing (see :func:`rasterize_pdf`). ``page_range``
+    is an optional 1-based source-PDF spec applied to both sides.
+    ``workers`` is
     the page-rasterisation concurrency; ``None`` resolves it from
     ``PDF_IMPORT_RASTER_WORKERS`` (capped by the CPU count). Returns
     ``(token, meta)`` where ``meta`` is the persisted JSON.
@@ -515,6 +579,7 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
     meta['mode1_pages_per_student'] = pdf_tools.mode1_pages_per_student(
         mode1_pages_per_student)
     meta['filters'] = dict(filters or {})
+    meta['page_range'] = str(page_range or '').strip()
     meta['que'] = None
     meta['sol'] = None
 
@@ -529,7 +594,8 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
                               pre_rotate=pre_rotate, split_mode=split_mode,
                               filters=filters, workers=workers,
                               mode1_pages_per_student=meta[
-                                  'mode1_pages_per_student'])
+                                  'mode1_pages_per_student'],
+                              page_range=page_range)
         meta[kind] = {'filename': storage.filename, 'pages': pages}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:
@@ -1551,6 +1617,150 @@ def _llm_error_cls():
     return LLMError
 
 
+def _call_with_llm_retry(label, fn):
+    """Run ``fn()`` once more after an ``LLMError`` (idempotent vision calls)."""
+    try:
+        return fn()
+    except _llm_error_cls() as e:
+        logger.warning('%s: %s — retrying once', label, e)
+        return fn()
+
+
+def pick_pass1_parent_box(boxes) -> list:
+    """Parent crop for Split-tool pass 2.
+
+    A single pass-1 box is treated as the tight question region (full-page
+    QUE scan). Zero or several boxes mean the image is already one question
+    (parts looked like separate questions) — use the whole image.
+    """
+    usable = []
+    for b in boxes or []:
+        box = b.get('box') if isinstance(b, dict) else None
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            try:
+                usable.append([float(v) for v in box])
+            except (TypeError, ValueError):
+                continue
+    if len(usable) == 1:
+        x1, y1, x2, y2 = usable[0]
+        if x2 > x1 + 0.02 and y2 > y1 + 0.02:
+            return [x1, y1, x2, y2]
+    return [0.0, 0.0, 1.0, 1.0]
+
+
+def merge_part_boxes_by_label(items: list[dict]) -> list[dict]:
+    """Union boxes that share a pass-2 label (multi-page parts). Stem first."""
+    order = []
+    by = {}
+    for it in items or []:
+        lab = str(it.get('label') or '').strip().lower()
+        box = it.get('box')
+        if not lab or not (isinstance(box, (list, tuple)) and len(box) == 4):
+            continue
+        try:
+            nb = [float(v) for v in box]
+        except (TypeError, ValueError):
+            continue
+        if lab not in by:
+            order.append(lab)
+            by[lab] = nb
+        else:
+            b = by[lab]
+            by[lab] = [min(b[0], nb[0]), min(b[1], nb[1]),
+                       max(b[2], nb[2]), max(b[3], nb[3])]
+    labels = [l for l in order if l == 'stem'] + [l for l in order if l != 'stem']
+    return [{'label': l, 'box': by[l]} for l in labels]
+
+
+def map_page_box_to_stitch(page_w, page_h, stitch_w, stitch_h, y_top, box):
+    """Map a page-relative 0..1 box onto a vertically stitched canvas."""
+    x1, y1, x2, y2 = [float(v) for v in box]
+    sw = float(stitch_w) or 1.0
+    sh = float(stitch_h) or 1.0
+    pw = float(page_w) or sw
+    ph = float(page_h) or sh
+    top = float(y_top)
+    return [
+        x1 * pw / sw,
+        (top + y1 * ph) / sh,
+        x2 * pw / sw,
+        (top + y2 * ph) / sh,
+    ]
+
+
+def split_question_png(config, png_path: str, image_max_dim: int,
+                       method: str = 'llm', find_parent: bool = False):
+    """Split one question PNG the way PDF import pass 2 does.
+
+    Default (``find_parent=False``) is pass 2 only: ``detect_parts`` +
+    ``full_width_child_box`` on the image, which is already one question
+    (library QUE / WHOLE). ``find_parent=True`` first runs pass 1
+    (``detect_page``) for a full exam-page scan: exactly one box → tight
+    crop; zero or several → whole image. Each vision call is retried once
+    on ``LLMError``.
+
+    Returns ``(boxes, raw)`` where each box is ``{label, box}`` in 0..1
+    coords relative to ``png_path``.
+    """
+    method = (method or 'llm').strip().lower()
+    if method not in DETECT_METHODS:
+        method = 'llm'
+    parent = [0.0, 0.0, 1.0, 1.0]
+    raws = []
+
+    if find_parent:
+        def _pass1():
+            return detect_page(config, png_path, 'QUE', image_max_dim,
+                               method=method)
+
+        try:
+            p1_boxes, raw = _call_with_llm_retry(
+                f'split-tool pass-1 {os.path.basename(png_path)}', _pass1)
+            raws.append(raw or '')
+            parent = pick_pass1_parent_box(p1_boxes)
+        except Exception:
+            logger.exception('split-tool pass-1 failed; using the full image')
+
+    crop_path = None
+    src = png_path
+    parts = []
+    try:
+        almost_full = (parent[0] <= 0.02 and parent[1] <= 0.02
+                       and parent[2] >= 0.98 and parent[3] >= 0.98)
+        if not almost_full:
+            img = crop_page(png_path, parent, pad_frac=0.0, trim_white=False)
+            crop_path = png_path + '.split_crop.png'
+            img.save(crop_path, 'PNG')
+            src = crop_path
+        else:
+            parent = [0.0, 0.0, 1.0, 1.0]
+
+        def _pass2():
+            return detect_parts(config, src, 'QUE', image_max_dim)
+
+        parts, raw = _call_with_llm_retry(
+            f'split-tool pass-2 {os.path.basename(png_path)}', _pass2)
+        raws.append(raw or '')
+    finally:
+        if crop_path:
+            try:
+                os.remove(crop_path)
+            except OSError:
+                pass
+
+    out = []
+    for b in parts or []:
+        label = str(b.get('label') or '').strip().lower()
+        box = b.get('box')
+        if not label or not (isinstance(box, (list, tuple)) and len(box) == 4):
+            continue
+        out.append({
+            'label': label,
+            'box': full_width_child_box(parent, box),
+        })
+    return merge_part_boxes_by_label(out), '\n'.join(r for r in raws if r)
+
+
 def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                      expected_labels=None, debug: bool = False,
                      extra_note=None):
@@ -1566,18 +1776,14 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
         crop_path = None
         try:
             crop_path = _write_split_crop(token, kind, prt['page'], prt['box'])
-            try:
-                boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
-                                          expected_labels=expected_labels,
-                                          extra_note=extra_note)
-            except _llm_error_cls() as e:
-                # One retry: cloud gateways occasionally stall a single
-                # request past the endpoint timeout; the call is idempotent.
-                logger.warning('pdf-import pass-2 %s Q%s: %s — retrying once',
-                               kind, parent_label, e)
-                boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
-                                          expected_labels=expected_labels,
-                                          extra_note=extra_note)
+
+            def _pass2():
+                return detect_parts(config, crop_path, atype, image_max_dim,
+                                    expected_labels=expected_labels,
+                                    extra_note=extra_note)
+
+            boxes, raw = _call_with_llm_retry(
+                f'pdf-import pass-2 {kind} Q{parent_label}', _pass2)
             if debug:
                 raws.append(raw)
             for b in boxes:

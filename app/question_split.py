@@ -1,7 +1,10 @@
 """Stage and commit IMG crops that split one question into a stem + parts.
 
-Used by the dedicated Split-into-parts page. Pass-2 auto-detect reuses
-``pdf_import.detect_parts``. Staging lives under ``SYSTEM_PATH/.question_split/<token>/``.
+Used by the dedicated Split-into-parts page. Auto-detect stitches every
+QUE image for a version into one PNG (already done at stage time), then
+runs PDF import pass 2 (``detect_parts``) once on that stitch. Optional
+``find_parent`` adds pass 1 for a full exam page. Staging lives under
+``SYSTEM_PATH/.question_split/<token>/``.
 """
 from __future__ import annotations
 
@@ -122,6 +125,21 @@ def stage_question(question: Question) -> dict:
             images.append(im)
         if not images:
             continue
+        page_recs = []
+        y_top = 0
+        for i, im in enumerate(images):
+            page_name = (f'{version}.png' if len(images) == 1
+                         else f'{version}_p{i + 1}.png')
+            page_path = os.path.join(dest, page_name)
+            if len(images) > 1 or i == 0:
+                im.save(page_path, format='PNG')
+            page_recs.append({
+                'filename': page_name,
+                'width': im.width,
+                'height': im.height,
+                'y_top': y_top,
+            })
+            y_top += im.height
         stitched = stitch_vertically(images) if len(images) > 1 else images[0]
         filename = f'{version}.png'
         out_path = os.path.join(dest, filename)
@@ -130,6 +148,7 @@ def stage_question(question: Question) -> dict:
             'filename': filename,
             'width': stitched.width,
             'height': stitched.height,
+            'pages': page_recs,
         }
 
     if not versions_meta:
@@ -157,15 +176,8 @@ def staged_image_path(token: str, version: str) -> str | None:
     return path
 
 
-def detect_boxes(token: str, version: str, config, image_max_dim: int):
-    """Run pass-2 part detection on a staged stitched QUE image.
-
-    Returns ``(boxes, raw)`` where each box is
-    ``{label, box:[x1,y1,x2,y2]}`` in fractional 0..1 coords (``label`` is
-    ``stem`` or a letter path).
-    """
-    from app.pdf_import import detect_parts
-
+def _staged_pages(token: str, version: str):
+    """Resolve stitch path + per-page records for a staged version."""
     meta = load_meta(token)
     versions = list((meta.get('versions') or {}).keys())
     version = (version or '').strip().upper()
@@ -173,20 +185,102 @@ def detect_boxes(token: str, version: str, config, image_max_dim: int):
         version = versions[0] if versions else ''
     if not version:
         raise ValueError('No staged image for this session.')
-    path = staged_image_path(token, version)
-    if not path or not os.path.isfile(path):
+    info = (meta.get('versions') or {}).get(version) or {}
+    stitch_path = staged_image_path(token, version)
+    if not stitch_path or not os.path.isfile(stitch_path):
         raise ValueError('Staged image is missing; reload the split page.')
-    boxes, raw = detect_parts(config, path, 'QUE', image_max_dim)
-    out = []
-    for b in boxes:
-        label = (b.get('label') or '').strip().lower()
-        if not label:
-            continue
-        box = b.get('box')
-        if not (isinstance(box, (list, tuple)) and len(box) == 4):
-            continue
-        out.append({'label': label, 'box': [float(v) for v in box]})
-    return out, raw
+    stitch_w = int(info.get('width') or 0)
+    stitch_h = int(info.get('height') or 0)
+    if stitch_w <= 0 or stitch_h <= 0:
+        with Image.open(stitch_path) as im:
+            stitch_w, stitch_h = im.size
+    pages = list(info.get('pages') or [])
+    if not pages:
+        pages = [{'filename': info.get('filename'), 'width': stitch_w,
+                  'height': stitch_h, 'y_top': 0}]
+    return version, info, stitch_path, stitch_w, stitch_h, pages
+
+
+def iter_detect_boxes(token: str, version: str, config, image_max_dim: int,
+                      method: str = 'llm', find_parent: bool = False,
+                      cancel=None):
+    """Yield SSE-shaped events: one PDF-import pass 2 on the staged stitch.
+
+    Multi-image QUE (reconstructed part crops, a multi-page WHOLE, …) is
+    stacked at stage time. Detect always runs on that single stitch so the
+    model sees the whole question — never each source PNG as its own page.
+    ``done`` carries ``boxes`` / ``raw`` in stitch coordinates. ``cancel``
+    is a ``threading.Event`` from ``pdf_import.new_job``.
+    """
+    from app.pdf_import import merge_part_boxes_by_label, split_question_png
+
+    _version, _info, stitch_path, _sw, _sh, pages = _staged_pages(
+        token, version)
+    nsrc = max(1, len(pages))
+    if cancel is not None and cancel.is_set():
+        yield {'type': 'error', 'message': 'Cancelled.',
+               'current': 0, 'total': 1}
+        yield {'type': 'done', 'message': 'Cancelled.', 'boxes': [],
+               'raw': '', 'current': 1, 'total': 1}
+        return
+
+    if nsrc > 1:
+        prefix = f'Stitched {nsrc} images into one. '
+    else:
+        prefix = ''
+    step = ('Finding the question, then stem and parts'
+            if find_parent else 'Detecting stem and lettered parts')
+    yield {'type': 'info', 'message': f'{prefix}{step}…',
+           'current': 1, 'total': 1}
+    try:
+        boxes, raw = split_question_png(
+            config, stitch_path, image_max_dim, method=method,
+            find_parent=find_parent)
+    except Exception as e:
+        logger.exception('split auto-detect failed')
+        yield {'type': 'error', 'message': str(e),
+               'current': 1, 'total': 1}
+        yield {'type': 'done',
+               'message': f'Detection failed: {e}',
+               'boxes': [], 'raw': '', 'current': 1, 'total': 1}
+        return
+
+    out = merge_part_boxes_by_label(boxes)
+    stems = sum(1 for b in out if b.get('label') == 'stem')
+    nparts = len(out) - stems
+    found = []
+    if stems:
+        found.append('a stem')
+    if nparts:
+        found.append(f'{nparts} part{"s" if nparts != 1 else ""}')
+    yield {'type': 'success',
+           'message': f'Found {", ".join(found) or "no boxes"}.',
+           'current': 1, 'total': 1}
+    if not out:
+        msg = 'No lettered parts found — draw a stem box and part boxes by hand.'
+    else:
+        msg = (f'Found {"a stem and " if stems else ""}'
+               f'{nparts} part{"s" if nparts != 1 else ""}. '
+               'Adjust if needed, then commit.')
+    yield {'type': 'done', 'message': msg, 'boxes': out,
+           'raw': raw or '', 'current': 1, 'total': 1}
+
+
+def detect_boxes(token: str, version: str, config, image_max_dim: int,
+                 method: str = 'llm', find_parent: bool = False):
+    """Run PDF-import pass 2 on the staged stitch (multi-image QUE stacked first).
+
+    Returns ``(boxes, raw)`` where each box is
+    ``{label, box:[x1,y1,x2,y2]}`` in fractional 0..1 coords of the stitch
+    (``label`` is ``stem`` or a letter path).
+    """
+    boxes, raw = [], ''
+    for ev in iter_detect_boxes(
+            token, version, config, image_max_dim, method=method,
+            find_parent=find_parent):
+        if ev.get('type') == 'done':
+            boxes, raw = ev.get('boxes') or [], ev.get('raw') or ''
+    return boxes, raw
 
 
 def _copy_tags(src: Question, dst: Question) -> None:

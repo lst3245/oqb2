@@ -70,7 +70,7 @@ Non-exclusive: `verified=1|0`, `tree_scope=all|roots|leaves`, `check_status=issu
 | POST | `/questions/<int:question_id>/parent` | A, scoped | JSON `{parent_id}` (null detaches). Same subject; `token_fits_under`; no cycles. 400 if detaching a labelled part. |
 | GET | `/questions/<int:question_id>/split` | A, scoped | Stages IMG QUE; renders `admin_question_split.html`. MD/DOC QUE flash-redirects to the list. Hidden in the Edit modal when the row is already a stem. |
 | GET | `/questions/<int:question_id>/split/image/<version>` | A, scoped | Staged PNG (`?token=`). |
-| POST | `/questions/<int:question_id>/split/detect` | A, scoped | JSON `{token, version, endpoint_id}`. Pass-2 vision detect on the staged image → `{success, boxes, raw}`. |
+| GET | `/questions/<int:question_id>/split/detect` | A, scoped | SSE. Query `token`, `version`, `endpoint_id`, `method?`, `find_parent?`. Stitch multi-image QUE, then pass-2 once → `done` `{boxes, raw}` on the stitch. |
 | POST | `/questions/<int:question_id>/split/commit` | A, scoped | JSON `{token, boxes:[{label, box:[x1,y1,x2,y2]}], copy_tags}`. Requires `stem` + ≥1 part. Crops every staged version; optional copy tags then clear the stem. Root: writes WHOLE from the staged PNG if that slot is empty. |
 | GET | `/questions/<int:question_id>/combine/preview` | A, scoped | Dry payload for the Combine confirm dialog (`preview_combine`). 400/409 when the row is a leaf or range stem. |
 | POST | `/questions/<int:question_id>/combine` | A, scoped | JSON `{stitch?, save_whole?}`. Restore WHOLE→QUE or reconstruct, then delete descendants. |
