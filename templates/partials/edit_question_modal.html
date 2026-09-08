@@ -280,6 +280,10 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                             <a class="btn btn-sm btn-outline-dark" id="editSplitLink" href="#" style="display:none;">
                                 <i class="bi bi-scissors"></i> Split into parts
                             </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="editCombineBtn"
+                                    style="display:none;" onclick="openCombineConfirm()">
+                                <i class="bi bi-intersect"></i> Combine parts
+                            </button>
                         </div>
                         <div class="form-text mb-2">Parent ID is the numeric database id of the stem (same paper), shown in the address bar when you open that question. Leave blank and click Set to detach a standalone question. Labelled parts cannot be detached.</div>
                         <div class="form-check form-switch mb-2" id="editNeedsPrevWrap" style="display:none;">
@@ -439,6 +443,40 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" id="mdEditorModalSaveBtn">
                     <i class="bi bi-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Combine parts confirm -->
+<div class="modal fade" id="combinePartsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-intersect"></i> Combine parts</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2" id="combineModeHint"></p>
+                <p class="mb-1"><strong id="combineSurvivorQid"></strong>
+                    <span class="badge bg-secondary" id="combineDescCount">0</span> part(s) will be deleted</p>
+                <ul class="small mb-2" id="combineDescList" style="max-height:10rem; overflow:auto;"></ul>
+                <div id="combineWholePreview" class="mb-2" style="display:none;"></div>
+                <div class="form-check" id="combineStitchWrap" style="display:none;">
+                    <input class="form-check-input" type="checkbox" id="combineStitchChk">
+                    <label class="form-check-label" for="combineStitchChk">Stitch images into one tall image (otherwise keep them as multiple pages on this question)</label>
+                </div>
+                <div class="form-check" id="combineSaveWholeWrap" style="display:none;">
+                    <input class="form-check-input" type="checkbox" id="combineSaveWholeChk" checked>
+                    <label class="form-check-label" for="combineSaveWholeChk">Also save this as the whole-question archive so a later Combine can restore it</label>
+                </div>
+                <div class="alert alert-warning py-2 small mb-0" id="combineMdWarn" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="combineConfirmBtn" onclick="confirmCombineParts()">
+                    Combine and delete parts
                 </button>
             </div>
         </div>

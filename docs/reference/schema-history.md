@@ -26,6 +26,7 @@ Order is roughly chronological (oldest first). "Boot patch" = idempotent code in
 | `prompt_overrides` (legacy), `prompt_variants`, `prompt_endpoint_assignments` | boot patch (`create checkfirst`) + `ai_prompts.ensure_seeded()` migrates override content into built-in variants once | |
 | `questions.parent_id` (self-FK `fk_questions_parent`, `ON DELETE RESTRICT`, index `ix_questions_parent_id`), `questions.part`, `questions.part_sort`, `questions.qno_end`; `subjects.split_parts_default` (TINYINT NOT NULL DEFAULT 0) | boot patch (`INFORMATION_SCHEMA` guard) | Additive/nullable (except the subject flag). Existing rows stay standalone roots. See [ADR-009](../decisions/ADR-009-question-hierarchy-over-linking.md). |
 | `questions.needs_prev_parts` (TINYINT NOT NULL DEFAULT 0) | boot patch (`INFORMATION_SCHEMA` guard) | Additive. A part flagged true pulls its earlier sibling parts into `resolve_render_plan` as background. Set from the edit modal or by the PDF import agent (`depends_prev` plan flag). See [ADR-010](../decisions/ADR-010-agent-layer-over-pdf-import-tools.md). |
+| `question_assets.asset_type` enum widened to `QUE/ANS/SOL/WHOLE` | boot patch (`MODIFY COLUMN` when `'WHOLE'` is missing from `COLUMN_TYPE`) | `WHOLE` is IMG-only on a root QID: unsplit original used by Combine restore. Existing QUE/ANS/SOL rows unchanged. Dashboard / generator / viewer / Explain never read it. |
 
 Non-schema data conventions that behave like migrations:
 

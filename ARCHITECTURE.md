@@ -18,6 +18,7 @@ D:\oqb2\
     models.py            ALL SQLAlchemy models (schema source of truth)
     hierarchy.py         QNO token grammar, question tree helpers, dashboard grouping, render-plan
     question_split.py    IMG crop stage/commit for Split-into-parts (admin)
+    question_combine.py  Combine parts: restore WHOLE→QUE or reconstruct, then delete descendants
     utils.py             authz decorators, VERSIONS, username policy, multi-sort helpers
     settings.py          System Settings REGISTRY + load/get/set/reset (DB-backed tunables)
     storage.py           STORAGE_PATH tree, safe_join, per-user dirs

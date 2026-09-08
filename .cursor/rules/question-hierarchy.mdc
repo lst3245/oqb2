@@ -1,6 +1,6 @@
 ---
 description: Question hierarchy — stem/parts tree, QNO token grammar, parent_id, do not confuse with IMG part_number
-globs: app/hierarchy.py,app/question_split.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py
+globs: app/hierarchy.py,app/question_split.py,app/question_combine.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py
 alwaysApply: false
 ---
 
@@ -11,6 +11,7 @@ alwaysApply: false
 - QNO grammar lives in `app/hierarchy.py` (`QNO_TOKEN_PATTERN`, `parse_qno_token`, `parse_qid`, `ensure_question`). Do not add another `Q\\d+` regex.
 - `QuestionAsset.part_number` is IMG page N of one QID. Filename `..._QUE_2.png` ≠ sub-question `..._Q3a_QUE.png`.
 - `ensure_question` is the only create path that must understand parents (ingest, Smart Import, admin create, Split commit, PDF commit).
+- `QuestionAsset.asset_type=WHOLE` is IMG-only on a **root** (`Q5`, not `Q5a` / `Q23-24`). Dashboard, generator, viewer, Explain, auto-tag never read it. Combine **restore** copies WHOLE→QUE; nested stems always **reconstruct**.
 - Sort by `hierarchy.sort_key` / `qno_sort_key`, not natsort of the QID string (`Q3ci` vs `Q3civ`).
 - Delete stem blocked while children exist unless `delete_children`. Sync never drops a childless-asset row that still has children.
 - Generator/viewer expansion is **only** `resolve_render_plan` (`hierarchy_mode` `selected`|`whole`). Dashboard selection (`selectedQuestions`, `#allQuestionIds`) stays **leaves only**; stem / substem checkboxes are aggregates over `data-leaf-ids`, never stored ids. Anything that shows a part's background (viewer `context`, Explain, docx) must go through `resolve_render_plan([leaf])` / `ancestors` + `earlier_siblings`, never just the root. Selection semantics stay ADR-008.
@@ -23,5 +24,6 @@ alwaysApply: false
 - Hyphen in Smart Import: match qno on the **unsplit** stem (`Q23-24`), not `_SPLIT_RE` tokens.
 - Empty parent rows from `..._Q3a` ingest are load-bearing; do not "clean them up" in sync. Health no-assets / untagged lists skip them.
 - Do not create children by only setting `parent_id` on a full-question image — the stem QUE must be the background only (Split tool / PDF pass 2).
-- Split commit calls `replace_img_assets` per version (each call commits). Partial crops are possible if a later version fails.
+- Split commit calls `replace_img_assets` per version (each call commits). Partial crops are possible if a later version fails. On a root, commit copies the staged PNG to WHOLE **before** cropping when that slot is empty.
+- Combine loads all subtree IMG pages into memory, writes the survivor, then deletes descendants. Do not delete children first. Range stems return 409. Bulk selection collapses to maximal stems (`collapse_maximal_stems`).
 - Pass-2 crop mapping uses unpadded crops then `full_width_child_box` (parent x1/x2 kept). Auto-tag / MD QUE / Explain prepend ancestor QUE; proofread does not.

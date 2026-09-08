@@ -60,7 +60,7 @@ one or more super admins (users, subjects, settings, everything).
 | PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
 | PDF Import AI agent | `admin_bp` `/admin/pdf-import/agent` | `app/pdf_agent.py` | [modules/pdf-agent.md](docs/modules/pdf-agent.md) |
 | Ingestion + Smart Import | `admin_bp` `/admin/import`, `cli.py` | `app/ingestor.py`, `app/smart_import.py` | [modules/ingestion.md](docs/modules/ingestion.md) |
-| Question hierarchy (stem / parts) | cross-cutting | `app/hierarchy.py` | [modules/question-hierarchy.md](docs/modules/question-hierarchy.md) |
+| Question hierarchy (stem / parts) | cross-cutting | `app/hierarchy.py`, `app/question_split.py`, `app/question_combine.py` | [modules/question-hierarchy.md](docs/modules/question-hierarchy.md) |
 | File Browser (user + super-admin) | `files_bp` `/files`, `admin_bp` `/admin/files` | `app/files.py`, `app/files_service.py`, `app/storage.py` | [modules/file-browser.md](docs/modules/file-browser.md), [core/05](docs/core/05-storage-and-paths.md) |
 | Toolbox PDF Tool | `toolbox_bp` `/admin/toolbox/pdf` | `app/toolbox/pdf.py`, `app/pdf_tools.py`, `app/pdf_text.py` | [modules/toolbox-pdf.md](docs/modules/toolbox-pdf.md) |
 | Markup PWA | `toolbox_bp` `/admin/toolbox/markup`, `pwa_bp` `/` | `app/toolbox/markup.py`, `app/pwa.py`, `static/markup/` | [modules/markup.md](docs/modules/markup.md) |

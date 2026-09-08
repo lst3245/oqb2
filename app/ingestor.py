@@ -25,14 +25,14 @@ logger = logging.getLogger(__name__)
 PP_PATTERN = re.compile(
     r'^(?P<subj>\w+)_(?P<source>DSE|CE|AL)_(?P<year>\d+)_(?P<paper>P[A-Za-z0-9]+)_'
     r'(?P<qno>' + QNO_TOKEN_PATTERN + r')_(?P<version>ENO|CHO|EN|CH|BI)_'
-    r'(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'(?P<type>QUE|ANS|SOL|WHOLE)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 # QB format: MATC_QB_MATHSMART2024_Q1_EN_QUE.png  or  ..._QUE_2.png (multi-part)
 QB_PATTERN = re.compile(
     r'^(?P<subj>\w+)_(?P<source>QB)_(?P<detail>[^_]+)_'
     r'(?P<qno>' + QNO_TOKEN_PATTERN + r')_(?P<version>ENO|CHO|EN|CH|BI)_'
-    r'(?P<type>QUE|ANS|SOL)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
+    r'(?P<type>QUE|ANS|SOL|WHOLE)(?:_(?P<part>\d+))?\.(?P<ext>\w+)$'
 )
 
 def parse_filename(filename):
@@ -181,7 +181,7 @@ def upsert_asset(question, parsed, file_path, source_path):
         Callers use the flag to trigger downstream side-effects (e.g. DOC
         thumbnail rendering on first import).
     """
-    asset_type = parsed['type']  # QUE, ANS, SOL
+    asset_type = parsed['type']  # QUE, ANS, SOL, WHOLE
     version = parsed['version']  # EN, CH, BI, ENO, CHO
     file_format = determine_file_format(parsed['ext'])
     part_number = parsed.get('part', 1)
@@ -189,6 +189,19 @@ def upsert_asset(question, parsed, file_path, source_path):
     if not file_format:
         logger.warning(f"Unknown file format: {parsed['ext']} for {file_path}")
         return None, False
+
+    # WHOLE is IMG-only, and only on a root QID (no part-path). Nested
+    # stems and lettered parts must not carry an archive copy.
+    if asset_type == 'WHOLE':
+        tok = parse_qno_token(parsed.get('qno') or '')
+        if file_format != 'IMG':
+            logger.warning('WHOLE asset must be an image; skipped %s', file_path)
+            return None, False
+        if tok is None or tok.part_path or tok.qno_end:
+            logger.warning(
+                'WHOLE is root-only (plain Qn, not a part or range stem); skipped %s',
+                file_path)
+            return None, False
 
     # MD assets are self-contained — multi-part is not supported. Skip silently-but-loudly.
     if file_format == 'MD' and part_number != 1:

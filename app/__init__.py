@@ -386,6 +386,24 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
 
+        # WHOLE = unsplit original on a root (Combine restore). Widen the
+        # asset_type enum; existing QUE/ANS/SOL rows are unchanged.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                row = conn.execute(text(
+                    "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_assets' "
+                    "AND COLUMN_NAME = 'asset_type'"
+                )).first()
+                if row is not None and "'WHOLE'" not in (row[0] or '').upper():
+                    conn.execute(text(
+                        "ALTER TABLE question_assets MODIFY COLUMN asset_type "
+                        "ENUM('QUE','ANS','SOL','WHOLE') NOT NULL"
+                    ))
+        except Exception:
+            pass
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

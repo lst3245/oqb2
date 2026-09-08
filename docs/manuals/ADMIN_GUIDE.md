@@ -209,7 +209,7 @@ The **Status** filter can be narrowed with **Advanced** options: choose versions
 ### Tagging a Question
 Click the edit (pencil) icon → a modal opens with three tabs:
 
-**Details tab**: level, question type, section, description, correct percentage, answer text, comment, plus **Hierarchy** (breadcrumb, child parts, create child, set parent, **Split into parts**)
+**Details tab**: level, question type, section, description, correct percentage, answer text, comment, plus **Hierarchy** (breadcrumb, child parts, create child, set parent, **Split into parts**, **Combine parts**)
 
 **Tags tab**: major topic, major subtopic, minor topics (M2M), subtopics (M2M), chapter, subchapter. On a stem these fields are disabled — tags live on the parts; the stem shows the union of descendant tags.
 
@@ -255,14 +255,27 @@ Click **Add Question** → 3-step wizard:
 Edit → Details tab → change QID field. This rewrites that question's QID and, if it has child parts, rewrites those QIDs too. Associated files on disk are renamed to match when you confirm the file move. You cannot change a stem into a part (e.g. `Q3` → `Q3a`) while children still hang off it.
 
 ### Split into parts
-From Edit → Details, **Split into parts** opens a crop page for an **IMG** question that is not already a stem (Markdown/Word QUE is refused). Draw a **stem** box for the shared background and one box per part (`a`, `b`, `ci`, …), or click **Auto-detect parts** to let the vision model propose boxes, then adjust. Grey = stem, amber = part. The same boxes are applied to every version that has an image. Optionally copy this question's tags onto every part (the stem is then cleared).
+From Edit → Details, **Split into parts** opens a crop page for an **IMG** question that is not already a stem (Markdown/Word QUE is refused). Draw a **stem** box for the shared background and one box per part (`a`, `b`, `ci`, …), or click **Auto-detect parts** to let the vision model propose boxes, then adjust. Grey = stem, amber = part. The same boxes are applied to every version that has an image. Optionally copy this question's tags onto every part (the stem is then cleared). On a root question, Split also keeps a **whole-question archive** (the unsplit image) if one is not already stored, so Combine can restore it later.
+
+Question Management: select **exactly one** standalone question and click **Split into parts** to open the same crop page.
+
+### Combine parts
+From Edit → Details, **Combine parts** (shown on stems that are not range stems like `Q23-24`) folds the lettered parts back into this question and **deletes the part rows**. Confirm lists the parts that will go and warns if Markdown/Word files on those parts will be lost.
+
+- If this is the **root** and a whole-question archive exists, Combine **restores that archive as QUE** (the original unsplit image) and keeps solutions from the parts as extra pages on the root.
+- If there is **no archive**, Combine stacks every part's images onto this question (several pages by default). Tick **stitch** only if you want one tall image. On a root you can also tick **save as the whole-question archive** so a later Combine can restore it.
+- On a **nested stem** (for example `Q1c` with `(i)`/`(ii)`), only that subtree is combined. The rest of the question is unchanged. The archive on the root is not used.
+
+Question Management: select stems (overlapping selection is collapsed to the outermost) and click **Combine parts**. Leaves and range stems in the selection are skipped with an error toast.
+
+To **split again** after Combine: open the restored question and use Split into parts as usual.
 
 ### Depends on earlier parts
 In Edit → Details → Hierarchy, a lettered part has a **Depends on earlier parts** switch. Turn it on when the part's wording relies on earlier parts ("using your answer in (a)", "hence"). When a teacher views or generates that part on its own, the earlier parts of the same question are printed as background too (in addition to the shared stem). The dashboard card shows an **uses earlier parts** badge. The PDF import agent sets this automatically when it can tell from the wording.
 
 ### Asset Management
 Edit → Assets tab:
-- **Upload**: select file, choose type (QUE/ANS/SOL), version (EN/CH/BI/ENO/CHO), and part number. The Assets tab has one tab per version. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`).
+- **Upload**: select file, choose type (QUE/ANS/SOL), version (EN/CH/BI/ENO/CHO), and part number. The Assets tab has one tab per version. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`). On a **root** question there is also a **Whole question archive** strip (images only): the unsplit original, not used in papers until you Combine. Upload one if the question was split before archives existed.
 - **Delete**: removes from DB and disk
 - **Reorder**: drag to change part_number order (for multi-image questions)
 

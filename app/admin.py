@@ -1927,6 +1927,8 @@ def question_details(question_id):
         'child_count': len(kids),
         'is_stem': stem_row,
         'needs_prev_parts': bool(getattr(question, 'needs_prev_parts', False)),
+        'has_whole': QuestionAsset.query.filter_by(
+            question_id=question.id, asset_type='WHOLE').first() is not None,
         'breadcrumb': crumbs,
         'children': [{'id': c.id, 'qid': c.qid, 'part': c.part} for c in kids],
         'tag_union': tag_union,
@@ -2076,6 +2078,82 @@ def set_needs_prev_parts(question_id):
     q.needs_prev_parts = value
     db.session.commit()
     return jsonify({'success': True, 'needs_prev_parts': q.needs_prev_parts})
+
+
+@admin_bp.route('/questions/<int:question_id>/combine/preview')
+@login_required
+@admin_required
+def combine_preview(question_id):
+    """Dry-run payload for the Combine-parts confirm dialog."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    from app import question_combine as qc
+    payload = qc.preview_combine(question)
+    if not payload.get('ok'):
+        return jsonify(payload), payload.get('status', 400)
+    return jsonify(payload)
+
+
+@admin_bp.route('/questions/<int:question_id>/combine', methods=['POST'])
+@login_required
+@admin_required
+def combine_question(question_id):
+    """Restore WHOLE or reconstruct parts onto this stem, then drop children."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    from app import question_combine as qc
+    try:
+        result = qc.combine_parts(
+            question,
+            stitch=bool(data.get('stitch')),
+            save_whole=bool(data.get('save_whole')),
+        )
+    except qc.CombineError as e:
+        return jsonify({'error': str(e), 'ok': False}), e.status
+    except Exception as e:
+        current_app.logger.exception('combine failed for %s', question.qid)
+        db.session.rollback()
+        return jsonify({'error': str(e), 'ok': False}), 500
+    return jsonify(result)
+
+
+@admin_bp.route('/questions/combine', methods=['POST'])
+@login_required
+@admin_required
+def combine_questions_bulk():
+    """Combine each selected stem (nested selection collapses to the ancestor)."""
+    data = request.get_json(silent=True) or {}
+    raw_ids = data.get('ids') or []
+    ids = []
+    for tok in raw_ids:
+        try:
+            ids.append(int(tok))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return jsonify({'error': 'No questions selected', 'ok': False}), 400
+    admin_subjects = [s.id for s in get_user_admin_subjects()]
+    questions = (
+        Question.query
+        .filter(Question.id.in_(ids))
+        .filter(Question.subject.in_(admin_subjects))
+        .all()
+    )
+    if not questions:
+        return jsonify({'error': 'No accessible questions in selection', 'ok': False}), 403
+    from app import question_combine as qc
+    results = qc.combine_many(
+        questions,
+        stitch=bool(data.get('stitch')),
+        save_whole=bool(data.get('save_whole')),
+    )
+    ok = all(r.get('ok') for r in results)
+    return jsonify({'ok': ok, 'results': results})
 
 
 @admin_bp.route('/questions/<int:question_id>/split', methods=['GET'])
@@ -2473,7 +2551,10 @@ def upload_question_asset(question_id):
     
     if version not in VERSIONS:
         return jsonify({'error': 'Invalid version'}), 400
-    if asset_type not in ('QUE', 'ANS', 'SOL'):
+    if asset_type == 'WHOLE':
+        if question.parent_id:
+            return jsonify({'error': 'A whole-question copy can only be stored on the root question, not on a part.'}), 400
+    elif asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'Invalid asset type'}), 400
 
     files = request.files.getlist('files')
@@ -2509,6 +2590,10 @@ def upload_question_asset(question_id):
             file_format = 'MD'
         else:
             errors.append(f'{f.filename}: unsupported extension')
+            continue
+
+        if asset_type == 'WHOLE' and file_format != 'IMG':
+            errors.append(f'{f.filename}: a whole-question copy must be an image')
             continue
 
         if file_format == 'MD':

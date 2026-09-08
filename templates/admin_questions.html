@@ -66,6 +66,12 @@
                     <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" style="display:none" onclick="bulkDeleteSelected()" title="Delete the selected questions, or just some of their assets">
                         <i class="bi bi-trash"></i> Delete Selected (<span id="selCountBadge">0</span>)
                     </button>
+                    <button class="btn btn-sm btn-outline-dark" id="bulkCombineBtn" style="display:none" onclick="openBulkCombineModal()" title="Fold split parts back into one question (restores the whole-question archive when it exists)">
+                        <i class="bi bi-intersect"></i> Combine parts (<span id="selCountBadgeCombine">0</span>)
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="bulkSplitBtn" style="display:none" onclick="openBulkSplit()" title="Split one standalone IMG question into a stem and lettered parts">
+                        <i class="bi bi-scissors"></i> Split into parts
+                    </button>
                     <button class="btn btn-sm btn-warning text-dark" id="bulkGenImgBtn" style="display:none" onclick="openBatchImgModal()" title="Generate IMG from DOC/MD source for the selected questions">
                         <i class="bi bi-image"></i> Generate IMG (<span id="selCountBadgeImg">0</span>)
                     </button>
@@ -401,6 +407,34 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Combine parts (bulk) -->
+<div class="modal fade" id="bulkCombineModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-intersect"></i> Combine parts</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Combine every <strong>stem</strong> in the selection. A selected part under a selected ancestor is skipped. Roots with a whole-question archive are restored from that copy; others fold part images onto the stem.</p>
+                <p class="mb-2"><span class="badge bg-secondary" id="bulkCombineCount">0</span> question(s) selected</p>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="bulkCombineStitch">
+                    <label class="form-check-label" for="bulkCombineStitch">Stitch reconstructed images into one (ignored when restoring an archive)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="bulkCombineSaveWhole" checked>
+                    <label class="form-check-label" for="bulkCombineSaveWhole">Save a whole-question archive when reconstructing a root that has none</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="bulkCombineExecBtn" onclick="executeBulkCombine()">Combine</button>
             </div>
         </div>
     </div>
@@ -1793,6 +1827,12 @@ function updateSelectionUI() {
     const count = selectedQIds.size;
     document.getElementById('selCountBadge').textContent = count;
     document.getElementById('bulkDeleteBtn').style.display = count > 0 ? '' : 'none';
+    const combineBtn = document.getElementById('bulkCombineBtn');
+    const combineBadge = document.getElementById('selCountBadgeCombine');
+    if (combineBtn) combineBtn.style.display = count > 0 ? '' : 'none';
+    if (combineBadge) combineBadge.textContent = count;
+    const splitBtn = document.getElementById('bulkSplitBtn');
+    if (splitBtn) splitBtn.style.display = count === 1 ? '' : 'none';
     const genBtn = document.getElementById('bulkGenImgBtn');
     const genBadge = document.getElementById('selCountBadgeImg');
     if (genBtn) genBtn.style.display = count > 0 ? '' : 'none';
@@ -1859,6 +1899,56 @@ function onBulkDeleteTabChange() {
     document.getElementById('bulkDeleteConfirmCheck').checked = false;
     document.getElementById('bulkDeleteTypeConfirm').value = '';
     updateBulkDeleteBtn();
+}
+
+function openBulkCombineModal() {
+    if (selectedQIds.size === 0) return;
+    document.getElementById('bulkCombineCount').textContent = selectedQIds.size;
+    document.getElementById('bulkCombineStitch').checked = false;
+    document.getElementById('bulkCombineSaveWhole').checked = true;
+    new bootstrap.Modal(document.getElementById('bulkCombineModal')).show();
+}
+
+function executeBulkCombine() {
+    const btn = document.getElementById('bulkCombineExecBtn');
+    btn.disabled = true;
+    fetch(`{{ url_for('admin.combine_questions_bulk') }}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            ids: Array.from(selectedQIds),
+            stitch: document.getElementById('bulkCombineStitch').checked,
+            save_whole: document.getElementById('bulkCombineSaveWhole').checked,
+        })
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({d}) => {
+        btn.disabled = false;
+        const results = d.results || [];
+        const good = results.filter(x => x.ok);
+        const bad = results.filter(x => !x.ok);
+        good.forEach(x => {
+            selectedQIds.delete(x.id);
+            (x.deleted_ids || []).forEach(id => selectedQIds.delete(id));
+        });
+        bootstrap.Modal.getInstance(document.getElementById('bulkCombineModal'))?.hide();
+        if (good.length) showToast(`Combined ${good.length} question(s)`, 'success');
+        if (bad.length) showToast(bad.map(x => (x.qid || x.id) + ': ' + (x.error || 'failed')).join('; '), 'danger');
+        loadQuestions();
+    })
+    .catch(err => {
+        btn.disabled = false;
+        showToast(err.message, 'danger');
+    });
+}
+
+function openBulkSplit() {
+    if (selectedQIds.size !== 1) {
+        showToast('Split one standalone question at a time (open Edit if you selected several).', 'warning');
+        return;
+    }
+    const id = Array.from(selectedQIds)[0];
+    window.location.href = `/admin/questions/${id}/split`;
 }
 
 function bulkDeleteSelected() {

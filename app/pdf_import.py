@@ -1202,6 +1202,53 @@ def _que_label_set(plan: dict) -> set:
             if plan_item_label(it)}
 
 
+def whole_source_crops(plan: dict, kind: str, root_label: str) -> list[dict]:
+    """Unsplit parent crops for a root that pass-2 split.
+
+    Returns unique ``{page, box}`` from ``source_box`` / ``source_page`` on
+    the root and its descendants. Empty when the root was never split (no
+    children in the plan), the label has a part path (nested stem), or the
+    label is a range stem (``23-24``).
+    """
+    from app.hierarchy import label_is_ancestor, parse_qno_token
+    parsed = parse_qno_token(root_label)
+    if not parsed or parsed.part_path or parsed.qno_end:
+        return []
+    items = plan.get(kind) or []
+    has_child = False
+    crops = []
+    seen = set()
+    for it in items:
+        lab = plan_item_label(it)
+        if not lab:
+            continue
+        if lab == root_label:
+            pass
+        elif label_is_ancestor(root_label, lab):
+            has_child = True
+        else:
+            continue
+        sb = it.get('source_box')
+        if not (isinstance(sb, (list, tuple)) and len(sb) == 4):
+            continue
+        try:
+            box = [float(v) for v in sb]
+            sp = it.get('source_page', it.get('page'))
+            page = int(sp) if sp is not None else int(it.get('page', 0))
+        except (TypeError, ValueError):
+            continue
+        key = (page, round(box[0], 5), round(box[1], 5),
+               round(box[2], 5), round(box[3], 5))
+        if key in seen:
+            continue
+        seen.add(key)
+        crops.append({'page': page, 'box': box})
+    if not has_child:
+        return []
+    crops.sort(key=lambda it: (it['page'], it['box'][1]))
+    return crops
+
+
 def _resolve_sol_commit_label(label: str, que_labels: set):
     """Map a SOL plan label onto a QUE node.
 
@@ -1319,6 +1366,27 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
                        'message': f'{qid} {atype} {version}: already has image(s) — skipped (enable Overwrite to replace).',
                        'current': done, 'total': total}
                 continue
+
+            if (kind == 'que' and not parsed.part_path and not parsed.qno_end
+                    and not question.parent_id):
+                whole_parts = whole_source_crops(plan, kind, commit_label)
+                if whole_parts:
+                    whole_imgs = []
+                    for prt in whole_parts:
+                        png = page_png_path(token, kind, prt['page'])
+                        whole_imgs.append(crop_page(
+                            png, prt['box'], pad_frac=crop_pad,
+                            trim_white=trim_white,
+                            whiteness_threshold=whiteness))
+                    if whole_imgs:
+                        wres = replace_img_assets(
+                            question, 'WHOLE', version, whole_imgs,
+                            stitch=False, source_path=source_path)
+                        assets_written += wres['wrote']
+                        yield {'type': 'info',
+                               'message': (f'{qid} WHOLE {version}: '
+                                           f'saved unsplit copy ({wres["wrote"]} page(s)).'),
+                               'current': done, 'total': total}
 
             imgs = []
             for prt in parts:

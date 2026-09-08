@@ -28,6 +28,8 @@
 <QID>_<VERSION>_<TYPE>[_<PART>].<EXT>
 MATC_DSE_2024_P1_Q5_EN_QUE.png        image, IMG part 1 of Q5
 MATC_DSE_2024_P1_Q5_EN_QUE_2.png      image, IMG part 2 (second page of the same QID)
+MATC_DSE_2024_P1_Q5_EN_WHOLE.png      unsplit original of root Q5 (archive; not used in papers)
+MATC_DSE_2024_P1_Q5_EN_WHOLE_2.png    second page of that archive
 ECON_DSE_2023_P1_Q3a_ENO_QUE.png      image of sub-question Q3a (different QID)
 MATC_DSE_2024_P1_Q5_ENO_QUE.png       official English public-exam scan
 MATC_DSE_2024_P1_Q5_EN_SOL.docx       Word solution (single slot)
@@ -42,7 +44,7 @@ MATC_QB_MATHSMART2024_Q1_CH_QUE.md    Markdown question (single slot)
 | `PAPER` | `P` + alphanumerics | `P1`, `P2`, `P1A` |
 | `QNO` | `Q` + digits, optional `-` + digits, optional lowercase part-path | `Q5`, `Q5a`, `Q3ci`, `Q23-24`. Pattern `QNO_TOKEN_PATTERN` in `app/hierarchy.py`. Range and part-path are mutually exclusive |
 | `VERSION` | `EN`, `CH`, `BI`, `ENO`, `CHO` | the regex alternation lists `ENO|CHO` **before** `EN|CH` so the longer tokens are not shadowed. `ENO`/`CHO` = official scans (reference for proofreading, last in default priority) |
-| `TYPE` | `QUE`, `ANS`, `SOL` | |
+| `TYPE` | `QUE`, `ANS`, `SOL`, `WHOLE` | `WHOLE` is IMG-only on a **root** QID (`Q5`, not `Q5a` / `Q23-24`). Ingest parses a part-QID WHOLE filename then skips it. Dashboard / generator / viewer never load it. |
 | `PART` | integer ≥ 2 | optional; **IMG page N of this QID** (`QuestionAsset.part_number`). Not the sub-question letter. `.md` with a part ≥ 2 is skipped by ingest; DOC is single-slot |
 | `EXT` | `png jpg jpeg gif bmp` → `IMG`; `doc docx` → `DOC`; `md markdown` → `MD` | `determine_file_format` |
 
@@ -71,6 +73,7 @@ Regexes: `PP_PATTERN` and `QB_PATTERN` in `app/ingestor.py` embed `QNO_TOKEN_PAT
 ## Related invariants
 
 - Unique asset identity: `(question_id, asset_type, version, file_format, part_number)`.
+- `WHOLE` filenames (`..._EN_WHOLE.png`) are root-only. A `..._Q3a_EN_WHOLE.png` parses then ingest skips it.
 - Renaming a QID (Admin → Edit modal → Details) rewrites that question and its descendants (QIDs + optional files) and updates `file_path`; do not rename files by hand.
 - `..._QUE_2.png` and `..._Q3a_QUE.png` are different axes. Do not invent a third QNO regex.
 - Subject ids are immutable because they are embedded in every QID and folder path.

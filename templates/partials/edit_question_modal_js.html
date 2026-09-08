@@ -425,6 +425,7 @@ function populateHierarchyDetails(data) {
     const crumbEl = document.getElementById('editHierarchyBreadcrumb');
     const kidsEl = document.getElementById('editHierarchyChildren');
     const splitLink = document.getElementById('editSplitLink');
+    const combineBtn = document.getElementById('editCombineBtn');
     const parentInput = document.getElementById('editSetParentId');
     if (parentInput) parentInput.value = data.parent_id || '';
     if (crumbEl) {
@@ -465,6 +466,9 @@ function populateHierarchyDetails(data) {
         splitLink.title = alreadyStem
             ? 'This question already has parts'
             : 'Crop this image into a shared background and lettered parts';
+    }
+    if (combineBtn) {
+        combineBtn.style.display = (data.is_stem && !data.qno_end) ? '' : 'none';
     }
 }
 
@@ -509,6 +513,94 @@ function setNeedsPrevParts(value) {
         const chk = document.getElementById('editNeedsPrevParts');
         if (chk) chk.checked = !value;
         if (status) status.textContent = err.message;
+        showToast(err.message, 'danger');
+    });
+}
+
+let _combinePreview = null;
+let _combineModal = null;
+
+function openCombineConfirm() {
+    const qId = document.getElementById('editQId').value;
+    const status = document.getElementById('editHierarchyStatus');
+    fetch(`{{ url_for('admin.combine_preview', question_id=0) }}`.replace('/0/', `/${qId}/`))
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || d.message || 'Cannot combine');
+        _combinePreview = d;
+        document.getElementById('combineSurvivorQid').textContent = d.qid;
+        document.getElementById('combineDescCount').textContent = d.descendant_count || 0;
+        const list = document.getElementById('combineDescList');
+        list.innerHTML = (d.descendants || []).map(x =>
+            `<li><code>${x.qid}</code>${x.part ? ' ('+x.part+')' : ''}</li>`).join('');
+        const hint = document.getElementById('combineModeHint');
+        if (d.mode === 'restore') {
+            hint.textContent = 'This root has a whole-question archive. Combine restores that image as QUE and deletes the parts (solutions on parts are kept as extra pages on the root).';
+        } else if (d.is_root) {
+            hint.textContent = 'No whole-question archive. Combine folds every part image onto this question (multiple pages), then deletes the part rows.';
+        } else {
+            hint.textContent = 'Nested stem: combine only this part and its sub-parts. The rest of the question is unchanged.';
+        }
+        document.getElementById('combineStitchWrap').style.display =
+            d.mode === 'reconstruct' ? '' : 'none';
+        document.getElementById('combineStitchChk').checked = false;
+        document.getElementById('combineSaveWholeWrap').style.display =
+            d.can_save_whole ? '' : 'none';
+        document.getElementById('combineSaveWholeChk').checked = !!d.can_save_whole;
+        const warn = document.getElementById('combineMdWarn');
+        if (d.md_doc_lost && d.md_doc_lost.length) {
+            warn.style.display = '';
+            warn.textContent = 'Markdown/Word files on the parts will be deleted with those rows: '
+                + d.md_doc_lost.map(x => x.qid + ' ' + x.asset_type + '/' + x.format).join(', ');
+        } else {
+            warn.style.display = 'none';
+        }
+        const prev = document.getElementById('combineWholePreview');
+        prev.style.display = 'none';
+        prev.innerHTML = '';
+        if (d.has_whole && editQuestionData && editQuestionData._assets) {
+            const firstVer = (window.OQB_VERSIONS || ['EN']).find(v =>
+                (editQuestionData._assets[v] || {}).WHOLE);
+            const wholes = firstVer ? (editQuestionData._assets[firstVer].WHOLE || []).filter(p => p.file_format === 'IMG') : [];
+            if (wholes.length) {
+                prev.style.display = '';
+                prev.innerHTML = '<div class="small text-muted mb-1">Archive preview</div>' +
+                    wholes.map(p => `<img src="${p.preview_url}" class="img-fluid border mb-1" style="max-height:160px;">`).join('');
+            }
+        }
+        if (!_combineModal) _combineModal = new bootstrap.Modal(document.getElementById('combinePartsModal'));
+        _combineModal.show();
+    })
+    .catch(err => {
+        if (status) status.textContent = err.message;
+        showToast(err.message, 'danger');
+    });
+}
+
+function confirmCombineParts() {
+    const qId = document.getElementById('editQId').value;
+    const btn = document.getElementById('combineConfirmBtn');
+    btn.disabled = true;
+    fetch(`{{ url_for('admin.combine_question', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            stitch: !!(document.getElementById('combineStitchChk') || {}).checked,
+            save_whole: !!(document.getElementById('combineSaveWholeChk') || {}).checked,
+        })
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        btn.disabled = false;
+        if (!ok) throw new Error(d.error || 'Combine failed');
+        if (_combineModal) _combineModal.hide();
+        showToast('Combined ' + (d.qid || '') + ' — deleted ' + (d.deleted_qids || []).length + ' part(s)');
+        openEditModal(qId, {preserveView: true});
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+        if (typeof loadQuestions === 'function') loadQuestions();
+    })
+    .catch(err => {
+        btn.disabled = false;
         showToast(err.message, 'danger');
     });
 }
@@ -1385,6 +1477,51 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
         html += `</div>
         </div>`;
     });
+    if (ctx === 'edit' && window.editQuestionData && !window.editQuestionData.parent_id) {
+        const wholes = (langAssets.WHOLE || []).filter(p => p.file_format === 'IMG')
+            .sort((a, b) => a.part_number - b.part_number);
+        html += `<div class="asset-section" id="${ctx}_assetSection_${lang}_WHOLE"
+                      onclick="setActivePasteTarget('${lang}', 'WHOLE', '${ctx}')">
+            <div class="d-flex justify-content-between align-items-center mb-2 section-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-files"></i> Whole question archive (${lang})
+                </h6>
+                <span class="text-muted small"><i class="bi bi-images"></i> ${wholes.length}</span>
+            </div>
+            <p class="small text-muted mb-2">Unsplit original. Not used in papers or Present until you Combine parts. Upload one if this question was split before archives existed.</p>
+            <div class="asset-format-group asset-format-img mb-2">
+                <div id="${ctx}_assetParts_${lang}_WHOLE" class="oqb-img-parts">`;
+        if (wholes.length === 0) {
+            html += '<div class="text-muted fst-italic small p-2">No archive image</div>';
+        } else {
+            wholes.forEach((p, idx) => {
+                const fname = p.file_path.split('/').pop();
+                html += `<div class="asset-part-card">
+                    <div class="asset-part-toolbar">
+                        <span class="part-label">Page ${p.part_number} <small class="text-muted fw-normal ms-1">${fname}</small></span>
+                        <div class="part-actions">
+                            ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','WHOLE',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
+                            ${idx < wholes.length - 1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','WHOLE',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                            <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <img src="${p.preview_url}" class="asset-preview-img" onclick="event.stopPropagation(); showFullSize('${p.preview_url}')" loading="lazy">
+                </div>`;
+            });
+        }
+        html += `</div>
+                <div class="drop-zone mt-2" id="${ctx}_dropZone_${lang}_WHOLE"
+                     ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('drag-over')"
+                     ondragleave="this.classList.remove('drag-over')"
+                     ondrop="handleAssetDrop(event, ${questionId}, '${lang}', 'WHOLE')"
+                     onclick="event.stopPropagation(); triggerAssetUpload(${questionId}, '${lang}', 'WHOLE', '${ctx}')">
+                    <i class="bi bi-cloud-upload"></i> Drop or click to upload the unsplit question image
+                </div>
+                <input type="file" class="d-none" id="${ctx}_fileInput_${lang}_WHOLE" accept="image/*"
+                       multiple onchange="handleAssetFileSelect(event, ${questionId}, '${lang}', 'WHOLE')">
+            </div>
+        </div>`;
+    }
     setTimeout(() => window.oqbLoadMarkdownPreviewCards && window.oqbLoadMarkdownPreviewCards(), 0);
     return html;
 }

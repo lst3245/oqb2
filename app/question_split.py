@@ -284,6 +284,23 @@ def commit_split(question: Question, token: str, raw_boxes, *,
             _copy_tags(question, child)
     db.session.flush()
 
+    if not getattr(question, 'parent_id', None):
+        from app.batch_image_gen import slot_has_img
+        for version in use_versions:
+            if slot_has_img(question.id, 'WHOLE', version):
+                continue
+            png_path = staged_image_path(token, version)
+            if not png_path or not os.path.isfile(png_path):
+                continue
+            im = Image.open(png_path)
+            im.load()
+            if im.mode != 'RGB':
+                im = im.convert('RGB')
+            replace_img_assets(
+                question, 'WHOLE', version, [im], stitch=False,
+                source_path=source_path,
+            )
+
     cropped = 0
     for version in use_versions:
         png_path = staged_image_path(token, version)

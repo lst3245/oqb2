@@ -278,7 +278,9 @@ class QuestionAsset(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False, index=True)
-    asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', name='asset_type_enum'), nullable=False)
+    # WHOLE is the unsplit original on a *root* only (PDF pass-1 / Split
+    # snapshot). Dashboard, generator, viewer and Explain never read it.
+    asset_type = db.Column(db.Enum('QUE', 'ANS', 'SOL', 'WHOLE', name='asset_type_enum'), nullable=False)
     file_format = db.Column(db.Enum('IMG', 'DOC', 'MD', name='file_format_enum'), nullable=False)
     # Version of the asset (formerly "language"). EN/CH/BI plus the official
     # public-exam scans ENO/CHO. See app/utils.VERSIONS.
