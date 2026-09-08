@@ -7,7 +7,7 @@ Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard groupin
 
 | File | Role |
 |---|---|
-| `app/hierarchy.py` | QNO token grammar (`parse_qno_token`, `QNO_TOKEN_PATTERN`), QID parse/build, part segmentation, `sort_key` / `qno_sort_key`, `ensure_question`, tree walks, `group_for_dashboard`, `breadcrumb_parts`, `resolve_render_plan`, rename rewrite helpers, `stem_id_query`, `eager_load_tree` |
+| `app/hierarchy.py` | QNO token grammar (`parse_qno_token`, `QNO_TOKEN_PATTERN`), QID parse/build, part segmentation, `sort_key` / `qno_sort_key`, `ensure_question`, tree walks (`ancestors`, `descendants`, `earlier_siblings`), `group_for_dashboard`, `breadcrumb_parts`, `resolve_render_plan`, rename rewrite helpers, `stem_id_query`, `eager_load_tree`; plan-label helpers `label_is_ancestor`, `derive_roles`, `next_part_label`, `compose_part_label` |
 | `app/question_split.py` | Stage/commit IMG crops for the Split-into-parts page (`SYSTEM_PATH/.question_split/<token>/`); `detect_boxes` reuses `pdf_import.detect_parts` |
 | `app/pdf_import.py` | Plan labels; `detect_parts` / `iter_split_detect`; `iter_commit` via `ensure_question` |
 | `app/ai_tools.py` | `load_ancestor_que_images` / `prepend_ancestor_que`; auto-tag skips stems |
@@ -44,11 +44,12 @@ Changed behaviour on existing routes plus new admin routes:
 | POST | `/admin/questions/create` | A, scoped | `qno` is a string token (`5`, `5a`, `3ci`, `23-24`, optional leading `Q`). Creates missing ancestor rows via `ensure_question`. |
 | POST | `/admin/questions/<id>/rename` | A, scoped to the **new** subject | Cascades to descendants (QIDs + optional files). 400 if the rename would change range vs part depth while children exist. 409 on QID collision in or outside the subtree. |
 | POST | `/admin/questions/delete` | A | 409 if any selected row has children not also selected, unless `delete_children=true`. Deletes deepest-first (RESTRICT). |
-| GET | `/admin/questions/<id>/details` | A | Extra `parent_id`, `part`, `qno_end`, `child_count`, `is_stem`, `breadcrumb`, `children`, `tag_union`. |
+| GET | `/admin/questions/<id>/details` | A | Extra `parent_id`, `part`, `qno_end`, `child_count`, `is_stem`, `needs_prev_parts`, `breadcrumb`, `children`, `tag_union`. |
 | GET | `/admin/questions/api/list` | A | Extra `parent_id`, `part`, `qno_end`, `depth`, `is_stem`. Query `tree_scope=all\|roots\|leaves`. |
 | POST | `/admin/questions/<id>/update` | A | Topic/chapter/level/q_type writes are ignored when the row is a stem. Answer/comment still apply. |
 | POST | `/admin/questions/<id>/children` | A, scoped | JSON `{part}` (`a`, `b`, `ci`). `ensure_question` under this QID. 400 on range stems. |
 | POST | `/admin/questions/<id>/parent` | A, scoped | JSON `{parent_id}` (null detaches). Same subject; `token_fits_under`; no cycles. 400 if detaching a labelled `part`. |
+| POST | `/admin/questions/<id>/needs-prev-parts` | A, scoped | JSON `{value}`. Toggles `needs_prev_parts`; 400 when turning it on for a root. Details payload carries `needs_prev_parts`; dashboard cards carry it too (badge). |
 | GET | `/admin/questions/<id>/split` | A, scoped | Stages IMG QUE and renders the crop page. MD/DOC QUE flash-redirects to the question list. Hidden in the Edit modal when the row is already a stem. |
 | GET | `/admin/questions/<id>/split/image/<version>?token=` | A, scoped | Staged PNG. |
 | POST | `/admin/questions/<id>/split/detect` | A, scoped | JSON `{token, version, endpoint_id}`. Pass-2 vision detect on the staged IMG → `{boxes, raw}`. |
@@ -75,6 +76,8 @@ Changed behaviour on existing routes plus new admin routes:
 - **Split tool** is IMG QUE only. Requires a `stem` box plus ≥1 part label. Range stems cannot be split here. Auto-detect uses the same pass-2 prompt as PDF import (`PDF_PART_*`).
 - **PDF import two-pass.** Pass 1 still one box per numbered question (or range). Pass 2 (opt-in, auto-runs when the checkbox is on) splits each crop into stem + lettered parts. SOL pass 2 uses QUE labels as `expected_labels`; unmatched lettered SOL is skipped and leftover whole-question SOL attaches to the stem.
 - **AI ancestor QUE.** Auto-tag, MD transcription of QUE, and Explain prepend ancestor QUE images (root first) labelled as shared background. Proofread stays per-row. Auto-tag skips stems.
+- **Nested stems are ordinary nodes.** `Q4d` with children `Q4di`, `Q4dii` is a part of `Q4` *and* the stem of its sub-parts; nothing marks it specially. In plan space `derive_roles(labels)` recomputes `stem` / `part` / `question` from the label set (`label_is_ancestor`), and `next_part_label` supplies the next sibling (`4a → 4b`, `4di → 4dii`, `4 → 5`).
+- **`needs_prev_parts`** (bool on `Question`): a leaf that refers to earlier sibling parts ("using your answer in (a)"). `resolve_render_plan(mode=selected)` then emits `earlier_siblings(node)` (plus their descendants) as `stem`-role background before the leaf, once per run and without duplicating a sibling that is itself selected. `whole` mode is unaffected (everything is already there). Roots cannot carry the flag (route returns 400). Set from the edit modal switch or by the PDF import agent via a plan item's `depends_prev`.
 - Uniqueness remains `questions.qid` only. `(subject, source, year, paper, qno)` is **not** unique.
 
 ## Settings & config keys

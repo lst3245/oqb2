@@ -459,6 +459,30 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Uniform width per side by default',
         help='Whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Users can toggle it per run.',
     )),
+    ('PDF_AGENT_OUTLINE_BATCH_PAGES', _spec(
+        'PDF_AGENT_OUTLINE_BATCH_PAGES', 'int', group='PDF Import',
+        label='AI agent: pages per outline call',
+        help='How many page thumbnails the PDF import agent sends in one "read the whole paper" call. Larger batches give the model more context per call (better multi-page question tracking) but cost more tokens per request and can exceed small context windows. 6 suits most endpoints.',
+        min=1, max=20,
+    )),
+    ('PDF_AGENT_THUMB_MAX_DIM', _spec(
+        'PDF_AGENT_THUMB_MAX_DIM', 'int', group='PDF Import',
+        label='AI agent: outline thumbnail size (px)',
+        help='Long-edge size of the page thumbnails used by the agent\'s outline stage. The outline only needs to read question numbers and part labels, so this can be much smaller than "Max image dimension sent to LLM" (which detection and verification still use). Default 900.',
+        min=400, max=2000,
+    )),
+    ('PDF_AGENT_MAX_REPAIR_ROUNDS', _spec(
+        'PDF_AGENT_MAX_REPAIR_ROUNDS', 'int', group='PDF Import',
+        label='AI agent: max repair rounds per question',
+        help='After segmenting a question into parts the agent re-draws the boxes on the crop and asks the model to check them. Each round applies the suggested fixes and re-checks. 0 disables the visual check; 2 is a good balance of accuracy and cost. Unresolved issues go to the attention list.',
+        min=0, max=5,
+    )),
+    ('PDF_AGENT_MAX_LLM_CALLS', _spec(
+        'PDF_AGENT_MAX_LLM_CALLS', 'int', group='PDF Import',
+        label='AI agent: LLM call budget per run',
+        help='Hard cap on model calls for one agent run (outline + page detection + part split + verification + repairs). When the budget is used up the remaining stages are skipped and flagged in the attention list rather than silently continuing. A 12-page paper with 8 questions typically needs 40-60 calls.',
+        min=10, max=2000,
+    )),
 
     # Toolbox (PDF Tool)
     ('TOOLBOX_DEFAULT_DPI', _spec(

@@ -42,6 +42,7 @@ one or more super admins (users, subjects, settings, everything).
 - **Asset versions are `EN / CH / BI / ENO / CHO`** (formerly "languages"); the canonical list lives in `app/utils.VERSIONS` and templates get it via a context processor. Do not hardcode the list ([ADR-006](docs/decisions/ADR-006-versions-replace-languages.md)).
 - **Dashboard Selection is independent of the Filter** ([ADR-008](docs/decisions/ADR-008-selection-independent-of-filter.md)).
 - **Questions form a tree** (`parent_id`) rather than peer links. A part is its own `Question`. Shared grammar and render-plan expansion live in `app/hierarchy.py` ([ADR-009](docs/decisions/ADR-009-question-hierarchy-over-linking.md)).
+- **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)).
 
 ## Area map
 
@@ -57,6 +58,7 @@ one or more super admins (users, subjects, settings, everything).
 | AI Tools (proofread, generate MD, solve, auto-tag, LLM endpoints) | `admin_bp` | `app/ai_tools.py`, `app/llm_client.py`, `app/parallel.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) |
 | AI Prompts registry + variants | `admin_bp` `/admin/prompts` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) |
 | PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
+| PDF Import AI agent | `admin_bp` `/admin/pdf-import/agent` | `app/pdf_agent.py` | [modules/pdf-agent.md](docs/modules/pdf-agent.md) |
 | Ingestion + Smart Import | `admin_bp` `/admin/import`, `cli.py` | `app/ingestor.py`, `app/smart_import.py` | [modules/ingestion.md](docs/modules/ingestion.md) |
 | Question hierarchy (stem / parts) | cross-cutting | `app/hierarchy.py` | [modules/question-hierarchy.md](docs/modules/question-hierarchy.md) |
 | File Browser (user + super-admin) | `files_bp` `/files`, `admin_bp` `/admin/files` | `app/files.py`, `app/files_service.py`, `app/storage.py` | [modules/file-browser.md](docs/modules/file-browser.md), [core/05](docs/core/05-storage-and-paths.md) |
@@ -79,6 +81,7 @@ one or more super admins (users, subjects, settings, everything).
 | [007](docs/decisions/ADR-007-self-contained-markdown-assets.md) | Markdown assets are single-file, self-contained (LaTeX + base64 images), converted via pandoc |
 | [008](docs/decisions/ADR-008-selection-independent-of-filter.md) | Dashboard Selection is a separate set from the Filter result; set algebra composes them |
 | [009](docs/decisions/ADR-009-question-hierarchy-over-linking.md) | Stem/parts are a `Question` tree (`parent_id`), not peer links; QNO token `Q5` / `Q5a` / `Q23-24` |
+| [010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md) | PDF import agent is a fixed state machine over pass 1/2 with strict-JSON LLM steps and an attention list; roles derived from labels; sibling dependency is a per-part flag |
 
 ## Documentation map
 

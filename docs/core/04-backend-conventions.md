@@ -70,6 +70,7 @@ return Response(generate(), mimetype='text/event-stream',
 - Cancellation: the AI ops register a `job_id` in an in-process cancel registry (`app/ai_tools.py`) and expose `POST .../ai/cancel`; if you add a cancellable op, reuse that registry.
 - Parallel fan-out for cloud LLM endpoints goes through `app/parallel.run_parallel(app, cancel, items, worker_fn, max_workers)`.
 - Reverse proxies need `proxy_buffering off`.
+- Long LLM-bound jobs that can sit silent for > ~60 s (PDF import AI agent) must **not** run on the SSE request thread: a dropped EventSource raises `GeneratorExit` and would abort the work. Run the pipeline on a daemon thread, keep events in memory, and have the SSE generator heartbeat (the Toolbox export stream is the same shape). The PDF agent keys the job by staging token so `/agent?attach=1` can rejoin.
 
 ## Background threads
 

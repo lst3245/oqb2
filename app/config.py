@@ -195,6 +195,14 @@ class Config:
     # ticked. Users can toggle it per run.
     PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
+    # PDF Batch Import — AI agent layer (app/pdf_agent.py): whole-paper
+    # outline batching, thumbnail size, visual verify/repair rounds and the
+    # per-run LLM call budget.
+    PDF_AGENT_OUTLINE_BATCH_PAGES = int(os.getenv('PDF_AGENT_OUTLINE_BATCH_PAGES', '6'))
+    PDF_AGENT_THUMB_MAX_DIM = int(os.getenv('PDF_AGENT_THUMB_MAX_DIM', '900'))
+    PDF_AGENT_MAX_REPAIR_ROUNDS = int(os.getenv('PDF_AGENT_MAX_REPAIR_ROUNDS', '2'))
+    PDF_AGENT_MAX_LLM_CALLS = int(os.getenv('PDF_AGENT_MAX_LLM_CALLS', '150'))
+
     # PDF Toolbox — width (px) used to rasterise pages for the preview thumbnails
     # and any raster-only processing in the working set.
     TOOLBOX_RASTER_WIDTH = int(os.getenv('TOOLBOX_RASTER_WIDTH', '1700'))

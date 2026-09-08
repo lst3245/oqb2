@@ -328,7 +328,7 @@ In "All Questions Then..." modes, you can also choose whether to apply the same 
 | Show QID on answers | Same, but for the answer section |
 | Show correct % | Appends the correct percentage: `MATC_DSE_2024_P1_Q5 [75%]` |
 | Generate sequential question number | Adds runtime `1.`, `2.`, `3.` numbers to this generated paper; this is separate from the real-paper Question Number in the QID. Enabled by default for a new generation; regeneration and presets preserve their saved choice. Parts of the same long question share one number; a shared MC preamble does not consume a number. |
-| Long questions / shared stems | **Only the parts I selected (plus their shared background)** (default) prints the stem plus the parts you ticked. **Every part of each selected question** prints the whole tree even if you only selected some parts. Ticking the grey header on the dashboard always includes every part. |
+| Long questions / shared stems | **Only the parts I selected (plus their shared background)** (default) prints the stem plus the parts you ticked. **Every part of each selected question** prints the whole tree even if you only selected some parts. Ticking the grey header on the dashboard always includes every part. A part marked **uses earlier parts** (badge on its card) also brings the earlier parts of that question along as background when you select it alone, because its wording depends on them. |
 | Starting number | The first sequential number (default 1) |
 | Page numbers | Adds a page number in the footer of every page |
 | Keep together | Prevents the QID/info line from being split from its image by a page break |

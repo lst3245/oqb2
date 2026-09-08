@@ -68,6 +68,10 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | PDF Import | `PDF_IMPORT_ASSIST_PAD_PCT` | float 0–10 | 0.6 | refine/segment: content padding |
 | PDF Import | `PDF_IMPORT_TRIM_WHITE_DEFAULT` | bool | False | "Trim whitespace" starts ticked |
 | PDF Import | `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` | bool | True | "Uniform width per side" starts ticked |
+| PDF Import | `PDF_AGENT_OUTLINE_BATCH_PAGES` | int 1–20 | 6 | AI agent: page thumbnails per outline call |
+| PDF Import | `PDF_AGENT_THUMB_MAX_DIM` | int 400–2000 | 900 | AI agent: long edge of outline thumbnails (px) |
+| PDF Import | `PDF_AGENT_MAX_REPAIR_ROUNDS` | int 0–5 | 2 | AI agent: visual check + repair rounds per question (0 = no verify) |
+| PDF Import | `PDF_AGENT_MAX_LLM_CALLS` | int 10–2000 | 150 | AI agent: hard cap on model calls per run; remaining stages are skipped and flagged |
 | Toolbox | `TOOLBOX_DEFAULT_DPI` | int 72–600 | 200 | PDF Tool process/export DPI |
 | Toolbox | `TOOLBOX_OCR_DPI` | int 72–600 | 300 | Find & Mark OCR raster DPI |
 | Toolbox | `TOOLBOX_OCR_WORKERS` | int 1–32 | 4 | parallel OCR pages (capped by CPU count) |

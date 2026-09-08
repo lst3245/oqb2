@@ -15,7 +15,9 @@ alwaysApply: false
 - Delete stem blocked while children exist unless `delete_children`. Sync never drops a childless-asset row that still has children.
 - Generator/viewer expansion is **only** `resolve_render_plan` (`hierarchy_mode` `selected`|`whole`). Dashboard `#allQuestionIds` stays **leaves only**. Selection semantics stay ADR-008.
 - Tags live on leaves. Do not write topic/type/level onto stems. Auto-tag skips stems.
-- PDF import: pass 1 = whole numbered questions; pass 2 (`iter_split_detect`) = stem+(a)(b)(c). `Subject.split_parts_default` seeds the wizard checkbox.
+- PDF import: pass 1 = whole numbered questions; pass 2 (`iter_split_detect`) = stem+(a)(b)(c), nested as plain labels (`4d` + `4di`). `Subject.split_parts_default` seeds the wizard checkbox.
+- Plan roles are **derived** (`derive_roles` / `label_is_ancestor`), never stored from model output. A nested stem is just a node with children.
+- `needs_prev_parts` is the only sibling-dependency mechanism: `resolve_render_plan` prepends `earlier_siblings` as `stem`-role items for flagged leaves (selected mode). No `depends_on` edges (ADR-009/010).
 
 ## Gotchas
 - Hyphen in Smart Import: match qno on the **unsplit** stem (`Q23-24`), not `_SPLIT_RE` tokens.

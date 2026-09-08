@@ -451,6 +451,13 @@ function populateHierarchyDetails(data) {
             ).join('');
         }
     }
+    const npWrap = document.getElementById('editNeedsPrevWrap');
+    const npChk = document.getElementById('editNeedsPrevParts');
+    if (npWrap && npChk) {
+        const isPart = !!data.parent_id && !!data.part;
+        npWrap.style.display = isPart ? '' : 'none';
+        npChk.checked = !!data.needs_prev_parts;
+    }
     if (splitLink) {
         splitLink.href = `/admin/questions/${data.id}/split`;
         const alreadyStem = !!data.is_stem;
@@ -480,6 +487,30 @@ function createChildPart() {
         if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
     })
     .catch(err => { if (status) status.textContent = err.message; showToast(err.message, 'danger'); });
+}
+
+function setNeedsPrevParts(value) {
+    const qId = document.getElementById('editQId').value;
+    const status = document.getElementById('editHierarchyStatus');
+    fetch(`{{ url_for('admin.set_needs_prev_parts', question_id=0) }}`.replace('/0/', `/${qId}/`), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({value: !!value})
+    })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Failed');
+        if (status) status.textContent = d.needs_prev_parts
+            ? 'This part now brings its earlier parts along.'
+            : 'This part is shown on its own (with the shared background).';
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+    })
+    .catch(err => {
+        const chk = document.getElementById('editNeedsPrevParts');
+        if (chk) chk.checked = !value;
+        if (status) status.textContent = err.message;
+        showToast(err.message, 'danger');
+    });
 }
 
 function setQuestionParent() {

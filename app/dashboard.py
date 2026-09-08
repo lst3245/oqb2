@@ -255,6 +255,7 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         'part': q.part,
         'root_id': getattr(r, 'id', q.id),
         'is_stem': role == 'stem',
+        'needs_prev_parts': bool(getattr(q, 'needs_prev_parts', False)),
         'level': q.level,
         'q_type': q.q_type,
         'subject': q.subject,

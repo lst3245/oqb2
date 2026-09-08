@@ -282,6 +282,13 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                             </a>
                         </div>
                         <div class="form-text mb-2">Parent ID is the numeric database id of the stem (same paper), shown in the address bar when you open that question. Leave blank and click Set to detach a standalone question. Labelled parts cannot be detached.</div>
+                        <div class="form-check form-switch mb-2" id="editNeedsPrevWrap" style="display:none;">
+                            <input class="form-check-input" type="checkbox" id="editNeedsPrevParts" onchange="setNeedsPrevParts(this.checked)">
+                            <label class="form-check-label small" for="editNeedsPrevParts">
+                                Depends on earlier parts — when this part is viewed or generated on its own, the earlier parts
+                                (for example (a) and (b) for (c)) are included as background.
+                            </label>
+                        </div>
                         <div id="editHierarchyStatus" class="small"></div>
                     </div>
                 </div>

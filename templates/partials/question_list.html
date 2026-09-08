@@ -105,6 +105,9 @@
                         {% if question.part_label or question.part %}
                         <span class="badge bg-light text-dark border">part ({{ question.part_label or question.part }}) of {{ question.stem_qid or 'the whole question' }}</span>
                         {% endif %}
+                        {% if question.needs_prev_parts %}
+                        <span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background">uses earlier parts</span>
+                        {% endif %}
                     </h6>
                     <small class="text-muted">
                         {{ question.source }}

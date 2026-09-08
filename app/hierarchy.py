@@ -244,6 +244,83 @@ def compose_part_label(parent_label: str, child_raw: str) -> Optional[str]:
         return None
 
 
+def label_is_ancestor(parent_label, child_label) -> bool:
+    """True when plan label ``parent_label`` is a strict ancestor of
+    ``child_label`` (``5`` ⊃ ``5d`` ⊃ ``5di``). Ranges have no descendants
+    other than the plain numbers they cover."""
+    p = parse_qno_token(parent_label)
+    c = parse_qno_token(child_label)
+    if not p or not c:
+        return False
+    if p.qno_end:
+        return (not c.qno_end and not c.part_path
+                and p.qno <= c.qno <= p.qno_end)
+    if c.qno_end or c.qno != p.qno:
+        return False
+    ps = part_segments(p.part_path)
+    cs = part_segments(c.part_path)
+    return len(cs) > len(ps) and cs[:len(ps)] == ps
+
+
+def derive_roles(labels) -> dict:
+    """Role of every plan label in one question, derived from the label set.
+
+    A label is a ``stem`` when another label in the set descends from it
+    (``5`` with ``5a`` present, ``5d`` with ``5di``); a label with a part
+    path but no descendants is a ``part``; a plain number / range with no
+    descendants is a ``question``. Roles are therefore never stored as
+    model output — they are recomputed whenever labels change.
+    """
+    labs = []
+    for raw in labels or []:
+        lab = normalize_plan_label(raw)
+        if lab and lab not in labs:
+            labs.append(lab)
+    out = {}
+    for lab in labs:
+        has_child = any(label_is_ancestor(lab, other) for other in labs
+                        if other != lab)
+        if has_child:
+            out[lab] = 'stem'
+        else:
+            p = parse_qno_token(lab)
+            out[lab] = 'part' if (p and p.part_path) else 'question'
+    return out
+
+
+def next_part_label(label) -> Optional[str]:
+    """Next sibling label: ``4a`` → ``4b``, ``4di`` → ``4dii``, ``4`` → ``5``.
+
+    Returns ``None`` for ranges or unparsable input; ``z`` and ``x`` have no
+    successor and also return ``None``.
+    """
+    p = parse_qno_token(label)
+    if not p:
+        return None
+    if p.qno_end:
+        return None
+    if not p.part_path:
+        return str(p.qno + 1)
+    segs = part_segments(p.part_path)
+    own = segs[-1]
+    if own in _ROMAN_VALUE:
+        val = _ROMAN_VALUE[own] + 1
+        nxt = next((k for k, v in _ROMAN_VALUE.items() if v == val), None)
+        if not nxt:
+            return None
+    elif len(own) == 1 and own.isalpha():
+        if own == 'z':
+            return None
+        nxt = chr(ord(own) + 1)
+    else:
+        return None
+    path = ''.join(segs[:-1]) + nxt
+    try:
+        return format_qno_token(p.qno, None, path)[1:]
+    except HierarchyError:
+        return None
+
+
 def parse_qid(qid: str) -> Optional[ParsedQid]:
     """Parse a full QID string. Subject/source tokens are case-sensitive."""
     if not qid:
@@ -437,6 +514,18 @@ def descendants(q) -> list:
 
 def depth_of(q) -> int:
     return len(ancestors(q))
+
+
+def earlier_siblings(q) -> list:
+    """Siblings of `q` (same parent) that sort before it, in order.
+    Roots have no siblings here (whole-question context is not implied)."""
+    parent = getattr(q, 'parent', None)
+    if parent is None:
+        return []
+    me = sort_key(q)
+    return sorted((c for c in _children(parent)
+                   if getattr(c, 'id', id(c)) != getattr(q, 'id', id(q))
+                   and sort_key(c) < me), key=sort_key)
 
 
 def part_path_of(q) -> Optional[str]:
@@ -736,7 +825,9 @@ def resolve_render_plan(questions: Iterable, mode: str = HIERARCHY_MODE_SELECTED
 
     `mode='selected'`: a selected stem expands to itself + all descendants;
     a selected leaf is emitted with its ancestors inserted once per
-    contiguous run of that root. `mode='whole'`: every selected node's root
+    contiguous run of that root. A leaf flagged `needs_prev_parts` also
+    pulls in its earlier siblings (and their descendants) as `stem`-role
+    background, once per run. `mode='whole'`: every selected node's root
     expands to the full tree.
     """
     selected = list(questions)
@@ -793,6 +884,20 @@ def resolve_render_plan(questions: Iterable, mode: str = HIERARCHY_MODE_SELECTED
         nid = _nid(node)
         if nid in seen_in_run:
             continue
+        if (mode == HIERARCHY_MODE_SELECTED and not is_stem(node)
+                and getattr(node, 'needs_prev_parts', False)):
+            for sib in earlier_siblings(node):
+                for ctx in [sib] + sorted(descendants(sib), key=sort_key):
+                    cid = _nid(ctx)
+                    if cid in seen_in_run:
+                        continue
+                    out.append(RenderItem(
+                        question=ctx,
+                        role='stem',
+                        seq_owner_id=None,
+                        depth=depth_of(ctx),
+                    ))
+                    seen_in_run.add(cid)
         role = 'stem' if is_stem(node) else 'leaf'
         out.append(RenderItem(
             question=node,

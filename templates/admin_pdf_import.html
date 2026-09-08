@@ -120,6 +120,12 @@
     .pdf-box.role-part .pdf-box-label { background: #fd7e14; }
     .pdf-box.kind-sol.role-part { border-color: #fd7e14; }
     .pdf-box.kind-sol.role-stem { border-color: #6c757d; }
+    /* Agent attention markers on list rows. */
+    .box-row.attention-error { background: #fff0f1; box-shadow: inset 3px 0 0 #dc3545; }
+    .box-row.attention-warn { background: #fff8e1; box-shadow: inset 3px 0 0 #ffc107; }
+    .attention-flash { animation: attention-flash 1.6s ease-out; }
+    @keyframes attention-flash { 0% { outline: 3px solid #ffc107; } 100% { outline: 3px solid transparent; } }
+    #agentStage .agent-step { white-space: nowrap; }
     .box-row .split-actions { display: flex; gap: 0.2rem; flex-shrink: 0; }
     .box-row > .btn-outline-danger { margin-left: auto; }
     .box-row .role-chip { font-size: 0.65rem; min-width: 2.6rem; }
@@ -239,6 +245,15 @@
                     {% endif %}
                 </div>
                 <div class="col-12">
+                    <div class="form-check exam-only">
+                        <input class="form-check-input" type="checkbox" id="agentAutoChk" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
+                        <label class="form-check-label" for="agentAutoChk" title="After loading, the AI agent reads the whole paper, finds every question and part, checks its own boxes and lists anything doubtful for you to review.">
+                            <i class="bi bi-stars"></i> <strong>Auto-process with AI agent</strong> after loading
+                        </label>
+                    </div>
+                    <div class="form-text exam-only mb-2" style="margin-left: 1.5rem;">
+                        Recommended for past papers. The agent outlines the paper, locates questions, splits multi-part questions (nested parts included), verifies the boxes and repairs what it can. Anything it is unsure about appears in a <em>Needs attention</em> list; you review only those, then import.
+                    </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
                         <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
@@ -408,6 +423,9 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled>
                     <i class="bi bi-scissors"></i> Detect parts
                 </button>
+                <button id="btnRunAgent" class="btn btn-success exam-only" disabled title="Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.">
+                    <i class="bi bi-stars"></i> Run AI agent
+                </button>
                 <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
                 <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
                 <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
@@ -415,12 +433,39 @@ Step 1: choose your task and PDF(s), then click "Load PDF".
                 <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
                 {% endif %}
             </div>
-            <p class="text-muted small mb-3">Optional: run detection, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong one. <strong>Add box</strong> then drag on the page &mdash; adding or deleting a numbered box shifts later Q# values (manual edits and move/resize do not). Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. If <em>Split into parts</em> is ticked, detection automatically runs a second pass; you can also click <strong>Detect parts</strong> or per-question <strong>Re-split</strong>. <strong>Click a crop preview</strong> to enlarge it. Then use Step 3 to import.
+            <p class="text-muted small mb-3">Optional: run detection, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong one. <strong>Add box</strong> then drag on the page &mdash; adding or deleting a numbered box shifts later Q# values (manual edits and move/resize do not). Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. If <em>Split into parts</em> is ticked, detection automatically runs a second pass; you can also click <strong>Detect parts</strong> or per-question <strong>Re-split</strong>. Roles are worked out from the labels: typing 4d and 4di makes 4d a nested stem. Use the + button on a row to add the next part beneath it. <strong>Click a crop preview</strong> to enlarge it. Then use Step 3 to import.
                 <span class="badge" style="background:#d63384;">QUE</span>
                 <span class="badge bg-primary">SOL</span>
                 <span class="badge" style="background:#6c757d;">stem</span>
                 <span class="badge" style="background:#fd7e14;">part</span>
             </p>
+            <div id="agentStage" class="alert alert-light border d-none py-2 small" role="status">
+                <i class="bi bi-stars text-success"></i> <strong>AI agent:</strong>
+                <span class="agent-step" data-stage="outline">1 Outline</span> ›
+                <span class="agent-step" data-stage="locate">2 Locate</span> ›
+                <span class="agent-step" data-stage="segment">3 Split parts</span> ›
+                <span class="agent-step" data-stage="verify">4 Verify</span>
+                <span id="agentStageMsg" class="text-muted ms-2"></span>
+            </div>
+            <div id="attentionPanel" class="card border-warning mb-3 d-none">
+                <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span><i class="bi bi-exclamation-triangle-fill text-warning"></i> <strong>Needs attention</strong>
+                        <span id="attentionCounts" class="ms-2 small text-muted"></span></span>
+                    <span class="d-flex gap-2 align-items-center">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionOutlineBtn" title="Show the paper outline the agent worked from">
+                            <i class="bi bi-list-nested"></i> Outline
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionClearBtn" title="Hide the list (does not change any box)">
+                            <i class="bi bi-x-lg"></i> Dismiss all
+                        </button>
+                    </span>
+                </div>
+                <div class="card-body py-2">
+                    <div class="small text-muted mb-2">The agent handled everything else. Click an entry to jump to the box; fix the Q# or box, or draw / delete as needed, then dismiss it. Red entries mean a question or part that was expected but not found.</div>
+                    <ul id="attentionList" class="list-unstyled mb-0"></ul>
+                    <pre id="attentionOutline" class="small bg-light border rounded p-2 mt-2 mb-0 d-none" style="max-height: 16rem; overflow:auto;"></pre>
+                </div>
+            </div>
             <div id="orderWarning" class="alert alert-danger d-none border-2 fw-semibold" role="alert">
                 <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> Question numbers look out of order</h5>
                 <div id="orderWarningBody" class="small fw-normal"></div>
@@ -632,6 +677,8 @@ let eventSource = null;
 let currentJobId = null;
 let running = false;
 let uidCounter = 0;
+let selectedItem = null;
+let selectedKind = null;
 function nextUid() { return 'b' + (++uidCounter); }
 
 // ----- Uniform width (per-kind shared width, review-time only) -----
@@ -814,6 +861,229 @@ function planRegionCount() {
     return plan.que.length + plan.sol.length;
 }
 
+// ----- AI agent -----
+const btnRunAgent = document.getElementById('btnRunAgent');
+const agentAutoChk = document.getElementById('agentAutoChk');
+const agentStage = document.getElementById('agentStage');
+const agentStageMsg = document.getElementById('agentStageMsg');
+const attentionPanel = document.getElementById('attentionPanel');
+const attentionList = document.getElementById('attentionList');
+const attentionCounts = document.getElementById('attentionCounts');
+const attentionOutline = document.getElementById('attentionOutline');
+let attentionItems = [];
+let agentOutline = null;
+
+if (btnRunAgent) btnRunAgent.addEventListener('click', () => startAgent({ confirm: true }));
+document.getElementById('attentionClearBtn')?.addEventListener('click', () => {
+    attentionItems = [];
+    renderAttention();
+});
+document.getElementById('attentionOutlineBtn')?.addEventListener('click', () => {
+    attentionOutline.classList.toggle('d-none');
+    if (!attentionOutline.classList.contains('d-none')) {
+        attentionOutline.textContent = outlineText(agentOutline);
+    }
+});
+
+function refreshAgentBtn() {
+    if (!btnRunAgent) return;
+    btnRunAgent.disabled = running || !staging || isGeneric() || !AI_ENABLED || !HAS_ENDPOINTS;
+}
+
+function setAgentStage(stage, msg) {
+    if (!agentStage) return;
+    agentStage.classList.remove('d-none');
+    const order = ['outline', 'locate', 'segment', 'verify'];
+    const idx = order.indexOf(stage);
+    agentStage.querySelectorAll('.agent-step').forEach(el => {
+        const i = order.indexOf(el.dataset.stage);
+        el.className = 'agent-step ' + (i < idx || stage === 'done' ? 'text-success fw-semibold'
+            : i === idx ? 'text-primary fw-bold' : 'text-muted');
+    });
+    if (msg !== undefined) agentStageMsg.textContent = msg;
+}
+
+async function startAgent(opts) {
+    opts = opts || {};
+    if (!staging || isGeneric()) return;
+    if (!AI_ENABLED || !HAS_ENDPOINTS) {
+        alert('Configure a vision-capable LLM endpoint to run the AI agent.');
+        return;
+    }
+    if (!opts.attach && opts.confirm && planRegionCount() > 0
+        && !confirm('The AI agent starts from scratch and replaces every box currently in this session. Continue?')) {
+        return;
+    }
+    if (!opts.attach) {
+        attentionItems = [];
+        agentOutline = null;
+        renderAttention();
+        appendLog('AI agent started: outline → locate → split parts → verify.', 'info');
+        setAgentStage('outline', 'reading the whole paper');
+        window._agentReconnects = 0;
+    } else {
+        appendLog('Rejoined AI agent stream (the run kept going on the server).', 'info');
+    }
+    setRunning(true, 'detect');
+    setStatus('AI agent', 'bg-success');
+    showProgress('AI agent: reading the paper...');
+
+    let url = `${IMPORT_BASE}/agent?token=${encodeURIComponent(staging.token)}`
+        + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
+        + (debugChk.checked ? '&debug=1' : '')
+        + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '');
+    if (opts.attach) url += '&attach=1';
+    else if (opts.confirm) url += '&restart=1';
+    eventSource = new EventSource(url);
+    eventSource.onmessage = (e) => {
+        let ev;
+        try { ev = JSON.parse(e.data); } catch { return; }
+        if (ev.type === 'heartbeat') return;
+        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8) + (ev.attached ? ' (rejoined)' : ''), 'job'); return; }
+        if (ev.stage && ev.stage !== 'done') {
+            setAgentStage(ev.stage, ev.message || '');
+            const labels = { outline: 'AI agent: outlining the paper', locate: 'AI agent: locating questions',
+                             segment: 'AI agent: splitting parts', verify: 'AI agent: verifying boxes' };
+            if (labels[ev.stage]) progressLabel.textContent = labels[ev.stage];
+        }
+        if (ev.message) appendLog(ev.message, ev.type === 'attention' ? 'warning' : ev.type);
+        updateProgress(ev);
+        if (ev.type === 'done') {
+            closeStream();
+            if (ev.plan) applyServerPlan(ev.plan);
+            if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+            attentionItems = Array.isArray(ev.attention) ? ev.attention : [];
+            agentOutline = ev.outline || null;
+            renderAttention();
+            progressBar.classList.remove('progress-bar-animated');
+            setAgentStage('done', `finished — ${ev.calls || 0} model call(s)`);
+            setRunning(false);
+            setStatus('Review', 'bg-primary');
+            if (attentionItems.length) {
+                attentionPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    };
+    eventSource.onerror = () => {
+        if (!running) return;
+        const n = (window._agentReconnects || 0);
+        if (!opts.attach && n < 2) {
+            window._agentReconnects = n + 1;
+            appendLog('Stream dropped — rejoining; the agent is still running on the server.', 'warning');
+            closeStream();
+            startAgent({ attach: true, confirm: false });
+            return;
+        }
+        appendLog('AI agent connection closed. The run may still finish — refresh or click Run AI agent to rejoin.', 'warning');
+        closeStream();
+        progressBar.classList.remove('progress-bar-animated');
+        setRunning(false);
+        setStatus('Review', 'bg-primary');
+        loadAttention();
+    };
+}
+
+async function loadAttention() {
+    if (!staging) return;
+    try {
+        const r = await fetch(`${IMPORT_BASE}/attention?token=${encodeURIComponent(staging.token)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        attentionItems = Array.isArray(d.attention) ? d.attention : [];
+        agentOutline = d.outline || null;
+        renderAttention();
+    } catch { /* offline: nothing to show */ }
+}
+
+function itemsForAttention(a) {
+    if (!a.kind || !a.label) return [];
+    return (plan[a.kind] || []).filter(it => examLabel(it) === a.label
+        || (a.page != null && it.page === a.page && !examLabel(it)));
+}
+
+function renderAttention() {
+    if (!attentionPanel) return;
+    attentionList.innerHTML = '';
+    if (!attentionItems.length) {
+        attentionPanel.classList.add('d-none');
+        document.querySelectorAll('.box-row.attention-error, .box-row.attention-warn')
+            .forEach(el => el.classList.remove('attention-error', 'attention-warn'));
+        return;
+    }
+    attentionPanel.classList.remove('d-none');
+    const counts = { error: 0, warn: 0, info: 0 };
+    attentionItems.forEach(a => { counts[a.severity] = (counts[a.severity] || 0) + 1; });
+    attentionCounts.textContent = `${counts.error} to fix, ${counts.warn} to check, ${counts.info} note(s)`;
+    const order = { error: 0, warn: 1, info: 2 };
+    const sorted = attentionItems.slice().sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+    document.querySelectorAll('.box-row.attention-error, .box-row.attention-warn')
+        .forEach(el => el.classList.remove('attention-error', 'attention-warn'));
+    sorted.forEach(a => {
+        const li = document.createElement('li');
+        li.className = 'd-flex align-items-start gap-2 py-1 border-bottom';
+        const badge = a.severity === 'error' ? 'bg-danger' : a.severity === 'warn' ? 'bg-warning text-dark' : 'bg-secondary';
+        const where = [a.kind ? a.kind.toUpperCase() : null, a.label ? 'Q' + a.label : null,
+                       a.page != null ? 'page ' + (a.page + 1) : null].filter(Boolean).join(' · ');
+        const targets = itemsForAttention(a);
+        targets.forEach(it => document.getElementById('row-' + it._uid)
+            ?.classList.add(a.severity === 'error' ? 'attention-error' : 'attention-warn'));
+        li.innerHTML = `<span class="badge ${badge}">${a.severity === 'error' ? 'fix' : a.severity === 'warn' ? 'check' : 'note'}</span>
+            <span class="flex-grow-1"><span class="fw-semibold">${where || a.stage}</span> — ${escapeHtml(a.reason)}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="Remove this entry">
+                <i class="bi bi-check2"></i>
+            </button>`;
+        li.querySelector('.flex-grow-1').style.cursor = (targets.length || a.page != null) ? 'pointer' : 'default';
+        li.querySelector('.flex-grow-1').addEventListener('click', () => jumpToAttention(a, targets));
+        li.querySelector('button').addEventListener('click', () => {
+            attentionItems = attentionItems.filter(x => x !== a);
+            renderAttention();
+        });
+        attentionList.appendChild(li);
+    });
+}
+
+function jumpToAttention(a, targets) {
+    let el = null;
+    if (targets && targets.length) {
+        const it = targets[0];
+        el = document.getElementById('row-' + it._uid);
+        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
+        document.getElementById('box-' + it._uid)?.classList.add('selected');
+        selectedItem = it;
+        selectedKind = a.kind;
+    } else if (a.kind && a.page != null) {
+        el = document.querySelector(`.page-card[data-kind="${a.kind}"][data-page="${a.page}"]`);
+    }
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('attention-flash');
+        setTimeout(() => el.classList.remove('attention-flash'), 1600);
+    }
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function outlineText(outline) {
+    if (!outline) return 'No outline available.';
+    const lines = [];
+    ['que', 'sol'].forEach(k => {
+        const o = outline[k];
+        if (!o) return;
+        lines.push((k === 'que' ? 'QUESTION PAPER' : 'MARKING SCHEME')
+            + (o.paper && (o.paper.year || o.paper.paper) ? `  (${[o.paper.year, o.paper.paper, o.paper.section].filter(Boolean).join(' ')})` : ''));
+        (o.pages || []).forEach(p => { if (p.kind !== 'question') lines.push(`  page ${p.page}: ${p.kind}`); });
+        (o.questions || []).forEach(q => {
+            const parts = (q.parts || []).length ? '  parts: ' + q.parts.join(', ') : '  (no lettered parts)';
+            const deps = (q.depends_prev || []).length ? `  depends: ${q.depends_prev.join(', ')}` : '';
+            lines.push(`  Q${q.label}  pages ${(q.pages || []).join(', ')}${parts}${deps}`);
+        });
+    });
+    return lines.join('\n') || 'No outline available.';
+}
+
 function detectUrlExtras() {
     const instruction = instructionInput.value.trim();
     let qs = '';
@@ -864,6 +1134,7 @@ function setRunning(on, phase) {
         btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
     }
     refreshSplitDetectBtn();
+    refreshAgentBtn();
     [queVersionSelect, solVersionSelect, overwriteChk, trimWhiteChk]
         .forEach(el => { if (el) el.disabled = lockImport || !staging; });
     btnLoadPdf.disabled = lockSetup;
@@ -962,6 +1233,9 @@ async function loadPdf() {
     renderReview({ pending: false });
     updateReviewSummary();
     bboxCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!isGeneric() && agentAutoChk && agentAutoChk.checked && AI_ENABLED && HAS_ENDPOINTS) {
+        startAgent({ confirm: false });
+    }
 }
 
 function runDetect() {
@@ -1075,6 +1349,99 @@ function examLabel(it) {
     if (it && Number.isFinite(it.qno)) return String(it.qno);
     return '';
 }
+const ROMAN_TOKENS = ['viii', 'iii', 'vii', 'ii', 'iv', 'vi', 'ix', 'i', 'v', 'x'];
+const ROMAN_VALUE = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+function parseLabel(s) {
+    if (s == null) return null;
+    const raw = String(s).trim().replace(/^[Qq]/, '').toLowerCase();
+    if (!raw) return null;
+    const m = raw.match(/^(\d+)(?:-(\d+))?([a-z]+)?$/);
+    if (!m) return null;
+    if (m[2] && m[3]) return null;
+    return {
+        qno: parseInt(m[1], 10),
+        qnoEnd: m[2] ? parseInt(m[2], 10) : null,
+        path: m[3] || '',
+    };
+}
+function partSegments(path) {
+    const segs = [];
+    let rest = String(path || '').toLowerCase();
+    while (rest) {
+        if (ROMAN_TOKENS.indexOf(rest) >= 0) {
+            segs.push(rest);
+            break;
+        }
+        let matched = false;
+        for (let i = 0; i < ROMAN_TOKENS.length; i++) {
+            const roman = ROMAN_TOKENS[i];
+            if (rest.length > roman.length && rest.slice(-roman.length) === roman) {
+                const remainder = rest.slice(0, -roman.length);
+                if (remainder && /^[a-z]+$/.test(remainder)) {
+                    segs.push(roman);
+                    rest = remainder;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (matched) continue;
+        segs.push(rest.slice(-1));
+        rest = rest.slice(0, -1);
+    }
+    segs.reverse();
+    return segs;
+}
+function labelIsAncestor(parentLabel, childLabel) {
+    const p = parseLabel(parentLabel);
+    const c = parseLabel(childLabel);
+    if (!p || !c) return false;
+    if (p.qnoEnd != null) {
+        return !c.qnoEnd && !c.path && p.qno <= c.qno && c.qno <= p.qnoEnd;
+    }
+    if (c.qnoEnd != null || c.qno !== p.qno) return false;
+    const ps = partSegments(p.path);
+    const cs = partSegments(c.path);
+    if (cs.length <= ps.length) return false;
+    for (let i = 0; i < ps.length; i++) {
+        if (ps[i] !== cs[i]) return false;
+    }
+    return true;
+}
+function deriveRoles(kind) {
+    const items = plan[kind] || [];
+    const labels = items.map(it => examLabel(it));
+    items.forEach((it, i) => {
+        const lab = labels[i];
+        const parsed = parseLabel(lab);
+        if (!parsed) { it.role = null; return; }
+        const hasChild = labels.some(other => other !== lab && labelIsAncestor(lab, other));
+        if (hasChild) it.role = 'stem';
+        else if (parsed.path) it.role = 'part';
+        else it.role = 'question';
+    });
+}
+function nextPartLabel(label) {
+    const p = parseLabel(label);
+    if (!p || p.qnoEnd != null) return null;
+    if (!p.path) return String(p.qno + 1);
+    const segs = partSegments(p.path);
+    const own = segs[segs.length - 1];
+    let nxt = null;
+    if (Object.prototype.hasOwnProperty.call(ROMAN_VALUE, own)) {
+        const val = ROMAN_VALUE[own] + 1;
+        for (const k in ROMAN_VALUE) {
+            if (ROMAN_VALUE[k] === val) { nxt = k; break; }
+        }
+        if (!nxt) return null;
+    } else if (own.length === 1 && /^[a-z]$/.test(own)) {
+        if (own === 'z') return null;
+        nxt = String.fromCharCode(own.charCodeAt(0) + 1);
+    } else {
+        return null;
+    }
+    return String(p.qno) + segs.slice(0, -1).join('') + nxt;
+}
 function prefixInt(it) {
     const lab = examLabel(it);
     const m = lab.match(/^(\d+)/);
@@ -1083,7 +1450,8 @@ function prefixInt(it) {
 }
 function isPartItem(it) {
     if (it && it.role === 'part') return true;
-    return /[a-z]/i.test(examLabel(it));
+    const parsed = parseLabel(examLabel(it));
+    return !!(parsed && parsed.path);
 }
 function applyExamLabel(it, raw) {
     const s = String(raw || '').trim().replace(/^Q/i, '');
@@ -1101,6 +1469,7 @@ function serializePlanItem(it) {
         source_label: it.source_label || null,
         source_page: it.source_page,
         source_box: it.source_box || null,
+        depends_prev: !!it.depends_prev,
     };
 }
 async function savePlanToServer() {
@@ -1120,6 +1489,8 @@ async function savePlanToServer() {
     return d;
 }
 function applyServerPlan(serverPlan) {
+    selectedItem = null;
+    selectedKind = null;
     ['que', 'sol'].forEach(kind => {
         plan[kind] = (serverPlan[kind] || []).map(it => ({
             page: it.page,
@@ -1130,8 +1501,10 @@ function applyServerPlan(serverPlan) {
             source_label: it.source_label || null,
             source_page: it.source_page,
             source_box: it.source_box || null,
+            depends_prev: !!it.depends_prev,
             _uid: nextUid(),
         }));
+        deriveRoles(kind);
     });
     document.querySelectorAll('.page-card').forEach(card => {
         fillPageCard(card.dataset.kind, parseInt(card.dataset.page, 10));
@@ -1194,14 +1567,29 @@ async function startSplitDetect(opts) {
     };
 }
 
-function parentLabelOf(item) {
+function parentLabelOf(kind, item) {
+    const child = examLabel(item);
+    let best = null;
+    (plan[kind] || []).forEach(it => {
+        const L = examLabel(it);
+        if (!L || L === child) return;
+        if (labelIsAncestor(L, child) && (best == null || L.length > best.length)) best = L;
+    });
+    if (best) return best;
     if (item.source_label) return examLabel({ label: item.source_label });
     const lab = examLabel(item);
     const m = lab.match(/^(\d+(?:-\d+)?)/);
     return m ? m[1] : lab;
 }
 function unsplitParent(kind, parentLabel) {
-    const kids = plan[kind].filter(it => parentLabelOf(it) === parentLabel);
+    const kids = plan[kind].filter(it => {
+        const lab = examLabel(it);
+        if (lab === parentLabel) return true;
+        if (labelIsAncestor(parentLabel, lab)) return true;
+        if (parentLabelOf(kind, it) === parentLabel) return true;
+        if (it.source_label && examLabel({ label: it.source_label }) === parentLabel) return true;
+        return false;
+    });
     if (!kids.length) return;
     const seen = new Set();
     const restored = [];
@@ -1236,7 +1624,9 @@ function unsplitParent(kind, parentLabel) {
             });
         });
     }
-    plan[kind] = plan[kind].filter(it => parentLabelOf(it) !== parentLabel).concat(restored);
+    const drop = new Set(kids);
+    plan[kind] = plan[kind].filter(it => !drop.has(it)).concat(restored);
+    deriveRoles(kind);
     document.querySelectorAll(`.page-card[data-kind="${kind}"]`).forEach(card => {
         fillPageCard(kind, parseInt(card.dataset.page, 10));
     });
@@ -1396,6 +1786,139 @@ function applyBoxStyle(el, box) {
     el.style.height = ((y2 - y1) * 100) + '%';
 }
 
+function styleRoleChip(chip, role) {
+    chip.className = 'badge role-chip';
+    chip.style.background = '';
+    if (role === 'stem') {
+        chip.style.background = '#6c757d';
+        chip.textContent = 'stem';
+        chip.title = 'Shared background for this question';
+    } else if (role === 'part') {
+        chip.style.background = '#fd7e14';
+        chip.textContent = 'part';
+        chip.title = 'Lettered part — imported as its own question';
+    } else {
+        chip.className = 'badge role-chip text-bg-light border';
+        chip.textContent = 'Q';
+        chip.title = 'Whole numbered question';
+    }
+}
+function buildSplitActions(kind, item) {
+    const actions = document.createElement('div');
+    actions.className = 'split-actions';
+    const canSplit = item.role === 'stem' || item.role === 'question';
+    if (canSplit) {
+        const reBtn = document.createElement('button');
+        reBtn.type = 'button';
+        reBtn.className = 'btn btn-sm btn-outline-primary';
+        reBtn.title = 'Re-run part detection on this question';
+        reBtn.innerHTML = '<i class="bi bi-scissors"></i> Re-split';
+        reBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // A stem / whole-question box re-splits itself: for a nested stem
+            // (4d) the server only replaces 4d and its descendants.
+            startSplitDetect({ kind, labels: examLabel(item) || parentLabelOf(kind, item) });
+        });
+        actions.appendChild(reBtn);
+    }
+    if (item.role === 'part') {
+        const depBtn = document.createElement('button');
+        depBtn.type = 'button';
+        depBtn.className = 'btn btn-sm ' + (item.depends_prev ? 'btn-warning' : 'btn-outline-secondary');
+        depBtn.title = item.depends_prev
+            ? 'Uses earlier parts: viewing or generating this part alone also includes the earlier parts. Click to clear.'
+            : 'Mark this part as depending on earlier parts ("using your answer in (a)"). Viewing or generating it alone will then include the earlier parts.';
+        depBtn.innerHTML = '<i class="bi bi-link-45deg"></i>';
+        depBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            item.depends_prev = !item.depends_prev;
+            refreshNumbersUI(kind);
+        });
+        actions.appendChild(depBtn);
+    }
+    if (item.source_label && canSplit) {
+        const unBtn = document.createElement('button');
+        unBtn.type = 'button';
+        unBtn.className = 'btn btn-sm btn-outline-secondary';
+        unBtn.title = 'Merge parts back into one question box';
+        unBtn.textContent = 'Unsplit';
+        unBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            unsplitParent(kind, parentLabelOf(kind, item));
+        });
+        actions.appendChild(unBtn);
+    }
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn btn-sm btn-outline-success';
+    addBtn.title = 'Add the next part directly below this box (same width)';
+    addBtn.innerHTML = '<i class="bi bi-plus-square"></i>';
+    addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addPartBelow(kind, item);
+    });
+    actions.appendChild(addBtn);
+    return actions;
+}
+function deleteItem(kind, item) {
+    if (!item) return;
+    const row = document.getElementById('row-' + item._uid);
+    const boxEl = document.getElementById('box-' + item._uid);
+    const card = row && row.closest('.page-card');
+    plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
+    if (boxEl) boxEl.remove();
+    if (row) row.remove();
+    if (selectedItem && selectedItem._uid === item._uid) {
+        selectedItem = null;
+        selectedKind = null;
+    }
+    if (!isGeneric()) { renumberAfterDelete(kind, item); refreshNumbersUI(kind); }
+    if (card) toggleEmpty(card);
+    updateReviewSummary();
+}
+function addPartBelow(kind, item) {
+    const nl = nextPartLabel(examLabel(item)) || '';
+    const parsed = parseLabel(nl);
+    const h = item.box[3] - item.box[1];
+    const newItem = {
+        page: item.page,
+        qno: parsed ? parsed.qno : prefixInt({ label: nl }),
+        label: nl,
+        box: [item.box[0], item.box[3], item.box[2], Math.min(1, item.box[3] + h)],
+        _uid: nextUid(),
+    };
+    if (item.source_label || item.source_page != null || item.source_box) {
+        newItem.source_label = item.source_label || null;
+        newItem.source_page = item.source_page;
+        newItem.source_box = item.source_box ? item.source_box.slice() : null;
+    }
+    const idx = plan[kind].indexOf(item);
+    if (idx >= 0) plan[kind].splice(idx + 1, 0, newItem);
+    else plan[kind].push(newItem);
+    const card = document.querySelector(`.page-card[data-kind="${kind}"][data-page="${item.page}"]`);
+    if (card) {
+        addBoxDom(card, kind, newItem);
+        const srcRow = document.getElementById('row-' + item._uid);
+        const newRow = document.getElementById('row-' + newItem._uid);
+        if (srcRow && newRow && srcRow.parentNode) {
+            srcRow.parentNode.insertBefore(newRow, srcRow.nextSibling);
+        }
+        toggleEmpty(card);
+    }
+    refreshNumbersUI(kind);
+    updateReviewSummary();
+    updateOrderWarning();
+    const row = document.getElementById('row-' + newItem._uid);
+    if (row) {
+        const inp = row.querySelector('input');
+        if (inp) { inp.focus(); inp.select(); }
+    }
+    document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
+    const newBox = document.getElementById('box-' + newItem._uid);
+    if (newBox) newBox.classList.add('selected');
+    selectedItem = newItem;
+    selectedKind = kind;
+}
 function addBoxDom(card, kind, item) {
     const overlay = card.querySelector('.pdf-overlay');
     const list = card.querySelector('.pdf-box-list');
@@ -1405,7 +1928,7 @@ function addBoxDom(card, kind, item) {
     const boxEl = document.createElement('div');
     boxEl.className = 'pdf-box ' + (kind === 'sol' ? 'kind-sol' : 'kind-que');
     if (item.role === 'stem') boxEl.classList.add('role-stem');
-    else if (item.role === 'part' || isPartItem(item)) boxEl.classList.add('role-part');
+    else if (item.role === 'part') boxEl.classList.add('role-part');
     boxEl.id = 'box-' + item._uid;
     applyBoxStyle(boxEl, item.box);
 
@@ -1418,6 +1941,8 @@ function addBoxDom(card, kind, item) {
     const selectThis = () => {
         document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
         boxEl.classList.add('selected');
+        selectedItem = item;
+        selectedKind = kind;
     };
 
     ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(dir => {
@@ -1470,50 +1995,10 @@ function addBoxDom(card, kind, item) {
     row.appendChild(qInput);
     if (!generic) {
         const chip = document.createElement('span');
-        chip.className = 'badge role-chip';
-        if (item.role === 'stem') {
-            chip.style.background = '#6c757d';
-            chip.textContent = 'stem';
-            chip.title = 'Shared background for this question';
-        } else if (item.role === 'part' || isPartItem(item)) {
-            chip.style.background = '#fd7e14';
-            chip.textContent = 'part';
-            chip.title = 'Lettered part — imported as its own question';
-        } else {
-            chip.className = 'badge role-chip text-bg-light border';
-            chip.textContent = 'Q';
-            chip.title = 'Whole numbered question';
-        }
+        chip.id = 'chip-' + item._uid;
+        styleRoleChip(chip, item.role);
         row.appendChild(chip);
-        const actions = document.createElement('div');
-        actions.className = 'split-actions';
-        const isPart = isPartItem(item);
-        const isSplitChild = !!item.source_label;
-        if (!isPart || item.role === 'stem') {
-            const reBtn = document.createElement('button');
-            reBtn.type = 'button';
-            reBtn.className = 'btn btn-sm btn-outline-primary';
-            reBtn.title = 'Re-run part detection on this question';
-            reBtn.innerHTML = '<i class="bi bi-scissors"></i> Re-split';
-            reBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                startSplitDetect({ kind, labels: parentLabelOf(item) });
-            });
-            actions.appendChild(reBtn);
-        }
-        if (isSplitChild && (item.role === 'stem' || !isPart)) {
-            const unBtn = document.createElement('button');
-            unBtn.type = 'button';
-            unBtn.className = 'btn btn-sm btn-outline-secondary';
-            unBtn.title = 'Merge parts back into one question box';
-            unBtn.textContent = 'Unsplit';
-            unBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                unsplitParent(kind, parentLabelOf(item));
-            });
-            actions.appendChild(unBtn);
-        }
-        if (actions.childNodes.length) row.appendChild(actions);
+        row.appendChild(buildSplitActions(kind, item));
     }
     row.appendChild(delBtn);
     list.appendChild(row);
@@ -1524,18 +2009,12 @@ function addBoxDom(card, kind, item) {
             item.label = qInput.value.trim() || null;
         } else {
             applyExamLabel(item, qInput.value);
+            refreshNumbersUI(kind);
         }
         lbl.textContent = boxLabelText(item);
         updateOrderWarning();
     });
-    delBtn.addEventListener('click', () => {
-        plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
-        boxEl.remove();
-        row.remove();
-        if (!generic) { renumberAfterDelete(kind, item); refreshNumbersUI(kind); }
-        toggleEmpty(card);
-        updateReviewSummary();
-    });
+    delBtn.addEventListener('click', () => { deleteItem(kind, item); });
 
     drawPreview(canvas, img, item.box);
 }
@@ -1832,7 +2311,10 @@ function finishDraw(d) {
     updateReviewSummary();
     const row = document.getElementById('row-' + item._uid);
     if (row) { const inp = row.querySelector('input'); inp.focus(); inp.select(); }
+    document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
     document.getElementById('box-' + item._uid)?.classList.add('selected');
+    selectedItem = item;
+    selectedKind = d.kind;
 }
 
 function boxLabelText(item) {
@@ -1915,6 +2397,7 @@ function stitchContinuations(kind) {
     }
 }
 function refreshNumbersUI(kind) {
+    deriveRoles(kind);
     plan[kind].forEach(it => {
         const lbl = document.getElementById('lbl-' + it._uid);
         if (lbl) lbl.textContent = boxLabelText(it);
@@ -1922,11 +2405,15 @@ function refreshNumbersUI(kind) {
         if (row) {
             const inp = row.querySelector('.qno-input');
             if (inp) inp.value = examLabel(it);
+            const chip = document.getElementById('chip-' + it._uid);
+            if (chip) styleRoleChip(chip, it.role);
+            const oldActions = row.querySelector('.split-actions');
+            if (oldActions) oldActions.replaceWith(buildSplitActions(kind, it));
         }
         const boxEl = document.getElementById('box-' + it._uid);
         if (boxEl) {
             boxEl.classList.toggle('role-stem', it.role === 'stem');
-            boxEl.classList.toggle('role-part', it.role === 'part' || isPartItem(it));
+            boxEl.classList.toggle('role-part', it.role === 'part');
         }
     });
 }
@@ -2258,6 +2745,7 @@ function stopRun() {
 function resetAll() {
     closeStream();
     staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
+    selectedItem = null; selectedKind = null;
     uniformWidth = { que: null, sol: null };
     if (orderWarning) orderWarning.classList.add('d-none');
     bboxCard.classList.add('d-none');
@@ -2270,6 +2758,10 @@ function resetAll() {
     document.querySelectorAll('#queServerPick, #solServerPick').forEach(el => el.classList.add('d-none'));
     document.querySelectorAll('input[name="task"]').forEach(el => { el.disabled = false; });
     applyTaskUI();
+    attentionItems = [];
+    agentOutline = null;
+    renderAttention();
+    if (agentStage) agentStage.classList.add('d-none');
     setRunning(false);
     setStatus('Idle', 'bg-secondary');
     appendLog('Ready — Step 1: load a PDF.', 'info');
@@ -2282,6 +2774,19 @@ function discardRun() {
         body: JSON.stringify({ token: staging.token })
     }).catch(() => {}).finally(() => { appendLog('Discarded staging data.', 'warning'); resetAll(); });
 }
+
+document.addEventListener('keydown', (e) => {
+    if (running) return;
+    if (!bboxCard || bboxCard.classList.contains('d-none')) return;
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (e.key === 'Backspace' && typing) return;
+    if (e.key === 'Delete' && typing) return;
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!selectedItem || !selectedKind) return;
+    e.preventDefault();
+    deleteItem(selectedKind, selectedItem);
+});
 
 // Initialise setup visibility for the default task.
 applyTaskUI();

@@ -29,6 +29,7 @@ D:\oqb2\
     md_render.py         Markdown -> sanitised HTML
     llm_client.py ai_tools.py ai_prompts.py parallel.py   LLM transport, AI batch ops, prompt registry
     pdf_import.py pdf_layout.py pdf_tools.py pdf_text.py  PDF import detection, CV helpers, PDF Tool ops, Find & Mark
+    pdf_agent.py         PDF import AI agent: outline → locate → split → verify state machine over pdf_import (ADR-010)
   templates/             Jinja2; base.html layout; admin_*.html; partials/ for HTMX + shared modals
   static/                img/ (logos), markup/ (PWA manifest, sw.js, icon); css/ js/ are empty placeholders
   resources/mcq_answer_img/{A,B,C,D}.png   source PNGs for the Set MCQ ANS batch op

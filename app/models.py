@@ -227,6 +227,11 @@ class Question(db.Model):
     # Distinct from QuestionAsset.part_number (IMG page N of one slot).
     part = db.Column(db.String(10), nullable=True)
     part_sort = db.Column(db.Integer, nullable=True)  # letter 1–26, roman 101–110
+    # A part that refers to the results/setup of earlier sibling parts
+    # ("using your answer to (a)..."). When set, viewing/generating this leaf
+    # alone also renders its earlier siblings as background (see
+    # hierarchy.resolve_render_plan). Set by admins or the PDF import agent.
+    needs_prev_parts = db.Column(db.Boolean, default=False, nullable=False)
     q_type = db.Column(db.String(10), nullable=True)  # MC, CQ, or NULL
     level = db.Column(db.Integer, nullable=True)  # 1, 2, 3, or NULL
     major_topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=True, index=True)

@@ -1926,6 +1926,7 @@ def question_details(question_id):
         'part': question.part,
         'child_count': len(kids),
         'is_stem': stem_row,
+        'needs_prev_parts': bool(getattr(question, 'needs_prev_parts', False)),
         'breadcrumb': crumbs,
         'children': [{'id': c.id, 'qid': c.qid, 'part': c.part} for c in kids],
         'tag_union': tag_union,
@@ -2056,6 +2057,25 @@ def set_question_parent(question_id):
     child.parent_id = parent.id
     db.session.commit()
     return jsonify({'success': True, 'parent_id': parent.id})
+
+
+@admin_bp.route('/questions/<int:question_id>/needs-prev-parts', methods=['POST'])
+@login_required
+@admin_required
+def set_needs_prev_parts(question_id):
+    """Toggle ``needs_prev_parts``: viewing/generating this part alone also
+    renders its earlier sibling parts as background."""
+    q = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(q)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    value = bool(data.get('value'))
+    if value and not q.parent_id:
+        return jsonify({'error': 'Only a lettered part can depend on earlier parts.'}), 400
+    q.needs_prev_parts = value
+    db.session.commit()
+    return jsonify({'success': True, 'needs_prev_parts': q.needs_prev_parts})
 
 
 @admin_bp.route('/questions/<int:question_id>/split', methods=['GET'])
@@ -5036,6 +5056,95 @@ def pdf_import_split_detect():
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/pdf-import/agent')
+@login_required
+@admin_required
+def pdf_import_agent():
+    """SSE: run the AI agent (outline → locate → split → verify) on a staged
+    exam session. Replaces the plan; ``done`` carries ``plan``, ``attention``
+    and an ``outline`` summary. See ``docs/modules/pdf-agent.md``."""
+    from app import pdf_agent, pdf_import
+    from app.models import LLMConfig
+
+    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+        return _pdf_sse_error('AI features are disabled.')
+
+    token = request.args.get('token', '')
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return _pdf_sse_error(err)
+    if meta.get('mode') == 'generic':
+        return _pdf_sse_error('The AI agent only handles exam papers.')
+
+    try:
+        endpoint_id = int(request.args.get('endpoint_id', '0'))
+    except (ValueError, TypeError):
+        endpoint_id = 0
+    if endpoint_id <= 0:
+        cfg = _pdf_default_endpoint()
+        if cfg is None:
+            return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
+        endpoint_id = cfg.id
+    else:
+        cfg = LLMConfig.query.get(endpoint_id)
+        if cfg is None or not cfg.enabled:
+            return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+        if not cfg.supports_vision:
+            return _pdf_sse_error('The selected endpoint is not vision-capable.')
+
+    debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    restart = request.args.get('restart', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # attach=1 is the reconnect path: never cancel a live run.
+    if request.args.get('attach', '0').strip().lower() in ('1', 'true', 'yes', 'on'):
+        restart = False
+
+    app = current_app._get_current_object()
+    live_cfg = LLMConfig.query.get(endpoint_id)
+    image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
+    workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
+    do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
+    job_id, attached = pdf_agent.start_agent_job(
+        app, token, endpoint_id, image_max_dim,
+        parallel=do_par, max_workers=(workers if do_par else 1),
+        debug=debug, restart=restart)
+
+    def generate():
+        yield f"data: {json.dumps({'type': 'job', 'job_id': job_id, 'attached': attached})}\n\n"
+        if attached:
+            yield f"data: {json.dumps({'type': 'info', 'message': 'Rejoined a run already in progress.', 'stage': 'verify'})}\n\n"
+        try:
+            for ev in pdf_agent.iter_job_events(token):
+                yield f"data: {json.dumps(ev)}\n\n"
+        except GeneratorExit:
+            # Spectator dropped; the worker keeps going.
+            return
+        except Exception as e:
+            current_app.logger.exception('PDF import agent SSE aborted')
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Stream aborted: {e}'})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@admin_bp.route('/pdf-import/attention')
+@login_required
+@admin_required
+def pdf_import_attention():
+    """JSON: the agent's attention list + outline summary for a staged session."""
+    from app import pdf_agent
+
+    token = request.args.get('token', '')
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 400
+    outline = pdf_agent.load_outline(token) or {}
+    return jsonify({
+        'attention': pdf_agent.load_attention(token),
+        'outline': {k: pdf_agent._outline_summary(v) for k, v in outline.items()},
+    })
 
 
 @admin_bp.route('/pdf-import/redo-page', methods=['POST'])

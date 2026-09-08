@@ -275,8 +275,30 @@ def map_crop_box_to_page(parent_box, crop_box):
     ]
 
 
+def apply_derived_roles(items) -> list:
+    """Recompute ``role`` on every exam plan item from the label set.
+
+    Roles are derived data (see ``hierarchy.derive_roles``): ``5`` is a stem
+    only because ``5a`` exists, ``5d`` is a stem only because ``5di`` exists.
+    Items without a valid label lose their role. Mutates and returns ``items``.
+    """
+    from app.hierarchy import derive_roles
+    labels = [plan_item_label(it) for it in items or []]
+    roles = derive_roles([lab for lab in labels if lab])
+    for it, lab in zip(items or [], labels):
+        if lab and lab in roles:
+            it['role'] = roles[lab]
+        else:
+            it.pop('role', None)
+    return items
+
+
 def sanitize_plan(raw, *, generic: bool = False) -> dict:
-    """Validate a browser-posted plan into ``{que: [...], sol: [...]}``."""
+    """Validate a browser-posted plan into ``{que: [...], sol: [...]}``.
+
+    Exam plans get ``role`` recomputed via ``apply_derived_roles``; a
+    browser-sent ``role`` is ignored.
+    """
     from app.hierarchy import normalize_plan_label, parse_qno_token
 
     clean = {'que': [], 'sol': []}
@@ -330,7 +352,11 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
                 row['source_box'] = source_box
             if source_page is not None:
                 row['source_page'] = source_page
+            if item.get('depends_prev'):
+                row['depends_prev'] = True
             clean[kind].append(row)
+        if not generic:
+            apply_derived_roles(clean[kind])
     return clean
 
 
@@ -525,8 +551,12 @@ DETECT_METHODS = ('llm', 'refine', 'segment')
 
 def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                 method: str = 'llm', mode: str = 'exam', instruction: str = '',
-                generic_prompt: bool = False):
+                generic_prompt: bool = False, expected_labels=None):
     """Detect the question/solution regions on one page.
+
+    ``expected_labels`` (agent runs) lists the question numbers the paper
+    outline places on this page; it is folded into the exam prompts as a
+    hint and ignored for generic / segment methods.
 
     ``mode`` is ``'exam'`` (the default — question/solution detection) or
     ``'generic'`` (no exam context; the model is asked to find regions
@@ -631,9 +661,11 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
 
     # 'llm' or 'refine': the model returns full boxes.
     system = ai_prompts.build_pdf_box_system(atype, coord_order,
-                                             endpoint_id=config.id)
+                                             endpoint_id=config.id,
+                                             expected_labels=expected_labels)
     user_text = ai_prompts.build_pdf_box_user_text(atype, coord_order,
-                                                   endpoint_id=config.id)
+                                                   endpoint_id=config.id,
+                                                   expected_labels=expected_labels)
     text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)
@@ -820,8 +852,14 @@ def _check_method_available(method: str):
 
 def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 debug: bool = False, method: str = 'llm',
-                parallel: bool = False, max_workers: int = 1):
+                parallel: bool = False, max_workers: int = 1,
+                expected_by_page=None, page_filter=None):
     """Generator yielding detection progress events (one LLM call per page).
+
+    ``expected_by_page`` (agent runs) maps ``(kind, page_index)`` to the
+    question labels the paper outline expects there; ``page_filter`` is an
+    optional set of ``(kind, page_index)`` to detect (other pages are skipped
+    and get no boxes).
 
     Accumulates the detected boxes into ``plan.json`` so a later commit can
     read them even without the browser echoing them back. When ``debug`` is
@@ -844,7 +882,11 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     instruction = meta.get('instruction') or ''
     kinds = [k for k in ('que', 'sol')
              if meta.get(k) and meta[k].get('pages')]
-    total = sum(len(meta[k]['pages']) for k in kinds)
+    expected_by_page = expected_by_page or {}
+    if page_filter is not None:
+        page_filter = set(page_filter)
+    total = sum(1 for k in kinds for p in meta[k]['pages']
+                if page_filter is None or (k, p['index']) in page_filter)
 
     plan = {'que': [], 'sol': []}
     if total == 0:
@@ -875,7 +917,10 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     for kind in kinds:
         atype = 'QUE' if kind == 'que' else 'SOL'
         for p in meta[kind]['pages']:
-            work.append({'kind': kind, 'atype': atype, 'idx': p['index']})
+            if page_filter is not None and (kind, p['index']) not in page_filter:
+                continue
+            work.append({'kind': kind, 'atype': atype, 'idx': p['index'],
+                         'expected': expected_by_page.get((kind, p['index']))})
 
     def _ingest(kind, idx, boxes):
         """Accumulate one page's boxes into the plan (consumer-thread only)."""
@@ -946,13 +991,16 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                     parsed = parse_qno_token(lab)
                     if parsed:
                         it['qno'] = parsed.qno
+            if not is_generic:
+                apply_derived_roles(plan[k])
 
     def _worker(item):
         png = page_png_path(token, item['kind'], item['idx'])
         boxes, raw = detect_page(config, png, item['atype'], image_max_dim,
                                  method, mode=meta.get('mode', 'exam'),
                                  instruction=instruction,
-                                 generic_prompt=custom_prompt)
+                                 generic_prompt=custom_prompt,
+                                 expected_labels=item.get('expected'))
         return {'boxes': boxes, 'raw': raw}
 
     done = 0
@@ -995,7 +1043,8 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 boxes, raw = detect_page(config, png, atype, image_max_dim,
                                          method, mode=meta.get('mode', 'exam'),
                                          instruction=instruction,
-                                         generic_prompt=custom_prompt)
+                                         generic_prompt=custom_prompt,
+                                         expected_labels=item.get('expected'))
             except Exception as e:  # transport / parse failure for this page
                 done += 1
                 logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, e)
@@ -1027,11 +1076,12 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
 
 
 def detect_single_page(config, token: str, kind: str, index: int,
-                       image_max_dim: int, method: str = 'llm'):
+                       image_max_dim: int, method: str = 'llm',
+                       expected_labels=None):
     """Re-run detection for a single page (the review-mode 'Re-run page'
-    button), optionally with a different ``method``. Returns
-    ``(boxes, raw_text)``. Raises a clear error if an assisted method is
-    requested without NumPy."""
+    button and the agent's reconcile step), optionally with a different
+    ``method``. Returns ``(boxes, raw_text)``. Raises a clear error if an
+    assisted method is requested without NumPy."""
     err = _check_method_available(method)
     if err:
         raise RuntimeError(err)
@@ -1042,7 +1092,8 @@ def detect_single_page(config, token: str, kind: str, index: int,
     return detect_page(config, png, atype, image_max_dim, method,
                        mode=meta.get('mode', 'exam'),
                        instruction=meta.get('instruction', ''),
-                       generic_prompt=custom_prompt)
+                       generic_prompt=custom_prompt,
+                       expected_labels=expected_labels)
 
 
 def _stitch_continuations(plan: dict):
@@ -1197,6 +1248,8 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     crop_pad = max(0.0, float(app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
 
     que_labels = _que_label_set(plan)
+    depends_labels = {plan_item_label(it) for it in (plan.get('que') or [])
+                      if it.get('depends_prev') and plan_item_label(it)}
     groups = _group_plan(plan)
     total = len(groups)
     if total == 0:
@@ -1250,6 +1303,10 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
             question, created = ensure_question(
                 subject, source, parsed.token, year=year, paper=paper,
                 q_type=q_type)
+            if (kind == 'que' and commit_label in depends_labels
+                    and question.parent_id
+                    and not getattr(question, 'needs_prev_parts', False)):
+                question.needs_prev_parts = True
             db.session.commit()
             is_new = created
             if created:
@@ -1298,11 +1355,13 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
 
 
 def detect_parts(config, crop_png: str, atype: str, image_max_dim: int,
-                 expected_labels=None):
+                 expected_labels=None, extra_note=None):
     """Pass-2: detect stem + lettered parts on one already-cropped question.
 
     ``crop_png`` is an absolute path. ``atype`` is ``QUE`` or ``SOL``.
-    ``expected_labels`` (SOL) is a list like ``['stem', 'a', 'ci']``.
+    ``expected_labels`` is a list like ``['stem', 'a', 'ci']`` (SOL mirrors
+    QUE; agent runs supply it for QUE from the paper outline). ``extra_note``
+    is appended to the user turn (agent repair rounds).
     Returns ``(boxes, raw_text)`` where each box is crop-relative 0..1 with
     ``label`` ``stem`` or a letter path.
     """
@@ -1316,6 +1375,8 @@ def detect_parts(config, crop_png: str, atype: str, image_max_dim: int,
         atype, expected_labels, coord_order, endpoint_id=config.id)
     user_text = ai_prompts.build_pdf_part_user_text(
         atype, expected_labels, coord_order, endpoint_id=config.id)
+    if extra_note:
+        user_text = f'{str(extra_note).strip()}\n\n{user_text}'
     text, _info = llm_client.chat(config, system, user_text,
                                   images=[(b64, mime)])
     boxes = ai_prompts.parse_part_boxes(text, img_w=sw, img_h=sh,
@@ -1423,8 +1484,12 @@ def _llm_error_cls():
 
 
 def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
-                     expected_labels=None, debug: bool = False):
-    """Run pass-2 on each page crop of one question. Returns (children|None, raws)."""
+                     expected_labels=None, debug: bool = False,
+                     extra_note=None):
+    """Run pass-2 on each page crop of one question. Returns (children|None, raws).
+
+    ``extra_note`` (agent repair rounds) is appended to the expected-labels
+    hint, e.g. "part (b) was missed last time; it starts below the table"."""
     from app.hierarchy import compose_part_label, parse_qno_token
     atype = 'QUE' if kind == 'que' else 'SOL'
     children = []
@@ -1435,30 +1500,28 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
             crop_path = _write_split_crop(token, kind, prt['page'], prt['box'])
             try:
                 boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
-                                          expected_labels=expected_labels)
+                                          expected_labels=expected_labels,
+                                          extra_note=extra_note)
             except _llm_error_cls() as e:
                 # One retry: cloud gateways occasionally stall a single
                 # request past the endpoint timeout; the call is idempotent.
                 logger.warning('pdf-import pass-2 %s Q%s: %s — retrying once',
                                kind, parent_label, e)
                 boxes, raw = detect_parts(config, crop_path, atype, image_max_dim,
-                                          expected_labels=expected_labels)
+                                          expected_labels=expected_labels,
+                                          extra_note=extra_note)
             if debug:
                 raws.append(raw)
-            parsed_p = parse_qno_token(parent_label)
             for b in boxes:
                 child_label = compose_part_label(parent_label, b.get('label'))
                 if not child_label:
                     continue
                 parsed_c = parse_qno_token(child_label)
-                is_stem_box = (parsed_c and parsed_p
-                               and parsed_c.part_path == parsed_p.part_path)
                 children.append({
                     'page': int(prt['page']),
                     'qno': parsed_c.qno if parsed_c else None,
                     'label': child_label,
                     'box': full_width_child_box(prt['box'], b['box']),
-                    'role': 'stem' if is_stem_box else 'part',
                     'source_label': parent_label,
                     'source_page': int(prt['page']),
                     'source_box': [float(v) for v in prt['box']],
@@ -1474,20 +1537,29 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                     os.remove(crop_path)
                 except OSError:
                     pass
+    apply_derived_roles(children)
     if not any(it.get('role') == 'part' for it in children):
         return None, raws
     return children, raws
 
 
 def _replace_group(items, parent_label, new_items):
-    from app.hierarchy import normalize_plan_label
+    """Drop ``parent_label``, its descendants and anything split from it,
+    then append ``new_items``. Re-splitting a nested stem (``4d``) leaves
+    ``4``, ``4a``... untouched; a range parent only replaces itself."""
+    from app.hierarchy import (label_is_ancestor, normalize_plan_label,
+                               parse_qno_token)
     parent = normalize_plan_label(parent_label) or parent_label
+    pp = parse_qno_token(parent)
+    is_range = bool(pp and pp.qno_end)
     kept = []
     for it in items or []:
         lab = plan_item_label(it)
         src = (normalize_plan_label(it.get('source_label'))
                if it.get('source_label') else None)
-        if src == parent or (lab and _same_question(lab, parent)):
+        if src == parent or lab == parent:
+            continue
+        if lab and not is_range and label_is_ancestor(parent, lab):
             continue
         kept.append(it)
     return kept + list(new_items or [])
@@ -1511,10 +1583,13 @@ def _split_parent_labels(items, filter_set=None):
             src = (normalize_plan_label(it.get('source_label'))
                    if it.get('source_label') else None)
             lab = plan_item_label(it)
-            parent = src or (lab if lab and not _is_part_label(lab) else None)
-            if parent and parent in filter_set and parent not in seen_set:
-                seen_set.add(parent)
-                seen.append(parent)
+            # A nested stem (``4d``) can be re-split by its own label even
+            # though it was itself produced from ``4``.
+            for parent in (lab, src):
+                if parent and parent in filter_set and parent not in seen_set:
+                    seen_set.add(parent)
+                    seen.append(parent)
+                    break
         return seen
     for it in ordered:
         if it.get('source_label'):
@@ -1529,16 +1604,19 @@ def _split_parent_labels(items, filter_set=None):
 
 
 def _strip_split_flags(plan: dict) -> dict:
+    """Drop transient continuation flags and recompute derived roles."""
     for k in ('que', 'sol'):
         for it in plan.get(k) or []:
             it.pop('_cp', None)
             it.pop('_cn', None)
+        apply_derived_roles(plan.get(k) or [])
     return plan
 
 
 def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
                       kinds=None, labels_filter=None, debug: bool = False,
-                      parallel: bool = False, max_workers: int = 1):
+                      parallel: bool = False, max_workers: int = 1,
+                      expected_by_parent=None, note_by_parent=None):
     """SSE generator: pass-2 part split on each whole-question crop.
 
     ``kinds`` is ``'que'``, ``'sol'``, or ``'both'`` / ``None``.
@@ -1549,8 +1627,16 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
     ``app.parallel.run_parallel``; QUE finishes before SOL starts so the SOL
     ``expected_labels`` come from the already-split QUE plan. Plan mutation
     happens only on this consumer thread.
+
+    ``expected_by_parent`` (agent runs) maps a parent label to the relative
+    part labels the outline expects (``['stem', 'a', 'ai', 'b']``) and is used
+    for QUE as well as SOL; ``note_by_parent`` maps a parent label to an extra
+    instruction appended to the expected note (repair rounds).
     """
     from app.hierarchy import normalize_plan_label
+
+    expected_by_parent = expected_by_parent or {}
+    note_by_parent = note_by_parent or {}
 
     meta = load_meta(token)
     if meta.get('mode') == 'generic':
@@ -1600,6 +1686,15 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
     done = 0
     use_parallel = bool(parallel and max_workers and max_workers > 1)
 
+    def _expected(kind, parent):
+        """Outline hint wins; SOL otherwise mirrors the split QUE side."""
+        exp = expected_by_parent.get(parent)
+        if exp:
+            return list(exp)
+        if kind == 'sol':
+            return expected_part_labels_for(parent, plan.get('que') or [])
+        return None
+
     def _emit(kind, parent, children):
         if children:
             plan[kind] = _replace_group(plan.get(kind) or [], parent, children)
@@ -1620,17 +1715,15 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
             # QUE is fully merged before SOL starts.
             items = []
             for _k, parent, parts in side:
-                expected = None
-                if kind == 'sol':
-                    expected = expected_part_labels_for(parent, plan.get('que') or [])
                 items.append({'kind': kind, 'parent': parent, 'parts': parts,
-                              'expected': expected})
+                              'expected': _expected(kind, parent)})
 
             def _worker(item):
                 children, _raws = _split_one_group(
                     token, item['kind'], item['parent'], item['parts'],
                     config, image_max_dim,
-                    expected_labels=item['expected'], debug=debug)
+                    expected_labels=item['expected'], debug=debug,
+                    extra_note=note_by_parent.get(item['parent']))
                 return children
 
             cancelled = False
@@ -1665,12 +1758,10 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
                 yield {'type': 'done', 'message': 'Split cancelled.',
                        'current': done, 'total': total, 'plan': plan}
                 return
-            expected = None
-            if kind == 'sol':
-                expected = expected_part_labels_for(parent, plan.get('que') or [])
             children, _raws = _split_one_group(
                 token, kind, parent, parts, config, image_max_dim,
-                expected_labels=expected, debug=debug)
+                expected_labels=_expected(kind, parent), debug=debug,
+                extra_note=note_by_parent.get(parent))
             done += 1
             ev = _emit(kind, parent, children)
             ev['current'] = done

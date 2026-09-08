@@ -198,6 +198,79 @@ class ParserContractTests(unittest.TestCase):
             ' {"label": "??", "box": [0, 0, 100, 100]}]')
         self.assertEqual(out, [])
 
+    def test_parse_part_boxes_nested_letters_kept(self):
+        out = ai_prompts.parse_part_boxes(
+            '[{"label": "stem", "box": [0, 0, 1000, 100]},'
+            ' {"label": "d", "box": [0, 100, 1000, 300]},'
+            ' {"label": "di", "box": [0, 300, 1000, 500]},'
+            ' {"label": "dii", "box": [0, 500, 1000, 700]}]')
+        self.assertEqual([b['label'] for b in out], ['stem', 'd', 'di', 'dii'])
+
+    def test_pdf_part_prompts_render_with_expected_note(self):
+        with mock.patch.object(ai_prompts, '_load_resolved', return_value=None):
+            sys_q = ai_prompts.build_pdf_part_system('QUE', ['stem', 'a', 'di'])
+            self.assertIn('stem, a, di', sys_q)
+            self.assertIn('NESTED PARTS', sys_q)
+            sys_q2 = ai_prompts.build_pdf_part_system('QUE')
+            self.assertNotIn('{{', sys_q2)
+            page_sys = ai_prompts.build_pdf_box_system('QUE', expected_labels=['5', '6'])
+            self.assertIn('question(s) 5, 6', page_sys)
+            page_sys_plain = ai_prompts.build_pdf_box_system('QUE')
+            self.assertNotIn('{{', page_sys_plain)
+            user = ai_prompts.build_pdf_box_user_text('SOL', expected_labels=['7'])
+            self.assertIn('question(s) 7', user)
+
+    def test_parse_agent_outline(self):
+        raw = ('```json\n{"pages": [{"page": 1, "kind": "instructions"}, '
+               '{"page": 2, "kind": "question"}, {"page": 3, "kind": "Question "}],'
+               ' "questions": [{"label": "Q1", "pages": [2, 3], "marks": 12,'
+               ' "parts": [{"label": "(a)", "parts": [{"label": "i"}, {"label": "ii"}]},'
+               ' {"label": "b"}, {"label": "b"}], "depends_prev": ["b"]},'
+               ' {"label": "23-24", "pages": [3], "parts": []},'
+               ' {"label": "bad label", "pages": [3]}],'
+               ' "paper": {"year": "2023", "paper": "p1", "section": null}}\n```')
+        out = ai_prompts.parse_agent_outline(raw)
+        self.assertEqual([p['kind'] for p in out['pages']],
+                         ['instructions', 'question', 'question'])
+        self.assertEqual([q['label'] for q in out['questions']], ['1', '23-24'])
+        q1 = out['questions'][0]
+        self.assertEqual(q1['pages'], [2, 3])
+        self.assertEqual(q1['marks'], 12)
+        self.assertEqual([p['label'] for p in q1['parts']], ['a', 'b'])
+        self.assertEqual([p['label'] for p in q1['parts'][0]['parts']], ['i', 'ii'])
+        self.assertEqual(q1['depends_prev'], ['b'])
+        self.assertEqual(out['paper'], {'year': 2023, 'paper': 'P1', 'section': None})
+        self.assertIsNone(ai_prompts.parse_agent_outline('no json here'))
+
+    def test_parse_agent_verify(self):
+        raw = ('{"ok": true, "issues": [{"box": 2, "label": "a", "problem": '
+               '"wrong extent", "fix": "extend_bottom", "note": "marks cut"},'
+               ' {"box": null, "label": "c", "problem": "missing", "fix": "redetect"},'
+               ' {"box": 3, "label": "b", "problem": "weird", "fix": "teleport"}],'
+               ' "depends_prev": ["c", "stem", "(b)"]}')
+        out = ai_prompts.parse_agent_verify(raw)
+        self.assertFalse(out['ok'])  # fixes pending override the model's ok
+        self.assertEqual([i['problem'] for i in out['issues']],
+                         ['wrong_extent', 'missing', 'extra'])
+        self.assertEqual([i['fix'] for i in out['issues']],
+                         ['extend_bottom', 'redetect', 'none'])
+        self.assertEqual(out['depends_prev'], ['c', 'b'])
+        clean = ai_prompts.parse_agent_verify('{"ok": true, "issues": []}')
+        self.assertTrue(clean['ok'])
+        self.assertIsNone(ai_prompts.parse_agent_verify(''))
+
+    def test_pdf_agent_verify_user_includes_page_note(self):
+        with mock.patch.object(ai_prompts, '_load_resolved', return_value=None):
+            text = ai_prompts.build_pdf_agent_verify_user_text(
+                [(1, 'stem'), (2, 'a')], ['stem', 'a'],
+                page_note='Parts on other pages (d, e) are not missing.')
+            self.assertIn('Parts on other pages (d, e)', text)
+            self.assertIn('1=stem, 2=a', text)
+            self.assertNotIn('{{page_note}}', text)
+            plain = ai_prompts.build_pdf_agent_verify_user_text(
+                [(1, 'a')], ['a'])
+            self.assertNotIn('{{', plain)
+
 
 if __name__ == '__main__':
     unittest.main()

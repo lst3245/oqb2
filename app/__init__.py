@@ -350,6 +350,11 @@ def create_app():
                     conn.execute(text(
                         "ALTER TABLE questions ADD COLUMN qno_end INT NULL"
                     ))
+                if 'needs_prev_parts' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions "
+                        "ADD COLUMN needs_prev_parts TINYINT(1) NOT NULL DEFAULT 0"
+                    ))
                 idx_names = {row[0] for row in conn.execute(text(
                     "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS "
                     "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions'"

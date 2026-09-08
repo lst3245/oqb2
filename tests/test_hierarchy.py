@@ -8,7 +8,10 @@ from app.hierarchy import (
     breadcrumb_parts,
     build_qid,
     compose_part_label,
+    derive_roles,
     format_qno_token,
+    label_is_ancestor,
+    next_part_label,
     group_for_dashboard,
     normalize_part_box_label,
     normalize_plan_label,
@@ -255,6 +258,69 @@ class RenderPlanTests(unittest.TestCase):
             [(it.role, it.question.id, it.seq_owner_id) for it in plan],
             [('stem', 10, None), ('leaf', 12, 12)],
         )
+
+    def test_needs_prev_parts_pulls_earlier_siblings_as_background(self):
+        c = _q(id=4, qno=3, qid='ECON_DSE_2023_P1_Q3c', part='c',
+               needs_prev_parts=True)
+        _link(self.root, c)
+        plan = resolve_render_plan([c], mode='selected')
+        self.assertEqual(
+            [(it.role, it.question.id) for it in plan],
+            [('stem', 1), ('stem', 2), ('stem', 3), ('leaf', 4)],
+        )
+        # unflagged sibling keeps ancestors-only behaviour
+        plan_b = resolve_render_plan([self.b], mode='selected')
+        self.assertEqual([(it.role, it.question.id) for it in plan_b],
+                         [('stem', 1), ('leaf', 3)])
+
+    def test_needs_prev_parts_not_duplicated_when_sibling_selected(self):
+        c = _q(id=4, qno=3, qid='ECON_DSE_2023_P1_Q3c', part='c',
+               needs_prev_parts=True)
+        _link(self.root, c)
+        plan = resolve_render_plan([self.a, c], mode='selected')
+        self.assertEqual(
+            [(it.role, it.question.id) for it in plan],
+            [('stem', 1), ('leaf', 2), ('stem', 3), ('leaf', 4)],
+        )
+
+
+class DerivedRoleTests(unittest.TestCase):
+    def test_label_is_ancestor(self):
+        self.assertTrue(label_is_ancestor('5', '5a'))
+        self.assertTrue(label_is_ancestor('5', '5di'))
+        self.assertTrue(label_is_ancestor('5d', '5di'))
+        self.assertFalse(label_is_ancestor('5d', '5d'))
+        self.assertFalse(label_is_ancestor('5a', '5b'))
+        self.assertFalse(label_is_ancestor('5', '6a'))
+        self.assertTrue(label_is_ancestor('23-24', '24'))
+        self.assertFalse(label_is_ancestor('23-24', '24a'))
+        self.assertFalse(label_is_ancestor('5', '23-24'))
+
+    def test_derive_roles_nested(self):
+        roles = derive_roles(['4', '4a', '4b', '4d', '4di', '4dii', '7', 'Q8a'])
+        self.assertEqual(roles['4'], 'stem')
+        self.assertEqual(roles['4a'], 'part')
+        self.assertEqual(roles['4d'], 'stem')
+        self.assertEqual(roles['4di'], 'part')
+        self.assertEqual(roles['7'], 'question')
+        self.assertEqual(roles['8a'], 'part')
+        self.assertNotIn('Q8a', roles)
+
+    def test_derive_roles_range(self):
+        roles = derive_roles(['23-24', '23', '24'])
+        self.assertEqual(roles['23-24'], 'stem')
+        self.assertEqual(roles['23'], 'question')
+
+    def test_next_part_label(self):
+        self.assertEqual(next_part_label('4a'), '4b')
+        self.assertEqual(next_part_label('4di'), '4dii')
+        self.assertEqual(next_part_label('4dix'), '4dx')
+        self.assertEqual(next_part_label('4'), '5')
+        self.assertEqual(next_part_label('Q4b'), '4c')
+        self.assertIsNone(next_part_label('23-24'))
+        self.assertIsNone(next_part_label('4z'))
+        self.assertIsNone(next_part_label('4dx'))
+        self.assertIsNone(next_part_label('nope'))
 
 
 class DashboardGroupTests(unittest.TestCase):

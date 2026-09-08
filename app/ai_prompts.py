@@ -1367,7 +1367,11 @@ _DEFAULT_PDF_QUE_BOX_SYSTEM = (
     "it.\n"
     "- Each numbered question is one box. Do NOT split a question into its "
     "sub-parts (a), (b), (c) — keep the whole numbered question together.\n"
-    "- The page is a single column; questions are stacked vertically.\n\n"
+    "- The page is a single column; questions are stacked vertically.\n"
+    "- A question that starts on an earlier page and continues here has NO "
+    "question number in the margin: still box it, keep the same left edge as "
+    "the numbered questions, and set continues_prev.\n"
+    "{{expected_note}}\n\n"
     "{{json_contract}}"
 )
 
@@ -1384,7 +1388,8 @@ _DEFAULT_PDF_SOL_BOX_SYSTEM = (
     "- Each numbered question's solution is one box. Keep all sub-parts of one "
     "numbered question together.\n"
     "- The page is a single column of solutions stacked vertically (side notes "
-    "do not count as a second column).\n\n"
+    "do not count as a second column).\n"
+    "{{expected_note}}\n\n"
     "{{json_contract}}"
 )
 
@@ -1393,8 +1398,98 @@ _DEFAULT_PDF_BOX_USER = (
     "List the bounding boxes of every {{what}} on this page as STRICT JSON. "
     "Use integer coordinates on a 0-1000 grid in the order {{box_pairs}}, "
     "measured from the top-left corner. Include the printed question number "
-    "for each (integer, range like 23-24, or a part token). Return [] if "
-    "the page has no {{what}}."
+    "for each (integer, range like 23-24, or a part token). {{expected_note}} "
+    "Return [] if the page has no {{what}}."
+)
+
+
+# ---- Agent layer: whole-paper outline + visual verification -----------------
+#
+# The agent (app/pdf_agent.py) first reads the WHOLE paper as page thumbnails
+# and produces a structural outline (which pages are questions, which question
+# numbers sit on which pages, the part tree of each question). That outline
+# then drives pass 1 / pass 2 as ``expected_note`` hints, and finally each
+# question crop is re-rendered with its proposed boxes drawn on and critiqued.
+_DEFAULT_PDF_AGENT_OUTLINE_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): ONE object\n"
+    '{"pages": [{"page": <printed PAGE number from the caption>, "kind": '
+    '<"question"|"instructions"|"blank"|"answer_sheet"|"formula"|"other">}],\n'
+    ' "questions": [{"label": <"5" or a range "23-24">, "pages": [<page numbers '
+    'this question appears on>], "marks": <total marks or null>, '
+    '"parts": [{"label": "a", "parts": [{"label": "i"}, {"label": "ii"}]}, '
+    '{"label": "b"}], "depends_prev": [<part paths such as "c" or "dii" whose '
+    'wording refers to earlier parts>]}],\n'
+    ' "paper": {"year": <int|null>, "paper": <"P1"|"P2"|null>, "section": '
+    '<string|null>}}\n'
+    "Rules: list EVERY page shown, using the PAGE number printed in the "
+    "caption strip above each image (not the exam's own page footer). List "
+    "every numbered question that starts or continues on these pages. Part "
+    "labels are letters only, nested exactly as printed ((a)(i) becomes "
+    '{"label": "a", "parts": [{"label": "i"}]}); a question with no lettered '
+    'parts has "parts": []. Multiple-choice questions sharing one stimulus are '
+    'one range label ("23-24") with "parts": []. Never invent parts you '
+    "cannot see. If a question also appeared in the RUNNING OUTLINE you were "
+    "given, repeat it with its full updated page list and part tree."
+)
+
+_DEFAULT_PDF_AGENT_OUTLINE_SYSTEM = (
+    "You are the planning stage of an exam-paper import tool for Hong Kong "
+    "DSE papers. You are shown several consecutive rasterised pages of ONE "
+    "{{what}} document; each image has a caption strip at the top reading "
+    "\"PAGE n\". Read the pages as a whole and describe the paper's "
+    "structure: which pages hold question content, which numbered questions "
+    "start or continue on which pages, and each question's tree of lettered "
+    "parts. Be exact about part letters and roman numerals; look at the "
+    "printed labels, not the amount of text. Note multi-page questions (a "
+    "page that starts mid-question with no number in the margin continues "
+    "the previous question).\n\n{{json_contract}}"
+)
+
+_DEFAULT_PDF_AGENT_OUTLINE_USER = (
+    "These images are pages {{page_list}} of the {{what}} document "
+    "({{total_pages}} pages in total). {{running_note}}Return the outline "
+    "for these pages as STRICT JSON."
+)
+
+_DEFAULT_PDF_AGENT_VERIFY_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): ONE object\n"
+    '{"ok": <true|false>, "issues": [{"box": <legend number or null>, '
+    '"label": <the part label concerned, e.g. "stem", "a", "dii">, '
+    '"problem": <"missing"|"wrong_extent"|"overlaps"|"mislabelled"|'
+    '"not_a_part"|"extra">, "fix": <"relabel"|"drop"|"extend_top"|'
+    '"extend_bottom"|"redetect"|"none">, "new_label": <label or null>, '
+    '"note": <one short sentence>}], "depends_prev": [<labels of parts whose '
+    'wording uses the result or setup of an EARLIER part, e.g. "c">]}\n'
+    'Use "ok": true with an empty "issues" list when every expected part has '
+    "exactly one correctly labelled box that covers its full printed text "
+    "(including the marks) and nothing else. \"missing\" = an expected part "
+    "has no box (fix redetect). \"wrong_extent\" = the box cuts off text or "
+    "swallows a neighbour (fix extend_top / extend_bottom / redetect). "
+    "\"mislabelled\" = the box is right but the label is wrong (fix relabel "
+    "+ new_label). \"not_a_part\" / \"extra\" = the box is not a part at all "
+    "(fix drop)."
+)
+
+_DEFAULT_PDF_AGENT_VERIFY_SYSTEM = (
+    "You are the checking stage of an exam-paper import tool. You are shown "
+    "ONE {{what}} crop on which coloured rectangles have been drawn, each "
+    "tagged with a legend number. The legend lists what each rectangle is "
+    "supposed to be (\"stem\" = shared background above part (a); letters = "
+    "parts, with nested parts such as \"d\" being the introduction of (d) and "
+    "\"di\", \"dii\" its sub-parts). Compare the rectangles with the printed "
+    "part labels and report only real problems: a box that cuts off part of "
+    "its text or the marks, a box that spans two parts, a wrong label, a "
+    "missing part, or a box around something that is not a part. Ignore "
+    "small margin differences. Also judge, from the wording alone, which "
+    "parts depend on an earlier part's answer or setup (\"using your answer "
+    "in (a)\", \"hence\", \"the same company\").\n\n{{json_contract}}"
+)
+
+_DEFAULT_PDF_AGENT_VERIFY_USER = (
+    "{{page_note}}Legend: {{legend}}. Expected parts on THIS page: "
+    "{{expected}}. Check the drawn boxes against the printed question and "
+    "return STRICT JSON. Do not report a part as missing when the page "
+    "note says it lives on another page."
 )
 
 
@@ -1414,6 +1509,10 @@ _DEFAULT_PDF_PART_BOX_JSON_CONTRACT = (
     '"continues_next": false}. Labels: use \"stem\" for the shared background '
     "/ stimulus that is not itself a lettered part; use letters only for "
     "parts (\"a\", \"b\", \"ci\", \"ii\") — never include the question number. "
+    "NESTED PARTS: when a lettered part has its own introductory text or "
+    "figure followed by sub-parts (i), (ii), ..., return that introduction "
+    "as the letter alone (e.g. \"d\") and the sub-parts as \"di\", \"dii\", "
+    "\"diii\"; never label a part's own introduction \"stem\". "
     "Set continues_prev / continues_next when a region is cut off at the top "
     "or bottom of this crop. If this crop has no lettered parts, return []."
 )
@@ -1427,11 +1526,16 @@ _DEFAULT_PDF_PART_QUE_SYSTEM = (
     "parts themselves from the stem box.\n"
     "- Draw one box per lettered part ((a), (b), (c), (i), (ii), …). The "
     "label is letters only (a, b, ci). Include that part's marks allocation.\n"
+    "- A part such as (d) that has its own introduction (text, table, "
+    "figure) and then sub-parts (i), (ii) is NESTED: box the introduction as "
+    "\"d\" and each sub-part as \"di\", \"dii\". The single \"stem\" box is "
+    "only for text shared by the WHOLE question above part (a).\n"
     "- EXCLUDE blank answering space. Crop tightly to printed content.\n"
     "- If the crop is a single undivided question with no (a)/(b)/(c) "
     "parts, return [].\n"
     "- If there ARE lettered parts, you MUST also return a stem box when "
-    "any shared text or figure sits above or beside those parts.\n\n"
+    "any shared text or figure sits above or beside those parts.\n"
+    "- {{expected_note}}\n\n"
     "{{json_contract}}"
 )
 
@@ -1916,7 +2020,7 @@ PROMPTS_REGISTRY = OrderedDict([
             'JSON contract above.'
         ),
         default=_DEFAULT_PDF_QUE_BOX_SYSTEM,
-        variables=['json_contract'],
+        variables=['json_contract', 'expected_note'],
         role='system',
     )),
     ('PDF_SOL_BOX_SYSTEM', _prompt(
@@ -1930,7 +2034,7 @@ PROMPTS_REGISTRY = OrderedDict([
             'contract above.'
         ),
         default=_DEFAULT_PDF_SOL_BOX_SYSTEM,
-        variables=['json_contract'],
+        variables=['json_contract', 'expected_note'],
         role='system',
     )),
     ('PDF_BOX_USER', _prompt(
@@ -1940,12 +2044,91 @@ PROMPTS_REGISTRY = OrderedDict([
             "Accompanies the single page image. {{what}} is filled with "
             "either 'questions' or 'solutions' depending on which side is "
             "being processed. {{box_pairs}} is filled from the "
-            "PDF_IMPORT_COORD_ORDER system setting (xyxy vs yxyx)."
+            "PDF_IMPORT_COORD_ORDER system setting (xyxy vs yxyx). "
+            "{{expected_note}} names the question numbers the agent's paper "
+            "outline expects on this page (empty for a plain run)."
         ),
         default=_DEFAULT_PDF_BOX_USER,
-        variables=['what', 'box_pairs'],
+        variables=['what', 'box_pairs', 'expected_note'],
         role='user',
         format_key='PDF_BOX_JSON_CONTRACT',
+    )),
+    ('PDF_AGENT_OUTLINE_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: outline JSON contract (shared)',
+        description=(
+            'Response contract for the agent\'s whole-paper outline: pages '
+            'with their kind, every numbered question with its page list and '
+            'nested part tree, and paper metadata. Parser parse_agent_outline '
+            'is coupled to this shape.'
+        ),
+        default=_DEFAULT_PDF_AGENT_OUTLINE_JSON_CONTRACT,
+        variables=[],
+        role='format',
+    )),
+    ('PDF_AGENT_OUTLINE_SYSTEM', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: outline system prompt',
+        description=(
+            'Sent with a batch of captioned page thumbnails (PAGE n strip). '
+            "{{what}} is 'question paper' or 'marking scheme'; "
+            '{{json_contract}} is the outline contract.'
+        ),
+        default=_DEFAULT_PDF_AGENT_OUTLINE_SYSTEM,
+        variables=['what', 'json_contract'],
+        role='system',
+    )),
+    ('PDF_AGENT_OUTLINE_USER', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: outline user-turn',
+        description=(
+            '{{page_list}} e.g. "7-12", {{total_pages}}, {{what}}; '
+            '{{running_note}} carries the outline accumulated from earlier '
+            'batches (empty on the first batch).'
+        ),
+        default=_DEFAULT_PDF_AGENT_OUTLINE_USER,
+        variables=['page_list', 'total_pages', 'what', 'running_note'],
+        role='user',
+        format_key='PDF_AGENT_OUTLINE_JSON_CONTRACT',
+    )),
+    ('PDF_AGENT_VERIFY_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: verify JSON contract (shared)',
+        description=(
+            'Response contract for the agent\'s visual check of one question '
+            'crop with its proposed boxes drawn on: ok flag, issue list with a '
+            'deterministic fix code, and depends_prev labels. Parser '
+            'parse_agent_verify is coupled to this shape.'
+        ),
+        default=_DEFAULT_PDF_AGENT_VERIFY_JSON_CONTRACT,
+        variables=[],
+        role='format',
+    )),
+    ('PDF_AGENT_VERIFY_SYSTEM', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: verify system prompt',
+        description=(
+            "Critique stage. {{what}} is 'question' or 'solution'; "
+            '{{json_contract}} is the verify contract.'
+        ),
+        default=_DEFAULT_PDF_AGENT_VERIFY_SYSTEM,
+        variables=['what', 'json_contract'],
+        role='system',
+    )),
+    ('PDF_AGENT_VERIFY_USER', _prompt(
+        group='PDF Batch Import — AI Agent',
+        label='PDF agent: verify user-turn',
+        description=(
+            '{{legend}} maps legend numbers to labels ("1=stem, 2=a, 3=b"); '
+            '{{expected}} lists the parts drawn / expected on THIS page; '
+            '{{page_note}} is empty for a single-page question, otherwise '
+            'warns that other parts live on other pages (do not report them '
+            'as missing).'
+        ),
+        default=_DEFAULT_PDF_AGENT_VERIFY_USER,
+        variables=['legend', 'expected', 'page_note'],
+        role='user',
+        format_key='PDF_AGENT_VERIFY_JSON_CONTRACT',
     )),
     ('PDF_PART_BOX_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Part Split (pass 2)',
@@ -1969,12 +2152,14 @@ PROMPTS_REGISTRY = OrderedDict([
         label='PDF part-split: Question-crop system prompt',
         description=(
             'Pass 2 on a QUE crop: split one numbered question into a stem '
-            'box plus lettered parts. {{json_contract}} is the shared part '
-            'contract. Used by PDF Batch Import split-detect and the Split '
-            'tool Auto-detect button.'
+            'box plus lettered parts (nested parts like d / di / dii are '
+            'allowed). {{json_contract}} is the shared part contract; '
+            '{{expected_note}} lists the parts expected (from the paper '
+            'outline) or a generic instruction. Used by PDF Batch Import '
+            'split-detect, the agent, and the Split tool Auto-detect button.'
         ),
         default=_DEFAULT_PDF_PART_QUE_SYSTEM,
-        variables=['json_contract'],
+        variables=['json_contract', 'expected_note'],
         role='system',
     )),
     ('PDF_PART_SOL_BOX_SYSTEM', _prompt(
@@ -1995,8 +2180,8 @@ PROMPTS_REGISTRY = OrderedDict([
         label='PDF part-split: User-turn instruction',
         description=(
             "Accompanies one question (or solution) crop. {{what}} is "
-            "'question' or 'solution'. {{expected_note}} is empty on QUE and "
-            "lists expected labels on SOL. {{box_pairs}} comes from "
+            "'question' or 'solution'. {{expected_note}} lists expected labels "
+            "when known (SOL from QUE; QUE from the paper outline). {{box_pairs}} comes from "
             "PDF_IMPORT_COORD_ORDER."
         ),
         default=_DEFAULT_PDF_PART_BOX_USER,
@@ -2191,29 +2376,111 @@ def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:
 
 
 def build_pdf_box_user_text(asset_type: str, coord_order: str = 'xyxy',
-                            endpoint_id=None) -> str:
+                            endpoint_id=None, expected_labels=None) -> str:
     """User-turn instruction accompanying a single page image, with the
     shared JSON contract re-appended for emphasis. ``coord_order`` (the
-    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording."""
+    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording.
+    ``expected_labels`` (agent runs) names the question numbers expected."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
     order_vars = pdf_box_order_vars(coord_order)
     text = render_prompt('PDF_BOX_USER', endpoint_id=endpoint_id, what=what,
+                         expected_note=_page_expected_note(expected_labels),
                          **order_vars)
     return append_format('PDF_BOX_USER', text, endpoint_id=endpoint_id,
                          **order_vars)
 
 
+def _page_expected_note(expected_labels) -> str:
+    """Pass-1 hint from the agent outline: which question numbers this page
+    should contain. Empty string when unknown (plain wizard runs)."""
+    labels = [str(x).strip() for x in (expected_labels or []) if str(x).strip()]
+    if not labels:
+        return ''
+    return ('According to the paper outline this page contains question(s) '
+            + ', '.join(labels)
+            + '; a number listed first that also appeared on the previous '
+            'page is a continuation (continues_prev). Do not add numbers '
+            'that are not printed on the page.')
+
+
 def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy',
-                         endpoint_id=None) -> str:
+                         endpoint_id=None, expected_labels=None) -> str:
     """Resolved system prompt for the PDF page-detection model, with the
     shared JSON contract substituted in. Use this from call sites instead of
     branching on QUE/SOL yourself. ``coord_order`` (the
     ``PDF_IMPORT_COORD_ORDER`` setting) drives the coordinate-order wording in
-    the contract so the prompt matches what ``parse_question_boxes`` expects."""
+    the contract so the prompt matches what ``parse_question_boxes`` expects.
+    ``expected_labels`` (agent runs) names the question numbers expected on
+    this page."""
     contract = render_prompt('PDF_BOX_JSON_CONTRACT', endpoint_id=endpoint_id,
                              **pdf_box_order_vars(coord_order))
     key = 'PDF_QUE_BOX_SYSTEM' if asset_type == 'QUE' else 'PDF_SOL_BOX_SYSTEM'
-    return render_prompt(key, endpoint_id=endpoint_id, json_contract=contract)
+    return render_prompt(key, endpoint_id=endpoint_id, json_contract=contract,
+                         expected_note=_page_expected_note(expected_labels))
+
+
+def build_pdf_agent_outline_system(asset_type: str, endpoint_id=None) -> str:
+    """System prompt for the agent's whole-paper outline call."""
+    what = 'question paper' if asset_type == 'QUE' else 'marking scheme'
+    contract = render_prompt('PDF_AGENT_OUTLINE_JSON_CONTRACT',
+                             endpoint_id=endpoint_id)
+    return render_prompt('PDF_AGENT_OUTLINE_SYSTEM', endpoint_id=endpoint_id,
+                         what=what, json_contract=contract)
+
+
+def build_pdf_agent_outline_user_text(asset_type: str, page_numbers,
+                                      total_pages: int, running_outline=None,
+                                      endpoint_id=None) -> str:
+    """User turn for one outline batch. ``page_numbers`` are 1-based printed
+    caption numbers; ``running_outline`` is the merged JSON-able outline from
+    earlier batches (or ``None``)."""
+    what = 'question paper' if asset_type == 'QUE' else 'marking scheme'
+    nums = [int(n) for n in page_numbers]
+    if nums and nums == list(range(nums[0], nums[-1] + 1)):
+        page_list = f'{nums[0]}-{nums[-1]}' if len(nums) > 1 else str(nums[0])
+    else:
+        page_list = ', '.join(str(n) for n in nums)
+    running_note = ''
+    if running_outline and running_outline.get('questions'):
+        running_note = ('RUNNING OUTLINE from earlier pages (extend it; repeat '
+                        'any question that continues onto these pages): '
+                        + json.dumps(running_outline.get('questions'),
+                                     ensure_ascii=False)
+                        + '. ')
+    text = render_prompt('PDF_AGENT_OUTLINE_USER', endpoint_id=endpoint_id,
+                         page_list=page_list, total_pages=int(total_pages),
+                         what=what, running_note=running_note)
+    return append_format('PDF_AGENT_OUTLINE_USER', text, endpoint_id=endpoint_id)
+
+
+def build_pdf_agent_verify_system(asset_type: str, endpoint_id=None) -> str:
+    what = 'question' if asset_type == 'QUE' else 'solution'
+    contract = render_prompt('PDF_AGENT_VERIFY_JSON_CONTRACT',
+                             endpoint_id=endpoint_id)
+    return render_prompt('PDF_AGENT_VERIFY_SYSTEM', endpoint_id=endpoint_id,
+                         what=what, json_contract=contract)
+
+
+def build_pdf_agent_verify_user_text(legend, expected_labels,
+                                     endpoint_id=None, page_note='') -> str:
+    """``legend`` is an ordered list of ``(number, label)``; ``expected_labels``
+    the parts on THIS page (relative: stem, a, dii). ``page_note`` tells the
+    model that other parts of a multi-page question live elsewhere."""
+    legend_txt = ', '.join(f'{n}={lab}' for n, lab in legend) or 'none'
+    exp = [str(x).strip() for x in (expected_labels or []) if str(x).strip()]
+    expected_txt = ', '.join(exp) if exp else 'unknown (no outline)'
+    note = (page_note or '').strip()
+    if note and not note.endswith((' ', '\n')):
+        note = note + ' '
+    text = render_prompt('PDF_AGENT_VERIFY_USER', endpoint_id=endpoint_id,
+                         legend=legend_txt, expected=expected_txt,
+                         page_note=note)
+    # Custom variants that predate {{page_note}} still need the warning.
+    if note and '{{page_note}}' in text:
+        text = note + text.replace('{{page_note}}', '')
+    elif note and note.strip() not in text:
+        text = note + text
+    return append_format('PDF_AGENT_VERIFY_USER', text, endpoint_id=endpoint_id)
 
 
 def _part_expected_note(expected_labels) -> str:
@@ -2240,7 +2507,10 @@ def build_pdf_part_system(asset_type: str, expected_labels=None,
                                  'No expected labels were supplied; detect '
                                  'stem plus every lettered part you can see.'))
     return render_prompt('PDF_PART_BOX_SYSTEM', endpoint_id=endpoint_id,
-                         json_contract=contract)
+                         json_contract=contract,
+                         expected_note=note or (
+                             'No expected labels were supplied; detect the '
+                             'stem plus every lettered part you can see.'))
 
 
 def build_pdf_part_user_text(asset_type: str, expected_labels=None,
@@ -2625,6 +2895,176 @@ def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
             'continues_next': _salvage_bool(raw, 'continues_next'),
         })
     return out
+
+
+_OUTLINE_PAGE_KINDS = frozenset({
+    'question', 'instructions', 'blank', 'answer_sheet', 'formula', 'other',
+})
+
+
+def _clean_part_tree(raw, depth=0):
+    """Normalise a nested ``[{label, parts:[...]}]`` list: lowercase letter
+    labels only, duplicates dropped, depth capped at 3."""
+    out = []
+    seen = set()
+    if depth >= 3 or not isinstance(raw, list):
+        return out
+    for it in raw:
+        if isinstance(it, str):
+            it = {'label': it}
+        if not isinstance(it, dict):
+            continue
+        lab = str(it.get('label') or it.get('part') or '').strip().lower()
+        lab = lab.strip('()[].')
+        if not lab or not lab.isalpha() or lab in seen:
+            continue
+        seen.add(lab)
+        out.append({'label': lab,
+                    'parts': _clean_part_tree(it.get('parts'), depth + 1)})
+    return out
+
+
+def parse_agent_outline(text: str):
+    """Parse the agent outline reply into
+    ``{pages: [{page, kind}], questions: [{label, pages, marks, parts,
+    depends_prev}], paper: {year, paper, section}}``. Returns ``None`` when
+    no usable object is found (caller retries / flags)."""
+    from app.hierarchy import normalize_plan_label
+
+    if not text:
+        return None
+    for c in _json_candidates(text, '{'):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if 'questions' not in data and 'pages' not in data:
+            continue
+        pages = []
+        for p in data.get('pages') or []:
+            if not isinstance(p, dict):
+                continue
+            try:
+                num = int(p.get('page', p.get('index')))
+            except (TypeError, ValueError):
+                continue
+            kind = str(p.get('kind') or 'other').strip().lower().replace(' ', '_')
+            if kind not in _OUTLINE_PAGE_KINDS:
+                kind = 'question' if 'question' in kind else 'other'
+            pages.append({'page': num, 'kind': kind})
+        questions = []
+        seen = set()
+        for q in data.get('questions') or []:
+            if not isinstance(q, dict):
+                continue
+            lab = normalize_plan_label(q.get('label', q.get('qno')))
+            if not lab or lab in seen:
+                continue
+            seen.add(lab)
+            qpages = []
+            for v in (q.get('pages') or []):
+                try:
+                    qpages.append(int(v))
+                except (TypeError, ValueError):
+                    continue
+            marks = q.get('marks')
+            try:
+                marks = int(marks) if marks is not None else None
+            except (TypeError, ValueError):
+                marks = None
+            deps = []
+            for d in (q.get('depends_prev') or []):
+                s = str(d).strip().lower().strip('()')
+                if s and s.isalpha() and s not in deps:
+                    deps.append(s)
+            questions.append({
+                'label': lab,
+                'pages': sorted(set(qpages)),
+                'marks': marks,
+                'parts': _clean_part_tree(q.get('parts')),
+                'depends_prev': deps,
+            })
+        paper_raw = data.get('paper') if isinstance(data.get('paper'), dict) else {}
+        year = paper_raw.get('year')
+        try:
+            year = int(year) if year is not None else None
+        except (TypeError, ValueError):
+            year = None
+        paper = {
+            'year': year,
+            'paper': (str(paper_raw.get('paper')).strip().upper()
+                      if paper_raw.get('paper') else None),
+            'section': (str(paper_raw.get('section')).strip()
+                        if paper_raw.get('section') else None),
+        }
+        return {'pages': pages, 'questions': questions, 'paper': paper}
+    return None
+
+
+_VERIFY_PROBLEMS = frozenset({
+    'missing', 'wrong_extent', 'overlaps', 'mislabelled', 'not_a_part', 'extra',
+})
+_VERIFY_FIXES = frozenset({
+    'relabel', 'drop', 'extend_top', 'extend_bottom', 'redetect', 'none',
+})
+
+
+def parse_agent_verify(text: str):
+    """Parse the agent verify reply into ``{ok, issues, depends_prev}``.
+
+    Issues are ``{box: int|None, label, problem, fix, new_label, note}`` with
+    ``problem`` / ``fix`` restricted to the contract's vocabulary (unknown
+    values collapse to ``'extra'`` / ``'none'``). Returns ``None`` when no
+    object can be parsed."""
+    from app.hierarchy import normalize_part_box_label
+
+    if not text:
+        return None
+    for c in _json_candidates(text, '{'):
+        try:
+            data = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict) or ('ok' not in data and 'issues' not in data):
+            continue
+        issues = []
+        for it in data.get('issues') or []:
+            if not isinstance(it, dict):
+                continue
+            problem = str(it.get('problem') or '').strip().lower().replace(' ', '_')
+            if problem not in _VERIFY_PROBLEMS:
+                problem = 'extra' if problem else None
+            if not problem:
+                continue
+            fix = str(it.get('fix') or 'none').strip().lower().replace(' ', '_')
+            if fix not in _VERIFY_FIXES:
+                fix = 'none'
+            box = it.get('box')
+            try:
+                box = int(box) if box is not None else None
+            except (TypeError, ValueError):
+                box = None
+            label = normalize_part_box_label(it.get('label'))
+            new_label = normalize_part_box_label(it.get('new_label'))
+            issues.append({
+                'box': box,
+                'label': label,
+                'problem': problem,
+                'fix': fix,
+                'new_label': new_label,
+                'note': str(it.get('note') or '').strip()[:300],
+            })
+        deps = []
+        for d in (data.get('depends_prev') or []):
+            lab = normalize_part_box_label(d)
+            if lab and lab != 'stem' and lab not in deps:
+                deps.append(lab)
+        ok = bool(data.get('ok', not issues)) and not any(
+            i['fix'] != 'none' for i in issues)
+        return {'ok': ok, 'issues': issues, 'depends_prev': deps}
+    return None
 
 
 def parse_generic_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
