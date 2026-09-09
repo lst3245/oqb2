@@ -23,6 +23,7 @@ Server-rendered Jinja2 + Bootstrap 5.3 + HTMX 1.9; no bundler, no SPA (ADR-001).
 - `base.html` helpers: `oqbTypesetMath`, `oqbRenderMarkdownInto`, `oqbLoadMarkdownPreviewCards`, `oqbPollDocThumbnails`, `oqbRerenderThumb`, `_oqbBuildThumbHtml`, `oqbParseUtc`, `oqbFormatLocalTime`.
 - Partials: `question_list`, `edit_question_modal` + `edit_question_modal_js` (which already includes `tag_editor_js` — never include it twice), `tag_editor_form`, `md_editor`, `file_browser_{css,body,js}`, `file_selector` (`window.OQBFileSelector.open(...)`), `pdf_annotate_editor`, `_version_priority_widget_js`.
 - Edit-modal host contract: set `window.oqbAfterQuestionEdit` and `window.oqbEditNavSource` on the host page (see `docs/modules/admin-questions.md`).
+- Bounding-box overlays: mount `OQBBboxEditor` (`static/js/bbox_editor.js`). Host owns the item model; call `ed.restyle(item)` after mutating a box. Never reimplement a canvas painter. Spec: `docs/frontend/conventions.md` § Bounding-box editor.
 
 ## Gotchas
 - `oqbPollDocThumbnails` must use the same cache-busted URL for probe and swap; per-element dedup via `data-doc-poller-active`.

@@ -192,8 +192,20 @@ class Config:
     # is applied). Users can toggle it per run.
     PDF_IMPORT_TRIM_WHITE_DEFAULT = os.getenv('PDF_IMPORT_TRIM_WHITE_DEFAULT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     # PDF Batch Import — whether the "Uniform width per side" checkbox starts
-    # ticked. Users can toggle it per run.
-    PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # ticked. Legacy option; prefer "Snap to page frame". Users can toggle it
+    # per run. Default off.
+    PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # PDF Batch Import — whether question boxes snap left/right to a detected
+    # printed page frame (DSE answer-book rectangle). Users can toggle it per
+    # run. Tick off to keep the model's own horizontal extents.
+    PDF_IMPORT_FRAME_SNAP_DEFAULT = os.getenv('PDF_IMPORT_FRAME_SNAP_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # PDF Batch Import — inset inside the detected frame rails (% of page
+    # width) at which snapped boxes start/end, so the printed rule line and
+    # residual skew are excluded from crops.
+    PDF_IMPORT_FRAME_INSET_PCT = float(os.getenv('PDF_IMPORT_FRAME_INSET_PCT', '0.5'))
+    # PDF Batch Import — on commit, resample frame-snapped crops so every
+    # crop of the paper shares one pixel width (the median frame width).
+    PDF_IMPORT_FRAME_NORMALISE_WIDTH = os.getenv('PDF_IMPORT_FRAME_NORMALISE_WIDTH', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
     # PDF Batch Import — AI agent layer (app/pdf_agent.py): whole-paper
     # outline batching, thumbnail size, visual verify/repair rounds and the

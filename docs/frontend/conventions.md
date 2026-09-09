@@ -53,6 +53,20 @@ The server checks the `HX-Request` header and returns only `partials/question_li
 | `partials/pdf_annotate_editor.html` | PDF Tool redact/highlight editor |
 | `partials/_version_priority_widget_js.html` | Version Priority widget |
 
+## Bounding-box editor (`OQBBboxEditor`)
+
+Shared overlay editor in `static/js/bbox_editor.js` + `static/css/bbox_editor.css` (no bundler; exposes `window.OQBBboxEditor`). Used by `templates/admin_pdf_import.html` (one editor per page card, `card._ed`) and `templates/admin_question_split.html` (one editor on the stitched image).
+
+**Markup contract:** `<div class="pdf-page-wrap"><img class="pdf-page-img"><div class="pdf-overlay"></div></div>`. Boxes are fractional `[x1,y1,x2,y2]` of the image. The host owns the model (items) and persistence; the editor owns pointer sessions (move / 8-handle resize / rubber-band draw in "add mode"), the drag magnifier, crop thumbnails, the full-size crop preview, and an optional dashed green page-frame guide with draggable left/right rails. Host adds class `x-locked` on the wrap to hide the horizontal handles.
+
+**Mount:** `OQBBboxEditor.mount({wrap, img, overlay, getBox, setBox, classNames, labelText, boxId, magnifierColor, minSize, constrainBox, onSelect, onChange, onCreate, onTooSmall, onAddModeChange, frameEditable, onFrameChange})`.
+
+**Instance:** `add` / `remove` / `restyle` / `refreshLabel` / `refreshClass` / `refreshAll` / `select` / `setAddMode` / `isAdding` / `setFrame` / `getFrame` / `clear` / `destroy`.
+
+**Helpers:** `clamp01`, `applyBoxStyle`, `fracFromEvent`, `drawPreview`, `showCropPreview`, `selectNone`.
+
+**Invariant:** never reimplement box overlays or canvas drawing. Mount `OQBBboxEditor`; mutate boxes through the host model then call `ed.restyle(item)` so the overlay stays in sync.
+
 ## Multi-select dropdowns (custom, not `<select multiple>`)
 
 Topics, subtopics, chapters, years: Bootstrap dropdown with `data-bs-auto-close="outside"`, checkboxes in the panel, a search box, "All" / "None" buttons, and a hidden `<select multiple>` that carries the values on submit. Copy this pattern for any new multi-select filter.

@@ -67,7 +67,10 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | PDF Import | `PDF_IMPORT_REFINE_GROW_PCT` | float 0–20 | 3.5 | refine: search-window growth |
 | PDF Import | `PDF_IMPORT_ASSIST_PAD_PCT` | float 0–10 | 0.6 | refine/segment: content padding |
 | PDF Import | `PDF_IMPORT_TRIM_WHITE_DEFAULT` | bool | False | "Trim whitespace" starts ticked |
-| PDF Import | `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` | bool | True | "Uniform width per side" starts ticked |
+| PDF Import | `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` | bool | False | legacy: "Uniform width per side" starts ticked; prefer Snap to page frame |
+| PDF Import | `PDF_IMPORT_FRAME_SNAP_DEFAULT` | bool | True | "Snap boxes to page frame" starts ticked |
+| PDF Import | `PDF_IMPORT_FRAME_INSET_PCT` | float 0–5 | 0.5 | inset inside detected frame rails (% of page width) |
+| PDF Import | `PDF_IMPORT_FRAME_NORMALISE_WIDTH` | bool | True | resample frame-snapped crops to one paper-wide pixel width |
 | PDF Import | `PDF_AGENT_OUTLINE_BATCH_PAGES` | int 1–20 | 6 | AI agent: page thumbnails per outline call |
 | PDF Import | `PDF_AGENT_THUMB_MAX_DIM` | int 400–2000 | 900 | AI agent: long edge of outline thumbnails (px) |
 | PDF Import | `PDF_AGENT_MAX_REPAIR_ROUNDS` | int 0–5 | 2 | AI agent: visual check + repair rounds per question (0 = no verify) |

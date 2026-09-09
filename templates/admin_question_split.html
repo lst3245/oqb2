@@ -3,10 +3,14 @@
 {% block title %}Split {{ question.qid }} into parts{% endblock %}
 
 {% block extra_css %}
+{# Box overlay / handles / magnifier / crop preview: shared OQBBboxEditor styles. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=1">
 <style>
-.split-canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
-#splitCanvas { display: block; max-width: 100%; height: auto; cursor: crosshair; background: #111; }
+.split-stage { text-align: center; }
+.split-stage .pdf-page-wrap { text-align: left; }
+.box-list .box-row { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
 .box-list .box-row.active { background: #e7f1ff; }
+.box-list .box-row canvas { width: 64px; height: auto; border: 1px solid #dee2e6; background: #fff; flex: 0 0 auto; cursor: zoom-in; }
 .box-swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; vertical-align: middle; margin-right: 0.35rem; }
 </style>
 {% endblock %}
@@ -43,6 +47,9 @@
                             {% endfor %}
                         </select>
                         <span class="text-muted small me-auto">Same boxes are applied to every version on commit.</span>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="addBoxBtn" title="Then drag a rectangle on the image">
+                            <i class="bi bi-plus-square"></i> Add box
+                        </button>
                         {% if ai_enabled and endpoints %}
                         <select id="splitEndpoint" class="form-select form-select-sm" style="max-width: 16rem;" title="Vision endpoint for Auto-detect">
                             {% for e in endpoints %}
@@ -76,9 +83,10 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="card-body p-2 overflow-auto">
-                    <div class="split-canvas-wrap">
-                        <canvas id="splitCanvas"></canvas>
+                <div class="card-body p-2 overflow-auto split-stage">
+                    <div class="pdf-page-wrap" id="splitWrap">
+                        <img class="pdf-page-img" id="splitImg" alt="{{ question.qid }}">
+                        <div class="pdf-overlay"></div>
                     </div>
                 </div>
             </div>
@@ -94,7 +102,7 @@
                         <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">Set</button>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">Delete selected box</button>
-                    <div class="form-text">Click-drag on the image to add a box. Click a box to select it. Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
+                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge), click a thumbnail to preview the crop. Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
                 </div>
             </div>
             <div class="card">
@@ -115,6 +123,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=1"></script>
 <script>
 const TOKEN = {{ token | tojson }};
 const QUESTION_ID = {{ question.id }};
@@ -125,120 +134,89 @@ const IMAGE_URLS = {};
 IMAGE_URLS[{{ v | tojson }}] = {{ url_for('admin.split_question_image', question_id=question.id, version=v, token=token) | tojson }};
 {% endfor %}
 
-let img = new Image();
-let boxes = []; // {label, x1,y1,x2,y2} fractional
-let selected = -1;
-let drag = null;
-const canvas = document.getElementById('splitCanvas');
-const ctx = canvas.getContext('2d');
+// ----- Model -----
+// boxes: [{label, box:[x1,y1,x2,y2]}] fractional, relative to the staged
+// stitch (same for every version). The overlay, handles, move/resize/draw and
+// the magnifier are the shared OQBBboxEditor (static/js/bbox_editor.js) — the
+// same component PDF import uses; this page only owns labels, the list and commit.
+const { drawPreview, showCropPreview } = OQBBboxEditor;
+let boxes = [];
+let selected = null;           // item reference (not an index)
+const img = document.getElementById('splitImg');
+const wrap = document.getElementById('splitWrap');
+const labelInput = document.getElementById('boxLabel');
+const addBoxBtn = document.getElementById('addBoxBtn');
 
 function currentVersion() {
     return document.getElementById('splitVersion').value;
 }
 
 function loadVersion() {
-    const v = currentVersion();
-    img = new Image();
-    img.onload = () => {
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        draw();
-    };
-    img.src = IMAGE_URLS[v];
+    img.src = IMAGE_URLS[currentVersion()];
 }
+img.addEventListener('load', renderList);
 
-function boxColor(b, selected) {
-    if (selected) return '#0d6efd';
-    return (b.label || '') === 'stem' ? '#6c757d' : '#fd7e14';
-}
-function boxFill(b, selected) {
-    if (selected) return 'rgba(13,110,253,0.12)';
-    return (b.label || '') === 'stem' ? 'rgba(108,117,125,0.18)' : 'rgba(253,126,20,0.14)';
-}
 function boxCaption(b) {
     if ((b.label || '') === 'stem') return 'Shared background (stem)';
     if (b.label) return 'Part (' + b.label + ')';
     return '(unlabelled)';
 }
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (img.complete) ctx.drawImage(img, 0, 0);
-    boxes.forEach((b, i) => {
-        const x = b.x1 * canvas.width, y = b.y1 * canvas.height;
-        const w = (b.x2 - b.x1) * canvas.width, h = (b.y2 - b.y1) * canvas.height;
-        const sel = i === selected;
-        ctx.strokeStyle = boxColor(b, sel);
-        ctx.lineWidth = sel ? 4 : 2;
-        ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = boxFill(b, sel);
-        ctx.fillRect(x, y, w, h);
-        ctx.fillStyle = '#000';
-        ctx.font = '24px sans-serif';
-        ctx.fillText(b.label || '?', x + 6, y + 26);
-    });
-    renderList();
+const ed = OQBBboxEditor.mount({
+    wrap, img,
+    overlay: wrap.querySelector('.pdf-overlay'),
+    classNames: it => 'kind-que ' + ((it.label || '') === 'stem' ? 'role-stem' : 'role-part'),
+    labelText: it => it.label || '?',
+    magnifierColor: it => ((it.label || '') === 'stem' ? '#6c757d' : '#fd7e14'),
+    onSelect: it => { selected = it; labelInput.value = it.label || ''; renderList(); },
+    onChange: (it, type, live) => { if (!live) renderList(); },
+    onCreate: box => {
+        const label = (labelInput.value || '').trim().toLowerCase() || guessLabel();
+        const item = { label, box };
+        boxes.push(item);
+        labelInput.value = label;
+        return item;                       // editor renders + selects it (→ onSelect)
+    },
+    onTooSmall: () => { document.getElementById('splitStatus').textContent = 'New box too small — ignored. Drag a larger rectangle.'; },
+    onAddModeChange: on => {
+        addBoxBtn.classList.toggle('btn-success', on);
+        addBoxBtn.classList.toggle('btn-outline-success', !on);
+        addBoxBtn.innerHTML = on ? '<i class="bi bi-x-square"></i> Cancel add' : '<i class="bi bi-plus-square"></i> Add box';
+    },
+});
+addBoxBtn.addEventListener('click', () => ed.setAddMode(!ed.isAdding()));
+
+// Replace the whole model (auto-detect result) and re-render everything.
+function setBoxes(list) {
+    ed.clear();
+    boxes = list;
+    selected = null;
+    boxes.forEach(it => ed.add(it));
+    if (boxes.length) ed.select(boxes[0]); else renderList();
 }
 
 function renderList() {
     const el = document.getElementById('boxList');
-    el.innerHTML = boxes.map((b, i) =>
-        `<button type="button" class="list-group-item list-group-item-action box-row ${i===selected?'active':''}" onclick="selectBox(${i})">${boxCaption(b)}</button>`
-    ).join('') || '<div class="text-muted px-2">No boxes yet — auto-detect or draw them</div>';
-}
-
-function canvasPoint(ev) {
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
-    return {
-        x: (ev.clientX - rect.left) * sx / canvas.width,
-        y: (ev.clientY - rect.top) * sy / canvas.height,
-    };
-}
-
-canvas.addEventListener('mousedown', ev => {
-    const p = canvasPoint(ev);
-    let hit = -1;
-    for (let i = boxes.length - 1; i >= 0; i--) {
-        const b = boxes[i];
-        if (p.x >= Math.min(b.x1,b.x2) && p.x <= Math.max(b.x1,b.x2) &&
-            p.y >= Math.min(b.y1,b.y2) && p.y <= Math.max(b.y1,b.y2)) {
-            hit = i; break;
-        }
-    }
-    if (hit >= 0) {
-        selected = hit;
-        document.getElementById('boxLabel').value = boxes[hit].label;
-        drag = null;
-        draw();
+    el.innerHTML = '';
+    if (!boxes.length) {
+        el.innerHTML = '<div class="text-muted px-2">No boxes yet — auto-detect or draw them</div>';
         return;
     }
-    drag = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-});
-canvas.addEventListener('mousemove', ev => {
-    if (!drag) return;
-    const p = canvasPoint(ev);
-    drag.x2 = p.x; drag.y2 = p.y;
-    draw();
-    const x = Math.min(drag.x1, drag.x2) * canvas.width;
-    const y = Math.min(drag.y1, drag.y2) * canvas.height;
-    const w = Math.abs(drag.x2 - drag.x1) * canvas.width;
-    const h = Math.abs(drag.y2 - drag.y1) * canvas.height;
-    ctx.strokeStyle = '#0d6efd';
-    ctx.strokeRect(x, y, w, h);
-});
-window.addEventListener('mouseup', () => {
-    if (!drag) return;
-    const x1 = Math.min(drag.x1, drag.x2), x2 = Math.max(drag.x1, drag.x2);
-    const y1 = Math.min(drag.y1, drag.y2), y2 = Math.max(drag.y1, drag.y2);
-    drag = null;
-    if ((x2 - x1) < 0.01 || (y2 - y1) < 0.01) { draw(); return; }
-    const label = (document.getElementById('boxLabel').value || '').trim().toLowerCase() || guessLabel();
-    boxes.push({ label, x1, y1, x2, y2 });
-    selected = boxes.length - 1;
-    document.getElementById('boxLabel').value = label;
-    draw();
-});
+    boxes.forEach(b => {
+        const row = document.createElement('div');
+        row.className = 'list-group-item list-group-item-action box-row px-2' + (b === selected ? ' active' : '');
+        const thumb = document.createElement('canvas');
+        thumb.title = 'Click to preview the crop at full size';
+        drawPreview(thumb, img, b.box, 64);
+        thumb.addEventListener('click', (e) => { e.stopPropagation(); showCropPreview(img, b.box, boxCaption(b)); });
+        const cap = document.createElement('span');
+        cap.textContent = boxCaption(b);
+        row.appendChild(thumb);
+        row.appendChild(cap);
+        row.addEventListener('click', () => ed.select(b));
+        el.appendChild(row);
+    });
+}
 
 function guessLabel() {
     const used = new Set(boxes.map(b => b.label));
@@ -247,32 +225,31 @@ function guessLabel() {
     for (const ch of letters) if (!used.has(ch)) return ch;
     return '';
 }
-function selectBox(i) {
-    selected = i;
-    document.getElementById('boxLabel').value = boxes[i].label;
-    draw();
-}
 function applyLabel() {
-    if (selected < 0) return;
-    boxes[selected].label = (document.getElementById('boxLabel').value || '').trim().toLowerCase();
-    draw();
+    if (!selected) return;
+    selected.label = (labelInput.value || '').trim().toLowerCase();
+    ed.refreshClass(selected);
+    ed.refreshLabel(selected);
+    renderList();
 }
 function deleteSelected() {
-    if (selected < 0) return;
-    boxes.splice(selected, 1);
-    selected = -1;
-    draw();
+    if (!selected) return;
+    const it = selected;
+    ed.remove(it);
+    boxes = boxes.filter(b => b !== it);
+    selected = null;
+    renderList();
 }
 
 document.getElementById('splitVersion').addEventListener('change', loadVersion);
-document.getElementById('boxLabel').addEventListener('keydown', ev => {
+labelInput.addEventListener('keydown', ev => {
     if (ev.key === 'Enter') { ev.preventDefault(); applyLabel(); }
 });
 document.addEventListener('keydown', ev => {
     if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
     const tag = (ev.target && ev.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (selected < 0) return;
+    if (!selected) return;
     ev.preventDefault();
     deleteSelected();
 });
@@ -313,13 +290,10 @@ function autoDetect() {
             status.textContent = ev.message || 'No lettered parts found — draw a stem box and part boxes by hand.';
             return;
         }
-        boxes = found.map(b => ({
+        setBoxes(found.map(b => ({
             label: b.label,
-            x1: b.box[0], y1: b.box[1], x2: b.box[2], y2: b.box[3],
-        }));
-        selected = boxes.length ? 0 : -1;
-        if (selected >= 0) document.getElementById('boxLabel').value = boxes[selected].label;
-        draw();
+            box: b.box.map(Number),
+        })));
         status.textContent = ev.message || 'Detection finished.';
     };
     detectSource.onerror = () => {
@@ -380,10 +354,7 @@ function commitSplit() {
     const payload = {
         token: TOKEN,
         copy_tags: document.getElementById('copyTags').checked,
-        boxes: boxes.map(b => ({
-            label: b.label,
-            box: [b.x1, b.y1, b.x2, b.y2],
-        })),
+        boxes: boxes.map(b => ({ label: b.label, box: b.box.slice() })),
     };
     document.getElementById('commitBtn').disabled = true;
     status.textContent = 'Saving…';

@@ -457,7 +457,23 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
     ('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', _spec(
         'PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', 'bool', group='PDF Import',
         label='Uniform width per side by default',
-        help='Whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Users can toggle it per run.',
+        help='Legacy option: whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Prefer "Snap to page frame" instead. Users can toggle it per run. Default OFF.',
+    )),
+    ('PDF_IMPORT_FRAME_SNAP_DEFAULT', _spec(
+        'PDF_IMPORT_FRAME_SNAP_DEFAULT', 'bool', group='PDF Import',
+        label='Snap boxes to page frame by default',
+        help='When the staged page has a detected printed frame (the rectangle margin on DSE answer books), question boxes take their left/right edges from that frame so multi-page questions align and crop to a consistent width. Tick off to keep the model\'s own horizontal extents.',
+    )),
+    ('PDF_IMPORT_FRAME_INSET_PCT', _spec(
+        'PDF_IMPORT_FRAME_INSET_PCT', 'float', group='PDF Import',
+        label='Frame inset (% of page width)',
+        help='Distance inside the detected frame rails at which snapped boxes start/end, so the printed rule line and residual skew are excluded from crops.',
+        min=0.0, max=5.0,
+    )),
+    ('PDF_IMPORT_FRAME_NORMALISE_WIDTH', _spec(
+        'PDF_IMPORT_FRAME_NORMALISE_WIDTH', 'bool', group='PDF Import',
+        label='Normalise crop width to the paper\'s frame',
+        help='On commit, frame-snapped crops are resampled so every crop of the paper shares one pixel width (the median frame width), hiding per-page scan stretch/compression.',
     )),
     ('PDF_AGENT_OUTLINE_BATCH_PAGES', _spec(
         'PDF_AGENT_OUTLINE_BATCH_PAGES', 'int', group='PDF Import',

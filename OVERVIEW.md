@@ -82,6 +82,7 @@ one or more super admins (users, subjects, settings, everything).
 | [008](docs/decisions/ADR-008-selection-independent-of-filter.md) | Dashboard Selection is a separate set from the Filter result; set algebra composes them |
 | [009](docs/decisions/ADR-009-question-hierarchy-over-linking.md) | Stem/parts are a `Question` tree (`parent_id`), not peer links; QNO token `Q5` / `Q5a` / `Q23-24` |
 | [010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md) | PDF import agent is a fixed state machine over pass 1/2 with strict-JSON LLM steps and an attention list; roles derived from labels; sibling dependency is a per-part flag |
+| [011](docs/decisions/ADR-011-page-frame-crop-anchor.md) | Printed page frame is the crop x-anchor (stage-time detect + per-paper consolidate + snap + vertical-only trim / width normalise); uniform width is legacy |
 
 ## Documentation map
 

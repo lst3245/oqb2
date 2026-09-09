@@ -677,7 +677,7 @@ def _pages_for(meta, kind):
 
 def iter_agent(app, cancel, token: str, config, image_max_dim: int,
                parallel: bool = False, max_workers: int = 1,
-               debug: bool = False):
+               debug: bool = False, frame_snap: bool = False):
     """SSE generator: run the whole agent pipeline on a staged session.
 
     Events are ``{type, message, stage, current?, total?}`` with ``type`` in
@@ -813,7 +813,8 @@ def iter_agent(app, cancel, token: str, config, image_max_dim: int,
                                      debug=debug, method='llm', parallel=parallel,
                                      max_workers=max_workers,
                                      expected_by_page=expected_by_page,
-                                     page_filter=page_filter):
+                                     page_filter=page_filter,
+                                     frame_snap=frame_snap):
         if ev.get('type') == 'done':
             break
         ev.setdefault('stage', 'locate')
@@ -912,7 +913,8 @@ def iter_agent(app, cancel, token: str, config, image_max_dim: int,
         for ev in pdf_import.iter_split_detect(
                 app, cancel, token, config, image_max_dim, kinds='both',
                 labels_filter=labels_filter, debug=debug, parallel=parallel,
-                max_workers=max_workers, expected_by_parent=expected_by_parent):
+                max_workers=max_workers, expected_by_parent=expected_by_parent,
+                frame_snap=frame_snap):
             if ev.get('type') == 'done':
                 break
             ev.setdefault('stage', 'segment')
@@ -1025,7 +1027,7 @@ def iter_agent(app, cancel, token: str, config, image_max_dim: int,
                         app, cancel, token, config, image_max_dim, kinds=kind,
                         labels_filter=[parent], debug=debug, parallel=False,
                         max_workers=1, expected_by_parent=expected_by_parent,
-                        note_by_parent={parent: note}):
+                        note_by_parent={parent: note}, frame_snap=frame_snap):
                     if ev.get('type') == 'done':
                         break
                 plan = pdf_import.load_plan(token)
@@ -1111,7 +1113,8 @@ def agent_job(token: str):
 
 def start_agent_job(app, token: str, endpoint_id: int, image_max_dim: int,
                     parallel: bool = False, max_workers: int = 1,
-                    debug: bool = False, restart: bool = False):
+                    debug: bool = False, restart: bool = False,
+                    frame_snap: bool = False):
     """Start (or attach to) the agent for a staging token.
 
     Returns ``(job_id, attached)``. ``attached`` is True when a run was
@@ -1155,7 +1158,7 @@ def start_agent_job(app, token: str, endpoint_id: int, image_max_dim: int,
                 for ev in iter_agent(
                         app, cancel, token, live_cfg, image_max_dim,
                         parallel=parallel, max_workers=max_workers,
-                        debug=debug):
+                        debug=debug, frame_snap=frame_snap):
                     _push_job_event(job, ev)
                     if ev.get('type') == 'done':
                         break

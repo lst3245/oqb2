@@ -1,0 +1,157 @@
+/* OQBBboxEditor — shared styles (pair with static/js/bbox_editor.js).
+   Host page: <div class="pdf-page-wrap"><img class="pdf-page-img"><div class="pdf-overlay"></div></div>
+   Kind/role colour classes come from the host's classNames() callback. */
+
+.pdf-page-wrap {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    border: 1px solid #dee2e6;
+    background: #fff;
+    line-height: 0;
+}
+.pdf-page-img { max-width: 100%; height: auto; display: block; }
+.pdf-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.pdf-box {
+    position: absolute;
+    border: 2px solid #d63384;
+    background: rgba(214, 51, 132, 0.10);
+    box-sizing: border-box;
+    pointer-events: auto;
+    cursor: move;
+    touch-action: none;
+}
+.pdf-box.kind-sol { border-color: #0d6efd; background: rgba(13, 110, 253, 0.10); }
+.pdf-box.selected { outline: 3px solid #ffc107; outline-offset: 1px; z-index: 3; }
+
+/* Resize handles (8). */
+.pdf-handle {
+    position: absolute;
+    width: 7px; height: 7px;
+    background: #fff;
+    border: 1px solid #333;
+    box-sizing: border-box;
+    z-index: 5;
+    touch-action: none;
+}
+.pdf-handle.h-nw { left: -4px;  top: -4px;    cursor: nwse-resize; }
+.pdf-handle.h-n  { left: 50%;   top: -4px;    transform: translateX(-50%); cursor: ns-resize; }
+.pdf-handle.h-ne { right: -4px; top: -4px;    cursor: nesw-resize; }
+.pdf-handle.h-e  { right: -4px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+.pdf-handle.h-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+.pdf-handle.h-s  { left: 50%;   bottom: -4px; transform: translateX(-50%); cursor: ns-resize; }
+.pdf-handle.h-sw { left: -4px;  bottom: -4px; cursor: nesw-resize; }
+.pdf-handle.h-w  { left: -4px;  top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+/* When x is locked (frame snap) the host adds .x-locked to the wrap. */
+.pdf-page-wrap.x-locked .pdf-handle.h-e,
+.pdf-page-wrap.x-locked .pdf-handle.h-w,
+.pdf-page-wrap.x-locked .pdf-handle.h-ne,
+.pdf-page-wrap.x-locked .pdf-handle.h-nw,
+.pdf-page-wrap.x-locked .pdf-handle.h-se,
+.pdf-page-wrap.x-locked .pdf-handle.h-sw { display: none; }
+
+/* Add-box (draw) mode: overlay captures the drag; boxes step aside. */
+.pdf-page-wrap.adding { cursor: crosshair; }
+.pdf-page-wrap.adding .pdf-overlay { pointer-events: auto; }
+.pdf-page-wrap.adding .pdf-box { pointer-events: none; }
+.pdf-page-wrap.adding .pdf-frame-rail { pointer-events: none; }
+.pdf-box-draft {
+    position: absolute;
+    border: 2px dashed #198754;
+    background: rgba(25, 135, 84, 0.12);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+.pdf-box-label {
+    position: absolute;
+    top: -2px; left: -2px;
+    background: #d63384;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0 5px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.pdf-box.kind-sol .pdf-box-label { background: #0d6efd; }
+.pdf-box.role-stem { border-color: #6c757d; background: rgba(108, 117, 125, 0.14); }
+.pdf-box.role-stem .pdf-box-label { background: #6c757d; }
+.pdf-box.role-part { border-color: #fd7e14; background: rgba(253, 126, 20, 0.14); }
+.pdf-box.role-part .pdf-box-label { background: #fd7e14; }
+.pdf-box.kind-sol.role-part { border-color: #fd7e14; }
+.pdf-box.kind-sol.role-stem { border-color: #6c757d; }
+
+/* Page frame guide: the printed rectangle boxes snap to. */
+.pdf-frame {
+    position: absolute;
+    border: 1px dashed #20c997;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 1;
+}
+.pdf-frame-rail {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 9px;
+    margin-left: -5px;
+    cursor: ew-resize;
+    pointer-events: auto;
+    touch-action: none;
+    background: linear-gradient(to right, transparent 3px, rgba(32, 201, 151, 0.55) 3px, rgba(32, 201, 151, 0.55) 6px, transparent 6px);
+}
+.pdf-frame-rail:hover { background: linear-gradient(to right, transparent 2px, rgba(32, 201, 151, 0.95) 2px, rgba(32, 201, 151, 0.95) 7px, transparent 7px); }
+.pdf-frame-rail.rail-w { left: 0; }
+.pdf-frame-rail.rail-e { left: 100%; }
+
+/* Full-size crop preview overlay (click a thumbnail to enlarge). */
+.pdf-fullsize-overlay {
+    position: fixed; inset: 0; z-index: 1080;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 0.75rem; padding: 2vmin;
+    cursor: zoom-out;
+}
+.pdf-fullsize-overlay canvas {
+    max-width: 96vw; max-height: 88vh;
+    background: #fff; box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+}
+.pdf-fullsize-cap {
+    color: #fff; font-size: 0.85rem; opacity: 0.85;
+    background: rgba(0, 0, 0, 0.35); padding: 0.25rem 0.75rem; border-radius: 4px;
+}
+
+/* Drag magnifier (loupe) shown while moving / resizing / drawing. */
+.pdf-magnifier {
+    position: fixed;
+    z-index: 1090;
+    width: auto;
+    padding: 8px;
+    border-radius: 10px;
+    background: rgba(20, 20, 20, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    user-select: none;
+}
+.pdf-magnifier canvas {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: min(980px, 78vw);
+    max-height: min(760px, 78vh);
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+}
+.pdf-magnifier .pdf-mag-caption {
+    margin-top: 5px;
+    color: #f8f9fa;
+    font-size: 0.74rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+}

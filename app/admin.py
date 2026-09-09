@@ -4859,7 +4859,9 @@ def pdf_import_page():
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
         deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
         trim_white_default=bool(current_app.config.get('PDF_IMPORT_TRIM_WHITE_DEFAULT', False)),
-        uniform_width_default=bool(current_app.config.get('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', True)),
+        uniform_width_default=bool(current_app.config.get('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', False)),
+        frame_snap_default=bool(current_app.config.get('PDF_IMPORT_FRAME_SNAP_DEFAULT', True)),
+        frame_inset_frac=pdf_import.frame_inset_frac(current_app.config),
         default_method=default_method,
         default_endpoint_id=(default_endpoint.id if default_endpoint else None),
         pdf_source_path=pdf_source_root,
@@ -5007,8 +5009,10 @@ def pdf_import_stage():
         info = saved_meta.get(kind)
         if not info:
             return []
-        return [{'index': p['index'], 'width': p['width'], 'height': p['height']}
-                for p in info['pages']]
+        frames = info.get('frames') or []
+        return [{'index': p['index'], 'width': p['width'], 'height': p['height'],
+                 'frame': (frames[i] if i < len(frames) else None)}
+                for i, p in enumerate(info['pages'])]
 
     split_default = False
     if saved_meta.get('mode') != 'generic' and meta.get('subject'):
@@ -5091,6 +5095,7 @@ def pdf_import_detect():
     if method not in pdf_import.DETECT_METHODS:
         method = 'llm'
     want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    frame_snap = request.args.get('frame_snap', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
     instruction = (request.args.get('instruction') or '').strip()[:2000]
     custom_prompt = (request.args.get('custom_prompt') or '').strip().lower() in (
@@ -5130,7 +5135,8 @@ def pdf_import_detect():
                                                  image_max_dim, debug=debug,
                                                  method=method,
                                                  parallel=do_par,
-                                                 max_workers=(workers if do_par else 1)):
+                                                 max_workers=(workers if do_par else 1),
+                                                 frame_snap=frame_snap):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import detect stream aborted')
@@ -5184,6 +5190,7 @@ def pdf_import_split_detect():
     want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     labels_raw = (request.args.get('labels') or '').strip()
     labels_filter = [s.strip() for s in labels_raw.split(',') if s.strip()] or None
+    frame_snap = request.args.get('frame_snap', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
@@ -5201,7 +5208,8 @@ def pdf_import_split_detect():
                 for ev in pdf_import.iter_split_detect(
                         app, cancel, token, live_cfg, image_max_dim,
                         kinds=kind, labels_filter=labels_filter, debug=debug,
-                        parallel=do_par, max_workers=(workers if do_par else 1)):
+                        parallel=do_par, max_workers=(workers if do_par else 1),
+                        frame_snap=frame_snap):
                     yield f"data: {json.dumps(ev)}\n\n"
             except Exception as e:
                 current_app.logger.exception('PDF import split-detect aborted')
@@ -5262,10 +5270,11 @@ def pdf_import_agent():
     image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
     do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
+    frame_snap = request.args.get('frame_snap', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     job_id, attached = pdf_agent.start_agent_job(
         app, token, endpoint_id, image_max_dim,
         parallel=do_par, max_workers=(workers if do_par else 1),
-        debug=debug, restart=restart)
+        debug=debug, restart=restart, frame_snap=frame_snap)
 
     def generate():
         yield f"data: {json.dumps({'type': 'job', 'job_id': job_id, 'attached': attached})}\n\n"
@@ -5375,6 +5384,15 @@ def pdf_import_redo_page():
     except Exception as e:
         current_app.logger.exception('PDF import redo-page failed')
         return jsonify({'error': f'Detection failed: {e}'}), 502
+    # Same alignment rule as full detect / split: the page frame governs x.
+    if bool(data.get('frame_snap')) and meta.get('mode') != 'generic':
+        meta = pdf_import.ensure_frames(token, meta)
+        tmp = [{'page': index, 'box': b.get('box')} for b in boxes]
+        pdf_import.snap_boxes_to_frames(
+            tmp, (meta.get(kind) or {}).get('frames') or [],
+            pdf_import.frame_inset_frac(current_app.config))
+        for b, t in zip(boxes, tmp):
+            b['box'] = t['box']
     out = {'boxes': boxes}
     if debug:
         current_app.logger.info('pdf-import raw redo (%s page %s):\n%s', kind, index + 1, raw)
@@ -5404,6 +5422,31 @@ def pdf_import_save_plan():
         return jsonify({'error': str(e)}), 400
     return jsonify({'success': True,
                     'counts': {'que': len(clean['que']), 'sol': len(clean['sol'])}})
+
+
+@admin_bp.route('/pdf-import/frame', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_save_frame():
+    """Persist a user-adjusted page frame (the printed rectangle boxes snap
+    to). Body: ``{token, kind, page, box:[x1,y1,x2,y2] | null}``. ``null``
+    marks the page frameless. Returns the stored ``{box, source}`` entry."""
+    from app import pdf_import
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    _meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 404
+    kind = (data.get('kind') or '').strip().lower()
+    box = data.get('box')
+    if box is not None and not (isinstance(box, list) and len(box) == 4):
+        return jsonify({'error': 'box must be [x1,y1,x2,y2] or null'}), 400
+    try:
+        entry = pdf_import.set_manual_frame(token, kind, int(data.get('page', -1)), box)
+    except (ValueError, TypeError, OSError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'success': True, 'frame': entry})
 
 
 @admin_bp.route('/pdf-import/commit')
@@ -5563,7 +5606,10 @@ def pdf_import_export_zip():
 
     crop_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
     try:
-        blob = pdf_import.export_zip_bytes(token, kind, items, pad_frac=crop_pad)
+        blob = pdf_import.export_zip_bytes(
+            token, kind, items, pad_frac=crop_pad,
+            inset_frac=pdf_import.frame_inset_frac(current_app.config),
+            normalise=bool(current_app.config.get('PDF_IMPORT_FRAME_NORMALISE_WIDTH', True)))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:

@@ -13,6 +13,9 @@ These back the "LLM assisted" detection sub-modes and the scan deskew:
   * ``segment_page``  - given the LLM's per-question START anchors (just a y per
     question), derive each question's true top/bottom (and optionally
     left/right) from the whitespace gaps between blocks.
+  * ``detect_page_frame`` - find the printed rectangle border (the "answers in
+    the margin will not be marked" frame on DSE answer books) so question
+    crops can share one left edge / width across pages of a scanned paper.
 
 All geometry is fractional ``[x1, y1, x2, y2]`` (0..1) to match the rest of the
 pipeline (resolution-independent: the LLM sees a downscaled page, crops are cut
@@ -269,3 +272,201 @@ def segment_page(gray, anchors, shrink_sides: bool = True,
             continue
         out.append({'qno': a['qno'], 'box': [new_left, new_top, new_right, new_bot]})
     return out
+
+
+# ==================== Printed page frame ====================
+
+FRAME_KEYS = ('left', 'top', 'right', 'bottom')
+
+
+def _dilate_1d(mask, radius: int, axis: int):
+    """Boolean max-filter of ``mask`` along ``axis`` with ``radius`` px each
+    side (no wrap-around). Lets a slightly skewed 1-px rule land in a single
+    column/row bin instead of smearing over several."""
+    out = mask.copy()
+    n = mask.shape[axis]
+    for k in range(1, max(0, int(radius)) + 1):
+        if k >= n:
+            break
+        if axis == 1:
+            out[:, k:] |= mask[:, :-k]
+            out[:, :-k] |= mask[:, k:]
+        else:
+            out[k:, :] |= mask[:-k, :]
+            out[:-k, :] |= mask[k:, :]
+    return out
+
+
+def _runs(indices):
+    """Group a sorted 1-D index array into ``(start, end)`` inclusive runs."""
+    runs = []
+    if indices.size == 0:
+        return runs
+    s = p = int(indices[0])
+    for i in indices[1:]:
+        i = int(i)
+        if i != p + 1:
+            runs.append((s, p))
+            s = i
+        p = i
+    runs.append((s, p))
+    return runs
+
+
+def _rule_candidates(dark, axis: int, min_score: float, bands: int = 3,
+                     dilate_px: int = 8, max_thick_frac: float = 0.02,
+                     edge_frac: float = 0.01):
+    """Thin, (nearly) full-length straight rules perpendicular to ``axis``.
+
+    ``axis=1`` looks for vertical rules (scores columns), ``axis=0`` for
+    horizontal ones (scores rows). A column's score is the MINIMUM dark
+    fraction over ``bands`` equal slices of its length, so a full-height frame
+    rail scores high while text columns, short answer lines and the scanner
+    shadow that fades out do not. Returns ``[(start, end, coverage_profile)]``
+    where ``coverage_profile`` is the dark fraction along the rule (used by the
+    caller to measure the rule's extent)."""
+    dil = _dilate_1d(dark, dilate_px, axis)
+    n_along = dil.shape[0] if axis == 1 else dil.shape[1]
+    n_across = dil.shape[1] if axis == 1 else dil.shape[0]
+    scores = None
+    for b in range(bands):
+        lo = b * n_along // bands
+        hi = (b + 1) * n_along // bands if b < bands - 1 else n_along
+        if hi <= lo:
+            continue
+        sl = dil[lo:hi, :] if axis == 1 else dil[:, lo:hi]
+        s = sl.mean(axis=0 if axis == 1 else 1)
+        scores = s if scores is None else np.minimum(scores, s)
+    if scores is None:
+        return []
+    idx = np.where(scores >= min_score)[0]
+    # The dilation widens a 1-px rule by ``dilate_px`` on each side, so the
+    # cap must include that or thin rails on narrow pages (A3-split halves,
+    # ~850 px) are dropped as "too thick".
+    max_thick = max(2, int(n_across * max_thick_frac)) + 2 * int(dilate_px)
+    lo_ok, hi_ok = n_across * edge_frac, n_across * (1.0 - edge_frac)
+    out = []
+    for a, b in _runs(idx):
+        if (b - a + 1) > max_thick or a < lo_ok or b > hi_ok:
+            continue
+        band = dil[:, a:b + 1] if axis == 1 else dil[a:b + 1, :]
+        cover = band.mean(axis=1 if axis == 1 else 0)
+        out.append((a, b, cover))
+    return out
+
+
+def _extent(cover, thresh: float = 0.5, gap_frac: float = 0.01):
+    """Start/end of the LONGEST run where ``cover >= thresh``, bridging gaps
+    up to ``gap_frac`` of the length (a rule broken by a scan speckle). Using
+    the longest run rather than first/last index keeps stray dark pixels at
+    the page edge (scanner shadow, margin text) from stretching the extent."""
+    idx = np.where(cover >= thresh)[0]
+    if idx.size == 0:
+        return None
+    gap = max(1, int(len(cover) * gap_frac))
+    best = None
+    s = p = int(idx[0])
+    for i in idx[1:]:
+        i = int(i)
+        if i - p > gap:
+            if best is None or (p - s) > (best[1] - best[0]):
+                best = (s, p)
+            s = i
+        p = i
+    if best is None or (p - s) > (best[1] - best[0]):
+        best = (s, p)
+    return best
+
+
+def detect_page_frame(gray, min_score: float = 0.45, match_frac: float = 0.02,
+                      min_span_frac: float = 0.45, dark_threshold: int = 160):
+    """Locate the printed rectangle frame of a scanned exam page.
+
+    Returns ``{'left', 'top', 'right', 'bottom'}`` as page fractions (inner
+    edge of each rail) with ``None`` for rails that could not be confirmed, or
+    ``None`` when nothing frame-like is found. Purely geometric (NumPy only):
+
+    1. Thin full-length vertical and horizontal rules are collected with
+       :func:`_rule_candidates`.
+    2. A vertical rail is accepted only if some horizontal rule STARTS (for a
+       left rail) or ENDS (for a right rail) within ``match_frac`` of it — the
+       frame's top/bottom edge meets its sides, whereas a scanner shadow or a
+       stray line has no perpendicular partner. The same test (with the roles
+       swapped) accepts top/bottom rails.
+    3. When several rails qualify on one side, the outermost one wins.
+
+    Partial results are expected on faint or broken scans; callers consolidate
+    across the pages of one paper (see ``pdf_import.consolidate_frames``).
+    """
+    _require_numpy()
+    H, W = gray.shape
+    if H < 50 or W < 50:
+        return None
+    dark = gray < int(dark_threshold)
+    vert = _rule_candidates(dark, axis=1, min_score=min_score)
+    horiz = _rule_candidates(dark, axis=0, min_score=min_score)
+    if not vert and not horiz:
+        return None
+
+    def _spans(rules, along_len):
+        spans = []
+        for a, b, cover in rules:
+            ext = _extent(cover)
+            if ext and (ext[1] - ext[0] + 1) >= along_len * min_span_frac:
+                spans.append((a, b, ext[0], ext[1]))
+        return spans
+
+    vspans = _spans(vert, H)    # (x_a, x_b, y_start, y_end)
+    hspans = _spans(horiz, W)   # (y_a, y_b, x_start, x_end)
+    tol_x, tol_y = W * match_frac, H * match_frac
+
+    def _count(v, targets, tol):
+        return sum(1 for t in targets if abs(v - t) <= tol)
+
+    h_starts = [s[2] for s in hspans]
+    h_ends = [s[3] for s in hspans]
+    h_rows = [(s[0] + s[1]) / 2.0 for s in hspans]
+    v_starts = [s[2] for s in vspans]
+    v_ends = [s[3] for s in vspans]
+    v_cols = [(s[0] + s[1]) / 2.0 for s in vspans]
+
+    def _pick(spans, side_ok, ends, corner_rows, tol, ctol, outer_key):
+        """Best rail for one side: most perpendicular rules meeting it, plus
+        a bonus when its own two ends sit on perpendicular rules (a real
+        frame corner). Ties go to the outermost candidate."""
+        best = None
+        for a, b, s, e in spans:
+            if not side_ok(a, b):
+                continue
+            score = _count((a + b) / 2.0, ends, tol)
+            if score == 0:
+                continue
+            score += 2 * (_count(s, corner_rows, ctol) > 0)
+            score += 2 * (_count(e, corner_rows, ctol) > 0)
+            key = (score, outer_key(a, b))
+            if best is None or key > best[0]:
+                best = (key, a, b)
+        return best
+
+    left = _pick(vspans, lambda a, b: a < W * 0.5, h_starts, h_rows,
+                 tol_x, tol_y, lambda a, b: -a)
+    right = _pick(vspans, lambda a, b: b > W * 0.5, h_ends, h_rows,
+                  tol_x, tol_y, lambda a, b: b)
+    top = _pick(hspans, lambda a, b: a < H * 0.5, v_starts, v_cols,
+                tol_y, tol_x, lambda a, b: -a)
+    bottom = _pick(hspans, lambda a, b: b > H * 0.5, v_ends, v_cols,
+                   tol_y, tol_x, lambda a, b: b)
+
+    frame = {
+        'left': (left[2] + 1) / W if left else None,
+        'right': right[1] / W if right else None,
+        'top': (top[2] + 1) / H if top else None,
+        'bottom': bottom[1] / H if bottom else None,
+    }
+    if frame['left'] is not None and frame['right'] is not None \
+            and frame['right'] - frame['left'] < 0.3:
+        return None
+    if all(v is None for v in frame.values()):
+        return None
+    return {k: (round(float(v), 4) if v is not None else None)
+            for k, v in frame.items()}

@@ -25,75 +25,8 @@
     .log-console .log-done { color: #dcdcaa; font-weight: bold; }
     .log-console .log-job { color: #808080; }
 
-    .pdf-page-wrap {
-        position: relative;
-        display: inline-block;
-        max-width: 100%;
-        border: 1px solid #dee2e6;
-        background: #fff;
-        line-height: 0;
-    }
-    .pdf-page-img { max-width: 100%; height: auto; display: block; }
-    .pdf-overlay {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-    }
-    .pdf-box {
-        position: absolute;
-        border: 2px solid #d63384;
-        background: rgba(214, 51, 132, 0.10);
-        box-sizing: border-box;
-        pointer-events: auto;
-        cursor: move;
-        touch-action: none;
-    }
-    .pdf-box.kind-sol { border-color: #0d6efd; background: rgba(13, 110, 253, 0.10); }
-    .pdf-box.selected { outline: 3px solid #ffc107; outline-offset: 1px; z-index: 3; }
-
-    /* Resize handles (8) — only meaningfully visible/active on hover/selected. */
-    .pdf-handle {
-        position: absolute;
-        width: 7px; height: 7px;
-        background: #fff;
-        border: 1px solid #333;
-        box-sizing: border-box;
-        z-index: 5;
-        touch-action: none;
-    }
-    .pdf-handle.h-nw { left: -4px;  top: -4px;    cursor: nwse-resize; }
-    .pdf-handle.h-n  { left: 50%;   top: -4px;    transform: translateX(-50%); cursor: ns-resize; }
-    .pdf-handle.h-ne { right: -4px; top: -4px;    cursor: nesw-resize; }
-    .pdf-handle.h-e  { right: -4px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
-    .pdf-handle.h-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
-    .pdf-handle.h-s  { left: 50%;   bottom: -4px; transform: translateX(-50%); cursor: ns-resize; }
-    .pdf-handle.h-sw { left: -4px;  bottom: -4px; cursor: nesw-resize; }
-    .pdf-handle.h-w  { left: -4px;  top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
-
-    /* Add-box (draw) mode: overlay captures the drag; boxes step aside. */
-    .pdf-page-wrap.adding { cursor: crosshair; }
-    .pdf-page-wrap.adding .pdf-overlay { pointer-events: auto; }
-    .pdf-page-wrap.adding .pdf-box { pointer-events: none; }
-    .pdf-box-draft {
-        position: absolute;
-        border: 2px dashed #198754;
-        background: rgba(25, 135, 84, 0.12);
-        box-sizing: border-box;
-        pointer-events: none;
-    }
-    .pdf-box-label {
-        position: absolute;
-        top: -2px; left: -2px;
-        background: #d63384;
-        color: #fff;
-        font-size: 0.7rem;
-        font-weight: 700;
-        padding: 0 5px;
-        line-height: 1.4;
-        white-space: nowrap;
-    }
-    .pdf-box.kind-sol .pdf-box-label { background: #0d6efd; }
-
+    /* Box overlay / handles / magnifier / crop preview styles live in the
+       shared static/css/bbox_editor.css (OQBBboxEditor). */
     .pdf-box-list .box-row {
         display: flex;
         flex-wrap: wrap;
@@ -114,12 +47,6 @@
     .pdf-box-list .box-row canvas:hover { border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13,110,253,.25); }
     .pdf-box-list .qno-input { width: 6rem; flex: 0 1 6rem; min-width: 4rem; }
     .pdf-box-list .box-row .btn { white-space: nowrap; }
-    .pdf-box.role-stem { border-color: #6c757d; background: rgba(108, 117, 125, 0.14); }
-    .pdf-box.role-stem .pdf-box-label { background: #6c757d; }
-    .pdf-box.role-part { border-color: #fd7e14; background: rgba(253, 126, 20, 0.14); }
-    .pdf-box.role-part .pdf-box-label { background: #fd7e14; }
-    .pdf-box.kind-sol.role-part { border-color: #fd7e14; }
-    .pdf-box.kind-sol.role-stem { border-color: #6c757d; }
     /* Agent attention markers on list rows. */
     .box-row.attention-error { background: #fff0f1; box-shadow: inset 3px 0 0 #dc3545; }
     .box-row.attention-warn { background: #fff8e1; box-shadow: inset 3px 0 0 #ffc107; }
@@ -131,54 +58,9 @@
     .box-row .role-chip { font-size: 0.65rem; min-width: 2.6rem; }
     .page-card { margin-bottom: 1rem; }
     .page-card .card-header { font-size: 0.9rem; }
-
-    /* Full-size crop preview overlay (click a thumbnail to enlarge). */
-    .pdf-fullsize-overlay {
-        position: fixed; inset: 0; z-index: 1080;
-        background: rgba(0, 0, 0, 0.85);
-        display: flex; align-items: center; justify-content: center;
-        flex-direction: column; gap: 0.75rem; padding: 2vmin;
-        cursor: zoom-out;
-    }
-    .pdf-fullsize-overlay canvas {
-        max-width: 96vw; max-height: 88vh;
-        background: #fff; box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
-    }
-    .pdf-fullsize-cap {
-        color: #fff; font-size: 0.85rem; opacity: 0.85;
-        background: rgba(0, 0, 0, 0.35); padding: 0.25rem 0.75rem; border-radius: 4px;
-    }
-    .pdf-magnifier {
-        position: fixed;
-        z-index: 1090;
-        width: auto;
-        padding: 8px;
-        border-radius: 10px;
-        background: rgba(20, 20, 20, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.35);
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
-        pointer-events: none;
-        user-select: none;
-    }
-    .pdf-magnifier canvas {
-        display: block;
-        width: auto;
-        height: auto;
-        max-width: min(980px, 78vw);
-        max-height: min(760px, 78vh);
-        background: #fff;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.45);
-    }
-    .pdf-magnifier .pdf-mag-caption {
-        margin-top: 5px;
-        color: #f8f9fa;
-        font-size: 0.74rem;
-        line-height: 1.2;
-        text-align: center;
-        white-space: nowrap;
-    }
+    .page-card .frame-badge { font-size: 0.65rem; }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=1">
 {% endblock %}
 
 {% block content %}
@@ -397,9 +279,15 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
                         </label>
                     </div>
                     <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="frameSnapChk" {% if frame_snap_default %}checked{% endif %}>
+                        <label class="form-check-label" for="frameSnapChk" title="Scanned answer books print a rectangle frame on every page. When the frame is detected (dashed green guide on the page), every box takes its left and right edges from that frame, so parts that continue on another page line up and every crop has the same width. Drag the green rails to correct a frame; untick to keep the model's own horizontal extents.">
+                            <i class="bi bi-layout-sidebar-inset"></i> Snap boxes to page frame
+                        </label>
+                    </div>
+                    <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="uniformWidthChk" {% if uniform_width_default %}checked{% endif %}>
-                        <label class="form-check-label" for="uniformWidthChk" title="Lock every region on each side (QUE / SOL) to a single shared width so short and long questions crop to a consistent scale. Resize any one box's width to change them all; untick to fine-tune individually again.">
-                            <i class="bi bi-arrows"></i> Uniform width per side
+                        <label class="form-check-label" for="uniformWidthChk" title="Legacy: lock every region on each side (QUE / SOL) to the widest box's width, anchored on each box's own left edge. Pages with a detected frame ignore this when frame snapping is on. Resize any one box's width to change them all.">
+                            <i class="bi bi-arrows"></i> Uniform width per side (legacy)
                         </label>
                     </div>
                     <div class="form-check">
@@ -534,10 +422,13 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=1"></script>
 <script>
 const IMPORT_BASE = "{{ url_for('admin.pdf_import_page') }}";  // /admin/pdf-import
 const ENDPOINTS = {{ endpoints|tojson }};   // [{id, name, model_name}]
 const DEFAULT_METHOD = "{{ default_method }}";
+const FRAME_INSET = {{ frame_inset_frac|tojson }};   // fraction of page width inside the frame rails
+const { clamp01, applyBoxStyle, drawPreview, showCropPreview } = OQBBboxEditor;
 const METHOD_LABELS = { llm: 'LLM only', refine: 'Assisted: refine', segment: 'Assisted: segment' };
 
 // ----- DOM refs -----
@@ -576,6 +467,7 @@ const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
 const trimWhiteChk = document.getElementById('trimWhiteChk');
 const uniformWidthChk = document.getElementById('uniformWidthChk');
+const frameSnapChk = document.getElementById('frameSnapChk');
 const debugChk = document.getElementById('debugChk');
 const btnLoadPdf = document.getElementById('btnLoadPdf');
 const btnRunDetect = document.getElementById('btnRunDetect');
@@ -655,6 +547,12 @@ uniformWidthChk.addEventListener('change', () => {
     if (uniformWidthChk.checked) { ['que', 'sol'].forEach(enableUniformWidth); }
     else { uniformWidth = { que: null, sol: null }; }
 });
+// Frame snapping is review-time too: ON snaps every box on a framed page to
+// the frame rails (and hides the horizontal handles there); OFF frees them.
+frameSnapChk.addEventListener('change', () => {
+    ['que', 'sol'].forEach(applyWidthPolicy);
+    document.querySelectorAll('.page-card').forEach(refreshCardFrameUI);
+});
 endpointSelect.addEventListener('change', updateParallelUI);
 updateParallelUI();
 const logConsole = document.getElementById('logConsole');
@@ -681,22 +579,135 @@ let selectedItem = null;
 let selectedKind = null;
 function nextUid() { return 'b' + (++uidCounter); }
 
-// ----- Uniform width (per-kind shared width, review-time only) -----
-// Fractional width shared by every box of a side; null = unlocked (free width).
-let uniformWidth = { que: null, sol: null };
-function uniformActive() { return !!(uniformWidthChk && uniformWidthChk.checked); }
+// ----- Page cards ↔ shared bbox editor -----
+// One OQBBboxEditor per page card (card._ed). Overlay rectangles, handles,
+// drag/resize/draw and the magnifier all live in static/js/bbox_editor.js;
+// this page only owns the plan model, the sidebar rows and the width policy.
+function cardFor(kind, page) {
+    return document.querySelector(`.page-card[data-kind="${kind}"][data-page="${page}"]`);
+}
+function editorFor(kind, page) {
+    const card = cardFor(kind, page);
+    return card ? card._ed : null;
+}
+function editorForItem(kind, item) { return editorFor(kind, item.page); }
 
 // Re-render one item's overlay rectangle + crop thumbnail from its current box.
 function restyleItem(item) {
-    const boxEl = document.getElementById('box-' + item._uid);
-    if (boxEl) applyBoxStyle(boxEl, item.box);
     const row = document.getElementById('row-' + item._uid);
+    const card = row && row.closest('.page-card');
+    if (card && card._ed) card._ed.restyle(item);
     if (!row) return;
-    const card = row.closest('.page-card');
     const img = card && card.querySelector('.pdf-page-img');
     const canvas = row.querySelector('canvas');
     if (img && canvas) drawPreview(canvas, img, item.box);
 }
+
+// ----- Page frame (printed rectangle) snapping -----
+// staging[kind].pages[i].frame = {box:[x1,y1,x2,y2], source} | null (from the
+// server's detector, or edited by dragging the green rails). While the
+// checkbox is on, every box on a framed page takes x1/x2 from the frame rails
+// (inset by FRAME_INSET) — so continuation pages line up and every crop of the
+// paper has the same width. The server applies the same rule when it saves
+// the detection plan (frame_snap=1) and at commit (vertical-only trim +
+// common-width resample), so what you see here is what gets cropped.
+function frameSnapActive() { return !!(frameSnapChk && frameSnapChk.checked); }
+function pageInfo(kind, page) {
+    const info = staging && staging[kind];
+    return info && info.pages ? info.pages.find(p => p.index === page) : null;
+}
+function pageFrame(kind, page) {
+    const p = pageInfo(kind, page);
+    return p && p.frame && p.frame.box ? p.frame : null;
+}
+// [x1, x2] a box on this page should span, or null (no frame / snap off).
+function frameExtent(kind, page) {
+    if (!frameSnapActive()) return null;
+    const fr = pageFrame(kind, page);
+    if (!fr) return null;
+    const x1 = Math.max(0, fr.box[0] + FRAME_INSET), x2 = Math.min(1, fr.box[2] - FRAME_INSET);
+    return (x2 - x1) >= 0.1 ? [x1, x2] : null;
+}
+function snapItemToFrame(kind, item) {
+    const ext = frameExtent(kind, item.page);
+    if (!ext) return false;
+    if (item.box[0] === ext[0] && item.box[2] === ext[1]) return false;
+    item.box = [ext[0], item.box[1], ext[1], item.box[3]];
+    return true;
+}
+function snapKindToFrames(kind) {
+    plan[kind].forEach(it => { if (snapItemToFrame(kind, it)) restyleItem(it); });
+}
+// Width policy after boxes arrive/change on a side: frame first (per page),
+// then the legacy uniform width for boxes on pages without a frame.
+function applyWidthPolicy(kind) {
+    if (frameSnapActive()) snapKindToFrames(kind);
+    if (uniformActive()) enableUniformWidth(kind);
+}
+// Frame guide + x-lock state of one card's editor.
+function refreshCardFrameUI(card) {
+    if (!card || !card._ed) return;
+    const kind = card.dataset.kind, page = parseInt(card.dataset.page, 10);
+    const fr = pageFrame(kind, page);
+    card._ed.setFrame(fr ? fr.box : null);
+    card.querySelector('.pdf-page-wrap').classList.toggle('x-locked', !!frameExtent(kind, page));
+    const badge = card.querySelector('.frame-badge');
+    if (badge) {
+        badge.classList.toggle('d-none', !fr);
+        if (fr) {
+            badge.textContent = fr.source === 'manual' ? 'frame (manual)'
+                : fr.source === 'inferred' ? 'frame (inferred)' : 'frame';
+            badge.title = 'Printed page frame (dashed green). Drag its rails to correct it; boxes snap to it while "Snap boxes to page frame" is on.';
+        }
+    }
+    const btnNoFrame = card.querySelector('.btn-frame-toggle');
+    if (btnNoFrame) {
+        btnNoFrame.innerHTML = fr ? '<i class="bi bi-layout-sidebar-inset"></i> No frame'
+                                  : '<i class="bi bi-layout-sidebar-inset"></i> Add frame';
+        btnNoFrame.title = fr ? 'Treat this page as having no printed frame (boxes keep their own widths)'
+                              : 'Add a page frame guide to this page (then drag its rails)';
+    }
+}
+async function saveFrame(kind, page, box) {
+    const p = pageInfo(kind, page);
+    try {
+        const r = await fetch(`${IMPORT_BASE}/frame`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: staging.token, kind, page, box }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        if (p) p.frame = data.frame || null;
+    } catch (err) {
+        appendLog('Could not save the page frame: ' + err.message, 'error');
+        if (p && box) p.frame = { box, source: 'manual' };
+    }
+    const card = cardFor(kind, page);
+    refreshCardFrameUI(card);
+    if (frameSnapActive()) {
+        plan[kind].filter(it => it.page === page).forEach(it => { if (snapItemToFrame(kind, it)) restyleItem(it); });
+    }
+}
+function toggleFrame(kind, page) {
+    if (!staging) return;
+    const fr = pageFrame(kind, page);
+    if (fr) { saveFrame(kind, page, null); return; }
+    // Seed a new frame from the paper's other pages (same parity first), else a
+    // generous default the user can drag into place.
+    const info = staging[kind];
+    const cands = (info && info.pages || []).filter(p => p.frame && p.frame.box);
+    const same = cands.filter(p => p.index % 2 === page % 2);
+    const src = (same[0] || cands[0]);
+    const box = src ? src.frame.box.slice() : [0.06, 0.06, 0.94, 0.94];
+    saveFrame(kind, page, box);
+}
+
+// ----- Uniform width (per-kind shared width, review-time only; legacy) -----
+// Fractional width shared by every box of a side; null = unlocked (free width).
+let uniformWidth = { que: null, sol: null };
+function uniformActive() { return !!(uniformWidthChk && uniformWidthChk.checked); }
+// Boxes on a framed page (while snapping) are governed by the frame, not this.
+function uniformApplies(kind, item) { return !frameExtent(kind, item.page); }
 
 // Conform a single box to `width` by moving ONLY its right edge — the left
 // boundary (x1) never moves. x2 is clamped to 1 (so a box hard against the
@@ -711,12 +722,14 @@ function conformWidth(item, width) {
 function applyUniformWidthToAll(kind, exceptItem) {
     const w = uniformWidth[kind];
     if (w == null) return;
-    plan[kind].forEach(it => { if (it !== exceptItem) { conformWidth(it, w); restyleItem(it); } });
+    plan[kind].forEach(it => {
+        if (it !== exceptItem && uniformApplies(kind, it)) { conformWidth(it, w); restyleItem(it); }
+    });
 }
 
 // Lock a side: shared width = widest current box, then conform every box.
 function enableUniformWidth(kind) {
-    const widths = plan[kind].map(it => it.box[2] - it.box[0]);
+    const widths = plan[kind].filter(it => uniformApplies(kind, it)).map(it => it.box[2] - it.box[0]);
     if (!widths.length) { uniformWidth[kind] = null; return; }
     uniformWidth[kind] = Math.max.apply(null, widths);
     applyUniformWidthToAll(kind);
@@ -724,7 +737,32 @@ function enableUniformWidth(kind) {
 
 // Conform a newly-arrived/created box to the side's locked width (if any).
 function snapBoxToUniform(item, kind) {
-    if (uniformWidth[kind] != null) conformWidth(item, uniformWidth[kind]);
+    if (uniformWidth[kind] != null && uniformApplies(kind, item)) conformWidth(item, uniformWidth[kind]);
+}
+
+// Editor hook: constrain a live box during move / resize / draw.
+function constrainBoxFor(kind, page) {
+    return (item, box, ctx) => {
+        const ext = frameExtent(kind, page);
+        if (ext) return [ext[0], box[1], ext[1], box[3]];
+        if (ctx.type === 'resize' && uniformActive() && uniformWidth[kind] != null
+                && (ctx.dir.includes('w') || ctx.dir.includes('e'))) {
+            // Uniform width: a horizontal resize redefines the side's shared
+            // width. The LEFT boundary never moves — anchor on the original x1,
+            // only the right edge tracks the pointer, then re-broadcast.
+            const leftX = ctx.startBox[0];
+            const newW = Math.max(0.012, clamp01(box[2]) - leftX);
+            uniformWidth[kind] = newW;
+            const out = [leftX, box[1], Math.min(1, leftX + newW), box[3]];
+            item.box = out;
+            applyUniformWidthToAll(kind, item);
+            return out;
+        }
+        if (ctx.type === 'draw' && !ctx.live && uniformActive() && uniformWidth[kind] != null) {
+            return [box[0], box[1], Math.min(1, box[0] + uniformWidth[kind]), box[3]];
+        }
+        return box;
+    };
 }
 
 // ----- Server PDF picking + paper-name auto-guess -----
@@ -930,6 +968,7 @@ async function startAgent(opts) {
     let url = `${IMPORT_BASE}/agent?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
         + (debugChk.checked ? '&debug=1' : '')
+        + (frameSnapActive() ? '&frame_snap=1' : '')
         + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '');
     if (opts.attach) url += '&attach=1';
     else if (opts.confirm) url += '&restart=1';
@@ -950,7 +989,7 @@ async function startAgent(opts) {
         if (ev.type === 'done') {
             closeStream();
             if (ev.plan) applyServerPlan(ev.plan);
-            if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+            ['que', 'sol'].forEach(applyWidthPolicy);
             attentionItems = Array.isArray(ev.attention) ? ev.attention : [];
             agentOutline = ev.outline || null;
             renderAttention();
@@ -1046,10 +1085,7 @@ function jumpToAttention(a, targets) {
     if (targets && targets.length) {
         const it = targets[0];
         el = document.getElementById('row-' + it._uid);
-        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
-        document.getElementById('box-' + it._uid)?.classList.add('selected');
-        selectedItem = it;
-        selectedKind = a.kind;
+        selectItem(a.kind, it);
     } else if (a.kind && a.page != null) {
         el = document.querySelector(`.page-card[data-kind="${a.kind}"][data-page="${a.page}"]`);
     }
@@ -1128,7 +1164,7 @@ function setRunning(on, phase) {
      document.getElementById('taskExam'), document.getElementById('taskGeneric')]
         .forEach(el => { if (el) el.disabled = lockSetup; });
     [endpointSelect, methodSelect, pdfParallelChk, instructionInput,
-     customPromptChk, splitPartsChk, uniformWidthChk, debugChk]
+     customPromptChk, splitPartsChk, uniformWidthChk, frameSnapChk, debugChk]
         .forEach(el => { if (el) el.disabled = lockDetect || !staging; });
     if (btnRunDetect) {
         btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
@@ -1230,6 +1266,14 @@ async function loadPdf() {
     } else {
         appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${deskewNote}${rangeNote}. Draw boxes, run LLM detection, or run the AI agent.`, 'success');
     }
+    const framed = ['que', 'sol'].reduce((n, k) => n + ((data[k] && data[k].pages || []).filter(p => p.frame).length), 0);
+    if (framed) {
+        appendLog(`Printed page frame found on ${framed} page(s) (dashed green guide). ` +
+                  (frameSnapActive() ? 'Boxes will snap to it for aligned, equal-width crops.' :
+                                       'Tick "Snap boxes to page frame" to align crops to it.'), 'info');
+    } else {
+        appendLog('No printed page frame detected on these pages — boxes keep their own widths (use "Frame" on a page card to add one by hand).', 'info');
+    }
 
     setRunning(false);
     setStatus('Ready', 'bg-primary');
@@ -1265,6 +1309,7 @@ function startDetect() {
         + `&method=${encodeURIComponent(methodSelect.value)}`
         + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '')
         + (debugChk.checked ? '&debug=1' : '')
+        + (frameSnapActive() ? '&frame_snap=1' : '')
         + detectUrlExtras();
     eventSource = new EventSource(url);
 
@@ -1295,7 +1340,7 @@ function startDetect() {
                 logRaw(kind, idx, ev.page.raw);
             }
             fillPageCard(kind, idx);
-            if (uniformActive()) enableUniformWidth(kind);
+            applyWidthPolicy(kind);
         }
 
         if (ev.type === 'done') {
@@ -1317,7 +1362,7 @@ function finishDetect(opts) {
     });
     if (isCustomExam()) { ['que', 'sol'].forEach(renumberAllSequential); }
     else if (!isGeneric()) { ['que', 'sol'].forEach(k => { stitchContinuations(k); refreshNumbersUI(k); }); }
-    if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+    ['que', 'sol'].forEach(applyWidthPolicy);
     updateReviewSummary();
     if (planRegionCount() === 0) {
         appendLog('No regions detected — draw boxes manually or re-run detection.', 'warning');
@@ -1539,6 +1584,7 @@ async function startSplitDetect(opts) {
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
         + `&kind=${encodeURIComponent(opts.kind || 'both')}`
         + (debugChk.checked ? '&debug=1' : '')
+        + (frameSnapActive() ? '&frame_snap=1' : '')
         + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '');
     if (opts.labels) url += `&labels=${encodeURIComponent(opts.labels)}`;
     eventSource = new EventSource(url);
@@ -1551,7 +1597,7 @@ async function startSplitDetect(opts) {
         if (ev.type === 'done') {
             closeStream();
             if (ev.plan) applyServerPlan(ev.plan);
-            if (uniformActive()) { ['que', 'sol'].forEach(enableUniformWidth); }
+            ['que', 'sol'].forEach(applyWidthPolicy);
             progressBar.classList.remove('progress-bar-animated');
             setRunning(false);
             setStatus('Review', 'bg-primary');
@@ -1566,6 +1612,35 @@ async function startSplitDetect(opts) {
             setStatus('Review', 'bg-primary');
         }
     };
+}
+
+// Root (pass-1 whole-question) label an item belongs to: the label it was
+// split from, else its own numeric prefix ("3" for "3", "3a", "23-24" stays).
+function rootLabelOf(item) {
+    if (item.source_label) return examLabel({ label: item.source_label });
+    const lab = examLabel(item) || '';
+    const m = lab.match(/^(\d+(?:-\d+)?)/);
+    return m ? m[1] : lab;
+}
+// Per-page "Re-split": pass 2 for every question with a box on this page.
+// The server re-splits each root as a WHOLE (original_group_parts gathers all
+// of its pages), so a question continuing from / onto another page keeps its
+// cross-page link — only this page's parts are not re-cut in isolation.
+function resplitPage(kind, pageIndex) {
+    if (!staging || isGeneric() || running) return;
+    const roots = [];
+    plan[kind].filter(it => it.page === pageIndex).forEach(it => {
+        const L = rootLabelOf(it);
+        if (L && !roots.includes(L)) roots.push(L);
+    });
+    if (!roots.length) {
+        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: no question boxes to split.`, 'warning');
+        return;
+    }
+    const spanning = roots.filter(L => plan[kind].some(it => it.page !== pageIndex && rootLabelOf(it) === L));
+    appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-splitting Q${roots.join(', Q')}`
+        + (spanning.length ? ` (Q${spanning.join(', Q')} continue${spanning.length === 1 ? 's' : ''} on other pages and are re-split across all of them).` : '.'), 'info');
+    startSplitDetect({ kind, labels: roots.join(',') });
 }
 
 function parentLabelOf(kind, item) {
@@ -1639,6 +1714,7 @@ function unsplitParent(kind, parentLabel) {
 // a "detecting…" badge until its page result arrives).
 function renderReview(opts) {
     opts = opts || {};
+    reviewBody.querySelectorAll('.page-card').forEach(c => { if (c._ed) c._ed.destroy(); });
     reviewBody.innerHTML = '';
     updateReviewSummary();
 
@@ -1689,7 +1765,9 @@ function buildPageCard(kind, pageIndex, pending) {
                 </select>
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-outline-success btn-add"><i class="bi bi-plus-square"></i> Add box</button>
-                    <button class="btn btn-outline-secondary btn-rerun"><i class="bi bi-arrow-repeat"></i> Re-run</button>
+                    <button class="btn btn-outline-secondary btn-rerun" title="Re-detect the numbered questions on this page only"><i class="bi bi-arrow-repeat"></i> Re-run</button>
+                    ${isGeneric() ? '' : '<button class="btn btn-outline-primary btn-resplit-page" title="Re-run the stem / lettered-part split for every question on this page. A question that continues on another page is re-split as a whole, across all its pages, so the link is kept."><i class="bi bi-scissors"></i> Re-split page</button>'}
+                    <button class="btn btn-outline-secondary btn-frame-toggle" title="Page frame"><i class="bi bi-layout-sidebar-inset"></i> Frame</button>
                 </div>
             </div>
         </div>
@@ -1700,6 +1778,7 @@ function buildPageCard(kind, pageIndex, pending) {
                         <img class="pdf-page-img" src="${pageImgUrl(staging.token, kind, pageIndex)}" alt="page ${pageIndex + 1}">
                         <div class="pdf-overlay"></div>
                     </div>
+                    <div class="mt-1"><span class="badge bg-success-subtle text-success-emphasis border frame-badge d-none"></span></div>
                 </div>
                 <div class="col-lg-5">
                     <div class="pdf-box-list"></div>
@@ -1715,12 +1794,34 @@ function buildPageCard(kind, pageIndex, pending) {
     const img = card.querySelector('.pdf-page-img');
     img.addEventListener('load', () => redrawPreviews(card));
     card.querySelector('.btn-rerun').addEventListener('click', () => rerunPage(card, kind, pageIndex));
-    card.querySelector('.btn-add').addEventListener('click', () => {
-        const wrap = card.querySelector('.pdf-page-wrap');
-        setAddMode(card, !wrap.classList.contains('adding'));
+    card.querySelector('.btn-add').addEventListener('click', () => card._ed.setAddMode(!card._ed.isAdding()));
+    card.querySelector('.btn-resplit-page')?.addEventListener('click', () => resplitPage(kind, pageIndex));
+    card.querySelector('.btn-frame-toggle').addEventListener('click', () => toggleFrame(kind, pageIndex));
+
+    // Shared overlay editor: rectangles, handles, move/resize/draw, magnifier.
+    card._ed = OQBBboxEditor.mount({
+        wrap: card.querySelector('.pdf-page-wrap'),
+        img,
+        overlay: card.querySelector('.pdf-overlay'),
+        boxId: it => 'box-' + it._uid,
+        classNames: it => (kind === 'sol' ? 'kind-sol' : 'kind-que')
+            + (it.role === 'stem' ? ' role-stem' : it.role === 'part' ? ' role-part' : ''),
+        labelText: it => boxLabelText(it),
+        magnifierColor: () => (kind === 'sol' ? '#0d6efd' : '#d63384'),
+        constrainBox: constrainBoxFor(kind, pageIndex),
+        onSelect: it => { selectedItem = it; selectedKind = kind; },
+        onChange: (it, type, live) => {
+            if (live) return;
+            const row = document.getElementById('row-' + it._uid);
+            if (row) drawPreview(row.querySelector('canvas'), img, it.box);
+        },
+        onCreate: box => finishDraw(card, kind, pageIndex, box),
+        onTooSmall: () => appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning'),
+        onAddModeChange: on => setAddButton(card, on),
+        frameEditable: true,
+        onFrameChange: fb => saveFrame(kind, pageIndex, fb),
     });
-    // Draw a brand-new box by dragging on the page while in Add mode.
-    card.querySelector('.pdf-overlay').addEventListener('pointerdown', (e) => startDraw(e, card, kind, pageIndex));
+    refreshCardFrameUI(card);
 
     // Render existing boxes for this page.
     plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
@@ -1763,7 +1864,7 @@ function fillPageCard(kind, pageIndex) {
     const card = document.querySelector(`.page-card[data-kind="${kind}"][data-page="${pageIndex}"]`);
     if (!card) return;
     // Clear any previously rendered boxes for this page, then re-add.
-    card.querySelectorAll('.pdf-overlay .pdf-box').forEach(el => el.remove());
+    if (card._ed) card._ed.clear();
     card.querySelector('.pdf-box-list').innerHTML = '';
     plan[kind].filter(it => it.page === pageIndex).forEach(it => addBoxDom(card, kind, it));
     toggleEmpty(card);
@@ -1777,14 +1878,11 @@ function fillPageCard(kind, pageIndex) {
     updateReviewSummary();
 }
 
-function clamp01(v) { return Math.min(1, Math.max(0, v)); }
-
-function applyBoxStyle(el, box) {
-    const [x1, y1, x2, y2] = box;
-    el.style.left = (x1 * 100) + '%';
-    el.style.top = (y1 * 100) + '%';
-    el.style.width = ((x2 - x1) * 100) + '%';
-    el.style.height = ((y2 - y1) * 100) + '%';
+// Select one plan item (overlay highlight via the card's editor + page state).
+function selectItem(kind, item) {
+    const ed = item ? editorForItem(kind, item) : null;
+    if (ed && ed.has(item)) ed.select(item);      // onSelect sets selectedItem/Kind
+    else { OQBBboxEditor.selectNone(); selectedItem = item || null; selectedKind = item ? kind : null; }
 }
 
 function styleRoleChip(chip, role) {
@@ -1864,10 +1962,10 @@ function buildSplitActions(kind, item) {
 function deleteItem(kind, item) {
     if (!item) return;
     const row = document.getElementById('row-' + item._uid);
-    const boxEl = document.getElementById('box-' + item._uid);
     const card = row && row.closest('.page-card');
     plan[kind] = plan[kind].filter(it => it._uid !== item._uid);
-    if (boxEl) boxEl.remove();
+    const ed = (card && card._ed) || editorForItem(kind, item);
+    if (ed) ed.remove(item);
     if (row) row.remove();
     if (selectedItem && selectedItem._uid === item._uid) {
         selectedItem = null;
@@ -1914,53 +2012,15 @@ function addPartBelow(kind, item) {
         const inp = row.querySelector('input');
         if (inp) { inp.focus(); inp.select(); }
     }
-    document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
-    const newBox = document.getElementById('box-' + newItem._uid);
-    if (newBox) newBox.classList.add('selected');
-    selectedItem = newItem;
-    selectedKind = kind;
+    selectItem(kind, newItem);
 }
 function addBoxDom(card, kind, item) {
-    const overlay = card.querySelector('.pdf-overlay');
     const list = card.querySelector('.pdf-box-list');
     const img = card.querySelector('.pdf-page-img');
 
-    // Overlay rectangle (draggable to move, with 8 resize handles).
-    const boxEl = document.createElement('div');
-    boxEl.className = 'pdf-box ' + (kind === 'sol' ? 'kind-sol' : 'kind-que');
-    if (item.role === 'stem') boxEl.classList.add('role-stem');
-    else if (item.role === 'part') boxEl.classList.add('role-part');
-    boxEl.id = 'box-' + item._uid;
-    applyBoxStyle(boxEl, item.box);
-
-    const lbl = document.createElement('span');
-    lbl.className = 'pdf-box-label';
-    lbl.id = 'lbl-' + item._uid;
-    lbl.textContent = boxLabelText(item);
-    boxEl.appendChild(lbl);
-
-    const selectThis = () => {
-        document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
-        boxEl.classList.add('selected');
-        selectedItem = item;
-        selectedKind = kind;
-    };
-
-    ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(dir => {
-        const h = document.createElement('div');
-        h.className = 'pdf-handle h-' + dir;
-        h.addEventListener('pointerdown', (e) => {
-            e.stopPropagation();
-            selectThis();
-            startDrag(e, 'resize', { item, kind, card, overlay, boxEl, dir });
-        });
-        boxEl.appendChild(h);
-    });
-    boxEl.addEventListener('pointerdown', (e) => {
-        selectThis();
-        startDrag(e, 'move', { item, kind, card, overlay, boxEl });
-    });
-    overlay.appendChild(boxEl);
+    // Overlay rectangle (move + 8 resize handles) — owned by the shared editor.
+    card._ed.add(item);
+    const selectThis = () => card._ed.select(item);
 
     // List row (thumbnail + label/question-number input + delete)
     const generic = isGeneric();
@@ -1969,7 +2029,7 @@ function addBoxDom(card, kind, item) {
     row.id = 'row-' + item._uid;
     const canvas = document.createElement('canvas');
     canvas.title = 'Click to enlarge this crop';
-    canvas.addEventListener('click', () => showCropPreview(img, item.box, kind, boxLabelText(item)));
+    canvas.addEventListener('click', () => showCropPreview(img, item.box, `${kind.toUpperCase()} ${boxLabelText(item)}`));
     const qInput = document.createElement('input');
     if (generic) {
         qInput.type = 'text';
@@ -2012,7 +2072,7 @@ function addBoxDom(card, kind, item) {
             applyExamLabel(item, qInput.value);
             refreshNumbersUI(kind);
         }
-        lbl.textContent = boxLabelText(item);
+        card._ed.refreshLabel(item);
         updateOrderWarning();
     });
     delBtn.addEventListener('click', () => { deleteItem(kind, item); });
@@ -2020,302 +2080,24 @@ function addBoxDom(card, kind, item) {
     drawPreview(canvas, img, item.box);
 }
 
-// ----- Box drag/resize/draw (review fine-tuning) -----
-let activeDrag = null;
-let dragMagnifier = null;
-
-function fracFromEvent(overlay, e) {
-    const rect = overlay.getBoundingClientRect();
-    return {
-        x: clamp01((e.clientX - rect.left) / Math.max(1, rect.width)),
-        y: clamp01((e.clientY - rect.top) / Math.max(1, rect.height)),
-    };
-}
-
-function activeBoxForMagnifier(d, f) {
-    if (!d) return null;
-    if (d.type === 'draw') {
-        return [Math.min(d.startFx, f.x), Math.min(d.startFy, f.y),
-                Math.max(d.startFx, f.x), Math.max(d.startFy, f.y)];
-    }
-    return d.item && d.item.box ? d.item.box : null;
-}
-
-function ensureDragMagnifier() {
-    if (dragMagnifier) return dragMagnifier;
-    const wrap = document.createElement('div');
-    wrap.className = 'pdf-magnifier d-none';
-    const canvas = document.createElement('canvas');
-    canvas.width = 190;
-    canvas.height = 190;
-    const cap = document.createElement('div');
-    cap.className = 'pdf-mag-caption';
-    wrap.appendChild(canvas);
-    wrap.appendChild(cap);
-    document.body.appendChild(wrap);
-    dragMagnifier = { wrap, canvas, cap };
-    return dragMagnifier;
-}
-
-function hideDragMagnifier() {
-    if (dragMagnifier) dragMagnifier.wrap.classList.add('d-none');
-}
-
-function clampSourceWindow(v, max, size) {
-    return Math.max(0, Math.min(Math.max(0, max - size), v));
-}
-
-function setMagnifierCanvasSize(canvas, w, h) {
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-}
-
-function magnifierSourceWindow(d, f, img, imgRect, box) {
-    const natW = img.naturalWidth, natH = img.naturalHeight;
-    const nx = clamp01(f.x) * natW;
-    const ny = clamp01(f.y) * natH;
-    const zoom = 3;
-    const defaultW = Math.min(natW, Math.max(36, (520 / zoom) * (natW / Math.max(1, imgRect.width))));
-    const defaultH = Math.min(natH, Math.max(36, (420 / zoom) * (natH / Math.max(1, imgRect.height))));
-    let canvasW = 520, canvasH = 420;
-    let srcW = defaultW, srcH = defaultH;
-    let sx = nx - srcW / 2, sy = ny - srcH / 2;
-    let caption = d.type === 'resize'
-        ? 'Zoomed edge/handle placement'
-        : (d.type === 'draw' ? 'Zoomed new box corner' : 'Zoomed box position');
-
-    if (box && d.type === 'resize') {
-        const [x1, y1, x2, y2] = box;
-        const bx1 = clamp01(x1) * natW, bx2 = clamp01(x2) * natW;
-        const by1 = clamp01(y1) * natH, by2 = clamp01(y2) * natH;
-        const boxW = Math.max(24, bx2 - bx1);
-        const boxH = Math.max(24, by2 - by1);
-        const hasN = d.dir && d.dir.includes('n');
-        const hasS = d.dir && d.dir.includes('s');
-        const hasW = d.dir && d.dir.includes('w');
-        const hasE = d.dir && d.dir.includes('e');
-        const horizontalEdge = hasN || hasS;
-        const verticalEdge = hasW || hasE;
-
-        if (horizontalEdge && !verticalEdge) {
-            // Bottom/top handle: show the full selected width and a band around
-            // the dragged horizontal edge.
-            canvasW = 920; canvasH = 420;
-            srcW = Math.min(natW, Math.max(boxW, 120));
-            srcH = Math.min(natH, Math.max(48, srcW * canvasH / canvasW));
-            sx = bx1 - Math.max(0, (srcW - boxW) / 2);
-            sy = ny - srcH * (hasS ? 0.68 : 0.32);
-            caption = hasS ? 'Full width near bottom edge' : 'Full width near top edge';
-        } else if (verticalEdge && !horizontalEdge) {
-            // Right/left handle: show the full selected height and a vertical
-            // strip around the dragged side edge.
-            canvasW = 460; canvasH = 720;
-            srcH = Math.min(natH, Math.max(boxH, 120));
-            srcW = Math.min(natW, Math.max(54, srcH * canvasW / canvasH));
-            sx = nx - srcW * (hasE ? 0.68 : 0.32);
-            sy = by1 - Math.max(0, (srcH - boxH) / 2);
-            caption = hasE ? 'Full height near right edge' : 'Full height near left edge';
-        } else if (horizontalEdge && verticalEdge) {
-            // Corner handle: show a broad context containing the whole selected
-            // box, so both the bottom/top and right/left boundaries are visible.
-            canvasW = 900; canvasH = 620;
-            const aspect = canvasW / canvasH;
-            srcW = Math.max(boxW, boxH * aspect, 120);
-            srcH = srcW / aspect;
-            if (srcH < boxH) { srcH = boxH; srcW = srcH * aspect; }
-            srcW = Math.min(natW, srcW);
-            srcH = Math.min(natH, srcH);
-            sx = bx1 - Math.max(0, (srcW - boxW) * (hasE ? 0.35 : 0.65));
-            sy = by1 - Math.max(0, (srcH - boxH) * (hasS ? 0.35 : 0.65));
-            caption = 'Wide corner context';
-        }
-    }
-
-    srcW = Math.min(natW, srcW);
-    srcH = Math.min(natH, srcH);
-    sx = clampSourceWindow(sx, natW, srcW);
-    sy = clampSourceWindow(sy, natH, srcH);
-    return { sx, sy, srcW, srcH, canvasW, canvasH, nx, ny, caption };
-}
-
-function positionDragMagnifier(e) {
-    if (!dragMagnifier) return;
-    const pad = 12;
-    const rect = dragMagnifier.wrap.getBoundingClientRect();
-    let left = e.clientX + 22;
-    let top = e.clientY + 22;
-    if (left + rect.width + pad > window.innerWidth) left = e.clientX - rect.width - 22;
-    if (top + rect.height + pad > window.innerHeight) top = e.clientY - rect.height - 22;
-    dragMagnifier.wrap.style.left = Math.max(pad, left) + 'px';
-    dragMagnifier.wrap.style.top = Math.max(pad, top) + 'px';
-}
-
-function updateDragMagnifier(d, f, e) {
-    const img = d.card && d.card.querySelector('.pdf-page-img');
-    if (!img || !img.naturalWidth || !img.naturalHeight) return;
-    const mag = ensureDragMagnifier();
-    const canvas = mag.canvas;
-    const ctx = canvas.getContext('2d');
-    const imgRect = img.getBoundingClientRect();
-    const box = activeBoxForMagnifier(d, f);
-    const view = magnifierSourceWindow(d, f, img, imgRect, box);
-    const { sx, sy, srcW, srcH, canvasW, canvasH, nx, ny, caption } = view;
-    setMagnifierCanvasSize(canvas, canvasW, canvasH);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    try {
-        ctx.drawImage(img, sx, sy, srcW, srcH, 0, 0, canvas.width, canvas.height);
-    } catch (err) {
-        return;
-    }
-
-    const tx = (x) => (x - sx) * canvas.width / srcW;
-    const ty = (y) => (y - sy) * canvas.height / srcH;
-    const cx = tx(nx), cy = ty(ny);
-    if (box) {
-        const [x1, y1, x2, y2] = box;
-        const edgeColor = d.kind === 'sol' ? '#0d6efd' : '#d63384';
-        ctx.save();
-        ctx.strokeStyle = edgeColor;
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([7, 4]);
-        const bx1 = tx(x1 * img.naturalWidth), by1 = ty(y1 * img.naturalHeight);
-        const bx2 = tx(x2 * img.naturalWidth), by2 = ty(y2 * img.naturalHeight);
-        ctx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
-        ctx.restore();
-    }
-    // Pointer crosshair: shows the exact handle/cursor point being dragged.
-    ctx.save();
-    ctx.strokeStyle = '#ffc107';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height);
-    ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-
-    mag.cap.textContent = caption;
-    mag.wrap.classList.remove('d-none');
-    positionDragMagnifier(e);
-}
-
-function startDrag(e, type, ctx) {
-    e.preventDefault();
-    const f = fracFromEvent(ctx.overlay, e);
-    activeDrag = Object.assign({ type }, ctx, {
-        startFx: f.x, startFy: f.y,
-        startBox: ctx.item ? ctx.item.box.slice() : null,
-    });
-    updateDragMagnifier(activeDrag, f, e);
-    document.body.style.userSelect = 'none';
-    document.addEventListener('pointermove', onDragMove);
-    document.addEventListener('pointerup', onDragEnd, { once: true });
-}
-
-function startDraw(e, card, kind, pageIndex) {
-    const wrap = card.querySelector('.pdf-page-wrap');
-    if (!wrap.classList.contains('adding')) return;  // only while Add mode is on
-    e.preventDefault();
-    const overlay = card.querySelector('.pdf-overlay');
-    const f = fracFromEvent(overlay, e);
-    const draftEl = document.createElement('div');
-    draftEl.className = 'pdf-box-draft';
-    applyBoxStyle(draftEl, [f.x, f.y, f.x, f.y]);
-    overlay.appendChild(draftEl);
-    activeDrag = { type: 'draw', card, kind, pageIndex, overlay, draftEl,
-                   startFx: f.x, startFy: f.y, curX: f.x, curY: f.y };
-    updateDragMagnifier(activeDrag, f, e);
-    document.body.style.userSelect = 'none';
-    document.addEventListener('pointermove', onDragMove);
-    document.addEventListener('pointerup', onDragEnd, { once: true });
-}
-
-function onDragMove(e) {
-    const d = activeDrag;
-    if (!d) return;
-    const f = fracFromEvent(d.overlay, e);
-
-    if (d.type === 'draw') {
-        d.curX = f.x; d.curY = f.y;
-        applyBoxStyle(d.draftEl, [Math.min(d.startFx, f.x), Math.min(d.startFy, f.y),
-                                 Math.max(d.startFx, f.x), Math.max(d.startFy, f.y)]);
-        updateDragMagnifier(d, f, e);
-        return;
-    }
-    if (d.type === 'move') {
-        let [x1, y1, x2, y2] = d.startBox;
-        const w = x2 - x1, h = y2 - y1;
-        let nx1 = Math.min(Math.max(0, x1 + (f.x - d.startFx)), 1 - w);
-        let ny1 = Math.min(Math.max(0, y1 + (f.y - d.startFy)), 1 - h);
-        d.item.box = [nx1, ny1, nx1 + w, ny1 + h];
-    } else if (d.type === 'resize') {
-        let [x1, y1, x2, y2] = d.startBox;
-        if (d.dir.includes('w')) x1 = f.x;
-        if (d.dir.includes('e')) x2 = f.x;
-        if (d.dir.includes('n')) y1 = f.y;
-        if (d.dir.includes('s')) y2 = f.y;
-        d.item.box = [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
-        // Uniform width: a horizontal resize redefines the side's shared width.
-        // The LEFT boundary never moves — we anchor on the original x1 and only
-        // the right edge tracks the pointer, then re-broadcast (left-anchored)
-        // to every other box of this side.
-        if (uniformActive() && uniformWidth[d.kind] != null &&
-            (d.dir.includes('w') || d.dir.includes('e'))) {
-            const leftX = d.startBox[0];
-            const newW = Math.max(0.012, clamp01(d.item.box[2]) - leftX);
-            uniformWidth[d.kind] = newW;
-            d.item.box = [leftX, d.item.box[1], Math.min(1, leftX + newW), d.item.box[3]];
-            applyUniformWidthToAll(d.kind, d.item);
-        }
-    }
-    applyBoxStyle(d.boxEl, d.item.box);
-    updateDragMagnifier(d, f, e);
-}
-
-function onDragEnd() {
-    document.removeEventListener('pointermove', onDragMove);
-    document.body.style.userSelect = '';
-    hideDragMagnifier();
-    const d = activeDrag;
-    activeDrag = null;
-    if (!d) return;
-
-    if (d.type === 'draw') { finishDraw(d); return; }
-    // Move/resize: persist the live edit by refreshing the crop thumbnail.
-    const row = document.getElementById('row-' + d.item._uid);
-    if (row) drawPreview(row.querySelector('canvas'), d.card.querySelector('.pdf-page-img'), d.item.box);
-}
-
-function finishDraw(d) {
-    if (d.draftEl) d.draftEl.remove();
-    setAddMode(d.card, false);
-    const box = [Math.min(d.startFx, d.curX), Math.min(d.startFy, d.curY),
-                 Math.max(d.startFx, d.curX), Math.max(d.startFy, d.curY)];
-    if ((box[2] - box[0]) < 0.012 || (box[3] - box[1]) < 0.012) {
-        appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning');
-        return;
-    }
-    // Exam: qno is assigned by renumberAfterInsert (relative shift) once the
-    // box is placed in reading order. Generic: a free-text label, no cascade.
-    const item = { page: d.pageIndex, qno: null, label: null, box, _uid: nextUid() };
-    if (uniformActive()) snapBoxToUniform(item, d.kind);
-    plan[d.kind].push(item);
-    if (!isGeneric()) { renumberAfterInsert(d.kind, item); }
-    addBoxDom(d.card, d.kind, item);
-    if (!isGeneric()) refreshNumbersUI(d.kind);
-    toggleEmpty(d.card);
+// ----- Draw a new box (overlay drawing itself lives in OQBBboxEditor) -----
+// Called by the card's editor with the finished rubber-band box. Exam: qno is
+// assigned by renumberAfterInsert (relative shift) once the box is placed in
+// reading order. Generic: a free-text label, no cascade. Returns the plan item
+// so the editor renders and selects it.
+function finishDraw(card, kind, pageIndex, box) {
+    const item = { page: pageIndex, qno: null, label: null, box, _uid: nextUid() };
+    snapItemToFrame(kind, item);
+    if (!frameExtent(kind, pageIndex) && uniformActive()) snapBoxToUniform(item, kind);
+    plan[kind].push(item);
+    if (!isGeneric()) { renumberAfterInsert(kind, item); }
+    addBoxDom(card, kind, item);
+    if (!isGeneric()) refreshNumbersUI(kind);
+    toggleEmpty(card);
     updateReviewSummary();
     const row = document.getElementById('row-' + item._uid);
     if (row) { const inp = row.querySelector('input'); inp.focus(); inp.select(); }
-    document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
-    document.getElementById('box-' + item._uid)?.classList.add('selected');
-    selectedItem = item;
-    selectedKind = d.kind;
+    return item;
 }
 
 function boxLabelText(item) {
@@ -2391,8 +2173,12 @@ function stitchContinuations(kind) {
             cur.qno = prev.qno;
             if (prev.label) cur.label = prev.label;
             // Continuation pages lack the margin question number, so the model's
-            // box starts at the indented body; inherit the head page's x-span.
-            cur.box = [prev.box[0], cur.box[1], prev.box[2], cur.box[3]];
+            // box starts at the indented body; inherit the head page's x-span —
+            // unless this page has a frame, which governs x instead (the head
+            // page may sit at a different offset: odd/even booklet scans).
+            if (!frameExtent(kind, cur.page)) {
+                cur.box = [prev.box[0], cur.box[1], prev.box[2], cur.box[3]];
+            }
             restyleItem(cur);
         }
     }
@@ -2400,8 +2186,6 @@ function stitchContinuations(kind) {
 function refreshNumbersUI(kind) {
     deriveRoles(kind);
     plan[kind].forEach(it => {
-        const lbl = document.getElementById('lbl-' + it._uid);
-        if (lbl) lbl.textContent = boxLabelText(it);
         const row = document.getElementById('row-' + it._uid);
         if (row) {
             const inp = row.querySelector('.qno-input');
@@ -2411,25 +2195,9 @@ function refreshNumbersUI(kind) {
             const oldActions = row.querySelector('.split-actions');
             if (oldActions) oldActions.replaceWith(buildSplitActions(kind, it));
         }
-        const boxEl = document.getElementById('box-' + it._uid);
-        if (boxEl) {
-            boxEl.classList.toggle('role-stem', it.role === 'stem');
-            boxEl.classList.toggle('role-part', it.role === 'part');
-        }
+        const ed = editorForItem(kind, it);
+        if (ed && ed.has(it)) { ed.refreshLabel(it); ed.refreshClass(it); }
     });
-}
-
-function setAddMode(card, on) {
-    if (on) {
-        // Only one page in draw mode at a time.
-        document.querySelectorAll('.pdf-page-wrap.adding').forEach(w => {
-            w.classList.remove('adding');
-            const c = w.closest('.page-card');
-            if (c && c !== card) setAddButton(c, false);
-        });
-    }
-    card.querySelector('.pdf-page-wrap').classList.toggle('adding', on);
-    setAddButton(card, on);
 }
 
 function setAddButton(card, on) {
@@ -2489,52 +2257,7 @@ function redrawPreviews(card) {
     });
 }
 
-function drawPreview(canvas, img, box) {
-    if (!img.naturalWidth || !img.naturalHeight) return;
-    const nw = img.naturalWidth, nh = img.naturalHeight;
-    const sx = box[0] * nw, sy = box[1] * nh;
-    const sw = Math.max(1, (box[2] - box[0]) * nw), sh = Math.max(1, (box[3] - box[1]) * nh);
-    const thumbW = 130;
-    const scale = thumbW / sw;
-    canvas.width = thumbW;
-    canvas.height = Math.max(10, Math.round(sh * scale));
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    try { ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height); } catch (e) {}
-}
-
-// Enlarge the crop region of a box to a full-size overlay (mirrors the asset
-// modal's full-size preview). Draws the current box region from the high-res
-// page image at native resolution; click anywhere or press Esc to close.
-function showCropPreview(img, box, kind, label) {
-    if (!img || !img.naturalWidth || !img.naturalHeight) return;
-    const nw = img.naturalWidth, nh = img.naturalHeight;
-    const x1 = clamp01(box[0]), y1 = clamp01(box[1]), x2 = clamp01(box[2]), y2 = clamp01(box[3]);
-    const sx = x1 * nw, sy = y1 * nh;
-    const sw = Math.max(1, (x2 - x1) * nw), sh = Math.max(1, (y2 - y1) * nh);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(sw);
-    canvas.height = Math.round(sh);
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    try { ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height); } catch (e) {}
-
-    const overlay = document.createElement('div');
-    overlay.className = 'pdf-fullsize-overlay';
-    const cap = document.createElement('div');
-    cap.className = 'pdf-fullsize-cap';
-    cap.textContent = `${(kind || '').toUpperCase()} ${label ?? ''} — ${canvas.width}×${canvas.height}px · click or press Esc to close`;
-    overlay.appendChild(canvas);
-    overlay.appendChild(cap);
-
-    const close = () => { overlay.remove(); document.removeEventListener('keydown', onEsc); };
-    const onEsc = (e) => { if (e.key === 'Escape') close(); };
-    overlay.addEventListener('click', close);
-    document.addEventListener('keydown', onEsc);
-    document.body.appendChild(overlay);
-}
+// drawPreview / showCropPreview come from OQBBboxEditor (shared).
 
 async function rerunPage(card, kind, pageIndex) {
     const btn = card.querySelector('.btn-rerun');
@@ -2545,7 +2268,7 @@ async function rerunPage(card, kind, pageIndex) {
     try {
         const body = { token: staging.token, kind, index: pageIndex,
                        endpoint_id: pageEndpoint, method: pageMethod,
-                       debug: debugChk.checked };
+                       debug: debugChk.checked, frame_snap: frameSnapActive() };
         const instr = instructionInput.value.trim();
         if (isGeneric() || customPromptChk.checked) body.instruction = instr;
         if (!isGeneric()) body.custom_prompt = customPromptChk.checked;
@@ -2560,7 +2283,7 @@ async function rerunPage(card, kind, pageIndex) {
         // authoritative, so re-detect deliberately does NOT renumber-cascade
         // onto other pages).
         plan[kind].filter(it => it.page === pageIndex).forEach(it => {
-            document.getElementById('box-' + it._uid)?.remove();
+            card._ed.remove(it);
             document.getElementById('row-' + it._uid)?.remove();
         });
         plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
@@ -2570,18 +2293,19 @@ async function rerunPage(card, kind, pageIndex) {
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });
-        // Re-lock uniform width across the side (the re-detected page may carry
-        // the new widest box) — non-lossy because boxes were pushed natural.
-        if (uniformActive()) enableUniformWidth(kind);
         toggleEmpty(card);
         card.dataset.pending = '0';
         setPageStatus(card, 'done');
+        // Same order as finishDetect: link/number first, then the width policy.
         // Custom-prompt exam: the re-detected page has no numbers — re-sequence
         // the whole side so question numbers stay 1..N in reading order.
         // Standard exam: re-link multi-page questions across the whole side
         // (the re-run page may have changed a continuation boundary).
         if (isCustomExam()) renumberAllSequential(kind);
         else if (!isGeneric()) { stitchContinuations(kind); refreshNumbersUI(kind); }
+        // Frame snap for this page (wins over any inherited x), then re-lock
+        // uniform width for frameless pages — non-lossy, boxes were pushed natural.
+        applyWidthPolicy(kind);
         updateReviewSummary();
         appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
         if (data.raw !== undefined) {
@@ -2753,6 +2477,7 @@ function resetAll() {
     importCard.classList.add('d-none');
     summaryPanel.classList.add('d-none');
     progressSection.classList.add('d-none');
+    reviewBody.querySelectorAll('.page-card').forEach(c => { if (c._ed) c._ed.destroy(); });
     reviewBody.innerHTML = '';
     quePdf.value = ''; solPdf.value = '';
     serverPdf.que = null; serverPdf.sol = null;

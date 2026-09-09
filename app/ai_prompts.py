@@ -1370,7 +1370,11 @@ _DEFAULT_PDF_QUE_BOX_SYSTEM = (
     "- The page is a single column; questions are stacked vertically.\n"
     "- A question that starts on an earlier page and continues here has NO "
     "question number in the margin: still box it, keep the same left edge as "
-    "the numbered questions, and set continues_prev.\n"
+    "the numbered questions, and set continues_prev. The left edge of every "
+    "question box must be the left margin where question numbers are printed "
+    "(or the inner edge of the page's printed frame/rectangle if present), "
+    "NOT the indented body text, even when the region on this page is only "
+    "an indented sub-part or a continuation.\n"
     "{{expected_note}}\n\n"
     "{{json_contract}}"
 )

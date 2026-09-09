@@ -1,6 +1,6 @@
 ---
 description: PDF Batch Import - raster staging, vision bbox detection (llm/refine/segment), coordinate order, review/commit semantics, staging tokens, AI agent layer
-globs: app/pdf_import.py,app/pdf_agent.py,app/pdf_layout.py,app/question_split.py,templates/admin_pdf_import.html
+globs: app/pdf_import.py,app/pdf_agent.py,app/pdf_layout.py,app/question_split.py,templates/admin_pdf_import.html,static/js/bbox_editor.js,static/css/bbox_editor.css
 alwaysApply: false
 ---
 
@@ -9,7 +9,9 @@ alwaysApply: false
 ## Invariants
 - `PDF_IMPORT_COORD_ORDER` drives **both** prompt wording (`pdf_box_order_vars`) and parsing (`_normalize_box`). Range is auto-detected (≤ 1 fractional, ≤ 1024 → /1000, else pixels ÷ downscaled dims); only axis order is configurable. Use `debug=1` before flipping it.
 - The LLM sees the `LLM_IMAGE_MAX_DIM` copy; crops are cut from the `PDF_IMPORT_RASTER_WIDTH` PNG; boxes are stored fractional.
-- `_finalize_detect` runs once after all pages: custom-prompt numbering 1..N in `(page, top-Y)` order, otherwise `_stitch_continuations` re-links `continues_prev/next` and gives the continuation the head box's x1/x2 (JS mirror `stitchContinuations` does the same); transient `_cp/_cn` are stripped before `plan.json`. Deterministic under parallel detection. Exam plan items carry `label` (`5` / `5a` / `23-24`) plus optional `role` / `source_*` after pass 2.
+- `_finalize_detect` runs once after all pages: custom-prompt numbering 1..N in `(page, top-Y)` order, otherwise `_stitch_continuations` re-links `continues_prev/next` and (frameless only) gives the continuation the head box's x1/x2; when `frame_snap=1` (exam), `snap_boxes_to_frames` then overwrites x from `meta[kind]['frames']` so the per-page frame wins. JS mirror `stitchContinuations` does the same. Transient `_cp/_cn` are stripped before `plan.json`. Deterministic under parallel detection. Exam plan items carry `label` (`5` / `5a` / `23-24`) plus optional `role` / `source_*` after pass 2.
+- Every path that puts LLM boxes into the plan (`iter_detect`, `iter_split_detect` incl. agent repair rounds, `/redo-page`) takes `frame_snap` and ends in `apply_frame_snap` **after** stitching; the UI sends the flag on all three and runs `stitchContinuations` before `applyWidthPolicy`. Adding a new detection path without this re-creates the "Re-run ignores the green frame" bug. Per-page **Re-split page** re-splits root labels as whole questions (all pages), never one page's parts alone.
+- On a framed page, box x1/x2 come from `meta[kind]['frames']` via `snap_boxes_to_frames` (inset `PDF_IMPORT_FRAME_INSET_PCT`). Frames are detected at stage time (`detect_page_frame` + `consolidate_frames`; odd/even pages use same-parity medians); old tokens get them lazily via `ensure_frames`. Overlay editing only through `OQBBboxEditor` — mutate the host item then `ed.restyle(item)`.
 - Optional pass 2 (`iter_split_detect` / `/split-detect`): per whole-question crop, `detect_parts` then `full_width_child_box` (children inherit the parent's x1/x2 — never let pass 2 move the left edge, it breaks uniform-width alignment). Crops for pass 2 use `pad_frac=0`; one retry on `LLMError` via `_call_with_llm_retry`. `parallel=1` is gated like pass 1 (cloud + `max_concurrency > 1`); QUE is merged before SOL fans out. `Subject.split_parts_default` seeds the wizard checkbox; the live tick auto-runs pass 2. Nested parts are plain labels (`4d` + `4di`); re-splitting `4d` only replaces `4d` and its descendants (`_replace_group`).
 - **Page range** (`parse_page_range` / `POST /stage` `page_range`): 1-based source-PDF spec (`1-8`, `3,5,12-14`) set in Step 1 **before** Load PDF. Blank = all. Applied to source pages **before** A3 split. Same spec on QUE and SOL. Junk / no matching pages → 400.
 - **`role` is derived, never trusted**: `apply_derived_roles` (→ `hierarchy.derive_roles`) runs on every plan save path (`sanitize_plan`, `_finalize_detect`, `_strip_split_flags`, agent finish); the browser mirrors it in `deriveRoles`. Do not read `role` from model output or from the posted plan.
@@ -17,19 +19,19 @@ alwaysApply: false
 - IMG Split-into-parts (`question_split.iter_detect_boxes`, SSE): stitch multi-image QUE, then PDF-import **pass 2** (`detect_parts`) **once on the stitch**. Do not send each part-crop as a page. `find_parent=1` only for a full exam-page scan.
 - Plan item `depends_prev: true` survives `sanitize_plan` and becomes `Question.needs_prev_parts` at commit (parts with a parent only).
 - `replace_img_assets` deletes existing IMG rows first — commit **is** overwrite; the `slot_has_img` skip is the only guard. For a **root** QUE that pass-2 split, `iter_commit` writes `WHOLE` from `whole_source_crops` (pass-1 `source_box` pages) **before** the tight stem QUE. Nested stems and range stems never get WHOLE. Dashboard/generator never read WHOLE.
-- Crop = box + `PDF_IMPORT_CROP_PAD_PCT`; `trim_white` defaults from `PDF_IMPORT_TRIM_WHITE_DEFAULT` (OFF); ZIP export pads but never trims. `shrink_sides` applies to QUE only.
+- Crop = box + `PDF_IMPORT_CROP_PAD_PCT`; `trim_white` defaults from `PDF_IMPORT_TRIM_WHITE_DEFAULT` (OFF); ZIP export pads but never trims. Never white-trim a frame-snapped crop horizontally — `FrameCropper` uses `crop_page(..., trim_axis='vertical')` and optional width normalise. `shrink_sides` applies to QUE only. Frame snap wins over legacy uniform width.
 - Commit uses the live Step 1 paper + Step 3 versions (persisted to meta); subject change is blocked; a plan can be imported repeatedly.
-- NumPy is optional: `refine` / `segment` / deskew need it; detect fails fast with one SSE error, deskew warns and skips.
+- NumPy is optional: `refine` / `segment` / deskew / `detect_page_frame` need it; detect fails fast with one SSE error, deskew warns and skips; missing NumPy yields all-`None` frames.
 - Staging: `<SYSTEM_PATH>/.pdf_import/<token>/` (fallback `OUTPUT_PATH`), token `^[0-9a-f]{8,40}$`, purged after 6 h. Raster workers each open their own `fitz.Document`.
 - Generic (non-exam) sessions bypass the subject check and never write the DB; exam sessions are subject-admin scoped via `_pdf_load_token_meta`.
 - Default endpoint: `PDF_IMPORT_DEFAULT_LLM` → `EXPLAIN_DEFAULT_LLM` → first vision endpoint (also for `guess-paper`).
 - Server-side PDF picker resolves `{root, rel_path}` through the user's `RootRegistry` (`_resolve_server_pdf`); `PDF_SOURCE_PATH` defaults to `SHARED_PATH`.
 
 ## Routes
-`/admin/pdf-import` + `/stage`, `/detect` (SSE), `/split-detect` (SSE), `/agent` (SSE), `/attention`, `/redo-page`, `/plan`, `/guess-paper`, `/commit`, `/export-zip`, `/discard`, `/cancel`, `/source-list` — all subject-admin scoped.
+`/admin/pdf-import` + `/stage`, `/detect` (SSE, `frame_snap`), `/split-detect` (SSE), `/agent` (SSE, `frame_snap`), `/attention`, `/redo-page`, `/plan`, `/frame` (`set_manual_frame`), `/guess-paper`, `/commit`, `/export-zip`, `/discard`, `/cancel`, `/source-list` — all subject-admin scoped.
 
 ## Gotchas
-- Tunables in `core/06`: raster width/workers, coord order, deskew/method/trim/uniform-width defaults, pad percentages. Read via `current_app.config`.
+- Tunables in `core/06`: raster width/workers, coord order, deskew/method/trim/uniform-width (legacy, default OFF) / frame-snap defaults, frame inset, frame-width normalise, pad percentages. Read via `current_app.config`. Spec: `docs/modules/pdf-import.md`.
 - Prompts (`PDF_*` including `PDF_PART_*` and `PDF_AGENT_*`) and their parsers live in `app/ai_prompts.py`; keep the JSON contracts in sync. Pass-2 crops use `pad_frac=0` before `full_width_child_box`. `{{expected_note}}` must stay declared in `variables` for every prompt that uses it or `render_prompt` leaves the slot in the text.
 - Agent tunables (`PDF_AGENT_*`) follow the four-place rule in `system-settings.mdc`. Outline page numbers are 1-based captions; plan `page` is 0-based — convert only inside `iter_agent`.
 - Do not re-import `Subject` inside `pdf_import_stage` — it is already imported at the top of `admin.py`. A local import shadows the earlier existence check and 500s Load PDF.

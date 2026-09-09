@@ -1,6 +1,6 @@
 ---
 description: Question hierarchy — stem/parts tree, QNO token grammar, parent_id, do not confuse with IMG part_number
-globs: app/hierarchy.py,app/question_split.py,app/question_combine.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py
+globs: app/hierarchy.py,app/question_split.py,app/question_combine.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py,templates/admin_question_split.html,static/js/bbox_editor.js
 alwaysApply: false
 ---
 
@@ -17,7 +17,7 @@ alwaysApply: false
 - Generator/viewer expansion is **only** `resolve_render_plan` (`hierarchy_mode` `selected`|`whole`). Dashboard selection (`selectedQuestions`, `#allQuestionIds`) stays **leaves only**; stem / substem checkboxes are aggregates over `data-leaf-ids`, never stored ids. Anything that shows a part's background (viewer `context`, Explain, docx) must go through `resolve_render_plan([leaf])` / `ancestors` + `earlier_siblings`, never just the root. Selection semantics stay ADR-008.
 - Tags live on leaves. Do not write topic/type/level onto stems. Auto-tag skips stems.
 - PDF import: pass 1 = whole numbered questions; pass 2 (`iter_split_detect`) = stem+(a)(b)(c), nested as plain labels (`4d` + `4di`). `Subject.split_parts_default` seeds the wizard checkbox.
-- IMG Split-into-parts auto-detect stitches multi-image QUE, then PDF-import pass 2 (`detect_parts`) once on that stitch (SSE). Do not treat each reconstructed part crop as a page. Do not run pass 1 (`detect_page`) on an already-cropped QUE unless `find_parent=1`.
+- IMG Split-into-parts auto-detect stitches multi-image QUE, then PDF-import pass 2 (`detect_parts`) once on that stitch (SSE). Do not treat each reconstructed part crop as a page. Do not run pass 1 (`detect_page`) on an already-cropped QUE unless `find_parent=1`. The split page mounts `OQBBboxEditor` on the stitch — do not reintroduce a `<canvas>` painter.
 - Plan roles are **derived** (`derive_roles` / `label_is_ancestor`), never stored from model output. A nested stem is just a node with children.
 - `needs_prev_parts` is the only sibling-dependency mechanism: `resolve_render_plan` prepends `earlier_siblings` as `stem`-role items for flagged leaves (selected mode). No `depends_on` edges (ADR-009/010).
 

@@ -596,11 +596,226 @@ def stage(que_storage, sol_storage, meta_in: dict, raster_width: int,
                               mode1_pages_per_student=meta[
                                   'mode1_pages_per_student'],
                               page_range=page_range)
-        meta[kind] = {'filename': storage.filename, 'pages': pages}
+        meta[kind] = {'filename': storage.filename, 'pages': pages,
+                      'frames': detect_frames(kind_dir, pages)}
 
     with open(_meta_path(token), 'w', encoding='utf-8') as f:
         json.dump(meta, f)
     return token, meta
+
+
+# ==================== Printed page frame ====================
+#
+# DSE answer books print a rectangle on every page ("Answers written in the
+# margins will not be marked"). Scans drift a few % left/right between pages
+# (odd/even booklet pages often differ) and the model boxes only the indented
+# body on a continuation page, so per-question x-extents never line up. The
+# frame is detected once per page at stage time (pdf_layout.detect_page_frame),
+# consolidated across the paper (a paper has ONE physical frame width), stored
+# in meta.json as ``meta[kind]['frames']`` aligned with ``pages``, and used to
+# snap every box's x1/x2. Each entry is ``{'box': [x1,y1,x2,y2], 'source':
+# 'detected'|'inferred'|'manual'}`` or ``None`` (no frame on that page).
+
+FRAME_SOURCES = ('detected', 'inferred', 'manual')
+
+
+def detect_frames(kind_dir: str, pages: list) -> list:
+    """Detect the printed frame on every staged page and consolidate across
+    the paper. Never raises: without NumPy (or on any failure) every entry is
+    ``None`` and the rest of the pipeline behaves as before."""
+    from app import pdf_layout
+    if not pdf_layout.numpy_available():
+        return [None] * len(pages)
+    raw = []
+    for p in pages:
+        try:
+            gray = pdf_layout.load_gray(os.path.join(kind_dir, p['filename']))
+            raw.append(pdf_layout.detect_page_frame(gray))
+        except Exception as e:  # pragma: no cover — best effort
+            logger.warning('page frame detection failed for %s: %s',
+                           p.get('filename'), e)
+            raw.append(None)
+    return consolidate_frames(raw)
+
+
+def _median(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    return vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2.0
+
+
+def consolidate_frames(raw: list, min_detected_frac: float = 0.4,
+                       width_tol: float = 0.06) -> list:
+    """Turn per-page ``detect_page_frame`` results into one frame per page.
+
+    A paper has a single physical frame, so: (1) the paper's frame WIDTH is the
+    median of pages where both rails were found; (2) a page missing one rail
+    gets it from the other rail plus that width; (3) a page with no rails (or
+    whose width is off by more than ``width_tol`` — a false hit) inherits the
+    median rails of the same-parity pages (booklet scans offset odd and even
+    pages differently), else of all pages. Unknown top/bottom fall back to
+    0 / 1. When fewer than ``min_detected_frac`` of the pages show any frame
+    the paper is treated as frameless and every entry is ``None``.
+    """
+    n = len(raw)
+    if n == 0:
+        return []
+    detected = [i for i, f in enumerate(raw) if f]
+    if len(detected) < max(1, int(round(n * min_detected_frac))):
+        return [None] * n
+
+    widths = [raw[i]['right'] - raw[i]['left'] for i in detected
+              if raw[i].get('left') is not None and raw[i].get('right') is not None]
+    width = _median(widths)
+
+    def _ok_pair(f):
+        if f.get('left') is None or f.get('right') is None:
+            return False
+        return width is None or abs((f['right'] - f['left']) - width) <= width_tol
+
+    # Reference rails for inference: same parity first, then any page.
+    def _ref(key, parity):
+        idx = [i for i in detected if _ok_pair(raw[i])
+               and (parity is None or i % 2 == parity)
+               and raw[i].get(key) is not None]
+        return _median([raw[i][key] for i in idx])
+
+    out = []
+    for i, f in enumerate(raw):
+        src = 'detected'
+        left = right = top = bottom = None
+        if f:
+            left, right = f.get('left'), f.get('right')
+            top, bottom = f.get('top'), f.get('bottom')
+            if left is not None and right is not None and not _ok_pair(f):
+                left = right = None       # implausible width: treat as no rails
+            if left is None and right is not None and width is not None:
+                left = right - width; src = 'inferred'
+            elif right is None and left is not None and width is not None:
+                right = left + width; src = 'inferred'
+        if left is None or right is None:
+            src = 'inferred'
+            left = _ref('left', i % 2)
+            right = _ref('right', i % 2)
+            if left is None or right is None:
+                left, right = _ref('left', None), _ref('right', None)
+        if left is None or right is None:
+            out.append(None)
+            continue
+        if top is None:
+            top = _ref('top', i % 2)
+            if top is None:
+                top = _ref('top', None)
+        if bottom is None:
+            bottom = _ref('bottom', i % 2)
+            if bottom is None:
+                bottom = _ref('bottom', None)
+        box = [max(0.0, float(left)), float(top if top is not None else 0.0),
+               min(1.0, float(right)), float(bottom if bottom is not None else 1.0)]
+        out.append({'box': [round(v, 4) for v in box], 'source': src})
+    return out
+
+
+def ensure_frames(token: str, meta: dict) -> dict:
+    """Return ``meta`` with ``frames`` present for every staged side, computing
+    (and persisting) them for staging dirs created before frames existed."""
+    changed = False
+    for kind in ('que', 'sol'):
+        side = meta.get(kind)
+        if not side or not side.get('pages'):
+            continue
+        if 'frames' not in side or len(side['frames']) != len(side['pages']):
+            side['frames'] = detect_frames(os.path.join(token_dir(token), kind),
+                                           side['pages'])
+            changed = True
+    if changed:
+        save_meta(token, meta)
+    return meta
+
+
+def set_manual_frame(token: str, kind: str, index: int, box) -> dict:
+    """Persist a user-adjusted frame for one page (``box`` fractional
+    ``[x1,y1,x2,y2]``, or ``None`` to mark the page frameless). Returns the
+    stored entry."""
+    if kind not in ('que', 'sol'):
+        raise ValueError('invalid kind')
+    meta = ensure_frames(token, load_meta(token))
+    side = meta.get(kind) or {}
+    frames = side.get('frames') or []
+    if not (0 <= int(index) < len(frames)):
+        raise ValueError('page index out of range')
+    if box is None:
+        entry = None
+    else:
+        x1, y1, x2, y2 = [min(1.0, max(0.0, float(v))) for v in box]
+        if x2 - x1 < 0.2:
+            raise ValueError('frame too narrow')
+        entry = {'box': [round(v, 4) for v in (x1, min(y1, y2), x2, max(y1, y2))],
+                 'source': 'manual'}
+    frames[int(index)] = entry
+    side['frames'] = frames
+    save_meta(token, meta)
+    return entry
+
+
+def frame_x_extent(frame, inset_frac: float):
+    """``(x1, x2)`` a box on a framed page should use, or ``None``."""
+    if not frame or not frame.get('box'):
+        return None
+    fx1, _fy1, fx2, _fy2 = frame['box']
+    x1 = max(0.0, float(fx1) + inset_frac)
+    x2 = min(1.0, float(fx2) - inset_frac)
+    if x2 - x1 < 0.1:
+        return None
+    return x1, x2
+
+
+def snap_boxes_to_frames(items: list, frames: list, inset_frac: float) -> int:
+    """Set ``x1``/``x2`` of every item whose page has a frame to the frame's
+    inner extent (in place). ``frames`` is the per-page list from meta. Returns
+    the number of boxes changed. y is never touched."""
+    changed = 0
+    for it in items or []:
+        page = int(it.get('page', 0) or 0)
+        if not (0 <= page < len(frames or [])):
+            continue
+        ext = frame_x_extent(frames[page], inset_frac)
+        box = it.get('box')
+        if ext is None or not (isinstance(box, (list, tuple)) and len(box) == 4):
+            continue
+        nb = [ext[0], float(box[1]), ext[1], float(box[3])]
+        if nb != [float(v) for v in box]:
+            it['box'] = nb
+            changed += 1
+    return changed
+
+
+def frame_inset_frac(config) -> float:
+    try:
+        return max(0.0, float(config.get('PDF_IMPORT_FRAME_INSET_PCT', 0.5))) / 100.0
+    except (TypeError, ValueError):
+        return 0.005
+
+
+def apply_frame_snap(plan: dict, meta: dict, config) -> int:
+    """Snap every exam box in ``plan`` to its page frame (in place).
+
+    The ONE place all detection paths converge — full detect, agent locate,
+    pass-2 split, single-page redo — so a box never enters the saved plan
+    un-snapped while the review UI shows it snapped. No-op for generic mode
+    (no exam frame). Returns the number of boxes changed.
+    """
+    if not plan or meta.get('mode') == 'generic':
+        return 0
+    inset = frame_inset_frac(config)
+    changed = 0
+    for kind in ('que', 'sol'):
+        side = meta.get(kind) or {}
+        changed += snap_boxes_to_frames(plan.get(kind) or [],
+                                        side.get('frames') or [], inset)
+    return changed
 
 
 # ==================== LLM detection ====================
@@ -755,14 +970,17 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
 
 def crop_page(png_path: str, box, pad_frac: float = 0.006,
               trim_white: bool = True, whiteness_threshold: int = 250,
-              min_px: int = 8):
+              min_px: int = 8, trim_axis: str = 'both'):
     """Crop the high-res page PNG to the fractional ``box`` ``[x1,y1,x2,y2]``.
 
     A small fractional pad is added first; when ``trim_white`` is on, the
     result is then tightened to its non-white content (so a slightly loose
     LLM box doesn't leave a wide white border, and trailing blank answer
     space below a question is dropped). White-trimming never removes content,
-    so solution side-notes are preserved. Returns a PIL ``Image`` (RGB).
+    so solution side-notes are preserved. ``trim_axis='vertical'`` trims only
+    top/bottom — used for frame-snapped boxes, whose x-extent is deliberate
+    and must not be re-narrowed to an indented body. Returns a PIL ``Image``
+    (RGB).
 
     Raises ``ValueError`` on a degenerate box so the caller can record an
     error for that question rather than writing a broken crop.
@@ -797,6 +1015,8 @@ def crop_page(png_path: str, box, pad_frac: float = 0.006,
                 ct = max(0, bbox[1] - pad)
                 cr = min(crop.size[0], bbox[2] + pad)
                 cb = min(crop.size[1], bbox[3] + pad)
+                if trim_axis == 'vertical':
+                    cl, cr = 0, crop.size[0]
                 if cr - cl >= min_px and cb - ct >= min_px:
                     crop = crop.crop((cl, ct, cr, cb))
         # Force the (lazy) crop to materialise its own pixel buffer before the
@@ -851,17 +1071,22 @@ def _safe_filename(name: str, fallback: str) -> str:
     return name[:60] or fallback
 
 
-def export_zip_bytes(token: str, kind: str, items, pad_frac: float = 0.0) -> bytes:
+def export_zip_bytes(token: str, kind: str, items, pad_frac: float = 0.0,
+                     inset_frac: float = 0.005, normalise: bool = True) -> bytes:
     """Crop every ``item`` ({page, label, box}) out of the staged page PNGs
     and return a ZIP archive of PNGs (Generic Extraction download).
 
     No white-trimming is applied so the user gets exactly the region they
-    selected (plus the optional ``pad_frac``). Filenames use each item's
-    label, de-duplicated, falling back to ``page<NN>_<i>``.
+    selected (plus the optional ``pad_frac``); frame-snapped boxes still get
+    the common-width resample (see :class:`FrameCropper`). Filenames use each
+    item's label, de-duplicated, falling back to ``page<NN>_<i>``.
     """
     import io
     import zipfile
 
+    meta = ensure_frames(token, load_meta(token))
+    cropper = FrameCropper(meta, inset_frac, pad_frac, trim_white=False,
+                           whiteness=250, normalise=normalise)
     buf = io.BytesIO()
     used = {}
     count = 0
@@ -874,10 +1099,8 @@ def export_zip_bytes(token: str, kind: str, items, pad_frac: float = 0.0) -> byt
                 page = int(it.get('page', 0))
             except (ValueError, TypeError):
                 continue
-            png = page_png_path(token, kind, page)
             try:
-                crop = crop_page(png, [float(v) for v in box], pad_frac=pad_frac,
-                                 trim_white=False)
+                crop = cropper.crop(token, kind, page, [float(v) for v in box])
             except Exception as e:  # pragma: no cover — skip a bad region
                 logger.warning('pdf-import zip crop failed (region %s): %s', i, e)
                 continue
@@ -919,13 +1142,16 @@ def _check_method_available(method: str):
 def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 debug: bool = False, method: str = 'llm',
                 parallel: bool = False, max_workers: int = 1,
-                expected_by_page=None, page_filter=None):
+                expected_by_page=None, page_filter=None,
+                frame_snap: bool = False):
     """Generator yielding detection progress events (one LLM call per page).
 
     ``expected_by_page`` (agent runs) maps ``(kind, page_index)`` to the
     question labels the paper outline expects there; ``page_filter`` is an
     optional set of ``(kind, page_index)`` to detect (other pages are skipped
-    and get no boxes).
+    and get no boxes). ``frame_snap`` snaps every exam box's x1/x2 to the
+    page's printed frame (``meta[kind]['frames']``) once all pages are in, so
+    the saved plan matches what the review UI shows.
 
     Accumulates the detected boxes into ``plan.json`` so a later commit can
     read them even without the browser echoing them back. When ``debug`` is
@@ -940,7 +1166,7 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     numbers are assigned once at the end in reading order (page, top-Y) so the
     numbering is deterministic regardless of completion order.
     """
-    meta = load_meta(token)
+    meta = ensure_frames(token, load_meta(token))
     is_generic = (meta.get('mode') == 'generic')
     # Exam runs may borrow the context-free prompt (custom_prompt) to extract
     # questions from non-exam material, importing them with auto-numbered Qs.
@@ -1045,6 +1271,10 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                     it['label'] = str(i)
         elif not is_generic:
             _stitch_continuations(plan)
+        if frame_snap and not is_generic:
+            # After stitching: the frame (a per-page fact) wins over the
+            # head-question x inherited by _stitch_continuations.
+            apply_frame_snap(plan, meta, app.config)
         for k in ('que', 'sol'):
             for it in plan[k]:
                 it.pop('_cp', None)
@@ -1332,6 +1562,65 @@ def _resolve_sol_commit_label(label: str, que_labels: set):
     return format_qno_token(parsed.qno, parsed.qno_end, None)[1:]
 
 
+class FrameCropper:
+    """Crop helper that knows the paper's frames.
+
+    For a box whose x1/x2 sit on the page frame's inner extent (i.e. it was
+    frame-snapped), white-trim runs vertically only and — when ``normalise``
+    — the crop is resampled to the paper's median frame pixel width, so every
+    crop of the paper shares one width even though odd/even scanned pages are
+    stretched differently. Boxes the user widened/narrowed by hand (x differs
+    from the frame by more than ``tol``) are cropped exactly as before.
+    """
+
+    def __init__(self, meta: dict, inset_frac: float, pad_frac: float,
+                 trim_white: bool, whiteness: int, normalise: bool,
+                 tol: float = 0.006):
+        self.meta = meta
+        self.inset = inset_frac
+        self.pad = pad_frac
+        self.trim_white = trim_white
+        self.whiteness = whiteness
+        self.normalise = normalise
+        self.tol = tol
+        self.target_w = {}
+        for kind in ('que', 'sol'):
+            side = meta.get(kind) or {}
+            widths = []
+            for p, fr in zip(side.get('pages') or [], side.get('frames') or []):
+                ext = frame_x_extent(fr, inset_frac)
+                if ext is None:
+                    continue
+                x1 = max(0.0, ext[0] - pad_frac)
+                x2 = min(1.0, ext[1] + pad_frac)
+                widths.append(int(x2 * p['width']) - int(x1 * p['width']))
+            self.target_w[kind] = int(_median(widths)) if widths else None
+
+    def is_snapped(self, kind: str, page: int, box) -> bool:
+        frames = (self.meta.get(kind) or {}).get('frames') or []
+        if not (0 <= int(page) < len(frames)):
+            return False
+        ext = frame_x_extent(frames[int(page)], self.inset)
+        if ext is None:
+            return False
+        return (abs(float(box[0]) - ext[0]) <= self.tol
+                and abs(float(box[2]) - ext[1]) <= self.tol)
+
+    def crop(self, token: str, kind: str, page: int, box):
+        from PIL import Image
+        png = page_png_path(token, kind, int(page))
+        snapped = self.is_snapped(kind, page, box)
+        img = crop_page(png, box, pad_frac=self.pad, trim_white=self.trim_white,
+                        whiteness_threshold=self.whiteness,
+                        trim_axis='vertical' if snapped else 'both')
+        target = self.target_w.get(kind)
+        if snapped and self.normalise and target and img.width != target \
+                and abs(img.width - target) / float(target) <= 0.15:
+            new_h = max(1, int(round(img.height * target / float(img.width))))
+            img = img.resize((target, new_h), Image.LANCZOS)
+        return img
+
+
 def iter_commit(app, cancel, token: str, plan: dict, versions,
                 overwrite: bool, source_path: str, trim_white: bool = False):
     """Generator yielding commit progress events: crop each grouped question
@@ -1345,6 +1634,10 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     Labels may be ``5``, ``5a``, or ``23-24``. ``ensure_question`` creates
     missing ancestors. Unmatched lettered SOL groups are skipped; a leftover
     whole-question SOL attaches to the stem.
+
+    Crops go through :class:`FrameCropper`: frame-snapped boxes are trimmed
+    vertically only and (``PDF_IMPORT_FRAME_NORMALISE_WIDTH``) resampled to
+    the paper's common frame width.
     """
     if isinstance(versions, str):
         versions = {'que': versions, 'sol': versions}
@@ -1352,13 +1645,16 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     from app.ingestor import determine_question_type
     from app.batch_image_gen import replace_img_assets, slot_has_img
 
-    meta = load_meta(token)
+    meta = ensure_frames(token, load_meta(token))
     subject = meta['subject']
     source = meta['source']
     year = meta['year']
     paper = meta['paper']
     whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
     crop_pad = max(0.0, float(app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
+    cropper = FrameCropper(
+        meta, frame_inset_frac(app.config), crop_pad, trim_white, whiteness,
+        normalise=bool(app.config.get('PDF_IMPORT_FRAME_NORMALISE_WIDTH', True)))
 
     que_labels = _que_label_set(plan)
     depends_labels = {plan_item_label(it) for it in (plan.get('que') or [])
@@ -1439,11 +1735,8 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
                 if whole_parts:
                     whole_imgs = []
                     for prt in whole_parts:
-                        png = page_png_path(token, kind, prt['page'])
-                        whole_imgs.append(crop_page(
-                            png, prt['box'], pad_frac=crop_pad,
-                            trim_white=trim_white,
-                            whiteness_threshold=whiteness))
+                        whole_imgs.append(cropper.crop(
+                            token, kind, prt['page'], prt['box']))
                     if whole_imgs:
                         wres = replace_img_assets(
                             question, 'WHOLE', version, whole_imgs,
@@ -1456,10 +1749,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
 
             imgs = []
             for prt in parts:
-                png = page_png_path(token, kind, prt['page'])
-                imgs.append(crop_page(png, prt['box'], pad_frac=crop_pad,
-                                      trim_white=trim_white,
-                                      whiteness_threshold=whiteness))
+                imgs.append(cropper.crop(token, kind, prt['page'], prt['box']))
 
             res = replace_img_assets(question, atype, version, imgs,
                                      stitch=False, source_path=source_path)
@@ -1890,12 +2180,18 @@ def _strip_split_flags(plan: dict) -> dict:
 def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
                       kinds=None, labels_filter=None, debug: bool = False,
                       parallel: bool = False, max_workers: int = 1,
-                      expected_by_parent=None, note_by_parent=None):
+                      expected_by_parent=None, note_by_parent=None,
+                      frame_snap: bool = False):
     """SSE generator: pass-2 part split on each whole-question crop.
 
     ``kinds`` is ``'que'``, ``'sol'``, or ``'both'`` / ``None``.
-    ``labels_filter`` is an optional iterable of parent labels to re-split.
+    ``labels_filter`` is an optional iterable of parent labels to re-split —
+    a parent that spans several pages is re-split as a whole (all its pages),
+    which is what a per-page "Re-split" in the UI relies on.
     QUE is processed before SOL so SOL can use QUE labels as ``expected_labels``.
+    ``frame_snap`` runs :func:`apply_frame_snap` before every ``save_plan`` so
+    children (which inherit the parent's x via ``full_width_child_box``) and
+    re-stitched continuations end on the frame rails.
 
     With ``parallel`` (cloud endpoints), the crops of one side fan out across
     ``app.parallel.run_parallel``; QUE finishes before SOL starts so the SOL
@@ -1919,6 +2215,14 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
         yield {'type': 'done', 'message': 'Aborted.', 'current': 0, 'total': 0,
                'plan': {'que': [], 'sol': []}}
         return
+    if frame_snap:
+        meta = ensure_frames(token, meta)
+
+    def _finalise(p):
+        _stitch_continuations(p)
+        if frame_snap:
+            apply_frame_snap(p, meta, app.config)
+        return _strip_split_flags(p)
 
     plan = load_plan(token)
     if kinds in (None, '', 'both'):
@@ -2019,8 +2323,7 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
                 ev['total'] = total
                 yield ev
             if cancelled or cancel.is_set():
-                _stitch_continuations(plan)
-                plan = _strip_split_flags(plan)
+                plan = _finalise(plan)
                 save_plan(token, plan)
                 yield {'type': 'done', 'message': 'Split cancelled.',
                        'current': done, 'total': total, 'plan': plan}
@@ -2028,7 +2331,8 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
     else:
         for kind, parent, parts in work:
             if cancel.is_set():
-                save_plan(token, _strip_split_flags(plan))
+                plan = _finalise(plan)
+                save_plan(token, plan)
                 yield {'type': 'done', 'message': 'Split cancelled.',
                        'current': done, 'total': total, 'plan': plan}
                 return
@@ -2042,8 +2346,7 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
             ev['total'] = total
             yield ev
 
-    _stitch_continuations(plan)
-    plan = _strip_split_flags(plan)
+    plan = _finalise(plan)
     save_plan(token, plan)
     yield {'type': 'done', 'message': 'Part split complete.',
            'current': total, 'total': total, 'plan': plan}
