@@ -775,6 +775,47 @@ def group_for_dashboard(sorted_questions) -> list[dict]:
     return groups
 
 
+def paginate_by_root(sorted_questions, page: int, per_page: int) -> tuple[list, int, int]:
+    """Slice a sorted result list by *whole question* instead of by row.
+
+    Every row is bucketed under its root id (first-seen order along the sort),
+    so a multi-part question occupies exactly one page slot and all of its
+    matched parts land on the same page, contiguous, in their sorted order.
+    An explicit stem row (present only on ``ids`` / ``qids`` overrides) shares
+    the bucket of its leaves and is placed first in it.
+
+    Returns ``(page_items, total_roots, total_rows)`` where ``total_rows`` is
+    the number of non-stem rows (parts / standalones). ``page`` is 1-based;
+    ``per_page`` counts roots. Sorts that interleave a root's parts (e.g. by
+    topic) snap the parts together at the first sibling's position.
+    """
+    per_page = max(1, int(per_page or 1))
+    page = max(1, int(page or 1))
+    order: list = []
+    buckets: dict = {}
+    for q in sorted_questions:
+        r = root(q)
+        rid = getattr(r, 'id', id(r))
+        if rid not in buckets:
+            buckets[rid] = {'stem': None, 'rows': []}
+            order.append(rid)
+        b = buckets[rid]
+        if is_stem(q) and getattr(q, 'id', id(q)) == rid:
+            b['stem'] = q
+        else:
+            b['rows'].append(q)
+    total_roots = len(order)
+    start = (page - 1) * per_page
+    page_items: list = []
+    for rid in order[start:start + per_page]:
+        b = buckets[rid]
+        if b['stem'] is not None:
+            page_items.append(b['stem'])
+        page_items.extend(b['rows'])
+    total_rows = sum(len(b['rows']) for b in buckets.values())
+    return page_items, total_roots, total_rows
+
+
 def token_fits_under(child_qid: str, parent_qid: str) -> bool:
     """True if the child's QNO token belongs under the parent (part path or range)."""
     child = parse_qid(child_qid)

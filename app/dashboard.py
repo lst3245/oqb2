@@ -12,7 +12,7 @@ from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subje
 from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
     children as hier_children, group_for_dashboard, is_stem,
-    root as hier_root, stem_id_query,
+    paginate_by_root, root as hier_root, stem_id_query,
 )
 from app import md_render
 import os
@@ -242,6 +242,20 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         question_id=q.id, asset_type='SOL'
     ).first() is not None
 
+    # Root-only WHOLE archive (unsplit original kept by PDF import / Split /
+    # Combine). Surfaced on the group header as a view-only toggle; it is never
+    # used by papers, Present slides, Explain or auto-tag.
+    whole_asset_ids: list = []
+    if role == 'stem':
+        whole_assets = QuestionAsset.query.filter_by(
+            question_id=q.id, asset_type='WHOLE', file_format='IMG'
+        ).filter(
+            QuestionAsset.version.in_(VERSIONS)
+        ).order_by(version_order, QuestionAsset.part_number).all()
+        if whole_assets:
+            best = whole_assets[0].version
+            whole_asset_ids = [a.id for a in whole_assets if a.version == best]
+
     r = hier_root(q)
     card = {
         'id': q.id,
@@ -285,6 +299,8 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         'has_que': bool(que_assets),
         'has_ans': has_ans,
         'has_sol': has_sol,
+        'has_whole': bool(whole_asset_ids),
+        'whole_asset_ids': whole_asset_ids,
         'answer': q.answer,
         'comment': q.comment,
         'has_answer_text': bool(q.answer),
@@ -436,13 +452,11 @@ def filter_questions():
     # Apply multi-level sorting (with optional manual block ordering)
     sorted_questions = apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)
     
-    # Paginate
+    # Paginate by whole question: one page slot per root, all of a root's
+    # matched parts on the same page (see hierarchy.paginate_by_root).
     per_page = page_size if page_size else current_app.config.get('QUESTIONS_PER_PAGE', 20)
-    total = len(sorted_questions)
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_items = sorted_questions[start:end]
-    
+    page_items, total, total_parts = paginate_by_root(sorted_questions, page, per_page)
+
     total_pages = (total + per_page - 1) // per_page
     
     # Prepare question data with assets
@@ -543,6 +557,7 @@ def filter_questions():
                              page=page,
                              total_pages=total_pages,
                              total=total,
+                             total_parts=total_parts,
                              all_question_ids=all_question_ids,
                              sort_config=sort_config,
                              admin_subjects=admin_subjects)
@@ -556,6 +571,7 @@ def filter_questions():
                          page=page,
                          total_pages=total_pages,
                          total=total,
+                         total_parts=total_parts,
                          all_question_ids=all_question_ids,
                          sort_config=sort_config,
                          admin_subjects=admin_subjects)

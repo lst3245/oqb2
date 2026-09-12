@@ -1666,6 +1666,14 @@ def _admin_questions_query_from_args(args):
     elif tree_scope == 'leaves':
         query = query.filter(~Question.id.in_(stem_id_query()))
 
+    # Root-only WHOLE archive presence (1 = has an archive image).
+    has_whole = (args.get('has_whole') or '').strip().lower()
+    if has_whole in ('1', 'true', 'yes'):
+        from sqlalchemy import exists, and_
+        A = QuestionAsset
+        query = query.filter(exists().where(and_(A.question_id == Question.id,
+                                                 A.asset_type == 'WHOLE')))
+
     # Asset-check status rollup filter (issues / ok / unchecked) via correlated
     # EXISTS subqueries. Defaults to TYPED_VERSIONS (EN/CH/BI), but the advanced
     # toolbar can narrow the scope by version, asset type, and file format.
@@ -1830,6 +1838,16 @@ def questions_api_list():
         for qid_, _version, state in scoped_assets_query.all():
             scoped_states_by_q[qid_].append(state)
 
+    # WHOLE archive ids for this page (root-only; indicator + quick preview).
+    whole_ids_by_q = defaultdict(list)
+    if page_qids:
+        for qid_, aid in (db.session.query(QuestionAsset.question_id, QuestionAsset.id)
+                          .filter(QuestionAsset.question_id.in_(page_qids),
+                                  QuestionAsset.asset_type == 'WHOLE',
+                                  QuestionAsset.file_format == 'IMG')
+                          .order_by(QuestionAsset.version, QuestionAsset.part_number).all()):
+            whole_ids_by_q[qid_].append(aid)
+
     def _check_summary(states):
         total_assets = len(states)
         n_issues = sum(1 for s in states if s in ('issues', 'error'))
@@ -1867,6 +1885,8 @@ def questions_api_list():
             'level': q.level,
             'created_at': utc_iso(q.created_at) or '',
             'asset_count': total_by_q.get(q.id, 0),
+            'has_whole': bool(whole_ids_by_q.get(q.id)),
+            'whole_asset_ids': whole_ids_by_q.get(q.id, []),
             'verified': bool(q.verified),
             'check_summary': _check_summary(scoped_states_by_q.get(q.id, [])),
         })

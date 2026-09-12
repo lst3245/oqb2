@@ -49,6 +49,71 @@ class CompactMcOptionTests(unittest.TestCase):
         self.assertFalse(options['range_title'])
 
 
+def _node(**kw):
+    defaults = dict(parent=None, parent_id=None, children=[], part=None, qno_end=None,
+                    subject='ECON', source='DSE', year=2023, paper='P1', qid='', qno=1,
+                    id=None, needs_prev_parts=False)
+    defaults.update(kw)
+    return SimpleNamespace(**defaults)
+
+
+def _link(parent, *children):
+    for c in children:
+        c.parent = parent
+        c.parent_id = parent.id
+        parent.children.append(c)
+
+
+class SingleHeadingPerQuestionTests(unittest.TestCase):
+    """One "N. QID" heading per whole question; parts are not re-labelled."""
+
+    def _plan(self, questions, show_seq_no=True):
+        return generator._plan_document_entries(questions, 'selected', 1, show_seq_no)
+
+    def test_stem_carries_heading_parts_do_not(self):
+        stem = _node(id=1, qno=3, qid='Q3')
+        a = _node(id=2, qno=3, qid='Q3a', part='a')
+        b = _node(id=3, qno=3, qid='Q3b', part='b')
+        _link(stem, a, b)
+        q9 = _node(id=9, qno=9, qid='Q9')
+        entries = generator._assign_headings(self._plan([a, b, q9]))
+        self.assertEqual([e['question'].qid for e in entries], ['Q3', 'Q3a', 'Q3b', 'Q9'])
+        self.assertEqual([e['heading_qid'] for e in entries], [True, False, False, True])
+        self.assertEqual([e['heading_seq'] for e in entries], [1, None, None, 2])
+        # Answers section (leaf-only list): first part inherits the heading.
+        ans = generator._assign_headings([e for e in entries if e['role'] == 'leaf'])
+        self.assertEqual([(e['heading_qid'], e['heading_seq']) for e in ans],
+                         [(True, 1), (False, None), (True, 2)])
+
+    def test_first_part_carries_heading_when_stem_dropped(self):
+        stem = _node(id=1, qno=3, qid='Q3')
+        a = _node(id=2, qno=3, qid='Q3a', part='a')
+        b = _node(id=3, qno=3, qid='Q3b', part='b')
+        _link(stem, a, b)
+        entries = [e for e in self._plan([a, b]) if e['role'] == 'leaf']
+        flagged = generator._assign_headings(entries)
+        self.assertEqual([(e['heading_qid'], e['heading_seq']) for e in flagged],
+                         [(True, 1), (False, None)])
+
+    def test_range_preamble_keeps_qid_only_and_mc_leaves_number_themselves(self):
+        pre = _node(id=1, qno=23, qno_end=24, qid='Q23-24')
+        q23 = _node(id=2, qno=23, qid='Q23')
+        q24 = _node(id=3, qno=24, qid='Q24')
+        _link(pre, q23, q24)
+        flagged = generator._assign_headings(self._plan([q23, q24]))
+        self.assertEqual([e['question'].qid for e in flagged], ['Q23-24', 'Q23', 'Q24'])
+        self.assertEqual([(e['heading_qid'], e['heading_seq']) for e in flagged],
+                         [(True, None), (True, 1), (True, 2)])
+
+    def test_seq_hidden_leaves_qid_flag_only(self):
+        stem = _node(id=1, qno=3, qid='Q3')
+        a = _node(id=2, qno=3, qid='Q3a', part='a')
+        _link(stem, a)
+        flagged = generator._assign_headings(self._plan([a], show_seq_no=False))
+        self.assertEqual([(e['heading_qid'], e['heading_seq']) for e in flagged],
+                         [(True, None), (False, None)])
+
+
 class CompactMcRunTests(unittest.TestCase):
     def test_eligibility_accepts_short_single_line_text(self):
         self.assertEqual(

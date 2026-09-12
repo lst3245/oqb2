@@ -47,7 +47,7 @@ Paths are relative to `/admin`. Authz `A` = `@admin_required`; "subject-scoped" 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
 | GET | `/questions` | A | Page. Context: `subjects` (admin subjects), `md_max_size_bytes`, `ai_tools_enabled`. |
-| GET | `/questions/api/list` | A (scoped by query) | Paginated table data. Query: `page`, `page_size` (10/20/50/100/200, else 50), `sort` (`qid` = subject/source/year/paper/qno then roots-before-children/`part_sort`, or `subject|source|year|paper|qno|q_type|created_at|selection_order`), `dir` (`asc|desc`), `tree_scope` (`all` default / `roots` / `leaves`), plus the filters below. Response `{items[], total, page, page_size, total_pages}`; each item `{id, qid, subject, source, year, paper, section, qno, qno_end, parent_id, part, depth, is_stem, q_type, level, created_at (ISO UTC), asset_count (true total, all versions), verified, check_summary}` where `check_summary = {status: none|issues|unchecked|ok, total, ok, issues, unchecked}` computed over the active Status scope. Part column shows `(a)` indented by `depth`, or `stem` / `—`. |
+| GET | `/questions/api/list` | A (scoped by query) | Paginated table data. Query: `page`, `page_size` (10/20/50/100/200, else 50), `sort` (`qid` = subject/source/year/paper/qno then roots-before-children/`part_sort`, or `subject|source|year|paper|qno|q_type|created_at|selection_order`), `dir` (`asc|desc`), `tree_scope` (`all` default / `roots` / `leaves`), plus the filters below. Response `{items[], total, page, page_size, total_pages}`; each item `{id, qid, subject, source, year, paper, section, qno, qno_end, parent_id, part, depth, is_stem, q_type, level, created_at (ISO UTC), asset_count (true total, all versions), verified, check_summary}` where `check_summary = {status: none|issues|unchecked|ok, total, ok, issues, unchecked}` computed over the active Status scope. Part column shows `(a)` indented by `depth`, or `stem` / `—`. Assets column appends an archive icon when `has_whole` (click = `previewWholeArchive` → `showFullSize` of the first archive page via `/dashboard/api/asset_preview/<id>`). |
 | GET | `/questions/<int:question_id>/details` | A, scoped | Edit-modal payload: all tag ids (`minor_topic_ids[]`, `subtopic_ids[]`), metadata including `qno_end`, `parent_id`, `part`, `child_count`, `is_stem`, `has_whole`, `breadcrumb`, `children`, `tag_union`, `created_at`, `verified`, `verified_at`, `verified_by` (username). |
 | GET | `/questions/api/ids` | A | Same filter/sort helper; returns every match `{items:[{id,qid}], ids[], total}`. Backs the "select all N matching" banner. |
 | GET | `/questions/<int:question_id>/assets` | A | `{qid, assets: {VERSION: {ATYPE: [{id, part_number, file_format, file_path, preview_url, check_state, check_result (parsed), check_raw, checked_at}]}}}`. |
@@ -58,7 +58,7 @@ Paths are relative to `/admin`. Authz `A` = `@admin_required`; "subject-scoped" 
 2. `selected_ids=1,2,3` — internal ids ("Show dashboard selections", read from `localStorage['oqb_selectedQuestions']`). Same order-preservation rule.
 3. `qid_search=` — `*`/`%` wildcards become `ILIKE` pattern; otherwise substring `ILIKE %term%`.
 
-Non-exclusive: `verified=1|0`, `tree_scope=all|roots|leaves`, `check_status=issues|ok|unchecked` (correlated `EXISTS` over assets in scope; `ok` = has assets in scope and none non-ok). Scope defaults to `TYPED_VERSIONS` (EN/CH/BI), all types, all formats; override with `check_versions=EN,CH`, `check_atypes=QUE,ANS,SOL`, `check_formats=IMG,MD,DOC` (advanced Status dropdown, `#checkAdvancedBtn`).
+Non-exclusive: `verified=1|0`, `tree_scope=all|roots|leaves`, `has_whole=1` (correlated `EXISTS` on a `WHOLE` asset; the **Has archive** checkbox), `check_status=issues|ok|unchecked` (correlated `EXISTS` over assets in scope; `ok` = has assets in scope and none non-ok). Scope defaults to `TYPED_VERSIONS` (EN/CH/BI), all types, all formats; override with `check_versions=EN,CH`, `check_atypes=QUE,ANS,SOL`, `check_formats=IMG,MD,DOC` (advanced Status dropdown, `#checkAdvancedBtn`).
 
 ### Create / tag / rename
 
@@ -185,6 +185,7 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). Ev
 
 ## Gotchas
 
+- `edit_question_modal_js.html` state (`editQuestionData`, etc.) is declared with top-level `let`, so it is **not** a `window.*` property. Reference it bare inside that file; `window.editQuestionData` is silently `undefined` (this hid the WHOLE archive strip until it was fixed). Only values the host page must read are exposed on `window` explicitly.
 - The single-asset delete URL is `/questions/<qid>/assets/<aid>/delete` (POST or DELETE), not a bare `DELETE /assets/<aid>`.
 - `update_question` clears `minor_topics`/`subtopics` whenever the arrays are absent from the form — always submit the full current lists from the Tags form.
 - Batch update lives in the **dashboard** Bulk Edit modal, not in `admin_questions.html`; it does not intersect with admin subjects beyond `@admin_required`.
@@ -202,7 +203,8 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). Ev
 - The Status rollup counts only `TYPED_VERSIONS` (EN/CH/BI) by default; official scans (ENO/CHO) are excluded unless the advanced scope includes them.
 - Split commit calls `replace_img_assets` per version (each call commits). A later version failing can leave earlier crops already written. Root split also writes WHOLE first when that slot is empty.
 - Combine (`POST /questions/<id>/combine` and bulk) also commits per `replace_img_assets` call, then deletes descendants. Range stems 409. Nested Combine never touches WHOLE. Bulk overlapping stems collapse to the ancestor.
-- `tree_scope` is persisted in `oqb_adminQuestionsFilters.treeScope`.
+- `tree_scope` is persisted in `oqb_adminQuestionsFilters.treeScope`; the Has-archive checkbox as `hasWhole`.
+- The archive icon in the list is a viewer only. Upload / reorder / delete of WHOLE stays in the edit modal's Assets tab on the root; batch asset ops never target WHOLE.
 
 ## Related
 

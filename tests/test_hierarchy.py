@@ -14,6 +14,7 @@ from app.hierarchy import (
     next_part_label,
     group_for_dashboard,
     normalize_part_box_label,
+    paginate_by_root,
     normalize_plan_label,
     parse_qid,
     parse_qno_token,
@@ -376,6 +377,48 @@ class DashboardGroupTests(unittest.TestCase):
             'ECON_DSE_2023_P1_Q5', 'ECON_DSE_2023_P1_Q3'))
         self.assertFalse(token_fits_under(
             'ECON_DSE_2023_P1_Q3', 'ECON_DSE_2023_P1_Q3'))
+
+
+class PaginateByRootTests(unittest.TestCase):
+    """Dashboard pagination counts whole questions; a root never straddles pages."""
+
+    def setUp(self):
+        self.root = _q(id=1, qno=3, qid='ECON_DSE_2023_P1_Q3')
+        self.a = _q(id=2, qno=3, qid='ECON_DSE_2023_P1_Q3a', part='a')
+        self.b = _q(id=3, qno=3, qid='ECON_DSE_2023_P1_Q3b', part='b')
+        self.c = _q(id=4, qno=3, qid='ECON_DSE_2023_P1_Q3c', part='c')
+        _link(self.root, self.a, self.b, self.c)
+        self.q9 = _q(id=9, qno=9, qid='ECON_DSE_2023_P1_Q9')
+        self.q10 = _q(id=10, qno=10, qid='ECON_DSE_2023_P1_Q10')
+
+    def test_root_with_three_parts_is_one_slot(self):
+        items, total, parts = paginate_by_root([self.a, self.b, self.c, self.q9, self.q10], 1, 2)
+        self.assertEqual(total, 3)
+        self.assertEqual(parts, 5)
+        self.assertEqual(items, [self.a, self.b, self.c, self.q9])
+        items2, _, _ = paginate_by_root([self.a, self.b, self.c, self.q9, self.q10], 2, 2)
+        self.assertEqual(items2, [self.q10])
+
+    def test_part_only_match_counts_as_one_question(self):
+        items, total, parts = paginate_by_root([self.b, self.q9], 1, 20)
+        self.assertEqual((total, parts), (2, 2))
+        self.assertEqual(items, [self.b, self.q9])
+
+    def test_interleaved_parts_snap_together(self):
+        items, total, _ = paginate_by_root([self.a, self.q9, self.b], 1, 20)
+        self.assertEqual(total, 2)
+        self.assertEqual(items, [self.a, self.b, self.q9])
+        self.assertEqual(len(group_for_dashboard(items)), 2)
+
+    def test_explicit_stem_row_shares_bucket_and_leads(self):
+        items, total, parts = paginate_by_root([self.a, self.root, self.q9], 1, 20)
+        self.assertEqual((total, parts), (2, 2))
+        self.assertEqual(items, [self.root, self.a, self.q9])
+
+    def test_out_of_range_page_is_empty(self):
+        items, total, _ = paginate_by_root([self.q9], 3, 20)
+        self.assertEqual(total, 1)
+        self.assertEqual(items, [])
 
 
 class FilenameGrammarTests(unittest.TestCase):

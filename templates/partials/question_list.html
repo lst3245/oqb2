@@ -10,7 +10,7 @@
                 <input class="form-check-input" type="checkbox" id="selectAll" 
                        onchange="toggleSelectAll(this, true)">
                 <label class="form-check-label" for="selectAll">
-                    <strong>Select All ({{ all_question_ids|length }} questions)</strong>
+                    <strong>Select All ({{ total }} question{{ 's' if total != 1 else '' }}{% if total_parts is defined and total_parts != total %}, {{ total_parts }} parts{% endif %})</strong>
                 </label>
             </div>
             <div class="form-check">
@@ -22,7 +22,7 @@
             </div>
         </div>
         <div>
-            <span class="text-muted">{{ total }} total</span>
+            <span class="text-muted" title="Whole questions; a split question counts once">{{ total }} question{{ 's' if total != 1 else '' }}{% if total_parts is defined and total_parts != total %} · {{ total_parts }} parts{% endif %}</span>
         </div>
     </div>
 
@@ -302,8 +302,8 @@
                            onchange="updateSelection(this)" title="Select this part only">
                 </div>
                 <div class="col-3 col-md-2">
-                    <div class="part-label">({{ question.part_label or question.part }})</div>
-                    <div class="small text-muted text-truncate" title="{{ question.qid }}">{{ question.qid }}</div>
+                    {# Full QID lives on the group header; the part shows only its label (QID kept as tooltip). #}
+                    <div class="part-label" title="{{ question.qid }}">({{ question.part_label or question.part }})</div>
                     {% if question.needs_prev_parts %}
                     <span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background"><i class="bi bi-link-45deg"></i> uses earlier parts</span>
                     {% endif %}
@@ -340,9 +340,8 @@
                            title="Select / deselect all sub-parts of ({{ sub.part_label or sub.part }})">
                 </div>
                 <div class="col-3 col-md-2">
-                    <div class="part-label">({{ sub.part_label or sub.part }})</div>
+                    <div class="part-label" title="{{ sub.qid }}">({{ sub.part_label or sub.part }})</div>
                     <div class="small text-muted">shared intro · {{ sub.child_count }} sub-part{{ 's' if sub.child_count != 1 else '' }}</div>
-                    <div class="small text-muted text-truncate" title="{{ sub.qid }}">{{ sub.qid }}</div>
                 </div>
                 <div class="col-9 col-md">
                     {% if sub.has_que %}
@@ -399,19 +398,36 @@
                         <small class="text-muted">
                             {{ stem.source }}{% if stem.year %} {{ stem.year }}{% endif %}{% if stem.paper %} {{ stem.paper }}{% endif %}{% if stem.section %} Sec {{ stem.section }}{% endif %}
                         </small>
-                        <small class="text-muted ms-md-auto"><i class="bi bi-info-circle"></i> Tick here to select every part, or tick parts individually below</small>
                     </div>
                     <div class="row g-2">
                         <div class="col-md-9">
+                            <div class="stem-shared-preview">
                             {% if stem.has_que %}
-                            <div class="small text-muted mb-1">Shared background (shown once; every part below builds on it)</div>
                             {{ que_preview(stem, '220px') }}
                             {% else %}
                             <span class="text-muted small fst-italic">No shared background text.</span>
                             {% endif %}
+                            </div>
+                            {% if stem.has_whole %}
+                            <div class="stem-whole-preview d-none">
+                                <div class="small text-muted mb-1"><i class="bi bi-archive"></i> Whole question archive (unsplit original; not used in papers or Present). Click an image to enlarge.</div>
+                                {% for asset_id in stem.whole_asset_ids %}
+                                <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
+                                     class="question-image" alt="Whole question archive"
+                                     style="display:block; margin-bottom:2px; max-height:420px; cursor:zoom-in;"
+                                     loading="lazy"
+                                     onclick="event.stopPropagation(); _explainShowImageOverlay(this.src, {{ (stem.qid ~ ' · whole question archive')|tojson }});">
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                         <div class="col-md-3">
                             <div class="d-flex flex-wrap gap-1 oqb-compact-actions justify-content-md-end">
+                                {% if stem.has_whole %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-whole-toggle" title="Show the archived whole question image instead of the shared background"
+                                        aria-pressed="false"
+                                        onclick="event.stopPropagation(); toggleStemWhole(this);"><i class="bi bi-archive"></i> Whole</button>
+                                {% endif %}
                                 {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
                                 <button type="button" class="btn btn-sm btn-outline-dark" title="Explain the whole question (background + every part)"
                                         onclick='openExplainModal({{ stem.id }}, {{ stem.qid|tojson }}, {{ {"QUE": stem.has_que, "ANS": stem.has_ans, "SOL": stem.has_sol}|tojson }})'><i class="bi bi-stars"></i> Explain</button>

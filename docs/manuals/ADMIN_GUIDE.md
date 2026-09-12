@@ -202,7 +202,7 @@ Questions can be linked to both a topic AND a chapter — they serve different f
 ### Question List (`/admin/questions`)
 Full-featured list with the same filters as the dashboard. Useful for finding untagged questions or performing bulk operations.
 
-Use the **Tree** filter to show **All**, **Roots only**, or **Leaves only**. The **Part** column shows `(a)` / `(i)` indented under a stem, or `stem` for a shared-background row.
+Use the **Tree** filter to show **All**, **Roots only**, or **Leaves only**. The **Part** column shows `(a)` / `(i)` indented under a stem, or `stem` for a shared-background row. A small archive icon next to the asset count marks a root that keeps a **whole-question archive** (the unsplit original stored when a question is imported or split into parts); click it for a quick full-size preview, and tick **Has archive** to list only those roots. Upload, reorder or delete the archive from Edit → Assets on that root.
 
 The **Status** filter can be narrowed with **Advanced** options: choose versions (`EN/CH/BI/ENO/CHO`), asset types (`QUE/ANS/SOL`), and formats (`IMG/MD/DOCX`) to combine with **Has issues**, **All checked OK**, or **Has unchecked**. Reset returns to the default EN/CH/BI all-type/all-format status scope.
 
@@ -275,7 +275,7 @@ In Edit → Details → Hierarchy, a lettered part has a **Depends on earlier pa
 
 ### Asset Management
 Edit → Assets tab:
-- **Upload**: select file, choose type (QUE/ANS/SOL), version (EN/CH/BI/ENO/CHO), and part number. The Assets tab has one tab per version. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`). On a **root** question there is also a **Whole question archive** strip (images only): the unsplit original, not used in papers until you Combine. Upload one if the question was split before archives existed.
+- **Upload**: select file, choose type (QUE/ANS/SOL), version (EN/CH/BI/ENO/CHO), and part number. The Assets tab has one tab per version. Supported formats: images (`.png`/`.jpg`/`.gif`/`.bmp`), Word (`.doc`/`.docx`), and **Markdown** (`.md`/`.markdown`). On a **root** question there is also a **Whole question archive** strip (images only): the unsplit original, not used in papers until you Combine. Upload one if the question was split before archives existed. This strip is the only place to manage the archive; teachers can view it from the dashboard group header (**Whole** button), in Present (**Whole** chip) and from the archive icon in Question Management.
 - **Delete**: removes from DB and disk
 - **Reorder**: drag to change part_number order (for multi-image questions)
 

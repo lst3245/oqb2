@@ -1793,6 +1793,13 @@ function applyShowSelectedOnly() {
     showFilterActiveNotice(isEnabled);
 }
 
+// Selectable leaf cards on this page (parts + standalone questions). Stem
+// headers and intermediate-stem rows are aggregates, not selection entries,
+// so they are excluded to stay comparable with selectedQuestions.size.
+function countLeafCardsOnPage() {
+    return document.querySelectorAll('.question-card:not([data-stem])').length;
+}
+
 // Update the visible count display when filtering
 function updateVisibleCountDisplay() {
     const showSelectedToggle = document.getElementById('showSelectedOnly');
@@ -1800,7 +1807,7 @@ function updateVisibleCountDisplay() {
 
     if (isEnabled) {
         // Cards on this page (post server-filter) — paginated subset of the selection.
-        const onPage = document.querySelectorAll('.question-card').length;
+        const onPage = countLeafCardsOnPage();
         const counter = document.getElementById('selectionCounter');
         if (counter) {
             counter.textContent = `${selectedQuestions.size} selected (page shows ${onPage})`;
@@ -1824,7 +1831,7 @@ function showFilterActiveNotice(isEnabled) {
     }
     
     if (isEnabled) {
-        const onPage = document.querySelectorAll('.question-card').length;
+        const onPage = countLeafCardsOnPage();
         const total = selectedQuestions.size;
 
         const notice = document.createElement('div');
@@ -2288,6 +2295,22 @@ function toggleStemGroup(btn) {
         icon.classList.toggle('bi-chevron-right', hidden);
     }
     btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+}
+
+// Group header "Whole" button: swap the shared-background preview for the
+// root's WHOLE archive image (view only; papers / Present never use it).
+function toggleStemWhole(btn) {
+    const header = btn.closest('.stem-header-card');
+    if (!header) return;
+    const shared = header.querySelector('.stem-shared-preview');
+    const whole = header.querySelector('.stem-whole-preview');
+    if (!shared || !whole) return;
+    const showWhole = whole.classList.contains('d-none');
+    whole.classList.toggle('d-none', !showWhole);
+    shared.classList.toggle('d-none', showWhole);
+    btn.classList.toggle('active', showWhole);
+    btn.setAttribute('aria-pressed', showWhole ? 'true' : 'false');
+    btn.title = showWhole ? 'Back to the shared background' : 'Show the archived whole question image instead of the shared background';
 }
 
 // Toggle question selection when clicking on the card

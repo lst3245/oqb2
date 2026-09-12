@@ -109,13 +109,21 @@ def _plan_document_entries(questions, hierarchy_mode, seq_start, show_seq_no):
     entries = []
     for item in plan:
         if item.role == 'stem':
+            # A stem belongs to the heading group of its root so the single
+            # "N. QID" line can sit on the shared background when it has one.
+            r = hier_root(item.question)
             entries.append({
                 'question': item.question,
                 'role': 'stem',
                 'seq_no': None,
+                'owner': getattr(r, 'id', None) if getattr(r, 'id', None) is not None else id(r),
             })
             continue
         owner = item.seq_owner_id
+        if owner is None:
+            # Unsaved / fixture objects without a primary key: fall back to
+            # object identity so distinct questions never share one seq.
+            owner = id(item.question)
         if owner not in seq_map:
             seq_map[owner] = next_seq
             next_seq += 1
@@ -123,8 +131,39 @@ def _plan_document_entries(questions, hierarchy_mode, seq_start, show_seq_no):
             'question': item.question,
             'role': 'leaf',
             'seq_no': seq_map[owner] if show_seq_no else None,
+            'owner': owner,
         })
+    # Group number visible to every member (stems included) once all leaves
+    # have been numbered. Range preambles (Q23-24) own no seq: their MC leaves
+    # number themselves, so the stem keeps a QID-only heading.
+    for e in entries:
+        e['group_seq'] = seq_map.get(e['owner']) if show_seq_no else None
     return entries
+
+
+def _assign_headings(entries):
+    """Return copies of *entries* flagged so each heading group prints one ID line.
+
+    The first entry of every ``owner`` group (normally the stem; the first
+    part when the stem has no QUE) gets ``heading_qid=True`` and
+    ``heading_seq=group_seq``; every later member (parts, nested stems such as
+    Q1c, earlier parts pulled in by ``needs_prev_parts``) gets neither, since
+    the crop already shows its own part letter. Part-less leaves own their own
+    seq and therefore keep one heading each. Pure; safe on any entry list
+    (QUE pass, answers section) independently.
+    """
+    seen = set()
+    out = []
+    for e in entries:
+        owner = e.get('owner')
+        first = owner not in seen
+        seen.add(owner)
+        out.append({
+            **e,
+            'heading_qid': first,
+            'heading_seq': e.get('group_seq') if first else None,
+        })
+    return out
 
 
 def _stem_que_spacing(spacing_config):
@@ -361,6 +400,12 @@ def viewer():
             stem_has_que = QuestionAsset.query.filter_by(
                 question_id=stem.id, asset_type='QUE'
             ).first() is not None
+        # Root-only WHOLE archive: offered as an optional "Whole question"
+        # view in Present (never a slide, never used by the .docx).
+        whole_root_id = None
+        if stem is not None and QuestionAsset.query.filter_by(
+                question_id=stem.id, asset_type='WHOLE', file_format='IMG').first() is not None:
+            whole_root_id = stem.id
         # Full background for this slide: every `stem`-role item that
         # resolve_render_plan would print before the leaf on its own (root
         # stem, nested stems such as Q1c, earlier parts when
@@ -393,6 +438,7 @@ def viewer():
             'stem_qid': stem.qid if stem is not None else None,
             'stem_id': stem.id if stem is not None else None,
             'stem_has_que': stem_has_que,
+            'whole_root_id': whole_root_id,
             'context': context,
             'breadcrumb': crumbs,
             'has_que': len(que_assets) > 0,
@@ -418,6 +464,11 @@ def get_viewer_asset(question_id, asset_type):
     The legacy `?lang=EN` param is still honoured as a fallback preferred
     version when no explicit priority list is supplied.
     """
+    # WHOLE is allowed here only for the Present "Whole question" view; it is
+    # read by asset id, never planned into slides or papers.
+    if asset_type not in ('QUE', 'ANS', 'SOL', 'WHOLE'):
+        return jsonify({'error': 'Invalid asset_type'}), 400
+
     version_priority = parse_version_priority(
         request.args.get('version_priority'),
         legacy_preferred=request.args.get('lang'),
@@ -1827,11 +1878,19 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     prev_section_key = None
 
     entries = _plan_document_entries(questions, hierarchy_mode, seq_start, show_seq_no)
-    que_entries = [
+    # One "N. QID" heading per whole question: the first QUE-bearing member of
+    # each group carries it (stem, or first part when the stem has no QUE);
+    # later parts print without a heading. The answers section is flagged
+    # separately over its own (leaf-only) list.
+    que_entries = _assign_headings([
         e for e in entries
         if not (e['role'] == 'stem' and not _question_has_content(e['question'], 'QUE'))
-    ]
-    leaf_entries = [e for e in entries if e['role'] == 'leaf']
+    ])
+    leaf_entries = _assign_headings([e for e in entries if e['role'] == 'leaf'])
+    ans_heading_by_q = {
+        id(e['question']): (e['heading_qid'], e['heading_seq'])
+        for e in leaf_entries
+    }
     stem_spacing = _stem_que_spacing(spacing_config)
     emitted_ans = set()
     emitted_sol = set()
@@ -1841,11 +1900,13 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
         nonlocal last_had_page_break, prev_section_key
         for i, entry in enumerate(que_entries):
             question = entry['question']
+            entry_show_qid = show_qid and entry['heading_qid']
+            entry_seq = entry['heading_seq']
             if entry['role'] == 'stem':
                 add_before_spacing(doc, stem_spacing, last_had_page_break, i == 0)
                 add_question_content_to_doc(
-                    doc, question, 'QUE', show_qid, source_path, version_priority,
-                    show_correct_pct, seq_no=None, info_fields={},
+                    doc, question, 'QUE', entry_show_qid, source_path, version_priority,
+                    show_correct_pct, seq_no=entry_seq, info_fields={},
                     keep_together=keep_together, denote_cross_topic=False,
                     format_priority=format_priority, doc_insertions=doc_insertions,
                 )
@@ -1859,25 +1920,25 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 )
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             add_question_content_to_doc(
-                doc, question, 'QUE', show_qid, source_path, version_priority,
-                show_correct_pct, seq_no=entry['seq_no'], info_fields=info_fields,
+                doc, question, 'QUE', entry_show_qid, source_path, version_priority,
+                show_correct_pct, seq_no=entry_seq, info_fields=info_fields,
                 keep_together=keep_together, denote_cross_topic=denote_cross_topic,
                 format_priority=format_priority, doc_insertions=doc_insertions,
             )
             if with_inline_answer == 'ANS':
                 source = _pick_asset_source(question, 'ANS', emitted_ans)
                 add_question_content_to_doc(
-                    doc, source, 'ANS', show_qid_answer, source_path,
+                    doc, source, 'ANS', show_qid_answer and entry['heading_qid'], source_path,
                     version_priority, show_correct_pct, answer_preference,
-                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    seq_no=entry_seq, keep_together=keep_together,
                     format_priority=format_priority, doc_insertions=doc_insertions,
                 )
             elif with_inline_answer == 'SOL':
                 source = _pick_asset_source(question, 'SOL', emitted_sol)
                 add_question_content_to_doc(
-                    doc, source, 'SOL', show_qid_answer, source_path,
+                    doc, source, 'SOL', show_qid_answer and entry['heading_qid'], source_path,
                     version_priority, show_correct_pct,
-                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    seq_no=entry_seq, keep_together=keep_together,
                     format_priority=format_priority, doc_insertions=doc_insertions,
                 )
             last_had_page_break = add_after_spacing(doc, spacing)
@@ -1933,8 +1994,11 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 q_type = (question.q_type or '').strip().upper()
                 # In compact mode the Question-ID answer heading is ignored for
                 # every MC item, including an invalid key rendered normally.
-                answer_show_qid = show_qid_answer and q_type != 'MC'
-                seq_no = segment['seq_no'] if show_seq_no else None
+                # Lettered parts share one heading (first part of the group).
+                head_qid, head_seq = ans_heading_by_q.get(
+                    id(question), (True, segment['seq_no'] if show_seq_no else None))
+                answer_show_qid = show_qid_answer and q_type != 'MC' and head_qid
+                seq_no = head_seq if show_seq_no else None
                 add_question_content_to_doc(
                     doc, source, 'ANS', answer_show_qid, source_path,
                     version_priority, show_correct_pct, answer_preference,
@@ -1952,9 +2016,9 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                 spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
                 add_before_spacing(doc, spacing, last_had_page_break, i == 0)
                 add_question_content_to_doc(
-                    doc, source, 'ANS', show_qid_answer, source_path,
+                    doc, source, 'ANS', show_qid_answer and entry['heading_qid'], source_path,
                     version_priority, show_correct_pct, answer_preference,
-                    seq_no=entry['seq_no'], keep_together=keep_together,
+                    seq_no=entry['heading_seq'], keep_together=keep_together,
                     denote_cross_topic=denote_cross_topic,
                     format_priority=format_priority, doc_insertions=doc_insertions,
                 )
@@ -1974,9 +2038,9 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             add_question_content_to_doc(
-                doc, source, 'SOL', show_qid_answer, source_path,
+                doc, source, 'SOL', show_qid_answer and entry['heading_qid'], source_path,
                 version_priority, show_correct_pct,
-                seq_no=entry['seq_no'], keep_together=keep_together,
+                seq_no=entry['heading_seq'], keep_together=keep_together,
                 denote_cross_topic=denote_cross_topic,
                 format_priority=format_priority, doc_insertions=doc_insertions,
             )

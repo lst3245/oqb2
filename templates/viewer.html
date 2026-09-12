@@ -222,6 +222,12 @@
             background: #e7f1ff;
             border-color: #0d6efd;
         }
+
+        /* Present "Whole question" toggle: only shown when the root keeps a
+           WHOLE archive; `active` = archive currently replacing background + part. */
+        .whole-panel-btn { width: auto; padding: 0 0.5rem; color: #6c757d; font-size: 0.85rem; }
+        .whole-panel-btn.active { background: #6c757d; border-color: #6c757d; color: #fff; }
+        .whole-panel-btn.active:hover { background: #5c636a; }
         
         .zoom-control {
             display: flex;
@@ -1111,6 +1117,11 @@
                     Question
                 </span>
                 <div class="panel-controls">
+                    <button class="markup-panel-btn whole-panel-btn" id="queWholeBtn" onclick="toggleWholeView()"
+                            title="Show the archived whole question image (unsplit original) instead of background + part"
+                            aria-pressed="false">
+                        <i class="bi bi-archive"></i><span class="d-none d-md-inline ms-1">Whole</span>
+                    </button>
                     <button class="markup-panel-btn" id="queMarkupBtn" onclick="openMarkupForPanel('que')" title="Open question image in Markup">
                         <i class="bi bi-pencil-square"></i>
                     </button>
@@ -1140,6 +1151,10 @@
                         Shared background
                     </button>
                     <div id="stemContainer" class="asset-container mb-2"></div>
+                </div>
+                <div id="wholePanel" class="d-none px-3 pt-2">
+                    <div class="text-muted small mb-2"><i class="bi bi-archive"></i> Whole question archive — unsplit original kept for reference. Papers and slides use the background + parts.</div>
+                    <div id="wholeContainer" class="asset-container mb-2"></div>
                 </div>
                 <div class="asset-container" id="queContainer">
                     <div class="loading-spinner">
@@ -1425,6 +1440,7 @@
             loadStemQue(question);
             loadAsset('QUE', question.id);
             loadAnswerAsset(question.id);
+            syncWholeView(question);
             
             // Update text content
             updateTextContent(question);
@@ -1432,6 +1448,64 @@
             updateNavButtons();
         }
         
+        // "Whole question" view: swap background + part for the root's WHOLE
+        // archive (read-only; slides stay leaves). The preference sticks while
+        // navigating between parts of the same root and is dropped when the
+        // next root has no archive.
+        let wholeViewOn = false;
+        let wholeLoadedFor = null;
+
+        function toggleWholeView() {
+            wholeViewOn = !wholeViewOn;
+            syncWholeView(questionsData[currentIndex]);
+        }
+
+        function syncWholeView(question) {
+            const btn = document.getElementById('queWholeBtn');
+            const panel = document.getElementById('wholePanel');
+            const container = document.getElementById('wholeContainer');
+            const stemPanel = document.getElementById('stemPanel');
+            const queContainer = document.getElementById('queContainer');
+            if (!btn || !panel || !container) return;
+            const rootId = question && question.whole_root_id;
+            btn.classList.toggle('available', Boolean(rootId));
+            if (!rootId) {
+                wholeViewOn = false;
+            }
+            const on = Boolean(rootId) && wholeViewOn;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.title = on ? 'Back to background + part'
+                : 'Show the archived whole question image (unsplit original) instead of background + part';
+            panel.classList.toggle('d-none', !on);
+            if (queContainer) queContainer.classList.toggle('d-none', on);
+            if (stemPanel) {
+                // Restore stemPanel visibility from its content when leaving whole view.
+                const hasStem = document.getElementById('stemContainer')?.childElementCount > 0;
+                stemPanel.classList.toggle('d-none', on || !hasStem);
+            }
+            if (!on) return;
+            if (wholeLoadedFor === rootId) { applyZoom('QUE'); return; }
+            wholeLoadedFor = rootId;
+            container.innerHTML = '<div class="text-muted small">Loading…</div>';
+            fetch(`/generate/api/viewer_asset/${rootId}/WHOLE?version_priority=${encodeURIComponent(preferredLanguage)}`)
+                .then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
+                .then(data => {
+                    if (wholeLoadedFor !== rootId) return;
+                    if (data.format === 'IMG') {
+                        const parts = data.parts || [data];
+                        container.innerHTML = parts.map(p =>
+                            `<img src="${p.url}" alt="whole question" onload="applyZoom('QUE')" style="display:block;">`
+                        ).join('');
+                    } else {
+                        container.innerHTML = '<div class="text-muted small">Archive is not an image.</div>';
+                    }
+                })
+                .catch(() => {
+                    if (wholeLoadedFor === rootId) container.innerHTML = '<div class="text-muted small">No archive image found.</div>';
+                });
+        }
+
         function updateNavButtons() {
             const isFirst = currentIndex === 0;
             const isLast = currentIndex === questionsData.length - 1;
@@ -1860,6 +1934,8 @@
             if (type === 'QUE') {
                 const stemContainer = document.getElementById('stemContainer');
                 if (stemContainer) imgs = imgs.concat(Array.from(stemContainer.querySelectorAll('img')));
+                const wholeContainer = document.getElementById('wholeContainer');
+                if (wholeContainer) imgs = imgs.concat(Array.from(wholeContainer.querySelectorAll('img')));
             }
             
             imgs.forEach(img => {

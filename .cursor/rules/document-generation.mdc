@@ -16,7 +16,9 @@ alwaysApply: false
 - Asset pick order for generation: **format priority then version priority** (`format_priority`, `version_priority`, user-reorderable; parse with `parse_version_priority`).
 - Compact MC answer keys: `QUE_THEN_ANS` mode only, use runtime sequential numbers (never `Question.qno`), always Answer Text; `mc_key_include_seq` / `mc_key_range_title` are forced off when `show_seq_no` is off. Compact runs iterate **leaves** after `resolve_render_plan`.
 - Split groups the already-sorted list, so `sort_group_order` propagates; it is honoured only when `sort_mode='custom'` and its `fields` equal the grouping fields of `sort_config`.
-- Stem/part expansion is **only** `hierarchy.resolve_render_plan` (`hierarchy_mode` in `generation_options`, default `selected`). Do not invent a second expansion path. Stems emit QUE only (no seq/info); leaves own seq via `seq_owner_id`; ANS/SOL fall back to the nearest ancestor once per stem run.
+- Stem/part expansion is **only** `hierarchy.resolve_render_plan` (`hierarchy_mode` in `generation_options`, default `selected`). Do not invent a second expansion path. Stems emit QUE only (no info line); leaves own seq via `seq_owner_id`; ANS/SOL fall back to the nearest ancestor once per stem run.
+- **One `N. QID` heading per whole question.** `_assign_headings` flags the first QUE-bearing entry per heading `owner`; pass `entry['heading_qid']` / `entry['heading_seq']` to `add_question_content_to_doc`, never raw `show_qid` / `entry['seq_no']` (those stay for compact MC keys). Flag the answers list separately.
+- `viewer_asset` allow-list is `QUE/ANS/SOL/WHOLE`; WHOLE exists only for the Present `Whole` chip (`whole_root_id`), never for slides or the docx.
 
 ## Authz
 - `/generate/download/<id>` is owner / super-admin only, while `/generate/pdf/<id>` and `/user/files/bulk-download` also accept share recipients (`_user_can_view_file`). Known asymmetry — listed in STATUS; align both if you touch either.

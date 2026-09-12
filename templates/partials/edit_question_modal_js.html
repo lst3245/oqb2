@@ -1477,7 +1477,9 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
         html += `</div>
         </div>`;
     });
-    if (ctx === 'edit' && window.editQuestionData && !window.editQuestionData.parent_id) {
+    // NB: `editQuestionData` is a top-level `let`, so it is NOT reachable as
+    // `window.editQuestionData` (that was silently undefined and hid this strip).
+    if (ctx === 'edit' && editQuestionData && !editQuestionData.parent_id) {
         const wholes = (langAssets.WHOLE || []).filter(p => p.file_format === 'IMG')
             .sort((a, b) => a.part_number - b.part_number);
         html += `<div class="asset-section" id="${ctx}_assetSection_${lang}_WHOLE"
