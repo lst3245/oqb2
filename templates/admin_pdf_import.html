@@ -59,6 +59,23 @@
     .page-card { margin-bottom: 1rem; }
     .page-card .card-header { font-size: 0.9rem; }
     .page-card .frame-badge { font-size: 0.65rem; }
+    /* While a Re-run / Re-split (or full detect/agent) is in flight, every
+       page-card action greys out; the clicked control keeps full opacity so
+       its spinner stays visible. */
+    #reviewBody.job-busy .btn-rerun,
+    #reviewBody.job-busy .btn-resplit-page,
+    #reviewBody.job-busy .btn-add,
+    #reviewBody.job-busy .btn-frame-toggle,
+    #reviewBody.job-busy .split-actions button,
+    #reviewBody.job-busy .page-method,
+    #reviewBody.job-busy .page-endpoint {
+        pointer-events: none;
+        opacity: 0.55;
+    }
+    #reviewBody.job-busy .job-busy-src {
+        pointer-events: none;
+        opacity: 1;
+    }
 </style>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=1">
 {% endblock %}
@@ -880,12 +897,14 @@ function showProgress(label) {
 // ----- Step flow -----
 btnLoadPdf.addEventListener('click', loadPdf);
 btnRunDetect.addEventListener('click', runDetect);
-if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDetect());
+if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDetect({
+    busyBtn: btnSplitDetect, busyLabel: 'Splitting…',
+}));
 if (splitPartsChk) {
     splitPartsChk.addEventListener('change', () => {
         refreshSplitDetectBtn();
         if (shouldAutoSplit() && staging && !running && planRegionCount() > 0) {
-            startSplitDetect();
+            startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: 'Splitting…' });
         }
     });
 }
@@ -1148,12 +1167,47 @@ function showStepsAfterLoad() {
     document.querySelectorAll('input[name="task"]').forEach(el => { el.disabled = true; });
 }
 
+const PAGE_JOB_SELECTORS = '.btn-rerun, .btn-resplit-page, .btn-add, .btn-frame-toggle, .split-actions button, .page-method, .page-endpoint';
+
+function setPageJobSource(el, label) {
+    if (!el) return;
+    if (!el.dataset.idleHtml) el.dataset.idleHtml = el.innerHTML;
+    el.classList.add('job-busy-src');
+    el.disabled = true;
+    el.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ' + label;
+}
+
+function lockPageJobs(sourceEl, label) {
+    if (!reviewBody) return;
+    reviewBody.classList.add('job-busy');
+    setPageJobSource(sourceEl, label);
+    reviewBody.querySelectorAll(PAGE_JOB_SELECTORS).forEach(el => {
+        if (el !== sourceEl) el.disabled = true;
+    });
+}
+
+function unlockPageJobs() {
+    if (!reviewBody) return;
+    reviewBody.classList.remove('job-busy');
+    reviewBody.querySelectorAll('.job-busy-src').forEach(el => {
+        el.classList.remove('job-busy-src');
+        if (el.dataset.idleHtml) {
+            el.innerHTML = el.dataset.idleHtml;
+            delete el.dataset.idleHtml;
+        }
+        el.disabled = false;
+    });
+    reviewBody.querySelectorAll(PAGE_JOB_SELECTORS).forEach(el => { el.disabled = false; });
+}
+
 function setRunning(on, phase) {
     running = on;
     phase = phase || 'idle';
     const lockSetup = on;
     const lockDetect = on && phase === 'detect';
     const lockImport = on && phase === 'import';
+    if (on && (lockDetect || lockImport)) lockPageJobs(null, '');
+    else if (!on) unlockPageJobs();
     [paperInput, quePdf, solPdf, deskewChk,
      document.getElementById('ppRotate'), document.getElementById('ppSplit'),
      document.getElementById('ppMode1PagesPerStudent'),
@@ -1368,7 +1422,7 @@ function finishDetect(opts) {
         appendLog('No regions detected — draw boxes manually or re-run detection.', 'warning');
     }
     if (opts.autoSplit && shouldAutoSplit() && planRegionCount() > 0) {
-        startSplitDetect();
+        startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: 'Splitting…' });
         return;
     }
     setRunning(false);
@@ -1568,6 +1622,12 @@ async function startSplitDetect(opts) {
         alert('Run question detection or draw boxes first.');
         return;
     }
+    // Spinner first — savePlanToServer can take a second and used to look like
+    // the click did nothing. setRunning also greys every other page-card action.
+    lockPageJobs(opts.busyBtn, opts.busyLabel || 'Splitting…');
+    setRunning(true, 'detect');
+    setStatus('Splitting parts', 'bg-success');
+    showProgress('Splitting questions into parts...');
     try {
         await savePlanToServer();
     } catch (err) {
@@ -1575,9 +1635,6 @@ async function startSplitDetect(opts) {
         setRunning(false);
         return;
     }
-    setRunning(true, 'detect');
-    setStatus('Splitting parts', 'bg-success');
-    showProgress('Splitting questions into parts...');
     appendLog('Pass 2: detecting stem and lettered parts...', 'info');
 
     let url = `${IMPORT_BASE}/split-detect?token=${encodeURIComponent(staging.token)}`
@@ -1640,7 +1697,12 @@ function resplitPage(kind, pageIndex) {
     const spanning = roots.filter(L => plan[kind].some(it => it.page !== pageIndex && rootLabelOf(it) === L));
     appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-splitting Q${roots.join(', Q')}`
         + (spanning.length ? ` (Q${spanning.join(', Q')} continue${spanning.length === 1 ? 's' : ''} on other pages and are re-split across all of them).` : '.'), 'info');
-    startSplitDetect({ kind, labels: roots.join(',') });
+    const card = cardFor(kind, pageIndex);
+    startSplitDetect({
+        kind, labels: roots.join(','),
+        busyBtn: card && card.querySelector('.btn-resplit-page'),
+        busyLabel: 'Re-splitting…',
+    });
 }
 
 function parentLabelOf(kind, item) {
@@ -1916,7 +1978,10 @@ function buildSplitActions(kind, item) {
             e.stopPropagation();
             // A stem / whole-question box re-splits itself: for a nested stem
             // (4d) the server only replaces 4d and its descendants.
-            startSplitDetect({ kind, labels: examLabel(item) || parentLabelOf(kind, item) });
+            startSplitDetect({
+                kind, labels: examLabel(item) || parentLabelOf(kind, item),
+                busyBtn: reBtn, busyLabel: 'Re-splitting…',
+            });
         });
         actions.appendChild(reBtn);
     }
@@ -2263,8 +2328,8 @@ async function rerunPage(card, kind, pageIndex) {
     const btn = card.querySelector('.btn-rerun');
     const pageMethod = (card.querySelector('.page-method') || {}).value || (staging.method || DEFAULT_METHOD);
     const pageEndpoint = (card.querySelector('.page-endpoint') || {}).value || endpointSelect.value;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Re-running';
+    lockPageJobs(btn, 'Re-running…');
+    setPageStatus(card, 'pending');
     try {
         const body = { token: staging.token, kind, index: pageIndex,
                        endpoint_id: pageEndpoint, method: pageMethod,
@@ -2317,9 +2382,9 @@ async function rerunPage(card, kind, pageIndex) {
         }
     } catch (err) {
         appendLog('Re-run failed: ' + err.message, 'error');
+        setPageStatus(card, 'done');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-run';
+        unlockPageJobs();
     }
 }
 

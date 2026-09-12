@@ -207,6 +207,31 @@ DB-backed tunables in `app/settings.py` (group "PDF Import" unless noted); see [
 - Server picks are sandboxed through `RootRegistry` (per-user roots) or `storage.safe_join` under `PDF_SOURCE_PATH`.
 - See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
+## How LLM work is scheduled
+
+Time is almost entirely **vision-LLM round trips**. Frame detect / snap / stitch are CPU milliseconds and are not why a run feels slow.
+
+| Action | Vision calls (happy path) | What each call sees |
+|---|---|---|
+| **Load PDF** | 0 | Raster + optional deskew + `detect_page_frame` per page (NumPy). |
+| **Run LLM detection** | 1 per staged page (QUE and SOL each count) | The full page PNG, downscaled to `LLM_IMAGE_MAX_DIM`. |
+| **Detect / Re-split parts** | 1 per *page-crop of each parent question* | A tight crop of that question (or its continuation page), not the whole page. A 2-page Q5 = 2 calls. |
+| **Re-run** (one page) | 1 | That page only. |
+| **AI agent** | Outline + locate + split + verify (see below) | Mix of thumbnails, full pages, crops, and overlay-check images. |
+
+**Pass 1 (`iter_detect` / Re-run).** Sequential on a local endpoint; cloud endpoints can fan out when Parallel is ticked (`kind==cloud` and `max_concurrency>1`). `_call_with_llm_retry` retries the same page once on `LLMError` (a flaky local model can double a page). After all pages: stitch continuations, then `apply_frame_snap` (rewrites x only; no extra model call).
+
+**Pass 2 (`iter_split_detect`).** For each parent, `_split_one_group` writes a temp crop per page of that question and calls `detect_parts`. Children inherit the parent's x (`full_width_child_box`). Then stitch + frame snap. **Re-split page** still re-splits every *root* that touches the page, including its other pages, so a continuation is not cut in isolation.
+
+**AI agent (`iter_agent`, ADR-010).** Always more calls than the two-pass wizard:
+
+1. **Outline** — batches of `PDF_AGENT_OUTLINE_BATCH_PAGES` (default 6) page thumbnails (`PDF_AGENT_THUMB_MAX_DIM`). A 12-page paper ≈ 2 outline calls per side. Invalid JSON retries once.
+2. **Locate** — `iter_detect` with `expected_by_page` from the outline; skips pages the outline marked empty. Missing questions get a second `detect_single_page`.
+3. **Split** — same `iter_split_detect` as the wizard, with expected part labels from the outline.
+4. **Verify** — up to `PDF_AGENT_MAX_REPAIR_ROUNDS` (default 2) visual checks *per question per page it occupies*. A failed check can trigger another full pass-2 of that question. Hard cap `PDF_AGENT_MAX_LLM_CALLS` (default 150).
+
+A typical ICT P1B (12 QUE pages, 5 multi-part questions, no SOL) is roughly: wizard detect 12 + split ~12–20; agent outline 2 + locate 12 + split ~12–20 + verify 5×1–2 pages × up to 2 rounds. Frame snap does not add calls.
+
 ## Background work / SSE / threads
 
 - `detect`, `split-detect` and `commit` are GET SSE streams (EventSource) run inside a pushed `app.app_context()` with `Cache-Control: no-cache`, `X-Accel-Buffering: no`. The dev server must run threaded.
