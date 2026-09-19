@@ -420,6 +420,21 @@ class PaginateByRootTests(unittest.TestCase):
         self.assertEqual(total, 1)
         self.assertEqual(items, [])
 
+    def test_range_stem_counts_each_leaf_as_a_question(self):
+        pre = _q(id=20, qno=16, qno_end=17, qid='ECON_DSE_2012_P1_Q16-17')
+        q16 = _q(id=16, qno=16, qid='ECON_DSE_2012_P1_Q16')
+        q17 = _q(id=17, qno=17, qid='ECON_DSE_2012_P1_Q17')
+        _link(pre, q16, q17)
+        items, total, rows = paginate_by_root([q16, q17, self.q9], 1, 20)
+        self.assertEqual((total, rows), (3, 3))
+        self.assertEqual(items, [q16, q17, self.q9])
+        # Weight 2 + 1 standalone does not fit per_page=2: range stays together.
+        page1, total2, _ = paginate_by_root([q16, q17, self.q9], 1, 2)
+        self.assertEqual(total2, 3)
+        self.assertEqual(page1, [q16, q17])
+        page2, _, _ = paginate_by_root([q16, q17, self.q9], 2, 2)
+        self.assertEqual(page2, [self.q9])
+
 
 class FilenameGrammarTests(unittest.TestCase):
     def test_legacy_and_new_tokens_parse(self):

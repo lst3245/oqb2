@@ -775,19 +775,39 @@ def group_for_dashboard(sorted_questions) -> list[dict]:
     return groups
 
 
+def _bucket_question_weight(stem, rows) -> int:
+    """How many *questions* a dashboard bucket represents.
+
+    A lettered-part tree (Q5 / Q5a / Q5b) is one question. A range stem
+    (Q16-17: shared MC data, independent paper numbers) is one question per
+    matched leaf. A standalone is one. An explicit stem-only row (ids/qids
+    override, no leaves on this result) still counts as one so the header
+    occupies a slot.
+    """
+    node = stem
+    if node is None and rows:
+        node = root(rows[0])
+    if node is not None and getattr(node, 'qno_end', None):
+        return max(len(rows), 1)
+    return 1
+
+
 def paginate_by_root(sorted_questions, page: int, per_page: int) -> tuple[list, int, int]:
     """Slice a sorted result list by *whole question* instead of by row.
 
-    Every row is bucketed under its root id (first-seen order along the sort),
-    so a multi-part question occupies exactly one page slot and all of its
-    matched parts land on the same page, contiguous, in their sorted order.
-    An explicit stem row (present only on ``ids`` / ``qids`` overrides) shares
-    the bucket of its leaves and is placed first in it.
+    Every row is bucketed under its root id (first-seen order along the sort).
+    A lettered-part question occupies one slot; a range stem occupies one slot
+    per matched leaf (Q16 and Q17 are two questions that stay on the same
+    page). Matched rows of a root are always contiguous and never split across
+    pages. An explicit stem row (``ids`` / ``qids`` overrides) shares the
+    bucket of its leaves and is placed first in it.
 
-    Returns ``(page_items, total_roots, total_rows)`` where ``total_rows`` is
-    the number of non-stem rows (parts / standalones). ``page`` is 1-based;
-    ``per_page`` counts roots. Sorts that interleave a root's parts (e.g. by
-    topic) snap the parts together at the first sibling's position.
+    Returns ``(page_items, total_questions, total_rows)`` where ``total_rows``
+    is the number of non-stem rows (parts / standalones / range leaves).
+    ``page`` is 1-based; ``per_page`` is a question-weight budget. A bucket
+    that does not fit the remaining budget starts the next page (a single
+    overweight bucket still gets a page of its own). Topic sorts that
+    interleave a root's parts snap them together at the first sibling.
     """
     per_page = max(1, int(per_page or 1))
     page = max(1, int(page or 1))
@@ -804,16 +824,33 @@ def paginate_by_root(sorted_questions, page: int, per_page: int) -> tuple[list, 
             b['stem'] = q
         else:
             b['rows'].append(q)
-    total_roots = len(order)
-    start = (page - 1) * per_page
+
+    pages: list[list] = []
+    current: list = []
+    current_w = 0
+    total_questions = 0
+    for rid in order:
+        w = _bucket_question_weight(buckets[rid]['stem'], buckets[rid]['rows'])
+        total_questions += w
+        if current and current_w + w > per_page:
+            pages.append(current)
+            current = [rid]
+            current_w = w
+        else:
+            current.append(rid)
+            current_w += w
+    if current:
+        pages.append(current)
+
+    page_rids = pages[page - 1] if 1 <= page <= len(pages) else []
     page_items: list = []
-    for rid in order[start:start + per_page]:
+    for rid in page_rids:
         b = buckets[rid]
         if b['stem'] is not None:
             page_items.append(b['stem'])
         page_items.extend(b['rows'])
     total_rows = sum(len(b['rows']) for b in buckets.values())
-    return page_items, total_roots, total_rows
+    return page_items, total_questions, total_rows
 
 
 def token_fits_under(child_qid: str, parent_qid: str) -> bool:

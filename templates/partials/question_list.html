@@ -302,8 +302,11 @@
                            onchange="updateSelection(this)" title="Select this part only">
                 </div>
                 <div class="col-3 col-md-2">
-                    {# Full QID lives on the group header; the part shows only its label (QID kept as tooltip). #}
-                    <div class="part-label" title="{{ question.qid }}">({{ question.part_label or question.part }})</div>
+                    {# Lettered parts only. Range-stem leaves (Q16 under Q16-17) have no part — never print (None). #}
+                    {% set part_letter = question.part_label or question.part %}
+                    {% if part_letter %}
+                    <div class="part-label" title="{{ question.qid }}">({{ part_letter }})</div>
+                    {% endif %}
                     {% if question.needs_prev_parts %}
                     <span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background"><i class="bi bi-link-45deg"></i> uses earlier parts</span>
                     {% endif %}
@@ -340,7 +343,10 @@
                            title="Select / deselect all sub-parts of ({{ sub.part_label or sub.part }})">
                 </div>
                 <div class="col-3 col-md-2">
-                    <div class="part-label" title="{{ sub.qid }}">({{ sub.part_label or sub.part }})</div>
+                    {% set sub_letter = sub.part_label or sub.part %}
+                    {% if sub_letter %}
+                    <div class="part-label" title="{{ sub.qid }}">({{ sub_letter }})</div>
+                    {% endif %}
                     <div class="small text-muted">shared intro · {{ sub.child_count }} sub-part{{ 's' if sub.child_count != 1 else '' }}</div>
                 </div>
                 <div class="col-9 col-md">
@@ -384,7 +390,7 @@
                     <input class="form-check-input stem-checkbox" type="checkbox"
                            name="stem_checkbox" value="{{ stem.id }}"
                            onchange="updateSelection(this)"
-                           title="Select / deselect every part of this question">
+                           title="{% if stem.qno_end %}Select / deselect every question that shares this data{% else %}Select / deselect every part of this question{% endif %}">
                 </div>
                 <div class="col">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
@@ -394,7 +400,11 @@
                             <i class="bi bi-chevron-down"></i>
                         </button>
                         <h6 class="mb-0">{{ stem.qid }}</h6>
+                        {% if stem.qno_end %}
+                        <span class="badge bg-secondary">{{ stem.child_count }} question{{ 's' if stem.child_count != 1 else '' }} share this data</span>
+                        {% else %}
                         <span class="badge bg-secondary">{{ stem.child_count }} part{{ 's' if stem.child_count != 1 else '' }}</span>
+                        {% endif %}
                         <small class="text-muted">
                             {{ stem.source }}{% if stem.year %} {{ stem.year }}{% endif %}{% if stem.paper %} {{ stem.paper }}{% endif %}{% if stem.section %} Sec {{ stem.section }}{% endif %}
                         </small>
