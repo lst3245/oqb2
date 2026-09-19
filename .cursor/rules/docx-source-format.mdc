@@ -11,7 +11,7 @@ alwaysApply: false
 - `word_com.IS_AVAILABLE` is the single capability gate; never import `win32com` / `pywin32` outside `app/word_com.py`; never "fix" the import for Linux.
 - Merge = `Selection.InsertFile` of a `sanitize_docx_for_insertion` copy (strips `<w:sectPr>`); the master document's layout always wins. Never docxcompose a DOC.
 - Generation output is always DOCX; PDF is lazy via `GET /generate/pdf/<id>` (cached sibling; 503 when Word unavailable).
-- Thumbnails: `DOC_THUMBNAIL_PATH/<asset_id>.png`, rendered lazily by `ensure_thumbnail` (first page → PDF → PyMuPDF PNG → post-processing). An IMG in the **same** `(question, asset_type, version)` slot eclipses the DOC (no thumbnail needed). Call `doc_thumbnails.on_*` lifecycle hooks **after `commit()`** on every IMG/DOC mutation.
+- Thumbnails: `DOC_THUMBNAIL_PATH/<asset_id>.png`, rendered lazily by `ensure_thumbnail` (`strip_docx_header_footer_refs` → first page PDF → PyMuPDF PNG → `_content_bbox` crop). Inherited PAGE footers must be stripped or the crop pins to A4. An IMG in the **same** `(question, asset_type, version)` slot eclipses the DOC (no thumbnail needed). Call `doc_thumbnails.on_*` lifecycle hooks **after `commit()`** on every IMG/DOC mutation.
 - `_INFLIGHT` is cleared in `finally`; `_RETRY_COOLDOWN_S = 5`; `force_rerender` bypasses the cooldown. Poller: 60 × 3 s. Thumbnail endpoint keeps `Cache-Control: private, no-cache, must-revalidate`.
 - Thumbnail settings (`DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_*`) apply to new renders only → Health → Force Re-render All.
 - `batch_image_gen` (DOC/MD → IMG) uses one `word_session` per run and whole-slot `replace_img_assets`.

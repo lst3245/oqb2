@@ -122,8 +122,8 @@ def _pdf_to_cropped_images(pdf_path: str, width_px: int, transparent: bool,
     short content keeps proportional whitespace. See
     `app/word_com._compute_crop_box` for the full rationale.
     """
-    from PIL import Image, ImageChops, ImageOps
-    from app.word_com import _compute_crop_box
+    from PIL import Image, ImageOps
+    from app.word_com import _compute_crop_box, _content_bbox
     import fitz  # type: ignore
 
     pdf = fitz.open(pdf_path)
@@ -144,9 +144,7 @@ def _pdf_to_cropped_images(pdf_path: str, width_px: int, transparent: bool,
             img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
 
             # --- crop whitespace on every side --------------------------------
-            ref = Image.new('RGB', img.size, (threshold, threshold, threshold))
-            darkness = ImageChops.subtract(ref, ImageChops.darker(img, ref))
-            bbox = darkness.getbbox()
+            bbox = _content_bbox(img, threshold)
             pad = max(0, int(bottom_padding_px))
             if bbox is None:
                 cropped = img.crop((0, 0, min(img.size[0], 400), min(img.size[1], 200)))

@@ -124,6 +124,37 @@ def sanitize_docx_for_insertion(src_path: str, dst_path: str) -> None:
     doc.save(dst_path)
 
 
+_HEADER_REF = f'{{{_W_NS}}}headerReference'
+_FOOTER_REF = f'{{{_W_NS}}}footerReference'
+
+
+def strip_docx_header_footer_refs(src_path: str, dst_path: str) -> None:
+    """
+    Copy `src_path` to `dst_path`, removing every ``headerReference`` and
+    ``footerReference`` from ``<w:sectPr>``. Page size and margins stay.
+
+    Extracted short questions often inherit a PAGE field from the compiled
+    source book. Word then draws a page number at the bottom of an A4
+    sheet, and the thumbnail crop treats that glyph as content — the
+    preview becomes a stamp on a blank page. Stripping the refs (pure
+    Python, no Word) lets the existing whitespace crop tighten to the
+    question body. Used only by thumbnail export, not by merge (merge
+    already drops the whole ``sectPr`` via ``sanitize_docx_for_insertion``).
+    """
+    from docx import Document  # local import — keeps top-level import cheap
+
+    doc = Document(src_path)
+    body = doc.element.body
+    for sp in body.iter(f'{{{_W_NS}}}sectPr'):
+        for child in list(sp):
+            if child.tag in (_HEADER_REF, _FOOTER_REF):
+                sp.remove(child)
+    parent = os.path.dirname(os.path.abspath(dst_path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    doc.save(dst_path)
+
+
 # ---------------------------------------------------------------------------
 # Watchdog: kill WINWORD if a single COM call hangs longer than the timeout.
 # ---------------------------------------------------------------------------
@@ -373,10 +404,12 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
     """
     Render the first page of `docx_path` to `png_path` (PNG).
 
-    Implementation: export the full doc to a temporary PDF via Word, then
-    use PyMuPDF (fitz) to rasterise page 0 to PNG at the requested width.
-    The rendered image is auto-cropped to remove trailing whitespace so a
-    one-paragraph question doesn't get a full A4 page of empty space below.
+    Implementation: strip inherited header/footer refs (PAGE fields),
+    export the full doc to a temporary PDF via Word, then use PyMuPDF
+    (fitz) to rasterise page 0 to PNG at the requested width. The
+    rendered image is auto-cropped to the ink (isolated footer-zone
+    marks are ignored) so a one-paragraph question doesn't get a full
+    A4 page of empty space below.
 
     Tunables (all optional; resolved from `current_app.config` when None):
       * `transparent` (bool, default False)
@@ -414,8 +447,18 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
     )
 
     with tempfile.TemporaryDirectory(prefix='oqb_doc_thumb_') as tmpdir:
+        sanitised = os.path.join(tmpdir, 'src.docx')
+        try:
+            strip_docx_header_footer_refs(docx_path, sanitised)
+            export_src = sanitised
+        except Exception as e:
+            logger.warning(
+                'strip_docx_header_footer_refs failed for %s (%s); using original',
+                docx_path, e,
+            )
+            export_src = docx_path
         tmp_pdf = os.path.join(tmpdir, 'page.pdf')
-        export_to_pdf(word_app, docx_path, tmp_pdf)
+        export_to_pdf(word_app, export_src, tmp_pdf)
 
         if not os.path.exists(tmp_pdf):
             raise RuntimeError(f'Word produced no PDF for {docx_path}')
@@ -530,6 +573,88 @@ def _compute_crop_box(img_size, bbox, pad: int, symmetric_horizontal: bool):
     return (crop_left, crop_top, crop_right, crop_bottom)
 
 
+def _content_bbox(img, threshold: int):
+    """
+    Tight bounding box of non-white pixels, ignoring an isolated
+    page-number island in the footer zone.
+
+    Same darkness mask as the original thumbnail crop (subtract against a
+    flat reference at ``threshold``). A bottom ink run is dropped only
+    when it sits in the last 12% of the page, is at most 80 px / 4% of
+    page height tall, and is separated from the run above by at least
+    120 px / 8% of page height. Full-page questions keep their last
+    content block because it is too tall or too close to the body.
+    """
+    from PIL import Image, ImageChops
+
+    rgb = img.convert('RGB')
+    threshold = max(0, min(255, int(threshold)))
+    ref = Image.new('RGB', rgb.size, (threshold, threshold, threshold))
+    darkness = ImageChops.subtract(ref, ImageChops.darker(rgb, ref))
+    bbox = darkness.getbbox()
+    if bbox is None:
+        return None
+    return _drop_isolated_bottom_mark(darkness, bbox)
+
+
+def _ink_row_runs(darkness):
+    """Half-open ``(y0, y1)`` runs of rows that contain any non-zero pixel."""
+    try:
+        import numpy as np
+        arr = np.asarray(darkness.convert('L'))
+        row_has = (arr > 0).any(axis=1)
+        flags = row_has.tolist()
+    except Exception:
+        gray = darkness.convert('L')
+        w, h = gray.size
+        pix = gray.load()
+        flags = []
+        for y in range(h):
+            ink = False
+            for x in range(w):
+                if pix[x, y]:
+                    ink = True
+                    break
+            flags.append(ink)
+
+    runs = []
+    in_run = False
+    start = 0
+    for i, flag in enumerate(flags):
+        if flag and not in_run:
+            start = i
+            in_run = True
+        elif not flag and in_run:
+            runs.append((start, i))
+            in_run = False
+    if in_run:
+        runs.append((start, len(flags)))
+    return runs
+
+
+def _drop_isolated_bottom_mark(darkness, bbox):
+    """See ``_content_bbox`` — drop a PAGE-number-sized footer-zone island."""
+    _w, h = darkness.size
+    if h < 200:
+        return bbox
+    runs = _ink_row_runs(darkness)
+    if len(runs) < 2:
+        return bbox
+    y0, y1 = runs[-1]
+    run_h = y1 - y0
+    footer_zone = int(h * 0.88)
+    max_run_h = max(80, int(h * 0.04))
+    min_gap = max(120, int(h * 0.08))
+    if y0 < footer_zone or run_h > max_run_h:
+        return bbox
+    prev_y1 = runs[-2][1]
+    if (y0 - prev_y1) < min_gap:
+        return bbox
+    trimmed = darkness.crop((0, 0, darkness.size[0], y0))
+    new_bbox = trimmed.getbbox()
+    return new_bbox if new_bbox else bbox
+
+
 def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
                       whiteness_threshold: int = 250,
                       transparent: bool = False,
@@ -541,8 +666,8 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
     Strategy:
       * Convert the pixmap to a PIL Image.
       * Compute a "content mask" by diffing against a near-white reference
-        image, then use `getbbox()` to find the smallest rectangle that
-        contains all non-white pixels.
+        image (`_content_bbox`). An isolated PAGE-number island in the
+        footer zone is ignored so short questions crop tight.
       * Crop to that bbox plus `bottom_padding_px` of margin on **all four
         sides** (capped to image bounds). Vertical crop is always tight.
       * When `symmetric_horizontal_crop` is True, the horizontal crop on
@@ -559,7 +684,7 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
         caller always gets *some* file on disk.
     """
     try:
-        from PIL import Image, ImageChops, ImageOps
+        from PIL import Image, ImageOps
     except ImportError:
         # Pillow should be present (it's already a dependency) but guard
         # the import so a broken environment still produces a thumbnail.
@@ -570,13 +695,7 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
         img_bytes = pix.tobytes('png')
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
 
-        threshold = max(0, min(255, whiteness_threshold))
-        ref = Image.new('RGB', img.size, (threshold, threshold, threshold))
-        # `darker` = per-pixel min(img, ref). Subtracting from `ref` gives a
-        # "darkness" image where any non-near-white pixel is positive.
-        # bbox() returns the smallest enclosing rectangle of non-zero pixels.
-        darkness = ImageChops.subtract(ref, ImageChops.darker(img, ref))
-        bbox = darkness.getbbox()
+        bbox = _content_bbox(img, whiteness_threshold)
 
         pad = max(0, int(bottom_padding_px))
 

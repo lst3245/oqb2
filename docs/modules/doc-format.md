@@ -6,7 +6,7 @@
 
 | File | Role |
 |---|---|
-| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion`, `_compute_crop_box`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
+| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion`, `strip_docx_header_footer_refs`, `_compute_crop_box`, `_content_bbox`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
 | `app/doc_thumbnails.py` | Thumbnail lifecycle: `thumbnail_path`/`thumbnail_exists`/`delete_thumbnail`, `render_doc_thumbnail_sync`, `schedule_thumbnail`, `ensure_thumbnail` (lazy + cooldown), `force_rerender`, slot hooks `on_doc_asset_created`/`on_img_asset_created`/`on_doc_asset_deleted`/`on_img_asset_deleted`. |
 | `app/generator.py` | DOC branch of `add_question_content_to_doc` (marker paragraphs + `doc_insertions`), `_run_word_postprocess_single`/`_run_word_postprocess_split`, lazy PDF: `_pdf_sibling_filename`, `_build_pdf_from_docx`, `_build_pdf_zip_from_docx_zip`, route `download_pdf`. `get_viewer_asset` attaches `thumbnail_url` for DOC. |
 | `app/batch_image_gen.py` | Batch "Generate IMG from DOC/MD": `render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`; reuses the thumbnail crop/transparency primitives. |
@@ -19,6 +19,7 @@
 | `templates/viewer.html` | `loadAsset`/`loadAnswerAsset` show DOC thumbnails (no rerender button; does not extend `base.html`). |
 | `templates/admin_questions.html` | `#batchImgModal` (Generate IMG) and DOC single-slot upload cards. |
 | `templates/admin_health.html` | "DOC Asset Thumbnails" card: Backfill Missing / Force Re-render All / Delete All. |
+| `tests/test_doc_thumbnails.py` | Pure crop-box / footer-island bbox / `strip_docx_header_footer_refs` (no `create_app()`, no Word). |
 
 ## Tables
 
@@ -82,7 +83,7 @@ Preview path → ensure_thumbnail(asset_id):
 - Files: `<DOC_THUMBNAIL_PATH>/<asset_id>.png`. Keyed by **asset id**, so question renames (which change `file_path`) do not invalidate. Width `DOC_THUMBNAIL_WIDTH` (default 1000 px ≈ A4 at 96 DPI).
 - Slot check `_slot_has_img(question_id, asset_type, version)` mirrors the preview resolver's winner logic: EN-DOC and CH-IMG coexist; only an IMG in the SAME slot suppresses the DOC thumbnail. `render_doc_thumbnail_sync` re-checks and deletes a stale PNG if an IMG now wins.
 - Trigger points: `admin.upload_question_asset` / `delete_question_asset` post-commit, `ingestor.scan_directory_stream` per file (best effort), `ingestor.sync_database` orphan cleanup, and the lazy `ensure_thumbnail` calls in `dashboard.filter_questions`, `dashboard.get_question_preview`, `generator.get_viewer_asset`.
-- Render path: `render_first_page_png` → `export_to_pdf` to a temp PDF → PyMuPDF page 0 at `zoom = width_px / page.rect.width` → `_save_cropped_png`.
+- Render path: `render_first_page_png` → `strip_docx_header_footer_refs` (keeps `pgSz`/`pgMar`, drops inherited PAGE footers) → `export_to_pdf` to a temp PDF → PyMuPDF page 0 at `zoom = width_px / page.rect.width` → `_save_cropped_png`.
 
 ### Scheduler retry-backoff (`doc_thumbnails.py`)
 
@@ -95,7 +96,7 @@ Preview path → ensure_thumbnail(asset_id):
 ### Whitespace cropping + transparency (`_save_cropped_png`)
 
 1. Pixmap → PIL RGB.
-2. Content mask: `ImageChops.subtract(ref, ImageChops.darker(img, ref))` against a flat reference at `THUMBNAIL_WHITENESS_THRESHOLD` (default 250); antialiased grey still counts as content. `getbbox()` = tight content rectangle.
+2. Content mask (`_content_bbox`): `ImageChops.subtract(ref, ImageChops.darker(img, ref))` against a flat reference at `THUMBNAIL_WHITENESS_THRESHOLD` (default 250); antialiased grey still counts as content. An isolated ink run in the last 12% of the page that is ≤80 px / 4% of page tall and separated from the body by ≥120 px / 8% of page (a PAGE-field glyph) is dropped before `getbbox()`. Shared with `batch_image_gen._pdf_to_cropped_images`.
 3. Crop via `_compute_crop_box(img_size, bbox, pad, symmetric_horizontal)`: vertical always tight + `pad` (`THUMBNAIL_BOTTOM_PADDING_PX`, default 24, applied on all four sides); horizontal tight + pad, OR when `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` is on, both sides cropped by `min(left_white, right_white) - pad` so content keeps its proportional position on the A4 page (short centred equations do not blow up ~2.7× at uniform card width). Shared with `batch_image_gen._pdf_to_cropped_images`.
 4. Entirely white page → 400×200 px blank crop so the resolver never loops waiting for "real" content.
 5. `THUMBNAIL_TRANSPARENT` on → RGBA with `alpha = 255 − luminance` (`ImageOps.invert` of the L channel): white → transparent, grey → partial, black → opaque. `optimize=` is skipped for RGBA (slow on large PNGs).
@@ -174,10 +175,11 @@ External dependencies (see `../core/01-runtime-and-ops.md`): Microsoft Word (wit
 9. Import `word_com` at module scope in files that use it (e.g. `app/admin.py`) — endpoint-level `IS_AVAILABLE` guards run before SSE generator closures.
 10. Carry `question_id` AND `asset_id` through the rerender flow (`data-doc-pending-question-id`); the button hides if either is missing.
 11. Sources may carry their own page setup — `sanitize_docx_for_insertion` exists precisely so the master layout wins.
-12. Thumbnail renders are not invalidated by config/code changes; use Force Re-render All after changing width or crop settings.
+12. Thumbnail renders are not invalidated by config/code changes; use Force Re-render All after changing width or crop settings. After a crop-logic fix, delete only the cached PNGs you need to refresh — `ensure_thumbnail` will not rebuild a file that is already on disk.
 13. `WORD_COM_TIMEOUT` is advisory only; a hung Word call is bounded only by other callers' `WORD_COM_LOCK_TIMEOUT` waits and the Quit/taskkill fallback on session exit.
 14. Without psutil the fallback `taskkill` kills every Word instance on the machine.
 15. Generation never produces PDF; anything that reads `output_format == 'PDF'` at create time is dead code kept for compatibility with saved presets (ignored on load).
+16. Extracted DOCX files may inherit a PAGE footer from the compiled source book. Thumbnail export must run `strip_docx_header_footer_refs` before Word; otherwise that glyph pins the whitespace crop to a full A4 page. Do not strip the source files themselves.
 
 ## Related
 
