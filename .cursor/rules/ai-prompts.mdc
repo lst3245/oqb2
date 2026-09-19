@@ -8,7 +8,8 @@ alwaysApply: false
 
 ## Invariants
 - Resolution order: endpoint pin (`PromptEndpointAssignment`, needs a truthy `endpoint_id`) → active variant → registry default. Blank/NULL content or any DB error falls back to the default; `get_prompt` raises only `KeyError` for unknown keys.
-- Format blocks (`*_FORMAT` / `*_JSON_CONTRACT`) are injected by `system_prompt()` **and** re-appended via `append_format()` under `OUTPUT FORMAT (mandatory):`; call sites must pass `config.id` so pins apply.
+- Format blocks (`*_FORMAT` / `*_JSON_CONTRACT`) are injected by `system_prompt()` **and** re-appended via `append_format()` under `OUTPUT FORMAT (mandatory):`; call sites must pass `config.id` so pins apply. `system_prompt_with_body(key, body)` swaps the body but keeps the block — the only sanctioned way to let lower-trust text (subject notes) replace a system prompt.
+- `TAG_USER` declares `{{subject_instructions}}`; `build_tag_user_text` appends the block if a variant dropped the slot. `build_tag_taxonomy` skips hidden nodes and renders `description` hints as `Name — hint`. `parse_tag_result` also returns optional `confidence` / `reasons`.
 - Variables are `{{name}}`, declared per key, substituted in a single pass; single braces are literal (JSON examples). Undeclared kwargs are ignored; missing declared vars stay literal.
 - JSON contracts are coupled to parsers (`parse_check_result`, `parse_tag_result`, `parse_figure_boxes`, `parse_question_boxes`, `parse_generic_boxes`, `parse_question_anchors`, `parse_paper_name`). Custom variants must keep the contract; new parsers reuse `_json_candidates`.
 - Exactly one built-in row per key (never deleted; reset nulls `content`) and exactly one active row per key — enforced by `ensure_seeded()` and the helpers, not by DB constraints. `delete_variant` re-activates the built-in.

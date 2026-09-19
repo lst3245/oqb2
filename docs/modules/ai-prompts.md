@@ -61,7 +61,7 @@ Declaration order = UI order, grouped by `group`. "→F" marks the `format_key` 
 | 2 | `MD_SYSTEM` (system →`MD_FORMAT`), `MD_USER` (user →`MD_FORMAT`; vars `asset_type`, `source_version`), `MD_FORMAT` (format) | Math delimiters, `8\.` numbering, one MC option per line, `[FIGURE: ...]` sentinel |
 | 3 | `SOLVE_GEN_SYSTEM` (system →`SOLVE_GEN_FORMAT`), `SOLVE_GEN_USER` (user →`SOLVE_GEN_FORMAT`; vars `kind`, `target_version`, `asset_type`), `SOLVE_GEN_FORMAT` (format) | ANS / SOL / ANS_TEXT output modes + language + math |
 | 4 | `SOLVE_CHECK_SYSTEM` (system →`SOLVE_CHECK_FORMAT`), `SOLVE_CHECK_USER` (user →`SOLVE_CHECK_FORMAT`; vars `kind`, `target_version`, `asset_type`), `SOLVE_CHECK_FORMAT` (format) | STRICT JSON; reuses `parse_check_result` |
-| 5 | `TAG_SYSTEM` (system →`TAG_FORMAT`), `TAG_USER` (user →`TAG_FORMAT`; vars `subject_name`, `fields`, `taxonomy`), `TAG_FORMAT` (format) | STRICT JSON; parser `parse_tag_result` |
+| 5 | `TAG_SYSTEM` (system →`TAG_FORMAT`), `TAG_USER` (user →`TAG_FORMAT`; vars `subject_name`, `fields`, `taxonomy`, `subject_instructions`), `TAG_FORMAT` (format) | STRICT JSON; parser `parse_tag_result` (also reads optional `confidence{field}` / `reasons{field}`). `subject_instructions` is filled per subject by `ai_tools.build_tag_prompt` (see [subject-ai.md](subject-ai.md)); a subject in `replace` mode swaps the `TAG_SYSTEM` **body** via `system_prompt_with_body` — the format block is still attached |
 | 6 | `EXPLAIN_SYSTEM` (system →`EXPLAIN_FORMAT`), `EXPLAIN_INITIAL_USER` (user →`EXPLAIN_FORMAT`), `EXPLAIN_FORMAT` (format) | Math-delimiter rules; follow-up turns are free text with no prompt |
 | 7 | `FIGURE_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `FIGURE_BOX_SYSTEM` (system; var `json_contract`), `FIGURE_BOX_USER` (user →`FIGURE_BOX_JSON_CONTRACT`; var `box_pairs`) | Parser `parse_figure_boxes` |
 | 8 | `PDF_BOX_JSON_CONTRACT` (format; vars `box_array`, `box_corner`, `box_example`), `PDF_QUE_BOX_SYSTEM` / `PDF_SOL_BOX_SYSTEM` (system; vars `json_contract`, `expected_note`), `PDF_BOX_USER` (user →`PDF_BOX_JSON_CONTRACT`; vars `what`, `box_pairs`, `expected_note`) | Parser `parse_question_boxes` (label may be `5`, `5a`, `23-24`; pass 1 still does not split `(a)(b)(c)`). `expected_note` is empty on plain runs; the agent fills it with the outline's question numbers for the page |
@@ -90,7 +90,7 @@ Helper builders (all accept a trailing `endpoint_id=None` and append the user-tu
 - `build_check_user_text(typed_version, ref_version, asset_type, endpoint_id=None)`
 - `build_md_user_text(source_version, asset_type, endpoint_id=None)`
 - `build_solve_gen_user_text(kind, target_version, endpoint_id=None)`, `build_solve_check_user_text(kind, target_version, endpoint_id=None)`
-- `build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None)` (+ `build_tag_taxonomy(subject_id, fields)`, `parse_tag_result`, `TAG_FIELDS`, `TAG_FIELD_LABELS`)
+- `build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None, subject_instructions='')` (+ `build_tag_taxonomy(subject_id, fields)` — skips hidden nodes, renders `description` hints as `Name — hint`; `format_subject_instructions(note_text, patterns_text)`; `parse_tag_result`, `TAG_FIELDS`, `TAG_FIELD_LABELS`). If the resolved `TAG_USER` lacks `{{subject_instructions}}`, the block is appended before the format contract rather than dropped.
 - `build_explain_initial_user_text(endpoint_id=None)`
 - `build_figure_box_system(coord_order, endpoint_id=None)` / `build_figure_box_user_text(coord_order, endpoint_id=None)`
 - `build_pdf_box_system(asset_type, coord_order, endpoint_id=None)` / `build_pdf_box_user_text(asset_type, coord_order, endpoint_id=None)`
@@ -119,6 +119,7 @@ get_prompt(key, endpoint_id=None):
 render_prompt(key, endpoint_id, **vars) = get_prompt + {{var}} substitution (declared vars only)
 format_block(key, endpoint_id, **vars)  = render_prompt(spec.format_key) or ''
 system_prompt(key, endpoint_id, **vars) = base + "\n\n" + format_block   (when format_key)
+system_prompt_with_body(key, body, endpoint_id, **vars) = body + "\n\n" + format_block   (subject-supplied body; contract kept)
 append_format(key, text, endpoint_id, **vars) = text + "\n\nOUTPUT FORMAT (mandatory):\n" + format_block
 ```
 
@@ -195,10 +196,12 @@ None. Resolution is synchronous with a process-local cache; `_CACHE_LOCK` makes 
 10. A pin wins over the active variant; the active variant wins over the built-in default only when it has non-blank content. A pinned variant with blank content (only possible for the built-in) falls through to the registry default, not to the active variant.
 11. `_load_resolved` needs `endpoint_id` to be truthy for pins to apply — passing `0`/`None` resolves to the active variant.
 12. `as_dict()` synthesises an `id: null` built-in before seeding; the UI must not POST saves against a null id (the data route seeds first, so this only matters for callers that skip `/prompts/data`).
+13. `TAG_USER` variants should keep the `{{subject_instructions}}` slot; without it the subject block is appended after the template body (still before the format contract), which may read less naturally. `TAG_FORMAT`'s `confidence` / `reasons` keys are optional diagnostics — removing them from a variant only loses the report detail, it does not break parsing.
 
 ## Related
 
 - [ai-tools.md](ai-tools.md) — the primary consumer (check / MD / solve / tag prompts), `LLMConfig`, per-feature default endpoints
+- [subject-ai.md](subject-ai.md) — the per-subject layer under `TAG_*` (notes, taxonomy hints, correction patterns)
 - [pdf-import.md](pdf-import.md) — PDF box / anchor / generic / paper-name prompts and the coordinate-order contract
 - [dashboard.md](dashboard.md) — Explain tutor (`EXPLAIN_*`)
 - [md-format.md](md-format.md) — `normalize_inline_math`, KaTeX rendering constraints behind the math delimiter contract

@@ -43,6 +43,7 @@ one or more super admins (users, subjects, settings, everything).
 - **Dashboard Selection is independent of the Filter** ([ADR-008](docs/decisions/ADR-008-selection-independent-of-filter.md)).
 - **Questions form a tree** (`parent_id`) rather than peer links. A part is its own `Question`. Shared grammar and render-plan expansion live in `app/hierarchy.py` ([ADR-009](docs/decisions/ADR-009-question-hierarchy-over-linking.md)).
 - **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)).
+- **Subject admins tune Auto Tag through a prompt layer, never the output contract**: notes / taxonomy hints / aggregated corrections are injected by `ai_tools.build_tag_prompt`; the `TAG_FORMAT` block is always re-attached server-side ([ADR-012](docs/decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md)).
 
 ## Area map
 
@@ -57,6 +58,7 @@ one or more super admins (users, subjects, settings, everything).
 | Question Management + Edit modal + batch ops | `admin_bp` `/admin/questions` | `app/admin.py`, `app/batch_image_gen.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) |
 | AI Tools (proofread, generate MD, solve, auto-tag, LLM endpoints) | `admin_bp` | `app/ai_tools.py`, `app/llm_client.py`, `app/parallel.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) |
 | AI Prompts registry + variants | `admin_bp` `/admin/prompts` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) |
+| Subject AI tuning (per-subject Auto Tag instructions, taxonomy hints, preview, evaluate, correction log) | `subject_ai_bp` `/admin/subjects/<sid>/ai` | `app/subject_ai.py`, `app/subject_ai_service.py` | [modules/subject-ai.md](docs/modules/subject-ai.md) |
 | PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
 | PDF Import AI agent | `admin_bp` `/admin/pdf-import/agent` | `app/pdf_agent.py` | [modules/pdf-agent.md](docs/modules/pdf-agent.md) |
 | Ingestion + Smart Import | `admin_bp` `/admin/import`, `cli.py` | `app/ingestor.py`, `app/smart_import.py` | [modules/ingestion.md](docs/modules/ingestion.md) |
@@ -83,6 +85,7 @@ one or more super admins (users, subjects, settings, everything).
 | [009](docs/decisions/ADR-009-question-hierarchy-over-linking.md) | Stem/parts are a `Question` tree (`parent_id`), not peer links; QNO token `Q5` / `Q5a` / `Q23-24` |
 | [010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md) | PDF import agent is a fixed state machine over pass 1/2 with strict-JSON LLM steps and an attention list; roles derived from labels; sibling dependency is a per-part flag |
 | [011](docs/decisions/ADR-011-page-frame-crop-anchor.md) | Printed page frame is the crop x-anchor (stage-time detect + per-paper consolidate + snap + vertical-only trim / width normalise); uniform width is legacy |
+| [012](docs/decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md) | Per-subject Auto Tag tuning is a prompt layer under the registry (notes, taxonomy hints, aggregated teacher corrections, evaluate loop), not model fine-tuning; the JSON contract stays server-controlled |
 
 ## Documentation map
 

@@ -25,4 +25,5 @@ alwaysApply: false
 ## Gotchas
 - New LLM feature = prompt key in `ai_prompts.PROMPTS_REGISTRY` + worker in `ai_tools.py` + `<FEATURE>_DEFAULT_LLM` setting + docs (`ai-tools.md`, `ai-prompts.md`, `core/06`).
 - Images are downscaled to `LLM_IMAGE_MAX_DIM` before sending; MD/DOC slots are rendered to images first. Auto-tag / MD QUE / Explain prepend ancestor QUE images for parts; auto-tag skips stems; proofread stays per-row.
+- The Auto Tag prompt is assembled **only** in `build_tag_prompt` (subject note + taxonomy hints + correction patterns live there); `suggest_tags` returns `confidence` / `reasons` diagnostics that `apply_tags` ignores. Per-subject layer: `subject-ai.mdc` / `docs/modules/subject-ai.md`.
 - Cancel registry is in-process; a multi-worker deployment would break it.

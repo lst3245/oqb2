@@ -6,7 +6,7 @@
 
 - `templates/base.html` — navbar, Bootstrap 5.3 + Bootstrap Icons 1.11 + HTMX 1.9.10 + SortableJS + KaTeX from CDN, global CSS, shared JS helpers, and Jinja-emitted globals. Pages `{% extends "base.html" %}` and fill `{% block content %}`, `{% block extra_css %}`, `{% block extra_js %}`.
 - `templates/viewer.html` and `templates/markup.html` **do not extend `base.html`** (fullscreen tools). The viewer carries minimal copies of `oqbTypesetMath` / `oqbRenderMarkdownInto`; if you add a shared helper the viewer needs, duplicate it there deliberately.
-- Navigation source of truth: the navbar in `base.html` (`url_for` targets listed in `STATUS.md` frontend table). Add a nav entry when you add a page.
+- Navigation source of truth: the navbar in `base.html` (`url_for` targets listed in `STATUS.md` frontend table). Add a nav entry when you add a page. Admin pages are reachable from two places and both must be updated: the Admin dropdown in `base.html` **and** a hub card in `templates/admin_index.html` (sections: Content Management, Operations, and the super-admin row).
 
 ## Jinja-emitted globals (from `base.html`)
 

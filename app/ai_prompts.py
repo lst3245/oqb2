@@ -189,6 +189,16 @@ def system_prompt(key: str, endpoint_id=None, **vars: Any) -> str:
     return f'{base}\n\n{fmt}' if fmt else base
 
 
+def system_prompt_with_body(key: str, body: str, endpoint_id=None, **vars: Any) -> str:
+    """Like :func:`system_prompt` but with ``body`` replacing the resolved
+    base prompt. The key's format block is still attached, so a caller that
+    swaps in subject-supplied text (``SubjectPromptNote`` in ``replace``
+    mode) cannot drop the JSON contract the parser depends on."""
+    fmt = format_block(key, endpoint_id=endpoint_id, **vars)
+    body = (body or '').strip()
+    return f'{body}\n\n{fmt}' if fmt else body
+
+
 def append_format(key: str, text: str, endpoint_id=None, **vars: Any) -> str:
     """Append ``key``'s formatting block (if any) to a user-turn ``text``
     under an emphasis header. Returns ``text`` unchanged when the key has
@@ -837,13 +847,23 @@ _DEFAULT_TAG_SYSTEM = (
     "for a single-topic question.\n"
     "- Choose chapter / subchapter the same way (the subchapter must belong to "
     "the chosen chapter).\n"
-    "- q_type: \"MC\" for a multiple-choice question, \"CQ\" for a conventional "
-    "(long / structured) question.\n"
+    "- q_type: \"MC\" when the question offers a fixed set of answer options to "
+    "pick from (A/B/C/D, 1-4, true/false, or a grid of options), even if only "
+    "the options and no working are shown; \"CQ\" for everything else — short "
+    "answer, structured / multi-part, proof, essay, or calculation questions "
+    "that expect the student to write a response. Judge from the question "
+    "itself, not from its length.\n"
     "- level: an integer difficulty from 1 (easy) to 3 (hard).\n"
     "- section: the printed paper-section label if visible (e.g. \"A\", \"B\"), "
     "else null.\n"
     "- Tag ONLY the fields you are asked for. Use null (or [] for the list "
-    "fields) for anything you cannot determine from the allowed values."
+    "fields) for anything you cannot determine from the allowed values.\n"
+    "- Some allowed values carry a short hint after an em dash (\u2014). Treat "
+    "those hints as the subject teachers' definition of what belongs there; "
+    "they win over your own reading of the name.\n"
+    "- If SUBJECT-SPECIFIC INSTRUCTIONS or TEACHER CORRECTION PATTERNS are "
+    "supplied in the user turn, follow them; where they conflict with the "
+    "general rules above, the subject-specific text wins."
 )
 
 
@@ -854,19 +874,46 @@ _DEFAULT_TAG_FORMAT = (
     '{"q_type": "MC"|"CQ"|null, "level": 1|2|3|null, "section": "..."|null, '
     '"major_topic": "..."|null, "major_subtopic": "..."|null, '
     '"minor_topics": ["..."], "subtopics": ["..."], '
-    '"chapter": "..."|null, "subchapter": "..."|null}\n'
-    "Use the EXACT allowed names. Include only the keys you were asked to tag."
+    '"chapter": "..."|null, "subchapter": "..."|null, '
+    '"confidence": {"<field>": 0.0-1.0}, "reasons": {"<field>": "one short sentence"}}\n'
+    "Use the EXACT allowed names. Include only the keys you were asked to tag. "
+    "\"confidence\" and \"reasons\" are optional diagnostics keyed by field "
+    "name; keep each reason under 25 words."
 )
 
 
 _DEFAULT_TAG_USER = (
     "Subject: {{subject_name}}.\n"
     "Tag ONLY these fields: {{fields}}.\n\n"
-    "Allowed values for this subject:\n{{taxonomy}}\n\n"
+    "Allowed values for this subject:\n{{taxonomy}}\n"
+    "{{subject_instructions}}\n"
     "Classify the attached question image(s) (and solution if provided). "
     "Return STRICT JSON using the EXACT allowed names. Use null / [] when "
     "unsure."
 )
+
+# Header lines used when a subject's note / correction patterns are rendered
+# into the user turn. ``build_tag_user_text`` also uses them to detect a
+# custom TAG_USER variant that dropped the ``{{subject_instructions}}``
+# slot, so the subject text is appended instead of silently lost.
+SUBJECT_INSTRUCTIONS_HEADER = 'SUBJECT-SPECIFIC INSTRUCTIONS (from the subject teachers; they override the general rules where they conflict):'
+CORRECTION_PATTERNS_HEADER = 'TEACHER CORRECTION PATTERNS for this subject (past model suggestions the teachers changed — avoid repeating them):'
+
+
+def format_subject_instructions(note_text=None, patterns_text=None):
+    """Render the optional per-subject blocks for the tag user turn. Returns
+    '' when both are blank; otherwise a text block bracketed by blank lines
+    so it reads cleanly whether substituted or appended."""
+    parts = []
+    note_text = (note_text or '').strip()
+    patterns_text = (patterns_text or '').strip()
+    if note_text:
+        parts.append(f'{SUBJECT_INSTRUCTIONS_HEADER}\n{note_text}')
+    if patterns_text:
+        parts.append(f'{CORRECTION_PATTERNS_HEADER}\n{patterns_text}')
+    if not parts:
+        return ''
+    return '\n' + '\n\n'.join(parts) + '\n'
 
 
 # Human-readable labels for the field keys used across the Auto Tag UI / API.
@@ -897,6 +944,11 @@ def build_tag_taxonomy(subject_id, fields):
     included.
 
     ``fields`` is an iterable of field keys (see ``TAG_FIELDS``).
+
+    Hidden subtopics / subchapters (``hidden=True`` — e.g. textbook chapters
+    kept for legacy filters) are NOT sent: they are not meant to be picked
+    as tags and would only compete with the real values. A node's optional
+    ``description`` is appended after an em dash as the teachers' hint.
     """
     from app.models import Topic, Chapter
 
@@ -906,27 +958,33 @@ def build_tag_taxonomy(subject_id, fields):
     if fields & _TAG_TOPIC_FIELDS:
         topics = (Topic.query.filter_by(subject_id=subject_id)
                   .order_by(Topic.sort_order).all())
-        lines = ['TOPICS (each topic, then its subtopics indented):']
+        lines = ['TOPICS (each topic, then its subtopics indented; text after '
+                 '\u2014 is the teachers\' hint):']
         if not topics:
             lines.append('  (none defined)')
         for t in topics:
-            lines.append(f'- {t.name}')
+            lines.append(f'- {_taxonomy_line(t)}')
             subs = t.subtopics.all() if hasattr(t.subtopics, 'all') else list(t.subtopics)
             for s in subs:
-                lines.append(f'    * {s.name}')
+                if getattr(s, 'hidden', False):
+                    continue
+                lines.append(f'    * {_taxonomy_line(s)}')
         blocks.append('\n'.join(lines))
 
     if fields & _TAG_CHAPTER_FIELDS:
         chapters = (Chapter.query.filter_by(subject_id=subject_id)
                     .order_by(Chapter.sort_order).all())
-        lines = ['CHAPTERS (each chapter, then its subchapters indented):']
+        lines = ['CHAPTERS (each chapter, then its subchapters indented; text '
+                 'after \u2014 is the teachers\' hint):']
         if not chapters:
             lines.append('  (none defined)')
         for c in chapters:
-            lines.append(f'- {c.name}')
+            lines.append(f'- {_taxonomy_line(c)}')
             subs = c.subchapters.all() if hasattr(c.subchapters, 'all') else list(c.subchapters)
             for sc in subs:
-                lines.append(f'    * {sc.name}')
+                if getattr(sc, 'hidden', False):
+                    continue
+                lines.append(f'    * {_taxonomy_line(sc)}')
         blocks.append('\n'.join(lines))
 
     if 'q_type' in fields:
@@ -937,14 +995,32 @@ def build_tag_taxonomy(subject_id, fields):
     return '\n\n'.join(blocks) if blocks else '(no taxonomy required)'
 
 
-def build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None):
+def _taxonomy_line(node):
+    """``Name`` or ``Name — hint`` for one taxonomy node."""
+    desc = ' '.join((getattr(node, 'description', None) or '').split())
+    return f'{node.name} \u2014 {desc}' if desc else node.name
+
+
+def build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None,
+                        subject_instructions=''):
     """User-turn instruction for Auto Tag. ``fields`` is an iterable of field
-    keys; rendered with human labels. The output-format contract is
-    re-appended for emphasis."""
+    keys; rendered with human labels. ``subject_instructions`` is the
+    pre-rendered per-subject block from :func:`format_subject_instructions`
+    ('' when the subject has none). The output-format contract is
+    re-appended for emphasis.
+
+    A custom TAG_USER variant that lacks the ``{{subject_instructions}}``
+    slot still gets the block — appended before the format contract —
+    so a subject admin's note is never silently dropped."""
     labels = ', '.join(TAG_FIELD_LABELS.get(f, f) for f in fields) or '(none)'
+    subject_instructions = subject_instructions or ''
+    template = get_prompt('TAG_USER', endpoint_id)
     text = render_prompt('TAG_USER', endpoint_id=endpoint_id,
                          subject_name=subject_name or '(unknown)',
-                         fields=labels, taxonomy=taxonomy)
+                         fields=labels, taxonomy=taxonomy,
+                         subject_instructions=subject_instructions)
+    if subject_instructions and '{{subject_instructions}}' not in template:
+        text = f'{text}\n{subject_instructions}'
     return append_format('TAG_USER', text, endpoint_id=endpoint_id)
 
 
@@ -1164,6 +1240,31 @@ def parse_tag_result(text: str):
             if m:
                 level = int(m.group(0))
 
+        # Optional diagnostics keyed by field name. Tolerate a scalar
+        # confidence (applies to every field) and non-dict garbage.
+        confidence = {}
+        conf_raw = data.get('confidence')
+        if isinstance(conf_raw, dict):
+            for k, v in conf_raw.items():
+                if k in TAG_FIELD_LABELS:
+                    try:
+                        confidence[k] = max(0.0, min(1.0, float(v)))
+                    except (TypeError, ValueError):
+                        pass
+        elif conf_raw not in (None, ''):
+            try:
+                c = max(0.0, min(1.0, float(conf_raw)))
+                confidence = {k: c for k in TAG_FIELD_LABELS}
+            except (TypeError, ValueError):
+                pass
+        reasons = {}
+        reasons_raw = data.get('reasons')
+        if isinstance(reasons_raw, dict):
+            for k, v in reasons_raw.items():
+                s = _clean_str(v)
+                if k in TAG_FIELD_LABELS and s:
+                    reasons[k] = s[:400]
+
         return {
             'q_type': qt,
             'level': level,
@@ -1174,6 +1275,8 @@ def parse_tag_result(text: str):
             'subtopics': _clean_list(data.get('subtopics')),
             'chapter': _clean_str(data.get('chapter')),
             'subchapter': _clean_str(data.get('subchapter')),
+            'confidence': confidence,
+            'reasons': reasons,
         }
     return None
 
@@ -1884,7 +1987,10 @@ PROMPTS_REGISTRY = OrderedDict([
             'feature. The model is shown the question (and optional solution) '
             'image(s) plus the subject\'s allowed tag values, and must reply '
             'with JSON using the EXACT allowed names. Changing the JSON shape '
-            'risks breaking parse_tag_result — keep the response contract.'
+            'risks breaking parse_tag_result — keep the response contract. '
+            'A subject admin may REPLACE this body for their own subject '
+            '(Admin → AI Tagging Tuning, mode "replace"); the TAG_FORMAT '
+            'block is always re-attached by the server.'
         ),
         default=_DEFAULT_TAG_SYSTEM,
         role='system',
@@ -1896,11 +2002,16 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             'Accompanies the question image(s) each call. Variables are filled '
             'in per-question: the subject name, the list of fields to tag, and '
-            'the rendered allowed-values taxonomy for the subject. The '
-            'TAG_FORMAT block is re-appended at the end of the user turn.'
+            'the rendered allowed-values taxonomy for the subject (hidden '
+            'nodes excluded; node descriptions appended after an em dash), '
+            'and {{subject_instructions}} — the subject admin\'s own '
+            'instructions plus aggregated teacher-correction patterns, or '
+            'empty. Keep that slot; if a variant drops it the block is '
+            'appended before the format contract instead. The TAG_FORMAT '
+            'block is re-appended at the end of the user turn.'
         ),
         default=_DEFAULT_TAG_USER,
-        variables=['subject_name', 'fields', 'taxonomy'],
+        variables=['subject_name', 'fields', 'taxonomy', 'subject_instructions'],
         role='user',
         format_key='TAG_FORMAT',
     )),

@@ -30,4 +30,4 @@ Server-rendered Jinja2 + Bootstrap 5.3 + HTMX 1.9; no bundler, no SPA (ADR-001).
 - `oqbPollDocThumbnails` must use the same cache-busted URL for probe and swap; per-element dedup via `data-doc-poller-active`.
 - Keyboard shortcuts must be ignored while typing or when a stacked child modal is open.
 - Reverse proxies need `proxy_buffering off` for SSE; nothing to do client-side.
-- A new page needs a navbar entry in `base.html` and a row in `STATUS.md` frontend table.
+- A new page needs a navbar entry in `base.html` and a row in `STATUS.md` frontend table. An **admin** page additionally needs a hub card in `templates/admin_index.html` (under the matching section: Content Management / Operations / super-admin row) — the navbar dropdown alone is not enough.

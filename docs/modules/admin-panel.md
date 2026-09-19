@@ -51,7 +51,7 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
-| GET | `/` | A | `admin_index.html` hub cards. |
+| GET | `/` | A | `admin_index.html` hub cards. Every admin page has a card here as well as a navbar dropdown entry — add both when adding a page (Content Management: Questions, Topics, Chapters, AI Tagging Tuning; Operations; super-admin row). |
 
 ### Subject Management (`admin_subjects.html`)
 

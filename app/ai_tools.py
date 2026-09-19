@@ -1721,34 +1721,22 @@ def suggest_tags(question, versions, fields, config, image_max_dim, source_path)
     """Ask the LLM to classify ONE question and map the result to IDs. Pure
     read — does NOT write to the DB. Returns a dict:
 
-      {ok, error?, suggestions, display, unmatched, raw}
+      {ok, error?, suggestions, display, unmatched, raw, model,
+       confidence{field: 0..1}, reasons{field: str}}
     """
-    from app.models import Subject
-
     fields = [f for f in (fields or []) if f in ai_prompts.TAG_FIELDS]
     if not fields:
         return {'ok': False, 'error': 'no fields selected', 'suggestions': {},
                 'display': {}, 'unmatched': [], 'raw': ''}
 
-    images, text_blocks, _found_que = _resolve_tag_inputs(
-        question, versions, source_path, image_max_dim)
-    if not images and not text_blocks:
-        return {'ok': False,
-                'error': 'no QUE/SOL content (IMG/MD/DOC) found in the selected version(s)',
+    prompt = build_tag_prompt(question, versions, fields, config,
+                              image_max_dim, source_path)
+    if prompt.get('error'):
+        return {'ok': False, 'error': prompt['error'],
                 'suggestions': {}, 'display': {}, 'unmatched': [], 'raw': ''}
 
-    subject_row = Subject.query.get(question.subject)
-    subject_name = subject_row.name if subject_row else question.subject
-    taxonomy = ai_prompts.build_tag_taxonomy(question.subject, fields)
-    user_text = ai_prompts.build_tag_user_text(subject_name, fields, taxonomy,
-                                               endpoint_id=config.id)
-    if text_blocks:
-        user_text += '\n\n' + '\n\n'.join(text_blocks)
-
-    text, info = llm_client.chat(config,
-                                 ai_prompts.system_prompt('TAG_SYSTEM',
-                                                          config.id),
-                                 user_text, images)
+    text, info = llm_client.chat(config, prompt['system'], prompt['user'],
+                                 prompt['images'])
     if not (text or '').strip():
         hint = _empty_reply_hint(info)
         return {'ok': False, 'error': f'model returned an empty reply{hint}',
@@ -1763,7 +1751,75 @@ def suggest_tags(question, versions, fields, config, image_max_dim, source_path)
     suggestions, display, unmatched = _map_tag_names(question, parsed, fields)
     return {'ok': True, 'error': None, 'suggestions': suggestions,
             'display': display, 'unmatched': unmatched, 'raw': (text or '')[:4000],
-            'model': config.model_name}
+            'model': config.model_name,
+            'confidence': parsed.get('confidence') or {},
+            'reasons': parsed.get('reasons') or {}}
+
+
+def build_tag_prompt(question, versions, fields, config, image_max_dim,
+                     source_path, include_images=True):
+    """Assemble the exact system / user prompt Auto Tag sends for ONE
+    question, including the subject's :class:`SubjectPromptNote` (append or
+    replace mode) and its aggregated teacher-correction patterns. Shared by
+    :func:`suggest_tags` and the Subject AI "preview prompt" route.
+
+    Returns ``{system, user, images, image_count, text_blocks, taxonomy,
+    subject_note, error}``; ``error`` is set (and the other keys blank) when
+    the question has no usable QUE/SOL content. With ``include_images``
+    False the inputs are still resolved (to report the count) but the
+    encoded images are dropped from the result.
+    """
+    from app.models import Subject
+    from app import subject_ai_service
+
+    fields = [f for f in (fields or []) if f in ai_prompts.TAG_FIELDS]
+    empty = {'system': '', 'user': '', 'images': [], 'image_count': 0,
+             'text_blocks': [], 'taxonomy': '', 'subject_note': None, 'error': None}
+    if not fields:
+        return dict(empty, error='no fields selected')
+
+    images, text_blocks, _found_que = _resolve_tag_inputs(
+        question, versions, source_path, image_max_dim)
+    if not images and not text_blocks:
+        return dict(empty, error='no QUE/SOL content (IMG/MD/DOC) found in the selected version(s)')
+
+    subject_row = Subject.query.get(question.subject)
+    subject_name = subject_row.name if subject_row else question.subject
+    taxonomy = ai_prompts.build_tag_taxonomy(question.subject, fields)
+
+    note = subject_ai_service.get_note(question.subject)
+    note_mode = (note.mode if note else 'append')
+    note_text = (note.content or '').strip() if note else ''
+    patterns = ''
+    if note and (note.examples_limit or 0) > 0:
+        patterns = subject_ai_service.correction_patterns_text(
+            question.subject, fields, limit=int(note.examples_limit))
+
+    # ``replace`` swaps the system BODY; the note text then must not also be
+    # repeated in the user turn. Correction patterns go in the user turn in
+    # both modes.
+    if note_mode == 'replace' and note_text:
+        system = ai_prompts.system_prompt_with_body('TAG_SYSTEM', note_text,
+                                                    endpoint_id=config.id)
+        instr = ai_prompts.format_subject_instructions(None, patterns)
+    else:
+        system = ai_prompts.system_prompt('TAG_SYSTEM', config.id)
+        instr = ai_prompts.format_subject_instructions(note_text, patterns)
+
+    user_text = ai_prompts.build_tag_user_text(subject_name, fields, taxonomy,
+                                               endpoint_id=config.id,
+                                               subject_instructions=instr)
+    if text_blocks:
+        user_text += '\n\n' + '\n\n'.join(text_blocks)
+
+    return {'system': system, 'user': user_text,
+            'images': images if include_images else [],
+            'image_count': len(images), 'text_blocks': text_blocks,
+            'taxonomy': taxonomy,
+            'subject_note': ({'mode': note_mode, 'content': note_text,
+                              'examples_limit': int(note.examples_limit or 0)}
+                             if note else None),
+            'error': None}
 
 
 def apply_tags(question, suggestions, fields, overwrite):

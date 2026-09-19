@@ -58,6 +58,7 @@ Query helpers: `get_user_accessible_subjects()` and `get_user_admin_subjects()` 
 - File access is scoped by `files_service.RootRegistry(user, scope)`: **user scope** exposes `User/<name>` (rw) plus `shared:<SID>` per subject (rw for admin role, ro for user role, viewers excluded); **admin scope** (`Source`, `Storage`, extra roots) is honoured only for super admins and a non-super request for it is silently downgraded. Details: [../modules/file-browser.md](../modules/file-browser.md).
 - Generated documents, saved filters, presets, and sets are owned by `user_id`; super admins may view/share anything (`_user_can_view_file`, `_user_owns_file` in `app/user.py`).
 - AI Tools, PDF Import, Smart Import, and batch ops are subject-admin scoped; the AI feature as a whole is additionally gated by the `AI_TOOLS_ENABLED` setting (templates read `window.OQB_AI_TOOLS_ENABLED`).
+- **Subject AI tuning** (`/admin/subjects/<subject_id>/ai/*`) is `@subject_admin_required` with the subject id in the URL — a deliberately lower tier than the super-admin AI Prompts page. Subject admins may change the Auto Tag prompt *body* and taxonomy hints for their own subject only; the output-format contract is never editable from that tier. `/admin/questions/<id>/ai/tag-corrections` checks the question's subject explicitly. See [../modules/subject-ai.md](../modules/subject-ai.md).
 
 ## Username policy (login name = filesystem folder)
 

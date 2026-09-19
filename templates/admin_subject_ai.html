@@ -1,0 +1,571 @@
+{% extends "base.html" %}
+
+{% block title %}AI Tagging Tuning — {{ subject.id }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sai-textarea {
+        font-family: ui-monospace, SFMono-Regular, "Menlo", "Consolas", monospace;
+        font-size: 0.85rem; line-height: 1.45; min-height: 10rem; resize: vertical;
+    }
+    .sai-pre {
+        font-family: ui-monospace, SFMono-Regular, "Menlo", "Consolas", monospace;
+        font-size: 0.78rem; line-height: 1.4; max-height: 26rem; overflow: auto;
+        padding: 0.6rem 0.75rem; background: #f8f9fa; border: 1px solid #e9ecef;
+        border-radius: 4px; white-space: pre-wrap; word-break: break-word;
+    }
+    .tax-node { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+    .tax-node.child { padding-left: 1.6rem; }
+    .tax-node .tax-name { min-width: 14rem; max-width: 20rem; font-size: 0.88rem; }
+    .tax-node.child .tax-name { min-width: 12.4rem; max-width: 18.4rem; }
+    .tax-node .tax-hidden { font-size: 0.7rem; }
+    .tax-node input { font-size: 0.82rem; }
+    .tax-node input.saved { border-color: #198754; }
+    .tax-node input.dirty { border-color: #0d6efd; }
+    .eval-log { max-height: 16rem; overflow: auto; font-size: 0.8rem; background: #f8f9fa;
+                border: 1px solid #e9ecef; border-radius: 4px; padding: 0.4rem 0.6rem; }
+    .eval-log .l-success { color: #198754; }
+    .eval-log .l-issue { color: #b05a00; }
+    .eval-log .l-error { color: #dc3545; }
+    .eval-log .l-skip { color: #6c757d; }
+    .eval-log .l-info { color: #0d6efd; }
+    .rate-badge { font-variant-numeric: tabular-nums; }
+    .sai-card .card-header { font-weight: 600; }
+    .diff-table td, .diff-table th { font-size: 0.82rem; }
+    .confusion-arrow { color: #6c757d; padding: 0 0.3rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4" style="max-width: 1400px;">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-magic"></i> AI Tagging Tuning
+            <small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small></h2>
+        <div class="d-flex align-items-center gap-2">
+            {% if admin_subjects|length > 1 %}
+            <select class="form-select form-select-sm" style="width:auto" onchange="if (this.value) location.href = this.value;">
+                {% for s in admin_subjects %}
+                <option value="{{ url_for('subject_ai.page', subject_id=s.id) }}" {% if s.id == subject.id %}selected{% endif %}>{{ s.id }} — {{ s.name }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <a href="{{ url_for('admin.topics') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-tags"></i> Topics</a>
+            <a href="{{ url_for('admin.chapters') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-book"></i> Chapters</a>
+            {% if current_user.is_super_admin %}
+            <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-chat-square-text"></i> AI Prompts</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="alert alert-info py-2">
+        <i class="bi bi-info-circle"></i>
+        Shape how <strong>Auto Tag</strong> classifies questions in <strong>{{ subject.id }}</strong>. The loop:
+        write <strong>instructions</strong> and per-node <strong>hints</strong> → <strong>preview</strong> the exact prompt →
+        <strong>evaluate</strong> against questions you already tagged → read the <strong>corrections report</strong> for what
+        the model keeps getting wrong → refine. Nothing here changes any question; only the model's input.
+        <span id="aiDisabledNote" class="text-danger fw-semibold" style="display:none">AI Tools are currently disabled in System Settings — preview and evaluate will refuse to run.</span>
+    </div>
+
+    <div class="row g-3">
+        <!-- ============ Left column: instructions + taxonomy hints ============ -->
+        <div class="col-lg-6">
+            <div class="card sai-card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-pencil-square"></i> Subject-specific instructions</span>
+                    <small id="noteMeta" class="text-muted fw-normal"></small>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2 d-flex flex-wrap gap-3 align-items-center">
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="radio" name="noteMode" id="modeAppend" value="append" checked>
+                            <label class="form-check-label" for="modeAppend"><strong>Append</strong> — add to the general rules</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="radio" name="noteMode" id="modeReplace" value="replace">
+                            <label class="form-check-label" for="modeReplace"><strong>Replace</strong> — my text becomes the whole system prompt body</label>
+                        </div>
+                    </div>
+                    <textarea id="noteContent" class="form-control sai-textarea" maxlength="{{ max_note_chars }}"
+                              placeholder="e.g. Level 3 means the question needs two chapters combined. Section is always A or B for Paper 1. When a question is about graphs of a function, tag the function topic, not 'Coordinate geometry'."></textarea>
+                    <div class="d-flex justify-content-between mt-1">
+                        <small class="text-muted"><span id="noteChars">0</span> / {{ max_note_chars }}</small>
+                        <small class="text-muted">The JSON output contract is always re-attached by the server — you cannot break the parser from here.</small>
+                    </div>
+                    <div class="row g-2 align-items-end mt-2">
+                        <div class="col-sm-7">
+                            <label class="form-label mb-1 small fw-semibold" for="examplesLimit">Feed teacher-correction patterns back into the prompt</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control" id="examplesLimit" min="0" max="{{ max_examples }}" value="0" style="max-width:6rem">
+                                <span class="input-group-text">most frequent disagreements (0 = off)</span>
+                            </div>
+                        </div>
+                        <div class="col-sm-5 text-end">
+                            <button class="btn btn-outline-secondary btn-sm" id="showBuiltinBtn" type="button" onclick="toggleBuiltin()">
+                                <i class="bi bi-eye"></i> Built-in rules
+                            </button>
+                            <button class="btn btn-primary btn-sm" id="saveNoteBtn" type="button" onclick="saveNote()">
+                                <i class="bi bi-save"></i> Save
+                            </button>
+                        </div>
+                    </div>
+                    <div id="builtinPanel" class="mt-2" style="display:none">
+                        <small class="text-muted">Built-in <code>TAG_SYSTEM</code> body (as currently resolved for the default endpoint). Copy it as a starting point for <em>Replace</em> mode.</small>
+                        <pre id="builtinPre" class="sai-pre mt-1"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card sai-card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-diagram-3"></i> Taxonomy hints</span>
+                    <small class="text-muted fw-normal">one line per node · saved on blur / Enter · ≤ {{ max_desc_chars }} chars</small>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">
+                        The model only sees the <em>names</em> of your topics and chapters. A hint tells it what belongs there and what does not
+                        (e.g. <em>"word problems on speed/distance; NOT graphs of motion — that is Kinematics"</em>). Hidden subtopics / subchapters are never sent.
+                    </p>
+                    <ul class="nav nav-tabs nav-tabs-sm mb-2" role="tablist">
+                        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#taxTopics">Topics <span class="badge text-bg-secondary" id="taxTopicsCount"></span></a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#taxChapters">Chapters <span class="badge text-bg-secondary" id="taxChaptersCount"></span></a></li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane show active" id="taxTopics"><div class="text-muted small">Loading…</div></div>
+                        <div class="tab-pane" id="taxChapters"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ Right column: preview + evaluate + report ============ -->
+        <div class="col-lg-6">
+            <div class="card sai-card mb-3">
+                <div class="card-header"><i class="bi bi-sliders"></i> Run settings <small class="text-muted fw-normal">(shared by Preview and Evaluate)</small></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold mb-1">Endpoint</label>
+                            <select id="endpointSel" class="form-select form-select-sm"><option value="">Loading…</option></select>
+                            <div class="form-check form-switch mt-1" id="parallelWrap" style="display:none">
+                                <input class="form-check-input" type="checkbox" id="parallelChk" checked>
+                                <label class="form-check-label small" for="parallelChk">Run in parallel (cloud endpoint)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold mb-1">Send versions</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for v in OQB_VERSIONS %}
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input sai-version" type="checkbox" value="{{ v }}" id="saiVer_{{ v }}" checked>
+                                    <label class="form-check-label small" for="saiVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <small class="text-muted">Tried in this order; the first available per type (IMG → MD → DOC) is sent.</small>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold mb-1">Fields</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for key, label in tag_fields %}
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input sai-field" type="checkbox" value="{{ key }}" id="saiF_{{ key }}" {% if key in default_fields %}checked{% endif %}>
+                                    <label class="form-check-label small" for="saiF_{{ key }}">{{ label }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card sai-card mb-3">
+                <div class="card-header"><i class="bi bi-eye"></i> Preview the exact prompt</div>
+                <div class="card-body">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">QID</span>
+                        <input type="text" id="previewQid" class="form-control" placeholder="e.g. {{ subject.id }}_DSE_2023_P1_Q5">
+                        <button class="btn btn-outline-primary" id="previewBtn" type="button" onclick="runPreview()"><i class="bi bi-eye"></i> Preview</button>
+                    </div>
+                    <div id="previewOut" class="mt-2"></div>
+                </div>
+            </div>
+
+            <div class="card sai-card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-speedometer2"></i> Evaluate against existing tags</span>
+                    <span id="evalRate" class="badge text-bg-secondary rate-badge" style="display:none"></span>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">Runs Auto Tag on questions you have <em>already</em> tagged and counts how often the model agrees. <strong>Writes nothing.</strong> Change a hint, re-run, compare.</p>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-4">
+                            <label class="form-label small fw-semibold mb-1" for="evalSample">Random sample</label>
+                            <input type="number" id="evalSample" class="form-control form-control-sm" min="1" max="500" value="20">
+                        </div>
+                        <div class="col-sm-8">
+                            <label class="form-label small fw-semibold mb-1" for="evalQids">…or specific question ids (csv, overrides sample)</label>
+                            <input type="text" id="evalQids" class="form-control form-control-sm" placeholder="123,456 — paste from Question Management">
+                        </div>
+                        <div class="col-12 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm" id="evalRunBtn" type="button" onclick="runEvaluate()"><i class="bi bi-play-fill"></i> Run evaluation</button>
+                            <button class="btn btn-outline-danger btn-sm" id="evalStopBtn" type="button" onclick="stopEvaluate()" disabled><i class="bi bi-stop-fill"></i> Stop</button>
+                            <div class="progress flex-grow-1 align-self-center" style="height: 1.2rem; display:none" id="evalProgressWrap">
+                                <div class="progress-bar" id="evalProgress" role="progressbar" style="width:0%">0 / 0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="evalLog" class="eval-log mt-2" style="display:none"></div>
+                    <div id="evalFields" class="mt-2"></div>
+                    <div id="evalDiffs" class="mt-2"></div>
+                </div>
+            </div>
+
+            <div class="card sai-card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-clipboard-data"></i> Teacher corrections report</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <select id="reportDays" class="form-select form-select-sm" style="width:auto" onchange="loadReport()">
+                            <option value="">All time</option>
+                            <option value="7">Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <button class="btn btn-outline-danger btn-sm" type="button" onclick="clearCorrections()" title="Delete every recorded correction for this subject"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">Recorded automatically whenever a teacher clicks <strong>Save Tags</strong> right after <strong>Suggest tags</strong> in the edit modal. Disagreements are the raw material for hints and instructions; with the setting above they are also summarised into the prompt.</p>
+                    <div id="reportOut"><div class="text-muted small">Loading…</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SUBJECT_ID = {{ subject.id|tojson }};
+const URLS = {
+    data: {{ url_for('subject_ai.data', subject_id=subject.id)|tojson }},
+    note: {{ url_for('subject_ai.save_note', subject_id=subject.id)|tojson }},
+    taxDesc: {{ url_for('subject_ai.taxonomy_description', subject_id=subject.id)|tojson }},
+    preview: {{ url_for('subject_ai.preview', subject_id=subject.id)|tojson }},
+    evaluate: {{ url_for('subject_ai.evaluate', subject_id=subject.id)|tojson }},
+    corrections: {{ url_for('subject_ai.corrections', subject_id=subject.id)|tojson }},
+    corrClear: {{ url_for('subject_ai.corrections_clear', subject_id=subject.id)|tojson }},
+    cancel: {{ url_for('admin.ai_cancel')|tojson }},
+    questions: {{ url_for('admin.questions_page')|tojson }},
+};
+let serverData = null;
+let evalSource = null;
+let evalJobId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadData();
+    document.getElementById('noteContent').addEventListener('input', updateNoteChars);
+    document.getElementById('endpointSel').addEventListener('change', updateParallelUI);
+    document.getElementById('previewQid').addEventListener('keydown', e => { if (e.key === 'Enter') runPreview(); });
+});
+
+// ---------------------------------------------------------------- data
+function loadData() {
+    fetch(URLS.data).then(r => r.json()).then(d => {
+        serverData = d;
+        if (!d.ai_enabled) document.getElementById('aiDisabledNote').style.display = '';
+        renderNote(d.note);
+        document.getElementById('builtinPre').textContent = d.builtin_system || '';
+        renderTaxonomy(d.taxonomy);
+        renderEndpoints(d.endpoints, d.default_endpoint_id);
+        renderReport(d.report);
+    }).catch(err => showToast('Failed to load: ' + err, 'danger'));
+}
+
+// ---------------------------------------------------------------- note
+function renderNote(note) {
+    document.querySelector(`input[name=noteMode][value=${note.mode || 'append'}]`).checked = true;
+    document.getElementById('noteContent').value = note.content || '';
+    document.getElementById('examplesLimit').value = note.examples_limit || 0;
+    updateNoteChars();
+    const meta = document.getElementById('noteMeta');
+    meta.textContent = note.updated_at
+        ? `saved ${formatTimestamp(note.updated_at)}${note.updated_by ? ' by ' + note.updated_by : ''}`
+        : 'no subject instructions yet';
+}
+function updateNoteChars() {
+    document.getElementById('noteChars').textContent = document.getElementById('noteContent').value.length;
+}
+function toggleBuiltin() {
+    const p = document.getElementById('builtinPanel');
+    p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+function saveNote() {
+    const btn = document.getElementById('saveNoteBtn');
+    btn.disabled = true;
+    fetch(URLS.note, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            mode: document.querySelector('input[name=noteMode]:checked').value,
+            content: document.getElementById('noteContent').value,
+            examples_limit: parseInt(document.getElementById('examplesLimit').value || '0', 10),
+        })
+    }).then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        btn.disabled = false;
+        if (!ok || !d.success) { showToast(d.error || 'Save failed', 'danger'); return; }
+        renderNote(d.note);
+        showToast('Instructions saved — they apply to the next Auto Tag call.', 'success');
+    }).catch(err => { btn.disabled = false; showToast('Save failed: ' + err, 'danger'); });
+}
+
+// ---------------------------------------------------------------- taxonomy
+function renderTaxonomy(tax) {
+    const build = (nodes) => {
+        if (!nodes.length) return '<div class="text-muted small">(none defined)</div>';
+        return nodes.map(n => taxRow(n, false) + (n.children || []).map(c => taxRow(c, true)).join('')).join('');
+    };
+    document.getElementById('taxTopics').innerHTML = build(tax.topics || []);
+    document.getElementById('taxChapters').innerHTML = build(tax.chapters || []);
+    document.getElementById('taxTopicsCount').textContent = (tax.topics || []).length;
+    document.getElementById('taxChaptersCount').textContent = (tax.chapters || []).length;
+    document.querySelectorAll('.tax-node input').forEach(inp => {
+        inp.addEventListener('input', () => { inp.classList.add('dirty'); inp.classList.remove('saved'); });
+        inp.addEventListener('blur', () => saveDescription(inp));
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    });
+}
+function taxRow(n, child) {
+    const hidden = n.hidden ? '<span class="badge text-bg-light tax-hidden" title="Hidden nodes are not sent to the model">hidden</span>' : '';
+    return `<div class="tax-node${child ? ' child' : ''}">
+        <span class="tax-name text-truncate" title="${escapeHtml(n.name)}">${child ? '<span class="text-muted">·</span> ' : ''}${escapeHtml(n.name)} ${hidden}</span>
+        <input type="text" class="form-control form-control-sm" maxlength="{{ max_desc_chars }}"
+               data-kind="${n.kind}" data-id="${n.id}" data-saved="${escapeHtml(n.description || '')}"
+               value="${escapeHtml(n.description || '')}" placeholder="hint for the model (optional)" ${n.hidden ? 'disabled' : ''}>
+    </div>`;
+}
+function saveDescription(inp) {
+    if (inp.value === inp.dataset.saved) { inp.classList.remove('dirty'); return; }
+    fetch(URLS.taxDesc, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({kind: inp.dataset.kind, id: parseInt(inp.dataset.id, 10), description: inp.value})
+    }).then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (!ok || !d.success) { showToast(d.error || 'Hint save failed', 'danger'); return; }
+        inp.value = d.description; inp.dataset.saved = d.description;
+        inp.classList.remove('dirty'); inp.classList.add('saved');
+        setTimeout(() => inp.classList.remove('saved'), 1500);
+    }).catch(err => showToast('Hint save failed: ' + err, 'danger'));
+}
+
+// ---------------------------------------------------------------- run settings
+function renderEndpoints(eps, defaultId) {
+    const sel = document.getElementById('endpointSel');
+    if (!eps.length) { sel.innerHTML = '<option value="">No endpoints configured</option>'; return; }
+    sel.innerHTML = eps.map(ep => `<option value="${ep.id}" data-kind="${ep.kind}" data-conc="${ep.max_concurrency}" ${ep.supports_vision ? '' : 'disabled'}>${escapeHtml(ep.name)} — ${escapeHtml(ep.model_name)}${ep.supports_vision ? '' : ' (text-only — not usable)'}</option>`).join('');
+    const pick = eps.find(e => e.id === defaultId && e.supports_vision) || eps.find(e => e.supports_vision);
+    if (pick) sel.value = String(pick.id);
+    updateParallelUI();
+}
+function updateParallelUI() {
+    const sel = document.getElementById('endpointSel');
+    const opt = sel.options[sel.selectedIndex];
+    const cloud = opt && opt.dataset.kind === 'cloud' && parseInt(opt.dataset.conc || '1', 10) > 1;
+    document.getElementById('parallelWrap').style.display = cloud ? '' : 'none';
+}
+function selectedFields() { return Array.from(document.querySelectorAll('.sai-field:checked')).map(cb => cb.value); }
+function selectedVersions() { return Array.from(document.querySelectorAll('.sai-version:checked')).map(cb => cb.value); }
+function selectedEndpoint() { return document.getElementById('endpointSel').value; }
+function checkRunSettings() {
+    if (!selectedEndpoint()) { showToast('Select a vision-capable endpoint.', 'warning'); return false; }
+    if (!selectedFields().length) { showToast('Pick at least one field.', 'warning'); return false; }
+    if (!selectedVersions().length) { showToast('Pick at least one version.', 'warning'); return false; }
+    return true;
+}
+
+// ---------------------------------------------------------------- preview
+function runPreview() {
+    const qid = document.getElementById('previewQid').value.trim();
+    if (!qid) { showToast('Enter a QID.', 'warning'); return; }
+    if (!checkRunSettings()) return;
+    const out = document.getElementById('previewOut');
+    const btn = document.getElementById('previewBtn');
+    btn.disabled = true;
+    out.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> Assembling…</div>';
+    const body = {qid, fields: selectedFields(), versions: selectedVersions(), endpoint_id: parseInt(selectedEndpoint(), 10)};
+    if (/^\d+$/.test(qid)) { body.question_id = parseInt(qid, 10); delete body.qid; }
+    fetch(URLS.preview, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        btn.disabled = false;
+        if (!ok || !d.success) { out.innerHTML = `<div class="text-danger small">${escapeHtml(d.error || 'Preview failed')}</div>`; return; }
+        const existing = Object.entries(d.existing || {}).filter(([, v]) => v && (!Array.isArray(v) || v.length))
+            .map(([k, v]) => `<span class="badge text-bg-light border me-1">${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : v)}</span>`).join('') || '<span class="text-muted">none</span>';
+        const note = d.subject_note ? `${d.subject_note.mode}${d.subject_note.examples_limit ? `, ${d.subject_note.examples_limit} correction patterns` : ''}` : 'none';
+        out.innerHTML = `
+            <div class="small mb-1"><strong>${escapeHtml(d.question.qid)}</strong> · endpoint <em>${escapeHtml(d.endpoint.name)}</em> ·
+                ${d.image_count} image(s), ${d.text_block_count} text block(s) · subject note: ${escapeHtml(note)}</div>
+            <div class="small mb-2">Current tags: ${existing}</div>
+            <div class="small fw-semibold">System prompt <span class="text-muted fw-normal">(${d.system.length} chars)</span></div>
+            <pre class="sai-pre">${escapeHtml(d.system)}</pre>
+            <div class="small fw-semibold mt-2">User turn <span class="text-muted fw-normal">(${d.user.length} chars; images not shown)</span></div>
+            <pre class="sai-pre">${escapeHtml(d.user)}</pre>`;
+    }).catch(err => { btn.disabled = false; out.innerHTML = `<div class="text-danger small">${escapeHtml(String(err))}</div>`; });
+}
+
+// ---------------------------------------------------------------- evaluate
+function runEvaluate() {
+    if (!checkRunSettings()) return;
+    if (evalSource) { showToast('An evaluation is already running.', 'warning'); return; }
+    const params = new URLSearchParams();
+    params.set('fields', selectedFields().join(','));
+    params.set('versions', selectedVersions().join(','));
+    params.set('endpoint_id', selectedEndpoint());
+    const qids = document.getElementById('evalQids').value.trim();
+    if (qids) params.set('question_ids', qids); else params.set('sample', document.getElementById('evalSample').value || '20');
+    if (document.getElementById('parallelWrap').style.display !== 'none' && document.getElementById('parallelChk').checked) params.set('parallel', '1');
+
+    const log = document.getElementById('evalLog');
+    log.style.display = ''; log.innerHTML = '';
+    document.getElementById('evalFields').innerHTML = '';
+    document.getElementById('evalDiffs').innerHTML = '';
+    document.getElementById('evalRate').style.display = 'none';
+    document.getElementById('evalProgressWrap').style.display = '';
+    setProgress(0, 0);
+    document.getElementById('evalRunBtn').disabled = true;
+    document.getElementById('evalStopBtn').disabled = false;
+    const diffs = [];
+
+    evalSource = new EventSource(URLS.evaluate + '?' + params.toString());
+    evalSource.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.type === 'job') { evalJobId = ev.job_id; return; }
+        appendLog(ev);
+        if (ev.current != null && ev.total != null) setProgress(ev.current, ev.total);
+        if (ev.detail) {
+            Object.entries(ev.detail).forEach(([f, c]) => {
+                if (c.applicable && !c.agree) diffs.push({qid: ev.qid, question_id: ev.question_id, field: f, ...c});
+            });
+        }
+        if (ev.type === 'done') {
+            finishEval();
+            renderEvalStats(ev.stats || {});
+            renderEvalDiffs(diffs);
+        }
+    };
+    evalSource.onerror = () => { appendLog({type: 'error', message: 'Connection lost.'}); finishEval(); };
+}
+function stopEvaluate() {
+    if (!evalJobId) return;
+    fetch(URLS.cancel, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({job_id: evalJobId})});
+    document.getElementById('evalStopBtn').disabled = true;
+}
+function finishEval() {
+    if (evalSource) { evalSource.close(); evalSource = null; }
+    evalJobId = null;
+    document.getElementById('evalRunBtn').disabled = false;
+    document.getElementById('evalStopBtn').disabled = true;
+}
+function setProgress(cur, total) {
+    const bar = document.getElementById('evalProgress');
+    const pct = total ? Math.round(cur / total * 100) : 0;
+    bar.style.width = pct + '%'; bar.textContent = `${cur} / ${total}`;
+}
+function appendLog(ev) {
+    const log = document.getElementById('evalLog');
+    const div = document.createElement('div');
+    div.className = 'l-' + (ev.type || 'info');
+    div.textContent = ev.message || '';
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+}
+function pct(rate) { return rate == null ? 'n/a' : Math.round(rate * 100) + '%'; }
+function rateClass(rate) { return rate == null ? 'text-bg-secondary' : rate >= 0.85 ? 'text-bg-success' : rate >= 0.6 ? 'text-bg-warning' : 'text-bg-danger'; }
+function renderEvalStats(stats) {
+    const badge = document.getElementById('evalRate');
+    badge.className = 'badge rate-badge ' + rateClass(stats.rate);
+    badge.textContent = `agreement ${stats.agreed || 0}/${stats.applicable || 0} (${pct(stats.rate)})`;
+    badge.style.display = '';
+    const rows = Object.entries(stats.fields || {}).filter(([, v]) => v.applicable > 0)
+        .map(([f, v]) => `<tr><td>${escapeHtml(fieldLabel(f))}</td><td class="text-end">${v.agreed} / ${v.applicable}</td><td><span class="badge ${rateClass(v.rate)} rate-badge">${pct(v.rate)}</span></td></tr>`).join('');
+    document.getElementById('evalFields').innerHTML = rows
+        ? `<table class="table table-sm diff-table mb-0"><thead><tr><th>Field</th><th class="text-end">Agree</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+        : '';
+}
+function renderEvalDiffs(diffs) {
+    const el = document.getElementById('evalDiffs');
+    if (!diffs.length) { el.innerHTML = '<div class="small text-success"><i class="bi bi-check-circle"></i> No disagreements.</div>'; return; }
+    el.innerHTML = `<div class="small fw-semibold mb-1">Disagreements (${diffs.length})</div>
+        <div style="max-height: 22rem; overflow:auto"><table class="table table-sm table-striped diff-table mb-0">
+        <thead><tr><th>QID</th><th>Field</th><th>Model said</th><th>Tagged as</th><th>Model's reason</th></tr></thead><tbody>
+        ${diffs.map(d => `<tr>
+            <td><a href="${URLS.questions}?qids=${d.question_id}" target="_blank">${escapeHtml(d.qid || d.question_id)}</a></td>
+            <td>${escapeHtml(fieldLabel(d.field))}</td>
+            <td class="text-danger">${escapeHtml(d.suggested || '—')}${d.confidence != null ? ` <small class="text-muted">(${Math.round(d.confidence * 100)}%)</small>` : ''}</td>
+            <td class="text-success">${escapeHtml(d.existing)}</td>
+            <td class="text-muted">${escapeHtml(d.reason || '')}</td></tr>`).join('')}
+        </tbody></table></div>`;
+}
+function fieldLabel(f) {
+    const map = {{ dict(tag_fields)|tojson }};
+    return map[f] || f;
+}
+
+// ---------------------------------------------------------------- report
+function loadReport() {
+    const days = document.getElementById('reportDays').value;
+    fetch(URLS.corrections + (days ? `?days=${days}` : '')).then(r => r.json()).then(renderReport)
+        .catch(err => showToast('Report failed: ' + err, 'danger'));
+}
+function renderReport(rep) {
+    const el = document.getElementById('reportOut');
+    if (!rep || !rep.total) { el.innerHTML = '<div class="text-muted small">No corrections recorded yet. Use <em>Suggest tags</em> then <em>Save Tags</em> in the edit modal and they will appear here.</div>'; return; }
+    const fields = rep.fields.map(f => `<tr><td>${escapeHtml(f.label)}</td><td class="text-end">${f.agreed} / ${f.total}</td><td><span class="badge ${rateClass(f.rate)} rate-badge">${pct(f.rate)}</span></td></tr>`).join('');
+    const conf = rep.confusions.slice(0, 15).map(c => `<tr><td>${escapeHtml(c.label)}</td>
+        <td><span class="text-danger">${escapeHtml(c.suggested || '—')}</span><span class="confusion-arrow">→</span><span class="text-success">${escapeHtml(c.saved || '—')}</span></td>
+        <td class="text-end">${c.count}</td></tr>`).join('');
+    const recent = rep.recent.slice(0, 30).map(r => `<tr class="${r.agreed ? '' : 'table-warning'}">
+        <td><a href="${URLS.questions}?qids=${r.question_id}" target="_blank">${escapeHtml(r.qid || r.question_id)}</a></td>
+        <td>${escapeHtml(r.label)}</td><td>${escapeHtml(r.suggested || '—')}</td><td>${escapeHtml(r.saved || '—')}</td>
+        <td class="text-muted">${escapeHtml(r.user || '')}<br><small>${formatTimestamp(r.created_at)}</small></td></tr>`).join('');
+    el.innerHTML = `
+        <div class="mb-2"><span class="badge ${rateClass(rep.rate)} rate-badge">overall agreement ${rep.agreed}/${rep.total} (${pct(rep.rate)})</span></div>
+        <div class="row g-3">
+            <div class="col-md-5">
+                <div class="small fw-semibold mb-1">Per field</div>
+                <table class="table table-sm diff-table mb-0"><tbody>${fields}</tbody></table>
+            </div>
+            <div class="col-md-7">
+                <div class="small fw-semibold mb-1">Most frequent disagreements <span class="text-muted fw-normal">(model → teachers)</span></div>
+                ${conf ? `<table class="table table-sm diff-table mb-0"><tbody>${conf}</tbody></table>` : '<div class="text-muted small">none</div>'}
+            </div>
+        </div>
+        <details class="mt-2"><summary class="small fw-semibold">Recent rows (${rep.recent.length})</summary>
+            <div style="max-height: 20rem; overflow:auto"><table class="table table-sm table-striped diff-table mb-0">
+            <thead><tr><th>QID</th><th>Field</th><th>Model said</th><th>Saved</th><th>Who / when</th></tr></thead><tbody>${recent}</tbody></table></div>
+        </details>`;
+}
+function clearCorrections() {
+    if (!confirm(`Delete every recorded correction for ${SUBJECT_ID}? The report and the correction patterns fed to the model will reset.`)) return;
+    fetch(URLS.corrClear, {method: 'POST'}).then(r => r.json()).then(d => {
+        showToast(`Deleted ${d.deleted} row(s).`, 'success'); loadReport();
+    }).catch(err => showToast('Clear failed: ' + err, 'danger'));
+}
+
+// ---------------------------------------------------------------- utils
+function showToast(msg, level) {
+    const div = document.createElement('div');
+    div.className = `alert alert-${level || 'info'} position-fixed`;
+    div.style.cssText = 'top: 70px; right: 20px; z-index: 9999; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+    div.textContent = msg;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+function formatTimestamp(iso) { return window.oqbFormatLocalTime ? window.oqbFormatLocalTime(iso) : (iso || ''); }
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

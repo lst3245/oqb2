@@ -219,6 +219,19 @@ Rules:
 - Major subtopic must belong to major topic if both are set
 - Minor topics allow cross-topic tagging (question appears in multiple topic filters)
 
+**Suggest tags (AI).** With AI Tools enabled, the Tags tab has a **Suggest tags** button: pick the versions to send and the fields to fill, and the model's suggestions populate the form for review (nothing is saved until you click **Save Tags**). The status line lists any names the model used that do not exist in your taxonomy and, when the model supplies them, its one-line reason per field. When you then click **Save Tags**, the app records what the model suggested against what you actually saved — this feeds the subject's **AI Tagging Tuning** page (below) and does not change the question.
+
+### AI Tagging Tuning (`Admin → AI Tagging Tuning`, per subject)
+
+Subject admins can shape how Auto Tag classifies their own subject, without editing the global AI Prompts (super-admin only). The page has a subject switcher and five parts:
+
+- **Subject-specific instructions** — free text the model receives on every Auto Tag call for this subject. **Append** adds it to the built-in rules (e.g. *"Level 3 means the question needs two chapters combined"*, *"Section is always A or B in Paper 1"*). **Replace** makes your text the whole system prompt body — use **Built-in rules** to copy the default as a starting point. The JSON output contract is always re-attached by the server, so you cannot break the parser from here. **Feed teacher-correction patterns** (0 = off) also injects the N most frequent disagreements from the report below (*"the model suggested X but the teachers chose Y (3 times)"*).
+- **Taxonomy hints** — a one-line description per topic / subtopic / chapter / subchapter that the model sees next to the name (*"word problems on speed; NOT graphs of motion — that is Kinematics"*). Saved on blur / Enter. Hidden nodes are never sent to the model.
+- **Run settings** — endpoint, versions and fields shared by Preview and Evaluate.
+- **Preview the exact prompt** — type a QID and see the system prompt and user turn exactly as they would be sent (images are counted, not shown). No model call is made.
+- **Evaluate against existing tags** — runs Auto Tag on a random sample (or specific question ids) of questions you have **already tagged** and reports how often the model agrees, overall and per field, with a disagreement table (model said / tagged as / model's reason). **Nothing is written.** Change a hint, run again, compare. Use specific ids for a repeatable benchmark.
+- **Teacher corrections report** — agreement rate, per-field stats, the most frequent *model → teachers* confusions, and recent rows, collected automatically from **Suggest tags → Save Tags** in the edit modal. The trash button clears the log (also resets the patterns fed to the model).
+
 ### Batch Operations
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
 - The header checkbox selects the questions visible on the current page. When the active filter has more results, a banner appears; click **Select all matching questions** to expand the selection to every matching question across all pages.
@@ -561,7 +574,7 @@ The authoritative list with types, ranges, and defaults is [docs/core/06-system-
 
 ### LLM Endpoints (AI Tools)
 
-The **AI Tools** feature (proofreading, Markdown generation, solve-generation/checking, and auto-tagging in Question Management) needs at least one configured LLM endpoint. Open **Admin → LLM Endpoints** (linked from the System Settings header and the Admin navbar; super-admin only).
+The **AI Tools** feature (proofreading, Markdown generation, solve-generation/checking, and auto-tagging in Question Management — tuned per subject under **AI Tagging Tuning**, see section 7) needs at least one configured LLM endpoint. Open **Admin → LLM Endpoints** (linked from the System Settings header and the Admin navbar; super-admin only).
 
 - Click **Add Endpoint** and fill in: **Name**, **Model name**, **Base URL** (the API root — e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `https://api.poe.com/v1`, or `http://localhost:11434/v1`; do **not** include `/chat/completions` or `/responses`), **API key** (optional — blank uses the `.env` `LLM_API_KEY`), provider, max output tokens, temperature, timeout, and the **Vision** toggle.
 - **API protocol**: **Chat Completions** (default — local Ollama/LM Studio, OpenRouter GPT-5.5) or **Responses API** (recommended for Poe reasoning models).

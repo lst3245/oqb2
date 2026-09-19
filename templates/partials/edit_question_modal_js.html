@@ -412,6 +412,7 @@ function saveQuestionTags() {
     .then(data => {
         if (data.success) {
             showToast('Tags saved successfully');
+            _logTagCorrections(qId);
             refreshOuterQuestionList();
         } else {
             throw new Error(data.error || 'Error saving tags');
@@ -690,6 +691,29 @@ function onEditVerifiedToggle() {
 
 // ==================== AUTO TAG (single-question, review-before-save) ====================
 let _autoTagModalInstance = null;
+// Last accepted suggestion for the question currently in the modal. When the
+// teacher then clicks Save Tags, the (suggested vs saved) pairs are posted to
+// /admin/questions/<id>/ai/tag-corrections so the subject's AI Tagging Tuning
+// page can report disagreements and feed them back into the prompt.
+let _lastAutoTagSuggestion = null;
+
+function _logTagCorrections(qId) {
+    const s = _lastAutoTagSuggestion;
+    if (!s || String(s.questionId) !== String(qId)) return;
+    _lastAutoTagSuggestion = null;
+    const url = `{{ url_for('subject_ai.log_tag_corrections', question_id=0) }}`.replace('/questions/0/', `/questions/${qId}/`);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            fields: s.fields,
+            suggested_display: s.display,
+            saved: readCurrentTagFormState(),
+            model: s.model,
+            reasons: s.reasons,
+        })
+    }).catch(() => { /* diagnostics only — never block the save */ });
+}
 
 function openAutoTagModal() {
     if (!editQuestionData) return;
@@ -769,14 +793,26 @@ function runAutoTag() {
             return;
         }
         const changed = applySuggestionsToForm(d.suggestions || {}, d.fields || fields, overwrite);
+        _lastAutoTagSuggestion = {
+            questionId: editQuestionData.id,
+            fields: d.fields || fields,
+            display: d.display || {},
+            model: d.model || null,
+            reasons: d.reasons || {},
+        };
         let summary = `<span class="text-success"><i class="bi bi-check-circle"></i> Populated ${changed.length} field(s) — review and click <strong>Save Tags</strong>.</span>`;
         const unmatched = d.unmatched || [];
         if (unmatched.length) {
             summary += `<div class="mt-1 text-warning"><i class="bi bi-exclamation-triangle"></i> Could not match: ${unmatched.map(u => _aiEscapeAttr(u.name)).join(', ')}</div>`;
         }
+        const reasons = Object.entries(d.reasons || {});
+        if (reasons.length) {
+            summary += `<details class="mt-1 small"><summary class="text-muted">Model's reasons (${reasons.length})</summary><ul class="mb-0 ps-3">` +
+                reasons.map(([f, r]) => `<li><strong>${_aiEscapeAttr(f)}</strong>: ${_aiEscapeAttr(r)}</li>`).join('') + '</ul></details>';
+        }
         status.innerHTML = summary;
         showToast(`Auto Tag populated ${changed.length} field(s)`, 'success');
-        setTimeout(() => { if (_autoTagModalInstance) _autoTagModalInstance.hide(); }, unmatched.length ? 1800 : 600);
+        setTimeout(() => { if (_autoTagModalInstance) _autoTagModalInstance.hide(); }, (unmatched.length || reasons.length) ? 2200 : 600);
     })
     .catch(err => {
         runBtn.disabled = false;

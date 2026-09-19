@@ -153,7 +153,10 @@ class Topic(db.Model):
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
-    
+    # Optional one-line tagging hint shown to the auto-tag LLM next to the
+    # name ("what belongs here / what does not"). Never shown to students.
+    description = db.Column(db.String(300), nullable=True)
+
     # Relationships
     subtopics = db.relationship('Subtopic', backref='topic', lazy='dynamic', cascade='all, delete-orphan',
                                 order_by='Subtopic.sort_order')
@@ -171,7 +174,8 @@ class Subtopic(db.Model):
     name = db.Column(db.String(200), nullable=False)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subtopics (e.g. textbook chapters)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
-    
+    description = db.Column(db.String(300), nullable=True)  # auto-tag hint
+
     def __repr__(self):
         return f'<Subtopic {self.name}>'
 
@@ -183,7 +187,8 @@ class Chapter(db.Model):
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
-    
+    description = db.Column(db.String(300), nullable=True)  # auto-tag hint
+
     # Relationships
     subchapters = db.relationship('Subchapter', backref='chapter', lazy='dynamic', cascade='all, delete-orphan',
                                   order_by='Subchapter.sort_order')
@@ -200,6 +205,7 @@ class Subchapter(db.Model):
     name = db.Column(db.String(200), nullable=False)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subchapters
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
+    description = db.Column(db.String(300), nullable=True)  # auto-tag hint
     
     def __repr__(self):
         return f'<Subchapter {self.name}>'
@@ -584,6 +590,81 @@ class PromptEndpointAssignment(db.Model):
         db.UniqueConstraint('prompt_key', 'endpoint_id',
                             name='uq_prompt_assignment_key_endpoint'),
     )
+
+
+class SubjectPromptNote(db.Model):
+    """Subject-admin-owned instructions layered onto an AI feature's prompt.
+
+    One row per ``(subject_id, feature)``. ``feature`` is a short feature key
+    (currently only ``'tag'`` — auto tagging); it is NOT a
+    ``PROMPTS_REGISTRY`` key, because a note may touch several registry
+    prompts. ``mode`` is ``'append'`` (content is added to the user turn as a
+    "subject-specific instructions" block) or ``'replace'`` (content
+    replaces the BODY of the feature's system prompt; the output-format
+    block is always re-attached by the server so the JSON contract cannot be
+    broken from here). ``examples_limit`` > 0 injects that many aggregated
+    teacher-correction patterns (see :class:`TagCorrection`) into the prompt.
+
+    Super-admin prompt variants / endpoint pins still decide the frame; this
+    row only fills the ``{{subject_instructions}}`` slot or the body.
+    """
+    __tablename__ = 'subject_prompt_notes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    subject_id = db.Column(db.String(10),
+                           db.ForeignKey('subjects.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    feature = db.Column(db.String(30), nullable=False, default='tag')
+    mode = db.Column(db.String(10), nullable=False, default='append')  # append | replace
+    content = db.Column(db.Text, nullable=True)
+    examples_limit = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by])
+
+    __table_args__ = (
+        db.UniqueConstraint('subject_id', 'feature',
+                            name='uq_subject_prompt_note_subject_feature'),
+    )
+
+    def __repr__(self):
+        return f'<SubjectPromptNote {self.subject_id}/{self.feature} ({self.mode})>'
+
+
+class TagCorrection(db.Model):
+    """One (field, model suggestion, teacher decision) pair recorded when a
+    teacher saves tags right after an Auto Tag suggestion in the edit modal.
+
+    ``suggested`` / ``saved`` hold DISPLAY names (comma-joined for the list
+    fields), never IDs, so the report stays readable after taxonomy edits.
+    ``agreed`` is True when the saved value equals the suggestion (set
+    equality for list fields). Rows are the raw material for the per-subject
+    disagreement report and for the aggregated correction patterns that
+    :class:`SubjectPromptNote.examples_limit` feeds back into the prompt.
+    """
+    __tablename__ = 'tag_corrections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    question_id = db.Column(db.Integer,
+                            db.ForeignKey('questions.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    subject_id = db.Column(db.String(10), nullable=False, index=True)
+    field = db.Column(db.String(30), nullable=False)
+    suggested = db.Column(db.String(500), nullable=True)
+    saved = db.Column(db.String(500), nullable=True)
+    agreed = db.Column(db.Boolean, nullable=False, default=False)
+    reason = db.Column(db.String(400), nullable=True)   # model's own one-line reason, if any
+    model = db.Column(db.String(200), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    question = db.relationship('Question', foreign_keys=[question_id])
+    user = db.relationship('User', foreign_keys=[user_id])
+
+    def __repr__(self):
+        return f'<TagCorrection q{self.question_id} {self.field} {"=" if self.agreed else "!="}>'
 
     def __repr__(self):
         return (f'<PromptEndpointAssignment {self.prompt_key} '

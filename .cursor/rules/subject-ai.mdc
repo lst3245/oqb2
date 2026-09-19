@@ -1,0 +1,26 @@
+---
+description: Subject AI tuning - per-subject Auto Tag instructions (append/replace), taxonomy hints, prompt preview, evaluate vs existing tags, teacher-correction log fed back into the prompt
+globs: app/subject_ai.py,app/subject_ai_service.py,templates/admin_subject_ai.html
+alwaysApply: false
+---
+
+# Subject AI tuning (bootloader — spec in `docs/modules/subject-ai.md`, ADR-012)
+
+## Invariants
+- One prompt assembler: `ai_tools.build_tag_prompt`. Preview promises "exactly what the model sees" — never build a tag prompt elsewhere, never add a second injection point.
+- `SubjectPromptNote.mode`: `append` fills `{{subject_instructions}}` in `TAG_USER`; `replace` swaps the `TAG_SYSTEM` **body** via `ai_prompts.system_prompt_with_body` and is not repeated in the user turn. The `TAG_FORMAT` block is always re-attached — the subject tier can never edit the JSON contract.
+- Correction patterns (`examples_limit > 0`) are **aggregated disagreements only** (`field, suggested → saved, count`), no question content. Recomputed per call by `correction_patterns_text`.
+- `TagCorrection` stores display **names**, never IDs; `agreed` = `compare_labels` (case-insensitive scalars, set equality for `minor_topics` / `subtopics`, `level` as string). Rows are written only from the edit modal's Save-Tags-after-Suggest path (`/admin/questions/<id>/ai/tag-corrections`).
+- Evaluate (`iter_tag_evaluate`) never calls `apply_tags`; skips stems and questions with no existing value in the requested fields; `applicable` counts only fields with a ground truth.
+- Taxonomy: hidden subtopics / subchapters are not sent to the model; `description` ≤ 300 chars, whitespace-collapsed, validated to belong to the URL subject (`set_description`).
+- Authz: every subject route has `subject_id` in the URL so `@subject_admin_required` fires; the per-question route checks `question.subject` explicitly. This tier is lower trust than `/admin/prompts` (super-admin).
+- Limits are service constants (`MAX_NOTE_CHARS 8000`, `MAX_DESCRIPTION_CHARS 300`, `MAX_EXAMPLES_LIMIT 30`), not System Settings.
+
+## Routes (verify before use)
+`/admin/subject-ai` (redirect) · `/admin/subjects/<sid>/ai` (page) · `.../ai/data` · `POST .../ai/note` · `POST .../ai/taxonomy-description` · `.../ai/corrections` · `POST .../ai/corrections/clear` · `POST .../ai/preview` (no LLM call) · `GET .../ai/evaluate` (SSE, reuses `admin._ai_stream` / `_ai_parallel` / `_ai_load_endpoint`, cancel via `/admin/questions/ai/cancel`) · `POST /admin/questions/<id>/ai/tag-corrections`.
+
+## Gotchas
+- `replace` mode + pasting the full built-in text duplicates the contract (harmless, noisy). The UI's "Built-in rules" panel shows `get_prompt('TAG_SYSTEM')` unpinned.
+- Renaming a taxonomy node leaves old names in `tag_corrections`; the patterns block will quote them until the log is cleared.
+- `sample_tagged_questions` is `ORDER BY RAND()` capped at 500×2 rows — fine here, never reuse for a library sweep. Pass `question_ids` for a repeatable benchmark.
+- Blueprint `subject_ai_bp` shares the `/admin` prefix with `admin_bp`; keep paths under `/subjects/<sid>/ai/*` to avoid collisions.

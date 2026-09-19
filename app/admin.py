@@ -7203,6 +7203,8 @@ def ai_suggest_tags(question_id):
         'unmatched': res['unmatched'],
         'fields': fields,
         'model': res.get('model'),
+        'confidence': res.get('confidence') or {},
+        'reasons': res.get('reasons') or {},
     })
 
 

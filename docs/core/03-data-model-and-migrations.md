@@ -28,6 +28,8 @@ erDiagram
   file_shares }o--|| file_sections : shares_section
   llm_configs ||--o{ prompt_endpoint_assignments : pins
   prompt_variants ||--o{ prompt_endpoint_assignments : pinned
+  subjects ||--o{ subject_prompt_notes : tunes
+  questions ||--o{ tag_corrections : judged
 ```
 
 ## Tables
@@ -37,8 +39,8 @@ erDiagram
 | `User` | `users` | Login + `is_super_admin` | `is_admin` is legacy, ignore it. Helpers: [02-auth-and-permissions.md](02-auth-and-permissions.md) |
 | `UserSubjectPermission` | `user_subject_permissions` | `role` ∈ `viewer` / `user` / `admin` per subject | unique `(user_id, subject_id)` |
 | `Subject` | `subjects` | `id` is a **string PK** (`MATC`), `name`; `split_parts_default` bool (default false) | `id` is embedded in QIDs and the `SOURCE_PATH/<id>/` layout → immutable. Topics/chapters cascade on delete; delete is blocked while questions reference it (see [../modules/admin-panel.md](../modules/admin-panel.md)). `split_parts_default` is on the Subjects form and seeds the PDF-import split checkbox. |
-| `Topic` / `Subtopic` | `topics` / `subtopics` | Curriculum tagging; `sort_order`; `Subtopic.hidden` | Subtopics cascade from topic |
-| `Chapter` / `Subchapter` | `chapters` / `subchapters` | Textbook organisation; `sort_order`; `Subchapter.hidden` | `questions.chapter_id/subchapter_id` are `ON DELETE SET NULL` |
+| `Topic` / `Subtopic` | `topics` / `subtopics` | Curriculum tagging; `sort_order`; `Subtopic.hidden`; `description` (≤ 300, auto-tag hint) | Subtopics cascade from topic. Hidden subtopics are not offered to the auto-tag model |
+| `Chapter` / `Subchapter` | `chapters` / `subchapters` | Textbook organisation; `sort_order`; `Subchapter.hidden`; `description` (≤ 300, auto-tag hint) | `questions.chapter_id/subchapter_id` are `ON DELETE SET NULL` |
 | `Question` | `questions` | One logical question (standalone, stem, or part) | `qid` unique (the only identity — `(subject, source, year, paper, qno)` is **not** unique). `subject`, `source` (`DSE/CE/AL/QB`), `year` (NULL for QB), `paper`, `section`, `qno` int (start of the QNO token), `qno_end` (inclusive end of a range stem; NULL otherwise), `parent_id` self-FK `ON DELETE RESTRICT` (NULL = root), `part` (own label `a`/`i`, not the full path), `part_sort` (letter 1–26, roman 101–110), `needs_prev_parts` bool (default false; a part that refers to earlier parts — `resolve_render_plan` then renders its earlier siblings as background), `q_type` (`MC/CQ`/NULL), `level` 1–3/NULL, `major_topic_id`, `major_subtopic_id` (must belong to major topic — enforced in code, not DB), `chapter_id`, `subchapter_id`, `description`, `correct_percentage` 0–100, `answer` text, `comment`, `verified/verified_at/verified_by`, `created_at`. Relationships `parent` / `children`. M2M `minor_topics` (`question_minor_topics`), `subtopics` (`question_subtopics`). Grammar: [../modules/question-hierarchy.md](../modules/question-hierarchy.md) |
 | `QuestionAsset` | `question_assets` | One file slot | `asset_type` enum `QUE/ANS/SOL/WHOLE`; `file_format` enum `IMG/DOC/MD`; `version` enum `EN/CH/BI/ENO/CHO`; `file_path` forward-slash relative to `SOURCE_PATH`; `part_number` ≥ 1 (IMG multi-part only; DOC and MD are single-slot). **Unique `(question_id, asset_type, version, file_format, part_number)`**. `WHOLE` is IMG-only on a **root** (unsplit original for Combine restore; never rendered in papers / Present / Explain). AI check fields: `check_state` (NULL/`checking`/`ok`/`issues`/`error`), `check_result` JSON, `check_raw`, `checked_at` — per format (IMG parts share one state) |
 | `SavedFilter` | `saved_filters` | Dashboard search profile | `filter_data` JSON (includes `subject`, `sort_group_order`), `is_starred`, `is_shared` |
@@ -52,6 +54,8 @@ erDiagram
 | `PromptVariant` | `prompt_variants` | Named prompt versions per key | unique `(prompt_key, name)`; one `is_builtin` (content NULL = registry default) and one `is_active` per key |
 | `PromptEndpointAssignment` | `prompt_endpoint_assignments` | Pin endpoint → variant per key | unique `(prompt_key, endpoint_id)`; CASCADE both FKs |
 | `PromptOverride` | `prompt_overrides` | **Legacy**; migrated into built-in variants at boot | Do not write new rows |
+| `SubjectPromptNote` | `subject_prompt_notes` | Subject-admin instructions layered on an AI feature (`feature='tag'`) | unique `(subject_id, feature)`; `mode` `append/replace`; `content`; `examples_limit` 0–30; FK `subjects.id` CASCADE. See [../modules/subject-ai.md](../modules/subject-ai.md) |
+| `TagCorrection` | `tag_corrections` | Model suggestion vs teacher decision per field | `question_id` CASCADE, `subject_id` idx, `field`, `suggested` / `saved` display names, `agreed`, `reason`, `model`, `user_id`, `created_at` |
 
 JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation_options`, `check_result`, `system_settings.value`) are parsed in Python; keep them backward compatible — old blobs are never migrated.
 
