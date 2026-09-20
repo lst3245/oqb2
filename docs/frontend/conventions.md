@@ -52,6 +52,7 @@ The server checks the `HX-Request` header and returns only `partials/question_li
 | `partials/file_selector.html` | `window.OQBFileSelector.open({...})` picker modal used by PDF Import, PDF Tool, Smart Import ([../modules/file-browser.md](../modules/file-browser.md)) |
 | `partials/pdf_annotate_editor.html` | PDF Tool redact/highlight editor |
 | `partials/_version_priority_widget_js.html` | Version Priority widget |
+| `partials/admin_subject_picker.html` | Topics / Chapters subject `<select>` (`endpoint`, `subjects`, `subject`) |
 
 ## Bounding-box editor (`OQBBboxEditor`)
 

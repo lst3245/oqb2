@@ -20,7 +20,7 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 | Saved search profiles (star, share, load on dashboard) | `[done]` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) | |
 | Saved generation presets | `[done]` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) | |
 | Question Sets (per-subject saved QID lists, set algebra builder) | `[done]` | `app/user.py` | [modules/question-sets.md](docs/modules/question-sets.md) | |
-| Admin: Topics / Chapters CRUD + reorder | `[done]` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
+| Admin: Topics / Chapters CRUD + reorder | `[done]` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | One subject at a time (`?subject_id=`; session remembers last). |
 | Admin: Manage Subjects | `[done]` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | Delete blocked while questions exist |
 | Admin: Users + per-subject permissions, username policy, rename moves home dir | `[done]` | `app/admin.py`, `app/utils.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
 | Admin: Export / Import CSV | `[done]` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) | |
@@ -62,7 +62,7 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 | Markup | `/admin/toolbox/markup` | `markup.html` | Toolbox | `[done]` |
 | PDF Tool | `/admin/toolbox/pdf` | `admin_toolbox_pdf.html` | Toolbox (admin) | `[done]` |
 | Admin index | `/admin` | `admin_index.html` | Admin dropdown | `[done]` |
-| Topics / Chapters / Subjects | `/admin/topics`, `/admin/chapters`, `/admin/subjects` | `admin_topics.html`, `admin_chapters.html`, `admin_subjects.html` | Admin dropdown | `[done]` |
+| Topics / Chapters / Subjects | `/admin/topics`, `/admin/chapters`, `/admin/subjects` | `admin_topics.html`, `admin_chapters.html`, `admin_subjects.html` | Admin dropdown | `[done]` | Topics/Chapters: subject picker + `?subject_id=` |
 | AI Tagging Tuning (per subject) | `/admin/subject-ai` → `/admin/subjects/<sid>/ai` | `admin_subject_ai.html` | Admin dropdown + Admin hub card | `[done]` |
 | Question Management | `/admin/questions` | `admin_questions.html` | Admin dropdown | `[done]` |
 | Split into parts | `/admin/questions/<id>/split` | `admin_question_split.html` (`OQBBboxEditor`) | from Edit modal | `[done]` |

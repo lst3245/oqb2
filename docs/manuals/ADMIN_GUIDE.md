@@ -180,16 +180,18 @@ Topics represent the **curriculum taxonomy**:
 - **Subtopic** → specific unit (e.g. "Polynomials")
   - Subtopics can be marked **hidden** — they won't appear in the dashboard filter by default (toggle the eye icon to show them; useful for textbook-chapter subtopics that should only appear in admin)
 
+The page shows **one subject at a time**. Use the subject dropdown (top right) to switch. The last subject you opened is remembered, including when you jump to Chapters.
+
 **CRUD**: Add, rename, delete. Deletion cascades — deleting a topic removes its subtopics and un-tags linked questions.
 
-**Reorder**: Drag rows to set display order.
+**Reorder**: Use the up/down arrows next to each row.
 
 ### Chapters (`/admin/chapters`)
 Chapters represent **textbook organisation** (separate from the topic/subtopic system):
 - **Chapter** → textbook chapter
 - **Subchapter** → section within a chapter
 
-Same CRUD and reorder behaviour as topics.
+Same one-subject view, CRUD, and reorder behaviour as topics.
 
 Questions can be linked to both a topic AND a chapter — they serve different filtering purposes.
 

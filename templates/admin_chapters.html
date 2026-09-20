@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Chapters - Question Bank{% endblock %}
+{% block title %}Manage Chapters{% if subject %} — {{ subject.id }}{% endif %} - Question Bank{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -22,28 +22,44 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-book"></i> Manage Chapters &amp; Subchapters</h2>
-        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
-        </a>
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-book"></i> Manage Chapters &amp; Subchapters
+            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small>{% endif %}
+        </h2>
+        <div class="d-flex align-items-center gap-2">
+            {% with endpoint='admin.chapters' %}
+            {% include 'partials/admin_subject_picker.html' %}
+            {% endwith %}
+            {% if subject %}
+            <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-tags"></i> Topics
+            </a>
+            {% endif %}
+            <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Back to Admin
+            </a>
+        </div>
     </div>
-    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> Use the arrow buttons to reorder items.</p>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> One subject at a time. Use the arrow buttons to reorder items.</p>
     <hr>
-    
-    <!-- Chapters List by Subject -->
-    {% for data in chapters_data %}
+
+    {% if not subject %}
+    <p class="text-muted">No subjects you administer.</p>
+    {% else %}
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-folder"></i> {{ data.subject.name }} ({{ data.subject.id }})</h5>
-            <button class="btn btn-sm btn-success" onclick="showAddChapterModal('{{ data.subject.id }}', '{{ data.subject.name }}')">
+            <h5 class="mb-0"><i class="bi bi-folder"></i> {{ subject.name }} ({{ subject.id }})</h5>
+            <button class="btn btn-sm btn-success"
+                    data-subject-id="{{ subject.id }}"
+                    data-subject-name="{{ subject.name }}"
+                    onclick="showAddChapterModal(this.dataset.subjectId, this.dataset.subjectName)">
                 <i class="bi bi-plus-circle"></i> Add Chapter
             </button>
         </div>
         <div class="card-body">
-            {% if data.chapters %}
-            <div id="chapters-{{ data.subject.id }}" data-subject="{{ data.subject.id }}">
-                {% for chapter in data.chapters %}
+            {% if chapters %}
+            <div id="chapters-{{ subject.id }}" data-subject="{{ subject.id }}">
+                {% for chapter in chapters %}
                 <div class="card mb-3 chapter-item" id="chapter-{{ chapter.id }}" data-id="{{ chapter.id }}">
                     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center">
@@ -136,7 +152,7 @@
             {% endif %}
         </div>
     </div>
-    {% endfor %}
+    {% endif %}
 </div>
 
 <!-- Add/Edit Chapter Modal -->

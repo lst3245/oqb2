@@ -9,7 +9,7 @@ import json
 import shutil
 import uuid
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file, abort
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file, abort, session
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
@@ -191,24 +191,52 @@ def delete_subject(subject_id):
 
 # ==================== Topic Management ====================
 
+# Shared by Topics and Chapters so switching subject on one page opens the
+# other on the same subject. Precedence: ?subject_id= → this session key →
+# first admin subject by id.
+_TAXONOMY_SUBJECT_SESSION = 'admin_taxonomy_subject'
+
+
+def _resolve_taxonomy_subject():
+    """Pick one admin subject for the Topics / Chapters pages.
+
+    Returns ``(subjects_sorted, chosen_or_none)``. Unknown or inaccessible
+    ``?subject_id=`` values are ignored rather than 403'd — the picker just
+    falls back.
+    """
+    subjects = sorted(get_user_admin_subjects(), key=lambda s: s.id)
+    if not subjects:
+        return [], None
+    allowed = {s.id: s for s in subjects}
+    requested = (request.args.get('subject_id') or '').strip()
+    stored = (session.get(_TAXONOMY_SUBJECT_SESSION) or '').strip()
+    chosen = allowed.get(requested) or allowed.get(stored) or subjects[0]
+    session[_TAXONOMY_SUBJECT_SESSION] = chosen.id
+    return subjects, chosen
+
+
 @admin_bp.route('/topics')
 @login_required
 @admin_required
 def topics():
-    """Topic and subtopic management page"""
-    # Filter subjects based on user's admin access
-    subjects = get_user_admin_subjects()
-    
-    # Get all topics with their subtopics, ordered by sort_order
-    topics_data = []
-    for subject in subjects:
-        subject_topics = Topic.query.filter_by(subject_id=subject.id).order_by(Topic.sort_order).all()
-        topics_data.append({
-            'subject': subject,
-            'topics': subject_topics
-        })
-    
-    return render_template('admin_topics.html', topics_data=topics_data)
+    """Topic and subtopic management page (one subject at a time)."""
+    subjects, subject = _resolve_taxonomy_subject()
+    if subject and request.args.get('subject_id') != subject.id:
+        return redirect(url_for('admin.topics', subject_id=subject.id))
+
+    topic_rows = []
+    if subject:
+        topic_rows = (
+            Topic.query.filter_by(subject_id=subject.id)
+            .order_by(Topic.sort_order)
+            .all()
+        )
+    return render_template(
+        'admin_topics.html',
+        subjects=subjects,
+        subject=subject,
+        topics=topic_rows,
+    )
 
 @admin_bp.route('/topics/add', methods=['POST'])
 @login_required
@@ -367,20 +395,24 @@ def reorder_subtopics():
 @login_required
 @admin_required
 def chapters():
-    """Chapter and subchapter management page"""
-    # Filter subjects based on user's admin access
-    subjects = get_user_admin_subjects()
+    """Chapter and subchapter management page (one subject at a time)."""
+    subjects, subject = _resolve_taxonomy_subject()
+    if subject and request.args.get('subject_id') != subject.id:
+        return redirect(url_for('admin.chapters', subject_id=subject.id))
 
-    # Get all chapters with their subchapters, grouped by subject, ordered by sort_order
-    chapters_data = []
-    for subject in subjects:
-        subject_chapters = Chapter.query.filter_by(subject_id=subject.id).order_by(Chapter.sort_order).all()
-        chapters_data.append({
-            'subject': subject,
-            'chapters': subject_chapters
-        })
-
-    return render_template('admin_chapters.html', chapters_data=chapters_data)
+    chapter_rows = []
+    if subject:
+        chapter_rows = (
+            Chapter.query.filter_by(subject_id=subject.id)
+            .order_by(Chapter.sort_order)
+            .all()
+        )
+    return render_template(
+        'admin_chapters.html',
+        subjects=subjects,
+        subject=subject,
+        chapters=chapter_rows,
+    )
 
 @admin_bp.route('/chapters/add', methods=['POST'])
 @login_required

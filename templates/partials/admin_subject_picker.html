@@ -1,0 +1,12 @@
+{# Subject switcher for Topics / Chapters. Expects: subjects, subject, endpoint. #}
+{% if subjects|length > 1 %}
+<select class="form-select form-select-sm" style="width:auto" aria-label="Subject"
+        onchange="if (this.value) location.href = this.value;">
+    {% for s in subjects %}
+    <option value="{{ url_for(endpoint, subject_id=s.id) }}"
+            {% if subject and s.id == subject.id %}selected{% endif %}>
+        {{ s.id }} — {{ s.name }}
+    </option>
+    {% endfor %}
+</select>
+{% endif %}

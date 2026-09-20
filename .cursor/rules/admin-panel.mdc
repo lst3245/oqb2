@@ -14,6 +14,7 @@ alwaysApply: false
 - Health: `/admin/health/sync?mode=dry_run|delete` (dry run default; 24 h grace for asset-less questions); `/health/stats` is DB-only. Anomaly hand-off to lists via `?qids=` or `?qids_token=<localStorage key>` (consumed once).
 - `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
 - Super-admin-only pages: Users, Subjects, Settings, LLM Endpoints, Prompts, Health, `/admin/files`.
+- Topics / Chapters are **one subject at a time** (`?subject_id=`, session `admin_taxonomy_subject` shared). Do not render every subject's taxonomy on one page.
 
 ## Question Management invariants
 - Canonical asset path = `_build_asset_file_path`; IMG is multi-part, MD/DOC single-slot (upload rejects a second one; reorder ignores MD/DOC). Asset delete is `POST|DELETE .../assets/<asset_id>/delete`.

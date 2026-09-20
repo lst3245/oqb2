@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Topics - Question Bank{% endblock %}
+{% block title %}Manage Topics{% if subject %} — {{ subject.id }}{% endif %} - Question Bank{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -22,31 +22,47 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-tags"></i> Manage Topics &amp; Subtopics</h2>
-        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
-        </a>
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-tags"></i> Manage Topics &amp; Subtopics
+            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small>{% endif %}
+        </h2>
+        <div class="d-flex align-items-center gap-2">
+            {% with endpoint='admin.topics' %}
+            {% include 'partials/admin_subject_picker.html' %}
+            {% endwith %}
+            {% if subject %}
+            <a href="{{ url_for('admin.chapters', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-book"></i> Chapters
+            </a>
+            {% endif %}
+            <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Back to Admin
+            </a>
+        </div>
     </div>
-    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> Use the arrow buttons to reorder items.</p>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> One subject at a time. Use the arrow buttons to reorder items.</p>
     <hr>
-    
-    {% for data in topics_data %}
+
+    {% if not subject %}
+    <p class="text-muted">No subjects you administer.</p>
+    {% else %}
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">{{ data.subject.name }} ({{ data.subject.id }})</h5>
+            <h5 class="mb-0">{{ subject.name }} ({{ subject.id }})</h5>
         </div>
         <div class="card-body">
             <!-- Add Topic Button -->
-            <button class="btn btn-success btn-sm mb-3" 
-                    onclick="showAddTopicModal('{{ data.subject.id }}', '{{ data.subject.name }}')">
+            <button class="btn btn-success btn-sm mb-3"
+                    data-subject-id="{{ subject.id }}"
+                    data-subject-name="{{ subject.name }}"
+                    onclick="showAddTopicModal(this.dataset.subjectId, this.dataset.subjectName)">
                 <i class="bi bi-plus-circle"></i> Add Topic
             </button>
             
             <!-- Topics List -->
-            {% if data.topics %}
-            <div id="topics-{{ data.subject.id }}" data-subject="{{ data.subject.id }}">
-                {% for topic in data.topics %}
+            {% if topics %}
+            <div id="topics-{{ subject.id }}" data-subject="{{ subject.id }}">
+                {% for topic in topics %}
                 <div class="border rounded p-3 mb-2 topic-item" data-id="{{ topic.id }}">
                     <div class="d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center">
@@ -143,7 +159,7 @@
             {% endif %}
         </div>
     </div>
-    {% endfor %}
+    {% endif %}
 </div>
 
 <!-- Add/Edit Topic Modal -->

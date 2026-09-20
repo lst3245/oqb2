@@ -15,7 +15,8 @@
 | `app/storage.py` | `safe_username`, `user_path` used when renaming a user moves their storage home. |
 | `templates/admin_index.html` | Admin hub cards. |
 | `templates/admin_subjects.html` | Manage Subjects (super admin). |
-| `templates/admin_topics.html`, `templates/admin_chapters.html` | Topic/Subtopic and Chapter/Subchapter CRUD + drag reorder. |
+| `templates/admin_topics.html`, `templates/admin_chapters.html` | Topic/Subtopic and Chapter/Subchapter CRUD + reorder; one subject at a time. |
+| `templates/partials/admin_subject_picker.html` | Subject `<select>` used by Topics and Chapters (`endpoint` + `subjects` + `subject`). |
 | `templates/admin_users.html` | Users + per-subject permission selects. |
 | `templates/admin_export_import.html` | CSV export/import forms. |
 | `templates/admin_health.html` | Database Health: stats, anomaly modal, orphan sync, untracked files, DOC thumbnail backfill/clear. |
@@ -67,7 +68,7 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
-| GET | `/topics` | A | Page; subjects limited to `get_user_admin_subjects()`; topics ordered by `sort_order`. |
+| GET | `/topics` | A | Page for **one** subject. `?subject_id=` (must be an admin subject) → session `admin_taxonomy_subject` → first admin subject by id. Missing/unknown id is ignored (not 403). Canonical 302 to `?subject_id=` when the query does not already match. Topics ordered by `sort_order`. |
 | POST | `/topics/add` | A | Form `{subject_id, name}`; `sort_order = max + 1`. |
 | POST | `/topics/<int:topic_id>/edit` | A | Form `{name}`. |
 | POST/DELETE | `/topics/<int:topic_id>/delete` | A | Delete topic (subtopics cascade). |
@@ -84,7 +85,7 @@ Identical shape to Topics with `chapter`/`subchapter` names:
 
 | Method | Path | Authz |
 |---|---|---|
-| GET | `/chapters` | A |
+| GET | `/chapters` | A | Same subject resolution as Topics (shared session key). |
 | POST | `/chapters/add`, `/chapters/<int:chapter_id>/edit`, `/chapters/reorder` | A |
 | POST/DELETE | `/chapters/<int:chapter_id>/delete` | A |
 | POST | `/subchapters/add`, `/subchapters/<int:subchapter_id>/edit`, `/subchapters/<int:subchapter_id>/toggle-hidden`, `/subchapters/reorder` | A |
@@ -192,7 +193,7 @@ Reference: [../core/06-system-settings.md](../core/06-system-settings.md).
 
 See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
-- `@admin_required`: caller is super admin or has `role='admin'` on at least one subject. Subject-scoped pages (Topics, Chapters, Export/Import) then filter by `get_user_admin_subjects()`; per-row routes (e.g. topic edit) do **not** re-check the topic's subject.
+- `@admin_required`: caller is super admin or has `role='admin'` on at least one subject. Subject-scoped pages (Topics, Chapters, Export/Import) then filter by `get_user_admin_subjects()`; Topics/Chapters additionally resolve a single subject via `?subject_id=` / session (see Routes). Per-row routes (e.g. topic edit) do **not** re-check the topic's subject.
 - `@super_admin_required`: Subjects, Users, Health, Settings, Prompts, LLM Endpoints, `/admin/files`.
 - Export by `question_ids` filters to admin subjects unless the caller is super admin; export by `subject_id` 403s (flash + redirect) for non-admin subjects.
 
@@ -205,6 +206,7 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
 ## Gotchas
 
+- Topics and Chapters show **one subject**. Session key `admin_taxonomy_subject` is shared, so switching ICT on Topics then opening Chapters lands on ICT. Navbar `/admin/topics` (no query) 302s to the remembered subject, else the first admin subject by id.
 - `GET /admin/ingestion` is a redirect, not a page; `templates/admin_ingestion.html` no longer exists. Link to `/admin/import` instead.
 - `/health/sync` selects mode with `?mode=delete`; there is no `dry_run` query parameter. Anything else (or absent) is a dry run.
 - User permissions payload is wrapped: `{"permissions": {"MATC": "admin"}}`. Sending `{"MATC": "admin"}` at top level silently does nothing.

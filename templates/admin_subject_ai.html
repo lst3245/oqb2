@@ -49,8 +49,8 @@
                 {% endfor %}
             </select>
             {% endif %}
-            <a href="{{ url_for('admin.topics') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-tags"></i> Topics</a>
-            <a href="{{ url_for('admin.chapters') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-book"></i> Chapters</a>
+            <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-tags"></i> Topics</a>
+            <a href="{{ url_for('admin.chapters', subject_id=subject.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-book"></i> Chapters</a>
             {% if current_user.is_super_admin %}
             <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-chat-square-text"></i> AI Prompts</a>
             {% endif %}
