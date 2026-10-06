@@ -64,7 +64,8 @@ Anything that imports and calls `create_app()` (server, `init_db.py`, `cli.py`, 
 3. Mark stale `generated_files` rows (`pending`/`generating`) as `failed`.
 4. Run idempotent schema patches (`CREATE TABLE ... checkfirst`, `INFORMATION_SCHEMA`-guarded `ALTER TABLE`) — see [03-data-model-and-migrations.md](03-data-model-and-migrations.md).
 5. `ai_prompts.ensure_seeded()` — insert built-in prompt variant rows if missing.
-6. `settings.load_all(app)` — overlay DB-backed tunables onto `app.config`.
+6. `subject_snapshot.ensure_baselines()` — insert one `baseline` restore point for any subject that has none (no-op once every subject has a point).
+7. `settings.load_all(app)` — overlay DB-backed tunables onto `app.config`.
 
 All steps swallow exceptions so the app boots on a broken DB; you will see fallbacks, not crashes.
 
@@ -87,6 +88,7 @@ Single Flask process (`debug=True` today) behind nothing. Production guidance (i
 
 ## Backups and recovery (do not touch prod to "fix" things)
 
+- Bad tag / topic / chapter edits in one subject: the user restores a point from **Admin → Restore Points** (per subject, previewed, undoable). This is the first answer to "can we roll back MATC?"; a full dump is for everything else. MariaDB's binary log is **off** on this host, so there is no point-in-time recovery. See [../modules/subject-snapshots.md](../modules/subject-snapshots.md).
 - DB: `mysqldump` of `DB_NAME`; restore into a **new** database name and point a copy of `.env` at it if you need to experiment.
 - Files: `SOURCE_PATH` and `STORAGE_PATH` are plain trees; copy them.
 - If a boot patch or script misbehaved: stop, report, and let the user restore from backup. Do not attempt schema rollbacks by hand against the live DB.
@@ -95,3 +97,5 @@ Single Flask process (`debug=True` today) behind nothing. Production guidance (i
 ## Scenario to keep in mind
 
 The dev server in the user's terminal is the production instance for a school department on the LAN (request logs show other machines' IPs). An agent that "restarts the server to pick up changes" or runs `init_db.py` "to make sure tables exist" would be acting on live data with real users connected. Flask's debug reloader already picks up Python changes; templates reload on request. There is nothing to restart.
+
+The reloader has a sharp edge: `run.py` calls `create_app()` at import, and if the reloaded child fails to import (e.g. a model that uses `MEDIUMTEXT` saved one edit before `from sqlalchemy.dialects.mysql import MEDIUMTEXT` was added — this happened on 2026-10-06), Werkzeug **exits instead of waiting for the next save**. The server is then down for every LAN user until the user restarts it by hand. So: add imports first, then the code that uses them; write new modules completely before anything imports them; and after editing an imported module, check `python -m py_compile <file>` and the terminal tail.

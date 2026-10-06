@@ -195,6 +195,8 @@ Same one-subject view, CRUD, and reorder behaviour as topics.
 
 Questions can be linked to both a topic AND a chapter — they serve different filtering purposes.
 
+**Undo**: every add, rename, delete, hide/unhide and reorder on these pages first saves a **restore point** for the subject. If an edit goes wrong, click **Restore Points** in the page header (or `Admin → Restore Points`) and restore the point taken before it. See [Restore Points](#restore-points-admin--restore-points-per-subject).
+
 **Subjects** (`/admin/subjects`, Super Admin): add/rename subjects. Tick **Split questions into parts by default (PDF import)** so the PDF import wizard starts with that checkbox on for papers of this subject.
 
 ---
@@ -233,6 +235,26 @@ Subject admins can shape how Auto Tag classifies their own subject, without edit
 - **Preview the exact prompt** — type a QID and see the system prompt and user turn exactly as they would be sent (images are counted, not shown). No model call is made.
 - **Evaluate against existing tags** — runs Auto Tag on a random sample (or specific question ids) of questions you have **already tagged** and reports how often the model agrees, overall and per field, with a disagreement table (model said / tagged as / model's reason). **Nothing is written.** Change a hint, run again, compare. Use specific ids for a repeatable benchmark.
 - **Teacher corrections report** — agreement rate, per-field stats, the most frequent *model → teachers* confusions, and recent rows, collected automatically from **Suggest tags → Save Tags** in the edit modal. The trash button clears the log (also resets the patterns fed to the model).
+
+### Restore Points (`Admin → Restore Points`, per subject)
+
+A per-subject undo for tagging mistakes. Just **before** any of these saves, the app stores the subject's current state as a restore point:
+
+- adding, renaming, deleting, hiding or reordering a topic, subtopic, chapter or subchapter, or editing a tagging hint;
+- **Save Tags** in the edit modal (only when the question's tags actually change);
+- **Bulk Edit** on the dashboard (one point per subject);
+- importing the Question Tags, Topics or Chapters CSV;
+- starting an **Auto Tag** run.
+
+The page shows one subject at a time (same subject picker as Topics / Chapters) and lists the points newest first: when it was saved, which kind of save it was taken before, who made it, and an optional note. The newest 100 points per subject are kept, plus the first point of each day for the last 30 days.
+
+- **Take snapshot** — save a point now, with an optional note (e.g. *"before reorganising topic 7"*). Do this before any large manual clean-up.
+- **Preview / restore** — shows what restoring that point would change *right now*: topics / chapters that come back, get renamed back or are removed, how many questions get re-tagged, per-field counts, and a sample of questions with *now → after restore* values. Nothing is written by the preview.
+- **Restore this point** — puts back, for this subject only: the topic, subtopic, chapter and subchapter lists (names, order, hidden flag, tagging hints) and every question's major / minor topics, subtopics, chapter, subchapter, level, type, section and correct %. The current state is saved as a new **Before restore** point first, so you can undo the restore the same way.
+
+What a restore does **not** do: it does not touch answers, comments, question descriptions, verified / checked flags, or files; it does not bring back questions that were deleted since the point; questions added since keep their tags; topics or chapters added since are kept if questions still use them. Other subjects are never changed. Ask other teachers not to edit the subject while you restore.
+
+Split into parts, Combine parts, set parent and PDF import do not create restore points.
 
 ### Batch Operations
 Select multiple questions (checkboxes or "Select All"), then use the toolbar:
@@ -608,6 +630,11 @@ Edit these in `.env` and restart the server.
 ---
 
 ## 14. Backup & Recovery
+
+### Undoing tag / topic mistakes in one subject
+Use **Admin → Restore Points** first (see [Restore Points](#restore-points-admin--restore-points-per-subject)). It rolls back one subject's topic / chapter lists and question tags without touching other subjects, and the restore itself can be undone. Restoring a whole database dump would also roll back every other subject's work since the dump.
+
+The MariaDB binary log is off on the current host, so there is no point-in-time database recovery — keep regular dumps as well.
 
 ### Database Backup
 ```bash

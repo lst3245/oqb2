@@ -129,6 +129,7 @@ AI SSE streams on the same page (`/questions/ai/check`, `/ai/generate-md`, `/ai/
 - **QID grammar**: `parse_qid` in `app/hierarchy.py` (not a local regex). `QNO` is `Q<n>`, `Q<n><part>`, or `Q<n>-<n>`. QB `detail` cannot contain `_`. Creating `3a` also creates an empty `Q3` parent when missing. Creating `23-24` adopts parentless same-paper `Q23`/`Q24` with `part IS NULL`.
 - **Rename cascade / delete guard**: see [question-hierarchy.md](question-hierarchy.md). Cannot rename `Q3` → `Q3a` while this row would still be its own parent.
 - Tag validation: `major_subtopic` must belong to `major_topic`; `subchapter` must belong to `chapter`; violations are silently nulled, not rejected. Changing the parent clears the child.
+- **Restore points:** `update_question` reads the subject state (`subject_snapshot.read_state`) before touching the question and stores it as a `question-tags` point only when `question_tags_differ` (answer / comment / description-only saves add none). `batch-update` captures one `batch-update` point per subject before the loop when any tag flag is set. A new tag writer here must capture before mutating — see [subject-snapshots.md](subject-snapshots.md). Split / Combine / create child / set parent deliberately do not capture.
 - **DOC thumbnail lifecycle**: any code path that creates/deletes IMG or DOC rows must call the matching `doc_thumbnails.on_*` hook; an IMG in a slot eclipses the DOC thumbnail for that slot.
 - **MD render cache**: call `md_render.invalidate(asset_id)` after any MD content or row change.
 - **Check state is per format within a slot**: manual check-state writes hit every row in the `(version, asset_type)` slot; AI proofreading writes per format (see [ai-tools.md](ai-tools.md)). Status rollup in the table defaults to `TYPED_VERSIONS` only.
@@ -214,5 +215,6 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). Ev
 - [ingestion.md](ingestion.md) — Smart Import (Import Files button), `_canonical_rel` mirror of `_build_asset_file_path`.
 - [md-format.md](md-format.md), [doc-format.md](doc-format.md) — MD pipeline and DOC thumbnails.
 - [dashboard.md](dashboard.md) — the other host of the Edit modal and the Bulk Edit modal.
+- [subject-snapshots.md](subject-snapshots.md) — restore points captured by Save Tags and Bulk Edit; undo a bad bulk edit there.
 - [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md), [../core/03-data-model-and-migrations.md](../core/03-data-model-and-migrations.md), [../core/04-backend-conventions.md](../core/04-backend-conventions.md), [../core/05-storage-and-paths.md](../core/05-storage-and-paths.md), [../core/06-system-settings.md](../core/06-system-settings.md).
 - [../reference/filename-convention.md](../reference/filename-convention.md).

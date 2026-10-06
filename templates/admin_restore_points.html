@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Restore Points{% if subject %} — {{ subject.id }}{% endif %} - Question Bank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-clock-history"></i> Restore Points
+            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small>{% endif %}
+        </h2>
+        <div class="d-flex align-items-center gap-2">
+            {% with endpoint='restore_points.page' %}
+            {% include 'partials/admin_subject_picker.html' %}
+            {% endwith %}
+            {% if subject %}
+            <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-tags"></i> Topics
+            </a>
+            <a href="{{ url_for('admin.chapters', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-book"></i> Chapters
+            </a>
+            {% endif %}
+            <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Back to Admin
+            </a>
+        </div>
+    </div>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
+        A restore point is saved automatically just before every change to this subject's topic list,
+        chapter list, or question tags. The newest {{ keep_per_subject }} per subject are kept.
+    </p>
+    <hr>
+
+    {% if not subject %}
+    <p class="text-muted">No subjects you administer.</p>
+    {% else %}
+    <div class="alert alert-light border small">
+        <div><strong>A restore puts back</strong> this subject's topics, subtopics, chapters and subchapters
+            (names, order, hidden flag, tagging hints) and every question's major / minor topics, subtopics,
+            chapter, subchapter, level, type, section and correct %.</div>
+        <div><strong>It does not touch</strong> answers, comments, question descriptions, verified / checked flags,
+            files, or any other subject. Questions deleted since the point are not brought back; questions added
+            since keep their current tags.</div>
+        <div>Restoring first saves the current state as a new point, so a restore can itself be undone.</div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body d-flex flex-wrap align-items-center gap-2">
+            <label for="snapshotNote" class="form-label mb-0 fw-semibold">Take a snapshot now</label>
+            <input type="text" id="snapshotNote" class="form-control form-control-sm" style="max-width: 420px"
+                   maxlength="{{ max_note_chars }}" placeholder="Optional note, e.g. before reorganising topic 7">
+            <button class="btn btn-primary btn-sm" id="snapshotBtn" onclick="takeSnapshot()">
+                <i class="bi bi-camera"></i> Take snapshot
+            </button>
+        </div>
+    </div>
+
+    {% if points %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Saved</th>
+                    <th>Taken before</th>
+                    <th>By</th>
+                    <th>Note</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in points %}
+                <tr>
+                    <td class="text-muted">{{ p.id }}</td>
+                    <td class="text-nowrap" data-utc="{{ p.created_at }}">{{ p.created_at }}</td>
+                    <td>{{ p.action_label }}</td>
+                    <td>{{ p.username or '—' }}</td>
+                    <td class="small">{{ p.note or '' }}</td>
+                    <td class="text-end">
+                        <button class="btn btn-outline-primary btn-sm" onclick="openPreview({{ p.id }})">
+                            <i class="bi bi-eye"></i> Preview / restore
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted">No restore points for {{ subject.id }} yet. One is saved automatically before the next
+        topic, chapter, or tag change — or take one now.</p>
+    {% endif %}
+    {% endif %}
+</div>
+
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewTitle">Restore point</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="previewBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-danger" id="restoreBtn" disabled onclick="doRestore()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Restore this point
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+{% if subject %}
+const RP_SUBJECT_ID = {{ subject.id | tojson }};
+const RP_CAPTURE_URL = {{ url_for('restore_points.capture', subject_id=subject.id) | tojson }};
+{% endif %}
+const RP_PREVIEW_URL = {{ url_for('restore_points.preview', point_id=0) | tojson }};
+const RP_RESTORE_URL = {{ url_for('restore_points.restore', point_id=0) | tojson }};
+let rpModal = null;
+let rpPointId = null;
+let rpRestored = false;
+
+function rpEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+function rpUrl(template, id) {
+    return template.replace(/\/0\/(preview|restore)$/, `/${id}/$1`);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    rpModal = new bootstrap.Modal(document.getElementById('previewModal'));
+    document.getElementById('previewModal').addEventListener('hidden.bs.modal', () => {
+        if (rpRestored) location.reload();
+    });
+    document.querySelectorAll('[data-utc]').forEach(el => {
+        el.textContent = window.oqbFormatLocalTime(el.dataset.utc);
+    });
+});
+
+function takeSnapshot() {
+    const btn = document.getElementById('snapshotBtn');
+    btn.disabled = true;
+    fetch(RP_CAPTURE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: document.getElementById('snapshotNote').value })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) throw new Error(data.error || 'Snapshot failed');
+        location.reload();
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
+
+function rpList(title, items, cls) {
+    if (!items || !items.length) return '';
+    return `<div class="${cls || ''}"><span class="fw-semibold">${rpEsc(title)}:</span> ${items.map(rpEsc).join(', ')}</div>`;
+}
+
+function rpRenderPreview(point, p) {
+    const parts = [];
+    parts.push(`<p class="mb-2"><strong>#${point.id}</strong> · ${rpEsc(window.oqbFormatLocalTime(point.created_at))}
+        · taken before: ${rpEsc(point.action_label)}${point.note ? ' · ' + rpEsc(point.note) : ''}</p>`);
+    if (p.conflicts.length) {
+        parts.push(`<div class="alert alert-danger"><strong>This point cannot be restored:</strong><ul class="mb-0">${
+            p.conflicts.map(c => `<li>${rpEsc(c)}</li>`).join('')}</ul></div>`);
+    }
+    if (!p.has_changes) {
+        parts.push('<div class="alert alert-success mb-0">The subject already matches this point. Nothing to restore.</div>');
+        return parts.join('');
+    }
+
+    parts.push('<h6>Topic &amp; chapter lists</h6>');
+    const tax = [];
+    for (const kind of ['topics', 'subtopics', 'chapters', 'subchapters']) {
+        const t = p.taxonomy[kind];
+        const lines = [
+            rpList(`${t.label}s put back`, t.recreate, 'text-success'),
+            rpList(`${t.label}s renamed back`, t.rename.map(r => `${r.from} → ${r.to}`)),
+            t.other_updates ? `<div>${t.other_updates} ${rpEsc(t.label.toLowerCase())}(s): order / hidden / hint / parent reset</div>` : '',
+            rpList(`${t.label}s removed (added since, unused)`, t.delete, 'text-danger'),
+            rpList(`${t.label}s kept (added since, still used)`, t.keep_newer, 'text-muted'),
+        ].filter(Boolean);
+        if (lines.length) tax.push(...lines);
+    }
+    parts.push(tax.length ? `<div class="small mb-3">${tax.join('')}</div>` : '<p class="small text-muted">No changes.</p>');
+
+    parts.push('<h6>Question tags</h6>');
+    parts.push(`<p class="small mb-1"><strong>${p.questions_changed}</strong> of ${p.questions_now} question(s) will be re-tagged.`
+        + (p.questions_deleted_since ? ` ${p.questions_deleted_since} question(s) in the point were deleted since and are skipped.` : '')
+        + (p.questions_added_since ? ` ${p.questions_added_since} question(s) added since keep their tags.` : '')
+        + (p.dropped_refs ? ` ${p.dropped_refs} tag reference(s) point at rows that no longer exist and will be cleared.` : '')
+        + '</p>');
+    if (p.field_counts.length) {
+        parts.push(`<p class="small">${p.field_counts.map(f => `${rpEsc(f.field)}: ${f.count}`).join(' · ')}</p>`);
+    }
+    if (p.samples.length) {
+        const rows = [];
+        for (const s of p.samples) {
+            s.changes.forEach((c, i) => {
+                rows.push(`<tr>${i === 0 ? `<td rowspan="${s.changes.length}" class="text-nowrap">${rpEsc(s.qid)}</td>` : ''}
+                    <td>${rpEsc(c.field)}</td><td class="text-danger">${rpEsc(c.from)}</td><td class="text-success">${rpEsc(c.to)}</td></tr>`);
+            });
+        }
+        parts.push(`<div class="table-responsive"><table class="table table-sm small align-middle">
+            <thead><tr><th>Question</th><th>Field</th><th>Now</th><th>After restore</th></tr></thead>
+            <tbody>${rows.join('')}</tbody></table></div>`);
+        if (p.samples_truncated) {
+            parts.push(`<p class="small text-muted">…and ${p.samples_truncated} more question(s).</p>`);
+        }
+    }
+    return parts.join('');
+}
+
+function openPreview(pointId) {
+    rpPointId = pointId;
+    const body = document.getElementById('previewBody');
+    const btn = document.getElementById('restoreBtn');
+    document.getElementById('previewTitle').textContent = `Restore point #${pointId}`;
+    body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border"></div><div>Comparing with the current state…</div></div>';
+    btn.disabled = true;
+    rpModal.show();
+    fetch(rpUrl(RP_PREVIEW_URL, pointId))
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Preview failed');
+            body.innerHTML = rpRenderPreview(data.point, data.preview);
+            btn.disabled = !data.preview.has_changes || data.preview.conflicts.length > 0;
+        })
+        .catch(err => { body.innerHTML = `<div class="alert alert-danger">${rpEsc(err.message)}</div>`; });
+}
+
+function doRestore() {
+    if (rpPointId == null) return;
+    const subject = typeof RP_SUBJECT_ID !== 'undefined' ? RP_SUBJECT_ID : '';
+    if (!confirm(`Restore ${subject} to point #${rpPointId}?\n\nThe current state is saved as a new point first, so you can undo this.`)) return;
+    const btn = document.getElementById('restoreBtn');
+    const body = document.getElementById('previewBody');
+    btn.disabled = true;
+    fetch(rpUrl(RP_RESTORE_URL, rpPointId), { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Restore failed');
+            rpRestored = true;
+            body.innerHTML = `<div class="alert alert-success mb-0">${rpEsc(data.message)}</div>`;
+        })
+        .catch(err => {
+            body.insertAdjacentHTML('afterbegin', `<div class="alert alert-danger">${rpEsc(err.message)}</div>`);
+            btn.disabled = false;
+        });
+}
+</script>
+{% endblock %}

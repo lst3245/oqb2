@@ -13,6 +13,7 @@ alwaysApply: true
 | Server | `python run.py` already running in the user's terminal on `:5000`, serving LAN clients | none — debug reloader picks up code edits |
 | Question library | `SOURCE_PATH` (`D:\oqb_data\Source`) | none |
 | Users' generated docs | `STORAGE_PATH\User\<name>\generated` + `generated_files` rows | none |
+| Restore points | `subject_restore_points` rows — the only per-subject undo history (binlog is off) | none |
 | Caches / staging | `STORAGE_PATH\System\*` | safe to clear when idle |
 | Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`) | `.env.example` |
 
@@ -27,6 +28,8 @@ alwaysApply: true
 - Never rename or move files under `SOURCE_PATH` by hand; use the app's rename/asset routes (they keep `question_assets.file_path` in sync).
 - Never spawn Word / `win32com` outside `app/word_com.py`; never `taskkill` `WINWORD.EXE` yourself (a teacher may have Word open on the host).
 - Never write scratch files, test artefacts, or notes into the repo; use `$env:TEMP`.
+- Never truncate, hand-edit, or bulk-delete `subject_restore_points`, and never remove or reorder the `subject_snapshot.capture*` calls in a write route. Never fix one subject by importing a full dump over the live DB — it rolls back every other subject too.
+- Never save an `app/*.py` edit that cannot import (name used before its import, half-applied edit): the reloader re-runs `create_app()` and **the live server exits** (happened 2026-10-06 when `MEDIUMTEXT` was used before its import in `models.py`).
 
 ## ALWAYS
 
@@ -35,6 +38,7 @@ alwaysApply: true
 - Run tests as targeted modules (`python -m unittest tests.test_sorting`) rather than the whole suite when you only need pure-logic checks.
 - Read tunables from `current_app.config`; read paths via `app/storage.py` accessors; join with `safe_join`.
 - When a task needs data you would have to fabricate (a test DB, sample assets), stop and ask; do not create rows in the live DB.
+- After every Python save: imports above their use, `python -m py_compile <file>`, then check the server terminal is still serving. If it exited, tell the user at once (do not restart it yourself).
 
 ## Why (scenario, not history)
 
@@ -44,5 +48,5 @@ Request logs in the dev-server terminal show other LAN machines browsing the das
 
 1. Stop. Do not attempt compensating writes.
 2. Report exactly what ran (command, time, tables/paths touched).
-3. The user restores from `mysqldump` / file backup (see `docs/core/01-runtime-and-ops.md`). If a schema patch is at fault, fix the patch code first so the reload does not re-apply it.
+3. Bad tags / topic or chapter edits in one subject: the subject admin restores from **Admin → Restore Points** (preview first; the restore saves a `before-restore` point, so it is itself undoable). Otherwise the user restores from `mysqldump` / file backup (see `docs/core/01-runtime-and-ops.md`), ideally into a side database and copying only the affected subject. If a schema patch is at fault, fix the patch code first so the reload does not re-apply it.
 4. If Word is wedged: `word_session` quits its own instance on exit; there is no enforced job timeout, so a stuck instance is closed by the user from Task Manager. The Flask process is never the thing to kill.

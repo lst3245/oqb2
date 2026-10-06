@@ -4,6 +4,7 @@ Database models for the Online Question Bank system
 from app import db
 from flask_login import UserMixin
 from datetime import datetime
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Association table for question minor topics (many-to-many)
@@ -733,3 +734,30 @@ class LLMConfig(db.Model):
 
     def __repr__(self):
         return f'<LLMConfig {self.name} ({self.model_name})>'
+
+
+class SubjectRestorePoint(db.Model):
+    """One subject's question tags + topic/chapter lists as they were just
+    before a tag or taxonomy save (or a manual snapshot). ``payload`` is the
+    JSON written by ``app/subject_snapshot.encode_state``; never edit it by
+    hand. Pruned to ``subject_snapshot.KEEP_PER_SUBJECT`` per subject on every
+    capture. See docs/modules/subject-snapshots.md and ADR-013.
+    """
+    __tablename__ = 'subject_restore_points'
+
+    id = db.Column(db.Integer, primary_key=True)
+    # No FK: points must survive taxonomy churn; subject delete clears them
+    # explicitly (subject_snapshot.delete_for_subject).
+    subject_id = db.Column(db.String(10), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'),
+                        nullable=True)
+    action = db.Column(db.String(30), nullable=False)
+    note = db.Column(db.String(200), nullable=True)
+    payload = db.Column(db.Text().with_variant(MEDIUMTEXT(), 'mysql', 'mariadb'),
+                        nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+
+    def __repr__(self):
+        return f'<SubjectRestorePoint #{self.id} {self.subject_id} {self.action}>'

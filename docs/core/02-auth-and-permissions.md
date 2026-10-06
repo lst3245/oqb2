@@ -59,6 +59,7 @@ Query helpers: `get_user_accessible_subjects()` and `get_user_admin_subjects()` 
 - Generated documents, saved filters, presets, and sets are owned by `user_id`; super admins may view/share anything (`_user_can_view_file`, `_user_owns_file` in `app/user.py`).
 - AI Tools, PDF Import, Smart Import, and batch ops are subject-admin scoped; the AI feature as a whole is additionally gated by the `AI_TOOLS_ENABLED` setting (templates read `window.OQB_AI_TOOLS_ENABLED`).
 - **Subject AI tuning** (`/admin/subjects/<subject_id>/ai/*`) is `@subject_admin_required` with the subject id in the URL — a deliberately lower tier than the super-admin AI Prompts page. Subject admins may change the Auto Tag prompt *body* and taxonomy hints for their own subject only; the output-format contract is never editable from that tier. `/admin/questions/<id>/ai/tag-corrections` checks the question's subject explicitly. See [../modules/subject-ai.md](../modules/subject-ai.md).
+- **Restore points** are subject-admin scoped: the page lists `get_user_admin_subjects()`, manual capture is `@subject_admin_required` with the id in the URL (`/admin/subjects/<sid>/restore-points/capture`), and `/admin/restore-points/<point_id>/preview|restore` check `is_subject_admin(point.subject_id)` explicitly. A restore rewrites only that subject. See [../modules/subject-snapshots.md](../modules/subject-snapshots.md).
 
 ## Username policy (login name = filesystem folder)
 

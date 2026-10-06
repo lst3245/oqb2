@@ -29,10 +29,12 @@ Read `docs/core/04-backend-conventions.md`, `docs/core/02-auth-and-permissions.m
 - Sorting is Python-side via `apply_multi_sort` (natsort, NULL handling, manual block order). Do not move it to SQL. New sort field → `SORT_FIELDS` + both dropdowns (`dashboard.html`, `generate.html`).
 - Paths: `storage.safe_join` (returns `None` when escaping the root) and the `storage.*_path()` accessors. Never `startswith`, never `os.getenv` for paths at call time.
 - Tunables: `current_app.config[KEY]`. New tunable → REGISTRY + `Config` + `.env.example` + `docs/core/06`.
+- Writing a subject's topics / subtopics / chapters / subchapters or a question's tag fields? Call `subject_snapshot.capture(subject_id, action)` before the first mutation (same transaction), or `capture_committed` before a per-row-commit stream. See `subject-snapshots.mdc`.
 
 ## Schema
 - Edit `app/models.py` **and** add an idempotent boot patch in `app/__init__.py` (`create(checkfirst=True)` or `INFORMATION_SCHEMA` guard + `ALTER TABLE`, wrapped in `try/except`). Append `docs/reference/schema-history.md`. No Alembic, no new `migrate_*.py`.
 - The patch runs against the live DB on the next reload — get the MariaDB syntax right the first time.
+- Every saved `app/*.py` must import cleanly: `run.py` calls `create_app()` at module level, so a NameError / ImportError on reload **exits the live server**. Add imports before the code that uses them, then `python -m py_compile <file>` and check the server terminal.
 
 ## Tests
 - `unittest` in `tests/test_<module>.py`; test pure helpers with plain inputs; avoid `create_app()`.

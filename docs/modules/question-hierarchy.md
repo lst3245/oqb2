@@ -139,4 +139,5 @@ None in this module's own routes except Split detect (SSE, same job-cancel regis
 - [../decisions/ADR-009-question-hierarchy-over-linking.md](../decisions/ADR-009-question-hierarchy-over-linking.md)
 - [../reference/filename-convention.md](../reference/filename-convention.md)
 - [ingestion.md](ingestion.md), [admin-questions.md](admin-questions.md), [admin-panel.md](admin-panel.md), [generator.md](generator.md), [dashboard.md](dashboard.md), [pdf-import.md](pdf-import.md), [ai-tools.md](ai-tools.md)
+- [subject-snapshots.md](subject-snapshots.md) — Split / Combine / create child / set parent take no restore point (by decision)
 - [../core/03-data-model-and-migrations.md](../core/03-data-model-and-migrations.md), [../core/04-backend-conventions.md](../core/04-backend-conventions.md)

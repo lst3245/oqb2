@@ -172,6 +172,7 @@ Client side: `_aiPickDefaultEndpointId(eps, defaults, opKey)` in the edit modal;
 - Prompt: assembled by **`build_tag_prompt(question, versions, fields, config, image_max_dim, source_path, include_images=True)`** — the single owner used by `suggest_tags` and by the Subject AI preview / evaluate routes. `TAG_SYSTEM` (or, in a subject's `replace` mode, the subject's own body via `ai_prompts.system_prompt_with_body`) + `TAG_USER` (vars `subject_name`, `fields`, `taxonomy`, `subject_instructions`). `build_tag_taxonomy(subject_id, fields)` renders only the requested fields' allowed values, **skips hidden nodes**, and appends each node's `description` hint after an em dash. `subject_instructions` = the subject's `SubjectPromptNote` (append mode) + aggregated teacher-correction patterns (`examples_limit`). Details: [subject-ai.md](subject-ai.md).
 - `parse_tag_result` → `_map_tag_names`: names matched case-insensitively within the subject; subtopics validated as children of their resolved topic; `major_subtopic` must belong to `major_topic`; unmatched names are reported, never invented. The parser also returns optional `confidence{field}` / `reasons{field}` diagnostics; `apply_tags` ignores them.
 - `suggest_tags` returns suggestions + display names + unmatched + `model` + `confidence` + `reasons` (no write). `apply_tags` writes only requested fields and, with `overwrite` off, skips any field already holding a value (scalar and M2M). `iter_auto_tag` = suggest + apply + commit per question. **Stems are skipped** (`tags live on parts`).
+- Restore point: the `/questions/ai/auto-tag` route calls `subject_snapshot.capture_committed(subjects of qs, 'auto-tag')` **before** returning the stream (own session, committed), because `apply_tags` commits per question; if it fails the route 500s and nothing is tagged. A bad run is undone from Restore Points ([subject-snapshots.md](subject-snapshots.md)).
 - Field keys (`TAG_FIELDS`): `q_type`, `level`, `section`, `major_topic`, `major_subtopic`, `minor_topics[]`, `subtopics[]`, `chapter`, `subchapter`. UI pre-selects `q_type, major_topic, major_subtopic, chapter`.
 
 ### Edit-modal Prev/Next navigation
@@ -231,10 +232,12 @@ DB-backed tunables live in `app/settings.py` REGISTRY (group "AI Tools") and hot
 17. `ai_endpoints` lists ALL enabled endpoints including text-only ones; the batch routes will still reject a text-only choice, so pick vision endpoints in the UI.
 18. Ancestor QUE images are prepended for parts in auto-tag, MD QUE transcription, and Explain. Proofread does not. `_auto_tag_one` skips stems.
 19. Do not build the Auto Tag prompt anywhere except `build_tag_prompt`; the Subject AI preview promises "this is exactly what the model sees", and the subject note / hints / correction patterns are injected there.
+20. Any new route or job that calls `apply_tags` (or otherwise writes tags) must capture a restore point first — `capture_committed` when it commits per question. Do not move the capture into `apply_tags` / `_auto_tag_one`: that would write one point per question and prune away the useful history.
 
 ## Related
 
 - [subject-ai.md](subject-ai.md) — per-subject instructions, taxonomy hints, prompt preview, evaluate, correction log (`/admin/subjects/<sid>/ai/*`)
+- [subject-snapshots.md](subject-snapshots.md) — the `auto-tag` restore point taken before each batch run
 - [dashboard.md](dashboard.md) — Explain tutor chat (`/dashboard/api/question/<id>/explain`, `EXPLAIN_DEFAULT_LLM`, `_can_pick_explain_endpoint`)
 - [ai-prompts.md](ai-prompts.md) — prompt registry, variants, per-endpoint pins, parsers
 - [pdf-import.md](pdf-import.md) — vision detection using the same transport, cancel pattern, and parallel gate

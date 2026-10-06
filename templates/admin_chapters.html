@@ -34,6 +34,9 @@
             <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-tags"></i> Topics
             </a>
+            <a href="{{ url_for('restore_points.page', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-clock-history"></i> Restore Points
+            </a>
             {% endif %}
             <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left"></i> Back to Admin

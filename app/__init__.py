@@ -49,6 +49,7 @@ def create_app():
     from app.pwa import pwa_bp
     from app.files import files_bp
     from app.subject_ai import subject_ai_bp
+    from app.restore_points import restore_points_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -59,6 +60,7 @@ def create_app():
     app.register_blueprint(pwa_bp)
     app.register_blueprint(files_bp)
     app.register_blueprint(subject_ai_bp)
+    app.register_blueprint(restore_points_bp)
 
     # Expose the canonical asset-version list to every template (including
     # viewer.html, which does not extend base.html). Templates build their
@@ -429,6 +431,20 @@ def create_app():
                         ))
         except Exception:
             pass  # pre-init DB / non-MySQL backend
+
+        # Subject restore points (docs/modules/subject-snapshots.md): the
+        # table, then one `baseline` point for every subject that has none
+        # yet (first boot with the feature, or a subject added since).
+        try:
+            from app.models import SubjectRestorePoint
+            SubjectRestorePoint.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            pass
+        try:
+            from app import subject_snapshot
+            subject_snapshot.ensure_baselines()
+        except Exception:
+            db.session.rollback()
 
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing

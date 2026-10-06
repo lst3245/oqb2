@@ -31,6 +31,8 @@ D:\oqb2\
     llm_client.py ai_tools.py ai_prompts.py parallel.py   LLM transport, AI batch ops, prompt registry
     pdf_import.py pdf_layout.py pdf_tools.py pdf_text.py  PDF import detection, CV helpers, PDF Tool ops, Find & Mark
     pdf_agent.py         PDF import AI agent: outline → locate → split → verify state machine over pdf_import (ADR-010)
+    subject_ai.py subject_ai_service.py   per-subject Auto Tag tuning: blueprint + service (ADR-012)
+    subject_snapshot.py restore_points.py per-subject restore points: capture/plan/restore service + blueprint (ADR-013)
   templates/             Jinja2; base.html layout; admin_*.html; partials/ for HTMX + shared modals
   static/                img/ (logos), markup/ (PWA manifest, sw.js, icon); css/ js/ are empty placeholders
   resources/mcq_answer_img/{A,B,C,D}.png   source PNGs for the Set MCQ ANS batch op
@@ -63,7 +65,7 @@ flowchart LR
 
 ## Request and data flow (typical)
 
-1. `create_app()` (`app/__init__.py`): load `.env`, build DB URI, init `db` + `login_manager`, register 8 blueprints, inject `OQB_VERSIONS` into templates, ensure storage tree, mark stale `GeneratedFile` rows failed, run **idempotent boot schema patches**, seed prompt variants, then `settings.load_all(app)` overlays DB-backed tunables onto `app.config`.
+1. `create_app()` (`app/__init__.py`): load `.env`, build DB URI, init `db` + `login_manager`, register 10 blueprints, inject `OQB_VERSIONS` into templates, ensure storage tree, mark stale `GeneratedFile` rows failed, run **idempotent boot schema patches**, write a `baseline` restore point for any subject without one, seed prompt variants, then `settings.load_all(app)` overlays DB-backed tunables onto `app.config`.
 2. A request hits a blueprint route; `@login_required` + an authz decorator gate it; `subject_id` is extracted from URL kwargs, query, form, or JSON body.
 3. Dashboard filtering: `POST /dashboard/filter` builds a SQLAlchemy query, then sorts **in Python** with `apply_multi_sort` (natural sort, NULL handling, manual block order) and paginates; returns `partials/question_list.html`.
 4. Generation: `POST /generate` records a `GeneratedFile` (`pending`) and spawns a background thread that expands the selection with `hierarchy.resolve_render_plan`, builds the `.docx` (python-docx + docxcompose; DOC slots merged natively through Word COM under a global lock), writes to `User/<name>/generated/`, and flips status to `completed`/`failed`. The page polls `GET /generate/status/<id>`. PDF is produced lazily on request via Word `ExportAsFixedFormat`.
@@ -89,6 +91,7 @@ flowchart LR
 | A new shared UI behaviour | `templates/base.html` helper or a `templates/partials/*.html` | `docs/frontend/conventions.md` |
 | A new long-running admin op | SSE generator in a service module + route in `app/admin.py` following the existing contract | module doc Background work section |
 | A new LLM-backed feature | prompt key in `app/ai_prompts.PROMPTS_REGISTRY`, worker in `app/ai_tools.py`, default-LLM setting `<FEATURE>_DEFAULT_LLM` | `docs/modules/ai-tools.md`, `docs/modules/ai-prompts.md`, `docs/core/06` |
+| Any code that writes topics / subtopics / chapters / subchapters or a question's tag fields | wherever it belongs, but call `subject_snapshot.capture(subject_id, action)` **before the first mutation** (or `capture_committed` if it commits per row) | writer table in [docs/modules/subject-snapshots.md](docs/modules/subject-snapshots.md); a new snapshotted field also goes into `QUESTION_FIELDS` |
 | A new QID / QNO form (part, range, filename regex) | `app/hierarchy.py` first, then the caller | [docs/modules/question-hierarchy.md](docs/modules/question-hierarchy.md), [docs/reference/filename-convention.md](docs/reference/filename-convention.md) |
 | A test | `tests/test_<module>.py` using `unittest`; avoid `create_app()` (it touches the live DB) unless unavoidable | `docs/core/01` if the run ritual changes |
 
@@ -96,5 +99,6 @@ flowchart LR
 
 - `app/admin.py` is very large and mixes many features; `app/ai_prompts.py`, `app/ai_tools.py`, `app/generator.py`, `app/user.py` are also >1.5k lines. Read only the region you need; grep for the route name first.
 - `create_app()` has side effects on the live DB and filesystem on every start (see [`.cursor/rules/safety-ops.mdc`](.cursor/rules/safety-ops.mdc)).
+- Every saved `.py` file the app imports hot-reloads the live server, and an import-time error (a name used one save before its import, a syntax error) **stops `run.py` for every LAN user** — Werkzeug's reloader exits instead of retrying. Add imports before code that uses them; keep each save importable.
 - Word COM is a single global resource; concurrent generation/thumbnail jobs serialise on a lock with `WORD_COM_LOCK_TIMEOUT`.
 - Multi-worker WSGI would break System Settings hot-reload and the in-process SSE cancel registry; the app is deployed single-process today.

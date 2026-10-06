@@ -21,6 +21,7 @@ from app.utils import (admin_required, super_admin_required, get_user_admin_subj
                        validate_username)
 from app import md_render
 from app import storage
+from app import subject_snapshot
 from app.hierarchy import (
     parse_qid, parse_qno_token, ensure_question, HierarchyError,
     rewrite_descendant_token, rename_shape_ok, collect_subtree_ids,
@@ -180,6 +181,9 @@ def delete_subject(subject_id):
         UserSubjectPermission.query.filter_by(subject_id=subject.id).delete(
             synchronize_session=False)
 
+        # Restore points (no FK — keyed by subject id only).
+        subject_snapshot.delete_for_subject(subject.id)
+
         # Topics/subtopics/chapters/subchapters cascade via the Subject relationships.
         db.session.delete(subject)
         db.session.commit()
@@ -213,6 +217,24 @@ def _resolve_taxonomy_subject():
     chosen = allowed.get(requested) or allowed.get(stored) or subjects[0]
     session[_TAXONOMY_SUBJECT_SESSION] = chosen.id
     return subjects, chosen
+
+
+def _subjects_of(model, ids):
+    """Distinct subject ids owning the given Topic / Chapter ids (or
+    Subtopic / Subchapter ids, via their parent). Read before any mutation —
+    feeds ``subject_snapshot.capture``."""
+    ids = [int(i) for i in ids if str(i).strip().lstrip('-').isdigit()]
+    if not ids:
+        return set()
+    if model is Subtopic:
+        q = db.session.query(Topic.subject_id).join(Subtopic, Subtopic.topic_id == Topic.id)
+        q = q.filter(Subtopic.id.in_(ids))
+    elif model is Subchapter:
+        q = db.session.query(Chapter.subject_id).join(Subchapter, Subchapter.chapter_id == Chapter.id)
+        q = q.filter(Subchapter.id.in_(ids))
+    else:
+        q = db.session.query(model.subject_id).filter(model.id.in_(ids))
+    return {row[0] for row in q.distinct()}
 
 
 @admin_bp.route('/topics')
@@ -249,6 +271,7 @@ def add_topic():
     if not subject_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     
+    subject_snapshot.capture(subject_id, 'topic-edit')
     # Get max sort_order for this subject
     max_order = db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
     
@@ -269,6 +292,7 @@ def edit_topic(topic_id):
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
+    subject_snapshot.capture(topic.subject_id, 'topic-edit')
     topic.name = name
     db.session.commit()
     
@@ -280,6 +304,7 @@ def edit_topic(topic_id):
 def delete_topic(topic_id):
     """Delete a topic"""
     topic = Topic.query.get_or_404(topic_id)
+    subject_snapshot.capture(topic.subject_id, 'topic-edit')
     db.session.delete(topic)
     db.session.commit()
     
@@ -297,6 +322,7 @@ def add_subtopic():
     if not topic_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     
+    subject_snapshot.capture_many(_subjects_of(Topic, [topic_id]), 'topic-edit')
     # Get max sort_order for this topic
     max_order = db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=int(topic_id)).scalar() or 0
     
@@ -317,6 +343,7 @@ def edit_subtopic(subtopic_id):
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
+    subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
     subtopic.name = name
     
     # Handle hidden flag
@@ -333,6 +360,7 @@ def edit_subtopic(subtopic_id):
 def toggle_subtopic_hidden(subtopic_id):
     """Toggle the hidden status of a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
+    subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
     subtopic.hidden = not subtopic.hidden
     db.session.commit()
     
@@ -344,6 +372,7 @@ def toggle_subtopic_hidden(subtopic_id):
 def delete_subtopic(subtopic_id):
     """Delete a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
+    subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
     db.session.delete(subtopic)
     db.session.commit()
     
@@ -357,6 +386,7 @@ def reorder_topics():
     try:
         data = request.get_json()
         topic_ids = data.get('topic_ids', [])
+        subject_snapshot.capture_many(_subjects_of(Topic, topic_ids), 'topic-edit')
         
         for index, topic_id in enumerate(topic_ids):
             topic = Topic.query.get(topic_id)
@@ -377,6 +407,7 @@ def reorder_subtopics():
     try:
         data = request.get_json()
         subtopic_ids = data.get('subtopic_ids', [])
+        subject_snapshot.capture_many(_subjects_of(Subtopic, subtopic_ids), 'topic-edit')
         
         for index, subtopic_id in enumerate(subtopic_ids):
             subtopic = Subtopic.query.get(subtopic_id)
@@ -425,6 +456,7 @@ def add_chapter():
     if not subject_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
 
+    subject_snapshot.capture(subject_id, 'chapter-edit')
     # Get max sort_order for this subject
     max_order = db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
 
@@ -445,6 +477,7 @@ def edit_chapter(chapter_id):
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
+    subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
     chapter.name = name
     db.session.commit()
     
@@ -456,6 +489,7 @@ def edit_chapter(chapter_id):
 def delete_chapter(chapter_id):
     """Delete a chapter"""
     chapter = Chapter.query.get_or_404(chapter_id)
+    subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
     
     # Clear chapter_id from questions (ON DELETE SET NULL may not work in SQLite)
     Question.query.filter_by(chapter_id=chapter_id).update({'chapter_id': None, 'subchapter_id': None})
@@ -477,6 +511,7 @@ def add_subchapter():
     if not chapter_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
 
+    subject_snapshot.capture_many(_subjects_of(Chapter, [chapter_id]), 'chapter-edit')
     # Get max sort_order for this chapter
     max_order = db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=int(chapter_id)).scalar() or 0
 
@@ -497,6 +532,7 @@ def edit_subchapter(subchapter_id):
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
+    subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
     subchapter.name = name
     
     # Handle hidden flag
@@ -513,6 +549,7 @@ def edit_subchapter(subchapter_id):
 def toggle_subchapter_hidden(subchapter_id):
     """Toggle the hidden status of a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
+    subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
     subchapter.hidden = not subchapter.hidden
     db.session.commit()
     
@@ -524,6 +561,7 @@ def toggle_subchapter_hidden(subchapter_id):
 def delete_subchapter(subchapter_id):
     """Delete a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
+    subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
 
     # Clear subchapter_id from questions
     Question.query.filter_by(subchapter_id=subchapter_id).update({'subchapter_id': None})
@@ -541,6 +579,7 @@ def reorder_chapters():
     try:
         data = request.get_json()
         chapter_ids = data.get('chapter_ids', [])
+        subject_snapshot.capture_many(_subjects_of(Chapter, chapter_ids), 'chapter-edit')
         
         for index, chapter_id in enumerate(chapter_ids):
             chapter = Chapter.query.get(chapter_id)
@@ -561,6 +600,7 @@ def reorder_subchapters():
     try:
         data = request.get_json()
         subchapter_ids = data.get('subchapter_ids', [])
+        subject_snapshot.capture_many(_subjects_of(Subchapter, subchapter_ids), 'chapter-edit')
         
         for index, subchapter_id in enumerate(subchapter_ids):
             subchapter = Subchapter.query.get(subchapter_id)
@@ -583,6 +623,8 @@ def update_question(question_id):
     try:
         question = Question.query.get_or_404(question_id)
         stem_row = is_stem(question)
+        # Read before any mutation; kept as a restore point only if tags change.
+        tag_state = subject_snapshot.read_state(question.subject)
         
         # Update basic fields
         if not stem_row and 'level' in request.form:
@@ -694,6 +736,8 @@ def update_question(question_id):
                 else:
                     question.subchapter_id = None
         
+        if subject_snapshot.question_tags_differ(tag_state, question):
+            subject_snapshot.capture_state(tag_state, 'question-tags')
         db.session.commit()
         
         return jsonify({
@@ -1044,6 +1088,10 @@ def batch_update_questions():
         update_correct_pct = request.form.get('update_correct_pct') == '1'
         update_topics = request.form.get('update_topics') == '1'
         update_chapters = request.form.get('update_chapters') == '1'
+        
+        if any((update_level, update_q_type, update_section, update_correct_pct,
+                update_topics, update_chapters)):
+            subject_snapshot.capture_many({q.subject for q in questions}, 'batch-update')
         
         updated_count = 0
         
@@ -3712,6 +3760,14 @@ def import_question_tags():
         subjects = get_user_admin_subjects()
         subject_ids = {s.id for s in subjects}
 
+        # Restore point per subject, taken on its first row (before any of
+        # its questions change) — only when a snapshotted field is imported.
+        snapshot_fields = {'major_topic', 'major_subtopic', 'minor_topics', 'subtopics',
+                           'chapter', 'subchapter', 'section', 'level', 'q_type',
+                           'correct_percentage'}
+        wants_snapshot = bool(fields_to_import & snapshot_fields)
+        snapshotted = set()
+
         for row_num, row in enumerate(reader, start=2):
             qid = row.get('qid', '').strip()
             if not qid:
@@ -3732,6 +3788,9 @@ def import_question_tags():
                 continue
 
             subj_id = question.subject
+            if wants_snapshot and subj_id not in snapshotted:
+                subject_snapshot.capture(subj_id, 'tag-import')
+                snapshotted.add(subj_id)
 
             # Major topic
             if 'major_topic' in fields_to_import:
@@ -3941,6 +4000,7 @@ def import_topics():
         warnings = []
 
         # Track sort_order from row position
+        snapshotted = set()     # subjects with a restore point taken this import
         topic_order = {}        # (subj_id, topic_name) -> sort_order
         topic_counter = {}      # subj_id -> next sort_order
         subtopic_counter = {}   # topic_id -> next sort_order
@@ -3963,6 +4023,9 @@ def import_topics():
                 skipped += 1
                 warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
                 continue
+            if subj_id not in snapshotted:
+                subject_snapshot.capture(subj_id, 'topic-import')
+                snapshotted.add(subj_id)
 
             # Determine topic sort_order from row position
             topic_key = (subj_id, topic_name)
@@ -4098,6 +4161,7 @@ def import_chapters():
         warnings = []
 
         # Track sort_order from row position
+        snapshotted = set()       # subjects with a restore point taken this import
         chapter_order = {}        # (subj_id, chapter_name) -> sort_order
         chapter_counter = {}      # subj_id -> next sort_order
         subchapter_counter = {}   # chapter_id -> next sort_order
@@ -4119,6 +4183,9 @@ def import_chapters():
                 skipped += 1
                 warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
                 continue
+            if subj_id not in snapshotted:
+                subject_snapshot.capture(subj_id, 'chapter-import')
+                snapshotted.add(subj_id)
 
             # Determine chapter sort_order from row position
             chapter_key = (subj_id, chapter_name)
@@ -7161,6 +7228,14 @@ def ai_auto_tag():
         return jsonify({'error': 'fields must include at least one tag field'}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
+
+    # apply_tags commits per question, so the restore point is committed up
+    # front in its own session; db.session (and qs) stay untouched.
+    try:
+        subject_snapshot.capture_committed({q.subject for q in qs}, 'auto-tag')
+    except Exception as e:
+        current_app.logger.exception('Auto Tag restore point failed')
+        return jsonify({'error': f'Could not save a restore point, so nothing was tagged: {e}'}), 500
 
     def factory(app, cancel):
         from app import ai_tools

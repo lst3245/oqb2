@@ -14,6 +14,8 @@
 | `files_bp` | `app/files.py` | `/files` | root-aware file API + user browser page |
 | `toolbox_bp` | `app/toolbox/__init__.py` (+ `pdf.py`, `markup.py`) | `/admin/toolbox` | hub, PDF Tool, Markup |
 | `pwa_bp` | `app/pwa.py` | `/` | `/manifest.webmanifest`, `/sw.js` |
+| `subject_ai_bp` | `app/subject_ai.py` | `/admin` | `/subject-ai`, `/subjects/<sid>/ai/*`, `/questions/<id>/ai/tag-corrections` |
+| `restore_points_bp` | `app/restore_points.py` | `/admin` | `/restore-points`, `/subjects/<sid>/restore-points/capture`, `/restore-points/<id>/preview|restore` |
 
 Register new blueprints in `create_app()`; keep one blueprint per area. Prefer adding a new module over growing `app/admin.py`.
 
@@ -37,6 +39,27 @@ def something(question_id):
 - Decorator order: `route` → `login_required` → authz decorator.
 - Read params from URL kwargs, then `request.args`, `request.form`, or JSON (`request.get_json(silent=True) or {}`).
 - Commit at the route (or service) boundary; on error `db.session.rollback()` and return an error.
+
+## Restore points before tag / taxonomy writes
+
+Any code that changes a subject's topics / subtopics / chapters / subchapters, or a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, minor topics or subtopics, captures a restore point **before its first mutation**:
+
+```python
+subject_snapshot.capture(subject_id, 'topic-edit')        # adds to db.session, no commit
+...mutate...
+db.session.commit()                                       # point + edit commit together
+
+subject_snapshot.capture_many({q.subject for q in qs}, 'batch-update')   # one per subject
+
+state = subject_snapshot.read_state(question.subject)     # edit modal: read first,
+...mutate...                                              # keep only if this question's tags changed
+if subject_snapshot.question_tags_differ(state, question):
+    subject_snapshot.capture_state(state, 'question-tags')
+
+subject_snapshot.capture_committed(subject_ids, 'auto-tag')   # writers that commit per row
+```
+
+Capture once per subject per request (never per row), use an existing action key or add one to `ACTION_LABELS`, and add the writer to the table in [../modules/subject-snapshots.md](../modules/subject-snapshots.md).
 
 ## Response envelopes
 

@@ -27,3 +27,4 @@ alwaysApply: false
 - Images are downscaled to `LLM_IMAGE_MAX_DIM` before sending; MD/DOC slots are rendered to images first. Auto-tag / MD QUE / Explain prepend ancestor QUE images for parts; auto-tag skips stems; proofread stays per-row.
 - The Auto Tag prompt is assembled **only** in `build_tag_prompt` (subject note + taxonomy hints + correction patterns live there); `suggest_tags` returns `confidence` / `reasons` diagnostics that `apply_tags` ignores. Per-subject layer: `subject-ai.mdc` / `docs/modules/subject-ai.md`.
 - Cancel registry is in-process; a multi-worker deployment would break it.
+- Auto Tag commits per question, so `ai_auto_tag` takes an `auto-tag` restore point with `subject_snapshot.capture_committed` **before** the stream (500, nothing tagged, if that fails). Any new tag writer needs the same; never move the capture into `apply_tags`. See `subject-snapshots.mdc`.

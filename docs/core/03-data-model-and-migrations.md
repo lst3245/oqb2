@@ -30,6 +30,8 @@ erDiagram
   prompt_variants ||--o{ prompt_endpoint_assignments : pinned
   subjects ||--o{ subject_prompt_notes : tunes
   questions ||--o{ tag_corrections : judged
+  subjects ||..o{ subject_restore_points : "snapshots (no FK)"
+  users ||--o{ subject_restore_points : took
 ```
 
 ## Tables
@@ -56,6 +58,7 @@ erDiagram
 | `PromptOverride` | `prompt_overrides` | **Legacy**; migrated into built-in variants at boot | Do not write new rows |
 | `SubjectPromptNote` | `subject_prompt_notes` | Subject-admin instructions layered on an AI feature (`feature='tag'`) | unique `(subject_id, feature)`; `mode` `append/replace`; `content`; `examples_limit` 0–30; FK `subjects.id` CASCADE. See [../modules/subject-ai.md](../modules/subject-ai.md) |
 | `TagCorrection` | `tag_corrections` | Model suggestion vs teacher decision per field | `question_id` CASCADE, `subject_id` idx, `field`, `suggested` / `saved` display names, `agreed`, `reason`, `model`, `user_id`, `created_at` |
+| `SubjectRestorePoint` | `subject_restore_points` | One subject's topic/chapter lists + every question's tag fields, as they were **before** a save | `subject_id` VARCHAR(10) idx, **no FK** (subject delete clears rows explicitly); `user_id` FK `users.id` `SET NULL`; `action`; `note` ≤ 200; `payload` MEDIUMTEXT versioned JSON (`subject_snapshot.encode_state`); `created_at`. Pruned per subject on every capture (newest 100 + first per UTC day for 30 days). See [../modules/subject-snapshots.md](../modules/subject-snapshots.md) |
 
 JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation_options`, `check_result`, `system_settings.value`) are parsed in Python; keep them backward compatible — old blobs are never migrated.
 
@@ -66,6 +69,8 @@ JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation
 - `Question.subject` must equal the `SUBJ` token in `qid`. `qno` is the integer **start** of the QNO token (`Q5` / `Q5a` / `Q23-24` → 5); `qno_end` and `part` hold the rest. Source of truth: `app/hierarchy.py`, not a second regex.
 - Exactly one default `FileSection` per user; the code lazily creates it.
 - `PromptVariant`: exactly one active row per key — enforced by the admin routes and `ensure_seeded()`.
+- Every write to `topics` / `subtopics` / `chapters` / `subchapters`, to a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, or to `question_minor_topics` / `question_subtopics`, is preceded by `subject_snapshot.capture(...)` in the same transaction. Nothing in the DB enforces it; a writer that skips it leaves a gap in the subject's undo history ([../modules/subject-snapshots.md](../modules/subject-snapshots.md)).
+- `subject_restore_points.payload` is opaque JSON owned by `app/subject_snapshot.py` (`PAYLOAD_VERSION`); readers must stay tolerant of older payloads — never rewrite stored payloads.
 
 ## How schema changes are made (the only sanctioned way)
 
@@ -97,6 +102,7 @@ with db.engine.begin() as conn:
 | Remove rows whose files vanished | `python cli.py sync` (dry-run) / `--no-dry-run`; Admin → Health → Sync | Destructive with `--no-dry-run`; 24-hour grace on newly created questions; never drops a row that still has children |
 | Storage relocation | `python cli.py migrate-storage` | Idempotent; skips existing targets |
 | Fresh install | `python init_db.py` | Only on an empty DB |
+| Undo a subject's tag / topic / chapter edits | Admin → Restore Points (preview, then restore) | One subject, one transaction, `before-restore` point first; see [../modules/subject-snapshots.md](../modules/subject-snapshots.md) |
 | Backup / restore | `mysqldump` + file copies | See [01-runtime-and-ops.md](01-runtime-and-ops.md) |
 
 ## Lifecycle-scoped data

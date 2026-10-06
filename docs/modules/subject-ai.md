@@ -56,6 +56,7 @@ All `@login_required`; subject routes add `@subject_admin_required` (subject id 
 - **Evaluation** skips stems (tags live on parts) and questions with no existing value in any requested field; `sample_tagged_questions` picks random non-stem questions holding at least one requested field. It never calls `apply_tags`.
 - **Correction logging** fires only when Save Tags follows Suggest tags for the *same* question in the modal (`_lastAutoTagSuggestion.questionId` match), then clears the memo. Rows record every requested field where either side has a value (`agreed` may be true); the report shows agreement rate, per-field stats, top confusions and recent rows.
 - `suggest_tags` returns `confidence{field: 0..1}` and `reasons{field: str}` when the model supplies them (optional keys in `TAG_FORMAT`); `apply_tags` ignores them. The modal shows reasons in a collapsible list; evaluate shows them in the disagreement table.
+- **Taxonomy hints are snapshotted.** `set_description` captures a `taxonomy-hint` restore point (`subject_snapshot.capture`) after validation and before writing; `description` is part of the restore payload ([subject-snapshots.md](subject-snapshots.md)). Notes, corrections and evaluate are not.
 
 ## Settings & config keys
 
@@ -88,5 +89,6 @@ None new. Uses `AI_TOOLS_ENABLED`, `AUTOTAG_DEFAULT_LLM`, `LLM_IMAGE_MAX_DIM` ([
 - [ai-prompts.md](ai-prompts.md) — `TAG_*` registry entries, `system_prompt_with_body`, variable rules
 - [admin-questions.md](admin-questions.md) — the edit modal that emits correction rows
 - [admin-panel.md](admin-panel.md) — Topics / Chapters pages (where nodes are created; hints are edited here)
+- [subject-snapshots.md](subject-snapshots.md) — restore points (a hint edit is undoable)
 - [../decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md](../decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md)
 - [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md), [../core/03-data-model-and-migrations.md](../core/03-data-model-and-migrations.md)

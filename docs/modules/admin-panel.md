@@ -168,9 +168,10 @@ Super-admin only; see [ai-tools.md](ai-tools.md). Routes: `GET /llm-endpoints` (
 ## Business rules / invariants
 
 - `Subject.id` is immutable: it is the PK, embedded in every QID and in the on-disk `SOURCE_PATH/<subject>/` layout. Only `name` is editable.
-- Subject delete is blocked (400) while any `Question` references it. When allowed, clean-up order is: `SavedQuestionSet` -> matching `SavedFilter` (JSON scan) -> `UserSubjectPermission` -> `Subject` (ORM cascade handles topics/subtopics/chapters/subchapters). `SavedGenerationProfile` is options-only and untouched. Disk folders are never deleted.
+- Subject delete is blocked (400) while any `Question` references it. When allowed, clean-up order is: `SavedQuestionSet` -> matching `SavedFilter` (JSON scan) -> `UserSubjectPermission` -> `subject_restore_points` (`subject_snapshot.delete_for_subject`) -> `Subject` (ORM cascade handles topics/subtopics/chapters/subchapters). `SavedGenerationProfile` is options-only and untouched. Disk folders are never deleted.
 - Subtopics/Subchapters have `hidden`; hidden ones are excluded from the dashboard but shown in admin (dashboard uses `include_hidden=1` for admin views).
 - `sort_order` for topics/subtopics/chapters/subchapters is written by the reorder routes (list index) and by CSV import (row position).
+- **Every** Topic / Subtopic / Chapter / Subchapter route (add, edit, toggle-hidden, delete, reorder) and the three CSV imports call `subject_snapshot.capture(...)` before mutating, so each change leaves a per-subject restore point (actions `topic-edit`, `chapter-edit`, `tag-import`, `topic-import`, `chapter-import`). Subjects for id lists come from `_subjects_of(model, ids)`. New routes here must do the same — see [subject-snapshots.md](subject-snapshots.md).
 - Username policy (`app/utils.validate_username`): must match `USERNAME_RE = ^[A-Za-z0-9._-]{1,80}$`, must not start or end with `.`, and must not be one of the reserved names `generated, con, prn, aux, nul, com1..com4, lpt1..lpt3` (case-insensitive). The same rule keeps the username usable as the `User/<username>` storage folder name. Applied on add and edit.
 - Renaming a user moves `User/<safe_username(old)>` to `User/<safe_username(new)>` via `shutil.move`, only when the source exists and the destination does not; `OSError` is logged and swallowed so a locked folder never blocks the rename.
 - You cannot edit or delete your own account from the Users page.
@@ -213,7 +214,7 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 - Permission updates are per-key merges. To remove access send `''` or `null` for that subject.
 - Renaming a user does not rename `GeneratedFile.filename` rows; the storage move keeps the files reachable because `storage.user_home()` is derived from the current username.
 - Subject `id` validation happens only on add. Existing lowercase/long IDs seeded by `init_db.py` keep working.
-- Question Tags CSV import clears M2M `minor_topics`/`subtopics` when those columns are selected, even if the cell is empty — deselect the column to preserve existing values.
+- Question Tags CSV import clears M2M `minor_topics`/`subtopics` when those columns are selected, even if the cell is empty — deselect the column to preserve existing values. A mistaken import is undone from **Restore Points** (`tag-import` point per subject).
 - Health anomaly QID hand-off: the receiving pages (`/dashboard`, `/admin/questions`) accept `?qids=` or `?qids_token=`; the token value is a `localStorage` key that the receiving page deletes after reading, so a refresh of the target page loses the pinned list.
 - Thumbnail cache is keyed by `asset_id` only. After changing `DOC_THUMBNAIL_WIDTH` run clear then backfill (`force=1` also works).
 - `_build_asset_file_path(question, asset)` is the single source of the canonical relative path (`<SUBJ>/PP/<SOURCE>/<YEAR>/<PAPER>/<QID>_<VER>_<TYPE>[_<part>].<ext>` or `<SUBJ>/QB/<DETAIL>/...`). Rename, reorder, health path-mismatch and Smart Import all rely on it; keep them in sync if you change the layout.
@@ -225,5 +226,6 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 - [ingestion.md](ingestion.md) — Library scan, Smart Import, CLI ingest/sync.
 - [file-browser.md](file-browser.md) — `/admin/files` and `files_bp`.
 - [pdf-import.md](pdf-import.md), [ai-tools.md](ai-tools.md), [ai-prompts.md](ai-prompts.md).
+- [subject-snapshots.md](subject-snapshots.md) — Restore Points page and the capture hooks in this module's taxonomy / import routes.
 - [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md), [../core/03-data-model-and-migrations.md](../core/03-data-model-and-migrations.md), [../core/04-backend-conventions.md](../core/04-backend-conventions.md), [../core/05-storage-and-paths.md](../core/05-storage-and-paths.md), [../core/06-system-settings.md](../core/06-system-settings.md).
 - [../decisions/ADR-005-unified-storage-tree.md](../decisions/ADR-005-unified-storage-tree.md).

@@ -30,6 +30,7 @@ from sqlalchemy import func
 
 from app import db
 from app import ai_prompts
+from app import subject_snapshot
 from app.models import (Question, Topic, Subtopic, Chapter, Subchapter,
                         SubjectPromptNote, TagCorrection)
 
@@ -167,6 +168,7 @@ def set_description(subject_id, kind, node_id, description):
     desc = ' '.join((description or '').split())
     if len(desc) > MAX_DESCRIPTION_CHARS:
         raise ValueError(f'description exceeds {MAX_DESCRIPTION_CHARS} characters')
+    subject_snapshot.capture(subject_id, 'taxonomy-hint')
     node.description = desc or None
     db.session.commit()
     return desc

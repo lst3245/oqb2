@@ -29,3 +29,4 @@ alwaysApply: false
 - Split commit calls `replace_img_assets` per version (each call commits). Partial crops are possible if a later version fails. On a root, commit copies the staged PNG to WHOLE **before** cropping when that slot is empty.
 - Combine loads all subtree IMG pages into memory, writes the survivor, then deletes descendants. Do not delete children first. Range stems return 409. Bulk selection collapses to maximal stems (`collapse_maximal_stems`).
 - Pass-2 crop mapping uses unpadded crops then `full_width_child_box` (parent x1/x2 kept). Auto-tag / MD QUE / Explain prepend ancestor QUE; proofread does not.
+- Split / Combine / create child / set parent move tags between stem and parts but take **no restore point** by decision (ADR-013); a restore afterwards re-tags surviving rows only. Adding a capture here is a doc change too (`subject-snapshots.mdc`).
