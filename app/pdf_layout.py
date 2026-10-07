@@ -104,6 +104,25 @@ def _content_extent(profile, noise):
     return int(idx[0]), int(idx[-1])
 
 
+def has_ink(gray, box, min_dark_frac: float = 0.005, skip_left_frac: float = 0.08,
+            dark_threshold: int = 160) -> bool:
+    """True when the fractional ``box`` region holds printed content.
+
+    The leftmost ``skip_left_frac`` of the box width is ignored so a lone
+    question number in the margin does not count as content. Scanner speckle
+    stays well below ``min_dark_frac`` (fraction of dark pixels)."""
+    _require_numpy()
+    H, W = gray.shape
+    x1, y1, x2, y2 = [float(v) for v in box]
+    x1 = x1 + max(0.0, skip_left_frac) * max(0.0, x2 - x1)
+    c1, c2 = int(round(max(0.0, x1) * W)), int(round(min(1.0, x2) * W))
+    r1, r2 = int(round(max(0.0, y1) * H)), int(round(min(1.0, y2) * H))
+    if c2 - c1 < 2 or r2 - r1 < 2:
+        return False
+    region = gray[r1:r2, c1:c2]
+    return float((region < int(dark_threshold)).mean()) >= float(min_dark_frac)
+
+
 # ==================== Deskew ====================
 
 def deskew_image(img, max_angle: float = 6.0, coarse_step: float = 1.0,

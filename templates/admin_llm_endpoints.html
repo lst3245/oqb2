@@ -171,6 +171,15 @@
                         <div class="form-text">Poe reasoning: Responses. OpenRouter GPT-5.5: Chat Completions.</div>
                     </div>
                     <div class="col-md-4">
+                        <label class="form-label">Box axis order</label>
+                        <select class="form-select" id="epBoxCoordOrder">
+                            <option value="">Use system default</option>
+                            <option value="xyxy">x-first [x1, y1, x2, y2]</option>
+                            <option value="yxyx">y-first [y1, x1, y2, x2] (Gemini)</option>
+                        </select>
+                        <div class="form-text">How this model writes bounding boxes (PDF import, PDF tool scan, figure crops). Default: the <code>PDF_IMPORT_COORD_ORDER</code> setting.</div>
+                    </div>
+                    <div class="col-md-4">
                         <label class="form-label">Reasoning effort</label>
                         <select class="form-select" id="epReasoningEffort">
                             <option value="">Use system default</option>
@@ -318,6 +327,9 @@ function renderEndpoints() {
         const protoBadge = (ep.api_protocol === 'responses')
             ? '<span class="badge bg-warning text-dark">responses</span>'
             : '';
+        const orderBadge = ep.box_coord_order
+            ? `<span class="badge bg-light text-dark border" title="Bounding-box axis order">boxes: ${escapeHtml(ep.box_coord_order)}</span>`
+            : '';
         const re = ep.reasoning_effort || '';
         const reasoningBadge = re
             ? `<span class="badge bg-secondary">reasoning: ${escapeHtml(re)}</span>`
@@ -331,7 +343,7 @@ function renderEndpoints() {
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
                         <strong>${escapeHtml(ep.name)}</strong>
-                        ${enabledBadge} ${visionBadge} ${kindBadge} ${protoBadge} ${reasoningBadge} ${extraBadge} ${tierBadge} ${keyBadge}
+                        ${enabledBadge} ${visionBadge} ${kindBadge} ${protoBadge} ${orderBadge} ${reasoningBadge} ${extraBadge} ${tierBadge} ${keyBadge}
                         <div class="meta mt-1">
                             <code>${escapeHtml(ep.model_name)}</code> @ <code>${escapeHtml(ep.base_url)}</code>
                             &middot; provider: ${escapeHtml(ep.provider)}
@@ -373,6 +385,7 @@ function openEndpointModal(id) {
     document.getElementById('epServiceTier').value = ep ? (ep.service_tier || '') : '';
     document.getElementById('epServiceTierBatch').value = ep ? (ep.service_tier_batch || '') : '';
     document.getElementById('epApiProtocol').value = ep ? (ep.api_protocol || 'chat') : 'chat';
+    document.getElementById('epBoxCoordOrder').value = ep ? (ep.box_coord_order || '') : '';
     document.getElementById('epReasoningEffort').value = ep ? (ep.reasoning_effort || '') : '';
     document.getElementById('epReasoningSummary').value = ep ? (ep.reasoning_summary || '') : '';
     document.getElementById('epReasoningMaxTokens').value = ep && ep.reasoning_max_tokens ? ep.reasoning_max_tokens : '';
@@ -423,6 +436,7 @@ function saveEndpoint() {
         service_tier: document.getElementById('epServiceTier').value,
         service_tier_batch: document.getElementById('epServiceTierBatch').value,
         api_protocol: document.getElementById('epApiProtocol').value,
+        box_coord_order: document.getElementById('epBoxCoordOrder').value,
         reasoning_effort: document.getElementById('epReasoningEffort').value,
         reasoning_summary: document.getElementById('epReasoningSummary').value,
         reasoning_max_tokens: parseInt(document.getElementById('epReasoningMaxTokens').value, 10) || 0,

@@ -112,6 +112,18 @@ class PlanLabelTests(unittest.TestCase):
         self.assertEqual(normalize_part_box_label('ci'), 'ci')
         self.assertIsNone(normalize_part_box_label('??'))
 
+    def test_normalize_range_box_label(self):
+        from app.hierarchy import normalize_range_box_label
+        self.assertEqual(normalize_range_box_label('stem', 31, 32), 'stem')
+        self.assertEqual(normalize_range_box_label('31-32', 31, 32), 'stem')
+        self.assertEqual(normalize_range_box_label('Q31', 31, 32), '31')
+        self.assertEqual(normalize_range_box_label(32, 31, 32), '32')
+        self.assertEqual(normalize_range_box_label('(31)', 31, 32), '31')
+        self.assertIsNone(normalize_range_box_label('33', 31, 32))
+        self.assertIsNone(normalize_range_box_label('a', 31, 32))
+        self.assertIsNone(normalize_range_box_label('31a', 31, 32))
+        self.assertIsNone(normalize_range_box_label('30-31', 31, 32))
+
     def test_compose_part_label(self):
         self.assertEqual(compose_part_label('3', 'stem'), '3')
         self.assertEqual(compose_part_label('3', 'a'), '3a')

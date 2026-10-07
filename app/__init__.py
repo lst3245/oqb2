@@ -264,6 +264,11 @@ def create_app():
                         "ALTER TABLE llm_configs ADD COLUMN request_extra_json "
                         "TEXT NULL"
                     ))
+                if 'box_coord_order' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE llm_configs ADD COLUMN box_coord_order "
+                        "VARCHAR(4) NOT NULL DEFAULT ''"
+                    ))
                 if added:
                     for row in conn.execute(text(
                         "SELECT id, base_url FROM llm_configs"

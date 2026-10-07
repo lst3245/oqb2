@@ -42,7 +42,8 @@ one or more super admins (users, subjects, settings, everything).
 - **Asset versions are `EN / CH / BI / ENO / CHO`** (formerly "languages"); the canonical list lives in `app/utils.VERSIONS` and templates get it via a context processor. Do not hardcode the list ([ADR-006](docs/decisions/ADR-006-versions-replace-languages.md)).
 - **Dashboard Selection is independent of the Filter** ([ADR-008](docs/decisions/ADR-008-selection-independent-of-filter.md)).
 - **Questions form a tree** (`parent_id`) rather than peer links. A part is its own `Question`. Shared grammar and render-plan expansion live in `app/hierarchy.py` ([ADR-009](docs/decisions/ADR-009-question-hierarchy-over-linking.md)).
-- **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)).
+- **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)). It is the experimental full-auto path; the normal path is Detect questions + Detect parts.
+- **PDF import crop width is one mode, not independent toggles**: printed frame > uniform width per side > the model's own edges (`auto` / `uniform` / `model`, default `auto`) ([ADR-014](docs/decisions/ADR-014-crop-width-mode.md)).
 - **Subject admins tune Auto Tag through a prompt layer, never the output contract**: notes / taxonomy hints / aggregated corrections are injected by `ai_tools.build_tag_prompt`; the `TAG_FORMAT` block is always re-attached server-side ([ADR-012](docs/decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md)).
 - **Every write to a subject's topic / chapter lists or its questions' tags captures a restore point first**: `subject_snapshot.capture(subject_id, action)` before the first mutation, same transaction (`capture_committed` for per-row-committing writers like Auto Tag). A writer without it silently breaks per-subject undo ([ADR-013](docs/decisions/ADR-013-subject-restore-points.md), [modules/subject-snapshots.md](docs/modules/subject-snapshots.md)).
 
@@ -86,9 +87,10 @@ one or more super admins (users, subjects, settings, everything).
 | [008](docs/decisions/ADR-008-selection-independent-of-filter.md) | Dashboard Selection is a separate set from the Filter result; set algebra composes them |
 | [009](docs/decisions/ADR-009-question-hierarchy-over-linking.md) | Stem/parts are a `Question` tree (`parent_id`), not peer links; QNO token `Q5` / `Q5a` / `Q23-24` |
 | [010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md) | PDF import agent is a fixed state machine over pass 1/2 with strict-JSON LLM steps and an attention list; roles derived from labels; sibling dependency is a per-part flag |
-| [011](docs/decisions/ADR-011-page-frame-crop-anchor.md) | Printed page frame is the crop x-anchor (stage-time detect + per-paper consolidate + snap + vertical-only trim / width normalise); uniform width is legacy |
+| [011](docs/decisions/ADR-011-page-frame-crop-anchor.md) | Printed page frame is the crop x-anchor (stage-time detect + per-paper consolidate + snap + vertical-only trim / width normalise) |
 | [012](docs/decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md) | Per-subject Auto Tag tuning is a prompt layer under the registry (notes, taxonomy hints, aggregated teacher corrections, evaluate loop), not model fine-tuning; the JSON contract stays server-controlled |
 | [013](docs/decisions/ADR-013-subject-restore-points.md) | Per-subject undo = a JSON snapshot of the subject's taxonomy + question tags captured before every such save (100 kept + daily anchors); whole-subject restore in one transaction, preceded by a `before-restore` point; not binlog, not an audit log |
+| [014](docs/decisions/ADR-014-crop-width-mode.md) | PDF import crop width is one select (`auto` = frame else uniform width, `uniform`, `model`) replacing the frame-snap and uniform-width checkboxes; one setting `PDF_IMPORT_WIDTH_MODE_DEFAULT` |
 
 ## Documentation map
 

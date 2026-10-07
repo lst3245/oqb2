@@ -722,6 +722,9 @@ class LLMConfig(db.Model):
     service_tier_batch = db.Column(db.String(20), nullable=False, default='')
     # 'chat' (Chat Completions) or 'responses' (OpenAI Responses API).
     api_protocol = db.Column(db.String(12), nullable=False, default='chat')
+    # Bounding-box axis order this model answers in: 'xyxy' / 'yxyx'.
+    # '' = inherit PDF_IMPORT_COORD_ORDER (llm_client.box_coord_order).
+    box_coord_order = db.Column(db.String(4), nullable=False, default='')
     # Reasoning controls. Blank = inherit from LLM_REASONING_* system settings.
     # 'off' = never send reasoning params for this endpoint.
     reasoning_effort = db.Column(db.String(10), nullable=False, default='')

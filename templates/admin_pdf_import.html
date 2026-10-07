@@ -25,6 +25,27 @@
     .log-console .log-done { color: #dcdcaa; font-weight: bold; }
     .log-console .log-job { color: #808080; }
 
+    /* Sticky job strip under the (sticky-top) navbar; JS sets `top` to the navbar height. */
+    .job-strip {
+        position: sticky;
+        top: 56px;
+        z-index: 1015;
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid #dee2e6;
+        border-radius: 0 0 0.5rem 0.5rem;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+        padding: 0.3rem 0.75rem 0.35rem;
+        margin-bottom: 0.75rem;
+        line-height: 1.35;
+    }
+    .job-strip-msg { color: #6c757d; min-height: 1.1em; }
+    .job-strip-msg.t-error { color: #dc3545; }
+    .job-strip-msg.t-warning { color: #997404; }
+    .job-strip-msg.t-success, .job-strip-msg.t-done { color: #198754; }
+    .job-strip-bar { height: 4px; margin-top: 0.2rem; }
+    /* Keep scrolled-to targets clear of the navbar + job strip. */
+    .page-card, #bboxCard, #attentionPanel, #progressSection { scroll-margin-top: 8.5rem; }
+
     /* Box overlay / handles / magnifier / crop preview styles live in the
        shared static/css/bbox_editor.css (OQBBboxEditor). */
     .pdf-box-list .box-row {
@@ -63,8 +84,11 @@
        page-card action greys out; the clicked control keeps full opacity so
        its spinner stays visible. */
     #reviewBody.job-busy .btn-rerun,
+    #reviewBody.job-busy .btn-rerun-menu,
     #reviewBody.job-busy .btn-resplit-page,
+    #reviewBody.job-busy .btn-renumber,
     #reviewBody.job-busy .btn-add,
+    #reviewBody.job-busy .btn-add-menu,
     #reviewBody.job-busy .btn-frame-toggle,
     #reviewBody.job-busy .split-actions button,
     #reviewBody.job-busy .page-method,
@@ -77,11 +101,25 @@
         opacity: 1;
     }
 </style>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=2">
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid mt-4" style="max-width: 1280px;">
+    <!-- Sticky job strip: what is running now + the latest log line (fed by setStatus / showProgress / updateProgress / appendLog). -->
+    <div id="jobStrip" class="job-strip d-none" role="status" aria-live="polite">
+        <div class="d-flex align-items-center gap-2">
+            <span id="jobStripBadge" class="badge bg-secondary">Idle</span>
+            <span id="jobStripLabel" class="fw-semibold text-truncate"></span>
+            <span id="jobStripCount" class="text-muted small text-nowrap ms-auto"></span>
+            <button type="button" id="jobStripStop" class="btn btn-outline-danger btn-sm py-0 d-none" title="Stop the running job">
+                <i class="bi bi-stop-fill"></i> Stop
+            </button>
+            <button type="button" id="jobStripLog" class="btn btn-link btn-sm p-0 text-nowrap" title="Jump to the full log">Log</button>
+        </div>
+        <div id="jobStripMsg" class="job-strip-msg small text-truncate"></div>
+        <div class="progress job-strip-bar"><div id="jobStripBar" class="progress-bar" style="width: 0%;"></div></div>
+    </div>
     <div class="d-flex justify-content-between align-items-center mb-1">
         <h2 class="mb-0"><i class="bi bi-filetype-pdf"></i> PDF Batch Import</h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
@@ -244,7 +282,7 @@
         </div>
         <div id="logConsole" class="log-console">Welcome to PDF Batch Import.
 Step 1: choose your task, PDF(s) and optional page range, then click "Load PDF".
-Step 2: draw boxes, run LLM detection, or run the AI agent.
+Step 2: click "Detect questions" (and "Detect parts" for structured papers), or draw boxes yourself.
 </div>
     </div>
 
@@ -255,8 +293,8 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
-            <div class="row g-3 mb-3" id="detectControls">
-                <div class="col-md-4">
+            <div class="row g-3 mb-2" id="detectControls">
+                <div class="col-md-5">
                     <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
                     <select id="endpointSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
                         {% for e in endpoints %}
@@ -271,48 +309,23 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
                     </div>
                 </div>
                 <div class="col-md-4">
-                    <label for="methodSelect" class="form-label fw-bold">Detection method</label>
-                    <select id="methodSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
-                        <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
-                        <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
-                        <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
+                    <label for="cropWidthSel" class="form-label fw-bold">Crop width</label>
+                    <select id="cropWidthSel" class="form-select" title="How the left and right edges of every box are decided.">
+                        <option value="auto" {% if width_mode_default == 'auto' %}selected{% endif %}>Auto: printed frame, else uniform width</option>
+                        <option value="uniform" {% if width_mode_default == 'uniform' %}selected{% endif %}>Uniform width per side (ignore frame)</option>
+                        <option value="model" {% if width_mode_default == 'model' %}selected{% endif %}>Model's own boxes</option>
                     </select>
-                    <div class="form-text"><strong>Refine</strong>: model boxes snapped to content by CV. <strong>Segment</strong>: model marks where each question starts, CV derives the boxes. Both need NumPy; you can retry per page below.</div>
+                    <div class="form-text" id="cropWidthHint">Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.</div>
                 </div>
-                <div class="col-md-4 d-flex flex-column justify-content-end">
-                    <div class="form-check exam-only">
+                <div class="col-md-3 exam-only d-flex flex-column">
+                    <span class="form-label fw-bold">Parts</span>
+                    <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="splitPartsChk">
                         <label class="form-check-label" for="splitPartsChk" title="After finding each numbered question, run a second pass that cuts the shared background (stem) and lettered parts (a)(b)(c).">
                             <i class="bi bi-scissors"></i> Split questions into parts
                         </label>
                     </div>
-                    <div class="form-text exam-only mb-2" style="margin-left: 1.5rem;">
-                        Tick this for long structured papers (economics, BAFS). After numbered questions are found, a second pass cuts the shared background (grey) and lettered parts (amber). Leave it off for one-box-per-number papers (maths). The subject’s default is applied when you load the PDF.
-                    </div>
-                    <div class="form-check exam-only">
-                        <input class="form-check-input" type="checkbox" id="customPromptChk">
-                        <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
-                            <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="frameSnapChk" {% if frame_snap_default %}checked{% endif %}>
-                        <label class="form-check-label" for="frameSnapChk" title="Scanned answer books print a rectangle frame on every page. When the frame is detected (dashed green guide on the page), every box takes its left and right edges from that frame, so parts that continue on another page line up and every crop has the same width. Drag the green rails to correct a frame; untick to keep the model's own horizontal extents.">
-                            <i class="bi bi-layout-sidebar-inset"></i> Snap boxes to page frame
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="uniformWidthChk" {% if uniform_width_default %}checked{% endif %}>
-                        <label class="form-check-label" for="uniformWidthChk" title="Legacy: lock every region on each side (QUE / SOL) to the widest box's width, anchored on each box's own left edge. Pages with a detected frame ignore this when frame snapping is on. Resize any one box's width to change them all.">
-                            <i class="bi bi-arrows"></i> Uniform width per side (legacy)
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="debugChk">
-                        <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
-                            <i class="bi bi-bug"></i> Debug: show raw model output
-                        </label>
-                    </div>
+                    <div class="form-text">For structured papers: grey stem + amber lettered parts. Leave off for one-box-per-number papers (MC). Starts from the subject's default.</div>
                 </div>
                 <div class="col-12 d-none" id="instructionCol">
                     <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">What to extract</label>
@@ -320,15 +333,12 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
                     <div class="form-text" id="instructionHint">Describe the regions you want detected. No exam-question context is sent to the model.</div>
                 </div>
             </div>
-            <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-                <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %}>
-                    <i class="bi bi-robot"></i> Run LLM detection
+            <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+                <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %} title="Find every numbered question on every page (one model call per page). With Split questions into parts ticked, the part split runs straight after.">
+                    <i class="bi bi-robot"></i> <span id="btnRunDetectLabel">Detect questions</span>
                 </button>
-                <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled>
+                <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled title="Split the whole-question boxes into a stem and lettered parts (one model call per question page).">
                     <i class="bi bi-scissors"></i> Detect parts
-                </button>
-                <button id="btnRunAgent" class="btn btn-success exam-only" disabled title="Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.">
-                    <i class="bi bi-stars"></i> Run AI agent
                 </button>
                 <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
                 <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
@@ -337,13 +347,60 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
                 <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
                 {% endif %}
             </div>
-            <p class="text-muted small mb-2 exam-only"><strong>Run AI agent</strong> (after the PDF is loaded) outlines the paper, locates every question, splits multi-part questions, verifies the boxes and lists anything doubtful. It replaces boxes already in this session. Recommended for past papers.</p>
-            <p class="text-muted small mb-3">Optional: run detection, or draw boxes yourself. <strong>Drag</strong> a box to move it, drag <strong>handles</strong> to resize, or delete a wrong one. <strong>Add box</strong> then drag on the page &mdash; adding or deleting a numbered box shifts later Q# values (manual edits and move/resize do not). Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. If <em>Split into parts</em> is ticked, detection automatically runs a second pass; you can also click <strong>Detect parts</strong> or per-question <strong>Re-split</strong>. Roles are worked out from the labels: typing 4d and 4di makes 4d a nested stem. Use the + button on a row to add the next part beneath it. <strong>Click a crop preview</strong> to enlarge it. Then use Step 3 to import.
-                <span class="badge" style="background:#d63384;">QUE</span>
-                <span class="badge bg-primary">SOL</span>
-                <span class="badge" style="background:#6c757d;">stem</span>
-                <span class="badge" style="background:#fd7e14;">part</span>
-            </p>
+            <div id="frameStatus" class="small text-muted mb-2 d-none"></div>
+            <details class="mb-2" id="advancedDetect">
+                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-sliders"></i> Advanced: detection method, custom prompt, debug</summary>
+                <div class="row g-3 pt-2">
+                    <div class="col-md-6">
+                        <label for="methodSelect" class="form-label fw-bold small mb-1">Detection method</label>
+                        <select id="methodSelect" class="form-select form-select-sm" {% if not endpoints %}disabled{% endif %}>
+                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
+                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
+                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
+                        </select>
+                        <div class="form-text"><strong>Refine</strong>: model boxes snapped to the printed content by computer vision. <strong>Segment</strong>: the model only marks where each question starts; computer vision derives the boxes (single column only). Both need NumPy; each page can be re-run with another method.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check exam-only">
+                            <input class="form-check-input" type="checkbox" id="customPromptChk">
+                            <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
+                                <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="debugChk">
+                            <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
+                                <i class="bi bi-bug"></i> Debug: show raw model output
+                            </label>
+                        </div>
+                        <div class="form-text" id="coordOrderHint"></div>
+                    </div>
+                </div>
+            </details>
+            <div class="border rounded px-2 py-2 mb-2 d-flex flex-wrap align-items-center gap-2 exam-only" id="agentStrip">
+                <button id="btnRunAgent" class="btn btn-sm btn-outline-success" disabled title="Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.">
+                    <i class="bi bi-stars"></i> Run AI agent
+                </button>
+                <span class="badge text-bg-warning">Experimental</span>
+                <span class="small text-muted flex-grow-1" style="min-width: 16rem;">Full auto: reads the whole paper, locates and splits every question, checks its own boxes and lists what needs a look. Uses more model calls and replaces the boxes in this session.</span>
+            </div>
+            <details class="mb-3">
+                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-question-circle"></i> How to edit boxes</summary>
+                <ul class="text-muted small mb-0 pt-1">
+                    <li><strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, select it and press <kbd>Delete</kbd> to remove it. After clicking a box, the <strong>arrow keys</strong> nudge it (<kbd>Shift</kbd> = 10&times; faster); hold <kbd>H</kbd> while dragging to hide the magnifier. <strong>Click a crop preview</strong> to enlarge it.</li>
+                    <li><strong>Add box ▾</strong> on a page: <em>Add question</em> takes the next number and shifts later questions up where they would clash; <em>Add part</em> takes the next letter of the question it is drawn in (the first part trims the question box down to its stem); <em>Add stem</em> adds the shared background of the question above.</li>
+                    <li>Deleting the last box of a question shifts later question numbers down. Typing a Q# and moving / resizing never renumber anything. <strong>Renumber from here</strong> on a page makes that page and every later page sequential (parts follow their question).</li>
+                    <li>Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. Roles come from the labels: typing 4d and 4di makes 4d a nested stem. The + button on a row adds the next part beneath it.</li>
+                    <li>Per question: <strong>Re-split</strong> / <strong>Unsplit</strong>. Per page: <strong>Re-run</strong> (choose method / endpoint from its menu), <strong>Re-split page</strong>, <strong>Frame</strong>.</li>
+                    <li>
+                        <span class="badge" style="background:#d63384;">QUE</span>
+                        <span class="badge bg-primary">SOL</span>
+                        <span class="badge" style="background:#6c757d;">stem</span>
+                        <span class="badge" style="background:#fd7e14;">part</span>
+                        &mdash; then use Step 3 to import.
+                    </li>
+                </ul>
+            </details>
             <div id="agentStage" class="alert alert-light border d-none py-2 small" role="status">
                 <i class="bi bi-stars text-success"></i> <strong>AI agent:</strong>
                 <span class="agent-step" data-stage="outline">1 Outline</span> ›
@@ -372,9 +429,9 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
                 </div>
             </div>
             <div id="orderWarning" class="alert alert-danger d-none border-2 fw-semibold" role="alert">
-                <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> Question numbers look out of order</h5>
+                <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> <span id="orderWarningTitle">Check the question numbers</span></h5>
                 <div id="orderWarningBody" class="small fw-normal"></div>
-                <div class="small fw-normal mt-2 text-muted">Numbers should only ever go up (or repeat for a question that spans pages) as you read down each side. A drop usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# fields or re-run the affected page before importing.</div>
+                <div class="small fw-normal mt-2 text-muted">As you read down each side, numbers should go up one at a time (a question that spans pages repeats its number). A <strong>drop</strong> usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# or renumber. A <strong>gap</strong> usually means a page failed or a question was missed &mdash; re-run that page or draw the box with Add box. A <strong>repeat</strong> on one page is imported as one joined image.</div>
             </div>
             <div id="reviewBody"></div>
         </div>
@@ -439,12 +496,14 @@ Step 2: draw boxes, run LLM detection, or run the AI agent.
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=2"></script>
 <script>
 const IMPORT_BASE = "{{ url_for('admin.pdf_import_page') }}";  // /admin/pdf-import
 const ENDPOINTS = {{ endpoints|tojson }};   // [{id, name, model_name}]
 const DEFAULT_METHOD = "{{ default_method }}";
 const FRAME_INSET = {{ frame_inset_frac|tojson }};   // fraction of page width inside the frame rails
+const GLOBAL_COORD_ORDER = {{ coord_order_default|tojson }};   // PDF_IMPORT_COORD_ORDER
+const WIDTH_MODE_DEFAULT = {{ width_mode_default|tojson }};    // PDF_IMPORT_WIDTH_MODE_DEFAULT
 const { clamp01, applyBoxStyle, drawPreview, showCropPreview } = OQBBboxEditor;
 const METHOD_LABELS = { llm: 'LLM only', refine: 'Assisted: refine', segment: 'Assisted: segment' };
 
@@ -483,8 +542,7 @@ updatePpMode1PagesVisibility();
 const customPromptChk = document.getElementById('customPromptChk');
 const overwriteChk = document.getElementById('overwriteChk');
 const trimWhiteChk = document.getElementById('trimWhiteChk');
-const uniformWidthChk = document.getElementById('uniformWidthChk');
-const frameSnapChk = document.getElementById('frameSnapChk');
+const cropWidthSel = document.getElementById('cropWidthSel');
 const debugChk = document.getElementById('debugChk');
 const btnLoadPdf = document.getElementById('btnLoadPdf');
 const btnRunDetect = document.getElementById('btnRunDetect');
@@ -545,6 +603,7 @@ function applyTaskUI() {
     }
     updateInstructionVisibility();
     updateImportActions();
+    refreshDetectLabel();
 }
 function updateImportActions() {
     if (!importCard) return;
@@ -558,30 +617,97 @@ document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListene
     applyTaskUI();
 }));
 customPromptChk.addEventListener('change', updateInstructionVisibility);
-// Locking/unlocking uniform width is review-time: ON conforms every existing
-// box per side; OFF leaves geometry alone (boxes become independent again).
-uniformWidthChk.addEventListener('change', () => {
-    if (uniformWidthChk.checked) { ['que', 'sol'].forEach(enableUniformWidth); }
-    else { uniformWidth = { que: null, sol: null }; }
-});
-// Frame snapping is review-time too: ON snaps every box on a framed page to
-// the frame rails (and hides the horizontal handles there); OFF frees them.
-frameSnapChk.addEventListener('change', () => {
+// Crop width is review-time: switching conforms existing boxes to the new
+// policy (frame rails, then the shared uniform width); "model" leaves the
+// current geometry alone and makes boxes independent again.
+const CROP_WIDTH_HINTS = {
+    auto: 'Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box\'s width.',
+    uniform: 'Every box on a side gets the widest box\'s width, keeping its own left edge. Printed frames are ignored.',
+    model: 'Boxes keep the left / right edges the model drew.',
+};
+cropWidthSel.addEventListener('change', () => {
+    if (!uniformActive()) uniformWidth = { que: null, sol: null };
     ['que', 'sol'].forEach(applyWidthPolicy);
     document.querySelectorAll('.page-card').forEach(refreshCardFrameUI);
+    updateCropWidthUI();
 });
-endpointSelect.addEventListener('change', updateParallelUI);
+function updateCropWidthUI() {
+    document.getElementById('cropWidthHint').textContent = CROP_WIDTH_HINTS[cropWidthMode()] || '';
+    updateFrameStatus();
+}
+// One line under the buttons saying which width rule each side will use.
+function updateFrameStatus() {
+    const el = document.getElementById('frameStatus');
+    if (!el) return;
+    if (!staging) { el.classList.add('d-none'); return; }
+    const mode = cropWidthMode();
+    const parts = [];
+    ['que', 'sol'].forEach(kind => {
+        const pages = (staging[kind] && staging[kind].pages) || [];
+        if (!pages.length) return;
+        const side = isGeneric() ? 'Pages' : kind.toUpperCase();
+        const framed = pages.filter(p => p.frame && p.frame.box).length;
+        if (mode === 'model') {
+            parts.push(`${side}: boxes keep the model's own widths.`);
+        } else if (mode === 'uniform' || !frameSnapActive()) {
+            parts.push(`${side}: every box shares the widest box's width.`);
+        } else if (framed === pages.length) {
+            parts.push(`${side}: printed frame on ${framed}/${pages.length} pages — crops use the frame.`);
+        } else if (framed) {
+            parts.push(`${side}: printed frame on ${framed}/${pages.length} pages — those use the frame, the rest share the widest box's width.`);
+        } else {
+            parts.push(`${side}: no printed frame — boxes share the widest box's width (use Frame on a page to add one).`);
+        }
+    });
+    el.innerHTML = parts.length ? '<i class="bi bi-arrows"></i> ' + parts.map(escapeHtml).join(' ') : '';
+    el.classList.toggle('d-none', !parts.length);
+}
+// The detect button says whether the part split will run straight after.
+function refreshDetectLabel() {
+    const lbl = document.getElementById('btnRunDetectLabel');
+    if (!lbl) return;
+    lbl.textContent = isGeneric() ? 'Detect regions'
+        : (splitPartsChk && splitPartsChk.checked ? 'Detect questions + parts' : 'Detect questions');
+}
+function updateCoordOrderHint() {
+    const el = document.getElementById('coordOrderHint');
+    if (!el) return;
+    const ep = ENDPOINTS.find(e => String(e.id) === String(endpointSelect.value));
+    if (!ep) { el.textContent = ''; return; }
+    const order = ep.box_coord_order || GLOBAL_COORD_ORDER;
+    const src = ep.box_coord_order ? 'set on this endpoint' : 'system default';
+    el.textContent = `Box axis order: ${order} (${src}). Gemini / Gemma / PaliGemma models need yxyx — set it under LLM Endpoints.`;
+}
+endpointSelect.addEventListener('change', () => { updateParallelUI(); updateCoordOrderHint(); });
 updateParallelUI();
+updateCoordOrderHint();
 const logConsole = document.getElementById('logConsole');
 const logStatus = document.getElementById('logStatus');
 const progressSection = document.getElementById('progressSection');
 const progressBar = document.getElementById('progressBar');
 const progressLabel = document.getElementById('progressLabel');
 const progressCount = document.getElementById('progressCount');
+const jobStrip = document.getElementById('jobStrip');
+const jobStripBadge = document.getElementById('jobStripBadge');
+const jobStripLabel = document.getElementById('jobStripLabel');
+const jobStripCount = document.getElementById('jobStripCount');
+const jobStripMsg = document.getElementById('jobStripMsg');
+const jobStripBar = document.getElementById('jobStripBar');
+const jobStripStop = document.getElementById('jobStripStop');
 const reviewBody = document.getElementById('reviewBody');
 const reviewSummary = document.getElementById('reviewSummary');
 const orderWarning = document.getElementById('orderWarning');
 const orderWarningBody = document.getElementById('orderWarningBody');
+const orderWarningTitle = document.getElementById('orderWarningTitle');
+orderWarningBody?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-order-renumber, .btn-order-rerun, .btn-order-goto');
+    if (!btn) return;
+    const kind = btn.dataset.kind, page = parseInt(btn.dataset.page, 10);
+    const card = cardFor(kind, page);
+    if (btn.classList.contains('btn-order-renumber')) { renumberFromPage(kind, page); return; }
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (btn.classList.contains('btn-order-rerun') && card && !running) rerunPage(card, kind, page);
+});
 const summaryPanel = document.getElementById('summaryPanel');
 
 // ----- State -----
@@ -628,7 +754,10 @@ function restyleItem(item) {
 // paper has the same width. The server applies the same rule when it saves
 // the detection plan (frame_snap=1) and at commit (vertical-only trim +
 // common-width resample), so what you see here is what gets cropped.
-function frameSnapActive() { return !!(frameSnapChk && frameSnapChk.checked); }
+// Crop width mode (#cropWidthSel): auto = frame, else uniform width;
+// uniform = uniform width everywhere; model = the model's own x.
+function cropWidthMode() { return (cropWidthSel && cropWidthSel.value) || 'auto'; }
+function frameSnapActive() { return !isGeneric() && cropWidthMode() === 'auto'; }
 function pageInfo(kind, page) {
     const info = staging && staging[kind];
     return info && info.pages ? info.pages.find(p => p.index === page) : null;
@@ -674,7 +803,7 @@ function refreshCardFrameUI(card) {
         if (fr) {
             badge.textContent = fr.source === 'manual' ? 'frame (manual)'
                 : fr.source === 'inferred' ? 'frame (inferred)' : 'frame';
-            badge.title = 'Printed page frame (dashed green). Drag its rails to correct it; boxes snap to it while "Snap boxes to page frame" is on.';
+            badge.title = 'Printed page frame (dashed green). Drag its rails to correct it; boxes snap to it while Crop width is Auto.';
         }
     }
     const btnNoFrame = card.querySelector('.btn-frame-toggle');
@@ -704,6 +833,7 @@ async function saveFrame(kind, page, box) {
     if (frameSnapActive()) {
         plan[kind].filter(it => it.page === page).forEach(it => { if (snapItemToFrame(kind, it)) restyleItem(it); });
     }
+    updateFrameStatus();
 }
 function toggleFrame(kind, page) {
     if (!staging) return;
@@ -719,10 +849,11 @@ function toggleFrame(kind, page) {
     saveFrame(kind, page, box);
 }
 
-// ----- Uniform width (per-kind shared width, review-time only; legacy) -----
+// ----- Uniform width (per-kind shared width, review-time only) -----
 // Fractional width shared by every box of a side; null = unlocked (free width).
+// The fallback for frameless pages in Auto, and everywhere in Uniform mode.
 let uniformWidth = { que: null, sol: null };
-function uniformActive() { return !!(uniformWidthChk && uniformWidthChk.checked); }
+function uniformActive() { const m = cropWidthMode(); return m === 'auto' || m === 'uniform'; }
 // Boxes on a framed page (while snapping) are governed by the frame, not this.
 function uniformApplies(kind, item) { return !frameExtent(kind, item.page); }
 
@@ -759,6 +890,53 @@ function snapBoxToUniform(item, kind) {
 
 // Editor hook: constrain a live box during move / resize / draw.
 function constrainBoxFor(kind, page) {
+    const width = widthConstraintFor(kind, page);
+    return (item, box, ctx) => applyJoinedEdges(kind, item, width(item, box, ctx) || box, ctx);
+}
+// Boxes cut apart by the row "+" menu stay joined at the cut: resizing one
+// across that line moves the other's edge too (each keeps >= JOIN_MIN_H).
+// Keys are "upperUid>lowerUid"; the join only applies while the two edges
+// still meet, so moving either box (not resizing) ends it.
+const joinedEdges = new Set();
+const JOIN_EPS = 0.002, JOIN_MIN_H = 0.01;
+let joinDrag = null;   // {item, startBox, partners: [{it, side}]} for the current drag
+function joinPartners(kind, item, startBox, dir) {
+    const out = [];
+    plan[kind].forEach(p => {
+        if (p === item || p.page !== item.page) return;
+        if (dir.includes('s') && joinedEdges.has(`${item._uid}>${p._uid}`)
+                && Math.abs(p.box[1] - startBox[3]) < JOIN_EPS) out.push({ it: p, side: 's' });
+        if (dir.includes('n') && joinedEdges.has(`${p._uid}>${item._uid}`)
+                && Math.abs(p.box[3] - startBox[1]) < JOIN_EPS) out.push({ it: p, side: 'n' });
+    });
+    return out;
+}
+function applyJoinedEdges(kind, item, box, ctx) {
+    if (!item || !ctx || ctx.type !== 'resize' || !/[ns]/.test(ctx.dir || '')) return box;
+    if (!joinDrag || joinDrag.startBox !== ctx.startBox) {
+        joinDrag = { item, startBox: ctx.startBox, partners: joinPartners(kind, item, ctx.startBox, ctx.dir) };
+    }
+    if (!joinDrag.partners.length) return box;
+    const out = box.slice();
+    joinDrag.partners.forEach(({ it, side }) => {
+        if (side === 's') {
+            out[3] = Math.max(out[1] + JOIN_MIN_H, Math.min(out[3], it.box[3] - JOIN_MIN_H));
+            it.box = [it.box[0], out[3], it.box[2], it.box[3]];
+        } else {
+            out[1] = Math.min(out[3] - JOIN_MIN_H, Math.max(out[1], it.box[1] + JOIN_MIN_H));
+            it.box = [it.box[0], it.box[1], it.box[2], out[1]];
+        }
+        const ed = editorForItem(kind, it);
+        if (ed) ed.restyle(it);
+    });
+    return out;
+}
+// Drag end: redraw the thumbnails of boxes that followed a joined edge.
+function endJoinedDrag(item) {
+    if (joinDrag && joinDrag.item === item) joinDrag.partners.forEach(p => restyleItem(p.it));
+    joinDrag = null;
+}
+function widthConstraintFor(kind, page) {
     return (item, box, ctx) => {
         const ext = frameExtent(kind, page);
         if (ext) return [ext[0], box[1], ext[1], box[3]];
@@ -863,7 +1041,51 @@ function appendLog(message, type) {
     span.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n`;
     logConsole.appendChild(span);
     logConsole.scrollTop = logConsole.scrollHeight;
+    if (type !== 'job') {
+        jobStripMsg.textContent = message;
+        jobStripMsg.className = 'job-strip-msg small text-truncate t-' + (type || 'info');
+        jobStripMsg.title = message;
+    }
 }
+
+// ----- Sticky job strip -----
+// Pinned under the navbar once a job has run: the log badge, what is running
+// (progress label / count / bar) and the latest log line, so the state stays
+// visible while scrolling the page cards. Fed by setStatus, showProgress,
+// updateProgress, appendLog and setRunning; jobs without the progress section
+// (Load PDF, per-page Re-run) call stripStart / stripEnd themselves.
+let stripJobName = '';
+let stripEnded = false;   // setRunning(false) must not turn "failed" / "stopped" into "finished"
+function syncStripTop() {
+    const nav = document.querySelector('nav.navbar.sticky-top, nav.navbar.fixed-top');
+    jobStrip.style.top = (nav ? nav.offsetHeight : 0) + 'px';
+}
+function stripStart(label, indeterminate) {
+    stripJobName = String(label || 'Working').replace(/(\.\.\.|…)$/, '');
+    stripEnded = false;
+    jobStrip.classList.remove('d-none');
+    syncStripTop();
+    jobStripLabel.textContent = stripJobName + '…';
+    jobStripCount.textContent = '';
+    jobStripBar.style.width = indeterminate ? '100%' : '0%';
+    jobStripBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+}
+function stripEnd(state) {
+    if (!stripJobName) return;
+    stripEnded = true;
+    jobStripBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+    jobStripLabel.textContent = `${stripJobName} — ${state || 'finished'}`;
+}
+function setProgressLabel(text) {
+    progressLabel.textContent = text;
+    stripJobName = String(text).replace(/(\.\.\.|…)$/, '');
+    jobStripLabel.textContent = stripJobName + '…';
+}
+window.addEventListener('resize', () => { if (!jobStrip.classList.contains('d-none')) syncStripTop(); });
+jobStripStop.addEventListener('click', () => stopRun());
+document.getElementById('jobStripLog').addEventListener('click', () => {
+    logConsole.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
 function logRaw(kind, idx, raw) {
     // Debug helper: dump the model's verbatim reply for one page into the
     // console so the raw bounding-box numbers are visible.
@@ -876,6 +1098,10 @@ function logRaw(kind, idx, raw) {
 function setStatus(text, cls) {
     logStatus.textContent = text;
     logStatus.className = 'badge ' + cls;
+    jobStripBadge.textContent = text;
+    jobStripBadge.className = 'badge ' + cls;
+    if (text === 'Stopped') stripEnd('stopped');
+    else if (text === 'Error') stripEnd('failed');
 }
 function updateProgress(ev) {
     if (ev.current !== undefined && ev.total && ev.total > 0) {
@@ -883,6 +1109,8 @@ function updateProgress(ev) {
         progressBar.style.width = pct + '%';
         progressBar.textContent = pct + '%';
         progressCount.textContent = `${ev.current} / ${ev.total}`;
+        jobStripBar.style.width = pct + '%';
+        jobStripCount.textContent = `${ev.current} / ${ev.total}`;
     }
 }
 function showProgress(label) {
@@ -892,6 +1120,7 @@ function showProgress(label) {
     progressBar.textContent = '0%';
     progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
     progressCount.textContent = '0 / 0';
+    stripStart(label);
 }
 
 // ----- Step flow -----
@@ -903,6 +1132,7 @@ if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDet
 if (splitPartsChk) {
     splitPartsChk.addEventListener('change', () => {
         refreshSplitDetectBtn();
+        refreshDetectLabel();
         if (shouldAutoSplit() && staging && !running && planRegionCount() > 0) {
             startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: 'Splitting…' });
         }
@@ -1001,7 +1231,7 @@ async function startAgent(opts) {
             setAgentStage(ev.stage, ev.message || '');
             const labels = { outline: 'AI agent: outlining the paper', locate: 'AI agent: locating questions',
                              segment: 'AI agent: splitting parts', verify: 'AI agent: verifying boxes' };
-            if (labels[ev.stage]) progressLabel.textContent = labels[ev.stage];
+            if (labels[ev.stage]) setProgressLabel(labels[ev.stage]);
         }
         if (ev.message) appendLog(ev.message, ev.type === 'attention' ? 'warning' : ev.type);
         updateProgress(ev);
@@ -1167,7 +1397,7 @@ function showStepsAfterLoad() {
     document.querySelectorAll('input[name="task"]').forEach(el => { el.disabled = true; });
 }
 
-const PAGE_JOB_SELECTORS = '.btn-rerun, .btn-resplit-page, .btn-add, .btn-frame-toggle, .split-actions button, .page-method, .page-endpoint';
+const PAGE_JOB_SELECTORS = '.btn-rerun, .btn-rerun-menu, .btn-resplit-page, .btn-renumber, .btn-add, .btn-add-menu, .btn-frame-toggle, .split-actions button, .page-method, .page-endpoint';
 
 function setPageJobSource(el, label) {
     if (!el) return;
@@ -1187,9 +1417,8 @@ function lockPageJobs(sourceEl, label) {
 }
 
 function unlockPageJobs() {
-    if (!reviewBody) return;
-    reviewBody.classList.remove('job-busy');
-    reviewBody.querySelectorAll('.job-busy-src').forEach(el => {
+    // The busy source may sit outside the review cards (Step 2's Detect parts).
+    document.querySelectorAll('.job-busy-src').forEach(el => {
         el.classList.remove('job-busy-src');
         if (el.dataset.idleHtml) {
             el.innerHTML = el.dataset.idleHtml;
@@ -1197,6 +1426,8 @@ function unlockPageJobs() {
         }
         el.disabled = false;
     });
+    if (!reviewBody) return;
+    reviewBody.classList.remove('job-busy');
     reviewBody.querySelectorAll(PAGE_JOB_SELECTORS).forEach(el => { el.disabled = false; });
 }
 
@@ -1218,7 +1449,7 @@ function setRunning(on, phase) {
      document.getElementById('taskExam'), document.getElementById('taskGeneric')]
         .forEach(el => { if (el) el.disabled = lockSetup; });
     [endpointSelect, methodSelect, pdfParallelChk, instructionInput,
-     customPromptChk, splitPartsChk, uniformWidthChk, frameSnapChk, debugChk]
+     customPromptChk, splitPartsChk, cropWidthSel, debugChk]
         .forEach(el => { if (el) el.disabled = lockDetect || !staging; });
     if (btnRunDetect) {
         btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
@@ -1229,6 +1460,8 @@ function setRunning(on, phase) {
         .forEach(el => { if (el) el.disabled = lockImport || !staging; });
     btnLoadPdf.disabled = lockSetup;
     btnStop.classList.toggle('d-none', !on || phase === 'import');
+    jobStripStop.classList.toggle('d-none', !on || phase === 'import');
+    if (!on && !stripEnded) stripEnd('finished');
     btnCommit.disabled = lockImport || !staging;
     btnZip.disabled = lockImport || !staging;
     btnDiscard.disabled = lockDetect || lockImport;
@@ -1262,6 +1495,7 @@ async function loadPdf() {
 
     setRunning(true, 'stage');
     setStatus('Uploading', 'bg-info');
+    stripStart('Loading PDF', true);
     appendLog(generic ? 'Uploading PDF for generic extraction...'
                       : `Uploading PDF(s) for ${paper}...`, 'info');
 
@@ -1311,22 +1545,23 @@ async function loadPdf() {
     if (splitPartsChk && data.split_parts_default != null) {
         splitPartsChk.checked = !!data.split_parts_default;
     }
+    // Generic regions (tables, charts) have no shared width; start them free.
+    if (isGeneric() && cropWidthSel.value !== 'model') cropWidthSel.value = 'model';
+    refreshDetectLabel();
     const qn = (data.que && data.que.pages || []).length;
     const sn = (data.sol && data.sol.pages || []).length;
     const rangeNote = data.page_range ? ' (pages ' + data.page_range + ')' : '';
     const deskewNote = data.deskew ? ', deskewed' : '';
     if (isGeneric()) {
-        appendLog(`Loaded: ${qn} page(s)${deskewNote}${rangeNote}. Draw boxes or run LLM detection.`, 'success');
+        appendLog(`Loaded: ${qn} page(s)${deskewNote}${rangeNote}. Draw boxes or click Detect regions.`, 'success');
     } else {
-        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${deskewNote}${rangeNote}. Draw boxes, run LLM detection, or run the AI agent.`, 'success');
+        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${deskewNote}${rangeNote}. Click ${document.getElementById('btnRunDetectLabel').textContent}, or draw boxes yourself.`, 'success');
     }
     const framed = ['que', 'sol'].reduce((n, k) => n + ((data[k] && data[k].pages || []).filter(p => p.frame).length), 0);
     if (framed) {
-        appendLog(`Printed page frame found on ${framed} page(s) (dashed green guide). ` +
-                  (frameSnapActive() ? 'Boxes will snap to it for aligned, equal-width crops.' :
-                                       'Tick "Snap boxes to page frame" to align crops to it.'), 'info');
-    } else {
-        appendLog('No printed page frame detected on these pages — boxes keep their own widths (use "Frame" on a page card to add one by hand).', 'info');
+        appendLog(`Printed page frame found on ${framed} page(s) (dashed green guide).`, 'info');
+    } else if (!isGeneric()) {
+        appendLog('No printed page frame detected on these pages (use "Frame" on a page card to add one by hand).', 'info');
     }
 
     setRunning(false);
@@ -1334,6 +1569,7 @@ async function loadPdf() {
     showStepsAfterLoad();
     renderReview({ pending: false });
     updateReviewSummary();
+    updateCropWidthUI();
     bboxCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1393,6 +1629,7 @@ function startDetect() {
                 rawByPage[kind][idx] = ev.page.raw;
                 logRaw(kind, idx, ev.page.raw);
             }
+            setPageFailed(cardFor(kind, idx), ev.page.failed ? (ev.page.error || 'detection failed') : null);
             fillPageCard(kind, idx);
             applyWidthPolicy(kind);
         }
@@ -1570,6 +1807,7 @@ function serializePlanItem(it) {
         source_page: it.source_page,
         source_box: it.source_box || null,
         depends_prev: !!it.depends_prev,
+        cont: !!it.cont,
     };
 }
 async function savePlanToServer() {
@@ -1602,6 +1840,7 @@ function applyServerPlan(serverPlan) {
             source_page: it.source_page,
             source_box: it.source_box || null,
             depends_prev: !!it.depends_prev,
+            cont: !!it.cont,
             _uid: nextUid(),
         }));
         deriveRoles(kind);
@@ -1762,6 +2001,8 @@ function unsplitParent(kind, parentLabel) {
             });
         });
     }
+    const firstPage = Math.min(...restored.map(it => it.page));
+    restored.forEach(it => { if (it.page > firstPage) it.cont = true; });
     const drop = new Set(kids);
     plan[kind] = plan[kind].filter(it => !drop.has(it)).concat(restored);
     deriveRoles(kind);
@@ -1819,18 +2060,34 @@ function buildPageCard(kind, pageIndex, pending) {
             <span><i class="bi bi-file-earmark-image"></i> ${headLabel}
                 <span class="page-status badge bg-secondary ms-1 d-none"></span></span>
             <div class="d-flex align-items-center gap-1 flex-wrap">
-                <select class="form-select form-select-sm page-method" style="width:auto;" title="Detection method for this page">
-                    ${methodOptionsHtml(staging.method || DEFAULT_METHOD)}
-                </select>
-                <select class="form-select form-select-sm page-endpoint" style="width:auto;max-width:11rem;" title="LLM endpoint for this page">
-                    ${endpointOptionsHtml(endpointSelect.value)}
-                </select>
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-success btn-add"><i class="bi bi-plus-square"></i> Add box</button>
-                    <button class="btn btn-outline-secondary btn-rerun" title="Re-detect the numbered questions on this page only"><i class="bi bi-arrow-repeat"></i> Re-run</button>
-                    ${isGeneric() ? '' : '<button class="btn btn-outline-primary btn-resplit-page" title="Re-run the stem / lettered-part split for every question on this page. A question that continues on another page is re-split as a whole, across all its pages, so the link is kept."><i class="bi bi-scissors"></i> Re-split page</button>'}
-                    <button class="btn btn-outline-secondary btn-frame-toggle" title="Page frame"><i class="bi bi-layout-sidebar-inset"></i> Frame</button>
+                    <button class="btn btn-outline-success btn-add" title="Draw a new question box on this page"><i class="bi bi-plus-square"></i> Add box</button>
+                    ${isGeneric() ? '' : `<button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split btn-add-menu" data-bs-toggle="dropdown" aria-expanded="false" title="Add a question, part or stem"><span class="visually-hidden">Add menu</span></button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" data-add-role="question"><i class="bi bi-plus-square"></i> Add question <span class="text-muted small">(next number)</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-add-role="part"><i class="bi bi-diagram-2"></i> Add part <span class="text-muted small">(next letter of the question it is in)</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-add-role="stem"><i class="bi bi-card-heading"></i> Add stem <span class="text-muted small">(shared background)</span></a></li>
+                    </ul>`}
                 </div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary btn-rerun" title="Re-detect the numbered questions on this page only"><i class="bi bi-arrow-repeat"></i> Re-run</button>
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split btn-rerun-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Method and endpoint for this page's re-run"><span class="visually-hidden">Re-run options</span></button>
+                    <div class="dropdown-menu p-2" style="min-width: 15rem;">
+                        <label class="form-label small mb-1">Method</label>
+                        <select class="form-select form-select-sm page-method mb-2" title="Detection method for this page">
+                            ${methodOptionsHtml(staging.method || DEFAULT_METHOD)}
+                        </select>
+                        <label class="form-label small mb-1">Endpoint</label>
+                        <select class="form-select form-select-sm page-endpoint" title="LLM endpoint for this page">
+                            ${endpointOptionsHtml(endpointSelect.value)}
+                        </select>
+                    </div>
+                </div>
+                ${isGeneric() ? '' : `<div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary btn-resplit-page" title="Re-run the stem / lettered-part split for every question on this page. A question that continues on another page is re-split as a whole, across all its pages, so the link is kept."><i class="bi bi-scissors"></i> Re-split page</button>
+                    <button class="btn btn-outline-primary btn-renumber" title="Make the question numbers on this page and every later page sequential, continuing from the last question before this page. A question continuing from the previous page keeps its number; parts follow their question."><i class="bi bi-sort-numeric-down"></i> Renumber from here</button>
+                </div>`}
+                <button class="btn btn-sm btn-outline-secondary btn-frame-toggle" title="Page frame"><i class="bi bi-layout-sidebar-inset"></i> Frame</button>
             </div>
         </div>
         <div class="card-body">
@@ -1856,8 +2113,17 @@ function buildPageCard(kind, pageIndex, pending) {
     const img = card.querySelector('.pdf-page-img');
     img.addEventListener('load', () => redrawPreviews(card));
     card.querySelector('.btn-rerun').addEventListener('click', () => rerunPage(card, kind, pageIndex));
-    card.querySelector('.btn-add').addEventListener('click', () => card._ed.setAddMode(!card._ed.isAdding()));
+    card._addRole = 'question';
+    card.querySelector('.btn-add').addEventListener('click', () => {
+        if (card._ed.isAdding()) { card._ed.setAddMode(false); return; }
+        startAddMode(card, 'question');
+    });
+    card.querySelectorAll('[data-add-role]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        startAddMode(card, a.dataset.addRole);
+    }));
     card.querySelector('.btn-resplit-page')?.addEventListener('click', () => resplitPage(kind, pageIndex));
+    card.querySelector('.btn-renumber')?.addEventListener('click', () => renumberFromPage(kind, pageIndex));
     card.querySelector('.btn-frame-toggle').addEventListener('click', () => toggleFrame(kind, pageIndex));
 
     // Shared overlay editor: rectangles, handles, move/resize/draw, magnifier.
@@ -1876,6 +2142,7 @@ function buildPageCard(kind, pageIndex, pending) {
             if (live) return;
             const row = document.getElementById('row-' + it._uid);
             if (row) drawPreview(row.querySelector('canvas'), img, it.box);
+            endJoinedDrag(it);
         },
         onCreate: box => finishDraw(card, kind, pageIndex, box),
         onTooSmall: () => appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning'),
@@ -1903,15 +2170,39 @@ function buildPageCard(kind, pageIndex, pending) {
     return card;
 }
 
+// A page whose detection call failed (timeout, endpoint error) is not an
+// empty page: it keeps a red badge with the error until a re-run succeeds.
+function setPageFailed(card, error) {
+    if (!card) return;
+    if (error) card.dataset.failed = String(error);
+    else delete card.dataset.failed;
+    card.classList.toggle('border-danger', !!error);
+    const empty = card.querySelector('.box-empty');
+    if (empty) {
+        empty.textContent = error
+            ? `Detection failed on this page (${error}). Click Re-run to try again, or draw the boxes with Add box.`
+            : 'No regions on this page.';
+        empty.classList.toggle('text-danger', !!error);
+        empty.classList.toggle('text-muted', !error);
+    }
+}
+
 function setPageStatus(card, state) {
     const badge = card.querySelector('.page-status');
     if (!badge) return;
-    badge.classList.remove('d-none', 'bg-secondary', 'bg-success', 'bg-warning', 'text-dark');
+    badge.classList.remove('d-none', 'bg-secondary', 'bg-success', 'bg-warning', 'bg-danger', 'text-dark');
+    badge.removeAttribute('title');
     if (state === 'pending') {
         badge.classList.add('bg-secondary');
         badge.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> detecting…';
     } else if (state === 'done') {
         const n = card.querySelectorAll('.box-row').length;
+        if (card.dataset.failed && !n) {
+            badge.classList.add('bg-danger');
+            badge.textContent = 'detection failed — Re-run';
+            badge.title = card.dataset.failed;
+            return;
+        }
         badge.classList.add(n ? 'bg-success' : 'bg-warning');
         if (!n) badge.classList.add('text-dark');
         badge.textContent = n ? `${n} region(s)` : 'no regions';
@@ -2012,17 +2303,86 @@ function buildSplitActions(kind, item) {
         });
         actions.appendChild(unBtn);
     }
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'btn btn-sm btn-outline-success';
-    addBtn.title = 'Add the next part directly below this box (same width)';
-    addBtn.innerHTML = '<i class="bi bi-plus-square"></i>';
-    addBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        addPartBelow(kind, item);
-    });
-    actions.appendChild(addBtn);
+    const contBtn = buildContToggle(kind, item);
+    if (contBtn) actions.appendChild(contBtn);
+    actions.appendChild(buildRowAddMenu(kind, item));
     return actions;
+}
+// "Cont." on the first box of a page: says whether it continues the question
+// before it from the previous page (Renumber keeps that number) or is a new
+// question. Not shown where the labels already decide it (a part such as 4c,
+// one split source, another question of the same range).
+function buildContToggle(kind, item) {
+    if (isGeneric()) return null;
+    const prev = pageTopPrev(kind, item);
+    if (!prev || continuesByLabels(prev, item, kind)) return null;
+    const on = contFlagged(prev, item);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm ' + (on ? 'btn-secondary' : 'btn-outline-secondary');
+    btn.innerHTML = '<i class="bi bi-arrow-return-right"></i> Cont.';
+    btn.title = on
+        ? `Continues Q${examLabel(prev)} from page ${prev.page + 1}; Renumber gives it that number. Click if it is a new question.`
+        : `A new question. Click if it continues Q${examLabel(prev)} from page ${prev.page + 1} (Renumber will then give it that number).`;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        item.cont = !on;
+        if (on) { item.cp = false; prev.cn = false; }
+        refreshNumbersUI(kind);
+        updateOrderWarning();
+        appendLog(item.cont
+            ? `Page ${item.page + 1}: Q${examLabel(item)} marked as continuing Q${examLabel(prev)} from page ${prev.page + 1}. Use Renumber from here to update the numbers.`
+            : `Page ${item.page + 1}: Q${examLabel(item)} marked as a new question. Use Renumber from here to update the numbers.`, 'info');
+    });
+    return btn;
+}
+// Row "+": a menu that adds a stem or a part to this row's question (never a
+// new question — that is the page's Add box ▾). Labels are computed when the
+// row is (re)built; refreshNumbersUI rebuilds every row after a change.
+function buildRowAddMenu(kind, item) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dropdown';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-success dropdown-toggle';
+    btn.innerHTML = '<i class="bi bi-plus-square"></i>';
+    wrap.appendChild(btn);
+    const opt = rowAddOptions(kind, item);
+    if (!opt) {
+        // Not `disabled`: unlockPageJobs re-enables every .split-actions button.
+        const why = examLabel(item)
+            ? 'A shared range (or a question split from one) has no stem or parts to add. For a new question use Add box ▾ on the page.'
+            : 'Type a question number first, then add its stem or parts here.';
+        btn.classList.remove('dropdown-toggle');
+        btn.classList.add('opacity-50');
+        btn.title = why;
+        btn.addEventListener('click', () => appendLog(why, 'info'));
+        return wrap;
+    }
+    btn.setAttribute('data-bs-toggle', 'dropdown');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.title = `Add a stem or part to Q${opt.root} — same width, so you only adjust its top and bottom`;
+    const menu = document.createElement('ul');
+    menu.className = 'dropdown-menu dropdown-menu-end small';
+    const li = () => { const el = document.createElement('li'); menu.appendChild(el); return el; };
+    li().innerHTML = `<h6 class="dropdown-header">Add to Q${escapeHtml(opt.root)} — same width</h6>`;
+    const entry = (icon, text, hint, what, disabled) => {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.className = 'dropdown-item' + (disabled ? ' disabled' : '');
+        a.innerHTML = `<i class="bi ${icon}"></i> ${escapeHtml(text)} <span class="text-muted">— ${escapeHtml(hint)}</span>`;
+        a.addEventListener('click', e => { e.preventDefault(); if (!disabled) addToQuestion(kind, item, what); });
+        li().appendChild(a);
+    };
+    entry('bi-card-heading', 'Stem', opt.stem ? 'already added' : 'top of the question', 'stem', !!opt.stem);
+    entry('bi-plus-square', opt.part ? `Part Q${opt.part}` : 'Part', opt.part ? 'bottom of the question' : 'no letters left', 'part', !opt.part);
+    if (opt.pair) entry('bi-layout-split', `Parts Q${opt.root}a + Q${opt.root}b`, 'no stem; splits the box in half', 'pair', false);
+    if (opt.sub) entry('bi-diagram-2', `Sub-part Q${opt.sub}`, opt.subInside ? 'lower half of this part' : 'below this part', 'sub', false);
+    if (!opt.split) {
+        li().innerHTML = `<span class="dropdown-item-text text-muted small">Stem or Part turns Q${escapeHtml(opt.root)} into a stem + part (a). Unsplit puts it back.</span>`;
+    }
+    wrap.appendChild(menu);
+    return wrap;
 }
 function deleteItem(kind, item) {
     if (!item) return;
@@ -2040,44 +2400,160 @@ function deleteItem(kind, item) {
     if (card) toggleEmpty(card);
     updateReviewSummary();
 }
-function addPartBelow(kind, item) {
-    const nl = nextPartLabel(examLabel(item)) || '';
-    const parsed = parseLabel(nl);
-    const h = item.box[3] - item.box[1];
-    const newItem = {
-        page: item.page,
-        qno: parsed ? parsed.qno : prefixInt({ label: nl }),
-        label: nl,
-        box: [item.box[0], item.box[3], item.box[2], Math.min(1, item.box[3] + h)],
-        _uid: nextUid(),
+// What the row "+" menu offers for `item`'s question; null = nothing (no
+// number yet, a shared range 31-32, or a question split out of one).
+//   split - the question already has lettered parts; stem - its stem box
+//   part  - next top-level part label; pair - "4a + 4b, no stem" (whole question only)
+//   sub   - child of a leaf part: 4b → 4bi (inside 4b), 4bi → 4bii (below it)
+function rowAddOptions(kind, item) {
+    const root = rootOf(item);
+    if (!root || /-/.test(root) || groupRootOf(item) !== root) return null;
+    const same = plan[kind].filter(it => rootOf(it) === root);
+    const split = same.some(it => parseLabel(examLabel(it)).path);
+    const letter = nextTopLetter(kind, root);
+    const opt = {
+        root, split,
+        stem: split ? (same.find(it => examLabel(it) === root) || null) : null,
+        part: letter ? root + letter : null,
+        pair: !split,
+        sub: null, subInside: false,
     };
-    if (item.source_label || item.source_page != null || item.source_box) {
-        newItem.source_label = item.source_label || null;
-        newItem.source_page = item.source_page;
-        newItem.source_box = item.source_box ? item.source_box.slice() : null;
+    const lab = examLabel(item);
+    const path = parseLabel(lab).path;
+    const leaf = !plan[kind].some(it => labelIsAncestor(lab, examLabel(it)));
+    if (path && leaf) {
+        const depth = partSegments(path).length;
+        let cand = depth === 1 ? lab + 'i' : nextPartLabel(lab);
+        if (depth === 1 && partSegments(parseLabel(cand).path).length !== 2) cand = null;
+        if (cand && !plan[kind].some(it => examLabel(it) === cand)) {
+            opt.sub = cand;
+            opt.subInside = depth === 1;
+        }
     }
-    const idx = plan[kind].indexOf(item);
-    if (idx >= 0) plan[kind].splice(idx + 1, 0, newItem);
-    else plan[kind].push(newItem);
-    const card = document.querySelector(`.page-card[data-kind="${kind}"][data-page="${item.page}"]`);
+    return opt;
+}
+// Where the new box goes, given the box it sits next to and the edge of the
+// question's area beyond it (null = no free strip, always cut). A free strip
+// of >= ADD_STRIP_MIN is used as-is; otherwise the neighbour gives up its top
+// third (stem) or bottom half (part) and `cut` is the new shared edge.
+const ADD_STRIP_MIN = 0.02;
+function rowAddSlot(what, neighbour, limit) {
+    const [, t, , b] = neighbour.box;
+    if (what === 'stem') {
+        if (limit != null && t - limit >= ADD_STRIP_MIN) return { y: [limit, t], cut: null };
+        const cut = t + (b - t) / 3;
+        return { y: [t, cut], cut };
+    }
+    if (limit != null && limit - b >= ADD_STRIP_MIN) return { y: [b, limit], cut: null };
+    const cut = t + (b - t) / 2;
+    return { y: [cut, b], cut };
+}
+// Row "+" → add a stem / part to the row's question on this page, with the
+// same x-span as its neighbour, so only the vertical edges need adjusting.
+// The question's area = its boxes on this page plus the pre-split original
+// (source_box). Turning a whole question into stem + parts stores source_*
+// on every box of it (all pages) so Unsplit and the whole-question crop get
+// the original back; its boxes on later pages continue the last part.
+function addToQuestion(kind, item, what) {
+    const opt = rowAddOptions(kind, item);
+    if (!opt) return null;
+    const root = opt.root, page = item.page;
+    const here = plan[kind].filter(it => it.page === page && rootOf(it) === root)
+        .sort((a, b) => a.box[1] - b.box[1]);
+    if (!here.length) return null;
+    let top = here[0].box[1];
+    let bot = Math.max(...here.map(it => it.box[3]));
+    here.forEach(it => {
+        if (it.source_box && it.source_page === page && rootOf({ label: it.source_label }) === root) {
+            top = Math.min(top, it.source_box[1]);
+            bot = Math.max(bot, it.source_box[3]);
+        }
+    });
+
+    let neighbour, label, limit = null, relabel = null;
+    if (what === 'stem') {
+        if (opt.stem) {
+            appendLog(`Q${root} already has a stem box — resize that box instead.`, 'warning');
+            selectItem(kind, opt.stem);
+            return null;
+        }
+        neighbour = here[0]; label = root; limit = top;
+        if (!opt.split) relabel = root + 'a';
+    } else if (what === 'part' && opt.part) {
+        neighbour = here[here.length - 1]; label = opt.part; limit = bot;
+    } else if (what === 'pair' && opt.pair) {
+        neighbour = here[here.length - 1]; label = root + 'b'; relabel = root + 'a';
+    } else if (what === 'sub' && opt.sub) {
+        neighbour = item; label = opt.sub;
+        if (!opt.subInside) {
+            const next = plan[kind].filter(it => it !== item && it.page === page && it.box[1] >= item.box[3] - 1e-6)
+                .sort((a, b) => a.box[1] - b.box[1])[0];
+            limit = next ? next.box[1] : bot;
+        }
+    } else {
+        return null;
+    }
+
+    if (!opt.split) {
+        plan[kind].forEach(it => {
+            if (rootOf(it) !== root || it.source_box) return;
+            it.source_label = root;
+            it.source_page = it.page;
+            it.source_box = it.box.slice();
+        });
+    }
+    const slot = rowAddSlot(what === 'stem' ? 'stem' : 'part', neighbour, limit);
+    const nb = neighbour.box;
+    const newItem = { page, qno: null, label: null, box: [nb[0], slot.y[0], nb[2], slot.y[1]], _uid: nextUid() };
+    applyExamLabel(newItem, label);
+    const src = neighbour.source_box ? neighbour
+        : (here.find(it => it.source_box) || plan[kind].find(it => rootOf(it) === root && it.source_box));
+    if (src) {
+        newItem.source_label = src.source_label || null;
+        newItem.source_page = src.source_page;
+        newItem.source_box = src.source_box.slice();
+    }
+    if (slot.cut != null) {
+        neighbour.box = what === 'stem' ? [nb[0], slot.cut, nb[2], nb[3]] : [nb[0], nb[1], nb[2], slot.cut];
+        joinedEdges.add(what === 'stem' ? `${newItem._uid}>${neighbour._uid}` : `${neighbour._uid}>${newItem._uid}`);
+        restyleItem(neighbour);
+    }
+    if (relabel) applyExamLabel(neighbour, relabel);
+
+    let carried = '';
+    if (!opt.split) {
+        const tail = here.concat([newItem]).sort((a, b) => b.box[3] - a.box[3])[0];
+        const tailLabel = examLabel(tail);
+        const later = plan[kind].filter(it => it.page > page && examLabel(it) === root);
+        if (tailLabel !== root && later.length) {
+            later.forEach(it => applyExamLabel(it, tailLabel));
+            carried = ` Its box${later.length > 1 ? 'es' : ''} on later pages now continue${later.length > 1 ? '' : 's'} Q${tailLabel}.`;
+        }
+    }
+
+    const idx = plan[kind].indexOf(neighbour);
+    plan[kind].splice(what === 'stem' ? idx : idx + 1, 0, newItem);
+    const card = cardFor(kind, page);
     if (card) {
         addBoxDom(card, kind, newItem);
-        const srcRow = document.getElementById('row-' + item._uid);
-        const newRow = document.getElementById('row-' + newItem._uid);
-        if (srcRow && newRow && srcRow.parentNode) {
-            srcRow.parentNode.insertBefore(newRow, srcRow.nextSibling);
-        }
         toggleEmpty(card);
     }
     refreshNumbersUI(kind);
     updateReviewSummary();
-    updateOrderWarning();
-    const row = document.getElementById('row-' + newItem._uid);
-    if (row) {
-        const inp = row.querySelector('input');
-        if (inp) { inp.focus(); inp.select(); }
-    }
     selectItem(kind, newItem);
+
+    const nLab = examLabel(neighbour);
+    let msg;
+    if (what === 'stem') msg = `Added the stem of Q${root}` + (relabel ? ` — the rest is now Q${relabel}.` : '.');
+    else if (what === 'pair') msg = `Split Q${root} into Q${root}a + Q${root}b (no stem).`;
+    else if (what === 'sub' && opt.subInside) msg = `Added Q${label}; the top of Q${nLab} stays as its lead-in.`;
+    else msg = `Added Q${label}` + (!opt.split && what === 'part' ? `; the top of Q${root} is now its stem.` : '.');
+    msg += slot.cut != null
+        ? ` Drag the line between Q${what === 'stem' ? label : nLab} and Q${what === 'stem' ? nLab : label} to the right place — both boxes follow.`
+        : ` It fills the empty strip ${what === 'stem' ? 'above' : 'below'} Q${nLab}; adjust its ${what === 'stem' ? 'top' : 'bottom'} edge if needed.`;
+    if (!opt.split) msg += ` Unsplit puts Q${root} back as one box.`;
+    appendLog(msg + carried, 'info');
+    return newItem;
 }
 function addBoxDom(card, kind, item) {
     const list = card.querySelector('.pdf-box-list');
@@ -2127,7 +2603,11 @@ function addBoxDom(card, kind, item) {
         row.appendChild(buildSplitActions(kind, item));
     }
     row.appendChild(delBtn);
-    list.appendChild(row);
+    // Rows follow the boxes top to bottom: split / unsplit results arrive at
+    // the end of the plan, and plan order is not reading order.
+    row._item = item;
+    const below = Array.from(list.children).find(r => r._item && r._item.box[1] > item.box[1] + 1e-6);
+    list.insertBefore(row, below || null);
 
     row.addEventListener('mouseenter', selectThis);
     qInput.addEventListener('change', () => {
@@ -2146,16 +2626,28 @@ function addBoxDom(card, kind, item) {
 }
 
 // ----- Draw a new box (overlay drawing itself lives in OQBBboxEditor) -----
-// Called by the card's editor with the finished rubber-band box. Exam: qno is
-// assigned by renumberAfterInsert (relative shift) once the box is placed in
-// reading order. Generic: a free-text label, no cascade. Returns the plan item
-// so the editor renders and selects it.
+// Called by the card's editor with the finished rubber-band box. The card's
+// add role (Add box ▾) decides the label:
+//   question - next number, later questions shift up where they would clash;
+//   part     - next top-level letter of the question it is drawn in (the
+//              first part trims that whole-question box down to its stem);
+//   stem     - the bare number of the question it is drawn in.
+// Generic: a free-text label, no cascade. Returns the plan item so the editor
+// renders and selects it (null = nothing added).
 function finishDraw(card, kind, pageIndex, box) {
+    const role = isGeneric() ? 'question' : (card._addRole || 'question');
+    card._addRole = 'question';
     const item = { page: pageIndex, qno: null, label: null, box, _uid: nextUid() };
     snapItemToFrame(kind, item);
     if (!frameExtent(kind, pageIndex) && uniformActive()) snapBoxToUniform(item, kind);
+
+    let labelled = false;
+    if (role === 'part' || role === 'stem') {
+        labelled = labelDrawnChild(card, kind, item, role);
+        if (labelled === null) return null;
+    }
     plan[kind].push(item);
-    if (!isGeneric()) { renumberAfterInsert(kind, item); }
+    if (!isGeneric() && !labelled) renumberAfterInsert(kind, item);
     addBoxDom(card, kind, item);
     if (!isGeneric()) refreshNumbersUI(kind);
     toggleEmpty(card);
@@ -2163,6 +2655,123 @@ function finishDraw(card, kind, pageIndex, box) {
     const row = document.getElementById('row-' + item._uid);
     if (row) { const inp = row.querySelector('input'); inp.focus(); inp.select(); }
     return item;
+}
+
+// The question a part / stem drawn at `item` belongs to: the box on this page
+// whose span contains the new box's top (smallest such box), else the nearest
+// numbered box above it in reading order (possibly on an earlier page).
+function targetRootFor(kind, item) {
+    const top = item.box[1];
+    const holders = plan[kind].filter(it => it !== item && it.page === item.page && rootOf(it)
+        && it.box[1] <= top + 1e-6 && top < it.box[3]);
+    if (holders.length) {
+        holders.sort((a, b) => (a.box[3] - a.box[1]) - (b.box[3] - b.box[1]));
+        return { root: rootOf(holders[0]), holder: holders[0] };
+    }
+    const key = readingKey(item);
+    const before = readingOrder(kind).filter(it => it !== item && rootOf(it) && readingKey(it) <= key);
+    if (before.length) return { root: rootOf(before[before.length - 1]), holder: null };
+    return null;
+}
+// A stem sits above its parts: when the next box down on this page is a part
+// of a question that has no stem box on this page, the stem is that question's.
+function stemTargetBelow(kind, item) {
+    const top = item.box[1];
+    const below = plan[kind].filter(it => it !== item && it.page === item.page && rootOf(it)
+        && it.box[1] >= top - 1e-6).sort((a, b) => a.box[1] - b.box[1])[0];
+    if (!below || !isPartItem(below)) return null;
+    const root = rootOf(below);
+    if (plan[kind].some(it => it.page === item.page && examLabel(it) === root)) return null;
+    return { root, holder: null };
+}
+// Next top-level part of a question: after a, b → c; after i, ii → iii (a
+// question whose parts are roman numerals only); none yet → a.
+function nextTopLetter(kind, root) {
+    const firsts = [];
+    plan[kind].forEach(it => {
+        const p = parseLabel(examLabel(it));
+        if (!p || rootOf(it) !== root || !p.path) return;
+        const first = partSegments(p.path)[0];
+        if (first && !firsts.includes(first)) firsts.push(first);
+    });
+    if (!firsts.length) return 'a';
+    const romanOnly = firsts.every(s => Object.prototype.hasOwnProperty.call(ROMAN_VALUE, s))
+        && firsts.some(s => s.length > 1 || s === 'i');
+    if (romanOnly && !firsts.some(s => s.length === 1 && s !== 'i' && s !== 'v' && s !== 'x')) {
+        const val = Math.max(...firsts.map(s => ROMAN_VALUE[s])) + 1;
+        return Object.keys(ROMAN_VALUE).find(k => ROMAN_VALUE[k] === val) || null;
+    }
+    const letters = firsts.filter(s => s.length === 1).sort();
+    const best = letters[letters.length - 1];
+    if (!best) return 'a';
+    return best === 'z' ? null : String.fromCharCode(best.charCodeAt(0) + 1);
+}
+// Label a hand-drawn part or stem. Returns true when labelled, false to fall
+// back to "Add question" (no question above it), null to cancel the add.
+function labelDrawnChild(card, kind, item, role) {
+    const tgt = (role === 'stem' && stemTargetBelow(kind, item)) || targetRootFor(kind, item);
+    if (!tgt) {
+        appendLog(`Add ${role}: there is no question above this box — added as a new question instead.`, 'warning');
+        return false;
+    }
+    const root = tgt.root;
+    if (/-/.test(root) && role === 'part') {
+        appendLog(`Add part: Q${root} is a shared range and cannot have lettered parts — added as a new question instead.`, 'warning');
+        return false;
+    }
+    if (role === 'stem') {
+        const existing = plan[kind].find(it => it.page === item.page && examLabel(it) === root);
+        if (existing) {
+            appendLog(`Q${root} already has a box labelled ${root} on this page (its stem or whole question) — resize that box instead.`, 'warning');
+            selectItem(kind, existing);
+            return null;
+        }
+        applyExamLabel(item, root);
+        copySourceFromSibling(kind, item, root);
+        appendLog(`Added the stem of Q${root}.`, 'info');
+        return true;
+    }
+    const hadParts = plan[kind].some(it => rootOf(it) === root && parseLabel(examLabel(it))?.path);
+    const letter = nextTopLetter(kind, root);
+    if (!letter) {
+        appendLog(`Add part: Q${root} already uses every letter — type the label by hand.`, 'warning');
+        applyExamLabel(item, root);
+        return true;
+    }
+    applyExamLabel(item, root + letter);
+    const whole = tgt.holder && examLabel(tgt.holder) === root ? tgt.holder : null;
+    if (!hadParts && whole) {
+        // First part inside a whole-question box: that box becomes the stem
+        // strip above the part. source_* lets Unsplit restore the original.
+        const original = whole.box.slice();
+        const stripH = item.box[1] - whole.box[1];
+        whole.source_label = whole.source_label || root;
+        whole.source_page = whole.source_page != null ? whole.source_page : whole.page;
+        whole.source_box = whole.source_box || original;
+        item.source_label = whole.source_label;
+        item.source_page = whole.source_page;
+        item.source_box = whole.source_box.slice();
+        if (stripH >= 0.01) {
+            whole.box = [whole.box[0], whole.box[1], whole.box[2], item.box[1]];
+            restyleItem(whole);
+            appendLog(`Added Q${root}${letter}; Q${root} is now its stem (trimmed to the part's top).`, 'info');
+        } else {
+            appendLog(`Added Q${root}${letter}. The part starts at the top of Q${root}, so Q${root} was not trimmed — resize or delete it.`, 'warning');
+        }
+    } else {
+        copySourceFromSibling(kind, item, root);
+        appendLog(`Added Q${root}${letter}.`, 'info');
+    }
+    return true;
+}
+// A hand-added child of an already-split question keeps the split's source
+// fields so Re-split / Unsplit still treat it as part of that question.
+function copySourceFromSibling(kind, item, root) {
+    const sib = plan[kind].find(it => it !== item && rootOf(it) === root && it.source_box);
+    if (!sib) return;
+    item.source_label = sib.source_label || null;
+    item.source_page = sib.source_page;
+    item.source_box = sib.source_box ? sib.source_box.slice() : null;
 }
 
 function boxLabelText(item) {
@@ -2173,31 +2782,126 @@ function boxLabelText(item) {
     return lab ? ('Q' + lab) : 'Q?';
 }
 
-// ----- Auto-renumber (relative shift) -----
-// Reading order within a kind = (page, then box top-Y). Adding a box bumps
-// every later box +1; deleting a box bumps every later box -1. This keeps the
-// model-read numbers and just reflows around the edit. Manual qno edits and
-// move/resize deliberately do NOT cascade.
+// ----- Auto-renumber (whole questions) -----
+// Reading order within a kind = (page, then box top-Y). A question is its root
+// ("4" for 4, 4a, 4bii; "23-24" for a shared range); a shift moves every box
+// with that root — stem, parts, continuation pages — and its source_label.
+// Adding a question takes (previous root + 1); later questions shift +1 only
+// while they would clash, so a gap (a question the model missed) absorbs it.
+// Deleting a box shifts later questions -1 only when it was the LAST box of
+// its question, and only across the consecutive run that follows it. Manual
+// label edits and move/resize deliberately do NOT cascade.
 function readingKey(it) { return it.page * 2 + it.box[1]; }   // box[1] (top) is 0..1
 function readingOrder(kind) {
     return plan[kind].slice().sort((a, b) => readingKey(a) - readingKey(b));
 }
-function bumpLabel(it, delta) {
-    const lab = examLabel(it);
-    const m = lab.match(/^(\d+)(?:-(\d+))?$/);
-    if (!m) return;
-    const a = parseInt(m[1], 10) + delta;
-    if (a < 1) return;
-    if (m[2]) {
-        const b = parseInt(m[2], 10) + delta;
-        if (b <= a) return;
-        applyExamLabel(it, a + '-' + b);
+function rootOf(it) {
+    const p = parseLabel(examLabel(it));
+    if (!p) return null;
+    return p.qnoEnd != null ? `${p.qno}-${p.qnoEnd}` : String(p.qno);
+}
+function rootSpan(root) {
+    const m = String(root || '').match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) return null;
+    const a = parseInt(m[1], 10);
+    return [a, m[2] ? parseInt(m[2], 10) : a];
+}
+// The question a box moves with when renumbering: its own root, or the range
+// (31-32) a child question (31) belongs to, so the range and its questions
+// renumber as one unit. With `kind`, a single-number question also joins a
+// range box on that side without a source_label: Pass 1 may box the shared
+// stimulus "27-28" next to its own questions 27 and 28 (nothing to split).
+function groupRootOf(it, kind) {
+    const r = rootOf(it);
+    if (!r) return r;
+    const own = rootSpan(r);
+    const inside = range => {
+        const s = rootSpan(range);
+        return range !== r && s && own && s[1] > s[0] && own[0] >= s[0] && own[1] <= s[1];
+    };
+    const src = it.source_label ? rootOf({ label: it.source_label }) : null;
+    if (src && inside(src)) return src;
+    if (kind && own && own[0] === own[1]) {
+        const host = (plan[kind] || []).map(o => rootOf(o)).find(x => x && /-/.test(x) && inside(x));
+        if (host) return host;
+    }
+    return r;
+}
+// Is `cur` (on a later page) `prev`'s question continuing, rather than a new
+// question that repeats its number? Yes when something says so: the cont flag
+// (stitch / Unsplit / the row's Cont. toggle), the model's page-break flags,
+// one split source, another question of the same range, or a part label
+// (4c after 4b). A bare repeated number ("29" after "29") needs the flag.
+function continuesFrom(prev, cur, kind) {
+    if (!prev || !cur || cur.page <= prev.page) return false;
+    return contFlagged(prev, cur) || continuesByLabels(prev, cur, kind);
+}
+function contFlagged(prev, cur) { return !!(cur.cont || cur.cp || prev.cn); }
+function continuesByLabels(prev, cur, kind) {
+    const sp = prev.source_label ? rootOf({ label: prev.source_label }) : null;
+    const sc = cur.source_label ? rootOf({ label: cur.source_label }) : null;
+    if (sp && sp === sc) return true;
+    if (groupRootOf(prev, kind) !== groupRootOf(cur, kind)) return false;
+    if (rootOf(prev) !== rootOf(cur)) return true;
+    const p = parseLabel(examLabel(cur));
+    return !!(p && p.path);
+}
+// The numbered box before `item` in reading order, when `item` is the first
+// numbered box on its page (the only place a continuation can start).
+function pageTopPrev(kind, item) {
+    const order = readingOrder(kind).filter(it => rootOf(it));
+    const i = order.indexOf(item);
+    if (i <= 0 || order[i - 1].page >= item.page) return null;
+    return order[i - 1];
+}
+// "4b" with new root "5" → "5b"; "23-24" with new root "25-26" → "25-26".
+function withRoot(label, newRoot) {
+    const p = parseLabel(label);
+    if (!p) return label;
+    if (p.qnoEnd != null || !p.path) return newRoot;
+    return /-/.test(newRoot) ? label : newRoot + p.path;   // a range has no parts
+}
+function setItemRoot(it, oldRoot, newRoot) {
+    const own = rootOf(it);
+    const o = rootSpan(oldRoot), n = rootSpan(newRoot), s = rootSpan(own);
+    if (own && own !== oldRoot && o && n && s) {
+        // A question inside the range oldRoot shifts by the range's offset.
+        applyExamLabel(it, withRoot(examLabel(it), String(s[0] + n[0] - o[0])));
     } else {
-        applyExamLabel(it, String(a));
+        applyExamLabel(it, withRoot(examLabel(it), newRoot));
+    }
+    if (it.source_label && rootOf({ label: it.source_label }) === oldRoot) {
+        it.source_label = withRoot(it.source_label, newRoot);
     }
 }
-function isRenumberTarget(it) {
-    return !isPartItem(it) && prefixInt(it) != null;
+function shiftedRoot(root, delta) {
+    const s = rootSpan(root);
+    if (!s || s[0] + delta < 1) return null;
+    return s[1] !== s[0] ? `${s[0] + delta}-${s[1] + delta}` : String(s[0] + delta);
+}
+// Questions whose first box comes after `key` in reading order, in that order
+// (a root that already appears at or before `key` is an earlier question
+// continuing, not a later one). Each entry: { root, items }.
+function laterQuestions(kind, key, exclude) {
+    const seenBefore = new Set();
+    const later = [];
+    const byRoot = new Map();
+    readingOrder(kind).forEach(it => {
+        if (it === exclude) return;
+        const r = groupRootOf(it, kind);
+        if (!r) return;
+        if (readingKey(it) <= key) { seenBefore.add(r); return; }
+        if (seenBefore.has(r)) return;
+        if (!byRoot.has(r)) { const q = { root: r, items: [] }; byRoot.set(r, q); later.push(q); }
+        byRoot.get(r).items.push(it);
+    });
+    return later;
+}
+function shiftQuestion(q, delta) {
+    const nr = shiftedRoot(q.root, delta);
+    if (!nr) return false;
+    q.items.forEach(it => setItemRoot(it, q.root, nr));
+    return true;
 }
 function renumberAfterInsert(kind, item) {
     const order = readingOrder(kind);
@@ -2205,18 +2909,100 @@ function renumberAfterInsert(kind, item) {
     if (idx < 0) return;
     let base = 0;
     for (let i = idx - 1; i >= 0; i--) {
-        if (isRenumberTarget(order[i])) { base = prefixInt(order[i]); break; }
+        const s = rootSpan(groupRootOf(order[i], kind));
+        if (s) { base = s[1]; break; }
     }
     applyExamLabel(item, String(base + 1));
-    for (let i = idx + 1; i < order.length; i++) {
-        if (isRenumberTarget(order[i])) bumpLabel(order[i], 1);
+    let taken = base + 1;
+    for (const q of laterQuestions(kind, readingKey(item), item)) {
+        const s = rootSpan(q.root);
+        if (!s || s[0] > taken) break;
+        if (!shiftQuestion(q, 1)) break;
+        taken = s[1] + 1;
     }
 }
 function renumberAfterDelete(kind, removed) {
-    const key = readingKey(removed);
-    plan[kind].forEach(it => {
-        if (readingKey(it) > key && isRenumberTarget(it)) bumpLabel(it, -1);
+    const root = groupRootOf(removed, kind);
+    const span = rootSpan(root);
+    if (!span) return;
+    if (plan[kind].some(it => groupRootOf(it, kind) === root)) return;
+    let prevEnd = span[1];
+    for (const q of laterQuestions(kind, readingKey(removed), removed)) {
+        const s = rootSpan(q.root);
+        if (!s || s[0] !== prevEnd + 1) break;
+        prevEnd = s[1];
+        if (!shiftQuestion(q, -1)) break;
+    }
+}
+// "Renumber from here": number every question from page `pageIndex` to the
+// end of the side consecutively, continuing from the last question before the
+// page. Consecutive boxes with the same root are one question (parts follow
+// it; a shared range keeps its width). A box at the top of a page keeps the
+// number of the question before it only when it is that question continuing
+// (`continuesFrom`); a bare number repeated across a page break without the
+// cont flag is a new question and is logged. With nothing before the page,
+// the first question keeps its own number.
+function renumberFromPage(kind, pageIndex) {
+    if (isGeneric() || running) return;
+    const order = readingOrder(kind).filter(it => rootOf(it));
+    const before = order.filter(it => it.page < pageIndex);
+    const from = order.filter(it => it.page >= pageIndex);
+    if (!from.length) { appendLog(`Renumber: no numbered boxes from page ${pageIndex + 1} on.`, 'warning'); return; }
+    const runs = [];
+    const repeats = [];
+    from.forEach(it => {
+        const r = groupRootOf(it, kind);
+        const last = runs[runs.length - 1];
+        const tail = last && last.items[last.items.length - 1];
+        if (last && last.root === r && (it.page === tail.page || continuesFrom(tail, it, kind))) {
+            last.items.push(it);
+            return;
+        }
+        if (last && last.root === r) repeats.push(it);
+        runs.push({ root: r, items: [it] });
     });
+
+    let prevItem = before[before.length - 1] || null;
+    let prevOld = prevItem ? groupRootOf(prevItem, kind) : null;
+    let prevNew = prevOld;
+    let next = prevOld ? rootSpan(prevOld)[1] : rootSpan(runs[0].root)[0] - 1;
+    let changed = 0;
+    let first = null;
+    let lastNew = null;
+    runs.forEach(run => {
+        const head = run.items[0];
+        const continues = continuesFrom(prevItem, head, kind);
+        if (!continues && prevItem && head.page > prevItem.page && run.root === prevOld
+                && !repeats.includes(head)) repeats.push(head);
+        let nr;
+        if (continues) {
+            nr = prevNew;
+        } else {
+            const s = rootSpan(run.root);
+            const width = s[1] - s[0];
+            const a = next + 1;
+            nr = width > 0 ? `${a}-${a + width}` : String(a);
+            next = a + width;
+        }
+        if (nr !== run.root) {
+            changed++;
+            run.items.forEach(it => setItemRoot(it, run.root, nr));
+        }
+        if (first == null) first = nr;
+        lastNew = nr;
+        prevItem = run.items[run.items.length - 1];
+        prevOld = run.root;
+        prevNew = nr;
+    });
+    refreshNumbersUI(kind);
+    updateReviewSummary();
+    const side = kind === 'que' ? 'questions' : 'solutions';
+    appendLog(changed
+        ? `Renumbered ${side} from page ${pageIndex + 1}${first ? ` (Q${first} … Q${lastNew})` : ''}: ${changed} question(s) changed.`
+        : `Renumber from page ${pageIndex + 1}: ${side} were already consecutive.`, changed ? 'success' : 'info');
+    repeats.forEach(it => appendLog(
+        `Renumber: the box at the top of page ${it.page + 1} repeated the number before it, so it is now Q${examLabel(it)}. `
+        + 'If it continues that question, press Cont. on its row and renumber again.', 'warning'));
 }
 // Assign 1..N to every box in reading order (used by custom-prompt exam runs,
 // where the model returns no printed numbers — the numbers are ours).
@@ -2237,6 +3023,7 @@ function stitchContinuations(kind) {
         if (cur.page > prev.page && (cur.cp || prev.cn) && (Number.isFinite(prev.qno) || examLabel(prev))) {
             cur.qno = prev.qno;
             if (prev.label) cur.label = prev.label;
+            cur.cont = true;
             // Continuation pages lack the margin question number, so the model's
             // box starts at the indented body; inherit the head page's x-span —
             // unless this page has a frame, which governs x instead (the head
@@ -2265,12 +3052,19 @@ function refreshNumbersUI(kind) {
     });
 }
 
+const ADD_ROLE_LABELS = { question: 'question', part: 'part', stem: 'stem' };
+function startAddMode(card, role) {
+    card._addRole = ADD_ROLE_LABELS[role] ? role : 'question';
+    card._ed.setAddMode(true);
+    setAddButton(card, true);
+}
 function setAddButton(card, on) {
     const btn = card.querySelector('.btn-add');
     if (!btn) return;
     btn.classList.toggle('btn-success', on);
     btn.classList.toggle('btn-outline-success', !on);
-    btn.innerHTML = on ? '<i class="bi bi-x-lg"></i> Cancel'
+    const what = isGeneric() ? 'region' : ADD_ROLE_LABELS[card._addRole || 'question'];
+    btn.innerHTML = on ? `<i class="bi bi-x-lg"></i> Cancel (draw a ${what})`
                        : '<i class="bi bi-plus-square"></i> Add box';
 }
 
@@ -2286,30 +3080,133 @@ function updateReviewSummary() {
     refreshSplitDetectBtn();
 }
 
-// Big red banner if a side's question numbers don't read in ascending order
-// down the pages. A REPEAT is fine (a question that spans pages keeps its
-// number); a DROP (a smaller number after a larger one) is the red flag —
-// usually a mis-linked multi-page question or a mis-typed Q#. Generic mode
-// (free-text labels, no numbers) is exempt.
+// Numbering checks for one side's boxes (any order; sorted here):
+//  drop   — a smaller number after a larger one (mis-linked or mis-typed Q#);
+//  gap    — numbers between the side's first and last question that no box
+//           covers (a failed page, a missed question); a range 31-32 covers
+//           31 and 32;
+//  repeat — the same label boxed twice on ONE page (commit joins same-label
+//           boxes into one image), or (`cross`) at the top of the next page
+//           with nothing saying it continues (`continuesFrom`: Cont. flag,
+//           part label, split source).
+function numberingIssues(items) {
+    const order = items.slice().sort((a, b) => readingKey(a) - readingKey(b))
+        .filter(it => prefixInt(it) != null);
+    const issues = [];
+    const firstAt = new Map(), lastAt = new Map(), perPage = new Map();
+    order.forEach((it, i) => {
+        if (i && prefixInt(it) < prefixInt(order[i - 1])) {
+            issues.push({ type: 'drop', item: it, prev: order[i - 1] });
+        }
+        if (i && order[i - 1].page < it.page && examLabel(order[i - 1]) === examLabel(it)
+                && !continuesFrom(order[i - 1], it)) {
+            issues.push({ type: 'repeat', cross: true, item: it, prev: order[i - 1] });
+        }
+        const start = prefixInt(it);
+        const p = parseLabel(examLabel(it));
+        const end = p && p.qnoEnd != null && !p.path ? p.qnoEnd : start;
+        for (let n = start; n <= end; n++) {
+            if (!firstAt.has(n)) firstAt.set(n, it);
+            lastAt.set(n, it);
+        }
+        const key = it.page + '|' + examLabel(it);
+        const rec = perPage.get(key);
+        if (rec) rec.count++;
+        else perPage.set(key, { item: it, count: 1 });
+    });
+    if (firstAt.size) {
+        const nums = [...firstAt.keys()].sort((a, b) => a - b);
+        for (let i = 1; i < nums.length; i++) {
+            if (nums[i] > nums[i - 1] + 1) {
+                issues.push({ type: 'gap', from: nums[i - 1] + 1, to: nums[i] - 1,
+                              prev: lastAt.get(nums[i - 1]), item: firstAt.get(nums[i]) });
+            }
+        }
+    }
+    perPage.forEach(rec => {
+        if (rec.count > 1) issues.push({ type: 'repeat', item: rec.item, count: rec.count });
+    });
+    return issues;
+}
+
+// Banner over the review cards: red for drops, amber for gaps / repeats.
+// Generic mode (free-text labels, no numbers) is exempt. The first drop on
+// each side offers "Renumber from page N" (N = the page of the larger
+// number); a gap offers Re-run for each page between its neighbours that has
+// no boxes (a failed page says so), else a jump to the page where it starts.
+const NUMBERING_MAX_PER_TYPE = 6;
 function updateOrderWarning() {
     if (!orderWarning) return;
     if (isGeneric()) { orderWarning.classList.add('d-none'); return; }
-    const msgs = [];
+    const rows = [];
+    const types = new Set();
+    const btn = (cls, kind, page, icon, text) =>
+        ` <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-1 ${cls}" data-kind="${kind}" data-page="${page}"><i class="bi ${icon}"></i> ${text}</button>`;
     ['que', 'sol'].forEach(kind => {
-        const order = readingOrder(kind).filter(it => prefixInt(it) != null);
-        const label = kind === 'que' ? 'Questions' : 'Solutions';
-        for (let i = 1; i < order.length; i++) {
-            if (prefixInt(order[i]) < prefixInt(order[i - 1])) {
-                msgs.push(`<strong>${label}:</strong> Q${examLabel(order[i])} (page ${order[i].page + 1}) appears after Q${examLabel(order[i - 1])} (page ${order[i - 1].page + 1}).`);
+        const side = kind === 'que' ? 'Questions' : 'Solutions';
+        const head = `<strong>${side}:</strong> `;
+        const where = it => `Q${escapeHtml(examLabel(it))} (page ${it.page + 1})`;
+        const issues = numberingIssues(plan[kind] || []);
+        const shown = { drop: 0, gap: 0, repeat: 0 };
+        const pageSpan = is => [Math.min(is.prev.page, is.item.page), Math.max(is.prev.page, is.item.page)];
+        // A gap over a page still detecting is not a gap yet.
+        const gapPending = is => {
+            const [lo, hi] = pageSpan(is);
+            for (let p = lo; p <= hi; p++) if (cardFor(kind, p)?.dataset.pending === '1') return true;
+            return false;
+        };
+        let offered = false;
+        issues.forEach(is => {
+            if (is.type === 'gap' && gapPending(is)) return;
+            types.add(is.type);
+            if (shown[is.type]++ >= NUMBERING_MAX_PER_TYPE) return;
+            if (is.type === 'drop') {
+                let msg = `${head}${where(is.item)} appears after ${where(is.prev)}.`;
+                if (!offered) {
+                    const pg = is.prev.page;
+                    msg += ` <button type="button" class="btn btn-sm btn-outline-danger py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${pg}"><i class="bi bi-sort-numeric-down"></i> Renumber ${kind === 'que' ? 'questions' : 'solutions'} from page ${pg + 1}</button>`;
+                    offered = true;
+                }
+                rows.push(['bi-arrow-down-right', msg]);
+            } else if (is.type === 'gap') {
+                const [lo, hi] = pageSpan(is);
+                const missing = is.from === is.to ? `Q${is.from} is` : `Q${is.from}–Q${is.to} are`;
+                let msg = `${head}${missing} missing between ${where(is.prev)} and ${where(is.item)}.`;
+                const empty = [];
+                for (let p = lo; p <= hi; p++) {
+                    if (!(plan[kind] || []).some(it => it.page === p) && cardFor(kind, p)) empty.push(p);
+                }
+                empty.forEach(p => {
+                    const failed = cardFor(kind, p).dataset.failed;
+                    msg += ` Page ${p + 1} has no boxes${failed ? ` (detection failed: ${escapeHtml(failed)})` : ''}.`
+                        + btn('btn-order-rerun', kind, p, 'bi-arrow-repeat', `Re-run page ${p + 1}`);
+                });
+                if (!empty.length) msg += btn('btn-order-goto', kind, is.prev.page, 'bi-eye', `Go to page ${is.prev.page + 1}`);
+                rows.push(['bi-dash-circle', msg]);
+            } else if (is.cross) {
+                rows.push(['bi-files', `${head}${where(is.item)} repeats ${where(is.prev)} at the top of the next page. If it continues that question, press <strong>Cont.</strong> on its row; if it is a new question, renumber.`
+                    + ` <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${is.item.page}"><i class="bi bi-sort-numeric-down"></i> Renumber from page ${is.item.page + 1}</button>`]);
+            } else {
+                rows.push(['bi-files', `${head}Q${escapeHtml(examLabel(is.item))} has ${is.count} boxes on page ${is.item.page + 1} — they will be imported as one joined image. If one is a different question, fix its Q#.`
+                    + btn('btn-order-goto', kind, is.item.page, 'bi-eye', `Go to page ${is.item.page + 1}`)]);
             }
-        }
+        });
+        Object.keys(shown).forEach(t => {
+            const extra = shown[t] - NUMBERING_MAX_PER_TYPE;
+            if (extra > 0) rows.push(['bi-three-dots', `${head}${extra} more ${t === 'drop' ? 'out-of-order number' : t}(s).`]);
+        });
     });
-    if (msgs.length) {
-        orderWarningBody.innerHTML = msgs.map(m => `<div><i class="bi bi-arrow-down-right"></i> ${m}</div>`).join('');
-        orderWarning.classList.remove('d-none');
-    } else {
-        orderWarning.classList.add('d-none');
+    if (!rows.length) { orderWarning.classList.add('d-none'); return; }
+    const drop = types.has('drop');
+    orderWarning.classList.toggle('alert-danger', drop);
+    orderWarning.classList.toggle('alert-warning', !drop);
+    if (orderWarningTitle) {
+        orderWarningTitle.textContent = drop ? 'Question numbers look out of order'
+            : types.has('gap') ? 'Some question numbers are missing'
+            : 'Some question numbers are boxed twice';
     }
+    orderWarningBody.innerHTML = rows.map(([icon, m]) => `<div class="mb-1"><i class="bi ${icon}"></i> ${m}</div>`).join('');
+    orderWarning.classList.remove('d-none');
 }
 
 function redrawPreviews(card) {
@@ -2330,6 +3227,9 @@ async function rerunPage(card, kind, pageIndex) {
     const pageEndpoint = (card.querySelector('.page-endpoint') || {}).value || endpointSelect.value;
     lockPageJobs(btn, 'Re-running…');
     setPageStatus(card, 'pending');
+    setStatus('Re-running', 'bg-success');
+    stripStart(`Re-running ${kind.toUpperCase()} page ${pageIndex + 1}`, true);
+    let stripState = 'finished';
     try {
         const body = { token: staging.token, kind, index: pageIndex,
                        endpoint_id: pageEndpoint, method: pageMethod,
@@ -2360,6 +3260,7 @@ async function rerunPage(card, kind, pageIndex) {
         });
         toggleEmpty(card);
         card.dataset.pending = '0';
+        setPageFailed(card, null);
         setPageStatus(card, 'done');
         // Same order as finishDetect: link/number first, then the width policy.
         // Custom-prompt exam: the re-detected page has no numbers — re-sequence
@@ -2381,10 +3282,15 @@ async function rerunPage(card, kind, pageIndex) {
             card.querySelector('.pdf-raw')?.classList.remove('d-none');
         }
     } catch (err) {
-        appendLog('Re-run failed: ' + err.message, 'error');
+        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-run failed (${err.message}).`, 'error');
+        if (!card.querySelectorAll('.box-row').length) setPageFailed(card, err.message);
         setPageStatus(card, 'done');
+        updateOrderWarning();
+        stripState = 'failed';
     } finally {
         unlockPageJobs();
+        stripEnd(stripState);
+        setStatus('Review', 'bg-primary');
     }
 }
 
@@ -2537,11 +3443,15 @@ function resetAll() {
     staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
     selectedItem = null; selectedKind = null;
     uniformWidth = { que: null, sol: null };
+    cropWidthSel.value = WIDTH_MODE_DEFAULT;
+    updateCropWidthUI();
     if (orderWarning) orderWarning.classList.add('d-none');
     bboxCard.classList.add('d-none');
     importCard.classList.add('d-none');
     summaryPanel.classList.add('d-none');
     progressSection.classList.add('d-none');
+    jobStrip.classList.add('d-none');
+    stripJobName = '';
     reviewBody.querySelectorAll('.page-card').forEach(c => { if (c._ed) c._ed.destroy(); });
     reviewBody.innerHTML = '';
     quePdf.value = ''; solPdf.value = '';
@@ -2581,5 +3491,6 @@ document.addEventListener('keydown', (e) => {
 
 // Initialise setup visibility for the default task.
 applyTaskUI();
+updateCropWidthUI();
 </script>
 {% endblock %}

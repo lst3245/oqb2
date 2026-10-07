@@ -33,6 +33,11 @@
  *   ed.add(item); ed.remove(item); ed.restyle(item); ed.refreshLabel(item);
  *   ed.refreshClass(item); ed.select(item); ed.setAddMode(on); ed.isAdding();
  *   ed.setFrame([x1,y1,x2,y2] | null); ed.getFrame(); ed.clear(); ed.destroy();
+ *   ed.nudge(item, dxPx, dyPx);         // move by screen pixels (constrainBox type 'move')
+ *
+ * Keyboard (document-wide, all editors): arrow keys nudge the last clicked /
+ * drawn box (Shift = 10 px) when it is selected and on screen; holding H
+ * hides the drag magnifier.
  *
  * Module helpers: clamp01, applyBoxStyle, drawPreview(canvas, img, box, w),
  * showCropPreview(img, box, caption), selectNone().
@@ -44,6 +49,8 @@ window.OQBBboxEditor = (function () {
     let activeDrag = null;
     let dragMagnifier = null;
     let addingEditor = null;       // only one editor is in draw mode at a time
+    let magHidden = false;         // H held: no drag magnifier
+    let keyItem = null;            // box the arrow keys move: last clicked or drawn
     const editors = new Set();
 
     // ---------------------------------------------------------------- geometry
@@ -234,6 +241,7 @@ window.OQBBboxEditor = (function () {
     }
 
     function updateDragMagnifier(d, f, e) {
+        if (magHidden) { hideDragMagnifier(); return; }
         const img = d.editor.img;
         if (!img || !img.naturalWidth || !img.naturalHeight) return;
         const mag = ensureDragMagnifier();
@@ -364,6 +372,44 @@ window.OQBBboxEditor = (function () {
         if (ed.opts.onChange) ed.opts.onChange(d.item, d.type, false);
     }
 
+    // ---------------------------------------------------------------- keyboard
+    // Arrow keys move the box last clicked (or drawn) by one screen pixel,
+    // Shift = 10 px; hover-selection from a host list does not arm them. They
+    // are left alone while typing in a field, during a drag, under a modal /
+    // crop preview, or when that box is scrolled off screen (the page scrolls
+    // as usual). Holding H hides the drag magnifier.
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    function isTypingTarget(el) {
+        if (!el) return false;
+        const tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!el.isContentEditable;
+    }
+    function blurTypingField() {
+        if (isTypingTarget(document.activeElement)) document.activeElement.blur();
+    }
+    function onKeyDown(e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key === 'h' || e.key === 'H') {
+            if (activeDrag) { e.preventDefault(); magHidden = true; hideDragMagnifier(); }
+            else if (!isTypingTarget(e.target)) magHidden = true;
+            return;
+        }
+        const step = ARROWS[e.key];
+        if (!step || activeDrag || isTypingTarget(e.target) || !keyItem) return;
+        if (document.querySelector('.modal.show, .pdf-fullsize-overlay')) return;
+        let ed = null;
+        editors.forEach(x => { if (x.selected === keyItem && x.els.has(keyItem)) ed = x; });
+        if (!ed) return;
+        const r = ed.els.get(keyItem).boxEl.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > window.innerHeight) return;
+        e.preventDefault();
+        const px = e.shiftKey ? 10 : 1;
+        ed.nudge(keyItem, step[0] * px, step[1] * px);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', (e) => { if (e.key === 'h' || e.key === 'H') magHidden = false; });
+    window.addEventListener('blur', () => { magHidden = false; });
+
     // ---------------------------------------------------------------- selection
     function selectNone() {
         document.querySelectorAll('.pdf-box.selected').forEach(b => b.classList.remove('selected'));
@@ -413,7 +459,9 @@ window.OQBBboxEditor = (function () {
                 h.addEventListener('pointerdown', (e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                    blurTypingField();
                     this.select(item);
+                    keyItem = item;
                     const f = fracFromEvent(this.overlay, e);
                     beginSession({ editor: this, type: 'resize', item, dir, boxEl,
                                    startFx: f.x, startFy: f.y,
@@ -423,7 +471,9 @@ window.OQBBboxEditor = (function () {
             });
             boxEl.addEventListener('pointerdown', (e) => {
                 e.preventDefault();
+                blurTypingField();
                 this.select(item);
+                keyItem = item;
                 const f = fracFromEvent(this.overlay, e);
                 beginSession({ editor: this, type: 'move', item, boxEl,
                                startFx: f.x, startFy: f.y,
@@ -528,7 +578,25 @@ window.OQBBboxEditor = (function () {
                 return;
             }
             const item = this.opts.onCreate ? this.opts.onCreate(box) : null;
-            if (item) { this.add(item); this.select(item); }
+            if (item) { this.add(item); this.select(item); keyItem = item; }
+        }
+
+        // ---- keyboard nudge (screen pixels of the displayed image)
+        nudge(item, dxPx, dyPx) {
+            if (!this.els.has(item)) return false;
+            const r = this.overlay.getBoundingClientRect();
+            const b = this.getBox(item);
+            const w = b[2] - b[0], h = b[3] - b[1];
+            const nx1 = Math.min(Math.max(0, b[0] + dxPx / Math.max(1, r.width)), 1 - w);
+            const ny1 = Math.min(Math.max(0, b[1] + dyPx / Math.max(1, r.height)), 1 - h);
+            let box = [nx1, ny1, nx1 + w, ny1 + h];
+            if (this.opts.constrainBox) {
+                box = this.opts.constrainBox(item, box, { type: 'move', startBox: b.slice(), live: false }) || box;
+            }
+            this.setBox(item, box);
+            this.restyle(item);
+            if (this.opts.onChange) this.opts.onChange(item, 'move', false);
+            return true;
         }
 
         // ---- page frame guide

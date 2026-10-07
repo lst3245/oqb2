@@ -60,15 +60,15 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | AI Tools | `LLM_REASONING_SUMMARY_DEFAULT` | `auto|none` | `auto` | inherited by Responses-API endpoints |
 | PDF Import | `PDF_IMPORT_RASTER_WIDTH` | int 600–4000 | 1700 | page raster width for crops |
 | PDF Import | `PDF_IMPORT_RASTER_WORKERS` | int 1–32 | 4 | parallel page rasterisation (capped by CPU count) |
-| PDF Import | `PDF_IMPORT_COORD_ORDER` | `xyxy|yxyx` | `xyxy` | bbox axis order from the vision model; also used by MD figure cropping |
+| PDF Import | `PDF_IMPORT_COORD_ORDER` | `xyxy|yxyx` | `xyxy` | default bbox axis order for endpoints whose "Box axis order" is blank (`llm_client.box_coord_order`); PDF import, PDF tool scan, MD figure cropping |
+| PDF Import | `PDF_IMPORT_LLM_TIMEOUT_SECONDS` | int 0–600 | 60 | per-call model timeout for PDF import detect / part split (incl. IMG Split auto-detect) / paper-name guess; replaces the endpoint's `timeout_seconds` for these calls only; 0 = endpoint's. A page Re-run (`/redo-page`) uses the longer of this and the endpoint's `timeout_seconds` |
 | PDF Import | `PDF_IMPORT_DESKEW_DEFAULT` | bool | True | "Auto-deskew scans" starts ticked |
 | PDF Import | `PDF_IMPORT_DEFAULT_METHOD` | `llm|refine|segment` | `llm` | detection method pre-selected |
 | PDF Import | `PDF_IMPORT_CROP_PAD_PCT` | float 0–10 | 0.6 | safety margin (% of page) around every box |
 | PDF Import | `PDF_IMPORT_REFINE_GROW_PCT` | float 0–20 | 3.5 | refine: search-window growth |
 | PDF Import | `PDF_IMPORT_ASSIST_PAD_PCT` | float 0–10 | 0.6 | refine/segment: content padding |
 | PDF Import | `PDF_IMPORT_TRIM_WHITE_DEFAULT` | bool | False | "Trim whitespace" starts ticked |
-| PDF Import | `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` | bool | False | legacy: "Uniform width per side" starts ticked; prefer Snap to page frame |
-| PDF Import | `PDF_IMPORT_FRAME_SNAP_DEFAULT` | bool | True | "Snap boxes to page frame" starts ticked |
+| PDF Import | `PDF_IMPORT_WIDTH_MODE_DEFAULT` | `auto|uniform|model` | `auto` | initial "Crop width" mode: printed frame else uniform width per side / uniform width everywhere / the model's own boxes (ADR-014; replaced `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` + `PDF_IMPORT_FRAME_SNAP_DEFAULT`) |
 | PDF Import | `PDF_IMPORT_FRAME_INSET_PCT` | float 0–5 | 0.5 | inset inside detected frame rails (% of page width) |
 | PDF Import | `PDF_IMPORT_FRAME_NORMALISE_WIDTH` | bool | True | resample frame-snapped crops to one paper-wide pixel width |
 | PDF Import | `PDF_AGENT_OUTLINE_BATCH_PAGES` | int 1–20 | 6 | AI agent: page thumbnails per outline call |

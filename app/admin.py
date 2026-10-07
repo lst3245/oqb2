@@ -2486,6 +2486,7 @@ def split_question_detect(question_id):
     except (ValueError, FileNotFoundError, OSError):
         return _pdf_sse_error('Staging session not found or expired. Reload the split page.')
 
+    fill_stem = not (question.part or '').strip()
     app = current_app._get_current_object()
     job_id, cancel = pdf_import.new_job()
 
@@ -2504,7 +2505,7 @@ def split_question_detect(question_id):
                 for ev in qsplit.iter_detect_boxes(
                         token, version, live_cfg, image_max_dim,
                         method=method, find_parent=find_parent,
-                        cancel=cancel):
+                        cancel=cancel, fill_stem=fill_stem):
                     if ev.get('type') == 'done' and ev.get('raw'):
                         ev = dict(ev)
                         ev['raw'] = (ev.get('raw') or '')[:4000]
@@ -5064,11 +5065,16 @@ def pdf_import_page():
     from app import pdf_import
     subjects = get_user_admin_subjects()
     endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name,
-                  'kind': c.kind or 'local', 'max_concurrency': c.max_concurrency or 1}
+                  'kind': c.kind or 'local', 'max_concurrency': c.max_concurrency or 1,
+                  'box_coord_order': c.box_coord_order or ''}
                  for c in _pdf_vision_endpoints()]
     default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
     if default_method not in pdf_import.DETECT_METHODS:
         default_method = 'llm'
+    width_mode = str(current_app.config.get('PDF_IMPORT_WIDTH_MODE_DEFAULT', 'auto')).strip().lower()
+    if width_mode not in ('auto', 'uniform', 'model'):
+        width_mode = 'auto'
+    coord_order = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
     pdf_source_root = _pdf_source_root()
     default_endpoint = _pdf_default_endpoint()
     return render_template(
@@ -5081,8 +5087,8 @@ def pdf_import_page():
         raster_width=int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700)),
         deskew_default=bool(current_app.config.get('PDF_IMPORT_DESKEW_DEFAULT', True)),
         trim_white_default=bool(current_app.config.get('PDF_IMPORT_TRIM_WHITE_DEFAULT', False)),
-        uniform_width_default=bool(current_app.config.get('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', False)),
-        frame_snap_default=bool(current_app.config.get('PDF_IMPORT_FRAME_SNAP_DEFAULT', True)),
+        width_mode_default=width_mode,
+        coord_order_default=(coord_order if coord_order in ('xyxy', 'yxyx') else 'xyxy'),
         frame_inset_frac=pdf_import.frame_inset_frac(current_app.config),
         default_method=default_method,
         default_endpoint_id=(default_endpoint.id if default_endpoint else None),
@@ -5602,7 +5608,8 @@ def pdf_import_redo_page():
 
     try:
         boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index,
-                                                   image_max_dim, method=method)
+                                                   image_max_dim, method=method,
+                                                   timeout=pdf_import.redo_timeout(cfg))
     except Exception as e:
         current_app.logger.exception('PDF import redo-page failed')
         return jsonify({'error': f'Detection failed: {e}'}), 502
@@ -7885,6 +7892,7 @@ def _serialize_llm_config(c, *, include_secret=False):
         'service_tier': c.service_tier or '',
         'service_tier_batch': c.service_tier_batch or '',
         'api_protocol': c.api_protocol or 'chat',
+        'box_coord_order': c.box_coord_order or '',
         'reasoning_effort': c.reasoning_effort or '',
         'reasoning_summary': c.reasoning_summary or '',
         'reasoning_max_tokens': c.reasoning_max_tokens,
@@ -7982,6 +7990,8 @@ def llm_endpoints_save():
     cfg.service_tier_batch = _tier_b if _tier_b in _ALLOWED_TIERS else ''
     _proto = (data.get('api_protocol') or 'chat').strip().lower()
     cfg.api_protocol = 'responses' if _proto == 'responses' else 'chat'
+    _order = (data.get('box_coord_order') or '').strip().lower()
+    cfg.box_coord_order = _order if _order in ('xyxy', 'yxyx') else ''
     _ALLOWED_REASONING = ('', 'off', 'low', 'medium', 'high')
     _re = (data.get('reasoning_effort') or '').strip().lower()
     cfg.reasoning_effort = _re if _re in _ALLOWED_REASONING else ''
@@ -8074,6 +8084,7 @@ def llm_endpoints_duplicate(cid):
         service_tier=src.service_tier,
         service_tier_batch=src.service_tier_batch,
         api_protocol=src.api_protocol,
+        box_coord_order=src.box_coord_order or '',
         reasoning_effort=src.reasoning_effort,
         reasoning_summary=src.reasoning_summary,
         reasoning_max_tokens=src.reasoning_max_tokens,

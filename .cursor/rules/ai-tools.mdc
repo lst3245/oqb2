@@ -15,8 +15,9 @@ alwaysApply: false
 - Reasoning: endpoint `off` wins; blank inherits `LLM_REASONING_EFFORT_DEFAULT` / `LLM_REASONING_SUMMARY_DEFAULT`. Claude models (`_is_claude_model`) get `thinking:{type:adaptive}` + `output_config.effort`, never top-level `reasoning` (Poe → deprecated `thinking.type.enabled`).
 - Responses API streaming: consume `*.delta` events only; never harvest `response.output_item.done` (duplicates text). `resp.encoding='utf-8'` is forced (LM Studio / Ollama mojibake).
 - `service_tier` for single calls, `service_tier_batch` only when transient `config._batch` is set; blank tiers are omitted.
+- Bounding-box axis order is per endpoint: read it with `llm_client.box_coord_order(config)` (endpoint `box_coord_order`, blank → `PDF_IMPORT_COORD_ORDER`), never the setting directly.
 - API keys: Fernet key = SHA-256(`LLM_KEY_SECRET` or `SECRET_KEY`). Rotating either silently invalidates `api_key_enc` (falls back to `.env` `LLM_API_KEY`). Plaintext never reaches the browser.
-- Interactive chat (Explain, endpoint console) uses `LLM_CHAT_TIMEOUT_SECONDS` (0 = endpoint timeout); batch ops use the endpoint's `timeout_seconds`.
+- Interactive chat (Explain, endpoint console) uses `LLM_CHAT_TIMEOUT_SECONDS` (0 = endpoint timeout); PDF import calls use `PDF_IMPORT_LLM_TIMEOUT_SECONDS` via `pdf_import.llm_timeout()`; other batch ops use the endpoint's `timeout_seconds`.
 
 ## Routes (verify before use)
 - Batch SSE under `/admin/questions/ai/*` (`check`, `generate-md`, `solve-generate`, `solve-check`, `auto-tag`, `cancel`, `endpoints`); per-slot sync under `/admin/questions/<qid>/assets/ai/*` and `.../ai/answer-text`, `.../ai/suggest-tags`; verify via `set_question_verified`; endpoints under `/admin/llm-endpoints[/data|/save|/<cid>/test|...]`.

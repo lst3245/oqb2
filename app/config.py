@@ -165,6 +165,11 @@ class Config:
     # (Gemma / Gemini / PaliGemma family). Range (0..1 vs 0..1000 vs pixels) is
     # auto-detected; only the axis ORDER is ambiguous, so it's configurable.
     PDF_IMPORT_COORD_ORDER = os.getenv('PDF_IMPORT_COORD_ORDER', 'xyxy').strip().lower()
+    # PDF Batch Import — per-call LLM timeout for page detection, part split,
+    # Re-run and the paper-name guess (one image, short JSON reply). Replaces
+    # the endpoint's own `timeout_seconds` for these calls; 0 = use the
+    # endpoint's. A timed-out page is retried once.
+    PDF_IMPORT_LLM_TIMEOUT_SECONDS = int(os.getenv('PDF_IMPORT_LLM_TIMEOUT_SECONDS', '60'))
     # PDF Batch Import — whether the "Auto-deskew scans" checkbox starts ticked.
     # Deskew straightens skewed/rotated scanned pages during staging (NumPy).
     PDF_IMPORT_DESKEW_DEFAULT = os.getenv('PDF_IMPORT_DESKEW_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -191,14 +196,10 @@ class Config:
     # respects the selected bounding box exactly (only the crop safety margin
     # is applied). Users can toggle it per run.
     PDF_IMPORT_TRIM_WHITE_DEFAULT = os.getenv('PDF_IMPORT_TRIM_WHITE_DEFAULT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
-    # PDF Batch Import — whether the "Uniform width per side" checkbox starts
-    # ticked. Legacy option; prefer "Snap to page frame". Users can toggle it
-    # per run. Default off.
-    PDF_IMPORT_UNIFORM_WIDTH_DEFAULT = os.getenv('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', '0').strip().lower() in ('1', 'true', 'yes', 'on')
-    # PDF Batch Import — whether question boxes snap left/right to a detected
-    # printed page frame (DSE answer-book rectangle). Users can toggle it per
-    # run. Tick off to keep the model's own horizontal extents.
-    PDF_IMPORT_FRAME_SNAP_DEFAULT = os.getenv('PDF_IMPORT_FRAME_SNAP_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # PDF Batch Import — initial "Crop width" mode in Step 2: 'auto' (printed
+    # frame where detected, else uniform width), 'uniform' (widest box's
+    # width, frames ignored) or 'model' (the model's own x extents).
+    PDF_IMPORT_WIDTH_MODE_DEFAULT = os.getenv('PDF_IMPORT_WIDTH_MODE_DEFAULT', 'auto').strip().lower()
     # PDF Batch Import — inset inside the detected frame rails (% of page
     # width) at which snapped boxes start/end, so the printed rule line and
     # residual skew are excluded from crops.

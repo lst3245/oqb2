@@ -1430,7 +1430,7 @@ def parse_figure_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
 # Coordinate convention: an explicit 0-1000 integer grid with the ORIGIN at the
 # TOP-LEFT, plus a worked numeric example. The AXIS ORDER is NOT hardcoded —
 # the {{box_array}} / {{box_corner}} / {{box_example}} placeholders are filled
-# from the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx) by pdf_box_order_vars,
+# from the endpoint box axis order (default PDF_IMPORT_COORD_ORDER) (xyxy vs yxyx) by pdf_box_order_vars,
 # so the instruction the model sees matches what parse_question_boxes expects.
 # Vision models disagree wildly on box conventions (0..1 vs 0..1000 vs raw
 # pixels; x-first vs y-first); we pin one convention and parse defensively.
@@ -1634,9 +1634,11 @@ _DEFAULT_PDF_PART_QUE_SYSTEM = (
     "You are a precise document-layout tool for Hong Kong DSE exam papers. "
     "You are given a crop of ONE exam QUESTION (already isolated from the "
     "page). Split it into a shared background and lettered parts.\n"
-    "- Draw a \"stem\" box around shared stimulus / preamble / background "
-    "text and figures that apply to several parts. Exclude the lettered "
-    "parts themselves from the stem box.\n"
+    "- List the \"stem\" FIRST. Everything printed above part (a) — "
+    "stimulus, preamble, data, tables, figures — apart from the question "
+    "number itself is the stem, even if it is a single sentence. Do not "
+    "fold it into part (a). Exclude the lettered parts themselves from the "
+    "stem box.\n"
     "- Draw one box per lettered part ((a), (b), (c), (i), (ii), …). The "
     "label is letters only (a, b, ci). Include that part's marks allocation.\n"
     "- A part such as (d) that has its own introduction (text, table, "
@@ -1673,6 +1675,51 @@ _DEFAULT_PDF_PART_BOX_USER = (
     "as STRICT JSON. Coordinates are relative to this crop, integers on a "
     "0-1000 grid in the order {{box_pairs}}, measured from the top-left. "
     "{{expected_note}} Return [] if there are no lettered parts."
+)
+
+# ---- Pass 2 on a range crop ("Questions 31-32 refer to ...") ---------------
+#
+# Pass 1 boxes a shared-stimulus range as one region labelled "31-32". Pass 2
+# separates the shared stimulus ("stem") from each numbered question. Parser:
+# parse_part_boxes(range_span=(first, last)).
+_DEFAULT_PDF_PART_RANGE_JSON_CONTRACT = (
+    "Return STRICT JSON only (no prose, no markdown fences): a list, in "
+    "top-to-bottom reading order, of objects of the form\n"
+    '{"label": <"stem" or a printed question number like "{{first}}">, '
+    '"box": {{box_array}}, "continues_prev": <true|false>, '
+    '"continues_next": <true|false>}\n'
+    "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
+    "of THIS crop (not the full page). The box is {{box_corner}}. Example: a "
+    "shared stimulus occupying the top fifth is "
+    '{"label": "stem", "box": {{box_example}}, "continues_prev": false, '
+    '"continues_next": false}. Labels: "stem" for the shared stimulus; the '
+    "printed question number, digits only (one of {{numbers}}), for each "
+    "question — never letters. Set continues_prev / continues_next when a "
+    "region is cut off at the top or bottom of this crop."
+)
+
+_DEFAULT_PDF_PART_RANGE_SYSTEM = (
+    "You are a precise document-layout tool for Hong Kong DSE exam papers. "
+    "You are given a crop from a {{what}} holding questions {{first}} to "
+    "{{last}}, which share one stimulus (a passage, table, figure or "
+    "statement introduced by e.g. \"Questions {{first}} and {{last}} refer to "
+    "the following\").\n"
+    "- List the \"stem\" FIRST: the shared stimulus together with its "
+    "introduction line, everything above the first numbered question.\n"
+    "- Then draw one box per numbered question ({{numbers}}), labelled with "
+    "its number. Each box holds that question's own text and its options "
+    "or answer, including marks.\n"
+    "- These are separate questions, not lettered parts: do not split a "
+    "question's options (A, B, C, D) or its (a)/(b) parts into extra boxes.\n"
+    "- EXCLUDE blank answering space. Crop tightly to printed content.\n\n"
+    "{{json_contract}}"
+)
+
+_DEFAULT_PDF_PART_RANGE_USER = (
+    "List the shared stem and the bounding box of each question "
+    "({{numbers}}) in this crop as STRICT JSON. Coordinates are relative to "
+    "this crop, integers on a 0-1000 grid in the order {{box_pairs}}, "
+    "measured from the top-left."
 )
 
 
@@ -2075,9 +2122,9 @@ PROMPTS_REGISTRY = OrderedDict([
             'JSON-shape + 0-1000 coordinate contract appended to the figure '
             'bbox system prompt via {{json_contract}}. Uses the same grid as '
             'PDF batch import; parsed by parse_figure_boxes (honours '
-            'PDF_IMPORT_COORD_ORDER for y-first models like Gemini). '
+            'the endpoint box axis order for y-first models like Gemini). '
             'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
-            'are filled from the PDF_IMPORT_COORD_ORDER system setting (xyxy '
+            'are filled from the endpoint box axis order (default PDF_IMPORT_COORD_ORDER) (xyxy '
             'vs yxyx) so the coordinate order is NOT hardcoded — matching '
             'the parser exactly.'
         ),
@@ -2104,8 +2151,8 @@ PROMPTS_REGISTRY = OrderedDict([
         label='Figure bbox: User-turn instruction',
         description=(
             "Accompanies the single source image to localise figures in. "
-            "{{box_pairs}} is filled from the PDF_IMPORT_COORD_ORDER system "
-            "setting (xyxy vs yxyx) so the axis-order instruction matches the "
+            "{{box_pairs}} is filled from the endpoint box axis order "
+            "(default PDF_IMPORT_COORD_ORDER; xyxy vs yxyx) so the axis-order instruction matches the "
             "parser."
         ),
         default=_DEFAULT_FIGURE_BOX_USER,
@@ -2123,7 +2170,7 @@ PROMPTS_REGISTRY = OrderedDict([
             'expected from the model on both sides; the parser '
             '(parse_question_boxes) is tightly coupled to this contract. '
             'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
-            'are filled from the PDF_IMPORT_COORD_ORDER system setting (xyxy '
+            'are filled from the endpoint box axis order (default PDF_IMPORT_COORD_ORDER) (xyxy '
             'vs yxyx) so the coordinate order is NOT hardcoded.'
         ),
         default=_DEFAULT_PDF_BOX_JSON_CONTRACT,
@@ -2165,7 +2212,7 @@ PROMPTS_REGISTRY = OrderedDict([
             "Accompanies the single page image. {{what}} is filled with "
             "either 'questions' or 'solutions' depending on which side is "
             "being processed. {{box_pairs}} is filled from the "
-            "PDF_IMPORT_COORD_ORDER system setting (xyxy vs yxyx). "
+            "endpoint box axis order (default PDF_IMPORT_COORD_ORDER) (xyxy vs yxyx). "
             "{{expected_note}} names the question numbers the agent's paper "
             "outline expects on this page (empty for a plain run)."
         ),
@@ -2261,7 +2308,9 @@ PROMPTS_REGISTRY = OrderedDict([
             'into both QUE and SOL part-split system prompts via '
             '{{json_contract}}. Parser parse_part_boxes is coupled to this '
             'shape. The {{box_array}} / {{box_corner}} / {{box_example}} '
-            'placeholders are filled from PDF_IMPORT_COORD_ORDER. ALSO powers '
+            'placeholders are filled from the endpoint box axis order '
+            '(default PDF_IMPORT_COORD_ORDER). The stem is listed first; '
+            'pass 2 adds a missing stem in code. ALSO powers '
             'the Question Management "Split into parts" Auto-detect button.'
         ),
         default=_DEFAULT_PDF_PART_BOX_JSON_CONTRACT,
@@ -2303,12 +2352,55 @@ PROMPTS_REGISTRY = OrderedDict([
             "Accompanies one question (or solution) crop. {{what}} is "
             "'question' or 'solution'. {{expected_note}} lists expected labels "
             "when known (SOL from QUE; QUE from the paper outline). {{box_pairs}} comes from "
-            "PDF_IMPORT_COORD_ORDER."
+            "the endpoint box axis order (default PDF_IMPORT_COORD_ORDER)."
         ),
         default=_DEFAULT_PDF_PART_BOX_USER,
         variables=['what', 'expected_note', 'box_pairs'],
         role='user',
         format_key='PDF_PART_BOX_JSON_CONTRACT',
+    )),
+    ('PDF_PART_RANGE_JSON_CONTRACT', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF range split: JSON contract',
+        description=(
+            'Response contract for pass 2 on a shared-stimulus range crop '
+            '("23-24"): {label, box, continues_prev, continues_next} where '
+            'label is "stem" or one of the question numbers in the range. '
+            '{{first}} / {{numbers}} name the range; the box placeholders come '
+            'from the endpoint box axis order. Parser parse_part_boxes with '
+            'range_span is coupled to this shape.'
+        ),
+        default=_DEFAULT_PDF_PART_RANGE_JSON_CONTRACT,
+        variables=['first', 'numbers', 'box_array', 'box_corner', 'box_example'],
+        role='format',
+    )),
+    ('PDF_PART_RANGE_SYSTEM', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF range split: system prompt',
+        description=(
+            'Pass 2 on a range crop such as "31-32" (several questions sharing '
+            'one stimulus): return the shared stem plus one box per numbered '
+            'question. {{what}} is "question paper" or "marking scheme"; '
+            '{{first}} / {{last}} / {{numbers}} describe the range; '
+            '{{json_contract}} is PDF_PART_RANGE_JSON_CONTRACT. The result '
+            'becomes the range stem plus child questions 31, 32.'
+        ),
+        default=_DEFAULT_PDF_PART_RANGE_SYSTEM,
+        variables=['what', 'first', 'last', 'numbers', 'json_contract'],
+        role='system',
+    )),
+    ('PDF_PART_RANGE_USER', _prompt(
+        group='PDF Batch Import — Part Split (pass 2)',
+        label='PDF range split: user-turn instruction',
+        description=(
+            'Accompanies one range crop. {{numbers}} lists the question '
+            'numbers in the range; {{box_pairs}} comes from the endpoint box '
+            'axis order.'
+        ),
+        default=_DEFAULT_PDF_PART_RANGE_USER,
+        variables=['numbers', 'box_pairs'],
+        role='user',
+        format_key='PDF_PART_RANGE_JSON_CONTRACT',
     )),
     ('PDF_GENERIC_BOX_JSON_CONTRACT', _prompt(
         group='PDF Batch Import — Generic Extraction',
@@ -2318,7 +2410,7 @@ PROMPTS_REGISTRY = OrderedDict([
             'context): the model returns {label, box} per matching region. '
             'Substituted into the generic system prompt via {{json_contract}}. '
             'The {{box_array}} / {{box_corner}} / {{box_example}} placeholders '
-            'are filled from the PDF_IMPORT_COORD_ORDER setting. Parser '
+            'are filled from the endpoint box axis order (default PDF_IMPORT_COORD_ORDER). Parser '
             'parse_generic_boxes is coupled to this shape. ALSO powers the '
             'Toolbox → PDF Tool → Find & Mark "AI detect" engine.'
         ),
@@ -2348,7 +2440,7 @@ PROMPTS_REGISTRY = OrderedDict([
         description=(
             "Accompanies the single page image for Generic Extraction. "
             "{{instruction}} is the user request; {{box_pairs}} is filled from "
-            "the PDF_IMPORT_COORD_ORDER setting (xyxy vs yxyx). ALSO powers "
+            "the endpoint box axis order (default PDF_IMPORT_COORD_ORDER) (xyxy vs yxyx). ALSO powers "
             "the Toolbox → PDF Tool → Find & Mark \"AI detect\" engine."
         ),
         default=_DEFAULT_PDF_GENERIC_BOX_USER,
@@ -2450,7 +2542,7 @@ PROMPTS_REGISTRY = OrderedDict([
 
 def build_figure_box_system(coord_order: str = 'xyxy', endpoint_id=None) -> str:
     """Resolved system prompt for figure localisation during MD generation.
-    ``coord_order`` (the ``PDF_IMPORT_COORD_ORDER`` setting) drives the
+    ``coord_order`` (the endpoint box axis order, ``llm_client.box_coord_order``) drives the
     coordinate-order wording in the contract so the prompt matches what
     ``parse_figure_boxes`` expects."""
     contract = render_prompt('FIGURE_BOX_JSON_CONTRACT', endpoint_id=endpoint_id,
@@ -2462,7 +2554,7 @@ def build_figure_box_system(coord_order: str = 'xyxy', endpoint_id=None) -> str:
 def build_figure_box_user_text(coord_order: str = 'xyxy', endpoint_id=None) -> str:
     """User-turn instruction for figure localisation during MD generation,
     with the JSON contract re-appended for emphasis. ``coord_order`` (the
-    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording so the
+    endpoint box axis order, ``llm_client.box_coord_order``) fills the axis-order wording so the
     instruction matches the parser."""
     order_vars = pdf_box_order_vars(coord_order)
     text = render_prompt('FIGURE_BOX_USER', endpoint_id=endpoint_id, **order_vars)
@@ -2472,7 +2564,7 @@ def build_figure_box_user_text(coord_order: str = 'xyxy', endpoint_id=None) -> s
 
 def pdf_box_order_vars(coord_order: str = 'xyxy') -> dict:
     """Order-specific text fragments for the PDF bbox prompts, so the prompt
-    INSTRUCTION matches the ``PDF_IMPORT_COORD_ORDER`` setting instead of
+    INSTRUCTION matches the endpoint box axis order, ``llm_client.box_coord_order`` instead of
     hardcoding x-first. Keys: ``box_array`` (the ``"box"`` array shape),
     ``box_corner`` (the corner/ordering sentence), ``box_example`` (the worked
     example array), ``box_pairs`` (the user-turn ``[..] = [..]`` mapping)."""
@@ -2500,7 +2592,7 @@ def build_pdf_box_user_text(asset_type: str, coord_order: str = 'xyxy',
                             endpoint_id=None, expected_labels=None) -> str:
     """User-turn instruction accompanying a single page image, with the
     shared JSON contract re-appended for emphasis. ``coord_order`` (the
-    ``PDF_IMPORT_COORD_ORDER`` setting) fills the axis-order wording.
+    endpoint box axis order, ``llm_client.box_coord_order``) fills the axis-order wording.
     ``expected_labels`` (agent runs) names the question numbers expected."""
     what = 'questions' if asset_type == 'QUE' else 'solutions'
     order_vars = pdf_box_order_vars(coord_order)
@@ -2529,7 +2621,7 @@ def build_pdf_box_system(asset_type: str, coord_order: str = 'xyxy',
     """Resolved system prompt for the PDF page-detection model, with the
     shared JSON contract substituted in. Use this from call sites instead of
     branching on QUE/SOL yourself. ``coord_order`` (the
-    ``PDF_IMPORT_COORD_ORDER`` setting) drives the coordinate-order wording in
+    endpoint box axis order, ``llm_client.box_coord_order``) drives the coordinate-order wording in
     the contract so the prompt matches what ``parse_question_boxes`` expects.
     ``expected_labels`` (agent runs) names the question numbers expected on
     this page."""
@@ -2648,11 +2740,40 @@ def build_pdf_part_user_text(asset_type: str, expected_labels=None,
                          **order_vars)
 
 
+def _range_vars(first: int, last: int) -> dict:
+    nums = [str(n) for n in range(int(first), int(last) + 1)]
+    return {'first': str(first), 'last': str(last), 'numbers': ', '.join(nums)}
+
+
+def build_pdf_range_system(asset_type: str, first: int, last: int,
+                           coord_order: str = 'xyxy', endpoint_id=None) -> str:
+    """Resolved system prompt for pass 2 on a range crop (``first``-``last``)."""
+    rv = _range_vars(first, last)
+    contract = render_prompt('PDF_PART_RANGE_JSON_CONTRACT',
+                             endpoint_id=endpoint_id,
+                             **rv, **pdf_box_order_vars(coord_order))
+    what = 'question paper' if asset_type == 'QUE' else 'marking scheme'
+    return render_prompt('PDF_PART_RANGE_SYSTEM', endpoint_id=endpoint_id,
+                         what=what, json_contract=contract, **rv)
+
+
+def build_pdf_range_user_text(first: int, last: int, coord_order: str = 'xyxy',
+                              endpoint_id=None) -> str:
+    """User turn for pass 2 on a range crop, with the range contract appended."""
+    rv = _range_vars(first, last)
+    order_vars = pdf_box_order_vars(coord_order)
+    text = render_prompt('PDF_PART_RANGE_USER', endpoint_id=endpoint_id,
+                         **rv, **order_vars)
+    return append_format('PDF_PART_RANGE_USER', text, endpoint_id=endpoint_id,
+                         **rv, **order_vars)
+
+
 def build_pdf_generic_system(instruction: str, coord_order: str = 'xyxy',
                              endpoint_id=None) -> str:
     """Resolved system prompt for Generic Extraction (no exam context).
     ``instruction`` is the user's free-text request; ``coord_order`` (the
-    PDF_IMPORT_COORD_ORDER setting) drives the coordinate-order wording."""
+    endpoint box axis order, ``llm_client.box_coord_order``) drives the
+    coordinate-order wording."""
     contract = render_prompt('PDF_GENERIC_BOX_JSON_CONTRACT',
                              endpoint_id=endpoint_id,
                              **pdf_box_order_vars(coord_order))
@@ -2953,17 +3074,27 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
     return out
 
 
-def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
+def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy',
+                     range_span=None):
     """Parse pass-2 part-split output into
     ``{label, box, continues_prev, continues_next}``.
 
-    ``label`` is ``stem`` or a letter path (``a``, ``ci``). Invalid labels
-    are dropped. Coordinates are crop-relative fractions 0..1.
+    ``label`` is ``stem`` or a letter path (``a``, ``ci``). With
+    ``range_span=(first, last)`` (a range crop) it is ``stem`` or a question
+    number inside the range (``"31"``). Invalid labels are dropped.
+    Coordinates are crop-relative fractions 0..1.
     """
-    from app.hierarchy import normalize_part_box_label
+    from app.hierarchy import normalize_part_box_label, normalize_range_box_label
 
     if not text:
         return []
+
+    norm = normalize_part_box_label
+    if range_span:
+        first, last = int(range_span[0]), int(range_span[1])
+
+        def norm(raw):
+            return normalize_range_box_label(raw, first, last)
 
     def _emit(items):
         out = []
@@ -2977,8 +3108,10 @@ def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
                 coords = [float(v) for v in box]
             except (ValueError, TypeError):
                 continue
-            label = normalize_part_box_label(
-                it.get('label', it.get('part', it.get('name'))))
+            raw_label = it.get('label', it.get('part', it.get('name')))
+            if raw_label is None and range_span:
+                raw_label = it.get('qno')
+            label = norm(raw_label)
             if not label:
                 continue
             x1, y1, x2, y2 = _normalize_box(coords, img_w, img_h, coord_order)
@@ -3004,8 +3137,7 @@ def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
 
     out = []
     for raw, box in _salvage_box_objects(text):
-        label = normalize_part_box_label(
-            _salvage_str(raw, 'label', 'part', 'name'))
+        label = norm(_salvage_str(raw, 'label', 'part', 'name'))
         if not label:
             continue
         x1, y1, x2, y2 = _normalize_box(box, img_w, img_h, coord_order)

@@ -318,6 +318,20 @@ def _api_protocol(config) -> str:
     return 'responses' if p == 'responses' else 'chat'
 
 
+def box_coord_order(config) -> str:
+    """Axis order (``'xyxy'`` / ``'yxyx'``) bounding boxes from this endpoint use.
+
+    The endpoint's ``box_coord_order`` wins; blank inherits the
+    ``PDF_IMPORT_COORD_ORDER`` system setting (Gemini-family models answer
+    y-first, most others x-first).
+    """
+    own = (getattr(config, 'box_coord_order', '') or '').strip().lower()
+    if own in ('xyxy', 'yxyx'):
+        return own
+    glob = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy') or 'xyxy').strip().lower()
+    return glob if glob in ('xyxy', 'yxyx') else 'xyxy'
+
+
 def parse_request_extra_json(raw: str) -> dict:
     """Validate and normalise endpoint ``request_extra_json`` for storage.
 
@@ -799,12 +813,13 @@ def _post_responses(config, messages, max_tokens=None, temperature=None, timeout
     return text, info
 
 
-def chat(config, system: str, user_text: str, images=None):
+def chat(config, system: str, user_text: str, images=None, timeout=None):
     """Call ``{base_url}/chat/completions`` with a single user turn and return
     ``(text, info)``.
 
     ``images`` is a list of ``(b64, mime)`` tuples (from ``prepare_image``)
-    appended as image_url content blocks after the user text. Raises
+    appended as image_url content blocks after the user text. ``timeout``
+    (seconds) overrides the endpoint's ``timeout_seconds`` when set. Raises
     ``LLMError`` on any failure.
     """
     images = images or []
@@ -816,7 +831,7 @@ def chat(config, system: str, user_text: str, images=None):
     if system:
         messages.append({'role': 'system', 'content': system})
     messages.append({'role': 'user', 'content': content})
-    return _post_messages(config, messages)
+    return _post_messages(config, messages, timeout=timeout)
 
 
 def chat_messages(config, messages, max_tokens=None, temperature=None, timeout=None):

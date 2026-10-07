@@ -52,7 +52,7 @@ erDiagram
 | `GeneratedFile` | `generated_files` | Generated doc job + file | `status` `pending → generating → completed | failed`; `filter_data`, `generation_options` JSON; `section_id` `ON DELETE SET NULL`; `manual_position` |
 | `FileShare` | `file_shares` | Share a file or a section with a user | CHECK exactly one of `file_id`/`section_id`; unique per target; CASCADE from file/section |
 | `SystemSetting` | `system_settings` | Runtime tunable overrides | `key` PK, `value` JSON-encoded text; also holds the non-registry `FILE_BROWSER_EXTRA_ROOTS` list. See [06-system-settings.md](06-system-settings.md) |
-| `LLMConfig` | `llm_configs` | LLM endpoint | `name` unique; `api_key_enc` Fernet; `kind` `local/cloud`; `max_concurrency`; `service_tier(_batch)`; `api_protocol` `chat/responses`; reasoning fields; `request_extra_json`. See [../modules/ai-tools.md](../modules/ai-tools.md) |
+| `LLMConfig` | `llm_configs` | LLM endpoint | `name` unique; `api_key_enc` Fernet; `kind` `local/cloud`; `max_concurrency`; `service_tier(_batch)`; `api_protocol` `chat/responses`; `box_coord_order` `''/xyxy/yxyx` (blank = `PDF_IMPORT_COORD_ORDER`); reasoning fields; `request_extra_json`. See [../modules/ai-tools.md](../modules/ai-tools.md) |
 | `PromptVariant` | `prompt_variants` | Named prompt versions per key | unique `(prompt_key, name)`; one `is_builtin` (content NULL = registry default) and one `is_active` per key |
 | `PromptEndpointAssignment` | `prompt_endpoint_assignments` | Pin endpoint → variant per key | unique `(prompt_key, endpoint_id)`; CASCADE both FKs |
 | `PromptOverride` | `prompt_overrides` | **Legacy**; migrated into built-in variants at boot | Do not write new rows |

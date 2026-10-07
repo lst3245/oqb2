@@ -1280,8 +1280,7 @@ def pdf_llm_detect():
     if not pages:
         return _sse_error('No pages to scan.')
 
-    coord_order = (current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')
-                   or 'xyxy')
+    coord_order = llm_client.box_coord_order(cfg)
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     system = ai_prompts.build_pdf_generic_system(instruction, coord_order,
                                                  endpoint_id=cfg.id)

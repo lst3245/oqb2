@@ -46,6 +46,21 @@ from app import db, pdf_tools
 logger = logging.getLogger(__name__)
 
 
+def llm_timeout():
+    """Per-call timeout for PDF import model calls (``PDF_IMPORT_LLM_TIMEOUT_SECONDS``),
+    or ``None`` to use the endpoint's own ``timeout_seconds``."""
+    try:
+        return int(current_app.config.get('PDF_IMPORT_LLM_TIMEOUT_SECONDS') or 0) or None
+    except (RuntimeError, TypeError, ValueError):   # no app context / bad value
+        return None
+
+
+def redo_timeout(config):
+    """Timeout for a single-page Re-run the user waits on: the longer of the
+    import timeout and the endpoint's own ``timeout_seconds``."""
+    return max(llm_timeout() or 0, int(getattr(config, 'timeout_seconds', 0) or 120))
+
+
 # ==================== Paper-prefix parsing ====================
 
 # A "paper prefix" is a QID without the trailing question number, e.g.
@@ -112,7 +127,7 @@ def guess_paper_name(config, pdf_path: str, filename: str, subjects,
         user_text = ai_prompts.build_pdf_paper_name_user_text(
             filename, subjects, endpoint_id=config.id)
         text, _info = llm_client.chat(config, system, user_text,
-                                      images=[(b64, mime)])
+                                      images=[(b64, mime)], timeout=llm_timeout())
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -354,6 +369,8 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
                 row['source_page'] = source_page
             if item.get('depends_prev'):
                 row['depends_prev'] = True
+            if item.get('cont'):
+                row['cont'] = True
             clean[kind].append(row)
         if not generic:
             apply_derived_roles(clean[kind])
@@ -832,8 +849,10 @@ DETECT_METHODS = ('llm', 'refine', 'segment')
 
 def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                 method: str = 'llm', mode: str = 'exam', instruction: str = '',
-                generic_prompt: bool = False, expected_labels=None):
+                generic_prompt: bool = False, expected_labels=None, timeout=None):
     """Detect the question/solution regions on one page.
+
+    ``timeout`` (seconds) overrides :func:`llm_timeout` for the model call.
 
     ``expected_labels`` (agent runs) lists the question numbers the paper
     outline places on this page; it is folded into the exam prompts as a
@@ -876,8 +895,9 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     if method not in DETECT_METHODS:
         method = 'llm'
     mode = (mode or 'exam').strip().lower()
-    coord_order = str(current_app.config.get('PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
+    coord_order = llm_client.box_coord_order(config)
     shrink_sides = (atype == 'QUE')
+    call_timeout = timeout or llm_timeout()
 
     b64, mime = llm_client.prepare_image(png_path, image_max_dim)
     sw, sh = _sent_image_size(png_path, image_max_dim)
@@ -895,7 +915,8 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                                                      endpoint_id=config.id)
         user_text = ai_prompts.build_pdf_generic_user_text(
             instruction, coord_order, endpoint_id=config.id)
-        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
+        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)],
+                                  timeout=call_timeout)
         gboxes = ai_prompts.parse_generic_boxes(text, img_w=sw, img_h=sh,
                                                 coord_order=coord_order)
         if method == 'refine':
@@ -921,7 +942,8 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
         system = ai_prompts.build_pdf_anchor_system(atype, endpoint_id=config.id)
         user_text = ai_prompts.build_pdf_anchor_user_text(atype,
                                                           endpoint_id=config.id)
-        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
+        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)],
+                                  timeout=call_timeout)
         anchors = ai_prompts.parse_question_anchors(text, img_h=sh,
                                                     coord_order=coord_order)
         gray = pdf_layout.load_gray(png_path)
@@ -947,7 +969,8 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
     user_text = ai_prompts.build_pdf_box_user_text(atype, coord_order,
                                                    endpoint_id=config.id,
                                                    expected_labels=expected_labels)
-    text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)])
+    text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)],
+                                  timeout=call_timeout)
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)
 
@@ -1290,14 +1313,38 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             if not is_generic:
                 apply_derived_roles(plan[k])
 
-    def _worker(item):
+    def _detect(item):
         png = page_png_path(token, item['kind'], item['idx'])
-        boxes, raw = detect_page(config, png, item['atype'], image_max_dim,
-                                 method, mode=meta.get('mode', 'exam'),
-                                 instruction=instruction,
-                                 generic_prompt=custom_prompt,
-                                 expected_labels=item.get('expected'))
+        return _call_with_llm_retry(
+            f'pdf-import detect {item["kind"]} page {item["idx"] + 1}',
+            lambda: detect_page(config, png, item['atype'], image_max_dim,
+                                method, mode=meta.get('mode', 'exam'),
+                                instruction=instruction,
+                                generic_prompt=custom_prompt,
+                                expected_labels=item.get('expected')))
+
+    def _worker(item):
+        boxes, raw = _detect(item)
         return {'boxes': boxes, 'raw': raw}
+
+    failed = []
+
+    def _failed_event(kind, atype, idx, err):
+        failed.append({'kind': kind, 'index': idx})
+        logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, err)
+        return {'type': 'error',
+                'message': (f'{atype} page {idx + 1}: detection failed ({err}) — '
+                            're-run this page.'),
+                'current': done, 'total': total,
+                'page': {'kind': kind, 'index': idx, 'boxes': [],
+                         'failed': True, 'error': str(err)}}
+
+    def _done_message():
+        msg = f'Detection complete: {qcount} question region(s) across {total} page(s).'
+        if failed:
+            pages = ', '.join(f'{f["kind"].upper()} {f["index"] + 1}' for f in failed)
+            msg += f' {len(failed)} page(s) failed ({pages}) — re-run them.'
+        return msg
 
     done = 0
     qcount = 0
@@ -1311,11 +1358,7 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             done += 1
             kind, atype, idx = r['item']['kind'], r['item']['atype'], r['item']['idx']
             if r['error'] is not None:
-                logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, r['error'])
-                yield {'type': 'error',
-                       'message': f'{atype} page {idx + 1}: detection failed ({r["error"]}).',
-                       'current': done, 'total': total,
-                       'page': {'kind': kind, 'index': idx, 'boxes': []}}
+                yield _failed_event(kind, atype, idx, r['error'])
                 continue
             boxes, raw = r['result']['boxes'], r['result']['raw']
             _ingest(kind, idx, boxes)
@@ -1334,20 +1377,11 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        'stats': {'pages': done, 'questions': qcount},
                        'plan': plan}
                 return
-            png = page_png_path(token, kind, idx)
             try:
-                boxes, raw = detect_page(config, png, atype, image_max_dim,
-                                         method, mode=meta.get('mode', 'exam'),
-                                         instruction=instruction,
-                                         generic_prompt=custom_prompt,
-                                         expected_labels=item.get('expected'))
+                boxes, raw = _detect(item)
             except Exception as e:  # transport / parse failure for this page
                 done += 1
-                logger.warning('pdf-import detect failed (%s page %s): %s', kind, idx + 1, e)
-                yield {'type': 'error',
-                       'message': f'{atype} page {idx + 1}: detection failed ({e}).',
-                       'current': done, 'total': total,
-                       'page': {'kind': kind, 'index': idx, 'boxes': []}}
+                yield _failed_event(kind, atype, idx, e)
                 continue
             _ingest(kind, idx, boxes)
             qcount += len(boxes)
@@ -1362,22 +1396,23 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
         yield {'type': 'done', 'message': 'Detection cancelled.',
                'current': done, 'total': total,
                'stats': {'pages': done, 'questions': qcount},
-               'plan': plan}
+               'plan': plan, 'failed': failed}
     else:
         yield {'type': 'done',
-               'message': f'Detection complete: {qcount} question region(s) across {total} page(s).',
+               'message': _done_message(),
                'current': total, 'total': total,
                'stats': {'pages': total, 'questions': qcount},
-               'plan': plan}
+               'plan': plan, 'failed': failed}
 
 
 def detect_single_page(config, token: str, kind: str, index: int,
                        image_max_dim: int, method: str = 'llm',
-                       expected_labels=None):
+                       expected_labels=None, timeout=None):
     """Re-run detection for a single page (the review-mode 'Re-run page'
     button and the agent's reconcile step), optionally with a different
-    ``method``. Returns ``(boxes, raw_text)``. Raises a clear error if an
-    assisted method is requested without NumPy."""
+    ``method``. ``timeout`` overrides the import timeout (see
+    :func:`redo_timeout`). Returns ``(boxes, raw_text)``. Raises a clear error
+    if an assisted method is requested without NumPy."""
     err = _check_method_available(method)
     if err:
         raise RuntimeError(err)
@@ -1389,7 +1424,7 @@ def detect_single_page(config, token: str, kind: str, index: int,
                        mode=meta.get('mode', 'exam'),
                        instruction=meta.get('instruction', ''),
                        generic_prompt=custom_prompt,
-                       expected_labels=expected_labels)
+                       expected_labels=expected_labels, timeout=timeout)
 
 
 def _stitch_continuations(plan: dict):
@@ -1407,7 +1442,9 @@ def _stitch_continuations(plan: dict):
     process in order.
 
     Relies on the transient ``_cp`` / ``_cn`` keys set by ``iter_detect`` /
-    pass-2; boxes without a usable predecessor qno/label are left as-is.
+    pass-2; boxes without a usable predecessor qno/label are left as-is. A
+    linked box gets the persisted ``cont: True`` (the review UI's renumber
+    tells a continuation from a repeated number by it).
     """
     for kind in ('que', 'sol'):
         items = sorted(plan.get(kind, []) or [],
@@ -1417,6 +1454,7 @@ def _stitch_continuations(plan: dict):
             if not (cur.get('page', 0) > prev.get('page', 0)
                     and (cur.get('_cp') or prev.get('_cn'))):
                 continue
+            cur['cont'] = True
             if prev.get('label'):
                 cur['label'] = prev['label']
             if prev.get('qno') is not None:
@@ -1779,32 +1817,42 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
 
 
 def detect_parts(config, crop_png: str, atype: str, image_max_dim: int,
-                 expected_labels=None, extra_note=None):
+                 expected_labels=None, extra_note=None, range_span=None):
     """Pass-2: detect stem + lettered parts on one already-cropped question.
 
     ``crop_png`` is an absolute path. ``atype`` is ``QUE`` or ``SOL``.
     ``expected_labels`` is a list like ``['stem', 'a', 'ci']`` (SOL mirrors
     QUE; agent runs supply it for QUE from the paper outline). ``extra_note``
     is appended to the user turn (agent repair rounds).
+    ``range_span=(first, last)`` switches to the range prompts: the crop is
+    a shared-stimulus range and the labels are ``stem`` or a question number
+    inside the range (``expected_labels`` is ignored).
     Returns ``(boxes, raw_text)`` where each box is crop-relative 0..1 with
-    ``label`` ``stem`` or a letter path.
+    ``label`` ``stem`` or a letter path (or a number in range mode).
     """
     from app import ai_prompts, llm_client
 
-    coord_order = str(current_app.config.get(
-        'PDF_IMPORT_COORD_ORDER', 'xyxy')).strip().lower()
+    coord_order = llm_client.box_coord_order(config)
     b64, mime = llm_client.prepare_image(crop_png, image_max_dim)
     sw, sh = _sent_image_size(crop_png, image_max_dim)
-    system = ai_prompts.build_pdf_part_system(
-        atype, expected_labels, coord_order, endpoint_id=config.id)
-    user_text = ai_prompts.build_pdf_part_user_text(
-        atype, expected_labels, coord_order, endpoint_id=config.id)
+    if range_span:
+        first, last = int(range_span[0]), int(range_span[1])
+        system = ai_prompts.build_pdf_range_system(
+            atype, first, last, coord_order, endpoint_id=config.id)
+        user_text = ai_prompts.build_pdf_range_user_text(
+            first, last, coord_order, endpoint_id=config.id)
+    else:
+        system = ai_prompts.build_pdf_part_system(
+            atype, expected_labels, coord_order, endpoint_id=config.id)
+        user_text = ai_prompts.build_pdf_part_user_text(
+            atype, expected_labels, coord_order, endpoint_id=config.id)
     if extra_note:
         user_text = f'{str(extra_note).strip()}\n\n{user_text}'
     text, _info = llm_client.chat(config, system, user_text,
-                                  images=[(b64, mime)])
+                                  images=[(b64, mime)], timeout=llm_timeout())
     boxes = ai_prompts.parse_part_boxes(text, img_w=sw, img_h=sh,
-                                        coord_order=coord_order)
+                                        coord_order=coord_order,
+                                        range_span=range_span)
     return boxes, (text or '')
 
 
@@ -1887,6 +1935,49 @@ def _write_split_crop(token, kind, page, box) -> str:
     dest = os.path.join(d, f'{kind}_{page}_{uuid.uuid4().hex[:8]}.png')
     img.save(dest, 'PNG')
     return dest
+
+
+STEM_FILL_MIN_HEIGHT = 0.02
+
+
+def missing_stem_box(parent_box, child_boxes, min_height: float = STEM_FILL_MIN_HEIGHT):
+    """The strip between a question's top and its first part, when pass 2
+    returned lettered parts but no stem.
+
+    ``child_boxes`` are ``(relative_label, page_box)`` pairs from ONE page
+    crop (``stem`` or a letter path; boxes already mapped onto the page).
+    Returns ``[x1, y1, x2, y2]`` (parent's x, parent top to first part top)
+    or ``None`` when a stem was returned, no part was, or the strip is
+    thinner than ``min_height`` of the page. Ink is checked by the caller.
+    """
+    tops = []
+    for lab, box in child_boxes or []:
+        if str(lab or '').strip().lower() == 'stem':
+            return None
+        try:
+            tops.append(float(box[1]))
+        except (TypeError, ValueError, IndexError):
+            continue
+    if not tops:
+        return None
+    x1, y1, x2, _y2 = [float(v) for v in parent_box]
+    first = min(tops)
+    if first - y1 < float(min_height):
+        return None
+    return [x1, y1, x2, first]
+
+
+def _strip_has_ink(png_path: str, box) -> bool:
+    """``pdf_layout.has_ink`` on one page PNG; False without NumPy or on error
+    (no stem is invented when the strip cannot be checked)."""
+    from app import pdf_layout
+    if not pdf_layout.numpy_available():
+        return False
+    try:
+        return pdf_layout.has_ink(pdf_layout.load_gray(png_path), box)
+    except Exception:
+        logger.exception('stem-fill ink check failed for %s', png_path)
+        return False
 
 
 def full_width_child_box(parent_box, crop_box):
@@ -1979,7 +2070,8 @@ def map_page_box_to_stitch(page_w, page_h, stitch_w, stitch_h, y_top, box):
 
 
 def split_question_png(config, png_path: str, image_max_dim: int,
-                       method: str = 'llm', find_parent: bool = False):
+                       method: str = 'llm', find_parent: bool = False,
+                       fill_stem: bool = True):
     """Split one question PNG the way PDF import pass 2 does.
 
     Default (``find_parent=False``) is pass 2 only: ``detect_parts`` +
@@ -1987,7 +2079,10 @@ def split_question_png(config, png_path: str, image_max_dim: int,
     (library QUE / WHOLE). ``find_parent=True`` first runs pass 1
     (``detect_page``) for a full exam-page scan: exactly one box → tight
     crop; zero or several → whole image. Each vision call is retried once
-    on ``LLMError``.
+    on ``LLMError``. ``fill_stem`` adds the strip above the first part as
+    the stem when the model returned parts only (see
+    :func:`missing_stem_box`); pass ``False`` for a part being split into
+    sub-parts (its own intro is not a stem).
 
     Returns ``(boxes, raw)`` where each box is ``{label, box}`` in 0..1
     coords relative to ``png_path``.
@@ -2048,6 +2143,10 @@ def split_question_png(config, png_path: str, image_max_dim: int,
             'label': label,
             'box': full_width_child_box(parent, box),
         })
+    if fill_stem:
+        strip = missing_stem_box(parent, [(b['label'], b['box']) for b in out])
+        if strip and _strip_has_ink(png_path, strip):
+            out.insert(0, {'label': 'stem', 'box': strip})
     return merge_part_boxes_by_label(out), '\n'.join(r for r in raws if r)
 
 
@@ -2060,28 +2159,45 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
     hint, e.g. "part (b) was missed last time; it starts below the table"."""
     from app.hierarchy import compose_part_label, parse_qno_token
     atype = 'QUE' if kind == 'que' else 'SOL'
+    parsed_parent = parse_qno_token(parent_label)
+    parent_norm = parsed_parent.token[1:] if parsed_parent else parent_label
+    # A shared-stimulus range (31-32) splits into its stem plus the numbered
+    # questions it covers, not into lettered parts.
+    range_span = ((parsed_parent.qno, parsed_parent.qno_end)
+                  if parsed_parent and parsed_parent.qno_end
+                  and not parsed_parent.part_path else None)
+    # A root question's or a range's preamble only: never a nested part's own
+    # intro (4d), never SOL working.
+    may_fill_stem = (kind == 'que' and parsed_parent is not None
+                     and not parsed_parent.part_path)
     children = []
     raws = []
-    for prt in parts:
+    for pi, prt in enumerate(parts):
         crop_path = None
         try:
             crop_path = _write_split_crop(token, kind, prt['page'], prt['box'])
 
             def _pass2():
                 return detect_parts(config, crop_path, atype, image_max_dim,
-                                    expected_labels=expected_labels,
-                                    extra_note=extra_note)
+                                    expected_labels=None if range_span else expected_labels,
+                                    extra_note=extra_note,
+                                    range_span=range_span)
 
             boxes, raw = _call_with_llm_retry(
                 f'pdf-import pass-2 {kind} Q{parent_label}', _pass2)
             if debug:
                 raws.append(raw)
+            page_children = []
             for b in boxes:
-                child_label = compose_part_label(parent_label, b.get('label'))
+                if range_span:
+                    child_label = (parent_norm if b.get('label') == 'stem'
+                                   else b.get('label'))
+                else:
+                    child_label = compose_part_label(parent_label, b.get('label'))
                 if not child_label:
                     continue
                 parsed_c = parse_qno_token(child_label)
-                children.append({
+                page_children.append((b.get('label'), {
                     'page': int(prt['page']),
                     'qno': parsed_c.qno if parsed_c else None,
                     'label': child_label,
@@ -2091,7 +2207,25 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                     'source_box': [float(v) for v in prt['box']],
                     '_cp': bool(b.get('continues_prev')),
                     '_cn': bool(b.get('continues_next')),
-                })
+                }))
+            # Only the question's first page: on a continuation page the strip
+            # above the first part belongs to the previous part.
+            if may_fill_stem and pi == 0:
+                strip = missing_stem_box(prt['box'], [(lab, c['box']) for lab, c in page_children])
+                if strip and _strip_has_ink(page_png_path(token, kind, prt['page']), strip):
+                    stem_label = compose_part_label(parent_label, 'stem')
+                    page_children.insert(0, ('stem', {
+                        'page': int(prt['page']),
+                        'qno': parsed_parent.qno,
+                        'label': stem_label,
+                        'box': strip,
+                        'source_label': parent_label,
+                        'source_page': int(prt['page']),
+                        'source_box': [float(v) for v in prt['box']],
+                        '_cp': False, '_cn': False,
+                        '_stem_filled': True,
+                    }))
+            children.extend(c for _lab, c in page_children)
         except Exception:
             logger.exception('pdf-import pass-2 failed for %s Q%s',
                              kind, parent_label)
@@ -2102,7 +2236,8 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                 except OSError:
                     pass
     apply_derived_roles(children)
-    if not any(it.get('role') == 'part' for it in children):
+    # A stem alone is no split: keep the parent box as it was.
+    if not any(c.get('label') != parent_norm for c in children):
         return None, raws
     return children, raws
 
@@ -2110,7 +2245,8 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
 def _replace_group(items, parent_label, new_items):
     """Drop ``parent_label``, its descendants and anything split from it,
     then append ``new_items``. Re-splitting a nested stem (``4d``) leaves
-    ``4``, ``4a``... untouched; a range parent only replaces itself."""
+    ``4``, ``4a``... untouched; a range parent replaces itself and the
+    questions split from it, never separate pass-1 boxes of 31 / 32."""
     from app.hierarchy import (label_is_ancestor, normalize_plan_label,
                                parse_qno_token)
     parent = normalize_plan_label(parent_label) or parent_label
@@ -2127,6 +2263,33 @@ def _replace_group(items, parent_label, new_items):
             continue
         kept.append(it)
     return kept + list(new_items or [])
+
+
+def _is_range_label(label) -> bool:
+    from app.hierarchy import parse_qno_token
+    p = parse_qno_token(label)
+    return bool(p and p.qno_end and not p.part_path)
+
+
+def range_has_own_questions(items, parent_label) -> bool:
+    """True when range ``parent_label`` (``31-32``) already has a question it
+    covers as a box that was not split from it (pass 1 boxed ``31`` / ``32``
+    separately, or ``31`` was split into lettered parts since). Pass 2 would
+    then only duplicate those questions."""
+    from app.hierarchy import label_is_ancestor, normalize_plan_label
+    parent = normalize_plan_label(parent_label) or parent_label
+    for it in items or []:
+        lab = plan_item_label(it)
+        if not lab or lab == parent:
+            continue
+        src = (normalize_plan_label(it.get('source_label'))
+               if it.get('source_label') else None)
+        if src == parent:
+            continue
+        root = _parent_key(lab)
+        if root and label_is_ancestor(parent, root):
+            return True
+    return False
 
 
 def _split_parent_labels(items, filter_set=None):
@@ -2148,8 +2311,13 @@ def _split_parent_labels(items, filter_set=None):
                    if it.get('source_label') else None)
             lab = plan_item_label(it)
             # A nested stem (``4d``) can be re-split by its own label even
-            # though it was itself produced from ``4``.
-            for parent in (lab, src):
+            # though it was itself produced from ``4``. A question split from
+            # a range that is itself being re-split goes with the range, so
+            # the two results never race over the same boxes.
+            candidates = (lab, src)
+            if src and src in filter_set and _is_range_label(src):
+                candidates = (src,)
+            for parent in candidates:
                 if parent and parent in filter_set and parent not in seen_set:
                     seen_set.add(parent)
                     seen.append(parent)
@@ -2173,6 +2341,7 @@ def _strip_split_flags(plan: dict) -> dict:
         for it in plan.get(k) or []:
             it.pop('_cp', None)
             it.pop('_cn', None)
+            it.pop('_stem_filled', None)
         apply_derived_roles(plan.get(k) or [])
     return plan
 
@@ -2241,12 +2410,22 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
                 filter_set.add(lab)
 
     work = []
+    covered_ranges = []
     for kind in kind_list:
         parents = _split_parent_labels(plan.get(kind) or [], filter_set)
         for parent in parents:
+            if (_is_range_label(parent)
+                    and range_has_own_questions(plan.get(kind) or [], parent)):
+                covered_ranges.append(f'{kind.upper()} Q{parent}')
+                continue
             parts = original_group_parts(plan.get(kind) or [], parent)
             if parts:
                 work.append((kind, parent, parts))
+    if covered_ranges:
+        yield {'type': 'info',
+               'message': (f'{", ".join(covered_ranges)}: the questions in the '
+                           'range already have their own boxes — range left as '
+                           'their shared stem.')}
 
     total = len(work)
     if total == 0:
@@ -2274,10 +2453,28 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
         return None
 
     def _emit(kind, parent, children):
+        is_range = _is_range_label(parent)
         if children:
             plan[kind] = _replace_group(plan.get(kind) or [], parent, children)
+            filled = any(c.get('_stem_filled') for c in children)
+            if is_range:
+                nums = []
+                for c in children:
+                    lab = c.get('label')
+                    if lab and lab != parent and lab not in nums:
+                        nums.append(lab)
+                head = (f'{kind.upper()} Q{parent}: shared stem + '
+                        f'Q{", Q".join(nums)}')
+            else:
+                head = f'{kind.upper()} Q{parent}: {len(children)} part region(s)'
+            first = 'question' if is_range else 'part'
             return {'type': 'success',
-                    'message': f'{kind.upper()} Q{parent}: {len(children)} part region(s).'}
+                    'message': head + (f' — stem added from the text above the first {first}.'
+                                       if filled else '.')}
+        if is_range:
+            return {'type': 'skip',
+                    'message': (f'{kind.upper()} Q{parent}: the questions in the '
+                                'range were not found — kept as one box.')}
         return {'type': 'skip',
                 'message': (f'{kind.upper()} Q{parent}: no lettered parts '
                             'detected — kept as one question.')}

@@ -220,6 +220,26 @@ def normalize_part_box_label(raw) -> Optional[str]:
     return None
 
 
+def normalize_range_box_label(raw, first: int, last: int) -> Optional[str]:
+    """Pass-2 box label on a range crop (``23-24``): ``stem`` for the shared
+    stimulus, else a plain question number inside ``first..last`` as a string
+    (``Q23`` / ``(23)`` → ``23``). Lettered parts and out-of-range numbers are
+    rejected; the range token itself is the stem."""
+    if raw is None:
+        return None
+    s = str(raw).strip().lower().strip('()[].')
+    if not s:
+        return None
+    if s in PART_STEM_ALIASES:
+        return 'stem'
+    p = parse_qno_token(s)
+    if not p or p.part_path:
+        return None
+    if p.qno_end:
+        return 'stem' if (p.qno == first and p.qno_end == last) else None
+    return str(p.qno) if first <= p.qno <= last else None
+
+
 def compose_part_label(parent_label: str, child_raw: str) -> Optional[str]:
     """Combine a pass-1 parent label with a pass-2 child label.
 

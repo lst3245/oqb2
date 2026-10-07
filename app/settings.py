@@ -414,6 +414,12 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='How many PDF pages the "Load PDF" step rasterises concurrently. Page rendering (PyMuPDF) and image filters (deskew / brightness / B&W) are CPU-bound and independent per page, so this fans staging across CPU cores and is the main lever on load time for multi-page papers. The value is capped by the machine\'s CPU count at runtime. 1 = sequential (old behaviour). Detection (the LLM step) has its own separate parallelism.',
         min=1, max=32,
     )),
+    ('PDF_IMPORT_LLM_TIMEOUT_SECONDS', _spec(
+        'PDF_IMPORT_LLM_TIMEOUT_SECONDS', 'int', group='PDF Import',
+        label='LLM timeout for PDF import calls (seconds)',
+        help='How long one PDF import model call may take before it is abandoned: detecting the questions on a page, splitting a question into parts (also the Split tool\'s Auto-detect) and the paper-name guess. A page that times out during detection is retried once, then shown as "detection failed — Re-run". A page Re-run waits for this or the endpoint\'s own timeout, whichever is longer. Replaces the endpoint\'s own timeout for these calls only (other features keep it); the AI agent\'s outline and verify calls also keep the endpoint\'s timeout. 0 = use the endpoint\'s timeout. Default 60.',
+        min=0, max=600,
+    )),
     ('PDF_IMPORT_COORD_ORDER', _spec(
         'PDF_IMPORT_COORD_ORDER', 'string', group='PDF Import',
         label='Bounding-box coordinate order',
@@ -454,15 +460,11 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Trim whitespace on import by default',
         help='Whether the "Trim whitespace" checkbox in PDF Import starts ticked. When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose left/right margins are removed (good for DSE papers). When OFF, the crop respects the selected bounding box exactly (only the crop safety margin is applied), so any margin you deliberately leave in the box is kept. Users can toggle it per run. Default OFF.',
     )),
-    ('PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', _spec(
-        'PDF_IMPORT_UNIFORM_WIDTH_DEFAULT', 'bool', group='PDF Import',
-        label='Uniform width per side by default',
-        help='Legacy option: whether the "Uniform width per side" checkbox in PDF Import Setup starts ticked. When ON, every region on each side (QUE / SOL) is locked to the widest box\'s width so short and long questions crop to a consistent scale. Prefer "Snap to page frame" instead. Users can toggle it per run. Default OFF.',
-    )),
-    ('PDF_IMPORT_FRAME_SNAP_DEFAULT', _spec(
-        'PDF_IMPORT_FRAME_SNAP_DEFAULT', 'bool', group='PDF Import',
-        label='Snap boxes to page frame by default',
-        help='When the staged page has a detected printed frame (the rectangle margin on DSE answer books), question boxes take their left/right edges from that frame so multi-page questions align and crop to a consistent width. Tick off to keep the model\'s own horizontal extents.',
+    ('PDF_IMPORT_WIDTH_MODE_DEFAULT', _spec(
+        'PDF_IMPORT_WIDTH_MODE_DEFAULT', 'string', group='PDF Import',
+        label='Default crop width mode',
+        help='Initial value of the "Crop width" control in PDF Import Step 2. "auto" = pages with a detected printed frame (the rectangle on DSE answer books) take their left/right edges from it; frameless pages (e.g. multiple-choice papers) share the widest box\'s width, each box keeping its own left edge. "uniform" = that shared width everywhere, ignoring frames. "model" = keep the model\'s own horizontal extents. Users can change it per run; generic extraction always starts on "model". Default auto.',
+        validator=_choice_validator('auto', 'uniform', 'model'),
     )),
     ('PDF_IMPORT_FRAME_INSET_PCT', _spec(
         'PDF_IMPORT_FRAME_INSET_PCT', 'float', group='PDF Import',

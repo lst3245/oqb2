@@ -4,7 +4,7 @@
 
 {% block extra_css %}
 {# Box overlay / handles / magnifier / crop preview: shared OQBBboxEditor styles. #}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bbox_editor.css') }}?v=2">
 <style>
 .split-stage { text-align: center; }
 .split-stage .pdf-page-wrap { text-align: left; }
@@ -102,7 +102,7 @@
                         <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">Set</button>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">Delete selected box</button>
-                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge), click a thumbnail to preview the crop. Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
+                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge; hold H to hide it), click a thumbnail to preview the crop. After clicking a box, the arrow keys nudge it (Shift = 10&times;). Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
                 </div>
             </div>
             <div class="card">
@@ -123,7 +123,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/bbox_editor.js') }}?v=2"></script>
 <script>
 const TOKEN = {{ token | tojson }};
 const QUESTION_ID = {{ question.id }};

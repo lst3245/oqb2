@@ -62,7 +62,9 @@ Shared overlay editor in `static/js/bbox_editor.js` + `static/css/bbox_editor.cs
 
 **Mount:** `OQBBboxEditor.mount({wrap, img, overlay, getBox, setBox, classNames, labelText, boxId, magnifierColor, minSize, constrainBox, onSelect, onChange, onCreate, onTooSmall, onAddModeChange, frameEditable, onFrameChange})`.
 
-**Instance:** `add` / `remove` / `restyle` / `refreshLabel` / `refreshClass` / `refreshAll` / `select` / `setAddMode` / `isAdding` / `setFrame` / `getFrame` / `clear` / `destroy`.
+**Instance:** `add` / `remove` / `restyle` / `refreshLabel` / `refreshClass` / `refreshAll` / `select` / `setAddMode` / `isAdding` / `setFrame` / `getFrame` / `clear` / `destroy` / `nudge(item, dxPx, dyPx)` (moves by screen pixels through `constrainBox` with `type: 'move'`, then `onChange(item, 'move', false)`).
+
+**Keyboard (document-wide, owned by the editor):** the arrow keys nudge the box last **clicked or drawn** (`keyItem`) by 1 screen px, Shift = 10 px, but only while it is still selected and on screen, no drag is running, focus is not in an input / select / textarea, and no `.modal.show` / crop preview is open. Hover-selection from a host list (`ed.select`) does not arm the arrows, so page scrolling keeps working. Clicking a box blurs a focused text field first (commits a typed label). Holding **H** hides the drag magnifier (during a drag the key is swallowed so it is not typed into a focused field). Hosts keep their own Delete / Backspace handlers. The box label chip sits at the box's top-right so it does not cover printed question numbers.
 
 **Helpers:** `clamp01`, `applyBoxStyle`, `fracFromEvent`, `drawPreview`, `showCropPreview`, `selectNone`.
 

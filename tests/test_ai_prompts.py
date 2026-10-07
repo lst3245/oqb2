@@ -206,6 +206,28 @@ class ParserContractTests(unittest.TestCase):
             ' {"label": "dii", "box": [0, 500, 1000, 700]}]')
         self.assertEqual([b['label'] for b in out], ['stem', 'd', 'di', 'dii'])
 
+    def test_parse_part_boxes_range_numbers(self):
+        out = ai_prompts.parse_part_boxes(
+            '[{"label": "stem", "box": [0, 0, 1000, 300]},'
+            ' {"label": "31", "box": [0, 300, 1000, 600]},'
+            ' {"qno": 32, "box": [0, 600, 1000, 900]},'
+            ' {"label": "a", "box": [0, 900, 1000, 950]},'
+            ' {"label": "33", "box": [0, 950, 1000, 990]}]',
+            range_span=(31, 32))
+        self.assertEqual([b['label'] for b in out], ['stem', '31', '32'])
+
+    def test_pdf_range_prompts_render(self):
+        with mock.patch.object(ai_prompts, '_load_resolved', return_value=None):
+            sys_r = ai_prompts.build_pdf_range_system('QUE', 31, 33, 'yxyx')
+            self.assertIn('questions 31 to 33', sys_r)
+            self.assertIn('31, 32, 33', sys_r)
+            self.assertIn('[y1, x1, y2, x2]', sys_r)
+            self.assertNotIn('{{', sys_r)
+            user = ai_prompts.build_pdf_range_user_text(31, 32)
+            self.assertIn(ai_prompts.FORMAT_EMPHASIS_HEADER, user)
+            self.assertIn('31, 32', user)
+            self.assertNotIn('{{', user)
+
     def test_pdf_part_prompts_render_with_expected_note(self):
         with mock.patch.object(ai_prompts, '_load_resolved', return_value=None):
             sys_q = ai_prompts.build_pdf_part_system('QUE', ['stem', 'a', 'di'])

@@ -203,7 +203,7 @@ def _staged_pages(token: str, version: str):
 
 def iter_detect_boxes(token: str, version: str, config, image_max_dim: int,
                       method: str = 'llm', find_parent: bool = False,
-                      cancel=None):
+                      cancel=None, fill_stem: bool = True):
     """Yield SSE-shaped events: one PDF-import pass 2 on the staged stitch.
 
     Multi-image QUE (reconstructed part crops, a multi-page WHOLE, …) is
@@ -235,7 +235,7 @@ def iter_detect_boxes(token: str, version: str, config, image_max_dim: int,
     try:
         boxes, raw = split_question_png(
             config, stitch_path, image_max_dim, method=method,
-            find_parent=find_parent)
+            find_parent=find_parent, fill_stem=fill_stem)
     except Exception as e:
         logger.exception('split auto-detect failed')
         yield {'type': 'error', 'message': str(e),

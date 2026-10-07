@@ -66,9 +66,10 @@
     box-sizing: border-box;
     pointer-events: none;
 }
+/* Top-right: printed question numbers sit at the top-left of a box. */
 .pdf-box-label {
     position: absolute;
-    top: -2px; left: -2px;
+    top: -2px; right: -2px;
     background: #d63384;
     color: #fff;
     font-size: 0.7rem;
