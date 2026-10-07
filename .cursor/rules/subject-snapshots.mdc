@@ -15,7 +15,7 @@ The per-subject undo for tag / taxonomy mistakes. It only works if **every** wri
   - `topic-edit` / `chapter-edit`: every add / edit / delete / toggle-hidden / reorder route for topics, subtopics, chapters, subchapters in `admin.py` (child rows resolve the subject via parent or `_subjects_of(model, ids)`).
   - `taxonomy-hint`: `subject_ai_service.set_description`.
   - `question-tags`: `update_question` — `read_state` right after loading the question, `capture_state` only if `question_tags_differ`.
-  - `batch-update`: `batch_update_questions`, once per subject, only when a tag flag is set.
+  - `batch-update`: `batch_update_questions`, once per subject, only when a tag flag is set. `POST /questions/batch-update/preview` does not capture.
   - `tag-import` / `topic-import` / `chapter-import`: CSV imports, on each subject's first row.
   - `auto-tag`: `ai_auto_tag` uses `capture_committed` (private session, committed) **before** the stream; on failure it 500s and tags nothing.
   - `manual`, `baseline` (boot `ensure_baselines`), `before-restore` (inside `restore`).

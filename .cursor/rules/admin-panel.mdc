@@ -1,6 +1,6 @@
 ---
 description: Admin panel - subjects/topics/chapters/users/export-import/health pages and Question Management (Edit modal, assets, batch ops)
-globs: app/admin.py,app/batch_image_gen.py,templates/admin_*.html,templates/partials/edit_question_modal*.html,templates/partials/tag_editor_*.html
+globs: app/admin.py,app/batch_edit.py,app/batch_image_gen.py,templates/admin_*.html,templates/partials/edit_question_modal*.html,templates/partials/tag_editor_*.html
 alwaysApply: false
 ---
 
@@ -30,7 +30,7 @@ alwaysApply: false
 - QID rename renames files only when `confirm_rename_files` is true.
 - Question list `tree_scope=all|roots|leaves`; Part column indents by `depth`.
 - `Subject.split_parts_default` is on the Subjects add/edit form and seeds the PDF wizard **Split questions into parts** checkbox.
-- Batch ops intersect `question_ids` with `get_user_admin_subjects()`. Generate IMG: `find_best_source` DOC > MD, whole-slot `replace_img_assets`, one `word_session` per run, defaults `BATCH_IMG_DEFAULT_WIDTH/STITCH`, accepts `symmetric_horizontal`. Set MCQ ANS: `q_type='MC'`, answer A–D, PNGs from `resources/mcq_answer_img/`, default `versions=EN`. `batch-set-check-state` skips checked slots unless `overwrite`. Batch update (incl. chapters) UI lives in the **dashboard** Bulk Edit modal.
+- Batch ops intersect `question_ids` with `get_user_admin_subjects()`. Generate IMG: `find_best_source` DOC > MD, whole-slot `replace_img_assets`, one `word_session` per run, defaults `BATCH_IMG_DEFAULT_WIDTH/STITCH`, accepts `symmetric_horizontal`. Set MCQ ANS: `q_type='MC'`, answer A–D, PNGs from `resources/mcq_answer_img/`, default `versions=EN`. `batch-set-check-state` skips checked slots unless `overwrite`. Batch update (incl. chapters) UI is the **dashboard** Bulk Edit modal: preview (`app/batch_edit.py`) then apply. Do not fork the write off that plan.
 - `verified` is a whole-question manual flag independent of per-asset `check_state`; UI soft-warns only.
 
 ## Gotchas

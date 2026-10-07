@@ -33,6 +33,7 @@ Order is roughly chronological (oldest first). "Boot patch" = idempotent code in
 | `subjects.topic_number_prefix` (TINYINT(1) NOT NULL DEFAULT 1), `subjects.subtopic_number_prefix` (TINYINT(1) NOT NULL DEFAULT 0) | boot patch (`INFORMATION_SCHEMA` guard) | Dashboard filter prefixes the saved-list number as plain text. Existing subjects get topic on, subtopic off. Not part of a restore point. |
 | `subject_restore_points.pinned` (TINYINT(1) NOT NULL DEFAULT 0) | boot patch (`INFORMATION_SCHEMA` guard) | Additive. Existing points stay unpinned. `prune` never deletes a pinned row; subject delete still removes them. Applied to the live DB on 2026-10-07. |
 | `llm_configs.box_coord_order` (VARCHAR(4) NOT NULL DEFAULT '') | boot patch (`INFORMATION_SCHEMA` guard, in the `llm_configs` block) | Additive. `''` = inherit `PDF_IMPORT_COORD_ORDER`, so existing endpoints behave as before. Read via `llm_client.box_coord_order`. Applied to the live DB on 2026-10-07. |
+| `users.file_browser_location` (TEXT NULL) | boot patch (`INFORMATION_SCHEMA` guard) | Additive. JSON `{"user": {"root", "path"}, "admin": {"root", "path"}}` — last file-browser folder per scope. Null until that user navigates. Applied to the live DB on 2026-10-07. |
 
 Non-schema data conventions that behave like migrations:
 

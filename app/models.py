@@ -29,6 +29,10 @@ class User(UserMixin, db.Model):
     is_admin = db.Column(db.Boolean, default=False, nullable=False)  # Legacy field, kept for compatibility
     is_super_admin = db.Column(db.Boolean, default=False, nullable=False)  # Top-level admin
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    # JSON {"user": {"root", "path"}, "admin": {"root", "path"}}. Last folder
+    # open in each file-browser scope. The per-user browser and every
+    # OQBFileSelector share the `user` entry; `/admin/files` uses `admin`.
+    file_browser_location = db.Column(db.Text, nullable=True)
     
     # Relationships
     subject_permissions = db.relationship('UserSubjectPermission', backref='user', lazy='dynamic', cascade='all, delete-orphan')

@@ -11,8 +11,7 @@
 {#      multiple: false,             // true = multi-pick folders           #}
 {#      extensions: ['.pdf'],        // file mode filter (lowercase)       #}
 {#      title: 'Choose a PDF',                                             #}
-{#      preferRootId: 'shared:MATC', // optional initial root              #}
-{#      locationKey: 'pdf-import',   // optional in-page remembered dir    #}
+{#      preferRootId: 'shared:MATC', // this open only; does not save       #}
 {#      onPick: function(sel) {                                            #}
 {#        // sel = {root_id, root_label, rel_path, name, token}           #}
 {#        // If multiple=true in folder mode, sel is an array of those.     #}
@@ -21,6 +20,8 @@
 {#                                                                         #}
 {#  `token` is a portable "root_id|rel_path" string the user can copy and  #}
 {#  paste back into another selector to jump straight there.               #}
+{#  The picker opens on this user's last file-browser folder (same slot    #}
+{#  as /files/browser). Navigating saves it. locationKey is ignored.       #}
 {# ====================================================================== #}
 
 <div class="modal fade" id="oqbFsModal" tabindex="-1" aria-hidden="true">
@@ -114,6 +115,7 @@
     roots: '{{ url_for("files.api_roots") }}',
     list:  '{{ url_for("files.api_list") }}',
     mkdir: '{{ url_for("files.api_mkdir") }}',
+    location: '{{ url_for("files.api_location") }}',
   };
   // The selector always uses the user-scope root set (My Files + accessible
   // Shared folders) — identical for regular users and super-admins.
@@ -132,7 +134,13 @@
     sortDir: 'asc',
     filterText: '',
     modal: null,
-    rememberedLocations: {},
+    lastLocation: null,   // {root, path} from the server, or updated locally
+    locationDirty: false, // a navigate is ahead of the last successful save
+    rememberTimer: null,
+    skipRemember: false,  // initial open must not clobber the saved folder
+    renderingRoots: false,
+    listFallback: false,
+    loadSeq: 0,
   };
 
   // -- helpers ---------------------------------------------------------
@@ -222,19 +230,53 @@
     return Object.keys(state.selectedFolders).sort().map(k => state.selectedFolders[k]);
   }
 
-  function locationKey(cfg) {
-    cfg = cfg || {};
-    const exts = (cfg.extensions || []).map(e => String(e || '').toLowerCase()).sort().join(',');
-    return cfg.locationKey || ((cfg.mode || 'file') + '|' + exts);
+  function adoptLocation(data) {
+    if (state.locationDirty || !data) return;
+    if (data.root) state.lastLocation = {root: data.root, path: data.path || ''};
+    else state.lastLocation = null;
   }
 
-  function rememberLocation() {
-    if (!state.cfg || !state.currentRoot) return;
-    state.rememberedLocations[locationKey(state.cfg)] = {
-      root: state.currentRoot,
-      path: state.currentPath || '',
-    };
+  function fetchLocation() {
+    return fetch(API.location + '?scope=' + encodeURIComponent(SCOPE))
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { adoptLocation(data); })
+      .catch(() => {});
   }
+
+  function postRemember() {
+    const loc = state.lastLocation;
+    if (!loc || !loc.root) return;
+    fetch(API.location, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      keepalive: true,
+      body: JSON.stringify({scope: SCOPE, root: loc.root, path: loc.path || ''}),
+    }).then(r => {
+      if (!r.ok) return;
+      const cur = state.lastLocation;
+      if (cur && cur.root === loc.root && (cur.path || '') === (loc.path || '')) {
+        state.locationDirty = false;
+      }
+    }).catch(() => {});
+  }
+
+  function scheduleRemember() {
+    if (!state.currentRoot) return;
+    state.lastLocation = {root: state.currentRoot, path: state.currentPath || ''};
+    state.locationDirty = true;
+    clearTimeout(state.rememberTimer);
+    state.rememberTimer = setTimeout(function () {
+      state.rememberTimer = null;
+      postRemember();
+    }, 400);
+  }
+
+  window.addEventListener('pagehide', function () {
+    if (!state.rememberTimer) return;
+    clearTimeout(state.rememberTimer);
+    state.rememberTimer = null;
+    postRemember();
+  });
 
   function withRoot(url) {
     const join = url.includes('?') ? '&' : '?';
@@ -245,6 +287,7 @@
   // Group roots into optgroups: My Files / Shared / Other.
   function populateRootSelect() {
     const sel = el('oqbFsRoot');
+    state.renderingRoots = true;
     sel.innerHTML = '';
     const groups = [
       ['My Files', r => r.id === 'user'],
@@ -265,6 +308,7 @@
       });
       sel.appendChild(og);
     });
+    state.renderingRoots = false;
   }
 
   function ensureRoots() {
@@ -274,6 +318,7 @@
       .then(data => {
         state.roots = data.roots || [];
         state.rootsLoaded = true;
+        if (data.last_location) adoptLocation(data.last_location);
       });
   }
 
@@ -281,7 +326,8 @@
   function navigate(path) {
     state.currentPath = path || '';
     state.selected = null;
-    rememberLocation();
+    if (state.skipRemember) state.skipRemember = false;
+    else scheduleRemember();
     updateChoose();
     load();
     renderCrumb();
@@ -290,19 +336,37 @@
   function load() {
     const loading = el('oqbFsLoading'), error = el('oqbFsError'),
           empty = el('oqbFsEmpty'), table = el('oqbFsTable');
+    const requested = state.currentPath;
+    const isFallback = state.listFallback;
+    const seq = ++state.loadSeq;
     loading.classList.remove('d-none');
     error.classList.add('d-none');
     empty.classList.add('d-none');
     table.classList.add('d-none');
 
-    fetch(withRoot(API.list + '?path=' + encodeURIComponent(state.currentPath)))
-      .then(r => r.ok ? r.json() : r.json().then(d => { throw new Error(d.error || ('HTTP ' + r.status)); }))
+    fetch(withRoot(API.list + '?path=' + encodeURIComponent(requested)))
+      .then(r => {
+        if (r.ok) return r.json();
+        return r.json().catch(() => ({})).then(d => {
+          const err = new Error(d.error || ('HTTP ' + r.status));
+          err.status = r.status;
+          throw err;
+        });
+      })
       .then(data => {
+        if (seq !== state.loadSeq) return;
+        state.listFallback = false;
         loading.classList.add('d-none');
         state.items = data.items || [];
         render();
       })
       .catch(err => {
+        if (seq !== state.loadSeq) return;
+        if (requested && err.status === 404 && !isFallback) {
+          state.listFallback = true;
+          navigate('');
+          return;
+        }
         loading.classList.add('d-none');
         error.textContent = err.message;
         error.classList.remove('d-none');
@@ -595,6 +659,7 @@
   // -- wiring (once) ---------------------------------------------------
   function wire() {
     el('oqbFsRoot').addEventListener('change', function () {
+      if (state.renderingRoots || this.value === state.currentRoot) return;
       state.currentRoot = this.value;
       onRootChanged(true);
     });
@@ -655,15 +720,21 @@
       wire();
     }
 
-    ensureRoots().then(() => {
+    const needRoots = !state.rootsLoaded;
+    Promise.all([
+      ensureRoots(),
+      (state.locationDirty || needRoots) ? Promise.resolve() : fetchLocation(),
+    ]).then(() => {
       if (!state.roots.length) {
         el('oqbFsError').textContent = 'No accessible locations.';
         el('oqbFsError').classList.remove('d-none');
         state.modal.show();
         return;
       }
+      // preferRootId forces this open only. It does not become the saved
+      // folder until the user actually navigates.
       const prefer = state.cfg.preferRootId;
-      const remembered = state.rememberedLocations[locationKey(state.cfg)] || null;
+      const remembered = state.lastLocation;
       if (prefer && state.roots.some(r => r.id === prefer)) {
         state.currentRoot = prefer;
         state.currentPath = '';
@@ -677,6 +748,7 @@
       populateRootSelect();
       el('oqbFsRoot').value = state.currentRoot;
       onRootChanged(false);
+      state.skipRemember = true;
       navigate(state.currentPath);
       updateChoose();
       state.modal.show();

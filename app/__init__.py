@@ -506,6 +506,22 @@ def create_app():
         except Exception:
             db.session.rollback()
 
+        # Last folder each user had open in the file browser / file selector.
+        # One JSON blob, keyed by scope (`user` vs super-admin `admin`).
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'"
+                ))}
+                if cols and 'file_browser_location' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN file_browser_location TEXT NULL"
+                    ))
+        except Exception:
+            pass
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

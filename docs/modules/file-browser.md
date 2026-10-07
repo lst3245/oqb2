@@ -14,7 +14,7 @@ The storage tree layout (`Source`, `Storage/{Shared,System,User}`), `safe_join`,
 | `app/admin.py` | `GET /admin/files` renders the super-admin shell (section `File Browser (Super Admin Only)`). |
 | `templates/admin_files.html` | Super-admin page: includes the shared partials with `fb_can_manage_roots=True`, `fb_scope='admin'`. |
 | `templates/files_browser.html` | Per-user page (My Stuff -> File Browser): same partials with `fb_can_manage_roots=False`, `fb_scope='user'`. |
-| `templates/partials/file_browser_css.html`, `file_browser_body.html`, `file_browser_js.html` | Shared browser UI. JS state: `ROOTS`, `ALLOWED_DRIVE`, `FB_CAN_MANAGE_ROOTS`, `FB_SCOPE`, `currentRoot`, `currentPath`, `selectedItems`, `clipboard[]`, `clipboardMode`. `URLS` map built from `url_for('files.api_*')`. |
+| `templates/partials/file_browser_css.html`, `file_browser_body.html`, `file_browser_js.html` | Shared browser UI. JS state: `ROOTS`, `ALLOWED_DRIVE`, `FB_CAN_MANAGE_ROOTS`, `FB_SCOPE`, `FB_LAST`, `currentRoot`, `currentPath`, `selectedItems`, `clipboard[]`, `clipboardMode`. `URLS` map built from `url_for('files.api_*')`. `FB_LAST` is the server-rendered last folder for this scope. |
 | `templates/partials/file_selector.html` | `#oqbFsModal` + `window.OQBFileSelector = { open }`. Include once per page. |
 | `templates/base.html` | Navbar link to `files.browser` for eligible users. |
 | `app/toolbox/pdf.py`, `app/admin.py` (PDF Import) | Consumers that accept `{root, rel_path}` (see Backends below). |
@@ -27,7 +27,7 @@ Schema reference: [../core/03-data-model-and-migrations.md](../core/03-data-mode
 |---|---|
 | `SystemSetting` | Row `key='FILE_BROWSER_EXTRA_ROOTS'`, `value` = JSON list of absolute paths, `updated_by` = current user. Read by `_load_extra_roots`, written by `_save_extra_roots`. Not part of `app/settings.py` `REGISTRY`. |
 | `Subject` | Labels for `shared:<SID>` roots. |
-| `User` / `UserSubjectPermission` | `user.get_subject_roles()` decides which `Shared/<subject>` roots appear and whether they are writable; `is_super_admin`, `is_all_view_only()` gate access. |
+| `User` / `UserSubjectPermission` | `user.get_subject_roles()` decides which `Shared/<subject>` roots appear and whether they are writable; `is_super_admin`, `is_all_view_only()` gate access. `User.file_browser_location` (TEXT, JSON) is the last folder per scope: `{"user": {"root", "path"}, "admin": {"root", "path"}}`. |
 | `GeneratedFile` | Not touched here — that is why `User/<name>/generated/` is read-only in the browser. |
 
 ## Routes
@@ -45,7 +45,8 @@ Every call carries `root` (root id) and `scope` (`admin`|`user`) as query, form 
 
 | Method | Path | Body / query | Response |
 |---|---|---|---|
-| GET | `/files/api/roots` | `scope` | `{roots:[{id,label,can_write,removable,missing,path?}], allowed_drive}`; `path` only for admin-scope roots (`expose_path`). |
+| GET | `/files/api/roots` | `scope` | `{roots:[{id,label,can_write,removable,missing,path?}], allowed_drive, last_location:{root, path}}`; `path` on a root only for admin-scope roots (`expose_path`). `last_location.root` is null when this user has no saved folder in the scope (or that root is no longer visible). |
+| GET, POST | `/files/api/location` | GET: `scope`. POST JSON `{scope, root, path}` | GET `{root, path}` (`root` null if unset or no longer visible). POST `{success, root, path}` where `path` is clamped to an existing directory. 400 `Invalid root` / `Invalid path`. Same per-user blob as the browser pages. |
 | GET | `/files/api/list` | `root, path` | `{current_path, items:[{name,is_dir,size(null for dirs),modified(epoch)}]}`; dirs first, case-insensitive name order. Creates the root dir on demand. |
 | GET | `/files/api/download` | `root, path` | `send_file(..., as_attachment=True)`; 400 without path, 404 if not a file. Also used as a preview URL by Smart Import. |
 | POST | `/files/api/upload` | multipart `files[]`, `paths[]` (parallel relative paths), form `path` (target dir), `root`, `scope` | `{success, uploaded[], errors[], message}`. `paths[]` entries create intermediate folders (every component `secure_filename`-sanitised, `.`/`..` dropped) so folder uploads keep their tree. |
@@ -68,6 +69,15 @@ There are no `/admin/files/roots/*` routes; root management lives only in `files
 - `resolve(root_id)`: blank -> first root; exact match; then case-insensitive match (extra roots encode a path).
 - `Root.to_dict()` includes `missing` (dir absent) so the UI can flag it.
 
+### Last folder (`users.file_browser_location`)
+
+- One JSON object per user, two slots: `user` and `admin`. Each value is `{root, path}` with `path` relative to that root (forward slashes).
+- **User scope** is shared by `/files/browser` and every `OQBFileSelector` (PDF Import, PDF Tool, Smart Import). **Admin scope** is only `/admin/files`. A super-admin therefore has two independent last folders; browsing Source does not move their Shared / My Files place.
+- A non-super-admin request with `scope=admin` is stored and read under `user`, matching the downgraded registry.
+- Opening a browser or a picker does **not** write. Navigating (change root, open a folder, paste a path) POSTs `/files/api/location`, debounced. The same value is not committed again.
+- On read, a missing subfolder is clamped to the nearest existing parent (`''` = the root). A root the user can no longer see returns null and is **left stored**, so the UI falls back to the first root without forgetting a folder they may regain.
+- `..`, a drive prefix, or a non-string path is 400 on POST. A corrupt stored path is read as `''`.
+
 ### Path safety and write gating
 
 - Every join goes through `storage.safe_join` (`_resolve`); escapes raise `FileServiceError(400, 'Invalid path')`. Never use `startswith` checks.
@@ -83,6 +93,7 @@ There are no `/admin/files/roots/*` routes; root management lives only in `files
 - Upload modal accepts files and whole folders (`Add folder` uses `webkitdirectory`; drag-and-drop recurses dropped directories through `webkitGetAsEntry`); each file is appended with its `paths` entry (`relPath`).
 - Deleting a folder (single or batch) requires typing `DELETE` (`#btnSingleDelete`, `#btnBatchDelete` stay disabled otherwise).
 - Root management UI (add/remove, shows `ALLOWED_DRIVE`) renders only when `fb_can_manage_roots` is true; `refreshRoots()` re-fetches `/api/roots` after add/remove.
+- Initial folder is `FB_LAST` when that root is still in `ROOTS`; otherwise the first root. The first listing does not POST. A 404 on the saved path opens that root's top and then saves.
 
 ### File selector (`partials/file_selector.html`)
 
@@ -92,18 +103,18 @@ OQBFileSelector.open({
   multiple: false,            // folder mode only: checkbox multi-pick
   extensions: ['.pdf'],       // file mode filter, lowercase
   title: 'Choose a PDF',
-  preferRootId: 'shared:MATC',
-  locationKey: 'pdf-import',  // remembered dir key (default: mode|extensions)
+  preferRootId: 'shared:MATC',  // this open only; does not overwrite the saved folder
   onPick(sel) { /* {root_id, root_label, rel_path, name, token} or array when multiple */ }
 });
 ```
 
-- Always **user scope** (`/files/api/roots?scope=user`), regardless of who is logged in.
-- `token` is `root_id|rel_path`; pasting it into the path box of another selector jumps there.
-- Remembers the last `{root, path}` per `locationKey` in JS memory (`state.rememberedLocations`) until page reload — no `localStorage`. `preferRootId` wins over the remembered location when it exists in the root list.
+- Always **user scope** (`/files/api/roots?scope=user`), regardless of who is logged in. That is the same last-folder slot as `/files/browser`.
+- `token` is `root_id|rel_path`; pasting it into the path box of another selector jumps there (and that navigation is saved).
+- Opens on the user's saved folder. `preferRootId` wins for that open when the root is in the list, and is not written until the user navigates. `locationKey` is accepted and ignored.
+- Each later open refetches `/files/api/location` unless this page has a navigation the server has not confirmed yet.
 - Sorting by clicking the Name / Size / Modified headers (`state.sortField`, `state.sortDir`); no sort dropdown. Filter box narrows the current listing. New-folder button uses `/api/mkdir` when the root is writable.
 - In multi-folder mode, `Add current folder` adds `currentPath`, and the Choose button reads `Use selected folders`.
-- Consumers: PDF Import (single file, `.pdf`), Toolbox PDF Tool, Smart Import (`mode:'folder', multiple:true, locationKey:'smart-import'`).
+- Consumers: PDF Import (single file, `.pdf`), Toolbox PDF Tool (pick a PDF and choose a save folder), Smart Import (`mode:'folder', multiple:true`).
 
 ### Backends accepting `{root, rel_path}`
 
@@ -146,7 +157,8 @@ None. All operations are synchronous request/response; large folder deletes/copi
 - Extra roots must be on the `SOURCE_PATH` drive. Network shares on another letter cannot be added.
 - `list_dir` swallows `PermissionError` and returns an empty listing rather than an error.
 - `_unique_copy_name` inserts `_copy`/`_copyN` before the extension for both copy and move collisions; a move never overwrites.
-- The selector keeps remembered locations in memory only; reloading the page forgets them. `preferRootId` takes precedence when present.
+- The last folder is per user account, not per browser. Two people on one machine do not share it; the same person gets it on another computer. User scope and admin scope are separate slots.
+- Opening the browser or a picker does not by itself change the saved folder. `preferRootId` only affects that open.
 - Root ids are opaque tokens, not paths, for user-scope roots. Store `root_id` + `rel_path` (or the `token`) in consumer forms rather than absolute paths.
 - Include `file_selector.html` once per page; the module is idempotent (`if (window.OQBFileSelector) return;`) but the modal markup is not.
 

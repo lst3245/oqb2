@@ -66,7 +66,7 @@ All `@login_required`. Prefix `/admin`.
   | `chapter-edit` | `add_chapter`, `edit_chapter`, `toggle_chapter_hidden`, `delete_chapter`, `add_subchapter`, `edit_subchapter`, `toggle_subchapter_hidden`, `delete_subchapter`, `reorder_chapters`, `reorder_subchapters` |
   | `taxonomy-hint` | `subject_ai_service.set_description` |
   | `question-tags` | `update_question` (edit modal) — state read first, point kept only if `question_tags_differ` (answer / comment-only saves add no point) |
-  | `batch-update` | `batch_update_questions` (dashboard Bulk Edit) — one point per subject in the selection, only when a tag flag is set |
+  | `batch-update` | `batch_update_questions` (dashboard Bulk Edit) — one point per subject in the selection, only when a tag flag is set. The preview route does not capture |
   | `tag-import` | `import_question_tags` — on each subject's first CSV row, only when a snapshotted column is imported |
   | `topic-import` / `chapter-import` | `import_topics` / `import_chapters` — on each subject's first CSV row |
   | `auto-tag` | `ai_auto_tag` — `capture_committed` (own session, committed) **before** the stream starts, because `apply_tags` commits per question; failure → 500, nothing tagged |

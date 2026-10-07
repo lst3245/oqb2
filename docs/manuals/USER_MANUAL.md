@@ -51,7 +51,7 @@ The top navigation bar has:
 - **Viewer** — presentation/review mode for selected questions
 - **My Files** — download or manage your generated documents
 - **Profiles** — saved search presets
-- **File Browser** — your personal **My Files** home plus the **Shared** folder for each subject you can access (subject admins can edit their Shared folder; other members have read-only access; pure read-only viewers don't see it)
+- **File Browser** — your personal **My Files** home plus the **Shared** folder for each subject you can access (subject admins can edit their Shared folder; other members have read-only access; pure read-only viewers don't see it). It reopens in the folder you last used, on any computer you sign in from.
 - **Toolbox** — utilities such as Markup
 - **Admin** — visible to admins only
 

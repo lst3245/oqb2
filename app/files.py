@@ -19,7 +19,7 @@ from flask import (Blueprint, render_template, request, jsonify, send_file,
                    abort)
 from flask_login import login_required, current_user
 
-from app import files_service
+from app import db, files_service
 from app.files_service import RootRegistry, FileServiceError, ROOT_USER
 
 
@@ -106,6 +106,7 @@ def browser():
         allowed_drive=allowed_drive(),
         fb_can_manage_roots=False,
         fb_scope='user',
+        fb_last_location=files_service.remembered_location(current_user, 'user', reg),
     )
 
 
@@ -113,16 +114,55 @@ def browser():
 # API
 # ---------------------------------------------------------------------------
 
+def _location_payload(loc):
+    if not loc:
+        return {'root': None, 'path': ''}
+    return {'root': loc['root'], 'path': loc['path']}
+
+
 @files_bp.route('/api/roots')
 @login_required
 def api_roots():
     if not _can_use_browser(current_user):
         return jsonify({'error': 'Access denied'}), 403
     from app.files_service import allowed_drive
+    scope = _request_scope()
+    reg = RootRegistry(current_user, scope=scope)
     return jsonify({
-        'roots': RootRegistry(current_user, scope=_request_scope()).list_dicts(),
+        'roots': reg.list_dicts(),
         'allowed_drive': allowed_drive(),
+        'last_location': _location_payload(
+            files_service.remembered_location(current_user, scope, reg)),
     })
+
+
+@files_bp.route('/api/location', methods=['GET', 'POST'])
+@login_required
+def api_location():
+    """Per-user last folder for this scope.
+
+    GET returns ``{root, path}`` (``root`` is null when nothing is stored or
+    the root is no longer visible). POST ``{root, path, scope}`` stores it.
+    User scope is shared by ``/files/browser`` and every file selector;
+    admin scope is only ``/admin/files``.
+    """
+    if not _can_use_browser(current_user):
+        return jsonify({'error': 'Access denied'}), 403
+    scope = _request_scope()
+    if request.method == 'GET':
+        return jsonify(_location_payload(
+            files_service.remembered_location(current_user, scope)))
+    data = request.get_json(silent=True) or {}
+    root_id = data.get('root') if isinstance(data.get('root'), str) else ''
+    rel = data.get('path') if isinstance(data.get('path'), str) else ''
+    try:
+        saved, changed = files_service.store_remembered_location(
+            current_user, scope, root_id, rel)
+    except FileServiceError as e:
+        return _err(e)
+    if changed:
+        db.session.commit()
+    return jsonify({'success': True, 'root': saved['root'], 'path': saved['path']})
 
 
 @files_bp.route('/api/list')

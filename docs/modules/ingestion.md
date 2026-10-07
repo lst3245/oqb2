@@ -106,7 +106,7 @@ python cli.py sync   [--source-path P] [--dry-run|--no-dry-run] [--force]
 ### Frontend (`admin_smart_import.html`)
 
 - `sourceMode` is `'server'` or `'upload'`; `buildSourceBody()` emits `{sources:[...]}` or `{upload_token}` for analyze / analyze-llm / prepare.
-- Server folders are picked with `OQBFileSelector.open({mode:'folder', multiple:true, locationKey:'smart-import', ...})`; upload uses `<input webkitdirectory directory multiple>` -> `uploadFolder()` -> `POST /import/upload`.
+- Server folders are picked with `OQBFileSelector.open({mode:'folder', multiple:true, ...})`; the picker opens on that user's last file-browser folder (shared with PDF Import and the Toolbox). Upload uses `<input webkitdirectory directory multiple>` -> `uploadFolder()` -> `POST /import/upload`.
 - Proposals grid: old preview via `/dashboard/files/<path>`; new preview via `GET /files/api/download?root=<source_root_id>&path=` (server) or `/admin/import/uploaded-file` (upload). Per-row QID/version/type edits, bulk accept, status filter, `filteredProposals()`. Version/type selects come from `window.OQB_VERSIONS`. AI endpoint dropdown reuses `GET /admin/questions/ai/endpoints`.
 - **Compare modal** (`#compareModal`, fullscreen): old vs new side by side plus the existing asset's `issue_text`; Prev/Next buttons, Left/Right arrow keys, Accept checkbox (`a` toggles) synced back to the grid on close; navigates `filteredProposals()`.
 - Question Management's **Import Files** button opens `/admin/import?mode=folder&qids=<selected data-qid list>`.

@@ -38,7 +38,7 @@ erDiagram
 
 | Model | Table | Purpose | Constraints and notes |
 |---|---|---|---|
-| `User` | `users` | Login + `is_super_admin` | `is_admin` is legacy, ignore it. Helpers: [02-auth-and-permissions.md](02-auth-and-permissions.md) |
+| `User` | `users` | Login + `is_super_admin` | `is_admin` is legacy, ignore it. `file_browser_location` TEXT NULL is JSON `{"user": {"root", "path"}, "admin": {"root", "path"}}` (last file-browser folder per scope). Helpers: [02-auth-and-permissions.md](02-auth-and-permissions.md) |
 | `UserSubjectPermission` | `user_subject_permissions` | `role` ∈ `viewer` / `user` / `admin` per subject | unique `(user_id, subject_id)` |
 | `Subject` | `subjects` | `id` is a **string PK** (`MATC`), `name`; `split_parts_default` bool (default false); `topic_number_prefix` bool (default true); `subtopic_number_prefix` bool (default false) | `id` is embedded in QIDs and the `SOURCE_PATH/<id>/` layout → immutable. Topics/chapters cascade on delete; delete is blocked while questions reference it (see [../modules/admin-panel.md](../modules/admin-panel.md)). `split_parts_default` is on the Subjects form and seeds the PDF-import split checkbox. The number-prefix flags only change the dashboard filter labels (`01 Name`, `1.1 Name`); edited on the Topics page. |
 | `Topic` / `Subtopic` | `topics` / `subtopics` | Curriculum tagging; `sort_order`; `hidden` on both (bool, default false); `description` (≤ 300, auto-tag hint) | Subtopics cascade from topic. Hidden nodes (and children of a hidden topic) are left out of the dashboard filter by default, generation numbering and the auto-tag taxonomy; tag editors still list them |
@@ -60,7 +60,7 @@ erDiagram
 | `TagCorrection` | `tag_corrections` | Model suggestion vs teacher decision per field | `question_id` CASCADE, `subject_id` idx, `field`, `suggested` / `saved` display names, `agreed`, `reason`, `model`, `user_id`, `created_at` |
 | `SubjectRestorePoint` | `subject_restore_points` | One subject's topic/chapter lists + every question's tag fields, as they were **before** a save | `subject_id` VARCHAR(10) idx, **no FK** (subject delete clears rows explicitly); `user_id` FK `users.id` `SET NULL`; `action`; `note` ≤ 200; `pinned` TINYINT(1) NOT NULL DEFAULT 0; `payload` MEDIUMTEXT versioned JSON (`subject_snapshot.encode_state`); `created_at`. Pruned per subject on every capture (newest 100 + first per UTC day for 30 days + every pinned row). See [../modules/subject-snapshots.md](../modules/subject-snapshots.md) |
 
-JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation_options`, `check_result`, `system_settings.value`) are parsed in Python; keep them backward compatible — old blobs are never migrated.
+JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation_options`, `check_result`, `system_settings.value`, `users.file_browser_location`) are parsed in Python; keep them backward compatible — old blobs are never migrated.
 
 ## Invariants the DB does not enforce
 

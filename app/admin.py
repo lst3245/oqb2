@@ -22,6 +22,12 @@ from app.utils import (admin_required, super_admin_required, get_user_admin_subj
 from app import md_render
 from app import storage
 from app import subject_snapshot
+from sqlalchemy.orm import configure_mappers, selectinload
+from app.batch_edit import (
+    BatchEditError, apply_resolved, parse_batch_form,
+    parse_batch_question_ids, preview_for_questions, resolve_batch,
+    view_from_question,
+)
 from app.hierarchy import (
     parse_qid, parse_qno_token, ensure_question, HierarchyError,
     rewrite_descendant_token, rename_shape_ok, collect_subtree_ids,
@@ -1141,152 +1147,138 @@ def batch_delete_assets():
 
 # ==================== Batch Question Update ====================
 
+def _load_batch_questions(question_ids):
+    """Selected questions with tag relations, in the submitted id order.
+
+    ``major_topic`` is a backref and is missing on the class until mappers
+    are configured, so do that before ``selectinload`` looks it up.
+    """
+    configure_mappers()
+    order = {qid: index for index, qid in enumerate(question_ids)}
+    rows = (
+        Question.query.options(
+            selectinload(Question.major_topic),
+            selectinload(Question.major_subtopic),
+            selectinload(Question.chapter),
+            selectinload(Question.subchapter),
+            selectinload(Question.minor_topics),
+            selectinload(Question.subtopics),
+        )
+        .filter(Question.id.in_(question_ids))
+        .all()
+    )
+    rows.sort(key=lambda question: order.get(question.id, 0))
+    return rows
+
+
+def _taxonomy_maps(parsed):
+    """Id → name maps for the ids this form would write. Read-only."""
+    topics, subtopics, chapters, subchapters = {}, {}, {}, {}
+    flags = parsed['flags']
+    if flags['topics']:
+        topic_ids = set(parsed['minor_topic_ids'])
+        if parsed['major_topic_id'] is not None:
+            topic_ids.add(parsed['major_topic_id'])
+        if topic_ids:
+            for row in Topic.query.filter(Topic.id.in_(topic_ids)):
+                topics[row.id] = row.name
+        sub_ids = set(parsed['subtopic_ids'])
+        if parsed['major_subtopic_id'] is not None:
+            sub_ids.add(parsed['major_subtopic_id'])
+        if sub_ids:
+            for row in Subtopic.query.filter(Subtopic.id.in_(sub_ids)):
+                subtopics[row.id] = {'name': row.name, 'topic_id': row.topic_id}
+    if flags['chapters']:
+        if parsed['chapter_id'] is not None:
+            row = db.session.get(Chapter, parsed['chapter_id'])
+            if row is not None:
+                chapters[row.id] = row.name
+        if parsed['subchapter_id'] is not None:
+            row = db.session.get(Subchapter, parsed['subchapter_id'])
+            if row is not None:
+                subchapters[row.id] = {'name': row.name, 'chapter_id': row.chapter_id}
+    return topics, subtopics, chapters, subchapters
+
+
+def _models_in_id_order(model, ids):
+    if not ids:
+        return []
+    found = {row.id: row for row in model.query.filter(model.id.in_(ids))}
+    return [found[i] for i in ids if i in found]
+
+
+def _load_batch_update():
+    """Parse the Bulk Edit form and load its questions. Does not write.
+
+    Returns ``(question_ids, questions, resolved)``.
+    """
+    question_ids = parse_batch_question_ids(request.form)
+    parsed = parse_batch_form(request.form)
+    if not any(parsed['flags'].values()):
+        raise BatchEditError('Select at least one field to update')
+    questions = _load_batch_questions(question_ids)
+    if not questions:
+        raise BatchEditError('No questions found with the given IDs', 404)
+    topics, subtopics, chapters, subchapters = _taxonomy_maps(parsed)
+    resolved = resolve_batch(parsed, topics, subtopics, chapters, subchapters)
+    return question_ids, questions, resolved
+
+
+def _batch_edit_error(exc):
+    return jsonify({'success': False, 'error': str(exc)}), exc.status
+
+
+@admin_bp.route('/questions/batch-update/preview', methods=['POST'])
+@login_required
+@admin_required
+def batch_update_preview():
+    """Before/after for each selected question. Does not capture or commit."""
+    try:
+        question_ids, questions, resolved = _load_batch_update()
+        rows = [(q.id, q.qid, view_from_question(q)) for q in questions]
+        payload = preview_for_questions(rows, resolved)
+        payload['success'] = True
+        payload['selected'] = len(question_ids)
+        payload['found'] = len(questions)
+        payload['missing'] = len(question_ids) - len(questions)
+        return jsonify(payload)
+    except BatchEditError as exc:
+        return _batch_edit_error(exc)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @admin_bp.route('/questions/batch-update', methods=['POST'])
 @login_required
 @admin_required
 def batch_update_questions():
-    """Batch update question metadata and tags"""
+    """Batch update question metadata and tags.
+
+    The write uses the same plan as ``batch_update_preview``. A restore
+    point is captured before the first mutation.
+    """
     try:
-        # Get question IDs from request
-        question_ids = request.form.getlist('question_ids')
-        
-        if not question_ids:
-            return jsonify({
-                'success': False,
-                'error': 'No questions selected'
-            }), 400
-        
-        # Convert to integers
-        question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
-        
-        if not question_ids:
-            return jsonify({
-                'success': False,
-                'error': 'Invalid question IDs'
-            }), 400
-        
-        # Get questions to update
-        questions = Question.query.filter(Question.id.in_(question_ids)).all()
-        
-        if not questions:
-            return jsonify({
-                'success': False,
-                'error': 'No questions found with the given IDs'
-            }), 404
-        
-        # Determine which fields to update
-        update_level = request.form.get('update_level') == '1'
-        update_q_type = request.form.get('update_q_type') == '1'
-        update_section = request.form.get('update_section') == '1'
-        update_correct_pct = request.form.get('update_correct_pct') == '1'
-        update_topics = request.form.get('update_topics') == '1'
-        update_chapters = request.form.get('update_chapters') == '1'
-        
-        if any((update_level, update_q_type, update_section, update_correct_pct,
-                update_topics, update_chapters)):
-            subject_snapshot.capture_many({q.subject for q in questions}, 'batch-update')
-        
-        updated_count = 0
-        
+        _question_ids, questions, resolved = _load_batch_update()
+        subject_snapshot.capture_many({q.subject for q in questions}, 'batch-update')
+        minor_topics = _models_in_id_order(Topic, resolved['minor_topic_ids'])
+        subtopics = _models_in_id_order(Subtopic, resolved['subtopic_ids'])
         for question in questions:
-            # Update level if requested
-            if update_level:
-                level = request.form.get('level')
-                question.level = int(level) if level and level != '' else None
-            
-            # Update question type if requested
-            if update_q_type:
-                q_type = request.form.get('q_type')
-                question.q_type = q_type if q_type and q_type != '' else None
-            
-            # Update section if requested
-            if update_section:
-                section = request.form.get('section')
-                question.section = section if section and section != '' else None
-            
-            # Update correct percentage if requested
-            if update_correct_pct:
-                correct_pct = request.form.get('correct_percentage')
-                if correct_pct and correct_pct.strip() != '':
-                    pct_val = int(correct_pct)
-                    if 0 <= pct_val <= 100:
-                        question.correct_percentage = pct_val
-                    else:
-                        question.correct_percentage = None
-                else:
-                    question.correct_percentage = None
-            
-            # Update topics & subtopics if requested (bundled)
-            if update_topics:
-                # Major topic
-                major_topic_id = request.form.get('major_topic_id')
-                new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
-                question.major_topic_id = new_major_topic_id
-                
-                # Major subtopic
-                major_subtopic_id = request.form.get('major_subtopic_id')
-                if major_subtopic_id and major_subtopic_id != '':
-                    subtopic = Subtopic.query.get(int(major_subtopic_id))
-                    # Validate that subtopic belongs to the major topic
-                    if subtopic and new_major_topic_id and subtopic.topic_id == new_major_topic_id:
-                        question.major_subtopic_id = subtopic.id
-                    else:
-                        question.major_subtopic_id = None
-                else:
-                    question.major_subtopic_id = None
-                
-                # Minor topics
-                minor_topic_ids = request.form.getlist('minor_topic_ids')
-                question.minor_topics.clear()
-                for tid in minor_topic_ids:
-                    if tid:
-                        topic = Topic.query.get(int(tid))
-                        if topic:
-                            question.minor_topics.append(topic)
-                
-                # M2M subtopics
-                subtopic_ids = request.form.getlist('subtopic_ids')
-                question.subtopics.clear()
-                for sid in subtopic_ids:
-                    if sid:
-                        subtopic = Subtopic.query.get(int(sid))
-                        if subtopic:
-                            question.subtopics.append(subtopic)
-            
-            # Update chapters if requested
-            if update_chapters:
-                # Chapter
-                chapter_id = request.form.get('chapter_id')
-                new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
-                question.chapter_id = new_chapter_id
-                
-                # Subchapter
-                subchapter_id = request.form.get('subchapter_id')
-                if subchapter_id and subchapter_id != '':
-                    subchapter = Subchapter.query.get(int(subchapter_id))
-                    # Validate that subchapter belongs to the chapter
-                    if subchapter and new_chapter_id and subchapter.chapter_id == new_chapter_id:
-                        question.subchapter_id = subchapter.id
-                    else:
-                        question.subchapter_id = None
-                else:
-                    question.subchapter_id = None
-            
-            updated_count += 1
-        
+            apply_resolved(question, resolved, minor_topics, subtopics)
         db.session.commit()
-        
+        updated_count = len(questions)
         return jsonify({
             'success': True,
             'updated_count': updated_count,
             'message': f'Successfully updated {updated_count} question(s)'
         })
-        
-    except Exception as e:
+    except BatchEditError as exc:
+        return _batch_edit_error(exc)
+    except Exception as exc:
         db.session.rollback()
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(exc)
         }), 500
 
 
@@ -8324,10 +8316,12 @@ def files():
     ``app/files.py``); this route just renders the shell with the super-admin
     root set so the template can pre-populate its root selector.
     """
-    from app.files_service import RootRegistry, allowed_drive
+    from app.files_service import RootRegistry, allowed_drive, remembered_location
+    reg = RootRegistry(current_user, scope='admin')
     return render_template('admin_files.html',
                            source_path=current_app.config['SOURCE_PATH'],
-                           roots=RootRegistry(current_user, scope='admin').list_dicts(),
+                           roots=reg.list_dicts(),
                            allowed_drive=allowed_drive(),
                            fb_can_manage_roots=True,
-                           fb_scope='admin')
+                           fb_scope='admin',
+                           fb_last_location=remembered_location(current_user, 'admin', reg))

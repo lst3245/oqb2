@@ -16,6 +16,7 @@ error response.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 
@@ -80,6 +81,12 @@ _EXTRA_PREFIX = 'extra:'
 _SHARED_PREFIX = 'shared:'
 
 FILE_BROWSER_ROOTS_KEY = 'FILE_BROWSER_EXTRA_ROOTS'
+
+# Last-folder blob on ``users.file_browser_location``. One entry per scope so
+# the super-admin browser (Source / Storage) does not clobber My Files / Shared,
+# which the per-user browser and every file selector share.
+_LOCATION_SCOPES = ('user', 'admin')
+_LOCATION_PATH_MAX = 1024
 
 
 def _load_extra_roots():
@@ -267,6 +274,182 @@ def _resolve(base_dir: str, rel_path: str) -> str:
     if not full:
         raise FileServiceError(400, 'Invalid path')
     return full
+
+
+def normalize_browser_rel_path(rel_path) -> str:
+    """Forward-slash relative path with ``.`` / empty segments dropped.
+
+    Raises :class:`FileServiceError` (400) on ``..``, a drive prefix, or a
+    path longer than ``_LOCATION_PATH_MAX``. Does not touch the filesystem.
+    """
+    if rel_path is None:
+        return ''
+    if not isinstance(rel_path, str):
+        raise FileServiceError(400, 'Invalid path')
+    rel = rel_path.replace('\\', '/').strip().strip('/')
+    if len(rel) > _LOCATION_PATH_MAX:
+        raise FileServiceError(400, 'Invalid path')
+    parts = []
+    for part in rel.split('/'):
+        if part in ('', '.'):
+            continue
+        if part == '..' or '\x00' in part or ':' in part:
+            raise FileServiceError(400, 'Invalid path')
+        parts.append(part)
+    out = '/'.join(parts)
+    if len(out) > _LOCATION_PATH_MAX:
+        raise FileServiceError(400, 'Invalid path')
+    return out
+
+
+def longest_existing_dir(base_dir: str, rel_path: str) -> str:
+    """Longest prefix of ``rel_path`` that is an existing directory under
+    ``base_dir``. ``''`` means the root itself (or that nothing exists).
+
+    A path ``normalize_browser_rel_path`` rejects is treated as missing so a
+    corrupt stored value cannot raise on read.
+    """
+    try:
+        rel = normalize_browser_rel_path(rel_path)
+    except FileServiceError:
+        return ''
+    while True:
+        try:
+            full = _resolve(base_dir, rel)
+        except FileServiceError:
+            return ''
+        if os.path.isdir(full):
+            return rel
+        if not rel:
+            return ''
+        rel = rel.rsplit('/', 1)[0] if '/' in rel else ''
+
+
+def lookup_root(roots, root_id):
+    """Exact root match, then case-insensitive. Blank id matches nothing
+    (unlike :meth:`RootRegistry.resolve`, which treats blank as the first root).
+    """
+    if not root_id or not isinstance(root_id, str):
+        return None
+    rid = root_id.strip()
+    if not rid:
+        return None
+    low = rid.lower()
+    folded = None
+    for root in roots:
+        if root.id == rid:
+            return root
+        if folded is None and root.id.lower() == low:
+            folded = root
+    return folded
+
+
+def _location_scope(scope) -> str:
+    return 'admin' if scope == 'admin' else 'user'
+
+
+def parse_location_blob(raw) -> dict:
+    """``{'user': {'root', 'path'}, 'admin': ...}`` with junk dropped.
+
+    A stored path that fails normalisation is kept as ``''`` so the root still
+    restores. Missing / malformed blobs return ``{}``.
+    """
+    if not raw or not isinstance(raw, str):
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for scope in _LOCATION_SCOPES:
+        entry = data.get(scope)
+        if not isinstance(entry, dict):
+            continue
+        root = entry.get('root')
+        if not isinstance(root, str) or not root.strip():
+            continue
+        path = entry.get('path') if isinstance(entry.get('path'), str) else ''
+        try:
+            path = normalize_browser_rel_path(path)
+        except FileServiceError:
+            path = ''
+        out[scope] = {'root': root.strip(), 'path': path}
+    return out
+
+
+def dump_location_blob(blob: dict) -> str:
+    """Canonical JSON for ``users.file_browser_location``."""
+    clean = {}
+    for scope in _LOCATION_SCOPES:
+        entry = blob.get(scope) if isinstance(blob, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        root = entry.get('root')
+        if not isinstance(root, str) or not root.strip():
+            continue
+        path = entry.get('path') if isinstance(entry.get('path'), str) else ''
+        clean[scope] = {'root': root.strip(), 'path': path}
+    return json.dumps(clean, separators=(',', ':'), ensure_ascii=False)
+
+
+def merge_location_blob(raw, scope: str, root_id: str, rel_path: str) -> str:
+    """Return the blob JSON with one scope replaced. The other scope is kept."""
+    blob = parse_location_blob(raw)
+    blob[_location_scope(scope)] = {'root': root_id, 'path': rel_path or ''}
+    return dump_location_blob(blob)
+
+
+def remembered_location(user, scope: str, registry=None):
+    """``{'root', 'path'}`` still valid for this user and scope, or ``None``.
+
+    The path is clamped to the nearest existing directory. A root the user can
+    no longer see returns ``None`` (caller falls back to the first root) and
+    is left stored, so access coming back still restores it.
+    """
+    reg = registry if registry is not None else RootRegistry(user, scope=scope)
+    # Key by the scope the registry actually built. A non-super-admin who
+    # sends scope=admin is downgraded to user roots, and the saved folder
+    # must live in that same slot.
+    scope = reg.scope
+    entry = parse_location_blob(getattr(user, 'file_browser_location', None)).get(scope)
+    if not entry:
+        return None
+    root = lookup_root(reg.list(), entry['root'])
+    if root is None:
+        return None
+    return {'root': root.id, 'path': longest_existing_dir(root.path, entry['path'])}
+
+
+def store_remembered_location(user, scope: str, root_id, rel_path) -> tuple:
+    """Remember ``(root_id, rel_path)`` for ``scope``.
+
+    Returns ``({'root', 'path'}, changed)``. ``changed`` is false when the
+    stored blob already matches, so the caller can skip the commit. The path
+    is clamped to an existing directory. Unknown roots and ``..`` paths raise
+    :class:`FileServiceError`.
+    """
+    if not isinstance(root_id, str) or not root_id.strip():
+        raise FileServiceError(400, 'Invalid root')
+    rel = normalize_browser_rel_path(rel_path or '')
+    reg = RootRegistry(user, scope=scope)
+    scope = reg.scope
+    root = lookup_root(reg.list(), root_id.strip())
+    if root is None:
+        raise FileServiceError(400, 'Invalid root')
+    try:
+        _resolve(root.path, rel)
+    except FileServiceError:
+        raise FileServiceError(400, 'Invalid path')
+    path = longest_existing_dir(root.path, rel)
+    new_entry = {'root': root.id, 'path': path}
+    old = parse_location_blob(getattr(user, 'file_browser_location', None))
+    if old.get(scope) == new_entry:
+        return new_entry, False
+    user.file_browser_location = merge_location_blob(
+        getattr(user, 'file_browser_location', None), scope, root.id, path)
+    return new_entry, True
 
 
 def _require_write(can_write: bool):

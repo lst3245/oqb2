@@ -228,6 +228,8 @@ Rules:
 - Major subtopic must belong to major topic if both are set
 - Minor topics allow cross-topic tagging (question appears in multiple topic filters)
 
+**Batch Edit** (dashboard, yellow **Batch Edit** button once questions are selected): tick the fields to overwrite — level, question type, section, correct percentage, the topics bundle, or the chapter bundle. **Preview changes** lists every selected question that would actually change, with the current value struck out and the new value after the arrow. The review is split into pages of 10; use the page controls above or below the list. The eye icon on a row opens that question's preview without leaving the review. Minor topics and subtopics also show which names are added and removed. Questions that already have those values are counted, not listed as changes. Nothing is written until **Apply changes**, which saves every changed question on every page. Applying saves a restore point for each subject in the selection.
+
 **Suggest tags (AI).** With AI Tools enabled, the Tags tab has a **Suggest tags** button: pick the versions to send and the fields to fill, and the model's suggestions populate the form for review (nothing is saved until you click **Save Tags**). The status line lists any names the model used that do not exist in your taxonomy and, when the model supplies them, its one-line reason per field. When you then click **Save Tags**, the app records what the model suggested against what you actually saved — this feeds the subject's **AI Tagging Tuning** page (below) and does not change the question.
 
 ### AI Tagging Tuning (`Admin → AI Tagging Tuning`, per subject)
@@ -440,8 +442,8 @@ python cli.py ingest --source-path "D:\NewFiles"
 Use this when you have a folder of files that are **not** canonically named/placed — for example, updated/fixed images exported as `2012/P1/Q9.png`, or a fresh dump you have not renamed yet. Supports **IMG, DOC, and MD**.
 
 1. Go to Admin → Smart Import → **Folder import** mode.
-2. Pick the source folder, either:
-   - **Server…** — a folder already on the server (any location you can access in the file browser, e.g. under `Shared/<subject>`), or
+2. Pick the source folder:
+   - **Server…** — a folder already on the server (any location you can access in the file browser, e.g. under `Shared/<subject>`). The picker starts in the folder you last used in the file browser.
    - **Upload…** — upload an entire folder straight from your computer (the browser sends every file plus its sub-folder paths; they are staged on the server for matching).
 3. Set the **profile** — the defaults applied to every file: Subject, Source (DSE/CE/AL/QB), default Version (EN/CH/…) and Type (QUE/ANS/SOL), and optionally the QB Detail. These fill in whatever the folder/filenames don't already encode.
    - Flags: **Overwrite existing slot** (replace files already in the target slot), **Back up replaced files** (copies the files about to be replaced into `System/ImportBackups/<timestamp>/`, preserving their relative path, *before* they are deleted — a simple undo trail), **Create missing questions** (also create the `Question` record when the QID does not exist yet — handy for ingesting a brand-new folder).
@@ -539,7 +541,7 @@ Markup autosaves locally in the browser's IndexedDB so an in-progress drawing ca
 
 The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
 
-1. **Load a PDF** — upload a file, or **Pick from server** to choose one via the unified file selector (your accessible Shared subject folders + your personal My Files home, with filter / sort / paste-path). You can also **drag a PDF or image file straight onto the preview grid** — it is uploaded and its pages are added untouched (no split / filters, default DPI; images become single pages), skipping steps 1–2.
+1. **Load a PDF** — upload a file, or **Pick from server** to choose one via the unified file selector (your accessible Shared subject folders + your personal My Files home, with filter / sort / paste-path; it starts in the folder you last used). You can also **drag a PDF or image file straight onto the preview grid** — it is uploaded and its pages are added untouched (no split / filters, default DPI; images become single pages), skipping steps 1–2.
 2. **Process & add to preview** — pick the active source, set the **Resolution (DPI)** (page-size independent: 200 DPI ≈ A4 1654 px / A3 2339 px wide; 150 draft, 300 print), choose a *Rotate first* angle, an *A3 split mode*, and optional **deskew**, then add the resulting pages to the preview grid. Brightness, contrast, sharpen, grayscale, and black & white are applied in Step 3 (preview toolbar). The active-source page strip is shown here.
    - **Split modes**: *None* (whole pages); *Split each A3 down the middle* (left then right half); *Mode 1 — folded individual copies/booklets* (enter the ordered A4 pages per student; default 4, and padding slots such as the 8th page of a 7-page booklet are dropped per student); *Mode 2 — destapled A4 booklet stack* (the split halves are reordered back into reading order; assumes an even number of A3 pages).
 3. **Assemble** — **select** pages (click; Ctrl/Cmd-click to toggle; Shift-click for a range; or drag a box over them — on touch devices tap **Select** or **long-press** a page to enter tap-to-select mode) and act on them with the **operations toolbar** (rotate, the **Adjust** menu for brightness / contrast / sharpen / grayscale / B&W / deskew, **Crop** — draw/move/resize a crop box and apply it to all selected pages; re-cropping narrows further and *Remove crop* restores the full page — Mark up, Find & Mark, reset, delete, copy/cut/paste). Keyboard shortcuts: **Del**, **Ctrl+A**, **Ctrl+C/X/V**, **Ctrl+Z**, **Esc**. Drag selected pages to **reorder** them together, **double-click** a page for a large preview (with a **Quick / Full res** toggle and ←/→ navigation), and load more PDFs to **merge** them into the same preview. A slider above the grid adjusts the thumbnail size (remembered per browser).
@@ -588,6 +590,8 @@ There are now **two** browsers sharing one backend:
 - their personal **My Files** home (`Storage/User/<username>`) — full read/write;
 - the **Shared** folder for each subject they can access — read/write for subject **admins**, read-only for **users** (viewers are excluded);
 - their `generated/` subfolder is shown **read-only** (manage generated documents from **My Files** instead, so database records stay in sync).
+
+The browser reopens in the folder you last used (My Files or a Shared subject folder). It is saved on your account, so it follows you to another computer. PDF Import, Smart Import, and the PDF Tool open their server file/folder picker in that same folder. **Admin → Files** remembers its own place separately, so browsing Source does not change the My Files / Shared folder.
 
 **Note**: After renaming asset files in `Source`, re-run ingestion or use the question rename function in Admin → Questions to keep the database in sync.
 

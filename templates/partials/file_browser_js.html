@@ -1,7 +1,7 @@
 {# Shared file-browser JS. Included (inside {% block extra_js %}) by both
    admin_files.html and files_browser.html. Consumes the root-aware
    /files/api/* endpoints. Context vars: roots, allowed_drive,
-   fb_can_manage_roots. #}
+   fb_can_manage_roots, fb_scope, fb_last_location. #}
 <script>
 // ==================== State ====================
 // Roots: [{id, label, can_write, removable, missing, path?}]. `id` is an
@@ -13,8 +13,14 @@ const FB_CAN_MANAGE_ROOTS = {{ (fb_can_manage_roots|default(false))|tojson }};
 // Root scope: 'admin' (super-admin /admin/files) or 'user' (everyone else,
 // incl. super-admins on /files/browser). The server re-validates it.
 const FB_SCOPE = {{ (fb_scope|default('user'))|tojson }};
+// Last folder this user had open in this scope (null root = never saved).
+const FB_LAST = {{ fb_last_location|tojson }};
 let currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
 let currentPath = '';
+if (FB_LAST && FB_LAST.root && ROOTS.some(r => r.id === FB_LAST.root)) {
+    currentRoot = FB_LAST.root;
+    currentPath = FB_LAST.path || '';
+}
 let selectedItems = new Set();  // Set of relative paths
 let pendingUploadFiles = [];
 let allItems = [];  // Current directory items
@@ -34,6 +40,7 @@ const URLS = {
     roots:       '{{ url_for("files.api_roots") }}',
     rootsAdd:    '{{ url_for("files.api_roots_add") }}',
     rootsRemove: '{{ url_for("files.api_roots_remove") }}',
+    location:    '{{ url_for("files.api_location") }}',
 };
 
 // Append the selected root + scope to a GET URL that already has a query string.
@@ -41,6 +48,42 @@ function withRoot(url) {
     return url + '&root=' + encodeURIComponent(currentRoot)
         + '&scope=' + encodeURIComponent(FB_SCOPE);
 }
+
+// Remember the open folder on this user's account (per scope). Debounced so
+// a quick click-through posts once; pagehide flushes a pending save.
+let rememberTimer = null;
+let listSeq = 0;
+let renderingRoots = false;
+
+function postRemember() {
+    if (!currentRoot) return;
+    fetch(URLS.location, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        keepalive: true,
+        body: JSON.stringify({
+            scope: FB_SCOPE,
+            root: currentRoot,
+            path: currentPath || '',
+        }),
+    }).catch(() => {});
+}
+
+function scheduleRemember() {
+    if (!currentRoot) return;
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(function () {
+        rememberTimer = null;
+        postRemember();
+    }, 400);
+}
+
+window.addEventListener('pagehide', function () {
+    if (!rememberTimer) return;
+    clearTimeout(rememberTimer);
+    rememberTimer = null;
+    postRemember();
+});
 
 // ==================== Roots ====================
 
@@ -68,6 +111,7 @@ function updateWriteUI() {
 
 function renderRootSelect() {
     const sel = document.getElementById('rootSelect');
+    renderingRoots = true;
     sel.innerHTML = '';
     ROOTS.forEach(r => {
         const opt = document.createElement('option');
@@ -77,6 +121,7 @@ function renderRootSelect() {
         if (r.id === currentRoot) opt.selected = true;
         sel.appendChild(opt);
     });
+    renderingRoots = false;
     const ro = currentRootObj();
     document.getElementById('sourcePathLabel').textContent = (ro && ro.path) ? ro.path : '';
     const rootLbl = document.getElementById('breadcrumbRootLabel');
@@ -85,7 +130,9 @@ function renderRootSelect() {
 }
 
 function onRootChange() {
+    if (renderingRoots) return;
     const sel = document.getElementById('rootSelect');
+    if (!sel || sel.value === currentRoot) return;
     currentRoot = sel.value;
     selectedItems.clear();
     clearClipboard();
@@ -191,19 +238,21 @@ function doRemoveRoot(id) {
 
 // ==================== Navigation ====================
 
-function navigateTo(path) {
-    currentPath = path;
+function navigateTo(path, opts) {
+    currentPath = path || '';
     selectedItems.clear();
     updateSelectionUI();
-    loadDirectory(path);
-    updateBreadcrumb(path);
+    if (!(opts && opts.remember === false)) scheduleRemember();
+    loadDirectory(currentPath, opts);
+    updateBreadcrumb(currentPath);
 }
 
-function loadDirectory(path) {
+function loadDirectory(path, opts) {
     const loading = document.getElementById('fileListLoading');
     const error = document.getElementById('fileListError');
     const empty = document.getElementById('fileListEmpty');
     const table = document.getElementById('fileTable');
+    const seq = ++listSeq;
 
     loading.classList.remove('d-none');
     error.classList.add('d-none');
@@ -213,10 +262,17 @@ function loadDirectory(path) {
     const url = withRoot(URLS.list + '?path=' + encodeURIComponent(path));
     fetch(url)
         .then(r => {
-            if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'HTTP ' + r.status); });
+            if (!r.ok) {
+                return r.json().catch(() => ({})).then(d => {
+                    const err = new Error(d.error || ('HTTP ' + r.status));
+                    err.status = r.status;
+                    throw err;
+                });
+            }
             return r.json();
         })
         .then(data => {
+            if (seq !== listSeq) return;
             loading.classList.add('d-none');
             allItems = data.items || [];
             if (allItems.length === 0) {
@@ -229,6 +285,12 @@ function loadDirectory(path) {
             }
         })
         .catch(err => {
+            if (seq !== listSeq) return;
+            // Saved folder was removed; open the root of that location instead.
+            if (path && err.status === 404 && !(opts && opts.fallback)) {
+                navigateTo('', {fallback: true});
+                return;
+            }
             loading.classList.add('d-none');
             error.classList.remove('d-none');
             document.getElementById('fileListErrorMsg').textContent = err.message;
@@ -964,6 +1026,6 @@ function refreshListing() {
 
 document.addEventListener('DOMContentLoaded', function() {
     renderRootSelect();
-    navigateTo('');
+    navigateTo(currentPath, {remember: false});
 });
 </script>

@@ -20,7 +20,8 @@ Spec: `docs/core/05-storage-and-paths.md` (tree, config keys, `app/storage.py`) 
 - Backends that accept a location take `{root, rel_path}` and resolve through the user's registry (PDF Import `_resolve_server_pdf`, Toolbox `_resolve_root_base(root_id, require_write)`).
 
 ## Frontend
-- Both browser pages share `partials/file_browser_{css,body,js}.html`; the picker is `partials/file_selector.html` → `OQBFileSelector.open({mode:'file'|'folder', extensions, multiple, preferRootId, locationKey, onPick})` returning `{root_id, root_label, rel_path, name, token}`; always user scope. Pass `fb_scope='admin'` + `fb_can_manage_roots=True` only on `admin_files.html`.
+- Both browser pages share `partials/file_browser_{css,body,js}.html`; the picker is `partials/file_selector.html` → `OQBFileSelector.open({mode:'file'|'folder', extensions, multiple, preferRootId, onPick})` returning `{root_id, root_label, rel_path, name, token}`; always user scope. Pass `fb_scope='admin'` + `fb_can_manage_roots=True` only on `admin_files.html`.
+- Last folder is per user (`users.file_browser_location`), one `{root, path}` per scope. `/files/browser` and every selector share the user-scope folder; `/admin/files` has its own. Opening does not write; navigating POSTs `/files/api/location`. `preferRootId` affects that open only. `locationKey` is ignored.
 
 ## Gotchas
 - Sibling-prefix trap (`Q:\Source` vs `Q:\SourceBackup`) is exactly why `safe_join` exists.

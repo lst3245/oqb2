@@ -578,7 +578,6 @@ function pickFolder() {
         mode: 'folder',
         multiple: true,
         title: 'Choose folders to import',
-        locationKey: 'smart-import',
         onPick: function(selection) {
             const selections = Array.isArray(selection) ? selection : [selection];
             if (!selections.length) return;
