@@ -87,6 +87,10 @@ Sortable.create(container, {
 
 Init is idempotent: stash on `container._sortableInstance` and bail if set. `.drag-handle` has `touch-action: none` globally; a larger hit area is applied on coarse pointers.
 
+Nested lists (parent rows each holding a child list, e.g. Admin Topics / Chapters via `partials/taxonomy_admin_js.html`) give each level its own handle class (`.drag-handle.tax-parent-handle` / `.drag-handle.tax-child-handle`) and `draggable: '.tax-item'`, so a child drag never moves the parent. Keep arrow buttons as a fallback next to the handle; both paths go through one `afterMove(container)` that refreshes arrow state and saves the order.
+
+**Inline rename** (same partial): double-click the `.tax-name` span (or a pencil button) swaps in an `input`; Enter / blur saves, Esc cancels, and a `done` guard stops the blur after Enter from saving twice. Reuse this pattern rather than an edit modal for single-field renames.
+
 ## SSE consumption
 
 ```js
@@ -106,6 +110,7 @@ Event types: `info | success | skip | error | done`, optional `current` / `total
 | Key | Owner |
 |---|---|
 | `oqb_assetThumbsCompact` (`'1'`/`'0'`) | Edit modal asset preview density (`oqbInitThumbCompact`) |
+| `oqb_adminTaxonomyPreview` (`'1'`/`'0'`, absent = on) | Admin → Topics numbering & MC/CQ preview switch (`oqbTaxonomyAdmin`) |
 | dashboard selection / scratch sets / set-builder state | `dashboard.html` (see [../modules/dashboard.md](../modules/dashboard.md)) |
 | Markup canvas autosave | IndexedDB, not localStorage ([../modules/markup.md](../modules/markup.md)) |
 

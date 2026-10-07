@@ -92,7 +92,7 @@ spacing_config = {
 }
 ```
 
-Form defaults: MC `lines/0` before, `lines/1` after; CQ `page/0` before, `page/0` after. If the previous question already added a page break, a `before_mode='page'` is skipped to avoid a blank page. `apply_spacing_to_ans=False` (default) uses minimal spacing for ANS/SOL in THEN modes.
+Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to default to a page break before and after; saved presets / regenerated files keep whatever they stored). If the previous question already added a page break, a `before_mode='page'` is skipped to avoid a blank page. `apply_spacing_to_ans=False` (default) uses minimal spacing for ANS/SOL in THEN modes.
 
 ### Generation options (JSON in `GeneratedFile.generation_options`)
 
@@ -121,6 +121,10 @@ Form defaults: MC `lines/0` before, `lines/1` after; CQ `page/0` before, `page/0
 | `denote_cross_topic` | bool | appends `[Cross Topic: X, Y]` to the info line |
 | `hierarchy_mode` | `selected` / `whole` | default `selected`. `selected` = stem + chosen leaves; `whole` = expand every selected node's root. Selecting a stem always expands to all descendants. |
 | `info_fields`, `section_fields`, `split_fields` | dict of `topic/subtopic/chapter/subchapter` bools | per-question info line / section heading on change / split into separate docx |
+| `number_topics` | bool | False. Section headings + split names prefix topic `01` / subtopic `1.1` from the saved topic list (see Section labels) |
+| `number_pad_topic` | bool | True. Topic number `01` (True) or `1` (False); only used with `number_topics` |
+| `number_pad_subtopic` | bool | False. Subtopic number `01.01` (True) or `1.1` (False); only used with `number_topics` |
+| `type_suffix` | bool | False. Section headings + split names append `MC` / `CQ` / `MC CQ` for the types in that section or file |
 | `question_ids` | list[str] | stored for regeneration; stripped from presets |
 
 ### Asset selection in generation (`add_question_content_to_doc`)
@@ -143,7 +147,16 @@ For `ANS`: `text_first` uses `question.answer` when present else the asset; `ima
 
 ### Split to ZIP
 
-If any `split_fields` are enabled, `_split_questions_into_groups()` groups the **already-sorted** list by first appearance of the section key, so manual block order flows into split order automatically. Labels come from `_build_split_label` (`Topic - Subtopic _ Chapter - Subchapter`, `Unknown` for nulls, `Uncategorized` when empty) and are sanitised by `_sanitize_filename`; duplicates get ` (2)`, ` (3)`.
+If any `split_fields` are enabled, `_split_questions_into_groups()` groups the **already-sorted** list by first appearance of the section key (returns a list of `(label, questions)`), so manual block order flows into split order automatically. Labels come from `_format_section_label(..., missing='Unknown', group_sep=' _ ')` (`Topic - Subtopic _ Chapter - Subchapter`, `Uncategorized` when empty) and are sanitised by `_sanitize_filename`; duplicates get ` (2)`, ` (3)`.
+
+### Section labels (headings and split names)
+
+One builder, `_format_section_label(question, fields, numbering, suffix, missing, group_sep)`, serves the section heading (`' | '` between the topic and chapter halves, untagged fields skipped) and the split filename (`' _ '`, untagged = `Unknown`).
+
+- **Numbering** (`number_topics`): `_build_topic_numbering(subject_ids, pad_topic, pad_subtopic)` runs once per job in `_generate_in_background` and calls the pure `app.utils.number_taxonomy(topics, subtopics, pad_topic=True, pad_subtopic=False)` per subject. Topics are numbered `01`, `02` … (`1`, `2` … with `number_pad_topic` off) in `(sort_order, id)` order over the **whole saved list** (not the selection). Visible subtopics of a visible topic get `<topic n>.<k>` (`1.1`; `01.01` with `number_pad_subtopic`). Hidden topics and hidden subtopics get no number and do not consume one; subtopics under a hidden topic are unnumbered too. Chapters / subchapters are never numbered. The Admin → Topics page previews the same numbering client-side (default padding only).
+- **Type suffix** (`type_suffix`): `_type_suffix(questions)` → `MC` / `CQ` / `MC CQ` / `''` from the questions **in that section or file**, not the library. Split: per group. Headings: `_section_run_suffixes` looks ahead over each consecutive run of leaf entries sharing a section key. The suffix attaches to the last topic-side part (subtopic if enabled, else topic). A chapter-only label gets none.
+- Section change detection still compares the raw name key (`_get_section_key`); the decorations never start a new section.
+- Example: `01 Basic Algebra - 1.1 Law of Indices MC CQ`.
 
 ### Custom Word styles (`_define_oqb_styles`)
 
@@ -199,7 +212,7 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 4. **Format beats version in generation and viewer; version beats format on the dashboard.** Keep the two resolvers' semantics distinct on purpose.
 5. **DOC markers must be unique per insertion** (`uuid4().hex`) and `create_word_document` must keep returning `(doc, doc_insertions)`; `_generate_in_background` decides whether Word is needed from that dict.
 6. **Section properties are stripped from source DOCX before insertion**; the master layout always wins. Do not swap `Selection.InsertFile` for docxcompose for DOC assets (MathType OLE fidelity).
-7. **Split inherits sort order**: `_split_questions_into_groups` groups the sorted list, so `sort_group_order` applies to zip ordering with no extra wiring.
+7. **Split inherits sort order**: `_split_questions_into_groups` groups the sorted list, so `sort_group_order` applies to zip ordering with no extra wiring. Topic/subtopic/chapter/subchapter sorts use the saved `sort_order` (see [dashboard.md](dashboard.md)), so split files and headings follow the admin list order by default.
 8. **`sort_group_order` is only honoured when its `fields` match the grouping fields in `sort_config`** and only in `sort_mode='custom'`.
 9. **Compact MC keys use runtime sequence numbers, never `Question.qno`**, and always Answer Text regardless of `answer_preference`.
 10. **`show_seq_no` gating**: `mc_key_include_seq` / `mc_key_range_title` are forced off server-side when `show_seq_no` is off; the UI hides (does not clear) those controls.

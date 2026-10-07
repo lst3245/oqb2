@@ -340,6 +340,28 @@
                                                 {% endfor %}
                                             </div>
                                         </div>
+                                        <div class="mt-2">
+                                            <small class="text-muted fw-bold d-block mb-1">Section heading / split file name</small>
+                                            <div class="form-check form-check-sm mb-1">
+                                                <input type="checkbox" class="form-check-input" id="numberTopics" name="number_topics" onchange="updateNumberPadUI()">
+                                                <label class="form-check-label small" for="numberTopics">Number topics / subtopics from the saved topic list (<code>01</code>, <code>1.1</code>)</label>
+                                            </div>
+                                            <div class="ms-4 mb-1 d-flex flex-wrap gap-3" id="numberPadOptions" style="display:none;">
+                                                <div class="form-check form-check-sm mb-0">
+                                                    <input type="checkbox" class="form-check-input" id="numberPadTopic" name="number_pad_topic" checked>
+                                                    <label class="form-check-label small" for="numberPadTopic">Zero-pad topic (<code>01</code> vs <code>1</code>)</label>
+                                                </div>
+                                                <div class="form-check form-check-sm mb-0">
+                                                    <input type="checkbox" class="form-check-input" id="numberPadSubtopic" name="number_pad_subtopic">
+                                                    <label class="form-check-label small" for="numberPadSubtopic">Zero-pad subtopic (<code>01.01</code> vs <code>1.1</code>)</label>
+                                                </div>
+                                            </div>
+                                            <div class="form-check form-check-sm mb-1">
+                                                <input type="checkbox" class="form-check-input" id="typeSuffix" name="type_suffix">
+                                                <label class="form-check-label small" for="typeSuffix">Append question types (<code>MC</code> / <code>CQ</code>) to topic / subtopic</label>
+                                            </div>
+                                            <small class="text-muted d-block">e.g. <code>01 Basic Algebra - 1.1 Law of Indices MC CQ</code>. Types are those in that section or file.</small>
+                                        </div>
                                         <hr>
                                         <div class="form-check">
                                             <input type="checkbox" class="form-check-input" id="denoteCrossTopic" name="denote_cross_topic">
@@ -397,22 +419,22 @@
                                                     <div class="col-12 col-lg-6">
                                                         <label class="form-label small fw-bold mb-1">Before</label>
                                                         <div class="form-check">
-                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeLines" value="lines">
+                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeLines" value="lines" checked>
                                                             <label class="form-check-label small" for="cqBeforeLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="cq_before_lines" value="0" min="0" max="10"> lines</label>
                                                         </div>
                                                         <div class="form-check">
-                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page" checked>
+                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page">
                                                             <label class="form-check-label small" for="cqBeforePage">Start on a new page</label>
                                                         </div>
                                                     </div>
                                                     <div class="col-12 col-lg-6">
                                                         <label class="form-label small fw-bold mb-1">After</label>
                                                         <div class="form-check">
-                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterLines" value="lines">
-                                                            <label class="form-check-label small" for="cqAfterLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="cq_after_lines" value="0" min="0" max="10"> lines</label>
+                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterLines" value="lines" checked>
+                                                            <label class="form-check-label small" for="cqAfterLines">Skip <input type="number" class="form-control form-control-sm d-inline-block" style="width:60px;" name="cq_after_lines" value="1" min="0" max="10"> lines</label>
                                                         </div>
                                                         <div class="form-check">
-                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page" checked>
+                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page">
                                                             <label class="form-check-label small" for="cqAfterPage">Add a page break</label>
                                                         </div>
                                                     </div>
@@ -1076,6 +1098,15 @@ function restoreGenerationOptions(opts) {
         }
     }
 
+    // Heading / split label decorations (absent in older presets = defaults)
+    [['number_topics', 'numberTopics', false], ['type_suffix', 'typeSuffix', false],
+     ['number_pad_topic', 'numberPadTopic', true], ['number_pad_subtopic', 'numberPadSubtopic', false],
+    ].forEach(([key, id, dflt]) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = opts[key] === undefined ? dflt : (opts[key] === 'on' || opts[key] === true);
+    });
+    updateNumberPadUI();
+
     updateSequentialNumberUI();
     updateCompactMcAnswerKeyUI();
     syncAdvancedOptionSummaries({openCustomized: true});
@@ -1241,7 +1272,16 @@ function getCurrentGenerationOptions() {
             chapter: getCheckedValue('splitChapter'),
             subchapter: getCheckedValue('splitSubchapter'),
         },
+        number_topics: getCheckedValue('numberTopics'),
+        number_pad_topic: getCheckedValue('numberPadTopic'),
+        number_pad_subtopic: getCheckedValue('numberPadSubtopic'),
+        type_suffix: getCheckedValue('typeSuffix'),
     };
+}
+
+function updateNumberPadUI() {
+    const box = document.getElementById('numberPadOptions');
+    if (box) box.style.display = getCheckedValue('numberTopics') ? '' : 'none';
 }
 
 function loadGenProfilesDropdown() {
@@ -1479,19 +1519,22 @@ function syncAdvancedOptionSummaries({openCustomized = false} = {}) {
         'infoTopic', 'infoSubtopic', 'infoChapter', 'infoSubchapter',
         'sectionTopic', 'sectionSubtopic', 'sectionChapter', 'sectionSubchapter',
         'splitTopic', 'splitSubtopic', 'splitChapter', 'splitSubchapter',
+        'numberTopics', 'typeSuffix',
         'denoteCrossTopic',
     ];
-    const structureCount = structureIds.filter(id => document.getElementById(id)?.checked).length;
+    let structureCount = structureIds.filter(id => document.getElementById(id)?.checked).length;
+    if (getCheckedValue('numberTopics') &&
+            (!getCheckedValue('numberPadTopic') || getCheckedValue('numberPadSubtopic'))) structureCount++;
 
     let spacingCount = 0;
     if (!document.getElementById('mcBeforeLines').checked ||
             parseInt(getInputValue('mc_before_lines') || '0', 10) !== 0) spacingCount++;
     if (!document.getElementById('mcAfterLines').checked ||
             parseInt(getInputValue('mc_after_lines') || '1', 10) !== 1) spacingCount++;
-    if (!document.getElementById('cqBeforePage').checked ||
+    if (!document.getElementById('cqBeforeLines').checked ||
             parseInt(getInputValue('cq_before_lines') || '0', 10) !== 0) spacingCount++;
-    if (!document.getElementById('cqAfterPage').checked ||
-            parseInt(getInputValue('cq_after_lines') || '0', 10) !== 0) spacingCount++;
+    if (!document.getElementById('cqAfterLines').checked ||
+            parseInt(getInputValue('cq_after_lines') || '1', 10) !== 1) spacingCount++;
     if (!document.getElementById('keepTogether').checked) spacingCount++;
     const answerMode = document.getElementById('answerMode').value;
     const isThenMode = answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL';

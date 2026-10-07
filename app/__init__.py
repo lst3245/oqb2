@@ -432,12 +432,45 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend
 
+        # Hidden topics / chapters (subtopics / subchapters already have it).
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                for _tbl in ('topics', 'chapters'):
+                    cols = {row[0] for row in conn.execute(text(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t"
+                    ), {'t': _tbl})}
+                    if cols and 'hidden' not in cols:
+                        conn.execute(text(
+                            f"ALTER TABLE {_tbl} ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0"
+                        ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend
+
         # Subject restore points (docs/modules/subject-snapshots.md): the
         # table, then one `baseline` point for every subject that has none
         # yet (first boot with the feature, or a subject added since).
         try:
             from app.models import SubjectRestorePoint
             SubjectRestorePoint.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            pass
+        # `pinned` is not created by checkfirst on a table that already
+        # exists. A pinned point is kept by prune until an admin unpins it.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() "
+                    "AND TABLE_NAME = 'subject_restore_points'"
+                ))}
+                if cols and 'pinned' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE subject_restore_points "
+                        "ADD COLUMN pinned TINYINT(1) NOT NULL DEFAULT 0"
+                    ))
         except Exception:
             pass
         try:

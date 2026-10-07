@@ -18,7 +18,7 @@
 // ==================== TAG EDITOR: TOPIC LOADING ====================
 
 function loadTopicsForEditForm(subjectId) {
-    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(topics => {
             window.editTopicsList = topics;
@@ -345,7 +345,7 @@ function loadEditChapters(subjectId, selectedChapterId, selectedSubchapterId) {
         return;
     }
     
-    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(chapters => {
             window.editChaptersList = chapters;

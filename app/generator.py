@@ -26,9 +26,10 @@ from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 from app import db
-from app.models import Question, QuestionAsset, GeneratedFile
+from app.models import Question, QuestionAsset, GeneratedFile, Topic, Subtopic
 from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups,
-                       GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY)
+                       GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY,
+                       number_taxonomy)
 from app.hierarchy import (
     HIERARCHY_MODE_SELECTED, HIERARCHY_MODE_WHOLE, ancestors, breadcrumb_parts,
     eager_load_tree, is_stem, resolve_render_plan, root as hier_root,
@@ -567,7 +568,7 @@ def get_sort_groups():
 
     Accepts ``question_ids`` (repeated form field) + ``group_fields`` (JSON array
     or comma list). Returns ``{group_fields, blocks: [{key, labels, count}]}`` in
-    default natural-name order.
+    the saved taxonomy order (admin Topics / Chapters lists).
     """
     _require_generate_permission()
 
@@ -618,10 +619,10 @@ def create_document():
     mc_after_lines = int(request.form.get('mc_after_lines', 1))
     
     # CQ spacing settings
-    cq_before_mode = request.form.get('cq_before_mode', 'page')
+    cq_before_mode = request.form.get('cq_before_mode', 'lines')
     cq_before_lines = int(request.form.get('cq_before_lines', 0))
-    cq_after_mode = request.form.get('cq_after_mode', 'page')
-    cq_after_lines = int(request.form.get('cq_after_lines', 0))
+    cq_after_mode = request.form.get('cq_after_mode', 'lines')
+    cq_after_lines = int(request.form.get('cq_after_lines', 1))
     
     # Show QID options
     show_qid = request.form.get('show_qid') == 'on'
@@ -657,6 +658,11 @@ def create_document():
         'chapter': request.form.get('split_chapter') == 'on',
         'subchapter': request.form.get('split_subchapter') == 'on',
     }
+    # Section heading / split filename decorations (topics & subtopics only)
+    number_topics = request.form.get('number_topics') == 'on'
+    number_pad_topic = request.form.get('number_pad_topic') == 'on'
+    number_pad_subtopic = request.form.get('number_pad_subtopic') == 'on'
+    type_suffix = request.form.get('type_suffix') == 'on'
     
     # Version priority is an ordered list (highest priority first). Accepts the
     # new `version_priority` field and falls back to the legacy single-value
@@ -712,6 +718,8 @@ def create_document():
         'hierarchy_mode': hierarchy_mode,
         'info_fields': info_fields, 'section_fields': section_fields,
         'split_fields': split_fields,
+        'number_topics': number_topics, 'type_suffix': type_suffix,
+        'number_pad_topic': number_pad_topic, 'number_pad_subtopic': number_pad_subtopic,
         'version_priority': ','.join(version_priority),
         'answer_preference': answer_preference,
         'format_priority': ','.join(format_priority),
@@ -782,7 +790,10 @@ def create_document():
               apply_spacing_to_ans, denote_cross_topic,
               info_fields, section_fields, split_fields, filename,
               format_priority, output_format, sort_group_order_str,
-              mc_answer_key_options, hierarchy_mode)
+              mc_answer_key_options, hierarchy_mode),
+        kwargs={'number_topics': number_topics, 'type_suffix': type_suffix,
+                'number_pad_topic': number_pad_topic,
+                'number_pad_subtopic': number_pad_subtopic},
     )
     thread.daemon = True
     thread.start()
@@ -798,7 +809,9 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             info_fields, section_fields, split_fields, filename,
                             format_priority=None, output_format='DOCX',
                             sort_group_order_str='', mc_answer_key_options=None,
-                            hierarchy_mode=HIERARCHY_MODE_SELECTED):
+                            hierarchy_mode=HIERARCHY_MODE_SELECTED,
+                            number_topics=False, type_suffix=False,
+                            number_pad_topic=True, number_pad_subtopic=False):
     """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     output_format = (output_format or 'DOCX').upper()
@@ -841,6 +854,15 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                 questions = list(questions_dict.values())
                 questions = apply_multi_sort(questions, sort_config, group_order=sort_group_order)
             
+            label_opts = {
+                'numbering': (
+                    _build_topic_numbering((q.subject for q in questions),
+                                           number_pad_topic, number_pad_subtopic)
+                    if number_topics else None
+                ),
+                'type_suffix': type_suffix,
+            }
+
             any_split = split_fields and any(split_fields.values())
             # New generated files live under the owner's per-user
             # User/<name>/generated folder (created on demand).
@@ -855,7 +877,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
 
             if any_split:
                 # Split questions into groups based on split_fields
-                groups = _split_questions_into_groups(questions, split_fields)
+                groups = _split_questions_into_groups(questions, split_fields, label_opts)
 
                 # Generate one doc per group and zip them. For PDF output, each
                 # docx is exported to PDF inside the same Word session.
@@ -870,7 +892,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     merge_jobs = []
                     used_names = set()
 
-                    for group_label, group_questions in groups.items():
+                    for group_label, group_questions in groups:
                         doc, group_insertions = create_word_document(
                             group_questions, answer_mode, spacing_config,
                             show_qid, show_qid_answer, version_priority,
@@ -882,6 +904,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             format_priority=format_priority,
                             mc_answer_key_options=mc_answer_key_options,
                             hierarchy_mode=hierarchy_mode,
+                            label_opts=label_opts,
                         )
 
                         safe_label = _sanitize_filename(group_label)
@@ -929,6 +952,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     format_priority=format_priority,
                     mc_answer_key_options=mc_answer_key_options,
                     hierarchy_mode=hierarchy_mode,
+                    label_opts=label_opts,
                 )
 
                 # If we'll need Word for either DOC merging or PDF export, write
@@ -1013,46 +1037,28 @@ def _run_word_postprocess_split(app, merge_jobs, tmpdir, output_format):
                 word_com.export_to_pdf(word, intermediate_docx, pdf_path)
 
 
-def _split_questions_into_groups(questions, split_fields):
+def _split_questions_into_groups(questions, split_fields, label_opts=None):
     """
     Split questions into ordered groups based on split_fields.
-    Returns an OrderedDict of {group_label: [questions]}.
-    The group label is built from the field values (e.g. "Topic - Subtopic").
+    Returns a list of (group_label, [questions]) in first-appearance order.
+    The label is built by `_format_section_label` (e.g. "01 Algebra - 1.2 Indices MC"),
+    with the type suffix taken from that group's own questions.
     """
     groups = OrderedDict()
-    
     for question in questions:
         key = _get_section_key(question, split_fields)
-        
-        # Build human-readable label from key parts
-        label = _build_split_label(key)
-        
-        if label not in groups:
-            groups[label] = []
-        groups[label].append(question)
-    
-    return groups
+        groups.setdefault(key, []).append(question)
 
-
-def _build_split_label(key):
-    """Build a human-readable label from a section key tuple for split filenames."""
-    topic_parts = []
-    chapter_parts = []
-    
-    for field_name, value in key:
-        val = value or 'Unknown'
-        if field_name in ('topic', 'subtopic'):
-            topic_parts.append(val)
-        elif field_name in ('chapter', 'subchapter'):
-            chapter_parts.append(val)
-    
-    parts = []
-    if topic_parts:
-        parts.append(' - '.join(topic_parts))
-    if chapter_parts:
-        parts.append(' - '.join(chapter_parts))
-    
-    return ' _ '.join(parts) if parts else 'Uncategorized'
+    label_opts = label_opts or {}
+    result = []
+    for group_questions in groups.values():
+        suffix = _type_suffix(group_questions) if label_opts.get('type_suffix') else ''
+        label = _format_section_label(
+            group_questions[0], split_fields, label_opts.get('numbering'), suffix,
+            missing='Unknown', group_sep=' _ ',
+        ) or 'Uncategorized'
+        result.append((label, group_questions))
+    return result
 
 
 def _sanitize_filename(name):
@@ -1567,7 +1573,101 @@ def _get_section_key(question, section_fields):
     return tuple(key)
 
 
-def _add_section_heading(doc, question, prev_key, section_fields, keep_together=False):
+_QUESTION_TYPES = ('MC', 'CQ')
+
+
+def _build_topic_numbering(subject_ids, pad_topic=True, pad_subtopic=False):
+    """Numbering maps ``{'topic': {...}, 'subtopic': {...}}`` from the saved
+    topic lists (`utils.number_taxonomy`)."""
+    numbering = {'topic': {}, 'subtopic': {}}
+    subject_ids = [s for s in set(subject_ids) if s]
+    if not subject_ids:
+        return numbering
+    topics = Topic.query.filter(Topic.subject_id.in_(subject_ids)).all()
+    subtopics = (
+        Subtopic.query.filter(Subtopic.topic_id.in_([t.id for t in topics])).all()
+        if topics else []
+    )
+    for sid in subject_ids:
+        subject_topics = [t for t in topics if t.subject_id == sid]
+        ids = {t.id for t in subject_topics}
+        t_nums, s_nums = number_taxonomy(
+            subject_topics, [s for s in subtopics if s.topic_id in ids],
+            pad_topic=pad_topic, pad_subtopic=pad_subtopic,
+        )
+        numbering['topic'].update(t_nums)
+        numbering['subtopic'].update(s_nums)
+    return numbering
+
+
+def _type_suffix(questions):
+    """``'MC'``, ``'CQ'``, ``'MC CQ'`` or ``''`` for the question types present."""
+    present = {q.q_type for q in questions}
+    return ' '.join(t for t in _QUESTION_TYPES if t in present)
+
+
+def _format_section_label(question, fields, numbering=None, suffix='',
+                          missing=None, group_sep=' | '):
+    """
+    Section heading / split filename label, e.g.
+    ``01 Basic Algebra - 1.1 Law of Indices MC CQ | Chapter 3``.
+
+    ``numbering`` comes from `_build_topic_numbering` (topics / subtopics only).
+    ``suffix`` is appended to the last topic-side part. Untagged fields are
+    skipped, or shown as ``missing`` when given. Returns None when empty.
+    """
+    numbering = numbering or {}
+
+    def name(node, field):
+        if node is None:
+            return missing
+        num = numbering.get(field, {}).get(node.id)
+        return f'{num} {node.name}' if num else node.name
+
+    topic_parts = []
+    if fields.get('topic'):
+        topic_parts.append(name(question.major_topic, 'topic'))
+    if fields.get('subtopic'):
+        topic_parts.append(name(question.major_subtopic, 'subtopic'))
+    topic_parts = [p for p in topic_parts if p]
+    chapter_parts = []
+    if fields.get('chapter'):
+        chapter_parts.append(name(question.chapter, 'chapter'))
+    if fields.get('subchapter'):
+        chapter_parts.append(name(question.subchapter, 'subchapter'))
+    chapter_parts = [p for p in chapter_parts if p]
+
+    if suffix and topic_parts:
+        topic_parts[-1] = f'{topic_parts[-1]} {suffix}'
+    parts = []
+    if topic_parts:
+        parts.append(' - '.join(topic_parts))
+    if chapter_parts:
+        parts.append(' - '.join(chapter_parts))
+    return group_sep.join(parts) if parts else None
+
+
+def _section_run_suffixes(questions, section_fields):
+    """
+    Type suffix per question, computed over each consecutive run that shares a
+    section key (the span one section heading covers).
+    """
+    suffixes = [''] * len(questions)
+    start = 0
+    while start < len(questions):
+        key = _get_section_key(questions[start], section_fields)
+        end = start + 1
+        while end < len(questions) and _get_section_key(questions[end], section_fields) == key:
+            end += 1
+        suffix = _type_suffix(questions[start:end])
+        for i in range(start, end):
+            suffixes[i] = suffix
+        start = end
+    return suffixes
+
+
+def _add_section_heading(doc, question, prev_key, section_fields, keep_together=False,
+                         numbering=None, suffix=''):
     """
     If any tracked section field changed, insert a centered bold heading.
     Returns the new key.
@@ -1576,26 +1676,7 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
     if current_key == prev_key:
         return prev_key  # no change
     
-    # Build heading text from the parts that are enabled
-    parts = []
-    topic_part = []
-    chapter_part = []
-    
-    if section_fields.get('topic') and question.major_topic:
-        topic_part.append(question.major_topic.name)
-    if section_fields.get('subtopic') and question.major_subtopic:
-        topic_part.append(question.major_subtopic.name)
-    if section_fields.get('chapter') and question.chapter:
-        chapter_part.append(question.chapter.name)
-    if section_fields.get('subchapter') and question.subchapter:
-        chapter_part.append(question.subchapter.name)
-    
-    if topic_part:
-        parts.append(' - '.join(topic_part))
-    if chapter_part:
-        parts.append(' - '.join(chapter_part))
-    
-    heading_text = ' | '.join(parts) if parts else None
+    heading_text = _format_section_label(question, section_fields, numbering, suffix)
     
     if heading_text:
         heading = doc.add_paragraph(style='OQB Section Heading')
@@ -1776,7 +1857,7 @@ def _append_md_via_pandoc(master_doc, md_abs_path):
         Composer(master_doc).append(fragment)
 
 
-def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None, mc_answer_key_options=None, hierarchy_mode=HIERARCHY_MODE_SELECTED):
+def create_word_document(questions, answer_mode, spacing_config, show_qid, show_qid_answer, version_priority=None, show_correct_pct=False, answer_preference='image_first', show_seq_no=False, seq_start=1, show_page_no=False, keep_together=False, info_fields=None, section_fields=None, apply_spacing_to_ans=False, denote_cross_topic=False, format_priority=None, mc_answer_key_options=None, hierarchy_mode=HIERARCHY_MODE_SELECTED, label_opts=None):
     """
     Create Word document with questions.
 
@@ -1820,7 +1901,10 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
                                effective in QUE_THEN_ANS mode.
         hierarchy_mode: ``selected`` (default) or ``whole``. See
             ``app.hierarchy.resolve_render_plan``.
+        label_opts: ``{'numbering': {...} | None, 'type_suffix': bool}`` for
+            section headings (see `_format_section_label`).
     """
+    label_opts = label_opts or {}
     if not format_priority:
         format_priority = list(_DEFAULT_FORMAT_PRIORITY)
     # Normalise version_priority into a full ordered list (accepts list, comma
@@ -1894,6 +1978,15 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
     stem_spacing = _stem_que_spacing(spacing_config)
     emitted_ans = set()
     emitted_sol = set()
+    heading_suffix_by_entry = {}
+    if any_section_heading and label_opts.get('type_suffix'):
+        heading_entries = [e for e in que_entries if e['role'] != 'stem']
+        suffixes = _section_run_suffixes(
+            [e['question'] for e in heading_entries], section_fields
+        )
+        heading_suffix_by_entry = {
+            id(e): s for e, s in zip(heading_entries, suffixes)
+        }
 
     def emit_que_pass(with_inline_answer=None):
         """Render stem + leaf QUE items. ``with_inline_answer`` is ANS/SOL/None."""
@@ -1916,7 +2009,9 @@ def create_word_document(questions, answer_mode, spacing_config, show_qid, show_
             spacing = get_question_spacing_config(question, spacing_config)
             if any_section_heading:
                 prev_section_key = _add_section_heading(
-                    doc, question, prev_section_key, section_fields, keep_together
+                    doc, question, prev_section_key, section_fields, keep_together,
+                    numbering=label_opts.get('numbering'),
+                    suffix=heading_suffix_by_entry.get(id(entry), ''),
                 )
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             add_question_content_to_doc(

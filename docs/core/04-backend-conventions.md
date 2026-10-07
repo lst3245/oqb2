@@ -15,7 +15,7 @@
 | `toolbox_bp` | `app/toolbox/__init__.py` (+ `pdf.py`, `markup.py`) | `/admin/toolbox` | hub, PDF Tool, Markup |
 | `pwa_bp` | `app/pwa.py` | `/` | `/manifest.webmanifest`, `/sw.js` |
 | `subject_ai_bp` | `app/subject_ai.py` | `/admin` | `/subject-ai`, `/subjects/<sid>/ai/*`, `/questions/<id>/ai/tag-corrections` |
-| `restore_points_bp` | `app/restore_points.py` | `/admin` | `/restore-points`, `/subjects/<sid>/restore-points/capture`, `/restore-points/<id>/preview|restore` |
+| `restore_points_bp` | `app/restore_points.py` | `/admin` | `/restore-points`, `/subjects/<sid>/restore-points/capture`, `/restore-points/<id>/pin|preview|restore` |
 
 Register new blueprints in `create_app()`; keep one blueprint per area. Prefer adding a new module over growing `app/admin.py`.
 

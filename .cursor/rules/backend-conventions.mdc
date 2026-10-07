@@ -26,7 +26,7 @@ Read `docs/core/04-backend-conventions.md`, `docs/core/02-auth-and-permissions.m
 ## Identifiers and data
 - Versions from `app.utils.VERSIONS` / `TYPED_VERSIONS` / `OFFICIAL_VERSIONS`; parse user input with `parse_version_priority`. Never hardcode `['EN','CH','BI']`.
 - Asset identity is `(question_id, asset_type, version, file_format, part_number)`; `file_path` is forward-slash relative to `SOURCE_PATH`. MD and DOC are single-slot; only IMG has parts.
-- Sorting is Python-side via `apply_multi_sort` (natsort, NULL handling, manual block order). Do not move it to SQL. New sort field → `SORT_FIELDS` + both dropdowns (`dashboard.html`, `generate.html`).
+- Sorting is Python-side via `apply_multi_sort` (natsort, NULL handling, manual block order). Do not move it to SQL. New sort field → `SORT_FIELDS` + both dropdowns (`dashboard.html`, `generate.html`). Topic / subtopic / chapter / subchapter sort by the saved `sort_order` then `id` (`utils.taxonomy_order`, `*_order_key`), never by name.
 - Paths: `storage.safe_join` (returns `None` when escaping the root) and the `storage.*_path()` accessors. Never `startswith`, never `os.getenv` for paths at call time.
 - Tunables: `current_app.config[KEY]`. New tunable → REGISTRY + `Config` + `.env.example` + `docs/core/06`.
 - Writing a subject's topics / subtopics / chapters / subchapters or a question's tag fields? Call `subject_snapshot.capture(subject_id, action)` before the first mutation (same transaction), or `capture_committed` before a per-row-commit stream. See `subject-snapshots.mdc`.

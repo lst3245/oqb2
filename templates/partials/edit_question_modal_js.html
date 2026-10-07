@@ -375,7 +375,7 @@ function fetchTopicsForSubject(subjectId) {
     if (allTopicsCache[subjectId]) {
         return Promise.resolve(allTopicsCache[subjectId]);
     }
-    return fetch(`{{ url_for('dashboard.get_topics', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+    return fetch(`{{ url_for('dashboard.get_topics', subject_id='__SID__') }}`.replace('__SID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(topics => {
             allTopicsCache[subjectId] = topics;
@@ -387,7 +387,7 @@ function fetchChaptersForSubject(subjectId) {
     if (allChaptersCache[subjectId]) {
         return Promise.resolve(allChaptersCache[subjectId]);
     }
-    return fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SID__') }}`.replace('__SID__', subjectId))
+    return fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SID__') }}`.replace('__SID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(chapters => {
             allChaptersCache[subjectId] = chapters;

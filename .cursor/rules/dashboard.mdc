@@ -8,7 +8,8 @@ alwaysApply: false
 
 ## Invariants
 - Filter precedence: `qids` > `ids` > `qid_search`; the first two null every other filter and are intersected with the user's accessible subjects only.
-- Sorting and pagination are **Python-side** (`apply_multi_sort`, natural sort, NULL handling, `sort_group_order` manual blocks). Never move to SQL `ORDER BY` / `LIMIT`.
+- Sorting and pagination are **Python-side** (`apply_multi_sort`, natural sort, NULL handling, `sort_group_order` manual blocks). Never move to SQL `ORDER BY` / `LIMIT`. Taxonomy fields (and the default Reorder-blocks order) follow the saved admin `sort_order`, not alphabetical names.
+- `/api/subtopics` `types` (MC / CQ chips) ignores the `q_type` filter on purpose; `count` honours it.
 - **Pages count whole questions.** The only slice is `hierarchy.paginate_by_root`: lettered root = 1, range stem = one per matched leaf, standalone = 1. A root never straddles pages. `total_parts` is shown when it differs. Never reintroduce `sorted_questions[start:end]`; never auto-fetch unmatched sibling parts.
 - **Selection** (`localStorage.oqb_selectedQuestions`) and **Filter** (`oqb_filterSettings`) are independent. No flow couples them as a side effect; HTMX `afterSwap` may reorder but never prunes. The **only** implicit clear is a subject change (`suppressSelectionClearOnSubjectChange` bypasses it during `?question_set_id=` apply across subjects).
 - **Show Selected Only** is server-side: `syncShowSelectedOnlyToServer()` writes the selection into `#idsInput` and submits; `applyShowSelectedOnly()` is cosmetic only. Call the sync whenever the selection changes while the toggle is on.

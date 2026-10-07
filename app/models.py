@@ -153,6 +153,7 @@ class Topic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden topics (e.g. old syllabus)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     # Optional one-line tagging hint shown to the auto-tag LLM next to the
     # name ("what belongs here / what does not"). Never shown to students.
@@ -187,6 +188,7 @@ class Chapter(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden chapters
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     description = db.Column(db.String(300), nullable=True)  # auto-tag hint
 
@@ -741,7 +743,8 @@ class SubjectRestorePoint(db.Model):
     before a tag or taxonomy save (or a manual snapshot). ``payload`` is the
     JSON written by ``app/subject_snapshot.encode_state``; never edit it by
     hand. Pruned to ``subject_snapshot.KEEP_PER_SUBJECT`` per subject on every
-    capture. See docs/modules/subject-snapshots.md and ADR-013.
+    capture, except rows with ``pinned`` set (kept until an admin unpins them).
+    See docs/modules/subject-snapshots.md and ADR-013.
     """
     __tablename__ = 'subject_restore_points'
 
@@ -753,6 +756,9 @@ class SubjectRestorePoint(db.Model):
                         nullable=True)
     action = db.Column(db.String(30), nullable=False)
     note = db.Column(db.String(200), nullable=True)
+    # Set from the Restore Points page. prune never deletes a pinned row;
+    # subject delete still does (delete_for_subject).
+    pinned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     payload = db.Column(db.Text().with_variant(MEDIUMTEXT(), 'mysql', 'mariadb'),
                         nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

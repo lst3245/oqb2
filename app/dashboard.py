@@ -586,7 +586,7 @@ def get_sort_groups():
 
     Accepts the same filter fields as ``/filter`` plus ``group_fields`` (JSON
     array or comma list). Returns ``{group_fields, blocks: [{key, labels, count}]}``
-    in default natural-name order.
+    in the saved taxonomy order (admin Topics / Chapters lists).
     """
     # Parse requested grouping fields
     gf_raw = request.form.get('group_fields') or request.args.get('group_fields') or ''
@@ -650,13 +650,16 @@ def get_sort_groups():
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required
 def get_topics(subject_id):
-    """Get topics for a subject"""
+    """Get topics for a subject (hidden ones only with ``include_hidden=1``)."""
     # Check subject access
     if not current_user.has_subject_access(subject_id):
         return jsonify([])
     
-    topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.sort_order).all()
-    return jsonify([{'id': t.id, 'name': t.name} for t in topics])
+    query = Topic.query.filter_by(subject_id=subject_id)
+    if request.args.get('include_hidden', '0') != '1':
+        query = query.filter(Topic.hidden == False)
+    topics = query.order_by(Topic.sort_order, Topic.id).all()
+    return jsonify([{'id': t.id, 'name': t.name, 'hidden': t.hidden} for t in topics])
 
 @dashboard_bp.route('/api/subtopics')
 @login_required
@@ -684,29 +687,34 @@ def get_subtopics():
     
     subtopics = query.order_by(Subtopic.sort_order).all()
     
-    # Build question count for each subtopic
-    # Count questions where subtopic is major_subtopic OR in M2M relationship
+    # Per subtopic: leaf questions with it as major OR in the M2M, counted per
+    # q_type. `count` honours the q_type filter; `types` lists every type present
+    # regardless of it (the MC / CQ chips).
     result = []
     for s in subtopics:
-        # Base query for questions linked to this subtopic
-        q_query = Question.query.filter(
-            or_(
-                Question.major_subtopic_id == s.id,
-                Question.subtopics.any(Subtopic.id == s.id)
+        type_counts = dict(
+            db.session.query(Question.q_type, db.func.count(Question.id))
+            .filter(
+                or_(
+                    Question.major_subtopic_id == s.id,
+                    Question.subtopics.any(Subtopic.id == s.id)
+                ),
+                ~Question.id.in_(stem_id_query()),
             )
+            .group_by(Question.q_type)
+            .all()
         )
-        # Filter by question type if not 'all'
         if q_type and q_type != 'all':
-            q_query = q_query.filter(Question.q_type == q_type)
-        q_query = q_query.filter(~Question.id.in_(stem_id_query()))
-        
-        count = q_query.count()
+            count = type_counts.get(q_type, 0)
+        else:
+            count = sum(type_counts.values())
         result.append({
             'id': s.id, 
             'name': s.name, 
             'topic_id': s.topic_id, 
             'hidden': s.hidden,
-            'count': count
+            'count': count,
+            'types': [t for t in ('MC', 'CQ') if type_counts.get(t)],
         })
     
     return jsonify(result)
@@ -714,13 +722,16 @@ def get_subtopics():
 @dashboard_bp.route('/api/chapters/<subject_id>')
 @login_required
 def get_chapters(subject_id):
-    """Get chapters for a subject"""
+    """Get chapters for a subject (hidden ones only with ``include_hidden=1``)."""
     # Check subject access
     if not current_user.has_subject_access(subject_id):
         return jsonify([])
     
-    chapters_list = Chapter.query.filter_by(subject_id=subject_id).order_by(Chapter.sort_order).all()
-    return jsonify([{'id': c.id, 'name': c.name} for c in chapters_list])
+    query = Chapter.query.filter_by(subject_id=subject_id)
+    if request.args.get('include_hidden', '0') != '1':
+        query = query.filter(Chapter.hidden == False)
+    chapters_list = query.order_by(Chapter.sort_order, Chapter.id).all()
+    return jsonify([{'id': c.id, 'name': c.name, 'hidden': c.hidden} for c in chapters_list])
 
 @dashboard_bp.route('/api/subchapters')
 @login_required

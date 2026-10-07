@@ -945,9 +945,11 @@ def build_tag_taxonomy(subject_id, fields):
 
     ``fields`` is an iterable of field keys (see ``TAG_FIELDS``).
 
-    Hidden subtopics / subchapters (``hidden=True`` — e.g. textbook chapters
-    kept for legacy filters) are NOT sent: they are not meant to be picked
-    as tags and would only compete with the real values. A node's optional
+    Hidden nodes (``hidden=True`` on a topic, subtopic, chapter or
+    subchapter — e.g. textbook chapters kept for legacy filters) are NOT
+    sent, and a hidden topic / chapter takes its children with it: they are
+    not meant to be picked as tags and would only compete with the real
+    values. A node's optional
     ``description`` is appended after an em dash as the teachers' hint.
     """
     from app.models import Topic, Chapter
@@ -963,6 +965,8 @@ def build_tag_taxonomy(subject_id, fields):
         if not topics:
             lines.append('  (none defined)')
         for t in topics:
+            if getattr(t, 'hidden', False):
+                continue
             lines.append(f'- {_taxonomy_line(t)}')
             subs = t.subtopics.all() if hasattr(t.subtopics, 'all') else list(t.subtopics)
             for s in subs:
@@ -979,6 +983,8 @@ def build_tag_taxonomy(subject_id, fields):
         if not chapters:
             lines.append('  (none defined)')
         for c in chapters:
+            if getattr(c, 'hidden', False):
+                continue
             lines.append(f'- {_taxonomy_line(c)}')
             subs = c.subchapters.all() if hasattr(c.subchapters, 'all') else list(c.subchapters)
             for sc in subs:

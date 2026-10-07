@@ -2,11 +2,65 @@
 import unittest
 from types import SimpleNamespace
 
-from app.utils import SORT_FIELDS, apply_multi_sort
+from app.utils import SORT_FIELDS, apply_multi_sort, enumerate_sort_groups
 
 
 def _question(qid, qno, year):
     return SimpleNamespace(qid=qid, qno=qno, year=year)
+
+
+def _node(id, name, sort_order, **kw):
+    return SimpleNamespace(id=id, name=name, sort_order=sort_order, **kw)
+
+
+def _tagged(qid, topic=None, subtopic=None):
+    return SimpleNamespace(
+        qid=qid, major_topic=topic, major_subtopic=subtopic,
+        major_topic_id=topic.id if topic else None,
+        major_subtopic_id=subtopic.id if subtopic else None,
+        chapter=None, subchapter=None, chapter_id=None, subchapter_id=None,
+    )
+
+
+class TaxonomySavedOrderSortTests(unittest.TestCase):
+    """Topic / subtopic sorts follow the admin list order, not the name."""
+
+    def setUp(self):
+        # Saved order: Zeta (0) before Alpha (1); alphabetical would invert it.
+        self.zeta = _node(10, 'Zeta Algebra', 0)
+        self.alpha = _node(11, 'Alpha Geometry', 1)
+        self.zeta_b = _node(20, 'B Indices', 0, topic=self.zeta)
+        self.zeta_a = _node(21, 'A Surds', 1, topic=self.zeta)
+        self.alpha_a = _node(22, 'A Angles', 0, topic=self.alpha)
+        self.questions = [
+            _tagged('Q1', self.alpha, self.alpha_a),
+            _tagged('Q2'),
+            _tagged('Q3', self.zeta, self.zeta_a),
+            _tagged('Q4', self.zeta, self.zeta_b),
+        ]
+
+    def test_topic_follows_sort_order_and_untagged_last(self):
+        result = apply_multi_sort(self.questions, [{'field': 'topic', 'direction': 'asc'},
+                                                   {'field': 'qid', 'direction': 'asc'}])
+        self.assertEqual([q.qid for q in result], ['Q3', 'Q4', 'Q1', 'Q2'])
+
+    def test_subtopic_orders_under_parent_topic(self):
+        result = apply_multi_sort(self.questions, [{'field': 'subtopic', 'direction': 'asc'}])
+        self.assertEqual([q.qid for q in result], ['Q4', 'Q3', 'Q1', 'Q2'])
+
+    def test_ties_on_sort_order_break_by_id(self):
+        self.alpha.sort_order = 0  # same as zeta; id 10 < 11
+        result = apply_multi_sort(self.questions[:1] + self.questions[2:3],
+                                  [{'field': 'topic', 'direction': 'asc'}])
+        self.assertEqual([q.qid for q in result], ['Q3', 'Q1'])
+
+    def test_sort_groups_default_to_saved_order(self):
+        blocks = enumerate_sort_groups(self.questions, ['topic', 'subtopic'])
+        self.assertEqual(
+            [b['key'] for b in blocks],
+            [[10, 20], [10, 21], [11, 22], [0, 0]],
+        )
+        self.assertEqual(blocks[-1]['labels']['topic'], '(No topic)')
 
 
 class QuestionNumberSortTests(unittest.TestCase):

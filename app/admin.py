@@ -237,6 +237,37 @@ def _subjects_of(model, ids):
     return {row[0] for row in q.distinct()}
 
 
+def _require_subject_admin(subject_id):
+    if not current_user.is_subject_admin(subject_id):
+        abort(403)
+
+
+def _major_type_stats(subject_id):
+    """``(topic_stats, subtopic_stats)``: ``{id: {'count': n, 'types': [...]}}``
+    over leaf questions by *major* topic / subtopic — the grouping generation
+    uses for section headings, so ``types`` is the suffix a heading would get."""
+    rows = (
+        db.session.query(Question.major_topic_id, Question.major_subtopic_id,
+                         Question.q_type, db.func.count(Question.id))
+        .filter(Question.subject == subject_id, ~Question.id.in_(stem_id_query()))
+        .group_by(Question.major_topic_id, Question.major_subtopic_id, Question.q_type)
+        .all()
+    )
+    topic_stats, subtopic_stats = {}, {}
+    for topic_id, subtopic_id, q_type, n in rows:
+        for key, bucket in ((topic_id, topic_stats), (subtopic_id, subtopic_stats)):
+            if key is None:
+                continue
+            entry = bucket.setdefault(key, {'count': 0, 'types': []})
+            entry['count'] += n
+            if q_type in ('MC', 'CQ') and q_type not in entry['types']:
+                entry['types'].append(q_type)
+    for bucket in (topic_stats, subtopic_stats):
+        for entry in bucket.values():
+            entry['types'].sort(key=('MC', 'CQ').index)
+    return topic_stats, subtopic_stats
+
+
 @admin_bp.route('/topics')
 @login_required
 @admin_required
@@ -247,17 +278,21 @@ def topics():
         return redirect(url_for('admin.topics', subject_id=subject.id))
 
     topic_rows = []
+    topic_stats, subtopic_stats = {}, {}
     if subject:
         topic_rows = (
             Topic.query.filter_by(subject_id=subject.id)
-            .order_by(Topic.sort_order)
+            .order_by(Topic.sort_order, Topic.id)
             .all()
         )
+        topic_stats, subtopic_stats = _major_type_stats(subject.id)
     return render_template(
         'admin_topics.html',
         subjects=subjects,
         subject=subject,
         topics=topic_rows,
+        topic_stats=topic_stats,
+        subtopic_stats=subtopic_stats,
     )
 
 @admin_bp.route('/topics/add', methods=['POST'])
@@ -287,16 +322,32 @@ def add_topic():
 def edit_topic(topic_id):
     """Edit a topic"""
     topic = Topic.query.get_or_404(topic_id)
-    name = request.form.get('name')
+    _require_subject_admin(topic.subject_id)
+    name = (request.form.get('name') or '').strip()
     
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
     subject_snapshot.capture(topic.subject_id, 'topic-edit')
     topic.name = name
+    if 'hidden' in request.form:
+        topic.hidden = request.form.get('hidden') == '1'
     db.session.commit()
     
-    return jsonify({'id': topic.id, 'name': topic.name})
+    return jsonify({'id': topic.id, 'name': topic.name, 'hidden': topic.hidden})
+
+@admin_bp.route('/topics/<int:topic_id>/toggle-hidden', methods=['POST'])
+@login_required
+@admin_required
+def toggle_topic_hidden(topic_id):
+    """Toggle the hidden status of a topic (its subtopics keep their own flags)."""
+    topic = Topic.query.get_or_404(topic_id)
+    _require_subject_admin(topic.subject_id)
+    subject_snapshot.capture(topic.subject_id, 'topic-edit')
+    topic.hidden = not topic.hidden
+    db.session.commit()
+    
+    return jsonify({'id': topic.id, 'name': topic.name, 'hidden': topic.hidden})
 
 @admin_bp.route('/topics/<int:topic_id>/delete', methods=['POST', 'DELETE'])
 @login_required
@@ -338,7 +389,8 @@ def add_subtopic():
 def edit_subtopic(subtopic_id):
     """Edit a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
-    name = request.form.get('name')
+    _require_subject_admin(subtopic.topic.subject_id)
+    name = (request.form.get('name') or '').strip()
     
     if not name:
         return jsonify({'error': 'Name is required'}), 400
@@ -360,6 +412,7 @@ def edit_subtopic(subtopic_id):
 def toggle_subtopic_hidden(subtopic_id):
     """Toggle the hidden status of a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
+    _require_subject_admin(subtopic.topic.subject_id)
     subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
     subtopic.hidden = not subtopic.hidden
     db.session.commit()
@@ -435,7 +488,7 @@ def chapters():
     if subject:
         chapter_rows = (
             Chapter.query.filter_by(subject_id=subject.id)
-            .order_by(Chapter.sort_order)
+            .order_by(Chapter.sort_order, Chapter.id)
             .all()
         )
     return render_template(
@@ -472,16 +525,32 @@ def add_chapter():
 def edit_chapter(chapter_id):
     """Edit a chapter"""
     chapter = Chapter.query.get_or_404(chapter_id)
-    name = request.form.get('name')
+    _require_subject_admin(chapter.subject_id)
+    name = (request.form.get('name') or '').strip()
     
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
     subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
     chapter.name = name
+    if 'hidden' in request.form:
+        chapter.hidden = request.form.get('hidden') == '1'
     db.session.commit()
     
-    return jsonify({'id': chapter.id, 'name': chapter.name})
+    return jsonify({'id': chapter.id, 'name': chapter.name, 'hidden': chapter.hidden})
+
+@admin_bp.route('/chapters/<int:chapter_id>/toggle-hidden', methods=['POST'])
+@login_required
+@admin_required
+def toggle_chapter_hidden(chapter_id):
+    """Toggle the hidden status of a chapter (its subchapters keep their own flags)."""
+    chapter = Chapter.query.get_or_404(chapter_id)
+    _require_subject_admin(chapter.subject_id)
+    subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
+    chapter.hidden = not chapter.hidden
+    db.session.commit()
+    
+    return jsonify({'id': chapter.id, 'name': chapter.name, 'hidden': chapter.hidden})
 
 @admin_bp.route('/chapters/<int:chapter_id>/delete', methods=['POST', 'DELETE'])
 @login_required
@@ -527,7 +596,8 @@ def add_subchapter():
 def edit_subchapter(subchapter_id):
     """Edit a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
-    name = request.form.get('name')
+    _require_subject_admin(subchapter.chapter.subject_id)
+    name = (request.form.get('name') or '').strip()
     
     if not name:
         return jsonify({'error': 'Name is required'}), 400
@@ -549,6 +619,7 @@ def edit_subchapter(subchapter_id):
 def toggle_subchapter_hidden(subchapter_id):
     """Toggle the hidden status of a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
+    _require_subject_admin(subchapter.chapter.subject_id)
     subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
     subchapter.hidden = not subchapter.hidden
     db.session.commit()
@@ -3949,18 +4020,19 @@ def export_topics():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'topic_name', 'subtopic_name', 'subtopic_hidden'])
+    writer.writerow(['subject_id', 'topic_name', 'topic_hidden', 'subtopic_name', 'subtopic_hidden'])
 
     for topic in topics:
+        topic_hidden = 1 if topic.hidden else 0
         subtopics = topic.subtopics.order_by(Subtopic.sort_order).all()
         if subtopics:
             for st in subtopics:
                 writer.writerow([
-                    subject_id, topic.name,
+                    subject_id, topic.name, topic_hidden,
                     st.name, 1 if st.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, topic.name, '', ''])
+            writer.writerow([subject_id, topic.name, topic_hidden, '', ''])
 
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -4035,15 +4107,19 @@ def import_topics():
                 topic_order[topic_key] = topic_counter[subj_id]
                 topic_counter[subj_id] += 1
 
-            # Find or create topic
+            # Find or create topic; a blank topic_hidden leaves the flag alone
+            topic_hidden_str = (row.get('topic_hidden') or '').strip()
             topic = Topic.query.filter_by(subject_id=subj_id, name=topic_name).first()
             if not topic:
-                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=topic_order[topic_key])
+                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=topic_order[topic_key],
+                              hidden=topic_hidden_str == '1')
                 db.session.add(topic)
                 db.session.flush()  # Get ID
                 topics_created += 1
             else:
                 topic.sort_order = topic_order[topic_key]
+                if topic_hidden_str in ('0', '1'):
+                    topic.hidden = topic_hidden_str == '1'
                 topics_updated += 1
 
             # Handle subtopic if present
@@ -4110,18 +4186,19 @@ def export_chapters():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'chapter_name', 'subchapter_name', 'subchapter_hidden'])
+    writer.writerow(['subject_id', 'chapter_name', 'chapter_hidden', 'subchapter_name', 'subchapter_hidden'])
 
     for chapter in chapters_list:
+        chapter_hidden = 1 if chapter.hidden else 0
         subchapters = chapter.subchapters.order_by(Subchapter.sort_order).all()
         if subchapters:
             for sc in subchapters:
                 writer.writerow([
-                    subject_id, chapter.name,
+                    subject_id, chapter.name, chapter_hidden,
                     sc.name, 1 if sc.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, chapter.name, '', ''])
+            writer.writerow([subject_id, chapter.name, chapter_hidden, '', ''])
 
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -4195,15 +4272,19 @@ def import_chapters():
                 chapter_order[chapter_key] = chapter_counter[subj_id]
                 chapter_counter[subj_id] += 1
 
-            # Find or create chapter
+            # Find or create chapter; a blank chapter_hidden leaves the flag alone
+            chapter_hidden_str = (row.get('chapter_hidden') or '').strip()
             chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
             if not chapter:
-                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=chapter_order[chapter_key])
+                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=chapter_order[chapter_key],
+                                  hidden=chapter_hidden_str == '1')
                 db.session.add(chapter)
                 db.session.flush()
                 chapters_created += 1
             else:
                 chapter.sort_order = chapter_order[chapter_key]
+                if chapter_hidden_str in ('0', '1'):
+                    chapter.hidden = chapter_hidden_str == '1'
                 chapters_updated += 1
 
             # Handle subchapter if present

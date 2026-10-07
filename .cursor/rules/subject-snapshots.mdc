@@ -10,7 +10,7 @@ The per-subject undo for tag / taxonomy mistakes. It only works if **every** wri
 
 ## Invariants
 - **Capture before the first mutation, in the same transaction, no own commit:** `subject_snapshot.capture(subject_id, '<action>')` (or `capture_many(ids, ...)`). The route's commit persists point + edit together. Capturing after mutating stores the new state and silently defeats the feature.
-- Snapshotted = `topics`, `subtopics`, `chapters`, `subchapters` (name, sort_order, hidden, description, parent) + per question `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, minor topics, subtopics. A new route/service writing any of these **must** capture. A new tag column = append to `subject_snapshot.QUESTION_FIELDS` (+ `REF_KIND` if it references taxonomy) and keep `decode_state` tolerant of old payloads.
+- Snapshotted = `topics`, `subtopics`, `chapters`, `subchapters` (name, sort_order, hidden, description, parent) + per question `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, minor topics, subtopics. A new route/service writing any of these **must** capture. A new tag column = append to `subject_snapshot.QUESTION_FIELDS` (+ `REF_KIND` if it references taxonomy) and keep `decode_state` tolerant of old payloads. A new taxonomy column = `TAXONOMY_FIELDS` + `read_state`; `decode_state` / `plan_restore` only touch keys a row carries (pre-2026-10-06 points have no topic / chapter `hidden`).
 - Hooked writers (keep in sync with the module doc table):
   - `topic-edit` / `chapter-edit`: every add / edit / delete / toggle-hidden / reorder route for topics, subtopics, chapters, subchapters in `admin.py` (child rows resolve the subject via parent or `_subjects_of(model, ids)`).
   - `taxonomy-hint`: `subject_ai_service.set_description`.
@@ -21,7 +21,7 @@ The per-subject undo for tag / taxonomy mistakes. It only works if **every** wri
   - `manual`, `baseline` (boot `ensure_baselines`), `before-restore` (inside `restore`).
 - Not hooked by decision: Split / Combine / create child / set parent, PDF import, ingestion, `batch_mcq_ans`. Changing that is a doc + ADR change, not a silent edit.
 - Restore is one transaction, Core statements every one scoped by `subject_id` (or parent subject subquery); saves `before-restore` first; 409 on conflicts with nothing written. Never widen a restore statement beyond the subject.
-- Retention: newest `KEEP_PER_SUBJECT` (100) + first point per UTC day within `DAILY_ANCHOR_DAYS` (30). `prune` and `delete_for_subject` are the only deletes; `delete_subject` must keep calling `delete_for_subject` (no FK on `subject_id`).
+- Retention: newest `KEEP_PER_SUBJECT` (100) + first point per UTC day within `DAILY_ANCHOR_DAYS` (30) + every `pinned` row (pins do not spend the 100). `prune` must keep reading `pinned`. `set_pinned` is the only writer; unpin prunes immediately. `prune` and `delete_for_subject` are the only deletes — subject delete removes pinned rows too. `delete_subject` must keep calling `delete_for_subject` (no FK on `subject_id`).
 - Point routes keyed by `point_id` check `current_user.is_subject_admin(point.subject_id)` explicitly.
 
 ## Gotchas
@@ -34,4 +34,4 @@ The per-subject undo for tag / taxonomy mistakes. It only works if **every** wri
 - Keep `tests/test_subject_snapshot.py` green (pure, no DB): `python -m unittest tests.test_subject_snapshot`.
 
 ## Routes (verify before use)
-`GET /admin/restore-points` · `POST /admin/subjects/<sid>/restore-points/capture` · `GET /admin/restore-points/<id>/preview` · `POST /admin/restore-points/<id>/restore`.
+`GET /admin/restore-points` · `POST /admin/subjects/<sid>/restore-points/capture` · `POST /admin/restore-points/<id>/pin` · `GET /admin/restore-points/<id>/preview` · `POST /admin/restore-points/<id>/restore`.

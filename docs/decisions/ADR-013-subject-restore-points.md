@@ -20,7 +20,7 @@ Options considered:
 
 - New table `subject_restore_points (subject_id, user_id, action, note, payload MEDIUMTEXT, created_at)`; `payload` is versioned JSON written by `app/subject_snapshot.encode_state`.
 - Every writer of the snapshotted fields calls `subject_snapshot.capture(subject_id, action)` **before mutating**, inside the caller's transaction. Per-row-committing writers (Auto Tag) use `capture_committed` up front. Subject admins can also take a manual point with a note; boot writes one `baseline` per subject that has none.
-- Retention: newest 100 per subject plus the first point of each UTC day for 30 days.
+- Retention: newest 100 per subject plus the first point of each UTC day for 30 days, plus any row an admin has pinned (`pinned`). Pins are extra; they do not consume the 100. Unpinning prunes immediately. Subject delete removes pinned rows with the rest.
 - Restore is whole-subject, previewed first, one transaction, refused on cross-subject id conflicts, and always preceded by a `before-restore` point so it can be undone. Taxonomy rows keep their ids; newer rows survive when still referenced; deleted questions are not recreated.
 
 ## Consequences

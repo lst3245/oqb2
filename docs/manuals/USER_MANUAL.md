@@ -77,8 +77,8 @@ Use the radio buttons: **DSE**, **CE**, **AL**, or **QB**. DSE/CE/AL are past pa
 | **Section** | Selects from available sections for the chosen subject and source (e.g. Section A, Section B). |
 | **Topics** | Multi-select dropdown. Use **OR** mode (any selected topic) or **AND** mode (all selected topics). |
 | **Include tagged in minor** | (Topics) Also includes questions where the topic is a *minor* topic, not just the primary one. |
-| **Subtopics** | Appears after selecting topics. Also has OR/AND mode and an "Include tagged in minor" option. |
-| **Show hidden** | (Subtopics) Toggle the eye icon to show hidden subtopics (e.g. textbook chapters). |
+| **Subtopics** | Appears after selecting topics. Also has OR/AND mode and an "Include tagged in minor" option. Each subtopic shows its question count (follows the Question Type filter) and an **MC** and/or **CQ** chip for the question types it contains (always for the whole library, whatever the Question Type filter). |
+| **Show hidden** | The eye switch beside Topics, Subtopics, Chapters and Subchapters shows the items an admin has hidden (e.g. textbook chapters or retired topics). Off by default; your choice is remembered with your other filter settings. |
 | **Chapters** | Filter by textbook chapter (separate from the topic system). |
 | **Subchapters** | Appears after selecting chapters. |
 | **Level** | 1, 2, 3, or "Not Assigned". Multi-select. |
@@ -136,6 +136,8 @@ Click the **Sort** button (or the sort icon) in the question header bar to open 
 Available sort fields: QID, Question Number, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Chapter, Subchapter, Created Time.
 
 **Question Number** is the numeric start of the paper token stored in the QID (`Q2`, `Q10`, `Q3a` → 3), not the optional sequential number generated for a document. It sorts numerically, so Q2 comes before Q10, and lettered parts follow their stem.
+
+**Topic, Subtopic, Chapter and Subchapter** sort in the order set by the subject admin on the Topics / Chapters admin pages, not alphabetically. Subtopics follow their topic's position first. Untagged questions come last. The **Reorder blocks** dialog starts from this order too.
 
 Sort configuration is preserved in your session as you navigate pages.
 
@@ -321,6 +323,8 @@ Set separately for MC and CQ questions:
 - **Before question**: skip N lines, or start from a new page
 - **After question**: skip N lines, or start from a new page
 
+Both start at skip 0 lines before and skip 1 line after. Choose **New page** for CQ if you want each long question on its own page.
+
 In "All Questions Then..." modes, you can also choose whether to apply the same spacing to the answer section.
 
 #### Display Options
@@ -348,6 +352,12 @@ Inserts a centred bold heading whenever the selected field changes as you go thr
 Tick one or more fields under "Split documents by". Instead of one `.docx`, the output is a `.zip` containing one file per group.
 - Example: tick "Topic" → one file per topic
 - To get the PDF version of a split job, use the **PDF** button beside Download in My Files — it builds a `.zip` of `.pdf` files mirroring the source structure.
+
+#### Numbering and question-type suffix (section headings and split file names)
+Two options under Document structure change how section headings and split file names are labelled:
+- **Number topics / subtopics** — prefixes the number from the subject's saved topic list: topics `01`, `02` …, subtopics `1.1`, `1.2` … (hidden topics and subtopics are not numbered). The numbers come from the full list, so a paper containing only topic 3 still says `03`. Two sub-options set the zero padding: **Zero-pad topic** (on by default: `01`; off: `1`) and **Zero-pad subtopic** (off by default: `1.1`; on: `01.01`). Admins can see the numbers each topic will get on Admin → Topics.
+- **Append question types** — adds `MC`, `CQ` or `MC CQ` after the subtopic (or after the topic when the subtopic is not part of the heading), based on the questions actually in that section or file.
+- Example: splitting by Topic + Subtopic with both ticked gives files like `01 Basic Algebra - 1.1 Law of Indices MC CQ.docx`.
 
 #### Denote Cross-Topic
 Appends `[Cross Topic: X, Y]` to the info line when a question has minor topics in addition to its primary topic.

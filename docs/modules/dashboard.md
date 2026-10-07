@@ -29,10 +29,10 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 |---|---|---|---|
 | GET | `/dashboard/` | login | Full page. Renders `dashboard.html` with accessible subjects, `session['sort_config']` (default `[{"field":"qid","direction":"asc"}]`), `subject_roles`. `no_access=True` when the user has no subjects. |
 | GET, POST | `/dashboard/filter` | login; 403 if `subject` not accessible | Core filter. Reads params from args or form (see table below). With `HX-Request` header returns `partials/question_list.html`; otherwise the full `dashboard.html`. |
-| POST | `/dashboard/api/sort-groups` | login; 403 if `subject` not accessible | Same filter fields as `/filter` plus `group_fields` (JSON array or csv of `topic|subtopic|chapter|subchapter`). Returns `{group_fields, blocks:[{key, labels, count}]}` in natural-name order for the Reorder-blocks modal. Uses `_build_filtered_query` so it sees exactly the same result set as `/filter`. |
-| GET | `/dashboard/api/topics/<subject_id>` | login; `[]` if no access | `[{id, name}]` ordered by `sort_order`. |
-| GET | `/dashboard/api/subtopics?topic_ids=1,2&include_hidden=0&q_type=all` | login | `[{id, name, topic_id, hidden, count}]`. `count` = **leaf** questions with the subtopic as major OR in the M2M, optionally restricted by `q_type`. Hidden subtopics excluded unless `include_hidden=1`. Stems are excluded from counts. |
-| GET | `/dashboard/api/chapters/<subject_id>` | login; `[]` if no access | `[{id, name}]`. |
+| POST | `/dashboard/api/sort-groups` | login; 403 if `subject` not accessible | Same filter fields as `/filter` plus `group_fields` (JSON array or csv of `topic|subtopic|chapter|subchapter`). Returns `{group_fields, blocks:[{key, labels, count}]}` in saved taxonomy order (`sort_order`, then `id`; untagged last) for the Reorder-blocks modal. Uses `_build_filtered_query` so it sees exactly the same result set as `/filter`. |
+| GET | `/dashboard/api/topics/<subject_id>?include_hidden=0` | login; `[]` if no access | `[{id, name, hidden}]` ordered by `(sort_order, id)`. Hidden topics excluded unless `include_hidden=1` (sidebar eye switch; every tag editor — edit modal, tag form, Bulk Edit — always passes `1`). |
+| GET | `/dashboard/api/subtopics?topic_ids=1,2&include_hidden=0&q_type=all` | login | `[{id, name, topic_id, hidden, count, types}]`. `count` = **leaf** questions with the subtopic as major OR in the M2M, optionally restricted by `q_type`. `types` = `['MC']` / `['CQ']` / `['MC','CQ']` / `[]` present among those leaves, **ignoring** `q_type` (drives the MC / CQ chips in the subtopic dropdown). One grouped `(q_type, count)` query per subtopic. Hidden subtopics excluded unless `include_hidden=1`. Stems are excluded. |
+| GET | `/dashboard/api/chapters/<subject_id>?include_hidden=0` | login; `[]` if no access | `[{id, name, hidden}]` ordered by `(sort_order, id)`. Same `include_hidden` rule as topics. |
 | GET | `/dashboard/api/subchapters?chapter_ids=1,2&include_hidden=0` | login | `[{id, name, chapter_id, hidden}]`. |
 | GET | `/dashboard/api/years/<subject_id>/<source>` | login; `[]` if no access | Distinct years, descending. |
 | GET | `/dashboard/api/sections/<subject_id>/<source>` | login; `[]` if no access | Distinct sections, ascending. |
@@ -135,7 +135,7 @@ Response is `text/event-stream` with headers `Cache-Control: no-cache`, `X-Accel
 
 ### Sorting and pagination are in Python
 
-`query.all()` then `apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)` then `hierarchy.paginate_by_root(sorted, page, per_page)`. This is intentional: multi-field sort with null handling, manual block order, and hierarchy-aware `qid`/`qno` keys (`hierarchy.sort_key` / `qno_sort_key` so `Q3ci` / `Q23-24` order correctly) cannot be expressed as a simple `ORDER BY`. Do not move sorting into SQLAlchemy without reproducing all of that. Sort fields come from `SORT_FIELDS` in `app/utils.py`: `qid`, `qno`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`. `qno` (integer start of the paper token) is a sort criterion only, never a filter or grouping field.
+`query.all()` then `apply_multi_sort(all_questions, sort_config, group_order=sort_group_order)` then `hierarchy.paginate_by_root(sorted, page, per_page)`. This is intentional: multi-field sort with null handling, manual block order, and hierarchy-aware `qid`/`qno` keys (`hierarchy.sort_key` / `qno_sort_key` so `Q3ci` / `Q23-24` order correctly) cannot be expressed as a simple `ORDER BY`. Do not move sorting into SQLAlchemy without reproducing all of that. Sort fields come from `SORT_FIELDS` in `app/utils.py`: `qid`, `qno`, `year`, `level`, `topic`, `subtopic`, `source`, `section`, `q_type`, `correct_percentage`, `chapter`, `subchapter`, `created_time`. `qno` (integer start of the paper token) is a sort criterion only, never a filter or grouping field. `topic` / `subtopic` / `chapter` / `subchapter` sort by the **saved admin order**, not the name: `utils.topic_order_key` etc. return `(sort_order, id)` (a subtopic / subchapter is prefixed with its parent's tuple), `None` when untagged (last ascending). `enumerate_sort_groups` uses the same keys (`GROUP_ORDER_KEYS`) for the default block order.
 
 Unless `qids` or `ids` override, `_build_filtered_query` excludes stem ids (`~id.in_(stem_id_query())`).
 
@@ -225,6 +225,8 @@ All chip IDs are **strings** (checkbox `value`); saved sets are int on the serve
 
 `oqb_selectedQuestions`, `oqb_filterSettings`, `oqb_sortConfig`, `oqb_sortGroupOrder`, `oqb_viewSettings`, `oqb_previewLanguage` (legacy fallback), `oqb_versionPriority`, `oqb_pageSize`, `oqb_showSelectedOnly`, `oqb_showHiddenSubtopics`, `oqb_showHiddenSubchapters`, `oqb_currentPage`, `oqb_scratchSets`. Plus ad-hoc `qids_token` keys written by DB Health.
 
+The four show-hidden eye switches (Topics, Subtopics, Chapters, Subchapters) travel inside `oqb_filterSettings` / filter profiles as `show_hidden_topics`, `show_hidden_subtopics`, `show_hidden_chapters`, `show_hidden_subchapters`. The topic / chapter switches are restored **before** `loadSubjectData` / `loadChaptersAsync` fetch the lists (`includeHiddenParam(switchId)`); toggling one re-fetches the list keeping current ticks, so a tick on a now-hidden topic or chapter drops out.
+
 ## Settings & config keys
 
 | Key | Read in | Purpose |
@@ -261,7 +263,7 @@ Runtime-tunable keys hot-reload from System Settings: [../core/06-system-setting
 4. **Show Selected Only lives in `#idsInput`, not in CSS.** Any code that mutates the selection while the toggle is on must call `syncShowSelectedOnlyToServer()`.
 5. **AND mode ignores `is_crosstopic`.** The UI mirrors this by force-checking and disabling the box; persist `dataset.userValue`, not the forced state. `getCurrentFilterValues()` deliberately reads the forced value (profiles saved in that state carry `true`).
 6. **Version beats format in the dashboard resolver** (`_resolve_preview_assets` and the card loop) but format beats version in the viewer/generator. Do not "fix" one to match the other without checking both call sites.
-7. **Sorting/pagination is Python-side by design** (natural sort, null handling, manual block order). Avoid `ORDER BY`/`LIMIT` shortcuts.
+7. **Sorting/pagination is Python-side by design** (natural sort, null handling, manual block order). Avoid `ORDER BY`/`LIMIT` shortcuts. Taxonomy fields sort by `sort_order` (then `id`), never alphabetically — do not reintroduce name keys.
 8. **`sort_group_order` is ignored unless its `fields` equal the grouping fields in `sort_config`**; the client clears it when grouping changes.
 9. **Explain is stateless server-side**: turn 1 is rebuilt each call; the client must re-send `turns` including any user `images` every time. Stale-stream races are prevented by the `aborter` identity check; keep it when touching `_explainStreamRequest`.
 10. **`chat_messages_stream` sets `resp.encoding='utf-8'`** because some local LLM servers omit charset and `requests` would otherwise decode ISO-8859-1 (mojibake in CJK/curly quotes).

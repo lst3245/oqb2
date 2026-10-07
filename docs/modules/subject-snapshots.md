@@ -14,7 +14,7 @@ Built after an incident where a bulk edit overwrote the tags of hundreds of MATC
 | `app/__init__.py` | Boot patch: `create checkfirst` the table, then `subject_snapshot.ensure_baselines()` |
 | `app/admin.py` | Capture hooks in every taxonomy / tag write route (list below); `_subjects_of(model, ids)` helper; `delete_subject` clears the subject's points |
 | `app/subject_ai_service.py` | `set_description` captures before changing a taxonomy hint |
-| `templates/admin_restore_points.html` | The page: subject picker, "Take snapshot" with note, points table, preview / restore modal |
+| `templates/admin_restore_points.html` | The page: subject picker, "Take snapshot" with note, points table (pin / unpin, preview / restore modal). Order is newest first; a pin does not move the row |
 | `templates/base.html`, `templates/admin_index.html`, `templates/admin_topics.html`, `templates/admin_chapters.html` | Admin dropdown → **Restore Points**; Content Management hub card; **Restore Points** header button on Topics / Chapters (same `subject_id`) |
 | `tests/test_subject_snapshot.py` | Pure tests: codec, plan rules, summary, prune selection, tag-change detection |
 
@@ -24,13 +24,13 @@ Schema detail: [../core/03-data-model-and-migrations.md](../core/03-data-model-a
 
 | Table / model | Columns | Notes |
 |---|---|---|
-| `subject_restore_points` (`SubjectRestorePoint`) | `id`, `subject_id` VARCHAR(10) idx (**no FK**), `user_id` FK `users.id` `ON DELETE SET NULL`, `action` VARCHAR(30), `note` VARCHAR(200) NULL, `payload` MEDIUMTEXT, `created_at` | One row = one subject's state **before** a save. `payload` is JSON from `encode_state`; never edit it by hand |
+| `subject_restore_points` (`SubjectRestorePoint`) | `id`, `subject_id` VARCHAR(10) idx (**no FK**), `user_id` FK `users.id` `ON DELETE SET NULL`, `action` VARCHAR(30), `note` VARCHAR(200) NULL, `pinned` TINYINT(1) NOT NULL DEFAULT 0, `payload` MEDIUMTEXT, `created_at` | One row = one subject's state **before** a save. `payload` is JSON from `encode_state`; never edit it by hand. `pinned` is set only from the Restore Points page |
 
 Payload v1 (`PAYLOAD_VERSION = 1`), compact JSON:
 
 ```json
 {"v": 1, "subject_id": "MATC",
- "topics":      [{"id": 1, "name": "...", "sort_order": 1, "description": null}],
+ "topics":      [{"id": 1, "name": "...", "hidden": false, "sort_order": 1, "description": null}],
  "subtopics":   [{"id": 10, "topic_id": 1, "name": "...", "hidden": false, "sort_order": 1, "description": null}],
  "chapters":    [...], "subchapters": [{"id": 50, "chapter_id": 5, ...}],
  "question_columns": ["id","qid","major_topic_id","major_subtopic_id","chapter_id","subchapter_id",
@@ -49,7 +49,8 @@ All `@login_required`. Prefix `/admin`.
 | Method | Path | Authz | Purpose / shapes |
 |---|---|---|---|
 | GET | `/admin/restore-points` | admin; subject list from `get_user_admin_subjects()` | Page. Subject via `?subject_id=` → session `admin_taxonomy_subject` (shared with Topics / Chapters, `_resolve_taxonomy_subject`) → first admin subject; redirects to the canonical `?subject_id=` |
-| POST | `/admin/subjects/<subject_id>/restore-points/capture` | subject-admin (id in URL) | Manual snapshot. JSON `{note?}` (≤ 200 chars, whitespace-collapsed) → `{success, point{id, subject_id, created_at, action, action_label, note, username}}`; 500 `{success:false, error}` |
+| POST | `/admin/subjects/<subject_id>/restore-points/capture` | subject-admin (id in URL) | Manual snapshot. JSON `{note?}` (≤ 200 chars, whitespace-collapsed) → `{success, point{id, subject_id, created_at, action, action_label, note, pinned, username}}`; 500 `{success:false, error}` |
+| POST | `/admin/restore-points/<int:point_id>/pin` | admin + explicit `is_subject_admin(point.subject_id)` | Pin / unpin. JSON `{"pinned": true\|false}` → `{success, pinned, deleted, message}`. Unpin runs `prune` in the same transaction, so a point outside retention is deleted (`deleted: true`). 400 if `pinned` is not a JSON boolean; 404 / 403 |
 | GET | `/admin/restore-points/<int:point_id>/preview` | admin + explicit `is_subject_admin(point.subject_id)` | Read-only diff vs now → `{success, point, preview}` where `preview = {subject_id, has_changes, conflicts[], questions_in_point, questions_now, questions_changed, questions_deleted_since, questions_added_since, field_counts[{field, count}], dropped_refs, taxonomy{topics|subtopics|chapters|subchapters: {label, recreate[], rename[{from,to}], other_updates, delete[], keep_newer[]}}, samples[{qid, changes[{field, from, to}]}] (≤ 40), samples_truncated}`; 404 / 403 / 409 (bad payload) |
 | POST | `/admin/restore-points/<int:point_id>/restore` | admin + explicit subject check | Restore → `{success, message, before_point_id, summary}` (`summary` = preview shape, computed before applying). 409 `{success:false, error}` on conflicts (nothing written); 500 on failure (rolled back) |
 
@@ -61,8 +62,8 @@ All `@login_required`. Prefix `/admin`.
 
   | Action | Writer |
   |---|---|
-  | `topic-edit` | `add_topic`, `edit_topic`, `delete_topic`, `add_subtopic`, `edit_subtopic`, `toggle_subtopic_hidden`, `delete_subtopic`, `reorder_topics`, `reorder_subtopics` |
-  | `chapter-edit` | `add_chapter`, `edit_chapter`, `delete_chapter`, `add_subchapter`, `edit_subchapter`, `toggle_subchapter_hidden`, `delete_subchapter`, `reorder_chapters`, `reorder_subchapters` |
+  | `topic-edit` | `add_topic`, `edit_topic`, `toggle_topic_hidden`, `delete_topic`, `add_subtopic`, `edit_subtopic`, `toggle_subtopic_hidden`, `delete_subtopic`, `reorder_topics`, `reorder_subtopics` |
+  | `chapter-edit` | `add_chapter`, `edit_chapter`, `toggle_chapter_hidden`, `delete_chapter`, `add_subchapter`, `edit_subchapter`, `toggle_subchapter_hidden`, `delete_subchapter`, `reorder_chapters`, `reorder_subchapters` |
   | `taxonomy-hint` | `subject_ai_service.set_description` |
   | `question-tags` | `update_question` (edit modal) — state read first, point kept only if `question_tags_differ` (answer / comment-only saves add no point) |
   | `batch-update` | `batch_update_questions` (dashboard Bulk Edit) — one point per subject in the selection, only when a tag flag is set |
@@ -74,7 +75,8 @@ All `@login_required`. Prefix `/admin`.
   | `before-restore` | `restore`, same transaction as the restore |
 
 - **Not hooked (by decision):** Split / Combine / create child / set parent (they move tags between a stem and its parts as part of a structural change), PDF import commit and ingestion (create new questions; nothing existing to lose), `batch_mcq_ans` (assets only). Question deletes are not undone by a restore.
-- **Retention:** after each capture, `prune` keeps the newest `KEEP_PER_SUBJECT` (100) points **plus** the first point of each UTC day within `DAILY_ANCHOR_DAYS` (30), so a busy day cannot push out "start of day". Restore passes `keep_ids={point being restored}`. Pruning only ever deletes rows of the same subject.
+- **Retention:** after each capture, `prune` keeps the newest `KEEP_PER_SUBJECT` (100) points **plus** the first point of each UTC day within `DAILY_ANCHOR_DAYS` (30), so a busy day cannot push out "start of day", **plus every `pinned` row**. Pins do not use up the newest-100 budget. Restore passes `keep_ids={point being restored}`. Pruning only ever deletes rows of the same subject. `set_pinned` is the only writer of `pinned`; unpinning calls `prune` immediately.
+- **Pins do not survive subject delete.** `delete_for_subject` removes every row of that subject, pinned or not.
 - **Restore is subject-scoped and one transaction:** decode → read live → `gather_context` → `plan_restore` → abort on conflicts → `capture_state(live, 'before-restore')` → `apply_plan` (Core statements, every one filtered by `subject_id` / parent subject) → commit.
 - **Restore rules** (`plan_restore`, pure):
   - Taxonomy rows keep their ids. Rows deleted since the point are **re-inserted with the original id**; rows in both are updated field by field (name, order, hidden, hint, parent).
@@ -83,6 +85,7 @@ All `@login_required`. Prefix `/admin`.
   - Questions in both: scalar fields set to the point's values; minor-topic / subtopic links replaced. Questions deleted since are skipped. Questions created since keep their tags.
   - A point reference to a row that no longer exists anywhere is cleared (`dropped_refs`) rather than inserted.
   - Only fields listed in the payload's `question_columns` are touched — an older payload never blanks a field it did not record. Adding a field = append to `QUESTION_FIELDS` (and `REF_KIND` if it is a taxonomy ref); keep `decode_state` tolerant.
+  - Same for taxonomy rows: `decode_state` keeps only the keys a row actually carries, and `plan_restore` inserts / updates only those. Points taken before `topics.hidden` / `chapters.hidden` existed have no `hidden` key on topic / chapter rows, so a restore leaves the live flag alone (re-inserted rows get the column default, visible). Adding a taxonomy column = append to `TAXONOMY_FIELDS` and select it in `read_state`.
 - **Restore is itself undoable:** the `before-restore` point holds the pre-restore state.
 
 ## Settings & config keys
@@ -105,7 +108,8 @@ None of its own. `capture_committed` opens a private `Session(db.engine)` so Aut
 - **Cost:** `read_state` is 5 queries per subject (~20–130 ms for MATC). Fine per save; do not call it per row inside a loop — capture once per subject per request.
 - **Concurrent saves during a restore** by other users may land after the restore's read and be overwritten by it (no table locks). Restore when nobody else is editing the subject.
 - **Payload size** is bounded by `max_allowed_packet` (1 MB on this host).
-- Pruning and `delete_for_subject` are the only deletes. Never truncate or hand-edit `subject_restore_points`; never "restore" a subject by importing a full dump over the live DB when a point exists.
+- Pruning and `delete_for_subject` are the only deletes. `prune` must keep selecting `pinned` and passing those ids to `select_prunable` — dropping that filter would delete pinned points on the next capture. Never truncate or hand-edit `subject_restore_points`; never "restore" a subject by importing a full dump over the live DB when a point exists.
+- The list is always newest first (`id` descending). Pinning does not move a row.
 - Datetimes are naive UTC (`utc_iso`); the page formats with `oqbFormatLocalTime`. Daily anchors use UTC days (08:00 Hong Kong time).
 
 ## Related

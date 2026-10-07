@@ -27,7 +27,8 @@
     </div>
     <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
         A restore point is saved automatically just before every change to this subject's topic list,
-        chapter list, or question tags. The newest {{ keep_per_subject }} per subject are kept.
+        chapter list, or question tags. The newest {{ keep_per_subject }} are kept, plus the first
+        point of each day for the last 30 days. Pin a point to keep it beyond that, until you unpin it.
     </p>
     <hr>
 
@@ -76,7 +77,15 @@
                     <td>{{ p.action_label }}</td>
                     <td>{{ p.username or '—' }}</td>
                     <td class="small">{{ p.note or '' }}</td>
-                    <td class="text-end">
+                    <td class="text-end text-nowrap">
+                        <button type="button"
+                                class="btn btn-sm {{ 'btn-warning' if p.pinned else 'btn-outline-secondary' }}"
+                                data-pinned="{{ 1 if p.pinned else 0 }}"
+                                title="{{ 'Pinned — kept until you unpin it' if p.pinned else 'Pin so this point is never pruned' }}"
+                                onclick="togglePin(this, {{ p.id }})">
+                            <i class="bi {{ 'bi-pin-angle-fill' if p.pinned else 'bi-pin-angle' }}"></i>
+                            {{ 'Unpin' if p.pinned else 'Pin' }}
+                        </button>
                         <button class="btn btn-outline-primary btn-sm" onclick="openPreview({{ p.id }})">
                             <i class="bi bi-eye"></i> Preview / restore
                         </button>
@@ -120,6 +129,7 @@ const RP_CAPTURE_URL = {{ url_for('restore_points.capture', subject_id=subject.i
 {% endif %}
 const RP_PREVIEW_URL = {{ url_for('restore_points.preview', point_id=0) | tojson }};
 const RP_RESTORE_URL = {{ url_for('restore_points.restore', point_id=0) | tojson }};
+const RP_PIN_URL = {{ url_for('restore_points.pin', point_id=0) | tojson }};
 let rpModal = null;
 let rpPointId = null;
 let rpRestored = false;
@@ -131,7 +141,7 @@ function rpEsc(s) {
 }
 
 function rpUrl(template, id) {
-    return template.replace(/\/0\/(preview|restore)$/, `/${id}/$1`);
+    return template.replace(/\/0\/(preview|restore|pin)$/, `/${id}/$1`);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -143,6 +153,24 @@ document.addEventListener('DOMContentLoaded', function() {
         el.textContent = window.oqbFormatLocalTime(el.dataset.utc);
     });
 });
+
+function togglePin(btn, pointId) {
+    const want = btn.dataset.pinned !== '1';
+    if (!want && !confirm('Unpin this point?\n\nIf it is outside the newest points and the daily anchors, it will be removed.')) return;
+    btn.disabled = true;
+    fetch(rpUrl(RP_PIN_URL, pointId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: want })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) throw new Error(data.error || 'Could not update the pin');
+        if (data.deleted) alert(data.message);
+        location.reload();
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
 
 function takeSnapshot() {
     const btn = document.getElementById('snapshotBtn');

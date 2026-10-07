@@ -36,15 +36,15 @@ def _state():
     """MATC-like subject: two topics, three subtopics, one chapter."""
     s = empty_state('MATC')
     s['topics'] = {
-        1: {'name': '01 Numbers', 'sort_order': 1, 'description': None},
-        2: {'name': '02 Algebra', 'sort_order': 2, 'description': 'eqns'},
+        1: {'name': '01 Numbers', 'hidden': False, 'sort_order': 1, 'description': None},
+        2: {'name': '02 Algebra', 'hidden': False, 'sort_order': 2, 'description': 'eqns'},
     }
     s['subtopics'] = {
         10: {'topic_id': 1, 'name': 'Integers', 'hidden': False, 'sort_order': 1, 'description': None},
         11: {'topic_id': 1, 'name': 'Fractions', 'hidden': True, 'sort_order': 2, 'description': None},
         20: {'topic_id': 2, 'name': 'Linear', 'hidden': False, 'sort_order': 1, 'description': None},
     }
-    s['chapters'] = {5: {'name': 'Ch 1', 'sort_order': 1, 'description': None}}
+    s['chapters'] = {5: {'name': 'Ch 1', 'hidden': False, 'sort_order': 1, 'description': None}}
     s['subchapters'] = {50: {'chapter_id': 5, 'name': '1.1', 'hidden': False, 'sort_order': 1,
                              'description': None}}
     s['questions'] = {
@@ -96,6 +96,31 @@ class CodecTests(unittest.TestCase):
         plan = plan_restore(live, point)
         self.assertFalse(plan['questions']['changed'])
         self.assertNotIn('correct_percentage', plan['questions']['scalar_fields'])
+
+    def test_older_payload_without_topic_hidden_keeps_live_flag(self):
+        data = json.loads(encode_state(_state()))
+        for kind in ('topics', 'chapters'):
+            for row in data[kind]:
+                row.pop('hidden')
+        point = decode_state(json.dumps(data))
+        self.assertNotIn('hidden', point['topics'][1])
+
+        live = _copy(_state())
+        live['topics'][1]['hidden'] = True
+        live['chapters'][5]['hidden'] = True
+        del live['topics'][2]
+        plan = plan_restore(live, point)
+        self.assertEqual(plan['taxonomy']['topics']['update'], [])
+        self.assertEqual(plan['taxonomy']['chapters']['update'], [])
+        self.assertNotIn('hidden', plan['taxonomy']['topics']['insert'][0])
+
+    def test_topic_hidden_change_is_restored(self):
+        point = _copy(_state())
+        live = _copy(_state())
+        live['topics'][2]['hidden'] = True
+        plan = plan_restore(live, point)
+        self.assertEqual(plan['taxonomy']['topics']['update'],
+                         [{'id': 2, 'set': {'hidden': False}, 'old': {'hidden': True}}])
 
 
 class PlanTests(unittest.TestCase):
@@ -287,6 +312,15 @@ class PruneTests(unittest.TestCase):
         pts = [(1, old), (2, self.NOW), (3, self.NOW)]
         self.assertEqual(select_prunable(pts, self.NOW, keep=1), [1])
         self.assertEqual(select_prunable(pts, self.NOW, keep=1, protect={1}), [])
+
+    def test_pinned_survives_outside_the_window(self):
+        # All older than the daily-anchor window, so only the newest `keep`
+        # ids survive — plus anything pinned, which does not spend that budget.
+        base = self.NOW - timedelta(days=50)
+        pts = [(i, base + timedelta(days=i)) for i in range(1, 6)]
+        self.assertEqual(select_prunable(pts, self.NOW, keep=2), [1, 2, 3])
+        self.assertEqual(select_prunable(pts, self.NOW, keep=2, pinned={1}), [2, 3])
+        self.assertEqual(select_prunable(pts, self.NOW, keep=2, pinned={1, 2}), [3])
 
 
 class TagChangeTests(unittest.TestCase):

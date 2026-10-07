@@ -11,7 +11,9 @@ session, committed before the run starts).
 
 Payload (JSON, ``PAYLOAD_VERSION``):
 
-* ``topics`` / ``chapters``: ``id, name, sort_order, description``
+* ``topics`` / ``chapters``: ``id, name, hidden, sort_order, description``
+  (``hidden`` absent in points taken before 2026-10-06; restore then leaves
+  the live flag alone)
 * ``subtopics`` / ``subchapters``: ``id, <parent>_id, name, hidden,
   sort_order, description``
 * ``questions``: one array per question, columns named by
@@ -65,9 +67,9 @@ ACTION_LABELS = {
 
 TAXONOMY_KINDS = ('topics', 'subtopics', 'chapters', 'subchapters')
 TAXONOMY_FIELDS = {
-    'topics': ('name', 'sort_order', 'description'),
+    'topics': ('name', 'hidden', 'sort_order', 'description'),
     'subtopics': ('topic_id', 'name', 'hidden', 'sort_order', 'description'),
-    'chapters': ('name', 'sort_order', 'description'),
+    'chapters': ('name', 'hidden', 'sort_order', 'description'),
     'subchapters': ('chapter_id', 'name', 'hidden', 'sort_order', 'description'),
 }
 PARENT = {'subtopics': ('topics', 'topic_id'), 'subchapters': ('chapters', 'chapter_id')}
@@ -130,7 +132,8 @@ def encode_state(state):
 
 def decode_state(payload):
     """JSON payload string -> state dict. Columns missing from an older
-    payload are left out of ``state['fields']`` so restore never blanks a
+    payload are left out of ``state['fields']`` (questions) or out of the row
+    (taxonomy, e.g. topic ``hidden`` before 2026-10) so restore never blanks a
     field the point did not record. Pure."""
     try:
         data = json.loads(payload)
@@ -144,7 +147,7 @@ def decode_state(payload):
         fields = TAXONOMY_FIELDS[kind]
         rows = {}
         for r in data.get(kind) or []:
-            row = {f: r.get(f) for f in fields}
+            row = {f: r.get(f) for f in fields if f in r}
             if 'hidden' in row:
                 row['hidden'] = bool(row['hidden'])
             rows[int(r['id'])] = row
@@ -228,9 +231,9 @@ def plan_restore(live, point, *, foreign=None, external_refs=None, external_exis
                 continue
             cur = live[kind].get(nid)
             if cur is None:
-                t['insert'].append(dict({'id': nid}, **{f: row.get(f) for f in fields}))
+                t['insert'].append(dict({'id': nid}, **{f: row[f] for f in fields if f in row}))
                 continue
-            changed = {f: row.get(f) for f in fields if row.get(f) != cur.get(f)}
+            changed = {f: row[f] for f in fields if f in row and row[f] != cur.get(f)}
             if changed:
                 t['update'].append({'id': nid, 'set': changed,
                                     'old': {f: cur.get(f) for f in changed}})
@@ -402,9 +405,11 @@ def read_state(subject_id, session=None):
     state = empty_state(subject_id)
     qt = Question.__table__
     with s.no_autoflush:
-        for r in s.execute(select(Topic.id, Topic.name, Topic.sort_order, Topic.description)
+        for r in s.execute(select(Topic.id, Topic.name, Topic.hidden, Topic.sort_order,
+                                  Topic.description)
                            .where(Topic.subject_id == subject_id)):
-            state['topics'][r.id] = {'name': r.name, 'sort_order': r.sort_order,
+            state['topics'][r.id] = {'name': r.name, 'hidden': bool(r.hidden),
+                                     'sort_order': r.sort_order,
                                      'description': r.description}
         for r in s.execute(select(Subtopic.id, Subtopic.topic_id, Subtopic.name, Subtopic.hidden,
                                   Subtopic.sort_order, Subtopic.description)
@@ -413,9 +418,11 @@ def read_state(subject_id, session=None):
             state['subtopics'][r.id] = {'topic_id': r.topic_id, 'name': r.name,
                                         'hidden': bool(r.hidden), 'sort_order': r.sort_order,
                                         'description': r.description}
-        for r in s.execute(select(Chapter.id, Chapter.name, Chapter.sort_order, Chapter.description)
+        for r in s.execute(select(Chapter.id, Chapter.name, Chapter.hidden, Chapter.sort_order,
+                                  Chapter.description)
                            .where(Chapter.subject_id == subject_id)):
-            state['chapters'][r.id] = {'name': r.name, 'sort_order': r.sort_order,
+            state['chapters'][r.id] = {'name': r.name, 'hidden': bool(r.hidden),
+                                       'sort_order': r.sort_order,
                                        'description': r.description}
         for r in s.execute(select(Subchapter.id, Subchapter.chapter_id, Subchapter.name,
                                   Subchapter.hidden, Subchapter.sort_order, Subchapter.description)
@@ -465,11 +472,14 @@ def _current_user_id():
     return None
 
 
-def select_prunable(points, now, *, pending=0, protect=(),
+def select_prunable(points, now, *, pending=0, protect=(), pinned=(),
                     keep=KEEP_PER_SUBJECT, anchor_days=DAILY_ANCHOR_DAYS):
     """Ids to delete from ``points`` (``[(id, created_at), ...]``): everything
     except the newest ``keep - pending``, the first point of each UTC day
-    within ``anchor_days`` of ``now``, and ``protect``. Pure."""
+    within ``anchor_days`` of ``now``, ``protect``, and ``pinned``.
+
+    Pinned ids are extra survivors. They do not use up the newest-N budget.
+    Pure."""
     ordered = sorted(points, key=lambda p: p[0], reverse=True)
     survivors = {pid for pid, _ in ordered[:max(keep - pending, 0)]}
     cutoff = now - timedelta(days=anchor_days)
@@ -481,23 +491,63 @@ def select_prunable(points, now, *, pending=0, protect=(),
                 first_of_day[day] = pid
     survivors |= set(first_of_day.values())
     survivors |= set(protect or ())
+    survivors |= set(pinned or ())
     return sorted(pid for pid, _ in ordered if pid not in survivors)
 
 
 def prune(subject_id, *, session=None, pending=0, keep_ids=()):
     """Delete the subject's points that :func:`select_prunable` releases
-    (``pending`` = points added to the session but not yet flushed)."""
+    (``pending`` = points added to the session but not yet flushed).
+
+    Pinned rows are never deleted here. Returns the deleted ids."""
     from app.models import SubjectRestorePoint
     s = session if session is not None else db.session
     t = SubjectRestorePoint.__table__
     with s.no_autoflush:
-        rows = s.execute(select(t.c.id, t.c.created_at)
+        rows = s.execute(select(t.c.id, t.c.created_at, t.c.pinned)
                          .where(t.c.subject_id == subject_id)).all()
-    excess = select_prunable([(r.id, r.created_at) for r in rows], datetime.utcnow(),
-                             pending=pending, protect=keep_ids)
+    excess = select_prunable(
+        [(r.id, r.created_at) for r in rows], datetime.utcnow(),
+        pending=pending, protect=keep_ids,
+        pinned=[r.id for r in rows if r.pinned],
+    )
     if excess:
-        s.execute(t.delete().where(t.c.id.in_(excess)))
-    return len(excess)
+        s.execute(t.delete().where(t.c.id.in_(excess), t.c.subject_id == subject_id))
+    return excess
+
+
+def set_pinned(point, want, *, session=None):
+    """Pin or unpin ``point`` without committing.
+
+    Unpinning prunes immediately, so a point outside the retention window is
+    deleted in this same transaction. Returns ``(pinned, deleted)``, or
+    ``None`` when the row is already gone.
+    """
+    from app.models import SubjectRestorePoint
+    s = session if session is not None else db.session
+    t = SubjectRestorePoint.__table__
+    want = bool(want)
+    point_id = point.id
+    subject_id = point.subject_id
+    # Don't use UPDATE rowcount: a no-op (already pinned) matches 0 changed
+    # rows on some MySQL clients and would look like a missing point.
+    with s.no_autoflush:
+        exists = s.execute(
+            select(t.c.id).where(t.c.id == point_id, t.c.subject_id == subject_id)
+        ).first()
+    if exists is None:
+        return None
+    s.execute(
+        t.update()
+        .where(t.c.id == point_id, t.c.subject_id == subject_id)
+        .values(pinned=want)
+    )
+    # Drop the stale in-memory value. Read id / subject_id first: expire can
+    # reload the row, and an unpin may delete it in the prune below.
+    s.expire(point)
+    if want:
+        return True, False
+    return False, point_id in prune(subject_id, session=s)
 
 
 def capture_state(state, action, *, note=None, session=None, user_id=None, keep_ids=()):
@@ -512,6 +562,7 @@ def capture_state(state, action, *, note=None, session=None, user_id=None, keep_
         user_id=user_id if user_id is not None else _current_user_id(),
         action=action,
         note=_clean_note(note),
+        pinned=False,
         payload=encode_state(state),
         created_at=datetime.utcnow(),
     )
@@ -581,15 +632,16 @@ def point_meta(row, username=None):
         'action': row.action,
         'action_label': action_label(row.action),
         'note': row.note,
+        'pinned': bool(row.pinned),
         'username': username,
     }
 
 
 def list_points(subject_id):
-    """Newest first, without payloads."""
+    """Newest first, without payloads. Pin does not change this order."""
     from app.models import SubjectRestorePoint as P, User
     rows = db.session.execute(
-        select(P.id, P.subject_id, P.created_at, P.action, P.note, User.username)
+        select(P.id, P.subject_id, P.created_at, P.action, P.note, P.pinned, User.username)
         .outerjoin(User, User.id == P.user_id)
         .where(P.subject_id == subject_id)
         .order_by(P.id.desc())

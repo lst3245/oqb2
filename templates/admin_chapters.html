@@ -17,6 +17,7 @@
         gap: 2px;
         margin-right: 10px;
     }
+    .card-header.tax-row .drag-handle { color: rgba(255, 255, 255, .75); }
 </style>
 {% endblock %}
 
@@ -43,7 +44,9 @@
             </a>
         </div>
     </div>
-    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> One subject at a time. Use the arrow buttons to reorder items.</p>
+    <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> One subject at a time.
+        Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it.
+        Hidden chapters / subchapters stay taggable but drop out of the dashboard filter and AI tag hints.</p>
     <hr>
 
     {% if not subject %}
@@ -52,100 +55,67 @@
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-folder"></i> {{ subject.name }} ({{ subject.id }})</h5>
-            <button class="btn btn-sm btn-success"
-                    data-subject-id="{{ subject.id }}"
-                    data-subject-name="{{ subject.name }}"
-                    onclick="showAddChapterModal(this.dataset.subjectId, this.dataset.subjectName)">
+            <button class="btn btn-sm btn-success" onclick="showAddChapterModal()">
                 <i class="bi bi-plus-circle"></i> Add Chapter
             </button>
         </div>
         <div class="card-body">
             {% if chapters %}
-            <div id="chapters-{{ subject.id }}" data-subject="{{ subject.id }}">
+            <div id="taxRoot" data-subject="{{ subject.id }}">
                 {% for chapter in chapters %}
-                <div class="card mb-3 chapter-item" id="chapter-{{ chapter.id }}" data-id="{{ chapter.id }}">
-                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center">
+                <div class="card mb-3 tax-item {% if chapter.hidden %}is-hidden{% endif %}"
+                     data-level="parent" data-id="{{ chapter.id }}" data-hidden="{{ 1 if chapter.hidden else 0 }}">
+                    <div class="card-header bg-primary text-white tax-row d-flex justify-content-between align-items-center gap-2">
+                        <div class="d-flex align-items-center flex-grow-1 min-w-0">
+                            <span class="drag-handle tax-parent-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <div class="order-controls">
-                                <button class="btn btn-light reorder-btn" 
-                                        onclick="moveItem(this, 'up', 'chapters')" title="Move up"
-                                        {% if loop.first %}disabled{% endif %}>
-                                    <i class="bi bi-chevron-up"></i>
-                                </button>
-                                <button class="btn btn-light reorder-btn" 
-                                        onclick="moveItem(this, 'down', 'chapters')" title="Move down"
-                                        {% if loop.last %}disabled{% endif %}>
-                                    <i class="bi bi-chevron-down"></i>
-                                </button>
+                                <button class="btn btn-light reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
+                                <button class="btn btn-light reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
                             </div>
                             <h6 class="mb-0">
-                                <i class="bi bi-book"></i> {{ chapter.name }}
+                                <i class="bi bi-book"></i>
+                                <span class="tax-name" title="Double-click to rename">{{ chapter.name }}</span>
+                                <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not chapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                             </h6>
                         </div>
-                        <div>
-                            <button class="btn btn-sm btn-light" 
-                                    onclick="showEditChapterModal({{ chapter.id }}, '{{ chapter.name | e }}')">
-                                <i class="bi bi-pencil"></i> Edit
+                        <div class="text-nowrap">
+                            <button class="btn btn-sm btn-light" data-act="toggle" title="{{ 'Unhide' if chapter.hidden else 'Hide' }}">
+                                <i class="bi bi-{{ 'eye' if chapter.hidden else 'eye-slash' }}"></i>
                             </button>
-                            <button class="btn btn-sm btn-danger" 
-                                    onclick="deleteChapter({{ chapter.id }})">
-                                <i class="bi bi-trash"></i> Delete
-                            </button>
-                            <button class="btn btn-sm btn-success" 
-                                    onclick="showAddSubchapterModal({{ chapter.id }}, '{{ chapter.name | e }}')">
-                                <i class="bi bi-plus"></i> Add Subchapter
-                            </button>
+                            <button class="btn btn-sm btn-light" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> Subchapter</button>
                         </div>
                     </div>
                     <div class="card-body py-2">
-                        <!-- Subchapters -->
-                        {% set subchapters = chapter.subchapters.all() %}
-                        {% if subchapters %}
-                        <div class="list-group list-group-flush" id="subchapters-{{ chapter.id }}" data-chapter="{{ chapter.id }}">
-                            {% for subchapter in subchapters %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 subchapter-item {% if subchapter.hidden %}opacity-50{% endif %}"
-                                 id="subchapter-{{ subchapter.id }}" data-id="{{ subchapter.id }}">
-                                <div class="d-flex align-items-center">
-                                    <div class="order-controls">
-                                        <button class="btn btn-outline-secondary reorder-btn" 
-                                                onclick="moveItem(this, 'up', 'subchapters')" title="Move up"
-                                                {% if loop.first %}disabled{% endif %}>
-                                            <i class="bi bi-chevron-up"></i>
-                                        </button>
-                                        <button class="btn btn-outline-secondary reorder-btn" 
-                                                onclick="moveItem(this, 'down', 'subchapters')" title="Move down"
-                                                {% if loop.last %}disabled{% endif %}>
-                                            <i class="bi bi-chevron-down"></i>
-                                        </button>
+                        <div class="list-group list-group-flush tax-children" data-parent-id="{{ chapter.id }}">
+                            {% for subchapter in chapter.subchapters.all() %}
+                            <div class="list-group-item py-2 tax-item {% if subchapter.hidden %}is-hidden{% endif %}"
+                                 data-level="child" data-id="{{ subchapter.id }}" data-hidden="{{ 1 if subchapter.hidden else 0 }}">
+                                <div class="tax-row d-flex justify-content-between align-items-center gap-2">
+                                    <div class="d-flex align-items-center flex-grow-1 min-w-0">
+                                        <span class="drag-handle tax-child-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                                        <div class="order-controls">
+                                            <button class="btn btn-outline-secondary reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
+                                            <button class="btn btn-outline-secondary reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
+                                        </div>
+                                        <span>
+                                            <i class="bi bi-bookmark"></i>
+                                            <span class="tax-name" title="Double-click to rename">{{ subchapter.name }}</span>
+                                            <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subchapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                        </span>
                                     </div>
-                                    <span>
-                                        <i class="bi bi-bookmark"></i> {{ subchapter.name }}
-                                        {% if subchapter.hidden %}
-                                        <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
-                                        {% endif %}
-                                    </span>
-                                </div>
-                                <div>
-                                    <button class="btn btn-sm {% if subchapter.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
-                                            onclick="toggleSubchapterHidden({{ subchapter.id }})" 
-                                            title="{% if subchapter.hidden %}Show subchapter{% else %}Hide subchapter{% endif %}">
-                                        <i class="bi bi-{% if subchapter.hidden %}eye{% else %}eye-slash{% endif %}"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-primary" 
-                                            onclick="showEditSubchapterModal({{ subchapter.id }}, '{{ subchapter.name | e }}', {{ 'true' if subchapter.hidden else 'false' }})">
-                                        <i class="bi bi-pencil"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" 
-                                            onclick="deleteSubchapter({{ subchapter.id }})">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    <div class="text-nowrap">
+                                        <button class="btn btn-sm btn-outline-secondary" data-act="toggle" title="{{ 'Unhide' if subchapter.hidden else 'Hide' }}">
+                                            <i class="bi bi-{{ 'eye' if subchapter.hidden else 'eye-slash' }}"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                                        <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
+                                    </div>
                                 </div>
                             </div>
                             {% endfor %}
                         </div>
-                        {% else %}
-                        <p class="text-muted mb-0 small">No subchapters yet. Add one above!</p>
-                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
@@ -158,70 +128,53 @@
     {% endif %}
 </div>
 
-<!-- Add/Edit Chapter Modal -->
+<!-- Add Chapter Modal -->
 <div class="modal fade" id="chapterModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="chapterModalLabel">Add Chapter</h5>
+                <h5 class="modal-title">Add Chapter</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="chapterForm">
-                    <input type="hidden" id="chapterId">
-                    <input type="hidden" id="chapterSubjectId">
-                    <div class="mb-3">
-                        <label class="form-label">Subject</label>
-                        <input type="text" class="form-control" id="chapterSubjectName" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Chapter Name</label>
-                        <input type="text" class="form-control" id="chapterName" required>
-                    </div>
+                <form id="chapterForm" onsubmit="event.preventDefault(); saveChapter();">
+                    <label class="form-label" for="chapterName">Chapter Name</label>
+                    <input type="text" class="form-control" id="chapterName" required>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveChapter()">Save</button>
+                <button type="button" class="btn btn-primary" onclick="saveChapter()">Add</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Add/Edit Subchapter Modal -->
+<!-- Add Subchapter Modal -->
 <div class="modal fade" id="subchapterModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="subchapterModalLabel">Add Subchapter</h5>
+                <h5 class="modal-title">Add Subchapter <small class="text-muted" id="subchapterParentName"></small></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="subchapterForm">
-                    <input type="hidden" id="subchapterId">
+                <form id="subchapterForm" onsubmit="event.preventDefault(); saveSubchapter();">
                     <input type="hidden" id="subchapterChapterId">
                     <div class="mb-3">
-                        <label class="form-label">Chapter</label>
-                        <input type="text" class="form-control" id="subchapterChapterName" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Subchapter Name</label>
+                        <label class="form-label" for="subchapterName">Subchapter Name</label>
                         <input type="text" class="form-control" id="subchapterName" required>
                     </div>
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="subchapterHidden">
-                            <label class="form-check-label" for="subchapterHidden">
-                                <i class="bi bi-eye-slash"></i> Hidden
-                            </label>
-                        </div>
-                        <small class="text-muted">Hidden subchapters are not shown by default in the dashboard filter.</small>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="subchapterHidden">
+                        <label class="form-check-label" for="subchapterHidden"><i class="bi bi-eye-slash"></i> Hidden</label>
                     </div>
+                    <small class="text-muted">Hidden subchapters are not shown by default in the dashboard filter.</small>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveSubchapter()">Save</button>
+                <button type="button" class="btn btn-primary" onclick="saveSubchapter()">Add</button>
             </div>
         </div>
     </div>
@@ -229,199 +182,78 @@
 {% endblock %}
 
 {% block extra_js %}
+{% include 'partials/taxonomy_admin_js.html' %}
 <script>
 let chapterModal, subchapterModal;
 
 document.addEventListener('DOMContentLoaded', function() {
     chapterModal = new bootstrap.Modal(document.getElementById('chapterModal'));
     subchapterModal = new bootstrap.Modal(document.getElementById('subchapterModal'));
+    document.getElementById('chapterModal').addEventListener('shown.bs.modal', () => document.getElementById('chapterName').focus());
+    document.getElementById('subchapterModal').addEventListener('shown.bs.modal', () => document.getElementById('subchapterName').focus());
+
+    oqbTaxonomyAdmin({
+        rootId: 'taxRoot',
+        preview: false,
+        parentKey: 'chapter_ids',
+        childKey: 'subchapter_ids',
+        urls: {
+            reorderParents: '{{ url_for("admin.reorder_chapters") }}',
+            reorderChildren: '{{ url_for("admin.reorder_subchapters") }}',
+            editParent: '{{ url_for("admin.edit_chapter", chapter_id=0) }}',
+            editChild: '{{ url_for("admin.edit_subchapter", subchapter_id=0) }}',
+            toggleParent: '{{ url_for("admin.toggle_chapter_hidden", chapter_id=0) }}',
+            toggleChild: '{{ url_for("admin.toggle_subchapter_hidden", subchapter_id=0) }}',
+            deleteParent: '{{ url_for("admin.delete_chapter", chapter_id=0) }}',
+            deleteChild: '{{ url_for("admin.delete_subchapter", subchapter_id=0) }}',
+        },
+        confirmDeleteParent: 'Delete this chapter and all its subchapters? Questions tagged with this chapter will have their chapter cleared.',
+        confirmDeleteChild: 'Delete this subchapter? Questions tagged with this subchapter will have their subchapter cleared.',
+        onAddChild: showAddSubchapterModal,
+    });
 });
 
-// ============== Reorder Functions ==============
-
-function moveItem(btn, direction, type) {
-    const itemClass = type === 'chapters' ? '.chapter-item' : '.subchapter-item';
-    const item = btn.closest(itemClass);
-    const container = item.parentElement;
-    
-    if (direction === 'up') {
-        const prev = item.previousElementSibling;
-        if (prev && prev.classList.contains(itemClass.substring(1))) {
-            container.insertBefore(item, prev);
-        }
-    } else {
-        const next = item.nextElementSibling;
-        if (next && next.classList.contains(itemClass.substring(1))) {
-            container.insertBefore(next, item);
-        }
-    }
-    
-    // Update button states
-    updateMoveButtons(container, itemClass);
-    
-    // Save order
-    saveOrder(container, type);
+function postForm(url, fields) {
+    const formData = new FormData();
+    Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+    return fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json().catch(() => ({})).then(data => {
+            if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        }));
 }
 
-function updateMoveButtons(container, itemClass) {
-    const items = container.querySelectorAll(itemClass);
-    items.forEach((item, index) => {
-        const upBtn = item.querySelector('.order-controls button:first-child');
-        const downBtn = item.querySelector('.order-controls button:last-child');
-        if (upBtn) upBtn.disabled = (index === 0);
-        if (downBtn) downBtn.disabled = (index === items.length - 1);
-    });
-}
-
-function saveOrder(container, type) {
-    const itemClass = type === 'chapters' ? '.chapter-item' : '.subchapter-item';
-    const items = container.querySelectorAll(itemClass);
-    const ids = Array.from(items).map(item => parseInt(item.dataset.id));
-    
-    const url = type === 'chapters' ? 
-        '{{ url_for("admin.reorder_chapters") }}' : 
-        '{{ url_for("admin.reorder_subchapters") }}';
-    
-    const body = type === 'chapters' ? 
-        { chapter_ids: ids } : 
-        { subchapter_ids: ids };
-    
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (!data.success) {
-            alert('Error saving order');
-            location.reload();
-        }
-    })
-    .catch(err => {
-        alert('Error saving order');
-        location.reload();
-    });
-}
-
-// ============== Chapter Functions ==============
-
-function showAddChapterModal(subjectId, subjectName) {
-    document.getElementById('chapterModalLabel').textContent = 'Add Chapter';
-    document.getElementById('chapterId').value = '';
-    document.getElementById('chapterSubjectId').value = subjectId;
-    document.getElementById('chapterSubjectName').value = subjectName;
+function showAddChapterModal() {
     document.getElementById('chapterName').value = '';
     chapterModal.show();
 }
 
-function showEditChapterModal(chapterId, chapterName) {
-    document.getElementById('chapterModalLabel').textContent = 'Edit Chapter';
-    document.getElementById('chapterId').value = chapterId;
-    document.getElementById('chapterName').value = chapterName;
-    // Hide subject field for edit (can't change subject)
-    document.getElementById('chapterSubjectId').value = '';
-    document.getElementById('chapterSubjectName').value = '(Cannot change subject)';
-    chapterModal.show();
-}
-
 function saveChapter() {
-    const chapterId = document.getElementById('chapterId').value;
-    const name = document.getElementById('chapterName').value;
-    const subjectId = document.getElementById('chapterSubjectId').value;
-    
-    const url = chapterId ? 
-        `{{ url_for('admin.edit_chapter', chapter_id=0) }}`.replace('0', chapterId) :
-        `{{ url_for('admin.add_chapter') }}`;
-    
-    const formData = new FormData();
-    formData.append('name', name);
-    if (!chapterId && subjectId) {
-        formData.append('subject_id', subjectId);
-    }
-    
-    fetch(url, { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            chapterModal.hide();
-            location.reload();
-        })
-        .catch(err => alert('Error saving chapter'));
+    const name = document.getElementById('chapterName').value.trim();
+    if (!name) return;
+    postForm('{{ url_for("admin.add_chapter") }}', { name: name, subject_id: {{ (subject.id if subject else '')|tojson }} })
+        .then(() => location.reload())
+        .catch(err => alert('Error adding chapter: ' + err.message));
 }
-
-function deleteChapter(chapterId) {
-    if (!confirm('Delete this chapter and all its subchapters? Questions tagged with this chapter will have their chapter cleared.')) return;
-    
-    fetch(`{{ url_for('admin.delete_chapter', chapter_id=0) }}`.replace('0', chapterId), {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error deleting chapter'));
-}
-
-// ============== Subchapter Functions ==============
 
 function showAddSubchapterModal(chapterId, chapterName) {
-    document.getElementById('subchapterModalLabel').textContent = 'Add Subchapter';
-    document.getElementById('subchapterId').value = '';
     document.getElementById('subchapterChapterId').value = chapterId;
-    document.getElementById('subchapterChapterName').value = chapterName;
+    document.getElementById('subchapterParentName').textContent = '— ' + chapterName;
     document.getElementById('subchapterName').value = '';
     document.getElementById('subchapterHidden').checked = false;
     subchapterModal.show();
 }
 
-function showEditSubchapterModal(subchapterId, subchapterName, isHidden = false) {
-    document.getElementById('subchapterModalLabel').textContent = 'Edit Subchapter';
-    document.getElementById('subchapterId').value = subchapterId;
-    document.getElementById('subchapterName').value = subchapterName;
-    document.getElementById('subchapterHidden').checked = isHidden;
-    subchapterModal.show();
-}
-
 function saveSubchapter() {
-    const subchapterId = document.getElementById('subchapterId').value;
-    const name = document.getElementById('subchapterName').value;
-    const chapterId = document.getElementById('subchapterChapterId').value;
-    const hidden = document.getElementById('subchapterHidden').checked ? '1' : '0';
-    
-    const url = subchapterId ? 
-        `{{ url_for('admin.edit_subchapter', subchapter_id=0) }}`.replace('0', subchapterId) :
-        `{{ url_for('admin.add_subchapter') }}`;
-    
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('hidden', hidden);
-    if (!subchapterId) formData.append('chapter_id', chapterId);
-    
-    fetch(url, { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            subchapterModal.hide();
-            location.reload();
-        })
-        .catch(err => alert('Error saving subchapter'));
-}
-
-function toggleSubchapterHidden(subchapterId) {
-    fetch(`{{ url_for('admin.toggle_subchapter_hidden', subchapter_id=0) }}`.replace('0', subchapterId), {
-        method: 'POST'
+    const name = document.getElementById('subchapterName').value.trim();
+    if (!name) return;
+    postForm('{{ url_for("admin.add_subchapter") }}', {
+        name: name,
+        chapter_id: document.getElementById('subchapterChapterId').value,
+        hidden: document.getElementById('subchapterHidden').checked ? '1' : '0',
     })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error toggling subchapter visibility'));
-}
-
-function deleteSubchapter(subchapterId) {
-    if (!confirm('Delete this subchapter? Questions tagged with this subchapter will have their subchapter cleared.')) return;
-    
-    fetch(`{{ url_for('admin.delete_subchapter', subchapter_id=0) }}`.replace('0', subchapterId), {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error deleting subchapter'));
+        .then(() => location.reload())
+        .catch(err => alert('Error adding subchapter: ' + err.message));
 }
 </script>
 {% endblock %}

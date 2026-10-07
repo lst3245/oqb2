@@ -178,20 +178,24 @@ Click **Delete** on the user card. Cannot delete your own account.
 Topics represent the **curriculum taxonomy**:
 - **Topic** → broad category (e.g. "Number and Algebra")
 - **Subtopic** → specific unit (e.g. "Polynomials")
-  - Subtopics can be marked **hidden** — they won't appear in the dashboard filter by default (toggle the eye icon to show them; useful for textbook-chapter subtopics that should only appear in admin)
 
 The page shows **one subject at a time**. Use the subject dropdown (top right) to switch. The last subject you opened is remembered, including when you jump to Chapters.
 
-**CRUD**: Add, rename, delete. Deletion cascades — deleting a topic removes its subtopics and un-tags linked questions.
+- **Add**: *Add Topic* at the top, *+ Subtopic* on a topic row.
+- **Rename**: double-click a name (or click the pencil), type, then press Enter or click away. Esc cancels.
+- **Reorder**: drag the grip handle on the left of a row, or use the up/down arrows. Subtopics move within their own topic. The order is saved immediately and is the order used by the dashboard sort, generated section headings and topic numbering.
+- **Hide / unhide**: the eye button. A hidden topic or subtopic stays on this page (dimmed, with a *Hidden* badge) and in every tag editor, but is left out of the dashboard filter (unless the filter's eye switch is on), out of generated topic numbering, and out of the Auto Tag hints. Hiding a topic also hides its subtopics in those places without changing their own setting, so unhiding the topic brings back exactly what was there before. Useful for textbook-chapter subtopics or retired topics that old questions still use.
+- **Delete**: the bin button. Deleting a topic removes its subtopics and un-tags linked questions.
+- **Numbering & MC/CQ preview** (switch in the card header, on by default): shows the number each topic / subtopic would get when a paper is generated with *Number topics / subtopics* (`01`, `1.1`, …, hidden ones skipped), plus MC / CQ chips and a question count for the questions tagged with it as **major** topic / subtopic. That is the suffix a generated section heading would carry. The numbers update as you drag or hide rows.
 
-**Reorder**: Use the up/down arrows next to each row.
+Every change saves a restore point first (see Restore Points below).
 
 ### Chapters (`/admin/chapters`)
 Chapters represent **textbook organisation** (separate from the topic/subtopic system):
 - **Chapter** → textbook chapter
 - **Subchapter** → section within a chapter
 
-Same one-subject view, CRUD, and reorder behaviour as topics.
+Same one-subject view, drag / arrows, double-click rename and hide / unhide as topics. Chapters are never numbered, so there is no preview switch.
 
 Questions can be linked to both a topic AND a chapter — they serve different filtering purposes.
 
@@ -246,9 +250,10 @@ A per-subject undo for tagging mistakes. Just **before** any of these saves, the
 - importing the Question Tags, Topics or Chapters CSV;
 - starting an **Auto Tag** run.
 
-The page shows one subject at a time (same subject picker as Topics / Chapters) and lists the points newest first: when it was saved, which kind of save it was taken before, who made it, and an optional note. The newest 100 points per subject are kept, plus the first point of each day for the last 30 days.
+The page shows one subject at a time (same subject picker as Topics / Chapters) and lists the points newest first, whether or not they are pinned: when it was saved, which kind of save it was taken before, who made it, and an optional note. The newest 100 points per subject are kept, plus the first point of each day for the last 30 days. A pinned point is kept as well, and does not count toward the 100.
 
-- **Take snapshot** — save a point now, with an optional note (e.g. *"before reorganising topic 7"*). Do this before any large manual clean-up.
+- **Take snapshot** — save a point now, with an optional note (e.g. *"before reorganising topic 7"*). Do this before any large manual clean-up, then pin it if you want that state kept.
+- **Pin / Unpin** — pin keeps that point until you unpin it (or the subject is deleted). Unpinning a point that is already outside the newest 100 and the daily anchors removes it straight away.
 - **Preview / restore** — shows what restoring that point would change *right now*: topics / chapters that come back, get renamed back or are removed, how many questions get re-tagged, per-field counts, and a sample of questions with *now → after restore* values. Nothing is written by the preview.
 - **Restore this point** — puts back, for this subject only: the topic, subtopic, chapter and subchapter lists (names, order, hidden flag, tagging hints) and every question's major / minor topics, subtopics, chapter, subchapter, level, type, section and correct %. The current state is saved as a new **Before restore** point first, so you can undo the restore the same way.
 
@@ -471,16 +476,16 @@ qid, major_topic, major_subtopic, level, q_type, section, minor_topics, subtopic
 
 ### Topics / Subtopics
 
-**Export** produces:
+**Export** produces one row per subtopic (or one row for a topic without subtopics):
 ```
-subject_id, topic_name, sort_order, subtopics
+subject_id, topic_name, topic_hidden, subtopic_name, subtopic_hidden
 ```
-`subtopics` is a semicolon-separated list like `Polynomials;Equations;Inequalities`.
+`topic_hidden` / `subtopic_hidden` are `1` (hidden) or `0`.
 
-**Import** creates topics and subtopics that don't already exist (by name match within subject).
+**Import** creates topics and subtopics that don't already exist (by name match within subject), sets the order from the row order, and updates the hidden flags where the cell is `0` or `1` (a blank cell or a missing column leaves the flag as it is, so older CSVs still import).
 
 ### Chapters / Subchapters
-Same format as Topics, but for the chapter system.
+Same format as Topics, but for the chapter system: `subject_id, chapter_name, chapter_hidden, subchapter_name, subchapter_hidden`.
 
 **Workflow tip**: Export → edit in Excel → import to bulk-create or update topics/chapters.
 

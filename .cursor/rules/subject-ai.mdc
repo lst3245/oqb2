@@ -12,7 +12,7 @@ alwaysApply: false
 - Correction patterns (`examples_limit > 0`) are **aggregated disagreements only** (`field, suggested → saved, count`), no question content. Recomputed per call by `correction_patterns_text`.
 - `TagCorrection` stores display **names**, never IDs; `agreed` = `compare_labels` (case-insensitive scalars, set equality for `minor_topics` / `subtopics`, `level` as string). Rows are written only from the edit modal's Save-Tags-after-Suggest path (`/admin/questions/<id>/ai/tag-corrections`).
 - Evaluate (`iter_tag_evaluate`) never calls `apply_tags`; skips stems and questions with no existing value in the requested fields; `applicable` counts only fields with a ground truth.
-- Taxonomy: hidden subtopics / subchapters are not sent to the model; `description` ≤ 300 chars, whitespace-collapsed, validated to belong to the URL subject (`set_description`). `set_description` captures a `taxonomy-hint` restore point after validation and before the write (`subject-snapshots.mdc`).
+- Taxonomy: hidden topics / subtopics / chapters / subchapters are not sent to the model (a hidden topic or chapter drops its children too); `description` ≤ 300 chars, whitespace-collapsed, validated to belong to the URL subject (`set_description`). `set_description` captures a `taxonomy-hint` restore point after validation and before the write (`subject-snapshots.mdc`).
 - Authz: every subject route has `subject_id` in the URL so `@subject_admin_required` fires; the per-question route checks `question.subject` explicitly. This tier is lower trust than `/admin/prompts` (super-admin).
 - Limits are service constants (`MAX_NOTE_CHARS 8000`, `MAX_DESCRIPTION_CHARS 300`, `MAX_EXAMPLES_LIMIT 30`), not System Settings.
 

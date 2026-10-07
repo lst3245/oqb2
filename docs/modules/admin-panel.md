@@ -15,7 +15,8 @@
 | `app/storage.py` | `safe_username`, `user_path` used when renaming a user moves their storage home. |
 | `templates/admin_index.html` | Admin hub cards. |
 | `templates/admin_subjects.html` | Manage Subjects (super admin). |
-| `templates/admin_topics.html`, `templates/admin_chapters.html` | Topic/Subtopic and Chapter/Subchapter CRUD + reorder; one subject at a time. |
+| `templates/admin_topics.html`, `templates/admin_chapters.html` | Topic/Subtopic and Chapter/Subchapter pages; one subject at a time. Markup + Add modals only; Topics adds the numbering / MC-CQ preview chips. |
+| `templates/partials/taxonomy_admin_js.html` | `oqbTaxonomyAdmin(cfg)` shared by both pages: SortableJS drag + arrow fallback, double-click inline rename, hide / delete in place, numbering preview. Markup contract in its header comment. |
 | `templates/partials/admin_subject_picker.html` | Subject `<select>` used by Topics and Chapters (`endpoint` + `subjects` + `subject`). |
 | `templates/admin_users.html` | Users + per-subject permission selects. |
 | `templates/admin_export_import.html` | CSV export/import forms. |
@@ -33,7 +34,7 @@ Schema reference: [../core/03-data-model-and-migrations.md](../core/03-data-mode
 | Model | Touched by |
 |---|---|
 | `Subject` (`id` string PK, `name`, `split_parts_default`) | Subjects CRUD. `id` is immutable (embedded in QIDs and `SOURCE_PATH/<subject>/`). `split_parts_default` is on the add/edit form and seeds the PDF-import **Split questions into parts** checkbox. |
-| `Topic` / `Subtopic` (`subject_id`, `sort_order`; Subtopic `hidden`) | Topics page, Topics CSV. Cascade-deleted with their Subject. |
+| `Topic` / `Subtopic` (`subject_id`, `sort_order`, `hidden` on both) | Topics page, Topics CSV. Cascade-deleted with their Subject. |
 | `Chapter` / `Subchapter` (same shape as Topic/Subtopic) | Chapters page, Chapters CSV. |
 | `Question` | Counted for subject delete-block; Question Tags CSV writes `major_topic_id`, `major_subtopic_id`, `minor_topics`, `subtopics`, `chapter_id`, `subchapter_id`, `section`, `level`, `q_type`, `correct_percentage`, `description`, `answer`, `comment`. |
 | `QuestionAsset` | Health stats (duplicates, path mismatches), orphan sync deletes rows. |
@@ -68,13 +69,14 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
-| GET | `/topics` | A | Page for **one** subject. `?subject_id=` (must be an admin subject) → session `admin_taxonomy_subject` → first admin subject by id. Missing/unknown id is ignored (not 403). Canonical 302 to `?subject_id=` when the query does not already match. Topics ordered by `sort_order`. |
+| GET | `/topics` | A | Page for **one** subject. `?subject_id=` (must be an admin subject) → session `admin_taxonomy_subject` → first admin subject by id. Missing/unknown id is ignored (not 403). Canonical 302 to `?subject_id=` when the query does not already match. Topics ordered by `(sort_order, id)`. Also passes `topic_stats` / `subtopic_stats` = `{id: {count, types}}` from `_major_type_stats` (leaf questions by **major** topic / subtopic — the grouping generation uses, so `types` is the suffix a heading would get). |
 | POST | `/topics/add` | A | Form `{subject_id, name}`; `sort_order = max + 1`. |
-| POST | `/topics/<int:topic_id>/edit` | A | Form `{name}`. |
+| POST | `/topics/<int:topic_id>/edit` | A + subject admin of the topic | Form `{name, hidden?}` (name trimmed); `hidden` only changes when present. Returns `{id, name, hidden}`. |
+| POST | `/topics/<int:topic_id>/toggle-hidden` | A + subject admin | Flip `hidden`; returns `{id, name, hidden}`. Subtopics keep their own flags. |
 | POST/DELETE | `/topics/<int:topic_id>/delete` | A | Delete topic (subtopics cascade). |
 | POST | `/subtopics/add` | A | Form `{topic_id, name, hidden('1'/'0')}`. |
-| POST | `/subtopics/<int:subtopic_id>/edit` | A | Form `{name, hidden?}`; `hidden` only changes when present. |
-| POST | `/subtopics/<int:subtopic_id>/toggle-hidden` | A | Flip `hidden`; returns `{id, name, hidden}`. |
+| POST | `/subtopics/<int:subtopic_id>/edit` | A + subject admin | Form `{name, hidden?}`; `hidden` only changes when present. |
+| POST | `/subtopics/<int:subtopic_id>/toggle-hidden` | A + subject admin | Flip `hidden`; returns `{id, name, hidden}`. |
 | POST/DELETE | `/subtopics/<int:subtopic_id>/delete` | A | Delete subtopic. |
 | POST | `/topics/reorder` | A | JSON `{topic_ids: [...]}`; index becomes `sort_order`. |
 | POST | `/subtopics/reorder` | A | JSON `{subtopic_ids: [...]}`. |
@@ -85,13 +87,25 @@ Identical shape to Topics with `chapter`/`subchapter` names:
 
 | Method | Path | Authz |
 |---|---|---|
-| GET | `/chapters` | A | Same subject resolution as Topics (shared session key). |
-| POST | `/chapters/add`, `/chapters/<int:chapter_id>/edit`, `/chapters/reorder` | A |
+| GET | `/chapters` | A | Same subject resolution as Topics (shared session key). No numbering preview / stats. |
+| POST | `/chapters/add`, `/chapters/reorder` | A |
+| POST | `/chapters/<int:chapter_id>/edit`, `/chapters/<int:chapter_id>/toggle-hidden` | A + subject admin |
 | POST/DELETE | `/chapters/<int:chapter_id>/delete` | A |
-| POST | `/subchapters/add`, `/subchapters/<int:subchapter_id>/edit`, `/subchapters/<int:subchapter_id>/toggle-hidden`, `/subchapters/reorder` | A |
+| POST | `/subchapters/add`, `/subchapters/reorder` | A |
+| POST | `/subchapters/<int:subchapter_id>/edit`, `/subchapters/<int:subchapter_id>/toggle-hidden` | A + subject admin |
 | POST/DELETE | `/subchapters/<int:subchapter_id>/delete` | A |
 
-Reorder bodies are `{chapter_ids: [...]}` / `{subchapter_ids: [...]}`.
+Reorder bodies are `{chapter_ids: [...]}` / `{subchapter_ids: [...]}`. Edit / toggle-hidden bodies and responses match the topic ones.
+
+### Topics / Chapters page UX
+
+Both pages share `oqbTaxonomyAdmin` (`partials/taxonomy_admin_js.html`); every change except Add updates the DOM in place (no reload):
+
+- **Reorder**: drag the grip (SortableJS standard config, children only within their own parent) or the arrows; both POST the full sibling id list to the reorder route.
+- **Rename**: double-click the name (or the pencil) → inline input; Enter / blur saves through the edit route, Esc cancels. Blank or unchanged names are not sent.
+- **Hide / delete**: eye button → toggle-hidden route; hidden rows are dimmed and badged, children of a hidden parent are dimmed too.
+- **Preview (Topics only)**: `Numbering & MC/CQ preview` switch (default on, `localStorage['oqb_adminTaxonomyPreview']`) shows the `01` / `1.1` prefix `number_taxonomy` would assign (recomputed client-side after every drag / hide / delete; default padding only), the MC / CQ chips and the major-tag count.
+- The Add modals carry no Subject field (the page subject is used).
 
 ### User Management (`admin_users.html`)
 
@@ -113,9 +127,9 @@ All exports are CSV (`text/csv; charset=utf-8`, attachment). Imports read `utf-8
 | GET | `/export-import` | A | Page; subject picker limited to admin subjects. |
 | GET | `/export/question-tags` | A | Either `?question_ids=1,2,3` (DB ids, filtered to the caller's admin subjects unless super admin; filename `question_tags_selected_{N}.csv`, used by the "Dashboard selections only" toggle) **or** `?subject_id=MATC` (whole subject; `question_tags_{subject_id}.csv`). `question_ids` wins when both present. Rows sorted by `hierarchy.sort_key`. Columns: `qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, description, answer, comment`. Multi-valued columns are `; `-joined names. |
 | POST | `/import/question-tags` | A | Multipart `file` (`.csv`) + repeated `import_fields` checkboxes (subset of the 13 non-key columns; none submitted = import all). Only fields both selected and present in the CSV are applied. Matches by `qid`; rows for unknown QIDs or non-admin subjects are skipped. Names resolve within the question's subject; unknown names null the field and add a warning. `major_subtopic` requires a resolved `major_topic`; `subchapter` requires a resolved `chapter`. `correct_percentage` outside 0-100 becomes NULL. |
-| GET | `/export/topics` | A | `?subject_id=`; columns `subject_id, topic_name, subtopic_name, subtopic_hidden`; row order = `sort_order`. |
-| POST | `/import/topics` | A | Requires `subject_id` + `topic_name` columns. Row position defines `sort_order` (topics and subtopics renumbered from 1). Creates missing topics/subtopics; `subtopic_hidden` `0`/`1` updates the flag when present. |
-| GET | `/export/chapters` | A | `?subject_id=`; columns `subject_id, chapter_name, subchapter_name, subchapter_hidden`. |
+| GET | `/export/topics` | A | `?subject_id=`; columns `subject_id, topic_name, topic_hidden, subtopic_name, subtopic_hidden`; row order = `sort_order`. |
+| POST | `/import/topics` | A | Requires `subject_id` + `topic_name` columns. Row position defines `sort_order` (topics and subtopics renumbered from 1). Creates missing topics/subtopics; `topic_hidden` / `subtopic_hidden` `0`/`1` update the flag when present (blank or missing column = leave alone, so older CSVs still import). |
+| GET | `/export/chapters` | A | `?subject_id=`; columns `subject_id, chapter_name, chapter_hidden, subchapter_name, subchapter_hidden`. |
 | POST | `/import/chapters` | A | Same rules as topics import. |
 
 ### Ingestion (legacy) and Smart Import
@@ -169,7 +183,7 @@ Super-admin only; see [ai-tools.md](ai-tools.md). Routes: `GET /llm-endpoints` (
 
 - `Subject.id` is immutable: it is the PK, embedded in every QID and in the on-disk `SOURCE_PATH/<subject>/` layout. Only `name` is editable.
 - Subject delete is blocked (400) while any `Question` references it. When allowed, clean-up order is: `SavedQuestionSet` -> matching `SavedFilter` (JSON scan) -> `UserSubjectPermission` -> `subject_restore_points` (`subject_snapshot.delete_for_subject`) -> `Subject` (ORM cascade handles topics/subtopics/chapters/subchapters). `SavedGenerationProfile` is options-only and untouched. Disk folders are never deleted.
-- Subtopics/Subchapters have `hidden`; hidden ones are excluded from the dashboard but shown in admin (dashboard uses `include_hidden=1` for admin views).
+- Topics, subtopics, chapters and subchapters all have `hidden`. Hidden ones are excluded from the dashboard filter (unless its eye switch is on), from generation numbering and from AI tag hints, but stay visible (dimmed) in admin and in every tag editor (`include_hidden=1`). Hiding a parent does not change its children's flags; consumers treat children of a hidden parent as hidden.
 - `sort_order` for topics/subtopics/chapters/subchapters is written by the reorder routes (list index) and by CSV import (row position).
 - **Every** Topic / Subtopic / Chapter / Subchapter route (add, edit, toggle-hidden, delete, reorder) and the three CSV imports call `subject_snapshot.capture(...)` before mutating, so each change leaves a per-subject restore point (actions `topic-edit`, `chapter-edit`, `tag-import`, `topic-import`, `chapter-import`). Subjects for id lists come from `_subjects_of(model, ids)`. New routes here must do the same — see [subject-snapshots.md](subject-snapshots.md).
 - Username policy (`app/utils.validate_username`): must match `USERNAME_RE = ^[A-Za-z0-9._-]{1,80}$`, must not start or end with `.`, and must not be one of the reserved names `generated, con, prn, aux, nul, com1..com4, lpt1..lpt3` (case-insensitive). The same rule keeps the username usable as the `User/<username>` storage folder name. Applied on add and edit.
@@ -194,7 +208,7 @@ Reference: [../core/06-system-settings.md](../core/06-system-settings.md).
 
 See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
-- `@admin_required`: caller is super admin or has `role='admin'` on at least one subject. Subject-scoped pages (Topics, Chapters, Export/Import) then filter by `get_user_admin_subjects()`; Topics/Chapters additionally resolve a single subject via `?subject_id=` / session (see Routes). Per-row routes (e.g. topic edit) do **not** re-check the topic's subject.
+- `@admin_required`: caller is super admin or has `role='admin'` on at least one subject. Subject-scoped pages (Topics, Chapters, Export/Import) then filter by `get_user_admin_subjects()`; Topics/Chapters additionally resolve a single subject via `?subject_id=` / session (see Routes). Per-row edit and toggle-hidden routes for topics / subtopics / chapters / subchapters check `current_user.is_subject_admin(<row's subject>)` (`_require_subject_admin`, 403). Add, delete and reorder routes do **not** yet re-check the row's subject.
 - `@super_admin_required`: Subjects, Users, Health, Settings, Prompts, LLM Endpoints, `/admin/files`.
 - Export by `question_ids` filters to admin subjects unless the caller is super admin; export by `subject_id` 403s (flash + redirect) for non-admin subjects.
 
@@ -208,6 +222,9 @@ See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 ## Gotchas
 
 - Topics and Chapters show **one subject**. Session key `admin_taxonomy_subject` is shared, so switching ICT on Topics then opening Chapters lands on ICT. Navbar `/admin/topics` (no query) 302s to the remembered subject, else the first admin subject by id.
+- Taxonomy pages build URLs with `url_for(..., topic_id=0)` and swap the `/0/` segment for the row id (`idUrl`). Keep the id a full path segment if you add a route; a bare `.replace('0', id)` hits the first `0` anywhere in the URL.
+- The Topics numbering preview mirrors `app/utils.number_taxonomy` in JS (`renumber` in `taxonomy_admin_js.html`). Change both if the numbering rule changes; the preview always uses the default padding, not the user's generation toggles.
+- Hiding a topic / chapter is a parent-level flag only. Do not cascade it into children's `hidden` — unhiding the parent must restore exactly the previous child visibility.
 - `GET /admin/ingestion` is a redirect, not a page; `templates/admin_ingestion.html` no longer exists. Link to `/admin/import` instead.
 - `/health/sync` selects mode with `?mode=delete`; there is no `dry_run` query parameter. Anything else (or absent) is a dry run.
 - User permissions payload is wrapped: `{"permissions": {"MATC": "admin"}}`. Sending `{"MATC": "admin"}` at top level silently does nothing.

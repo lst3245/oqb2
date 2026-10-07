@@ -21,6 +21,13 @@
 {% endblock %}
 
 {% block content %}
+{% macro type_chips(stats) %}
+    {%- for t in (stats.types if stats else []) -%}
+    <span class="tax-preview badge rounded-pill ms-1 {{ 'bg-info-subtle text-info-emphasis' if t == 'MC' else 'bg-warning-subtle text-warning-emphasis' }}">{{ t }}</span>
+    {%- endfor -%}
+    <span class="tax-preview badge rounded-pill ms-1 bg-secondary-subtle text-secondary-emphasis"
+          title="Questions tagged with this as major">{{ stats.count if stats else 0 }}</span>
+{%- endmacro %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-tags"></i> Manage Topics &amp; Subtopics
@@ -43,117 +50,85 @@
             </a>
         </div>
     </div>
-    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i> One subject at a time. Use the arrow buttons to reorder items.</p>
+    <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> One subject at a time.
+        Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it.
+        Hidden topics / subtopics stay taggable but drop out of the dashboard filter, numbering and AI tag hints.</p>
     <hr>
 
     {% if not subject %}
     <p class="text-muted">No subjects you administer.</p>
     {% else %}
     <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h5 class="mb-0">{{ subject.name }} ({{ subject.id }})</h5>
+            <div class="form-check form-switch mb-0" title="Show the numbering and MC / CQ suffix that generation would print (default padding 01 / 1.1)">
+                <input class="form-check-input" type="checkbox" role="switch" id="taxPreviewToggle" checked>
+                <label class="form-check-label small" for="taxPreviewToggle">Numbering &amp; MC/CQ preview</label>
+            </div>
         </div>
         <div class="card-body">
-            <!-- Add Topic Button -->
-            <button class="btn btn-success btn-sm mb-3"
-                    data-subject-id="{{ subject.id }}"
-                    data-subject-name="{{ subject.name }}"
-                    onclick="showAddTopicModal(this.dataset.subjectId, this.dataset.subjectName)">
+            <button class="btn btn-success btn-sm mb-3" onclick="showAddTopicModal()">
                 <i class="bi bi-plus-circle"></i> Add Topic
             </button>
-            
-            <!-- Topics List -->
+
             {% if topics %}
-            <div id="topics-{{ subject.id }}" data-subject="{{ subject.id }}">
+            <div id="taxRoot" data-subject="{{ subject.id }}">
                 {% for topic in topics %}
-                <div class="border rounded p-3 mb-2 topic-item" data-id="{{ topic.id }}">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center">
+                <div class="border rounded p-3 mb-2 tax-item {% if topic.hidden %}is-hidden{% endif %}"
+                     data-level="parent" data-id="{{ topic.id }}" data-hidden="{{ 1 if topic.hidden else 0 }}">
+                    <div class="tax-row d-flex justify-content-between align-items-center gap-2">
+                        <div class="d-flex align-items-center flex-grow-1 min-w-0">
+                            <span class="drag-handle tax-parent-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <div class="order-controls">
-                                <button class="btn btn-outline-secondary reorder-btn move-up-topic" 
-                                        onclick="moveItem(this, 'up', 'topics')" title="Move up"
-                                        {% if loop.first %}disabled{% endif %}>
-                                    <i class="bi bi-chevron-up"></i>
-                                </button>
-                                <button class="btn btn-outline-secondary reorder-btn move-down-topic" 
-                                        onclick="moveItem(this, 'down', 'topics')" title="Move down"
-                                        {% if loop.last %}disabled{% endif %}>
-                                    <i class="bi bi-chevron-down"></i>
-                                </button>
+                                <button class="btn btn-outline-secondary reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
+                                <button class="btn btn-outline-secondary reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
                             </div>
                             <h6 class="mb-0">
-                                <i class="bi bi-tag"></i> {{ topic.name }}
+                                <span class="tax-preview tax-num badge text-bg-light border font-monospace me-1"></span><i class="bi bi-tag"></i>
+                                <span class="tax-name" title="Double-click to rename">{{ topic.name }}</span>
+                                {{ type_chips(topic_stats.get(topic.id)) }}
+                                <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not topic.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                             </h6>
                         </div>
-                        <div>
-                            <button class="btn btn-sm btn-outline-primary"
-                                    data-topic-id="{{ topic.id }}"
-                                    data-topic-name="{{ topic.name }}"
-                                    onclick="showEditTopicModal(this.dataset.topicId, this.dataset.topicName)">
-                                <i class="bi bi-pencil"></i> Edit
+                        <div class="text-nowrap">
+                            <button class="btn btn-sm btn-outline-secondary" data-act="toggle" title="{{ 'Unhide' if topic.hidden else 'Hide' }}">
+                                <i class="bi bi-{{ 'eye' if topic.hidden else 'eye-slash' }}"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" 
-                                    onclick="deleteTopic({{ topic.id }})">
-                                <i class="bi bi-trash"></i> Delete
-                            </button>
-                            <button class="btn btn-sm btn-success"
-                                    data-topic-id="{{ topic.id }}"
-                                    data-topic-name="{{ topic.name }}"
-                                    onclick="showAddSubtopicModal(this.dataset.topicId, this.dataset.topicName)">
-                                <i class="bi bi-plus"></i> Add Subtopic
-                            </button>
+                            <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> Subtopic</button>
                         </div>
                     </div>
-                    
-                    <!-- Subtopics -->
-                    {% set subtopics = topic.subtopics.all() %}
-                    {% if subtopics %}
-                    <div class="ms-4 mt-2" id="subtopics-{{ topic.id }}" data-topic="{{ topic.id }}">
-                        {% for subtopic in subtopics %}
-                        <div class="d-flex justify-content-between align-items-center border-start border-3 ps-3 py-1 subtopic-item {% if subtopic.hidden %}opacity-50{% endif %}" 
-                             data-id="{{ subtopic.id }}">
-                            <div class="d-flex align-items-center">
-                                <div class="order-controls">
-                                    <button class="btn btn-outline-secondary reorder-btn move-up-subtopic" 
-                                            onclick="moveItem(this, 'up', 'subtopics')" title="Move up"
-                                            {% if loop.first %}disabled{% endif %}>
-                                        <i class="bi bi-chevron-up"></i>
-                                    </button>
-                                    <button class="btn btn-outline-secondary reorder-btn move-down-subtopic" 
-                                            onclick="moveItem(this, 'down', 'subtopics')" title="Move down"
-                                            {% if loop.last %}disabled{% endif %}>
-                                        <i class="bi bi-chevron-down"></i>
-                                    </button>
+
+                    <div class="ms-4 mt-2 tax-children" data-parent-id="{{ topic.id }}">
+                        {% for subtopic in topic.subtopics.all() %}
+                        <div class="border-start border-3 ps-3 py-1 tax-item {% if subtopic.hidden %}is-hidden{% endif %}"
+                             data-level="child" data-id="{{ subtopic.id }}" data-hidden="{{ 1 if subtopic.hidden else 0 }}">
+                            <div class="tax-row d-flex justify-content-between align-items-center gap-2">
+                                <div class="d-flex align-items-center flex-grow-1 min-w-0">
+                                    <span class="drag-handle tax-child-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                                    <div class="order-controls">
+                                        <button class="btn btn-outline-secondary reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
+                                        <button class="btn btn-outline-secondary reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
+                                    </div>
+                                    <span>
+                                        <span class="tax-preview tax-num badge text-bg-light border font-monospace me-1"></span><i class="bi bi-diagram-3"></i>
+                                        <span class="tax-name" title="Double-click to rename">{{ subtopic.name }}</span>
+                                        {{ type_chips(subtopic_stats.get(subtopic.id)) }}
+                                        <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subtopic.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                    </span>
                                 </div>
-                                <span>
-                                    <i class="bi bi-diagram-3"></i> {{ subtopic.name }}
-                                    {% if subtopic.hidden %}
-                                    <span class="badge bg-secondary ms-1" title="Hidden from normal view"><i class="bi bi-eye-slash"></i> Hidden</span>
-                                    {% endif %}
-                                </span>
-                            </div>
-                            <div>
-                                <button class="btn btn-sm {% if subtopic.hidden %}btn-outline-success{% else %}btn-outline-warning{% endif %}" 
-                                        onclick="toggleSubtopicHidden({{ subtopic.id }})" 
-                                        title="{% if subtopic.hidden %}Show subtopic{% else %}Hide subtopic{% endif %}">
-                                    <i class="bi bi-{% if subtopic.hidden %}eye{% else %}eye-slash{% endif %}"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-primary"
-                                        data-subtopic-id="{{ subtopic.id }}"
-                                        data-subtopic-name="{{ subtopic.name }}"
-                                        data-subtopic-hidden="{{ 'true' if subtopic.hidden else 'false' }}"
-                                        onclick="showEditSubtopicModal(this.dataset.subtopicId, this.dataset.subtopicName, this.dataset.subtopicHidden === 'true')">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" 
-                                        onclick="deleteSubtopic({{ subtopic.id }})">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                <div class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary" data-act="toggle" title="{{ 'Unhide' if subtopic.hidden else 'Hide' }}">
+                                        <i class="bi bi-{{ 'eye' if subtopic.hidden else 'eye-slash' }}"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
+                                </div>
                             </div>
                         </div>
                         {% endfor %}
                     </div>
-                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -165,70 +140,53 @@
     {% endif %}
 </div>
 
-<!-- Add/Edit Topic Modal -->
+<!-- Add Topic Modal -->
 <div class="modal fade" id="topicModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="topicModalLabel">Add Topic</h5>
+                <h5 class="modal-title">Add Topic</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="topicForm">
-                    <input type="hidden" id="topicId">
-                    <input type="hidden" id="topicSubjectId">
-                    <div class="mb-3">
-                        <label class="form-label">Subject</label>
-                        <input type="text" class="form-control" id="topicSubjectName" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Topic Name</label>
-                        <input type="text" class="form-control" id="topicName" required>
-                    </div>
+                <form id="topicForm" onsubmit="event.preventDefault(); saveTopic();">
+                    <label class="form-label" for="topicName">Topic Name</label>
+                    <input type="text" class="form-control" id="topicName" required>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveTopic()">Save</button>
+                <button type="button" class="btn btn-primary" onclick="saveTopic()">Add</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Add/Edit Subtopic Modal -->
+<!-- Add Subtopic Modal -->
 <div class="modal fade" id="subtopicModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="subtopicModalLabel">Add Subtopic</h5>
+                <h5 class="modal-title">Add Subtopic <small class="text-muted" id="subtopicParentName"></small></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="subtopicForm">
-                    <input type="hidden" id="subtopicId">
+                <form id="subtopicForm" onsubmit="event.preventDefault(); saveSubtopic();">
                     <input type="hidden" id="subtopicTopicId">
                     <div class="mb-3">
-                        <label class="form-label">Topic</label>
-                        <input type="text" class="form-control" id="subtopicTopicName" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Subtopic Name</label>
+                        <label class="form-label" for="subtopicName">Subtopic Name</label>
                         <input type="text" class="form-control" id="subtopicName" required>
                     </div>
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="subtopicHidden">
-                            <label class="form-check-label" for="subtopicHidden">
-                                <i class="bi bi-eye-slash"></i> Hidden
-                            </label>
-                        </div>
-                        <small class="text-muted">Hidden subtopics are not shown by default in the dashboard filter. Use this for lengthy textbook chapters.</small>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="subtopicHidden">
+                        <label class="form-check-label" for="subtopicHidden"><i class="bi bi-eye-slash"></i> Hidden</label>
                     </div>
+                    <small class="text-muted">Hidden subtopics are not shown by default in the dashboard filter. Use this for lengthy textbook chapters.</small>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveSubtopic()">Save</button>
+                <button type="button" class="btn btn-primary" onclick="saveSubtopic()">Add</button>
             </div>
         </div>
     </div>
@@ -236,194 +194,79 @@
 {% endblock %}
 
 {% block extra_js %}
+{% include 'partials/taxonomy_admin_js.html' %}
 <script>
 let topicModal, subtopicModal;
 
 document.addEventListener('DOMContentLoaded', function() {
     topicModal = new bootstrap.Modal(document.getElementById('topicModal'));
     subtopicModal = new bootstrap.Modal(document.getElementById('subtopicModal'));
+    document.getElementById('topicModal').addEventListener('shown.bs.modal', () => document.getElementById('topicName').focus());
+    document.getElementById('subtopicModal').addEventListener('shown.bs.modal', () => document.getElementById('subtopicName').focus());
+
+    oqbTaxonomyAdmin({
+        rootId: 'taxRoot',
+        preview: true,
+        previewToggleId: 'taxPreviewToggle',
+        parentKey: 'topic_ids',
+        childKey: 'subtopic_ids',
+        urls: {
+            reorderParents: '{{ url_for("admin.reorder_topics") }}',
+            reorderChildren: '{{ url_for("admin.reorder_subtopics") }}',
+            editParent: '{{ url_for("admin.edit_topic", topic_id=0) }}',
+            editChild: '{{ url_for("admin.edit_subtopic", subtopic_id=0) }}',
+            toggleParent: '{{ url_for("admin.toggle_topic_hidden", topic_id=0) }}',
+            toggleChild: '{{ url_for("admin.toggle_subtopic_hidden", subtopic_id=0) }}',
+            deleteParent: '{{ url_for("admin.delete_topic", topic_id=0) }}',
+            deleteChild: '{{ url_for("admin.delete_subtopic", subtopic_id=0) }}',
+        },
+        confirmDeleteParent: 'Delete this topic and all its subtopics?',
+        confirmDeleteChild: 'Delete this subtopic?',
+        onAddChild: showAddSubtopicModal,
+    });
 });
 
-// ============== Reorder Functions ==============
-
-function moveItem(btn, direction, type) {
-    const itemClass = type === 'topics' ? '.topic-item' : '.subtopic-item';
-    const item = btn.closest(itemClass);
-    const container = item.parentElement;
-    
-    if (direction === 'up') {
-        const prev = item.previousElementSibling;
-        if (prev && prev.classList.contains(itemClass.substring(1))) {
-            container.insertBefore(item, prev);
-        }
-    } else {
-        const next = item.nextElementSibling;
-        if (next && next.classList.contains(itemClass.substring(1))) {
-            container.insertBefore(next, item);
-        }
-    }
-    
-    // Update button states
-    updateMoveButtons(container, itemClass);
-    
-    // Save order
-    saveOrder(container, type);
+function postForm(url, fields) {
+    const formData = new FormData();
+    Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+    return fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json().catch(() => ({})).then(data => {
+            if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        }));
 }
 
-function updateMoveButtons(container, itemClass) {
-    const items = container.querySelectorAll(itemClass);
-    items.forEach((item, index) => {
-        const upBtn = item.querySelector('.order-controls button:first-child');
-        const downBtn = item.querySelector('.order-controls button:last-child');
-        if (upBtn) upBtn.disabled = (index === 0);
-        if (downBtn) downBtn.disabled = (index === items.length - 1);
-    });
-}
-
-function saveOrder(container, type) {
-    const itemClass = type === 'topics' ? '.topic-item' : '.subtopic-item';
-    const items = container.querySelectorAll(itemClass);
-    const ids = Array.from(items).map(item => parseInt(item.dataset.id));
-    
-    const url = type === 'topics' ? 
-        '{{ url_for("admin.reorder_topics") }}' : 
-        '{{ url_for("admin.reorder_subtopics") }}';
-    
-    const body = type === 'topics' ? 
-        { topic_ids: ids } : 
-        { subtopic_ids: ids };
-    
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (!data.success) {
-            alert('Error saving order');
-            location.reload();
-        }
-    })
-    .catch(err => {
-        alert('Error saving order');
-        location.reload();
-    });
-}
-
-// ============== Topic Functions ==============
-
-function showAddTopicModal(subjectId, subjectName) {
-    document.getElementById('topicModalLabel').textContent = 'Add Topic';
-    document.getElementById('topicId').value = '';
-    document.getElementById('topicSubjectId').value = subjectId;
-    document.getElementById('topicSubjectName').value = subjectName;
+function showAddTopicModal() {
     document.getElementById('topicName').value = '';
     topicModal.show();
 }
 
-function showEditTopicModal(topicId, topicName) {
-    document.getElementById('topicModalLabel').textContent = 'Edit Topic';
-    document.getElementById('topicId').value = topicId;
-    document.getElementById('topicName').value = topicName;
-    topicModal.show();
-}
-
 function saveTopic() {
-    const topicId = document.getElementById('topicId').value;
-    const name = document.getElementById('topicName').value;
-    const subjectId = document.getElementById('topicSubjectId').value;
-    
-    const url = topicId ? 
-        `{{ url_for('admin.edit_topic', topic_id=0) }}`.replace('0', topicId) :
-        `{{ url_for('admin.add_topic') }}`;
-    
-    const formData = new FormData();
-    formData.append('name', name);
-    if (!topicId) formData.append('subject_id', subjectId);
-    
-    fetch(url, { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            topicModal.hide();
-            location.reload();
-        })
-        .catch(err => alert('Error saving topic'));
+    const name = document.getElementById('topicName').value.trim();
+    if (!name) return;
+    postForm('{{ url_for("admin.add_topic") }}', { name: name, subject_id: {{ (subject.id if subject else '')|tojson }} })
+        .then(() => location.reload())
+        .catch(err => alert('Error adding topic: ' + err.message));
 }
-
-function deleteTopic(topicId) {
-    if (!confirm('Delete this topic and all its subtopics?')) return;
-    
-    fetch(`{{ url_for('admin.delete_topic', topic_id=0) }}`.replace('0', topicId), {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error deleting topic'));
-}
-
-// ============== Subtopic Functions ==============
 
 function showAddSubtopicModal(topicId, topicName) {
-    document.getElementById('subtopicModalLabel').textContent = 'Add Subtopic';
-    document.getElementById('subtopicId').value = '';
     document.getElementById('subtopicTopicId').value = topicId;
-    document.getElementById('subtopicTopicName').value = topicName;
+    document.getElementById('subtopicParentName').textContent = '— ' + topicName;
     document.getElementById('subtopicName').value = '';
     document.getElementById('subtopicHidden').checked = false;
     subtopicModal.show();
 }
 
-function showEditSubtopicModal(subtopicId, subtopicName, isHidden = false) {
-    document.getElementById('subtopicModalLabel').textContent = 'Edit Subtopic';
-    document.getElementById('subtopicId').value = subtopicId;
-    document.getElementById('subtopicName').value = subtopicName;
-    document.getElementById('subtopicHidden').checked = isHidden;
-    subtopicModal.show();
-}
-
 function saveSubtopic() {
-    const subtopicId = document.getElementById('subtopicId').value;
-    const name = document.getElementById('subtopicName').value;
-    const topicId = document.getElementById('subtopicTopicId').value;
-    const hidden = document.getElementById('subtopicHidden').checked ? '1' : '0';
-    
-    const url = subtopicId ? 
-        `{{ url_for('admin.edit_subtopic', subtopic_id=0) }}`.replace('0', subtopicId) :
-        `{{ url_for('admin.add_subtopic') }}`;
-    
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('hidden', hidden);
-    if (!subtopicId) formData.append('topic_id', topicId);
-    
-    fetch(url, { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            subtopicModal.hide();
-            location.reload();
-        })
-        .catch(err => alert('Error saving subtopic'));
-}
-
-function toggleSubtopicHidden(subtopicId) {
-    fetch(`{{ url_for('admin.toggle_subtopic_hidden', subtopic_id=0) }}`.replace('0', subtopicId), {
-        method: 'POST'
+    const name = document.getElementById('subtopicName').value.trim();
+    if (!name) return;
+    postForm('{{ url_for("admin.add_subtopic") }}', {
+        name: name,
+        topic_id: document.getElementById('subtopicTopicId').value,
+        hidden: document.getElementById('subtopicHidden').checked ? '1' : '0',
     })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error toggling subtopic visibility'));
-}
-
-function deleteSubtopic(subtopicId) {
-    if (!confirm('Delete this subtopic?')) return;
-    
-    fetch(`{{ url_for('admin.delete_subtopic', subtopic_id=0) }}`.replace('0', subtopicId), {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Error deleting subtopic'));
+        .then(() => location.reload())
+        .catch(err => alert('Error adding subtopic: ' + err.message));
 }
 </script>
 {% endblock %}

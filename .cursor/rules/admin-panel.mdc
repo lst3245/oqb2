@@ -15,6 +15,9 @@ alwaysApply: false
 - `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
 - Super-admin-only pages: Users, Subjects, Settings, LLM Endpoints, Prompts, Health, `/admin/files`.
 - Topics / Chapters are **one subject at a time** (`?subject_id=`, session `admin_taxonomy_subject` shared). Do not render every subject's taxonomy on one page.
+- Both pages share `partials/taxonomy_admin_js.html` (`oqbTaxonomyAdmin`: SortableJS drag + arrows, double-click inline rename, hide / delete in place). Change behaviour there, not per page; keep the markup contract in its header comment. Its `renumber()` mirrors `utils.number_taxonomy` — change both together.
+- `hidden` exists on all four taxonomy levels. Hiding a parent never rewrites its children's flags. Every tag editor fetch (`get_topics` / `get_chapters` / subtopics / subchapters) passes `include_hidden=1`; only the dashboard filter sidebar honours the eye switches.
+- Per-row taxonomy edit / toggle-hidden routes call `_require_subject_admin(<row subject>)`; add the same check to any new per-row taxonomy route.
 - **Restore points:** every taxonomy, tag-form, Bulk Edit, CSV import and Auto Tag write calls `subject_snapshot.capture*` **before** its first mutation. New or edited writers must keep that order — see `subject-snapshots.mdc`. `delete_subject` also calls `subject_snapshot.delete_for_subject`.
 
 ## Question Management invariants

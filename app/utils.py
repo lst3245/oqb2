@@ -244,6 +244,71 @@ def natural_sort(items, key_func=None):
         return natsorted(items, key=key_func)
     return natsorted(items)
 
+
+# ==================== Taxonomy order ====================
+#
+# Topics / subtopics / chapters / subchapters sort by the order saved in the
+# admin lists (`sort_order`, ties broken by `id`), never by name. A child is
+# ordered under its parent first, so "subtopic" sorts follow the topic list.
+# Untagged returns None, which `apply_multi_sort` puts last (ascending).
+
+def taxonomy_order(node):
+    """(sort_order, id) of a Topic / Subtopic / Chapter / Subchapter row."""
+    return (node.sort_order or 0, node.id or 0)
+
+
+def number_taxonomy(topics, subtopics, pad_topic=True, pad_subtopic=False):
+    """
+    Number one subject's topic list in saved (sort_order, id) order: topics
+    ``01`` (``1`` unpadded), visible subtopics ``1.1`` (``01.01`` padded).
+    Hidden topics / subtopics get no number and do not consume one; children
+    of a hidden topic are unnumbered too. Generated documents (section
+    headings, split names) and the admin Topics page both use this.
+    Returns ``({topic_id: str}, {subtopic_id: str})``.
+    """
+    topic_nums, sub_nums, topic_index, counters = {}, {}, {}, {}
+    n = 0
+    for t in sorted(topics, key=taxonomy_order):
+        if getattr(t, 'hidden', False):
+            continue
+        n += 1
+        topic_nums[t.id] = f'{n:02d}' if pad_topic else str(n)
+        topic_index[t.id] = n
+    for s in sorted(subtopics, key=taxonomy_order):
+        if getattr(s, 'hidden', False) or s.topic_id not in topic_index:
+            continue
+        k = counters[s.topic_id] = counters.get(s.topic_id, 0) + 1
+        tn = topic_index[s.topic_id]
+        sub_nums[s.id] = f'{tn:02d}.{k:02d}' if pad_subtopic else f'{tn}.{k}'
+    return topic_nums, sub_nums
+
+
+def topic_order_key(q):
+    t = q.major_topic
+    return taxonomy_order(t) if t else None
+
+
+def subtopic_order_key(q):
+    s = q.major_subtopic
+    if not s:
+        return None
+    parent = s.topic
+    return (taxonomy_order(parent) if parent else (0, 0)) + taxonomy_order(s)
+
+
+def chapter_order_key(q):
+    c = q.chapter
+    return taxonomy_order(c) if c else None
+
+
+def subchapter_order_key(q):
+    sc = q.subchapter
+    if not sc:
+        return None
+    parent = sc.chapter
+    return (taxonomy_order(parent) if parent else (0, 0)) + taxonomy_order(sc)
+
+
 # Sort field definitions with their key functions
 SORT_FIELDS = {
     'qid': {
@@ -271,13 +336,13 @@ SORT_FIELDS = {
     },
     'topic': {
         'label': 'Topic',
-        'key': lambda q: q.major_topic.name if q.major_topic else 'ZZZ',
-        'natural': True
+        'key': topic_order_key,
+        'natural': False
     },
     'subtopic': {
         'label': 'Subtopic',
-        'key': lambda q: q.major_subtopic.name if q.major_subtopic else 'ZZZ',
-        'natural': True
+        'key': subtopic_order_key,
+        'natural': False
     },
     'created_time': {
         'label': 'Created Time',
@@ -306,13 +371,13 @@ SORT_FIELDS = {
     },
     'chapter': {
         'label': 'Chapter',
-        'key': lambda q: q.chapter.name if q.chapter else 'ZZZ',
-        'natural': True
+        'key': chapter_order_key,
+        'natural': False
     },
     'subchapter': {
         'label': 'Subchapter',
-        'key': lambda q: q.subchapter.name if q.subchapter else 'ZZZ',
-        'natural': True
+        'key': subchapter_order_key,
+        'natural': False
     }
 }
 
@@ -344,6 +409,14 @@ GROUP_NAME_KEYS = {
     'subchapter': lambda q: q.subchapter.name if q.subchapter else None,
 }
 
+# Saved-order accessors (None when untagged); default block order.
+GROUP_ORDER_KEYS = {
+    'topic': topic_order_key,
+    'subtopic': subtopic_order_key,
+    'chapter': chapter_order_key,
+    'subchapter': subchapter_order_key,
+}
+
 GROUP_NONE_LABELS = {
     'topic': '(No topic)',
     'subtopic': '(No subtopic)',
@@ -368,14 +441,13 @@ def enumerate_sort_groups(questions, group_fields):
         group_fields: ordered list of grouping field names (subset of GROUPING_FIELDS)
 
     Returns:
-        Ordered list of dicts (default natural-name order):
+        Ordered list of dicts (default: saved taxonomy order, untagged last):
         [{"key": [int, ...], "labels": {field: name}, "count": int}, ...]
     """
     group_fields = [f for f in (group_fields or []) if f in GROUPING_FIELDS]
     if not group_fields or not questions:
         return []
 
-    nat_key = natsort_keygen()
     blocks = {}
 
     for q in questions:
@@ -387,8 +459,8 @@ def enumerate_sort_groups(questions, group_fields):
             for f in group_fields:
                 name = GROUP_NAME_KEYS[f](q)
                 labels[f] = name if name is not None else GROUP_NONE_LABELS[f]
-                # None sorts last; non-None sorts by natural key.
-                sort_components.append((1, ()) if name is None else (0, nat_key(name)))
+                order = GROUP_ORDER_KEYS[f](q)
+                sort_components.append((1, ()) if order is None else (0, order))
             block = {
                 'key': list(key_tuple),
                 'labels': labels,
@@ -446,7 +518,7 @@ def apply_multi_sort(items, sort_config, group_order=None):
             When provided AND its `fields` match the grouping fields present in
             `sort_config`, questions are first ordered by their block's manual
             position; within a block they keep sorting by the remaining fields.
-            Unlisted blocks fall back to natural-name order at the end.
+            Unlisted blocks fall back to saved taxonomy order at the end.
     
     Returns:
         Sorted list of items
@@ -465,7 +537,7 @@ def apply_multi_sort(items, sort_config, group_order=None):
         """Generate a tuple key for multi-level sorting"""
         keys = []
         # Manual block position takes top priority when active. The grouping
-        # fields remain in the per-config loop below as a stable natural-name
+        # fields remain in the per-config loop below as a stable saved-order
         # fallback (constant within a listed block; orders unlisted blocks).
         if manual_index is not None:
             block_tuple = tuple(int(GROUP_ID_KEYS[f](item)) for f in group_fields)

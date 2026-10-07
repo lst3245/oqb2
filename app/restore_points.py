@@ -1,7 +1,7 @@
 """
 Subject restore points — routes (``/admin/restore-points``,
 ``/admin/subjects/<sid>/restore-points/capture``,
-``/admin/restore-points/<id>/preview|restore``).
+``/admin/restore-points/<id>/preview|restore|pin``).
 
 Subject-admin page to list a subject's restore points, take a manual one,
 preview what a restore would change, and restore. Logic lives in
@@ -72,6 +72,52 @@ def capture(subject_id):
         current_app.logger.exception('Manual restore point failed')
         return jsonify({'success': False, 'error': f'Could not save the restore point: {e}'}), 500
     return jsonify({'success': True, 'point': svc.point_meta(point, current_user.username)})
+
+
+@restore_points_bp.route('/restore-points/<int:point_id>/pin', methods=['POST'])
+@login_required
+@admin_required
+def pin(point_id):
+    """Pin or unpin a point. JSON ``{"pinned": true|false}``.
+
+    Unpinning prunes immediately: a point outside the automatic retention
+    window is deleted in this request.
+    """
+    point, err = _point_for_admin(point_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body.get('pinned'), bool):
+        return jsonify({
+            'success': False,
+            'error': 'Send {"pinned": true} or {"pinned": false}.',
+        }), 400
+    try:
+        result = svc.set_pinned(point, body['pinned'])
+        if result is None:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': 'Restore point not found.'}), 404
+        pinned, deleted = result
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('Pin restore point %s failed', point_id)
+        return jsonify({'success': False, 'error': f'Could not update the pin: {e}'}), 500
+    if deleted:
+        message = (
+            'Unpinned and removed: it was outside the newest '
+            f'{svc.KEEP_PER_SUBJECT} points and the daily anchors.'
+        )
+    elif pinned:
+        message = 'Pinned. This point is kept until you unpin it.'
+    else:
+        message = 'Unpinned. It stays while it is inside the automatic retention.'
+    return jsonify({
+        'success': True,
+        'pinned': pinned,
+        'deleted': deleted,
+        'message': message,
+    })
 
 
 @restore_points_bp.route('/restore-points/<int:point_id>/preview')

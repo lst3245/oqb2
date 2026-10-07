@@ -170,11 +170,20 @@
                         <div class="mb-3">
                             <label class="form-label d-flex justify-content-between align-items-center">
                                 <span>Topics</span>
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Topic match mode">
-                                    <input type="radio" class="btn-check" name="topic_mode" id="topicModeOR" value="OR" autocomplete="off" checked>
-                                    <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="Match ANY selected topic">OR</label>
-                                    <input type="radio" class="btn-check" name="topic_mode" id="topicModeAND" value="AND" autocomplete="off">
-                                    <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="Match ALL selected topics">AND</label>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Topic match mode">
+                                        <input type="radio" class="btn-check" name="topic_mode" id="topicModeOR" value="OR" autocomplete="off" checked>
+                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="Match ANY selected topic">OR</label>
+                                        <input type="radio" class="btn-check" name="topic_mode" id="topicModeAND" value="AND" autocomplete="off">
+                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="Match ALL selected topics">AND</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="showHiddenTopics"
+                                               onchange="onShowHiddenTopicsChange()">
+                                        <label class="form-check-label small" for="showHiddenTopics" title="Show hidden topics">
+                                            <i class="bi bi-eye-slash"></i>
+                                        </label>
+                                    </div>
                                 </div>
                             </label>
                             <div class="dropdown multi-select-dropdown" id="topicDropdownContainer">
@@ -265,7 +274,16 @@
 
                         <!-- Chapters -->
                         <div class="mb-3">
-                            <label class="form-label">Chapters</label>
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span>Chapters</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="showHiddenChapters"
+                                           onchange="onShowHiddenChaptersChange()">
+                                    <label class="form-check-label small" for="showHiddenChapters" title="Show hidden chapters">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </label>
+                                </div>
+                            </label>
                             <div class="dropdown multi-select-dropdown" id="chapterDropdownContainer">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="chapterDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -1534,12 +1552,14 @@ function getCurrentFilterValues() {
         section: document.querySelector('select[name="section"]')?.value || 'all',
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value).sort().join(','),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
+        show_hidden_topics: document.getElementById('showHiddenTopics')?.checked || false,
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value).sort().join(','),
         subtopic_mode: document.querySelector('input[name="subtopic_mode"]:checked')?.value || 'OR',
         show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: document.getElementById('crosstopic')?.checked || false,
         is_crosssubtopic: document.getElementById('crosssubtopic')?.checked || false,
         chapters: Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value).sort().join(','),
+        show_hidden_chapters: document.getElementById('showHiddenChapters')?.checked || false,
         subchapters: Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value).sort().join(','),
         show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value).sort().join(','),
@@ -2540,12 +2560,14 @@ function saveStateToStorage() {
         section: document.querySelector('select[name="section"]').value,
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
+        show_hidden_topics: document.getElementById('showHiddenTopics')?.checked || false,
         subtopics: Array.from(document.querySelectorAll('.subtopic-checkbox:checked')).map(cb => cb.value),
         subtopic_mode: document.querySelector('input[name="subtopic_mode"]:checked')?.value || 'OR',
         show_hidden_subtopics: document.getElementById('showHiddenSubtopics')?.checked || false,
         is_crosstopic: (() => { const cb = document.getElementById('crosstopic'); return cb.disabled ? cb.dataset.userValue === '1' : cb.checked; })(),
         is_crosssubtopic: (() => { const cb = document.getElementById('crosssubtopic'); return cb.disabled ? cb.dataset.userValue === '1' : cb.checked; })(),
         chapters: Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value),
+        show_hidden_chapters: document.getElementById('showHiddenChapters')?.checked || false,
         subchapters: Array.from(document.querySelectorAll('.subchapter-checkbox:checked')).map(cb => cb.value),
         show_hidden_subchapters: document.getElementById('showHiddenSubchapters')?.checked || false,
         levels: Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(cb => cb.value),
@@ -2669,6 +2691,12 @@ async function restoreFilterSettings(settings) {
         crosssubtopicCb.dataset.userValue = settings.is_crosssubtopic ? '1' : '0';
     }
     
+    // Restore show hidden topics / chapters before the lists are fetched
+    const showHiddenTopicsEl = document.getElementById('showHiddenTopics');
+    if (showHiddenTopicsEl) showHiddenTopicsEl.checked = settings.show_hidden_topics === true;
+    const showHiddenChaptersEl = document.getElementById('showHiddenChapters');
+    if (showHiddenChaptersEl) showHiddenChaptersEl.checked = settings.show_hidden_chapters === true;
+
     // Restore show hidden subtopics checkbox
     if (settings.show_hidden_subtopics !== undefined) {
         const showHiddenEl = document.getElementById('showHiddenSubtopics');
@@ -2800,7 +2828,7 @@ async function loadSubjectData(subjectId, sourceType) {
     if (!subjectId) return;
     
     // Load topics
-    const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    const topicsPromise = fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + includeHiddenParam('showHiddenTopics'))
         .then(r => r.json())
         .then(topics => {
             renderTopicCheckboxes(topics);
@@ -2964,11 +2992,11 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     
     // Render checkboxes
     topicDiv.innerHTML = topics.map(t => `
-        <div class="form-check" data-topic-id="${t.id}" data-topic-name="${t.name.toLowerCase()}">
+        <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${t.name.toLowerCase()}">
             <input class="form-check-input topic-checkbox" type="checkbox" 
                    value="${t.id}" id="topic${t.id}" onchange="onTopicChange()"
                    ${selectedTopics.includes(t.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="topic${t.id}">${t.name}</label>
+            <label class="form-check-label" for="topic${t.id}">${t.name}${t.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden topic"></i>' : ''}</label>
         </div>
     `).join('');
     
@@ -3141,6 +3169,31 @@ document.querySelectorAll('input[name="q_type"]').forEach(radio => {
     });
 });
 
+// '?include_hidden=1' when the given show-hidden switch is on
+function includeHiddenParam(switchId) {
+    return document.getElementById(switchId)?.checked ? '?include_hidden=1' : '';
+}
+
+// Re-fetch topics keeping the current ticks (a tick on a now-hidden topic drops out)
+function onShowHiddenTopicsChange() {
+    const subjectId = document.getElementById('subjectSelect').value;
+    if (!subjectId) { saveStateToStorage(); return; }
+    const selected = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value);
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + includeHiddenParam('showHiddenTopics'))
+        .then(r => r.json())
+        .then(topics => {
+            renderTopicCheckboxes(topics, selected);
+            onTopicChange();
+        });
+}
+
+function onShowHiddenChaptersChange() {
+    const subjectId = document.getElementById('subjectSelect').value;
+    if (!subjectId) { saveStateToStorage(); return; }
+    const selected = Array.from(document.querySelectorAll('.chapter-checkbox:checked')).map(cb => cb.value);
+    loadChaptersAsync(subjectId, selected).then(() => onChapterChange());
+}
+
 // Handle show hidden subtopics toggle change
 function onShowHiddenSubtopicsChange() {
     loadSubtopicsForSelectedTopics();
@@ -3204,13 +3257,17 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
     // Render checkboxes with hidden indicator and question count
     subtopicDiv.innerHTML = subtopics.map(s => {
         const countBadge = s.count !== undefined ? ` <span class="badge bg-secondary rounded-pill" style="font-size: 0.7em;">${s.count}</span>` : '';
+        const typeClass = {MC: 'bg-info-subtle text-info-emphasis', CQ: 'bg-warning-subtle text-warning-emphasis'};
+        const typeBadges = (s.types || []).map(t =>
+            ` <span class="badge rounded-pill ${typeClass[t] || 'bg-light text-dark'}" style="font-size: 0.65em;">${t}</span>`
+        ).join('');
         return `
         <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${s.name.toLowerCase()}">
             <input class="form-check-input subtopic-checkbox" type="checkbox" 
                    value="${s.id}" id="subtopic${s.id}" onchange="onSubtopicChange()"
                    ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
             <label class="form-check-label" for="subtopic${s.id}">
-                ${s.name}${countBadge}
+                ${s.name}${countBadge}${typeBadges}
                 ${s.hidden ? '<i class="bi bi-eye-slash text-muted ms-1" title="Hidden subtopic"></i>' : ''}
             </label>
         </div>
@@ -3402,7 +3459,7 @@ function loadChapters(subjectId, selectedChapterIds = []) {
         return;
     }
     
-    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + includeHiddenParam('showHiddenChapters'))
         .then(r => r.json())
         .then(chapters => {
             renderChapterCheckboxes(chapters, selectedChapterIds);
@@ -3420,7 +3477,7 @@ async function loadChaptersAsync(subjectId, selectedChapterIds = []) {
         return;
     }
     
-    const response = await fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId));
+    const response = await fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + includeHiddenParam('showHiddenChapters'));
     const chapters = await response.json();
     renderChapterCheckboxes(chapters, selectedChapterIds);
     updateChapterDropdownLabel();
@@ -3439,11 +3496,11 @@ function renderChapterCheckboxes(chapters, selectedChapters = []) {
     }
 
     chapterDiv.innerHTML = chapters.map(c => `
-        <div class="form-check" data-chapter-id="${c.id}" data-chapter-name="${c.name.toLowerCase()}">
+        <div class="form-check ${c.hidden ? 'opacity-75' : ''}" data-chapter-id="${c.id}" data-chapter-name="${c.name.toLowerCase()}">
             <input class="form-check-input chapter-checkbox" type="checkbox" 
                    value="${c.id}" id="chapter${c.id}" onchange="onChapterChange()"
                    ${selectedChapters.includes(c.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="chapter${c.id}">${c.name}</label>
+            <label class="form-check-label" for="chapter${c.id}">${c.name}${c.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden chapter"></i>' : ''}</label>
         </div>
     `).join('');
 
@@ -3842,6 +3899,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                         years: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
                         qid_search: '', qid_strict: false,
                         is_crosstopic: false, is_crosssubtopic: false,
+                        show_hidden_topics: false, show_hidden_chapters: false,
                         show_hidden_subtopics: false, show_hidden_subchapters: false,
                     };
                 }
@@ -5395,7 +5453,7 @@ function toggleBatchField(field) {
 function loadBatchTopics(subjectId) {
     if (!subjectId) return;
     
-    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    fetch(`{{ url_for('dashboard.get_topics', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(topics => {
             window.batchTopicsList = topics;
@@ -5698,7 +5756,7 @@ function loadBatchChapters() {
         return;
     }
     
-    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId))
+    fetch(`{{ url_for('dashboard.get_chapters', subject_id='__SUBJECT_ID__') }}`.replace('__SUBJECT_ID__', subjectId) + '?include_hidden=1')
         .then(r => r.json())
         .then(chapters => {
             window.batchChaptersList = chapters;
@@ -6197,10 +6255,12 @@ function convertProfileToSettings(data) {
         topic_mode: data.topic_mode || 'OR',
         subtopics: toArray(data.subtopics),
         subtopic_mode: data.subtopic_mode || 'OR',
+        show_hidden_topics: data.show_hidden_topics === true || data.show_hidden_topics === 'true',
         show_hidden_subtopics: data.show_hidden_subtopics === true || data.show_hidden_subtopics === 'true',
         is_crosstopic: data.is_crosstopic === true || data.is_crosstopic === 'true',
         is_crosssubtopic: data.is_crosssubtopic === true || data.is_crosssubtopic === 'true',
         chapters: toArray(data.chapters),
+        show_hidden_chapters: data.show_hidden_chapters === true || data.show_hidden_chapters === 'true',
         subchapters: toArray(data.subchapters),
         show_hidden_subchapters: data.show_hidden_subchapters === true || data.show_hidden_subchapters === 'true',
         levels: toArray(data.levels),

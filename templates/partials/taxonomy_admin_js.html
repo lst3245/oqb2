@@ -1,0 +1,257 @@
+{#
+  Shared behaviour for admin_topics.html and admin_chapters.html.
+
+  Markup contract (both pages):
+    #<rootId>                              parent list (Sortable, handle .tax-parent-handle)
+      .tax-item[data-level=parent][data-id][data-hidden]
+        > .tax-row                         the parent's own row (direct child of the item)
+            .tax-name                      double-click to rename inline
+            .tax-num / .tax-preview        numbering / suffix preview (topics page only)
+            .tax-hidden-badge              shown while hidden
+            button[data-act=up|down|rename|toggle|delete|add-child]
+        .tax-children[data-parent-id]      child list (Sortable, handle .tax-child-handle)
+          .tax-item[data-level=child][data-id][data-hidden] > .tax-row ...
+
+  Every write goes to an existing admin route, which captures a restore point
+  before mutating. Adds still reload the page (the page owns its Add modals).
+#}
+<style>
+    .tax-row .drag-handle { cursor: grab; color: var(--bs-secondary-color); padding: 0 .35rem; }
+    .tax-row .drag-handle:active { cursor: grabbing; }
+    .tax-name { cursor: text; }
+    .tax-name-input { display: inline-block; width: min(28rem, 60vw); }
+    .tax-item.is-hidden > .tax-row { opacity: .5; }
+    .tax-item.is-hidden .tax-children { opacity: .75; }
+    .tax-preview { display: none !important; }
+    .tax-preview-on .tax-preview { display: inline-block !important; }
+    .tax-preview-on .tax-num.d-none { display: none !important; }
+    .tax-num { font-variant-numeric: tabular-nums; min-width: 2.2em; }
+</style>
+<script>
+function oqbTaxonomyAdmin(cfg) {
+    const root = document.getElementById(cfg.rootId);
+    if (!root) return;
+
+    const PREVIEW_KEY = 'oqb_adminTaxonomyPreview';
+    const idUrl = (tpl, id) => tpl.replace('/0/', `/${id}/`);
+    const isParent = item => item.dataset.level === 'parent';
+    const rowOf = item => item.querySelector(':scope > .tax-row');
+    const nameEl = item => rowOf(item)?.querySelector('.tax-name');
+    const items = container => Array.from(container.querySelectorAll(':scope > .tax-item'));
+
+    function post(url, body) {
+        const opts = { method: 'POST' };
+        if (body instanceof FormData) {
+            opts.body = body;
+        } else if (body) {
+            opts.headers = { 'Content-Type': 'application/json' };
+            opts.body = JSON.stringify(body);
+        }
+        return fetch(url, opts).then(r => r.json().catch(() => ({})).then(data => {
+            if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        }));
+    }
+
+    // ---------- order ----------
+
+    function refreshArrows(container) {
+        const list = items(container);
+        list.forEach((el, i) => {
+            const row = rowOf(el);
+            const up = row?.querySelector('button[data-act="up"]');
+            const down = row?.querySelector('button[data-act="down"]');
+            if (up) up.disabled = i === 0;
+            if (down) down.disabled = i === list.length - 1;
+        });
+    }
+
+    function saveOrder(container) {
+        const ids = items(container).map(el => parseInt(el.dataset.id, 10));
+        const parentLevel = container === root;
+        const url = parentLevel ? cfg.urls.reorderParents : cfg.urls.reorderChildren;
+        const body = { [parentLevel ? cfg.parentKey : cfg.childKey]: ids };
+        post(url, body).catch(err => {
+            alert('Error saving order: ' + err.message);
+            location.reload();
+        });
+    }
+
+    function afterMove(container) {
+        refreshArrows(container);
+        saveOrder(container);
+        renumber();
+    }
+
+    function move(item, dir) {
+        const container = item.parentElement;
+        const sib = dir === 'up' ? item.previousElementSibling : item.nextElementSibling;
+        if (!sib || !sib.matches('.tax-item')) return;
+        if (dir === 'up') container.insertBefore(item, sib);
+        else container.insertBefore(sib, item);
+        afterMove(container);
+    }
+
+    function makeSortable(container, handle) {
+        if (typeof Sortable === 'undefined' || container._sortableInstance) return;
+        container._sortableInstance = Sortable.create(container, {
+            handle: handle,
+            draggable: '.tax-item',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            dragClass: 'sortable-drag',
+            forceFallback: true,
+            fallbackTolerance: 4,
+            delay: 100,
+            delayOnTouchOnly: true,
+            touchStartThreshold: 4,
+            onEnd(evt) {
+                if (evt.oldIndex === evt.newIndex) return;
+                afterMove(container);
+            }
+        });
+    }
+
+    // ---------- inline rename ----------
+
+    function startEdit(item) {
+        const span = nameEl(item);
+        if (!span || span.dataset.editing) return;
+        span.dataset.editing = '1';
+        const old = span.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = old;
+        input.className = 'form-control form-control-sm tax-name-input';
+        span.classList.add('d-none');
+        span.after(input);
+        input.focus();
+        input.select();
+
+        let done = false;
+        const finish = save => {
+            if (done) return;
+            done = true;
+            const name = input.value.trim();
+            input.remove();
+            span.classList.remove('d-none');
+            delete span.dataset.editing;
+            if (!save || !name || name === old) return;
+            span.textContent = name;
+            const fd = new FormData();
+            fd.append('name', name);
+            post(idUrl(isParent(item) ? cfg.urls.editParent : cfg.urls.editChild, item.dataset.id), fd)
+                .then(data => { span.textContent = data.name; })
+                .catch(err => {
+                    span.textContent = old;
+                    alert('Rename failed: ' + err.message);
+                });
+        };
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+            else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+        input.addEventListener('blur', () => finish(true));
+    }
+
+    // ---------- hide / delete ----------
+
+    function setHidden(item, hidden) {
+        item.dataset.hidden = hidden ? '1' : '0';
+        item.classList.toggle('is-hidden', hidden);
+        const row = rowOf(item);
+        row?.querySelector('.tax-hidden-badge')?.classList.toggle('d-none', !hidden);
+        const btn = row?.querySelector('button[data-act="toggle"]');
+        if (btn) {
+            btn.title = hidden ? 'Unhide' : 'Hide';
+            btn.querySelector('i').className = 'bi bi-' + (hidden ? 'eye' : 'eye-slash');
+        }
+    }
+
+    function toggleHidden(item) {
+        post(idUrl(isParent(item) ? cfg.urls.toggleParent : cfg.urls.toggleChild, item.dataset.id))
+            .then(data => { setHidden(item, !!data.hidden); renumber(); })
+            .catch(err => alert('Error changing visibility: ' + err.message));
+    }
+
+    function remove(item) {
+        if (!confirm(isParent(item) ? cfg.confirmDeleteParent : cfg.confirmDeleteChild)) return;
+        post(idUrl(isParent(item) ? cfg.urls.deleteParent : cfg.urls.deleteChild, item.dataset.id))
+            .then(() => {
+                const container = item.parentElement;
+                item.remove();
+                refreshArrows(container);
+                renumber();
+            })
+            .catch(err => alert('Delete failed: ' + err.message));
+    }
+
+    // ---------- numbering preview (mirrors app/utils.number_taxonomy defaults: 01 / 1.1) ----------
+
+    function previewOn() {
+        return !!cfg.preview && localStorage.getItem(PREVIEW_KEY) !== '0';
+    }
+
+    function setNum(item, text) {
+        const el = rowOf(item)?.querySelector('.tax-num');
+        if (!el) return;
+        el.textContent = text;
+        el.classList.toggle('d-none', !text);
+    }
+
+    function renumber() {
+        if (!cfg.preview) return;
+        root.classList.toggle('tax-preview-on', previewOn());
+        let n = 0;
+        items(root).forEach(p => {
+            const tn = p.dataset.hidden === '1' ? 0 : ++n;
+            setNum(p, tn ? String(tn).padStart(2, '0') : '');
+            let k = 0;
+            const kids = p.querySelector('.tax-children');
+            (kids ? items(kids) : []).forEach(c => {
+                setNum(c, tn && c.dataset.hidden !== '1' ? `${tn}.${++k}` : '');
+            });
+        });
+    }
+
+    // ---------- wiring ----------
+
+    root.addEventListener('click', e => {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn || !root.contains(btn)) return;
+        const item = btn.closest('.tax-item');
+        switch (btn.dataset.act) {
+            case 'up':
+            case 'down': move(item, btn.dataset.act); break;
+            case 'rename': startEdit(item); break;
+            case 'toggle': toggleHidden(item); break;
+            case 'delete': remove(item); break;
+            case 'add-child': cfg.onAddChild(item.dataset.id, nameEl(item)?.textContent || ''); break;
+        }
+    });
+
+    root.addEventListener('dblclick', e => {
+        const span = e.target.closest('.tax-name');
+        if (!span || !root.contains(span)) return;
+        e.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        startEdit(span.closest('.tax-item'));
+    });
+
+    const toggle = cfg.previewToggleId && document.getElementById(cfg.previewToggleId);
+    if (toggle) {
+        toggle.checked = previewOn();
+        toggle.addEventListener('change', () => {
+            localStorage.setItem(PREVIEW_KEY, toggle.checked ? '1' : '0');
+            renumber();
+        });
+    }
+
+    makeSortable(root, '.tax-parent-handle');
+    root.querySelectorAll('.tax-children').forEach(c => makeSortable(c, '.tax-child-handle'));
+    refreshArrows(root);
+    root.querySelectorAll('.tax-children').forEach(refreshArrows);
+    renumber();
+}
+</script>
