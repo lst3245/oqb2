@@ -33,7 +33,7 @@ Schema reference: [../core/03-data-model-and-migrations.md](../core/03-data-mode
 
 | Model | Touched by |
 |---|---|
-| `Subject` (`id` string PK, `name`, `split_parts_default`) | Subjects CRUD. `id` is immutable (embedded in QIDs and `SOURCE_PATH/<subject>/`). `split_parts_default` is on the add/edit form and seeds the PDF-import **Split questions into parts** checkbox. |
+| `Subject` (`id` string PK, `name`, `split_parts_default`, `topic_number_prefix`, `subtopic_number_prefix`) | Subjects CRUD. `id` is immutable (embedded in QIDs and `SOURCE_PATH/<subject>/`). `split_parts_default` is on the add/edit form and seeds the PDF-import **Split questions into parts** checkbox. The number-prefix flags are edited on the Topics page (`POST /subjects/<id>/number-prefixes`). |
 | `Topic` / `Subtopic` (`subject_id`, `sort_order`, `hidden` on both) | Topics page, Topics CSV. Cascade-deleted with their Subject. |
 | `Chapter` / `Subchapter` (same shape as Topic/Subtopic) | Chapters page, Chapters CSV. |
 | `Question` | Counted for subject delete-block; Question Tags CSV writes `major_topic_id`, `major_subtopic_id`, `minor_topics`, `subtopics`, `chapter_id`, `subchapter_id`, `section`, `level`, `q_type`, `correct_percentage`, `description`, `answer`, `comment`. |
@@ -70,6 +70,7 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
 | GET | `/topics` | A | Page for **one** subject. `?subject_id=` (must be an admin subject) → session `admin_taxonomy_subject` → first admin subject by id. Missing/unknown id is ignored (not 403). Canonical 302 to `?subject_id=` when the query does not already match. Topics ordered by `(sort_order, id)`. Also passes `topic_stats` / `subtopic_stats` = `{id: {count, types}}` from `_major_type_stats` (leaf questions by **major** topic / subtopic — the grouping generation uses, so `types` is the suffix a heading would get). |
+| POST | `/subjects/<subject_id>/number-prefixes` | A + subject admin | JSON `{topic?, subtopic?}` bools. Sets `Subject.topic_number_prefix` / `subtopic_number_prefix` (dashboard filter text prefix only). No restore point. |
 | POST | `/topics/add` | A | Form `{subject_id, name}`; `sort_order = max + 1`. |
 | POST | `/topics/<int:topic_id>/edit` | A + subject admin of the topic | Form `{name, hidden?}` (name trimmed); `hidden` only changes when present. Returns `{id, name, hidden}`. |
 | POST | `/topics/<int:topic_id>/toggle-hidden` | A + subject admin | Flip `hidden`; returns `{id, name, hidden}`. Subtopics keep their own flags. |
@@ -105,6 +106,7 @@ Both pages share `oqbTaxonomyAdmin` (`partials/taxonomy_admin_js.html`); every c
 - **Rename**: double-click the name (or the pencil) → inline input; Enter / blur saves through the edit route, Esc cancels. Blank or unchanged names are not sent.
 - **Hide / delete**: eye button → toggle-hidden route; hidden rows are dimmed and badged, children of a hidden parent are dimmed too.
 - **Preview (Topics only)**: `Numbering & MC/CQ preview` switch (default on, `localStorage['oqb_adminTaxonomyPreview']`) shows the `01` / `1.1` prefix `number_taxonomy` would assign (recomputed client-side after every drag / hide / delete; default padding only), the MC / CQ chips and the major-tag count.
+- **Dashboard filter prefix** (Topics page, two switches, saved immediately): `topic_number_prefix` (default on) and `subtopic_number_prefix` (default off). The dashboard filter then writes that number as plain text before the name. Generated papers are unchanged.
 - The Add modals carry no Subject field (the page subject is used).
 
 ### User Management (`admin_users.html`)

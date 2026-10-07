@@ -75,9 +75,9 @@ Use the radio buttons: **DSE**, **CE**, **AL**, or **QB**. DSE/CE/AL are past pa
 |---|---|
 | **Years** | Multi-select dropdown (past papers only). Click "All" or "None" to toggle. |
 | **Section** | Selects from available sections for the chosen subject and source (e.g. Section A, Section B). |
-| **Topics** | Multi-select dropdown. Use **OR** mode (any selected topic) or **AND** mode (all selected topics). |
+| **Topics** | Multi-select dropdown. Use **OR** mode (any selected topic) or **AND** mode (all selected topics). A subject can prefix each topic with its number, written as ordinary text (`01 Basic Algebra`). That is on for every subject unless an admin turns it off. |
 | **Include tagged in minor** | (Topics) Also includes questions where the topic is a *minor* topic, not just the primary one. |
-| **Subtopics** | Appears after selecting topics. Also has OR/AND mode and an "Include tagged in minor" option. Each subtopic shows its question count (follows the Question Type filter) and an **MC** and/or **CQ** chip for the question types it contains (always for the whole library, whatever the Question Type filter). |
+| **Subtopics** | Appears after selecting topics. Also has OR/AND mode and an "Include tagged in minor" option. Each subtopic shows its question count (follows the Question Type filter) and an **MC** and/or **CQ** chip for the question types it contains (always for the whole library, whatever the Question Type filter). A subject can also prefix the number as ordinary text (`1.1 Law of Indices`); that is off unless an admin turns it on. The number is not a chip. |
 | **Show hidden** | The eye switch beside Topics, Subtopics, Chapters and Subchapters shows the items an admin has hidden (e.g. textbook chapters or retired topics). Off by default; your choice is remembered with your other filter settings. |
 | **Chapters** | Filter by textbook chapter (separate from the topic system). |
 | **Subchapters** | Appears after selecting chapters. |

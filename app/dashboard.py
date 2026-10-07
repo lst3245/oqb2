@@ -7,7 +7,7 @@ from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
-                       enumerate_sort_groups, GROUPING_FIELDS,
+                       enumerate_sort_groups, GROUPING_FIELDS, number_taxonomy,
                        parse_version_priority, VERSIONS, DEFAULT_VERSION_PRIORITY)
 from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
@@ -647,6 +647,39 @@ def get_sort_groups():
     return jsonify({'group_fields': group_fields, 'blocks': blocks})
 
 
+def _subject_number_maps(subject_id):
+    """Full saved-list numbering for one subject (default padding ``01`` / ``1.1``)."""
+    topics = Topic.query.filter_by(subject_id=subject_id).all()
+    subs = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
+            .filter(Topic.subject_id == subject_id).all())
+    return number_taxonomy(topics, subs)
+
+
+def _subtopic_numbers_for(topic_ids):
+    """``{subtopic_id: '1.1'}`` for subjects that prefix subtopic numbers.
+
+    The topic index comes from that subject's whole topic list, so a subtopic
+    under topic 3 is ``3.1`` even when the request only asked for topic 3.
+    """
+    if not topic_ids:
+        return {}
+    subject_ids = {
+        row[0] for row in db.session.query(Topic.subject_id)
+        .filter(Topic.id.in_(topic_ids)).distinct()
+    }
+    if not subject_ids:
+        return {}
+    flagged = [
+        s.id for s in Subject.query.filter(Subject.id.in_(subject_ids))
+        if s.subtopic_number_prefix
+    ]
+    numbers = {}
+    for sid in flagged:
+        _, sub_nums = _subject_number_maps(sid)
+        numbers.update(sub_nums)
+    return numbers
+
+
 @dashboard_bp.route('/api/topics/<subject_id>')
 @login_required
 def get_topics(subject_id):
@@ -659,7 +692,14 @@ def get_topics(subject_id):
     if request.args.get('include_hidden', '0') != '1':
         query = query.filter(Topic.hidden == False)
     topics = query.order_by(Topic.sort_order, Topic.id).all()
-    return jsonify([{'id': t.id, 'name': t.name, 'hidden': t.hidden} for t in topics])
+    subject = Subject.query.get(subject_id)
+    topic_nums = {}
+    if subject is not None and subject.topic_number_prefix:
+        topic_nums, _ = _subject_number_maps(subject_id)
+    return jsonify([{
+        'id': t.id, 'name': t.name, 'hidden': t.hidden,
+        'number': topic_nums.get(t.id),
+    } for t in topics])
 
 @dashboard_bp.route('/api/subtopics')
 @login_required
@@ -686,7 +726,8 @@ def get_subtopics():
         query = query.filter(Subtopic.hidden == False)
     
     subtopics = query.order_by(Subtopic.sort_order).all()
-    
+    sub_nums = _subtopic_numbers_for(topic_ids)
+
     # Per subtopic: leaf questions with it as major OR in the M2M, counted per
     # q_type. `count` honours the q_type filter; `types` lists every type present
     # regardless of it (the MC / CQ chips).
@@ -715,6 +756,7 @@ def get_subtopics():
             'hidden': s.hidden,
             'count': count,
             'types': [t for t in ('MC', 'CQ') if type_counts.get(t)],
+            'number': sub_nums.get(s.id),
         })
     
     return jsonify(result)

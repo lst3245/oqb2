@@ -2978,6 +2978,16 @@ function populateSectionDropdown(sections, selectedSection = 'all') {
 
 // ============== TOPIC DROPDOWN FUNCTIONS ==============
 
+// "01 Basic Algebra" when the subject prefixes numbers; otherwise the name.
+function prefixedFilterName(node) {
+    return node.number ? (node.number + ' ' + node.name) : node.name;
+}
+
+function selectedFilterLabel(checkbox) {
+    const named = checkbox.parentElement.querySelector('.filter-node-name');
+    return (named ? named.textContent : checkbox.parentElement.querySelector('label').textContent).trim();
+}
+
 // Render topic checkboxes in dropdown
 function renderTopicCheckboxes(topics, selectedTopics = []) {
     const topicDiv = document.getElementById('topicCheckboxes');
@@ -2991,18 +3001,20 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     }
     
     // Render checkboxes
-    topicDiv.innerHTML = topics.map(t => `
-        <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${t.name.toLowerCase()}">
+    topicDiv.innerHTML = topics.map(t => {
+        const label = prefixedFilterName(t);
+        return `
+        <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${label.toLowerCase()}">
             <input class="form-check-input topic-checkbox" type="checkbox" 
                    value="${t.id}" id="topic${t.id}" onchange="onTopicChange()"
                    ${selectedTopics.includes(t.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="topic${t.id}">${t.name}${t.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden topic"></i>' : ''}</label>
-        </div>
-    `).join('');
+            <label class="form-check-label" for="topic${t.id}"><span class="filter-node-name">${label}</span>${t.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden topic"></i>' : ''}</label>
+        </div>`;
+    }).join('');
     
     // Update hidden select with all options
     topicSelect.innerHTML = topics.map(t => 
-        `<option value="${t.id}" ${selectedTopics.includes(t.id.toString()) ? 'selected' : ''}>${t.name}</option>`
+        `<option value="${t.id}" ${selectedTopics.includes(t.id.toString()) ? 'selected' : ''}>${prefixedFilterName(t)}</option>`
     ).join('');
     
     // Setup search filter
@@ -3042,7 +3054,7 @@ function updateTopicDropdownLabel() {
     } else if (checkedTopics.length === totalTopics) {
         label.innerHTML = `All topics <span class="badge bg-primary">${totalTopics}</span>`;
     } else if (checkedTopics.length === 1) {
-        const topicName = checkedTopics[0].parentElement.querySelector('label').textContent;
+        const topicName = selectedFilterLabel(checkedTopics[0]);
         label.textContent = topicName.length > 25 ? topicName.substring(0, 25) + '...' : topicName;
     } else {
         label.innerHTML = `${checkedTopics.length} topics <span class="badge bg-primary">${checkedTopics.length}</span>`;
@@ -3261,13 +3273,14 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
         const typeBadges = (s.types || []).map(t =>
             ` <span class="badge rounded-pill ${typeClass[t] || 'bg-light text-dark'}" style="font-size: 0.65em;">${t}</span>`
         ).join('');
+        const label = prefixedFilterName(s);
         return `
-        <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${s.name.toLowerCase()}">
+        <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${label.toLowerCase()}">
             <input class="form-check-input subtopic-checkbox" type="checkbox" 
                    value="${s.id}" id="subtopic${s.id}" onchange="onSubtopicChange()"
                    ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
             <label class="form-check-label" for="subtopic${s.id}">
-                ${s.name}${countBadge}${typeBadges}
+                <span class="filter-node-name">${label}</span>${countBadge}${typeBadges}
                 ${s.hidden ? '<i class="bi bi-eye-slash text-muted ms-1" title="Hidden subtopic"></i>' : ''}
             </label>
         </div>
@@ -3275,7 +3288,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
     
     // Update hidden select
     subtopicSelect.innerHTML = subtopics.map(s => 
-        `<option value="${s.id}" ${selectedSubtopics.includes(s.id.toString()) ? 'selected' : ''}>${s.name}</option>`
+        `<option value="${s.id}" ${selectedSubtopics.includes(s.id.toString()) ? 'selected' : ''}>${prefixedFilterName(s)}</option>`
     ).join('');
     
     // Setup search filter
@@ -3314,7 +3327,7 @@ function updateSubtopicDropdownLabel() {
     } else if (checkedSubtopics.length === totalSubtopics) {
         label.innerHTML = `All subtopics <span class="badge bg-primary">${totalSubtopics}</span>`;
     } else if (checkedSubtopics.length === 1) {
-        const subtopicName = checkedSubtopics[0].parentElement.querySelector('label').textContent;
+        const subtopicName = selectedFilterLabel(checkedSubtopics[0]);
         label.textContent = subtopicName.length > 25 ? subtopicName.substring(0, 25) + '...' : subtopicName;
     } else {
         label.innerHTML = `${checkedSubtopics.length} subtopics <span class="badge bg-primary">${checkedSubtopics.length}</span>`;

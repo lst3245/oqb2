@@ -448,6 +448,28 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend
 
+        # Dashboard filter number prefixes ("01 Basic Algebra"). Topic on,
+        # subtopic off, for every existing subject.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subjects'"
+                ))}
+                if cols and 'topic_number_prefix' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE subjects ADD COLUMN topic_number_prefix "
+                        "TINYINT(1) NOT NULL DEFAULT 1"
+                    ))
+                if cols and 'subtopic_number_prefix' not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE subjects ADD COLUMN subtopic_number_prefix "
+                        "TINYINT(1) NOT NULL DEFAULT 0"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend
+
         # Subject restore points (docs/modules/subject-snapshots.md): the
         # table, then one `baseline` point for every subject that has none
         # yet (first boot with the feature, or a subject added since).

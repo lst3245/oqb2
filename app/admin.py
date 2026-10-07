@@ -295,6 +295,28 @@ def topics():
         subtopic_stats=subtopic_stats,
     )
 
+@admin_bp.route('/subjects/<subject_id>/number-prefixes', methods=['POST'])
+@login_required
+@admin_required
+def set_number_prefixes(subject_id):
+    """Per-subject dashboard filter prefixes (``01 Name``, ``1.1 Name``).
+
+    Display only: it does not change generated papers, and it is not part of
+    a restore point.
+    """
+    _require_subject_admin(subject_id)
+    subject = Subject.query.get_or_404(subject_id)
+    data = request.get_json(silent=True) or {}
+    if 'topic' in data:
+        subject.topic_number_prefix = bool(data['topic'])
+    if 'subtopic' in data:
+        subject.subtopic_number_prefix = bool(data['subtopic'])
+    db.session.commit()
+    return jsonify({
+        'topic': bool(subject.topic_number_prefix),
+        'subtopic': bool(subject.subtopic_number_prefix),
+    })
+
 @admin_bp.route('/topics/add', methods=['POST'])
 @login_required
 @admin_required

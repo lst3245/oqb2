@@ -263,7 +263,9 @@ def number_taxonomy(topics, subtopics, pad_topic=True, pad_subtopic=False):
     ``01`` (``1`` unpadded), visible subtopics ``1.1`` (``01.01`` padded).
     Hidden topics / subtopics get no number and do not consume one; children
     of a hidden topic are unnumbered too. Generated documents (section
-    headings, split names) and the admin Topics page both use this.
+    headings, split names), the admin Topics page and the dashboard filter
+    prefix (``Subject.topic_number_prefix`` / ``subtopic_number_prefix``)
+    all use this.
     Returns ``({topic_id: str}, {subtopic_id: str})``.
     """
     topic_nums, sub_nums, topic_index, counters = {}, {}, {}, {}

@@ -17,6 +17,21 @@
         gap: 2px;
         margin-right: 10px;
     }
+    /* Checked switch is primary blue, the same colour as this header. */
+    .card-header.bg-primary .form-switch .form-check-input {
+        background-color: rgba(255, 255, 255, 0.35);
+        border-color: #fff;
+        --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e");
+    }
+    .card-header.bg-primary .form-switch .form-check-input:checked,
+    .card-header.bg-primary .form-switch .form-check-input:focus:checked {
+        background-color: #fff;
+        border-color: #fff;
+        --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%230d6efd'/%3e%3c/svg%3e");
+    }
+    .card-header.bg-primary .form-switch .form-check-input:focus {
+        box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.35);
+    }
 </style>
 {% endblock %}
 
@@ -67,6 +82,20 @@
             </div>
         </div>
         <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                <span class="small text-muted">Dashboard filter prefix</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch" id="prefixTopics"
+                           {% if subject.topic_number_prefix %}checked{% endif %} onchange="saveNumberPrefixes()">
+                    <label class="form-check-label small" for="prefixTopics">Topics <span class="text-muted">(01 Name)</span></label>
+                </div>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch" id="prefixSubtopics"
+                           {% if subject.subtopic_number_prefix %}checked{% endif %} onchange="saveNumberPrefixes()">
+                    <label class="form-check-label small" for="prefixSubtopics">Subtopics <span class="text-muted">(1.1 Name)</span></label>
+                </div>
+                <span class="small text-danger d-none" id="prefixSaveError"></span>
+            </div>
             <button class="btn btn-success btn-sm mb-3" onclick="showAddTopicModal()">
                 <i class="bi bi-plus-circle"></i> Add Topic
             </button>
@@ -235,6 +264,28 @@ function postForm(url, fields) {
             return data;
         }));
 }
+
+{% if subject %}
+function saveNumberPrefixes() {
+    const err = document.getElementById('prefixSaveError');
+    err.classList.add('d-none');
+    fetch('{{ url_for("admin.set_number_prefixes", subject_id=subject.id) }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            topic: document.getElementById('prefixTopics').checked,
+            subtopic: document.getElementById('prefixSubtopics').checked,
+        }),
+    })
+    .then(r => r.json().catch(() => ({})).then(data => {
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    }))
+    .catch(e => {
+        err.textContent = 'Could not save: ' + e.message;
+        err.classList.remove('d-none');
+    });
+}
+{% endif %}
 
 function showAddTopicModal() {
     document.getElementById('topicName').value = '';
