@@ -5121,11 +5121,11 @@ def pdf_import_stage():
         # Versions are chosen at import time (Step 3); staging defaults match UI.
         legacy = (request.form.get('version') or '').strip().upper()
         que_version = (request.form.get('que_version') or legacy or 'ENO').strip().upper()
-        sol_version = (request.form.get('sol_version') or legacy or 'EN').strip().upper()
+        sol_version = (request.form.get('sol_version') or legacy or 'ENO').strip().upper()
         if que_version not in VERSIONS:
             que_version = 'ENO'
         if sol_version not in VERSIONS:
-            sol_version = 'EN'
+            sol_version = 'ENO'
         meta['mode'] = 'exam'
         meta['que_version'] = que_version
         meta['sol_version'] = sol_version
