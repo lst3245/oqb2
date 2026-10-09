@@ -4,9 +4,12 @@
 
 ## Authentication
 
-- Flask-Login sessions (`login_manager` in `app/__init__.py`, `login_view = 'auth.login'`, `remember=True` on login).
+- Flask-Login sessions (`login_manager` in `app/__init__.py`, `login_view = 'auth.login'`, `remember=True` on login). The remember-me cookie lasts **90 days** (`REMEMBER_COOKIE_DURATION`); the session cookie and the remember cookie are `HttpOnly` and `SameSite=Lax`. `Secure` is off because the LAN still uses plain HTTP.
+- Failed logins are throttled in memory (`app/login_guard.py`): **8** failures per username and **60** per client IP in a **15-minute** window. A hit returns the login page with **429** and "Too many login attempts". A successful login clears that username's count only. Counters reset when the process restarts.
+- The client IP is the TCP peer, unless that peer is a trusted proxy, in which case `X-Real-IP` is used, else the rightmost `X-Forwarded-For` hop. `TRUSTED_PROXIES` unset means any private, loopback, or link-local peer (the LAN gateway). A comma list pins the proxy. An empty value trusts no header, so every internet client shares the proxy's address and one scanner can pause login for all of them.
+- After login, `next` is followed only when it is a same-site path (`safe_next_url`). The login form keeps that path in its action so Flask-Login's `?next=` still returns the user to the page they asked for.
 - Routes: `GET|POST /login`, `GET /logout`, `GET|POST /register` (**admin-only** — there is no public self-registration), `GET /` redirects to dashboard or login. Code: `app/auth.py`.
-- Passwords: `User.set_password` / `check_password` (Werkzeug hashes). No password reset flow exists; super admins reset passwords from Admin → Users.
+- Passwords: `User.set_password` / `check_password` (Werkzeug hashes). No password reset flow exists; super admins set passwords from Admin → Users, including their own (**Change password**). That self-edit does not rename the account or clear `is_super_admin`.
 - First account: `init_db.py` seeds `admin / admin123` only when the `subjects` table is empty. It sets the legacy `is_admin` flag but **not** `is_super_admin`, so on a fresh install you must promote that user in the DB (`UPDATE users SET is_super_admin=1 WHERE username='admin'`) before any admin page opens. Never run `init_db.py` on the live DB.
 
 ## Roles

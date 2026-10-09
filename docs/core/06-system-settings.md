@@ -88,7 +88,7 @@ LLM **endpoints** are not settings; they live in `llm_configs` (Admin → LLM En
 
 ## What stays in `.env` only
 
-Secrets and infrastructure: `SECRET_KEY`, `DB_*`, all path roots ([05-storage-and-paths.md](05-storage-and-paths.md)), `PANDOC_PATH`, `TESSERACT_CMD`, `LLM_API_KEY`, `LLM_KEY_SECRET`, `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, and anything needing a restart (engine options).
+Secrets and infrastructure: `SECRET_KEY`, `DB_*`, all path roots ([05-storage-and-paths.md](05-storage-and-paths.md)), `PANDOC_PATH`, `TESSERACT_CMD`, `LLM_API_KEY`, `LLM_KEY_SECRET`, `TRUSTED_PROXIES` (login client-IP; unset = private/loopback/link-local peers), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, and anything needing a restart (engine options).
 
 ## Adding a tunable
 

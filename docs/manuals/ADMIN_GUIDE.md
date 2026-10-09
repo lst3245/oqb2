@@ -132,7 +132,7 @@ It is safe to run repeatedly; it renames `language`→`version` (carrying the `u
 ### Development
 ```bash
 python run.py
-# Listens on http://0.0.0.0:5000 with debug=True
+# Listens on http://0.0.0.0:5000. Reloader on, interactive debugger off.
 ```
 
 ### Production (gunicorn + nginx)
@@ -166,6 +166,9 @@ Each user has a permission level for each subject independently:
 
 ### Editing Permissions
 Use the permission dropdowns on each user's card — changes save immediately (one permission at a time).
+
+### Changing your own password
+On your own card, click **Change password**, enter the new password, and save. Your username and super-admin role stay as they are. You cannot delete your own account.
 
 ### Deleting a User
 Click **Delete** on the user card. Cannot delete your own account.
@@ -703,7 +706,7 @@ python cli.py ingest
 ### Security Checklist
 - [ ] Change default `admin` password
 - [ ] Set a strong, random `SECRET_KEY` in `.env`
-- [ ] Set `FLASK_DEBUG=0`
+- [ ] Leave the interactive debugger off (`use_debugger=False` in `run.py`; `FLASK_DEBUG` does not turn `/console` back on)
 - [ ] Use a strong database password
 - [ ] Enable HTTPS via reverse proxy
 - [ ] Restrict DB access to localhost only

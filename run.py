@@ -12,4 +12,7 @@ from app import create_app
 app = create_app()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Reloader stays on so code edits apply without a manual restart.
+    # The interactive debugger (/console, the PIN shell) stays off: this
+    # process is reachable from the internet through the reverse proxy.
+    app.run(host='0.0.0.0', port=5000, debug=True, use_debugger=False)

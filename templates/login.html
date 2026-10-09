@@ -12,7 +12,7 @@
                         <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="OQB" width="72" height="72" class="mb-2">
                         <h3 class="card-title mb-0">Question Bank Login</h3>
                     </div>
-                    <form method="POST" action="{{ url_for('auth.login') }}">
+                    <form method="POST" action="{{ url_for('auth.login', next=login_next) if login_next else url_for('auth.login') }}">
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
                             <input type="text" class="form-control" id="username" name="username" required autofocus>

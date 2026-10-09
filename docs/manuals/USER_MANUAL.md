@@ -30,6 +30,8 @@
 2. Enter your username and password
 3. Click **Login**
 
+You stay signed in on this browser for 90 days. After too many wrong passwords the page asks you to wait (about 15 minutes) before trying again.
+
 ### User Roles
 
 Your role determines what you can do:
@@ -88,6 +90,8 @@ Use the radio buttons: **DSE**, **CE**, **AL**, or **QB**. DSE/CE/AL are past pa
 
 **Step 4 — Click Search**  
 The results panel updates (without a full page reload, powered by HTMX).
+
+The counterclockwise arrow beside Search resets every filter to its default and keeps the subject you already have selected. A first visit, with nothing saved in this browser, still opens on Mathematics Compulsory Part (MATC) when you have access to it.
 
 ### QID Search
 

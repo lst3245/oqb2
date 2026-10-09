@@ -36,11 +36,11 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 | GET | `/dashboard/api/subchapters?chapter_ids=1,2&include_hidden=0` | login | `[{id, name, chapter_id, hidden}]`. |
 | GET | `/dashboard/api/years/<subject_id>/<source>` | login; `[]` if no access | Distinct years, descending. |
 | GET | `/dashboard/api/sections/<subject_id>/<source>` | login; `[]` if no access | Distinct sections, ascending. |
-| GET | `/dashboard/files/<path:filepath>` | login | Serves a raw asset file from `SOURCE_PATH`. 404 if missing. |
-| GET | `/dashboard/api/asset/<int:asset_id>` | login | `{id, type, format, version, url}`. |
-| GET | `/dashboard/api/asset_preview/<int:asset_id>` | login | Sends the asset file itself. |
-| GET | `/dashboard/api/question/<int:id>/assets/<asset_type>` | login | Legacy image-centric: all parts of the best version (`version DESC`, then `part_number`). `{parts:[...], id, type, format, version, url}`. |
-| GET | `/dashboard/api/question/<int:id>/preview/<asset_type>?version_priority=EN,CH,BI,ENO,CHO&format=IMG|MD|DOC` | login | Unified preview resolver (below). 400 for `asset_type` outside `QUE|ANS|SOL`, 404 when nothing matches. Legacy `?lang=EN` accepted as fallback preferred version. |
+| GET | `/dashboard/files/<path:filepath>` | login; 403 without subject access | Serves a registered asset (`question_assets.file_path`) via `storage.safe_join`. 404 if the path is not a relative asset path, matches no row, or the file is missing. |
+| GET | `/dashboard/api/asset/<int:asset_id>` | login; 403 without subject access | `{id, type, format, version, url}`. |
+| GET | `/dashboard/api/asset_preview/<int:asset_id>` | login; 403 without subject access | Sends the asset file itself (`safe_join`). |
+| GET | `/dashboard/api/question/<int:id>/assets/<asset_type>` | login; 403 without subject access | Legacy image-centric: all parts of the best version (`version DESC`, then `part_number`). `{parts:[...], id, type, format, version, url}`. |
+| GET | `/dashboard/api/question/<int:id>/preview/<asset_type>?version_priority=EN,CH,BI,ENO,CHO&format=IMG|MD|DOC` | login; 403 without subject access | Unified preview resolver (below). 400 for `asset_type` outside `QUE|ANS|SOL`, 404 when nothing matches. Legacy `?lang=EN` accepted as fallback preferred version. |
 | GET | `/dashboard/api/question/<int:id>/explain/endpoints` | login; 403 if no subject access | `{can_pick, default_id, endpoints:[{id, name, model, supports_vision}]}`. `endpoints` is empty and `can_pick=false` for non-admins. Returns the empty shape (200) when `AI_TOOLS_ENABLED` is off. |
 | POST | `/dashboard/api/question/<int:id>/explain` | login; 403 if no subject access; 400 if `AI_TOOLS_ENABLED` off | Explain tutor chat, SSE response (below). |
 | GET | `/dashboard/api/doc_thumbnail/<int:asset_id>.png` | login; 403 if no subject access | Cached first-page PNG for a DOC asset. 404 if not DOC or PNG not on disk. `Cache-Control: private, no-cache, must-revalidate` + `conditional=True` (ETag/304). |
@@ -132,6 +132,7 @@ Response is `text/event-stream` with headers `Cache-Control: no-cache`, `X-Accel
 - Because a disabled checkbox is not submitted by the browser, the backend never sees `is_crosstopic` in AND mode; that is fine because the AND branch ignores it anyway.
 - Exception to intent-persistence: `getCurrentFilterValues()` (used for the "filter modified" indicator and for **saving a Saved Search Profile** via `saveFilterProfile()`) reads raw `cb.checked`, so a profile saved while the box is implied stores `is_crosstopic: true`. Loading that profile in a non-implied state therefore shows the box ticked.
 - `resetFilters` clears `checked`, `disabled`, `dataset.userValue='0'` and hides the note.
+- `resetFilters` leaves `#subjectSelect` alone. `DEFAULT_SUBJECT` (`MATC`) is the first-visit fallback when `oqb_filterSettings` is missing, not the reset target. After the form is cleared, `saveStateToStorage()` persists the subject that stayed selected (a mid-reset save inside `updateQidSearchHint()` is overwritten). Topics, years and chapters are reloaded for that subject.
 
 ### Sorting and pagination are in Python
 
@@ -268,7 +269,7 @@ Runtime-tunable keys hot-reload from System Settings: [../core/06-system-setting
 
 ## Permissions
 
-- Everything requires login. Subject access is checked per request (`has_subject_access`); taxonomy lookups return `[]` rather than 403 for inaccessible subjects, while `/filter` and `/api/sort-groups` return 403.
+- Everything requires login. Subject access is checked per request (`has_subject_access`); taxonomy lookups return `[]` rather than 403 for inaccessible subjects, while `/filter`, `/api/sort-groups`, asset reads (`/files`, `/api/asset`, `/api/asset_preview`, `/api/question/.../assets`, `/preview`, `/api/doc_thumbnail`), and Explain return 403.
 - `qids` / `ids` overrides are always intersected with `get_user_accessible_subjects()`.
 - The **Set** button and Generate/Viewer submission are gated on `current_user.can_generate()` (viewers cannot).
 - Edit buttons on cards render only for subjects in `current_user.get_admin_subjects()`.

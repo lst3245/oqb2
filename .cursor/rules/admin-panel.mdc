@@ -10,7 +10,7 @@ alwaysApply: false
 
 ## Panel invariants
 - `Subject.id` is immutable; only `name` is editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → `subject_restore_points` → Subject (topics/chapters cascade). Disk is untouched.
-- Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot edit/delete yourself. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key.
+- Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot rename, demote, or delete yourself. Your own edit sets the password only. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key.
 - Health: `/admin/health/sync?mode=dry_run|delete` (dry run default; 24 h grace for asset-less questions); `/health/stats` is DB-only. Anomaly hand-off to lists via `?qids=` or `?qids_token=<localStorage key>` (consumed once).
 - `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
 - Super-admin-only pages: Users, Subjects, Settings, LLM Endpoints, Prompts, Health, `/admin/files`.

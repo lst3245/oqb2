@@ -520,7 +520,7 @@
                                 </button>
                                 <span class="filter-modified-badge" id="filterModifiedBadge" style="display: none;" title="Filters changed - click Search to apply">!</span>
                             </div>
-                            <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="Reset to defaults">
+                            <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="Reset filters to defaults (keeps the current subject)">
                                 <i class="bi bi-arrow-counterclockwise"></i>
                             </button>
                         </div>
@@ -5482,18 +5482,10 @@ function updateQidSearchHint() {
 
 // Reset filters to defaults
 function resetFilters() {
-    // Clear localStorage filter settings
-    localStorage.removeItem(STORAGE_KEYS.FILTER_SETTINGS);
-    
-    // Reset form fields to defaults
+    // Keep the subject already selected. DEFAULT_SUBJECT is only the
+    // first-visit fallback in restoreFilterSettings(), not a reset target.
     const subjectSelect = document.getElementById('subjectSelect');
-    const defaultOption = Array.from(subjectSelect.options).find(opt => opt.value === DEFAULT_SUBJECT);
-    if (defaultOption) {
-        subjectSelect.value = DEFAULT_SUBJECT;
-    } else {
-        subjectSelect.selectedIndex = 0;
-    }
-    
+
     // Reset source type to DSE
     document.getElementById('sourceDSE').checked = true;
     
@@ -5578,6 +5570,10 @@ function resetFilters() {
     renderSortCriteria();
     localStorage.removeItem(STORAGE_KEYS.SORT_CONFIG);
     localStorage.removeItem(STORAGE_KEYS.SORT_GROUP_ORDER);
+
+    // Persist after the form is fully reset. updateQidSearchHint() saves
+    // mid-reset; this overwrite keeps the current subject and the cleared filters.
+    saveStateToStorage();
     
     // Reload topics and years for the selected subject
     const subjectId = subjectSelect.value;

@@ -16,6 +16,7 @@ from app.hierarchy import (
     is_block, part_position_label,
 )
 from app import md_render
+from app.storage import safe_join
 import os
 import re
 import json
@@ -842,16 +843,52 @@ def get_sections(subject_id, source):
 
     return jsonify([s[0] for s in sections])
 
+def _asset_rel_path(filepath):
+    """Forward-slash library path, or None when it is not a relative asset path."""
+    rel = (filepath or '').replace('\\', '/').strip().lstrip('/')
+    if not rel:
+        return None
+    parts = rel.split('/')
+    if any(part in ('', '.', '..') for part in parts):
+        return None
+    return rel
+
+
+def _require_question_subject(question):
+    if question is None or not current_user.has_subject_access(question.subject):
+        abort(403)
+
+
+def _require_asset_subject(asset):
+    question = Question.query.get(asset.question_id) if asset is not None else None
+    _require_question_subject(question)
+
+
+def _source_file(rel_path):
+    full = safe_join(current_app.config['SOURCE_PATH'], *str(rel_path).split('/'))
+    if not full or not os.path.isfile(full):
+        return None
+    return full
+
+
 @dashboard_bp.route('/files/<path:filepath>')
 @login_required
 def serve_file(filepath):
-    """Serve question asset files"""
-    source_path = current_app.config['SOURCE_PATH']
-    full_path = os.path.join(source_path, filepath)
-    
-    if not os.path.exists(full_path):
-        return "File not found", 404
-    
+    """Serve a library file that is a registered asset in a subject the user can access."""
+    rel = _asset_rel_path(filepath)
+    if rel is None:
+        abort(404)
+    assets = QuestionAsset.query.filter_by(file_path=rel).all()
+    if not assets:
+        abort(404)
+    questions = Question.query.filter(
+        Question.id.in_({a.question_id for a in assets})
+    ).all()
+    if not questions or not any(current_user.has_subject_access(q.subject) for q in questions):
+        abort(403)
+    full_path = _source_file(rel)
+    if full_path is None:
+        abort(404)
     return send_file(full_path)
 
 @dashboard_bp.route('/api/asset/<int:asset_id>')
@@ -859,7 +896,7 @@ def serve_file(filepath):
 def get_asset(asset_id):
     """Get asset information"""
     asset = QuestionAsset.query.get_or_404(asset_id)
-    source_path = current_app.config['SOURCE_PATH']
+    _require_asset_subject(asset)
     file_url = f"/dashboard/files/{asset.file_path}"
     
     return jsonify({
@@ -875,10 +912,9 @@ def get_asset(asset_id):
 def get_asset_preview(asset_id):
     """Get asset file for preview"""
     asset = QuestionAsset.query.get_or_404(asset_id)
-    source_path = current_app.config['SOURCE_PATH']
-    full_path = os.path.join(source_path, asset.file_path)
-    
-    if not os.path.exists(full_path):
+    _require_asset_subject(asset)
+    full_path = _source_file(asset.file_path)
+    if full_path is None:
         return "File not found", 404
     
     return send_file(full_path)
@@ -887,6 +923,8 @@ def get_asset_preview(asset_id):
 @login_required
 def get_question_asset(question_id, asset_type):
     """Get all asset parts for a question and type, ordered by part_number"""
+    question = Question.query.get_or_404(question_id)
+    _require_question_subject(question)
     assets = QuestionAsset.query.filter_by(
         question_id=question_id,
         asset_type=asset_type
@@ -990,6 +1028,9 @@ def get_question_preview(question_id, asset_type):
     if asset_type not in ('QUE', 'ANS', 'SOL'):
         return jsonify({'error': 'Invalid asset_type'}), 400
 
+    question = Question.query.get_or_404(question_id)
+    _require_question_subject(question)
+
     version_priority = parse_version_priority(
         request.args.get('version_priority'),
         legacy_preferred=request.args.get('lang'),
@@ -1005,8 +1046,6 @@ def get_question_preview(question_id, asset_type):
     if not selected:
         return jsonify({'error': 'Asset not found'}), 404
 
-    source_path = current_app.config['SOURCE_PATH']
-
     if file_format == 'IMG':
         return jsonify({
             'mode': 'image',
@@ -1021,8 +1060,8 @@ def get_question_preview(question_id, asset_type):
 
     if file_format == 'MD':
         asset = selected[0]
-        abs_path = os.path.join(source_path, *asset.file_path.split('/'))
-        html = md_render.render_file(asset.id, abs_path)
+        abs_path = _source_file(asset.file_path)
+        html = md_render.render_file(asset.id, abs_path) if abs_path else ''
         return jsonify({
             'mode': 'html',
             'format': 'MD',

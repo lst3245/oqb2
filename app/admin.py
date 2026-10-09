@@ -3633,13 +3633,25 @@ def add_user():
 @login_required
 @super_admin_required
 def edit_user(user_id):
-    """Edit a user's basic info"""
+    """Edit a user's basic info.
+
+    A super admin may change their own password. Username, super-admin flag,
+    and deletion stay locked so they cannot demote or rename themselves.
+    """
     user = User.query.get_or_404(user_id)
-    
-    # Prevent editing your own super_admin status
+
     if user.id == current_user.id:
-        return jsonify({'error': 'Cannot modify your own account'}), 400
-    
+        password = request.form.get('password', '')
+        if not password:
+            return jsonify({'error': 'Enter a new password'}), 400
+        user.set_password(password)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'id': user.id,
+            'username': user.username
+        })
+
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '')
     is_super_admin = request.form.get('is_super_admin') == '1'

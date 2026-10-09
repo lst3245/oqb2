@@ -115,7 +115,7 @@ Both pages share `oqbTaxonomyAdmin` (`partials/taxonomy_admin_js.html`); every c
 |---|---|---|---|
 | GET | `/users` | S | Page; every user with `{subject_id: role}` map + all subjects. |
 | POST | `/users/add` | S | Form `{username, password, is_super_admin('1')}`. Runs `validate_username`; rejects duplicates. Returns `{success, id, username}`. |
-| POST | `/users/<int:user_id>/edit` | S | Form `{username, password?, is_super_admin}`. 400 when editing your own account. If `username` changed, `_rename_user_storage_folder(old, new)` moves `User/<old>` to `User/<new>` under `STORAGE_PATH` (best effort) before the DB update. Blank password keeps the old one. |
+| POST | `/users/<int:user_id>/edit` | S | Form `{username, password?, is_super_admin}`. Editing yourself accepts **password only** (400 if blank) and ignores username and `is_super_admin`. For anyone else, a changed `username` moves `User/<old>` to `User/<new>` under `STORAGE_PATH` via `_rename_user_storage_folder` (best effort) before the DB update. Blank password keeps the old one. |
 | POST/DELETE | `/users/<int:user_id>/delete` | S | 400 when deleting yourself. |
 | POST | `/users/<int:user_id>/permissions` | S | JSON `{permissions: {subject_id: role}}`; role is `'viewer'`, `'user'`, `'admin'`, or `''`/`null` to remove. Only the submitted subject keys are touched (upsert/delete per key, not a full replace). The page sends one subject per change. |
 | GET | `/users/<int:user_id>/permissions/get` | S | `{user_id, username, is_super_admin, permissions}`. |
@@ -190,7 +190,7 @@ Super-admin only; see [ai-tools.md](ai-tools.md). Routes: `GET /llm-endpoints` (
 - **Every** Topic / Subtopic / Chapter / Subchapter route (add, edit, toggle-hidden, delete, reorder) and the three CSV imports call `subject_snapshot.capture(...)` before mutating, so each change leaves a per-subject restore point (actions `topic-edit`, `chapter-edit`, `tag-import`, `topic-import`, `chapter-import`). Subjects for id lists come from `_subjects_of(model, ids)`. New routes here must do the same — see [subject-snapshots.md](subject-snapshots.md).
 - Username policy (`app/utils.validate_username`): must match `USERNAME_RE = ^[A-Za-z0-9._-]{1,80}$`, must not start or end with `.`, and must not be one of the reserved names `generated, con, prn, aux, nul, com1..com4, lpt1..lpt3` (case-insensitive). The same rule keeps the username usable as the `User/<username>` storage folder name. Applied on add and edit.
 - Renaming a user moves `User/<safe_username(old)>` to `User/<safe_username(new)>` via `shutil.move`, only when the source exists and the destination does not; `OSError` is logged and swallowed so a locked folder never blocks the rename.
-- You cannot edit or delete your own account from the Users page.
+- You cannot rename, demote, or delete your own account from the Users page. **Change password** on your own card sets a new password and leaves the username and super-admin flag alone.
 - CSV imports never create questions; unknown `qid` rows are skipped. Topic/Chapter imports do create hierarchy rows.
 - Health orphan sync uses a **24-hour grace period**: questions created less than 24 h ago with no assets are reported separately and never deleted (they may be mid-upload from the Add Question wizard). Empty stems that still have children are also excluded from the no-assets counts (they are not orphans).
 - `/health/stats` intentionally does no file-existence checks (network drives are slow); `assets_missing_files` is always `null`. Use the orphan sync for that.

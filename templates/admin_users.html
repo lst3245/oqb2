@@ -63,6 +63,10 @@
                             <i class="bi bi-trash"></i> Delete
                         </button>
                         {% else %}
+                        <button class="btn btn-sm btn-outline-primary"
+                                onclick="showChangePasswordModal({{ data.user.id }}, '{{ data.user.username }}')">
+                            <i class="bi bi-key"></i> Change password
+                        </button>
                         <span class="badge bg-info">You</span>
                         {% endif %}
                     </div>
@@ -124,6 +128,7 @@
             <div class="modal-body">
                 <form id="userForm">
                     <input type="hidden" id="userId">
+                    <input type="hidden" id="userSelfEdit" value="">
                     <div class="mb-3">
                         <label class="form-label">Username <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="userName" required>
@@ -133,7 +138,7 @@
                         <input type="password" class="form-control" id="userPassword">
                         <small class="text-muted" id="passwordHint" style="display: none;">Leave blank to keep current password.</small>
                     </div>
-                    <div class="mb-3">
+                    <div class="mb-3" id="superAdminField">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" role="switch" id="userSuperAdmin">
                             <label class="form-check-label" for="userSuperAdmin">
@@ -163,6 +168,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ============== User Functions ==============
 
+function setUserModalMode(ownAccount) {
+    document.getElementById('userSelfEdit').value = ownAccount ? '1' : '';
+    document.getElementById('userName').disabled = ownAccount;
+    document.getElementById('superAdminField').style.display = ownAccount ? 'none' : '';
+}
+
 function showAddUserModal() {
     document.getElementById('userModalLabel').textContent = 'Add User';
     document.getElementById('userId').value = '';
@@ -172,6 +183,7 @@ function showAddUserModal() {
     document.getElementById('passwordRequired').style.display = 'inline';
     document.getElementById('passwordHint').style.display = 'none';
     document.getElementById('userSuperAdmin').checked = false;
+    setUserModalMode(false);
     userModal.show();
 }
 
@@ -182,8 +194,24 @@ function showEditUserModal(userId, username, isSuperAdmin) {
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').required = false;
     document.getElementById('passwordRequired').style.display = 'none';
+    document.getElementById('passwordHint').textContent = 'Leave blank to keep current password.';
     document.getElementById('passwordHint').style.display = 'block';
     document.getElementById('userSuperAdmin').checked = isSuperAdmin;
+    setUserModalMode(false);
+    userModal.show();
+}
+
+function showChangePasswordModal(userId, username) {
+    document.getElementById('userModalLabel').textContent = 'Change Password';
+    document.getElementById('userId').value = userId;
+    document.getElementById('userName').value = username;
+    document.getElementById('userPassword').value = '';
+    document.getElementById('userPassword').required = true;
+    document.getElementById('passwordRequired').style.display = 'inline';
+    document.getElementById('passwordHint').textContent = 'This replaces your current password.';
+    document.getElementById('passwordHint').style.display = 'block';
+    document.getElementById('userSuperAdmin').checked = true;
+    setUserModalMode(true);
     userModal.show();
 }
 
@@ -198,8 +226,9 @@ function saveUser() {
         return;
     }
     
-    if (!userId && !password) {
-        alert('Password is required for new users');
+    const ownAccount = document.getElementById('userSelfEdit').value === '1';
+    if ((!userId || ownAccount) && !password) {
+        alert(ownAccount ? 'Enter a new password' : 'Password is required for new users');
         return;
     }
     

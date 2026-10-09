@@ -2,6 +2,7 @@
 Configuration settings for the Flask application
 """
 import os
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
@@ -30,6 +31,21 @@ class Config:
     
     # Flask settings
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    # Stay signed in for 90 days. Secure is left off: the LAN still uses plain
+    # HTTP, and a Secure cookie would not be stored there. SameSite=Lax keeps
+    # the cookie off cross-site form posts.
+    REMEMBER_COOKIE_DURATION = timedelta(days=90)
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    # None → trust private/loopback/link-local peers for X-Real-IP and
+    # X-Forwarded-For. A comma list pins the reverse proxy. An empty value
+    # trusts nobody (every internet client then shares the proxy's address).
+    TRUSTED_PROXIES = (
+        None if os.getenv('TRUSTED_PROXIES') is None
+        else tuple(p.strip() for p in os.getenv('TRUSTED_PROXIES', '').split(',') if p.strip())
+    )
     
     # Database settings
     DB_HOST = os.getenv('DB_HOST', 'localhost')

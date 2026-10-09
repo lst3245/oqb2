@@ -12,7 +12,7 @@
 | Dependencies | `requirements.txt` installed into system Python. `pytest` is **not** installed; tests use `unittest`. |
 | Database | One MariaDB database (`DB_NAME` from `.env`) — **live production data**. There is no test database. |
 | Data roots | `SOURCE_PATH=D:\oqb_data\Source` (question assets), `STORAGE_PATH=D:\oqb_data\Storage` (Shared / System / User). Both from `.env`. |
-| Dev server | `python run.py` from `D:\oqb2` → Flask debug server on `0.0.0.0:5000`. It is normally **already running** in a user terminal (`dev-server.bat` restart loop) and serving LAN users. |
+| Dev server | `python run.py` from `D:\oqb2` → Flask server on `0.0.0.0:5000`. **Reloader on, interactive debugger off** (`debug=True, use_debugger=False` in `run.py`). It is normally **already running** in a user terminal (`dev-server.bat` restart loop) and serving LAN users. Do not pass `use_debugger=True`: `/console` is a code-execution shell, and this process is reachable from the internet through the reverse proxy. |
 | External binaries | Microsoft Word (COM, required for DOC merge / PDF / DOC thumbnails), pandoc (MD → docx), Tesseract (optional OCR). |
 
 ## Live vs disposable
@@ -84,7 +84,7 @@ All steps swallow exceptions so the app boots on a broken DB; you will see fallb
 
 ## Deployment shape
 
-Single Flask process (`debug=True` today) behind nothing. Production guidance (in [`docs/manuals/ADMIN_GUIDE.md`](../manuals/ADMIN_GUIDE.md)): `FLASK_DEBUG=0`, strong `SECRET_KEY`, a WSGI server with **one worker** (hot-reload of System Settings, the SSE cancel registry, and the Word COM lock are all in-process), reverse proxy with `proxy_buffering off` for SSE, regular DB + `Storage` backups.
+Single Flask process (reloader on, interactive debugger off) behind the LAN, and — when the operator publishes it — a reverse proxy. The proxy must send `X-Real-IP` or append `X-Forwarded-For`, and `proxy_buffering off` for SSE. Login throttling trusts that client IP only from `TRUSTED_PROXIES` (see [02-auth-and-permissions.md](02-auth-and-permissions.md)). Production guidance (in [`docs/manuals/ADMIN_GUIDE.md`](../manuals/ADMIN_GUIDE.md)): keep the debugger off, strong `SECRET_KEY`, a WSGI server with **one worker** (hot-reload of System Settings, the SSE cancel registry, and the Word COM lock are all in-process), regular DB + `Storage` backups.
 
 ## Backups and recovery (do not touch prod to "fix" things)
 

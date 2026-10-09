@@ -367,6 +367,7 @@ def viewer():
         for q in eager_load_tree(Question.query.filter(Question.id.in_(question_ids))).all()
     }
     questions_list = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+    questions_list = [q for q in questions_list if current_user.has_subject_access(q.subject)]
     
     # Optional manual block ordering (carried from dashboard via form or session)
     sgo_str = request.form.get('sort_group_order') or request.args.get('sort_group_order')
@@ -472,6 +473,10 @@ def get_viewer_asset(question_id, asset_type):
     if asset_type not in ('QUE', 'ANS', 'SOL', 'WHOLE'):
         return jsonify({'error': 'Invalid asset_type'}), 400
 
+    question = Question.query.get_or_404(question_id)
+    if not current_user.has_subject_access(question.subject):
+        abort(403)
+
     version_priority = parse_version_priority(
         request.args.get('version_priority'),
         legacy_preferred=request.args.get('lang'),
@@ -542,9 +547,9 @@ def get_viewer_asset(question_id, asset_type):
     # the markdown inline (no download required).
     if best.file_format == 'MD':
         from app import md_render
-        source_path = current_app.config['SOURCE_PATH']
-        abs_path = os.path.join(source_path, *best.file_path.split('/'))
-        result['html'] = md_render.render_file(best.id, abs_path)
+        from app.storage import safe_join
+        abs_path = safe_join(current_app.config['SOURCE_PATH'], *best.file_path.split('/'))
+        result['html'] = md_render.render_file(best.id, abs_path) if abs_path else ''
 
     # For DOC assets, attach a server-rendered first-page PNG thumbnail when
     # available so the viewer can render a real preview instead of a bare

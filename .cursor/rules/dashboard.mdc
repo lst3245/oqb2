@@ -28,5 +28,6 @@ alwaysApply: false
 ## Gotchas
 - Server ints vs client string ids — coerce at the boundary.
 - Selections may contain ids of deleted questions; every consumer tolerates that.
+- **Reset keeps the current subject.** `resetFilters` does not set `#subjectSelect` to `DEFAULT_SUBJECT` (`MATC`). It persists via `saveStateToStorage()` after the form is cleared. `MATC` is the first-visit fallback when `oqb_filterSettings` is missing.
 - Edit modal on the dashboard is admin-gated; host sets `window.oqbAfterQuestionEdit = refreshCurrentPage` and `oqbEditNavSource` → `#allQuestionIds`.
 - **Batch Edit** (`#batchEditModal`) writes only from the preview step. `previewBatchEdit` POSTs `/admin/questions/batch-update/preview`; `executeBatchEdit` POSTs `/admin/questions/batch-update`. Both use `buildBatchEditFormData`. The review pages 10 at a time in the client (`BATCH_EDIT_PREVIEW_PAGE_SIZE`); Apply still covers every changed question. The row eye button calls `previewAsset(id, 'QUE')`. Topic and chapter ticks overwrite the whole bundle.
