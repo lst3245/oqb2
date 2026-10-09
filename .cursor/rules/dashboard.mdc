@@ -19,6 +19,7 @@ alwaysApply: false
 - Explain tutor: stateless SSE (`preamble → delta* → done|error`), gated on `AI_TOOLS_ENABLED`; `endpoint_id` honoured only for super/subject admins; ≤ 6 images per turn, 32 MB per request; guard stale streams with the `aborter`.
 - Filter results are **leaves** (rows that have children are excluded) unless `qids`/`ids` override. Parts sharing a root wrap under a stem header. `#allQuestionIds` is leaves only — Select All must not add stem ids. Stem header / substem checkboxes are **aggregates over `data-leaf-ids`** (never a stored stem id); `resolve_render_plan` re-adds the background downstream.
 - WHOLE archive on the group header (`Whole` toggle via `stem.whole_asset_ids` + `get_asset_preview`) is **view-only**; no other dashboard path reads WHOLE and `/preview/<type>` keeps rejecting it.
+- **Question sheets** (`.qsheet`): every row is the same `paper | rail` grid. Crops share one scale per sheet (`oqbFitSheetImages`). Never put a `max-height` on a crop inside `.qsheet-paper`, and never indent the paper by `--depth` (rail only). Per-row controls and tags go in the rail, whole-question actions in the head. Stem / substem rows keep `data-stem="1"`; part rows are `.question-card` without it. The Enlarge overlay clones the paper with `id` / `data-*` / `on*` stripped.
 
 ## Entry points
 - URL params: `?profile_id=` (filter only), `?filter_data_id=` (filter + selection), `?question_set_id=` (selection, Show Selected Only on), `?qids=` / `?qids_token=` (one-shot override + banner, token consumed from localStorage).

@@ -43,7 +43,7 @@ The server checks the `HX-Request` header and returns only `partials/question_li
 
 | Partial | Used by / notes |
 |---|---|
-| `partials/question_list.html` | dashboard HTMX target; admin question list |
+| `partials/question_list.html` | dashboard HTMX target only (rendered by `filter_questions` and included by `dashboard.html`). Every question is a **question sheet**: head bar + paper \| rail rows, with one image scale per sheet and an Enlarge overlay. Spec and invariants: [../modules/dashboard.md](../modules/dashboard.md#question-sheets-card-layout). Elsewhere, crops of one question stacked together should likewise share one scale (no per-image `max-height`). |
 | `partials/edit_question_modal.html` | shared 3-tab Edit modal + `#renameConfirmModal` + `#mdEditorModal` + `#toastContainer`; mounted by `dashboard.html` (admin-gated) and `admin_questions.html`. Contract: [../modules/admin-questions.md](../modules/admin-questions.md) |
 | `partials/edit_question_modal_js.html` | all Edit-modal JS; **transitively includes** `tag_editor_js.html` — do not include that separately |
 | `partials/tag_editor_form.html`, `partials/tag_editor_js.html` | tag editor (Tags tab; borrowed by the admin Add-question wizard step 3) |
