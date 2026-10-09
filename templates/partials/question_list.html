@@ -263,10 +263,16 @@
     </div>
     {% endmacro %}
 
-    {# Intermediate stem (a part with its own sub-parts, e.g. Q1c): its shared
-       intro, plus an aggregate checkbox over those sub-parts. #}
+    {# Intermediate stem (a part with its own sub-parts, e.g. Q1c, or a shared
+       block such as Q7~c, the text printed before (c)): its shared intro,
+       plus an aggregate checkbox over the parts under it. #}
     {% macro substem_row(sub) %}
-    {% set label = (sub.breadcrumb|last).label if sub.breadcrumb else (('(' ~ sub.part ~ ')') if sub.part else '') %}
+    {% set crumb = (sub.breadcrumb|last) if sub.breadcrumb else none %}
+    {% if crumb and crumb.kind == 'block' %}
+    {% set label = 'Shared · ' ~ crumb.label %}
+    {% else %}
+    {% set label = crumb.label if crumb else (('(' ~ sub.part ~ ')') if sub.part else '') %}
+    {% endif %}
     <div class="question-card qsheet-row hierarchy-substem" data-question-id="{{ sub.id }}" data-stem="1"
          data-leaf-ids="{{ (sub.leaf_ids or [])|join(',') }}"
          style="--depth: {{ sub.depth or 1 }};" onclick="toggleQuestionSelection(event, this)">
@@ -296,7 +302,11 @@
                     {% endif %}
                 </div>
             </div>
+            {% if crumb and crumb.kind == 'block' %}
+            <div class="qsheet-note">Printed between parts · used by the {{ sub.child_count }} part{{ 's' if sub.child_count != 1 else '' }} below it</div>
+            {% else %}
             <div class="qsheet-note">Shared intro · {{ sub.child_count }} sub-part{{ 's' if sub.child_count != 1 else '' }}</div>
+            {% endif %}
         </div>
     </div>
     {% endmacro %}

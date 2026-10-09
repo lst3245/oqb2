@@ -32,7 +32,7 @@ from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_so
                        number_taxonomy)
 from app.hierarchy import (
     HIERARCHY_MODE_SELECTED, HIERARCHY_MODE_WHOLE, ancestors, breadcrumb_parts,
-    eager_load_tree, is_stem, resolve_render_plan, root as hier_root,
+    eager_load_tree, is_stem, part_position_label, resolve_render_plan, root as hier_root,
 )
 from app import word_com
 from app import ai_prompts
@@ -423,10 +423,12 @@ def viewer():
             context.append({
                 'id': node.id,
                 'qid': node.qid,
-                'label': crumb[-1]['label'] if crumb else node.qid,
+                'label': (part_position_label(node)
+                          or (crumb[-1]['label'] if crumb else node.qid)),
                 'kind': 'stem' if node.id in anc_ids else 'earlier',
             })
-        crumbs = breadcrumb_parts(q)
+        # A shared block is not a printed label: Q7 › (c), not Q7 › before (c) › (c).
+        crumbs = [c for c in breadcrumb_parts(q) if c['kind'] != 'block']
         questions_data.append({
             'id': q.id,
             'qid': q.qid,

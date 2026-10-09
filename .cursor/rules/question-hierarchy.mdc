@@ -1,10 +1,10 @@
 ---
 description: Question hierarchy — stem/parts tree, QNO token grammar, parent_id, do not confuse with IMG part_number
-globs: app/hierarchy.py,app/question_split.py,app/question_combine.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py,templates/admin_question_split.html,static/js/bbox_editor.js
+globs: app/hierarchy.py,app/question_split.py,app/question_combine.py,app/question_blocks.py,app/ingestor.py,app/smart_import.py,app/admin.py,app/utils.py,app/generator.py,app/dashboard.py,app/pdf_import.py,app/models.py,app/ai_tools.py,templates/admin_question_split.html,static/js/bbox_editor.js
 alwaysApply: false
 ---
 
-# Question hierarchy (bootloader — spec in `docs/modules/question-hierarchy.md`, ADR-009)
+# Question hierarchy (bootloader — spec in `docs/modules/question-hierarchy.md`, ADR-009, ADR-015)
 
 ## Invariants
 - Tree via `questions.parent_id` (`ON DELETE RESTRICT`). `part` is the **own** label (`a`, `i`); `qno` is the integer start; `qno_end` marks a range stem (`Q23-24`). Range and part-path are mutually exclusive.
@@ -21,6 +21,8 @@ alwaysApply: false
 - IMG Split-into-parts auto-detect stitches multi-image QUE, then PDF-import pass 2 (`detect_parts`) once on that stitch (SSE). Do not treat each reconstructed part crop as a page. Do not run pass 1 (`detect_page`) on an already-cropped QUE unless `find_parent=1`. The split page mounts `OQBBboxEditor` on the stitch — do not reintroduce a `<canvas>` painter.
 - Plan roles are **derived** (`derive_roles` / `label_is_ancestor`), never stored from model output. A nested stem is just a node with children.
 - `needs_prev_parts` is the only sibling-dependency mechanism: `resolve_render_plan` prepends `earlier_siblings` as `stem`-role items for flagged leaves (selected mode). No `depends_on` edges (ADR-009/010).
+- **Shared blocks** (ADR-015): text printed between parts is `Q7~c` (`part='~c'`), child of `Q7`, parent of `Q7c`, `Q7d`… which keep their QIDs. Never an extra QUE page on the root. Always a stem: no tags / WHOLE / `needs_prev_parts` / Combine. No `~a` / `~i`, none at root level or under a range. Deleting one alone dissolves it.
+- Parents are **not** "QID minus the last segment" any more. Place parts with `ensure_question` / `relink_parent` (`block_child_for`); after creating / deleting / renaming a block, `relink_block_level(parent)`. SQL leaf filters use `leaf_clause()`, not `~id.in_(stem_id_query())`. Printed position = `part_position_label`, not `part`.
 
 ## Gotchas
 - Hyphen in Smart Import: match qno on the **unsplit** stem (`Q23-24`), not `_SPLIT_RE` tokens.

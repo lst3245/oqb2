@@ -33,7 +33,7 @@ from app.hierarchy import (
     rewrite_descendant_token, rename_shape_ok, collect_subtree_ids,
     subtree_deepest_first, relink_parent, part_sort_value,
     breadcrumb_parts, is_stem, descendants, format_qno_token,
-    token_fits_under, stem_id_query,
+    token_fits_under, stem_id_query, is_block, relink_block_level, leaf_clause,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -255,7 +255,7 @@ def _major_type_stats(subject_id):
     rows = (
         db.session.query(Question.major_topic_id, Question.major_subtopic_id,
                          Question.q_type, db.func.count(Question.id))
-        .filter(Question.subject == subject_id, ~Question.id.in_(stem_id_query()))
+        .filter(Question.subject == subject_id, leaf_clause())
         .group_by(Question.major_topic_id, Question.major_subtopic_id, Question.q_type)
         .all()
     )
@@ -907,8 +907,14 @@ def delete_questions():
             }), 404
 
         selected_ids = {q.id for q in questions}
+        # Deleting a shared block alone dissolves it: its parts move up to
+        # the lettered parent instead of blocking the delete.
+        dissolve = [] if delete_children else [q for q in questions if is_block(q)]
+        dissolve_ids = {q.id for q in dissolve}
         extra = []
         for q in questions:
+            if q.id in dissolve_ids:
+                continue
             for cid in collect_subtree_ids(q)[1:]:
                 if cid not in selected_ids:
                     extra.append(cid)
@@ -932,6 +938,11 @@ def delete_questions():
                 .all()
             )
             questions = questions + extra_rows
+
+        for blk in dissolve:
+            if blk.parent is not None and blk.parent_id not in selected_ids:
+                relink_block_level(blk.parent, exclude_id=blk.id)
+            db.session.expire(blk)
 
         questions = subtree_deepest_first(questions)
         
@@ -1829,7 +1840,7 @@ def _admin_questions_query_from_args(args):
     if tree_scope == 'roots':
         query = query.filter(Question.parent_id.is_(None))
     elif tree_scope == 'leaves':
-        query = query.filter(~Question.id.in_(stem_id_query()))
+        query = query.filter(leaf_clause())
 
     # Root-only WHOLE archive presence (1 = has an archive image).
     has_whole = (args.get('has_whole') or '').strip().lower()
@@ -2109,13 +2120,15 @@ def question_details(question_id):
         'qno_end': question.qno_end,
         'parent_id': question.parent_id,
         'part': question.part,
+        'is_block': is_block(question),
         'child_count': len(kids),
         'is_stem': stem_row,
         'needs_prev_parts': bool(getattr(question, 'needs_prev_parts', False)),
         'has_whole': QuestionAsset.query.filter_by(
             question_id=question.id, asset_type='WHOLE').first() is not None,
         'breadcrumb': crumbs,
-        'children': [{'id': c.id, 'qid': c.qid, 'part': c.part} for c in kids],
+        'children': [{'id': c.id, 'qid': c.qid, 'part': c.part,
+                      'is_block': is_block(c)} for c in kids],
         'tag_union': tag_union,
         'q_type': question.q_type,
         'level': question.level,
@@ -2186,8 +2199,9 @@ def create_child_part(question_id):
         return denial
     data = request.get_json(silent=True) or {}
     part = (data.get('part') or '').strip().lower()
-    if not part or not part.isalpha():
-        return jsonify({'error': 'Part label must be letters only (a, b, ci, …)'}), 400
+    if not part or not part.replace('~', '', 1).isalpha():
+        return jsonify({'error': 'Part label must be letters only (a, b, ci, …), '
+                                 'or ~c for shared text printed before (c)'}), 400
     parsed = parse_qid(parent.qid)
     if not parsed:
         return jsonify({'error': 'Parent QID is invalid'}), 400
@@ -2195,7 +2209,10 @@ def create_child_part(question_id):
         return jsonify({
             'error': 'Range stems use existing Qn children; add those as standalone question numbers.'
         }), 400
-    new_path = (parsed.qno.part_path or '') + part
+    # A shared block is transparent: its parts are named from its parent.
+    base = (parsed.qno.parent_part_path if parsed.qno.is_block
+            else parsed.qno.part_path) or ''
+    new_path = base + part
     try:
         token = format_qno_token(parsed.qno.qno, None, new_path)
         child, created = ensure_question(
@@ -2242,8 +2259,12 @@ def set_question_parent(question_id):
     if not token_fits_under(child.qid, parent.qid):
         return jsonify({'error': 'Child QID is not under that parent token'}), 400
     child.parent_id = parent.id
+    db.session.flush()
+    if child.part:
+        # Parts at a level with a shared block always sit under that block.
+        relink_parent(child)
     db.session.commit()
-    return jsonify({'success': True, 'parent_id': parent.id})
+    return jsonify({'success': True, 'parent_id': child.parent_id})
 
 
 @admin_bp.route('/questions/<int:question_id>/needs-prev-parts', methods=['POST'])
@@ -2258,11 +2279,38 @@ def set_needs_prev_parts(question_id):
         return denial
     data = request.get_json(silent=True) or {}
     value = bool(data.get('value'))
-    if value and not q.parent_id:
+    if value and (not q.parent_id or is_block(q)):
         return jsonify({'error': 'Only a lettered part can depend on earlier parts.'}), 400
     q.needs_prev_parts = value
     db.session.commit()
     return jsonify({'success': True, 'needs_prev_parts': q.needs_prev_parts})
+
+
+@admin_bp.route('/questions/<int:question_id>/assets/move-to-block', methods=['POST'])
+@login_required
+@admin_required
+def move_que_page_to_block(question_id):
+    """Move one QUE page into a new shared block (``Q7~c``) placed before
+    part ``anchor``. ``dry_run`` returns the plan without writing."""
+    question = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(question)
+    if denial:
+        return denial
+    data = request.get_json(silent=True) or {}
+    from app import question_blocks as qb
+    try:
+        page = int(data.get('page') or 0)
+        if data.get('dry_run'):
+            return jsonify({'ok': True, **qb.plan_move_page(question, page, data.get('anchor'))})
+        result = qb.move_page_to_block(question, page, data.get('anchor'))
+    except (qb.BlockError, ValueError) as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception('move-to-block failed for %s', question.qid)
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, **result})
 
 
 @admin_bp.route('/questions/<int:question_id>/combine/preview')

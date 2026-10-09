@@ -303,6 +303,81 @@ class MissingStemFillTests(unittest.TestCase):
         self.assertTrue(pdf_layout.has_ink(gray, box))
 
 
+class SharedBlockSplitTests(unittest.TestCase):
+    """A ``stem`` box printed after a part is the shared block before the
+    next part (ADR-015): ICT 2025 P1B Q7's second passage before (c)."""
+
+    _run_group = MissingStemFillTests._run_group
+
+    def _labels(self, children):
+        return [c['label'] for c in sorted(children, key=lambda c: (c['page'], c['box'][1]))]
+
+    def test_stem_on_continuation_page_becomes_block(self):
+        parts = [{'page': 0, 'box': [0.1, 0.1, 0.9, 1.0]},
+                 {'page': 1, 'box': [0.1, 0.0, 0.9, 0.9]}]
+        page1 = [{'label': 'stem', 'box': [0, 0.0, 1, 0.3]},
+                 {'label': 'a', 'box': [0, 0.3, 1, 0.6]},
+                 {'label': 'b', 'box': [0, 0.6, 1, 1.0]}]
+        page2 = [{'label': 'stem', 'box': [0, 0.0, 1, 0.4]},
+                 {'label': 'c', 'box': [0, 0.4, 1, 0.7]},
+                 {'label': 'd', 'box': [0, 0.7, 1, 1.0]}]
+        children = self._run_group('que', '7', parts, [page1, page2])
+        self.assertEqual(self._labels(children), ['7', '7a', '7b', '7~c', '7c', '7d'])
+        roles = {c['label']: c['role'] for c in children}
+        self.assertEqual(roles['7~c'], 'stem')
+        self.assertFalse(any('_pi' in c for c in children))
+
+    def test_stem_below_a_part_on_same_page(self):
+        parts = [{'page': 0, 'box': [0.1, 0.0, 0.9, 1.0]}]
+        boxes = [{'label': 'stem', 'box': [0, 0.0, 1, 0.2]},
+                 {'label': 'a', 'box': [0, 0.2, 1, 0.4]},
+                 {'label': 'stem', 'box': [0, 0.4, 1, 0.6]},
+                 {'label': 'b', 'box': [0, 0.6, 1, 1.0]}]
+        children = self._run_group('que', '7', parts, [boxes])
+        self.assertEqual(self._labels(children), ['7', '7a', '7~b', '7b'])
+
+    def test_stem_spilling_over_before_a_stays_stem(self):
+        parts = [{'page': 0, 'box': [0.1, 0.8, 0.9, 1.0]},
+                 {'page': 1, 'box': [0.1, 0.0, 0.9, 0.9]}]
+        page1 = [{'label': 'stem', 'box': [0, 0.0, 1, 1.0]}]
+        page2 = [{'label': 'stem', 'box': [0, 0.0, 1, 0.3]},
+                 {'label': 'a', 'box': [0, 0.3, 1, 1.0]}]
+        children = self._run_group('que', '7', parts, [page1, page2])
+        self.assertEqual(self._labels(children), ['7', '7', '7a'])
+
+    def test_nested_and_sol(self):
+        parts = [{'page': 0, 'box': [0.1, 0.0, 0.9, 1.0]}]
+        boxes = [{'label': 'i', 'box': [0, 0.0, 1, 0.3]},
+                 {'label': 'ii', 'box': [0, 0.3, 1, 0.5]},
+                 {'label': 'stem', 'box': [0, 0.5, 1, 0.7]},
+                 {'label': 'iii', 'box': [0, 0.7, 1, 1.0]}]
+        children = self._run_group('que', '7d', parts, [boxes])
+        self.assertIn('7d~iii', self._labels(children))
+        sol = [{'label': 'a', 'box': [0, 0.0, 1, 0.4]},
+               {'label': '~c', 'box': [0, 0.4, 1, 0.6]},
+               {'label': 'c', 'box': [0, 0.6, 1, 1.0]}]
+        children = self._run_group('sol', '7', parts, [sol])
+        self.assertEqual(self._labels(children), ['7a', '7', '7c'])
+
+    def test_split_tool_relative_labels(self):
+        from app.pdf_import import _reclassify_relative_stems
+        boxes = [{'label': 'stem', 'box': [0, 0.0, 1, 0.2]},
+                 {'label': 'a', 'box': [0, 0.2, 1, 0.4]},
+                 {'label': 'stem', 'box': [0, 0.4, 1, 0.6]},
+                 {'label': 'b', 'box': [0, 0.6, 1, 1.0]}]
+        self.assertEqual([b['label'] for b in _reclassify_relative_stems(boxes)],
+                         ['stem', 'a', '~b', 'b'])
+
+    def test_group_plan_orders_block_before_its_parts(self):
+        plan = {'que': [{'page': 1, 'label': l, 'box': [0, i / 10, 1, (i + 1) / 10]}
+                        for i, l in enumerate(['7d', '7c', '7~c', '7b', '7a', '7'])],
+                'sol': []}
+        self.assertEqual([g[2] for g in _group_plan(plan)],
+                         ['7', '7a', '7b', '7~c', '7c', '7d'])
+        que = [{'label': l, 'box': [0, 0, 1, 1]} for l in ('7', '7a', '7~c', '7c')]
+        self.assertEqual(expected_part_labels_for('7', que), ['stem', 'a', 'c'])
+
+
 class RangeSplitTests(unittest.TestCase):
     """Pass 2 on a shared-stimulus range (31-32): stem + numbered questions."""
 

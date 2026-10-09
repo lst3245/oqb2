@@ -1587,7 +1587,9 @@ function renderTable(data) {
             <td>${(() => {
                 const depth = q.depth || 0;
                 const pad = depth * 12;
-                const label = q.part ? `(${q.part})` : (q.is_stem ? 'stem' : '—');
+                const label = (q.part && q.part.charAt(0) === '~')
+                    ? `<span title="Shared text printed before part (${q.part.slice(1)})"><i class="bi bi-layers"></i> before (${q.part.slice(1)})</span>`
+                    : (q.part ? `(${q.part})` : (q.is_stem ? 'stem' : '—'));
                 return `<span style="padding-left:${pad}px">${label}</span>`;
             })()}</td>
             <td>${q.q_type || '-'}</td>

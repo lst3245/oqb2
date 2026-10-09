@@ -38,5 +38,6 @@ Order is roughly chronological (oldest first). "Boot patch" = idempotent code in
 Non-schema data conventions that behave like migrations:
 
 - `system_settings.FILE_BROWSER_EXTRA_ROOTS` — JSON list row managed outside the REGISTRY.
+- Shared blocks ([ADR-015](../decisions/ADR-015-shared-blocks.md), 2026-10-09): `questions.part` may hold `~c` / `~iii` (fits `VARCHAR(10)`), `part_sort` the anchor's value, and QIDs gain `~` (`ICT_DSE_2025_P1B_Q7~c`). **No column or patch.** Existing rows are not rewritten; an admin moves a mis-merged QUE page into a block per question from the Edit modal.
 - JSON blobs in `filter_data` / `options_data` / `generation_options` gained keys over time (`version_priority` replacing `preferred_language`, `sort_group_order`, `format_priority`); readers accept old shapes via `utils.parse_version_priority(raw, legacy_preferred)` and defaults. Never rewrite stored blobs.
 - Storage relocation (generated files → `User/<name>/generated/`, thumbnails → `System/`, `Source_PDF` → `Shared/_archive`) is a filesystem migration via `cli.py migrate-storage`, not a schema change.

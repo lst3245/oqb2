@@ -206,6 +206,25 @@ class ParserContractTests(unittest.TestCase):
             ' {"label": "dii", "box": [0, 500, 1000, 700]}]')
         self.assertEqual([b['label'] for b in out], ['stem', 'd', 'di', 'dii'])
 
+    def test_parse_part_boxes_shared_block_labels(self):
+        out = ai_prompts.parse_part_boxes(
+            '[{"label": "stem", "box": [0, 0, 1000, 100]},'
+            ' {"label": "b", "box": [0, 100, 1000, 300]},'
+            ' {"label": "intro-c", "box": [0, 300, 1000, 500]},'
+            ' {"label": "c", "box": [0, 500, 1000, 700]},'
+            ' {"label": "intro-diii", "box": [0, 700, 1000, 800]},'
+            ' {"label": "intro-a", "box": [0, 800, 1000, 900]}]')
+        self.assertEqual([b['label'] for b in out],
+                         ['stem', 'b', '~c', 'c', 'd~iii', 'stem'])
+
+    def test_part_que_prompt_explains_shared_blocks(self):
+        with mock.patch.object(ai_prompts, '_load_resolved', return_value=None):
+            sys_q = ai_prompts.build_pdf_part_system('QUE')
+            self.assertIn('intro-c', sys_q)
+            self.assertIn('SHARED TEXT BETWEEN PARTS', sys_q)
+            self.assertNotIn('SHARED TEXT BETWEEN PARTS',
+                             ai_prompts.build_pdf_part_system('SOL'))
+
     def test_parse_part_boxes_range_numbers(self):
         out = ai_prompts.parse_part_boxes(
             '[{"label": "stem", "box": [0, 0, 1000, 300]},'

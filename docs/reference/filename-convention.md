@@ -19,6 +19,8 @@
 | `Q5a` | Letter part under `Q5` | `qno=5`, `part=a` |
 | `Q3ci` | Roman sub-part under `Q3c` | `qno=3`, `part=i` (own label; parent is `Q3c`) |
 | `Q23-24` | Range stem (shared MC preamble) | `qno=23`, `qno_end=24`. Mutually exclusive with a part-path |
+| `Q7~c` | Shared block: text printed between parts, before (c) | `qno=7`, `part=~c`, `part_sort=3`; parent `Q7`; parent of `Q7c`, `Q7d`, … (which keep their QIDs). Not on a range, never `~a` / `~i`. [ADR-015](../decisions/ADR-015-shared-blocks.md) |
+| `Q7d~iii` | Shared block inside part (d), before (d)(iii) | `part=~iii`; parent `Q7d` |
 
 `qno` is always the integer **start**. `(subject, source, year, paper, qno)` is not unique. Tree behaviour: [../modules/question-hierarchy.md](../modules/question-hierarchy.md).
 
@@ -42,7 +44,7 @@ MATC_QB_MATHSMART2024_Q1_CH_QUE.md    Markdown question (single slot)
 | `SOURCE` | `DSE`, `CE`, `AL` (past paper) or `QB` | |
 | `YEAR` | digits | past paper only |
 | `PAPER` | `P` + alphanumerics | `P1`, `P2`, `P1A` |
-| `QNO` | `Q` + digits, optional `-` + digits, optional lowercase part-path | `Q5`, `Q5a`, `Q3ci`, `Q23-24`. Pattern `QNO_TOKEN_PATTERN` in `app/hierarchy.py`. Range and part-path are mutually exclusive |
+| `QNO` | `Q` + digits, optional `-` + digits, optional lowercase part-path, optional `~` + one lowercase segment (shared block) | `Q5`, `Q5a`, `Q3ci`, `Q23-24`, `Q7~c`. Pattern `QNO_TOKEN_PATTERN` in `app/hierarchy.py`. Range and part-path are mutually exclusive |
 | `VERSION` | `EN`, `CH`, `BI`, `ENO`, `CHO` | the regex alternation lists `ENO|CHO` **before** `EN|CH` so the longer tokens are not shadowed. `ENO`/`CHO` = official scans (reference for proofreading, last in default priority) |
 | `TYPE` | `QUE`, `ANS`, `SOL`, `WHOLE` | `WHOLE` is IMG-only on a **root** QID (`Q5`, not `Q5a` / `Q23-24`). Ingest parses a part-QID WHOLE filename then skips it. Dashboard / generator / viewer never load it. |
 | `PART` | integer ≥ 2 | optional; **IMG page N of this QID** (`QuestionAsset.part_number`). Not the sub-question letter. `.md` with a part ≥ 2 is skipped by ingest; DOC is single-slot |

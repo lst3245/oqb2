@@ -1,13 +1,14 @@
 # Question hierarchy (stem + parts)
 > A question may be a standalone item, a **stem** (shared background), or a **part** (child of a stem). Existing math-style rows are roots with no children and behave as before.
 
-Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard grouping, generator/viewer `resolve_render_plan`, admin tree UI, IMG Split tool with auto-detect, Combine (restore WHOLE / reconstruct), PDF two-pass part split, and AI ancestor-image context. See [ADR-009](../decisions/ADR-009-question-hierarchy-over-linking.md).
+Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard grouping, generator/viewer `resolve_render_plan`, admin tree UI, IMG Split tool with auto-detect, Combine (restore WHOLE / reconstruct), PDF two-pass part split, AI ancestor-image context, and **shared blocks** (`Q7~c`, text printed between parts). See [ADR-009](../decisions/ADR-009-question-hierarchy-over-linking.md) and [ADR-015](../decisions/ADR-015-shared-blocks.md).
 
 ## Files
 
 | File | Role |
 |---|---|
-| `app/hierarchy.py` | QNO token grammar (`parse_qno_token`, `QNO_TOKEN_PATTERN`), QID parse/build, part segmentation, `sort_key` / `qno_sort_key`, `ensure_question`, tree walks (`ancestors`, `descendants`, `earlier_siblings`), `group_for_dashboard`, `paginate_by_root`, `breadcrumb_parts`, `resolve_render_plan`, rename rewrite helpers, `stem_id_query`, `eager_load_tree`; plan-label helpers `label_is_ancestor`, `derive_roles`, `next_part_label`, `compose_part_label` |
+| `app/hierarchy.py` | QNO token grammar (`parse_qno_token`, `QNO_TOKEN_PATTERN`), QID parse/build, part segmentation, `sort_key` / `qno_sort_key`, `ensure_question`, tree walks (`ancestors`, `descendants`, `earlier_siblings`), `group_for_dashboard`, `paginate_by_root`, `breadcrumb_parts`, `resolve_render_plan`, rename rewrite helpers, `stem_id_query`, `leaf_clause` (SQL: no children and not a block), `eager_load_tree`; plan-label helpers `label_is_ancestor(…, labels)`, `derive_roles`, `next_part_label`, `compose_part_label`; block helpers `is_block` / `is_block_part`, `block_anchor`, `block_covers`, `pick_block`, `block_label_for`, `block_child_for`, `relink_block_level`, `part_position_label` |
+| `app/question_blocks.py` | Repair: `plan_move_page` (dry run) / `move_page_to_block` — move one QUE page of a stem into a new block through `replace_img_assets` |
 | `app/question_split.py` | Stage/commit IMG crops for the Split-into-parts page (`SYSTEM_PATH/.question_split/<token>/`); stage stacks multi-image QUE into one PNG; `iter_detect_boxes` runs PDF-import pass 2 (`detect_parts`) **once on that stitch** (SSE). Optional `find_parent` adds pass 1 for a full exam page. Root commit writes `WHOLE` from the staged PNG when that slot is empty, then crops QUE. |
 | `app/question_combine.py` | Combine-parts: `choose_mode` / `preview_combine` / `combine_parts` / `combine_many`. Restore WHOLE→QUE on a root that has an archive; otherwise reconstruct IMG pages onto the survivor (optional stitch / `save_whole`). Range stems 409. |
 | `app/pdf_import.py` | Plan labels; `detect_parts` / `iter_split_detect`; `split_question_png` (shared two-pass used by the Split tool); `whole_source_crops`; `iter_commit` via `ensure_question` (writes `WHOLE` for split roots before tight stem QUE) |
@@ -23,7 +24,7 @@ Implemented: schema, QID grammar, ingest/create/rename/delete, dashboard groupin
 | `templates/admin_question_split.html` | Split-into-parts page: one `OQBBboxEditor` on the stitched image (move / 8-handle resize / magnifier / crop preview / **Add box** draw mode / Delete-key) + SSE Auto-detect (PDF pass 2 once; optional full-page pass 1). Commit payload unchanged: `{token, copy_tags, boxes:[{label, box:[x1,y1,x2,y2]}]}` |
 | `static/js/bbox_editor.js` / `static/css/bbox_editor.css` | Shared overlay editor. Do not reintroduce a `<canvas>` painter. See [../frontend/conventions.md](../frontend/conventions.md#bounding-box-editor-oqbbboxeditor) |
 | `templates/admin_pdf_import.html` | Split-into-parts checkbox, pass-2 Detect parts, Re-split / Unsplit |
-| `tests/test_hierarchy.py` | Grammar, segmentation, rewrite, sort, render plan, dashboard grouping, `paginate_by_root`, split-box normalize (no live DB) |
+| `tests/test_hierarchy.py` | Grammar, segmentation, rewrite, sort, render plan, dashboard grouping, `paginate_by_root`, split-box normalize, `SharedBlockTests` (no live DB) |
 | `tests/test_generator_mc_keys.py` | Compact MC keys plus `SingleHeadingPerQuestionTests` for `_plan_document_entries` / `_assign_headings` (no live DB) |
 | `tests/test_question_combine.py` | WHOLE filenames, `choose_mode`, `collapse_maximal_stems`, `whole_source_crops` (no live DB) |
 | `tests/test_pdf_import_plan.py` | Plan labels / `sanitize_plan`; `parse_page_range`; `pick_pass1_parent_box` / stitch mapping (no live DB) |
@@ -34,7 +35,7 @@ See [../core/03-data-model-and-migrations.md](../core/03-data-model-and-migratio
 
 | Model | Columns |
 |---|---|
-| `Question` | `parent_id` (self-FK, `ON DELETE RESTRICT`, index), `part` (own label `a` / `i` / `ii`, not the full path), `part_sort` (letter 1–26, roman 101–110), `qno_end` (inclusive end of a range stem; NULL otherwise). `qno` remains the **integer start** of the token. Relationships `parent` / `children`. |
+| `Question` | `parent_id` (self-FK, `ON DELETE RESTRICT`, index), `part` (own label `a` / `i` / `ii`, not the full path; `~c` for a shared block), `part_sort` (letter 1–26, roman 101–110; a block stores its anchor's value), `qno_end` (inclusive end of a range stem; NULL otherwise). `qno` remains the **integer start** of the token. Relationships `parent` / `children`. |
 | `QuestionAsset` | `asset_type` includes `WHOLE` (IMG, root-only unsplit original). Working types stay `QUE/ANS/SOL`. |
 | `Subject` | `split_parts_default` (bool, default false). On the Subjects form. Seeds the PDF-import **Split questions into parts** checkbox when a paper for that subject is staged. |
 
@@ -48,17 +49,18 @@ Changed behaviour on existing routes plus new admin routes:
 |---|---|---|---|
 | POST | `/admin/questions/create` | A, scoped | `qno` is a string token (`5`, `5a`, `3ci`, `23-24`, optional leading `Q`). Creates missing ancestor rows via `ensure_question`. |
 | POST | `/admin/questions/<id>/rename` | A, scoped to the **new** subject | Cascades to descendants (QIDs + optional files). 400 if the rename would change range vs part depth while children exist. 409 on QID collision in or outside the subtree. |
-| POST | `/admin/questions/delete` | A | 409 if any selected row has children not also selected, unless `delete_children=true`. Deletes deepest-first (RESTRICT). |
-| GET | `/admin/questions/<id>/details` | A | Extra `parent_id`, `part`, `qno_end`, `child_count`, `is_stem`, `needs_prev_parts`, `has_whole`, `breadcrumb`, `children`, `tag_union`. |
+| POST | `/admin/questions/delete` | A | 409 if any selected row has children not also selected, unless `delete_children=true`. Deletes deepest-first (RESTRICT). A selected shared block without `delete_children` is **dissolved**: its parts move up to the lettered parent (`relink_block_level(exclude_id=…)`), then the block row is deleted. |
+| GET | `/admin/questions/<id>/details` | A | Extra `parent_id`, `part`, `is_block`, `qno_end`, `child_count`, `is_stem`, `needs_prev_parts`, `has_whole`, `breadcrumb` (`[{id, qid, label, kind: root\|part\|block}]`), `children` (`[{id, qid, part, is_block}]`), `tag_union`. |
 | GET | `/admin/questions/api/list` | A | Extra `parent_id`, `part`, `qno_end`, `depth`, `is_stem`. Query `tree_scope=all\|roots\|leaves`. |
 | POST | `/admin/questions/<id>/update` | A | Topic/chapter/level/q_type writes are ignored when the row is a stem. Answer/comment still apply. |
-| POST | `/admin/questions/<id>/children` | A, scoped | JSON `{part}` (`a`, `b`, `ci`). `ensure_question` under this QID. 400 on range stems. |
-| POST | `/admin/questions/<id>/parent` | A, scoped | JSON `{parent_id}` (null detaches). Same subject; `token_fits_under`; no cycles. 400 if detaching a labelled `part`. |
-| POST | `/admin/questions/<id>/needs-prev-parts` | A, scoped | JSON `{value}`. Toggles `needs_prev_parts`; 400 when turning it on for a root. Details payload carries `needs_prev_parts`; dashboard cards carry it too (badge). |
+| POST | `/admin/questions/<id>/children` | A, scoped | JSON `{part}` (`a`, `b`, `ci`, or `~c` for a shared block). `ensure_question` under this QID (a lettered part lands under the block that covers it). On a block, the part is named from the block's parent. 400 on range stems. |
+| POST | `/admin/questions/<id>/parent` | A, scoped | JSON `{parent_id}` (null detaches). Same subject; `token_fits_under` (block-aware); no cycles. 400 if detaching a labelled `part`. A lettered part is then re-homed by `relink_parent`, so it lands under the covering block; the reply's `parent_id` is the final parent. |
+| POST | `/admin/questions/<id>/needs-prev-parts` | A, scoped | JSON `{value}`. Toggles `needs_prev_parts`; 400 when turning it on for a root or a shared block. Details payload carries `needs_prev_parts`; dashboard cards carry it too (badge). |
+| POST | `/admin/questions/<id>/assets/move-to-block` | A, scoped | JSON `{page, anchor, dry_run?}`. Repair for rows imported before blocks: move QUE page `page` (1-based, every IMG version that has it and keeps ≥1 page) into a new block `~anchor` under this stem. `dry_run` → `{ok, qid, block_qid, block_token, anchor, page, moving[], versions[], skipped_versions[], warnings[]}`; real run adds `block_id`, `moved_parts`. 400 `{ok:false, error}` when the block exists, no part ≥ anchor exists, the anchor is `a`/`i`, or the row is a range / block. MD/DOC QUE is left alone (warning). |
 | GET | `/admin/questions/<id>/split` | A, scoped | Stages IMG QUE and renders the crop page. MD/DOC QUE flash-redirects to the question list. Hidden in the Edit modal when the row is already a stem. |
 | GET | `/admin/questions/<id>/split/image/<version>?token=` | A, scoped | Staged PNG. |
 | GET | `/admin/questions/<id>/split/detect` | A, scoped | SSE. Query `token`, `version`, `endpoint_id`, `method?`, `find_parent?`. Stitches multi-image QUE then pass-2 `detect_parts` once. When the reply has parts but no stem and the strip above the first part has printed content, a `stem` box is added for it (`split_question_png(fill_stem=True)`; skipped when the question is itself a part). `done` carries `{boxes, raw}` on the stitch. POST returns 400 asking to reload (stale tab). |
-| POST | `/admin/questions/<id>/split/commit` | A, scoped | JSON `{token, boxes, copy_tags}`. Crops per version; optional copy tags then clear the stem. Root: writes WHOLE from the staged PNG if that slot is empty. |
+| POST | `/admin/questions/<id>/split/commit` | A, scoped | JSON `{token, boxes, copy_tags}`. Box labels go through `normalize_part_box_label` (`stem`, `a`, `ci`, `~c`, `intro-c`, `d~iii`). Crops per version; optional copy tags (never onto a block) then clear the stem. Root: writes WHOLE from the staged PNG if that slot is empty. |
 | GET | `/admin/questions/<id>/combine/preview` | A, scoped | JSON from `preview_combine`: `{ok, mode: restore\|reconstruct, is_root, has_whole, whole_pages, reconstruct_pages, descendants, descendant_count, can_save_whole, md_doc_lost, tag_source_qid}`. 400/409 when `ok` is false (leaf / range stem). |
 | POST | `/admin/questions/<id>/combine` | A, scoped | JSON `{stitch?, save_whole?}`. Restore or reconstruct, then delete descendants. |
 | POST | `/admin/questions/combine` | A | JSON `{ids, stitch?, save_whole?}`. Collapses overlapping stems to the ancestor; per-row `{ok, ...}` in `results`. |
@@ -72,7 +74,7 @@ Changed behaviour on existing routes plus new admin routes:
 
 - **Superset, not a mode.** There is no per-subject "flat vs tree" flag in the data model. Math stays a forest of roots. `split_parts_default` only seeds the PDF-import split checkbox.
 - **Tags live on leaves.** The tag editor disables topic/type/level fields on stems and shows the descendant union read-only. Dashboard topic filters match **leaves**; a stem appears only as a header wrapping matching parts.
-- **QNO token** `Q<digits>(-<digits>)?(<part-path>)?`. Range and part-path are mutually exclusive. Canonical forms: `Q5`, `Q23-24`, `Q3a`, `Q3ci`. Source of truth: `app/hierarchy.py`.
+- **QNO token** `Q<digits>(-<digits>)?(<part-path>)?(~<anchor>)?`. Range and part-path are mutually exclusive; the `~anchor` block segment needs a non-range question and is always last. Canonical forms: `Q5`, `Q23-24`, `Q3a`, `Q3ci`, `Q7~c`, `Q7d~iii`. Source of truth: `app/hierarchy.py`.
 - **Part path segmentation:** longest trailing roman (`i`–`x`) is one segment; a remainder letter chain is the parent path. A path that *is* a roman (`i`, `ii`) attaches to the root. UI intends three levels: question → letter → roman.
 - **Selecting a stem = whole question**; **selecting some leaves = stem + those leaves** (`hierarchy_mode=selected`). `hierarchy_mode=whole` expands every selected node's root to the full tree. Expansion is `resolve_render_plan` only (ADR-009). Dashboard Selection stays ADR-008.
 - **Seq numbers:** a leaf with `part IS NULL` (standalone or MC under a preamble) owns its seq; a leaf with a `part` shares its root's seq. Info line / section headings / `[Cross Topic]` apply to leaves.
@@ -106,6 +108,19 @@ Changed behaviour on existing routes plus new admin routes:
 - **`needs_prev_parts`** (bool on `Question`): a leaf that refers to earlier sibling parts ("using your answer in (a)"). `resolve_render_plan(mode=selected)` then emits `earlier_siblings(node)` (plus their descendants) as `stem`-role background before the leaf, once per run and without duplicating a sibling that is itself selected. `whole` mode is unaffected (everything is already there). Roots cannot carry the flag (route returns 400). Set from the edit modal switch or by the PDF import agent via a plan item's `depends_prev`.
 - Uniqueness remains `questions.qid` only. `(subject, source, year, paper, qno)` is **not** unique.
 
+### Shared blocks (text between parts)
+
+[ADR-015](../decisions/ADR-015-shared-blocks.md). For a passage / table printed **between** parts and used by the parts after it (ICT 2025 P1B Q7: the SS table before (c)).
+
+- **Shape.** `Q7~c` (`part='~c'`, `part_sort` = value of `c`) is a child of `Q7` and the parent of `Q7c`, `Q7d`, … up to the next block at that level. Inside a part: `Q7d~iii` is a child of `Q7d` and the parent of `Q7diii`, `Q7div`. Tree: `Q7 → Q7a, Q7b, Q7~c → Q7c, Q7d`.
+- **Transparent.** Parts keep their QIDs (`Q7c`, never `Q7~cc`); `part_path_of` skips block segments, so the path of `Q7d` is `d` under either parent. Ancestry of a part therefore cannot be read off its QID: `ensure_question` and `relink_parent` look up `block_child_for(parent, seg)` (`pick_block` = the block with the largest anchor ≤ seg), and creating / deleting / renaming a block runs `relink_block_level(parent)`, which re-homes every part at that level.
+- **Invalid:** a block at the root (`~c` on its own), under a range stem, `~a` / `~i` (text before the first part is the stem or the part's intro), a multi-segment anchor (`~ci`), and renaming block ↔ part (`rename_shape_ok`). A block rename may only move the anchor.
+- **Always a stem.** `is_stem` / `derive_roles` return stem for any block, even with no children yet. It is never a leaf: SQL leaf filters use `leaf_clause()` (`stem_id_query` alone would count an empty block as a leaf). No tags, no WHOLE, no `needs_prev_parts` (400), Combine refused (`choose_mode` raises), Split copy-tags skips it, Health untagged lists skip it.
+- **Order and render.** `part_sort_key` sorts `~c` after (b) and before (c). `resolve_render_plan(selected)` collects ancestors **and** `needs_prev_parts` earlier siblings, then emits them in `sort_key` order: (d) alone prints stem, SS table, (d); (d) with "uses earlier parts" prints stem, (a), (b), SS table, (c), (d). `earlier_siblings` crosses block boundaries.
+- **Labels.** `part_position_label(q)` → `(c)(i)` (blocks skipped); for a block → `before (c)`. Breadcrumbs carry `kind: root|part|block`; Present / docx leaf breadcrumbs drop `block` crumbs. Dashboard: the block is a substem row "Shared · before (c)"; depth ignores blocks so (c) aligns with (a).
+- **Delete dissolves.** Deleting a block without `delete_children` moves its parts up; with `delete_children` the parts go too.
+- **Repair of old rows.** Before this change, PDF import merged the mid passage into the root's QUE as page 2. Edit modal → Assets → layers icon on a QUE page card (page ≥ 2 of a root / part stem) → anchor → dry-run confirm → `move-to-block`. `app/question_blocks.py` loads the pages into memory, creates the block (`ensure_question` + relink, commit), then `replace_img_assets` the block (moved page) and the source (the rest) per IMG version. Versions with only one page are skipped; MD/DOC QUE is not touched (warning). No restore point (it moves assets, not tags; same as Split).
+
 ## Settings & config keys
 
 None. `Subject.split_parts_default` is a column, not a System Setting. See [../core/06-system-settings.md](../core/06-system-settings.md).
@@ -132,11 +147,15 @@ None in this module's own routes except Split detect (SSE, same job-cancel regis
 - Empty parent rows from ingesting `..._Q3a` with no `Q3` file are load-bearing. Sync's 24 h grace plus the "has children" guard keep that row. Health **no-assets / untagged / no-type / no-level** lists skip stems.
 - `ensure_question` may insert an empty parent. Database Health **stems_with_tags**, **parts_missing_que**, **empty_range_stems** are the hierarchy-aware anomalies.
 - Boot patch adds the self-FK on the **live** DB at reload. All new columns are nullable / defaulted; existing rows stay standalone.
+- **Blocks break "parent = QID minus last segment".** `Q7c`'s parent may be `Q7~c`. Never derive a parent by trimming the token; go through `ensure_question` / `relink_parent` / `block_child_for`. Code that needs the printed position uses `part_position_label`, not `part`.
+- **Leaf filters: `leaf_clause()`, not `~id.in_(stem_id_query())`.** A freshly created block has no children yet and would otherwise count as an answerable leaf.
+- **`~` is part of the QID charset.** Fine in Windows filenames and URLs; `secure_filename` would strip it, so never pass a QID through it.
 - PDF pass-2 crops with `pad_frac=0` and `trim_white=False`, then `full_width_child_box` (wraps `map_crop_box_to_page` but keeps the parent's x1/x2) so part boxes stay page-relative and aligned with the stem. Do not pad before mapping.
 
 ## Related
 
 - [../decisions/ADR-009-question-hierarchy-over-linking.md](../decisions/ADR-009-question-hierarchy-over-linking.md)
+- [../decisions/ADR-015-shared-blocks.md](../decisions/ADR-015-shared-blocks.md)
 - [../reference/filename-convention.md](../reference/filename-convention.md)
 - [ingestion.md](ingestion.md), [admin-questions.md](admin-questions.md), [admin-panel.md](admin-panel.md), [generator.md](generator.md), [dashboard.md](dashboard.md), [pdf-import.md](pdf-import.md), [ai-tools.md](ai-tools.md)
 - [subject-snapshots.md](subject-snapshots.md) — Split / Combine / create child / set parent take no restore point (by decision)

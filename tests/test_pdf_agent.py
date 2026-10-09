@@ -134,6 +134,9 @@ class PartCheckTests(unittest.TestCase):
         # roman 'i' is not an ancestor of 'ii'
         missing, extra = compare_parts(['i', 'ii'], ['ii'])
         self.assertEqual(missing, ['i'])
+        # a shared block (text between parts) is like the stem: never missing / extra
+        self.assertEqual(compare_parts(['stem', 'a', 'b', 'c'], ['stem', 'a', 'b', '~c', 'c']), ([], []))
+        self.assertEqual(compare_parts(['stem', 'd', 'di', '~iii'], ['stem', 'd', 'di']), ([], []))
 
     def test_fix_overlaps_trims_upper_and_drops_degenerate(self):
         items = [{'page': 0, 'label': '4a', 'box': [.1, .20, .9, .50]},

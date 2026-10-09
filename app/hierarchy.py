@@ -19,18 +19,25 @@ from typing import Any, Iterable, Optional
 # ---------------------------------------------------------------------------
 # Grammar
 #
-# QNO token: Q<digits>[-<digits>][<part-path>]
+# QNO token: Q<digits>[-<digits>][<part-path>][~<anchor>]
 #   Q5          standalone / root
 #   Q23-24      range stem (shared MC preamble); qno=23, qno_end=24
 #   Q3a         letter part under Q3
 #   Q3ci        roman sub-part under Q3c  (path 'c'+'i')
+#   Q7~c        shared block: unlettered text printed between parts, before
+#               (c); parent of Q7c, Q7d, ... up to the next block at that level
+#   Q7d~iii     shared block inside (d), before (d)(iii)
 #
-# Range and part-path are mutually exclusive. IMG multi-file `part_number`
-# (`_2.png`) is a different axis — never reuse that name here.
+# Range and part-path are mutually exclusive. A block segment is always last
+# and is never part of a descendant's token (Q7c stays Q7c under Q7~c). IMG
+# multi-file `part_number` (`_2.png`) is a different axis — never reuse that
+# name here. See docs/decisions/ADR-015-shared-blocks.md.
 # ---------------------------------------------------------------------------
 
+BLOCK_MARK = '~'
+
 # Body only (no leading Q). Used inside filename / QID regexes.
-QNO_BODY_PATTERN = r'\d+(?:-\d+)?(?:[a-z]+)?'
+QNO_BODY_PATTERN = r'\d+(?:-\d+)?(?:[a-z]+)?(?:~[a-z]+)?'
 
 # Full token, case-sensitive for the part letters (filenames store lowercase).
 QNO_TOKEN_PATTERN = r'Q' + QNO_BODY_PATTERN
@@ -39,22 +46,24 @@ QNO_TOKEN_PATTERN = r'Q' + QNO_BODY_PATTERN
 # `QUE` / `CHO` never match. Not preceded/followed by alphanumerics so `P1Q5`
 # is ignored and `Q5` in `..._Q5_EN_QUE` is found.
 QNO_TOKEN_RE = re.compile(
-    r'(?<![A-Za-z0-9])(Q\d+(?:-\d+)?(?:[a-zA-Z]+)?)(?![A-Za-z0-9])'
+    r'(?<![A-Za-z0-9~])(Q\d+(?:-\d+)?(?:[a-zA-Z]+)?(?:~[a-zA-Z]+)?)(?![A-Za-z0-9~])'
 )
 
 # Strict parse of one token (optional leading Q).
 _TOKEN_PARSE_RE = re.compile(
-    r'^Q?(?P<qno>\d+)(?:-(?P<qno_end>\d+))?(?P<part>[A-Za-z]+)?$',
+    r'^Q?(?P<qno>\d+)(?:-(?P<qno_end>\d+))?(?P<part>[A-Za-z]*(?:~[A-Za-z]+)?)$',
     re.IGNORECASE,
 )
 
+_PART_PATH_RE = re.compile(r'^(?P<letters>[a-z]*)(?:~(?P<anchor>[a-z]+))?$')
+
 PP_QID_RE = re.compile(
     r'^(?P<subj>[A-Z0-9]+)_(?P<source>DSE|CE|AL)_(?P<year>\d{4})_'
-    r'(?P<paper>P[A-Za-z0-9]+)_(?P<token>Q\d+(?:-\d+)?(?:[A-Za-z]+)?)$'
+    r'(?P<paper>P[A-Za-z0-9]+)_(?P<token>Q\d+(?:-\d+)?(?:[A-Za-z]+)?(?:~[A-Za-z]+)?)$'
 )
 QB_QID_RE = re.compile(
     r'^(?P<subj>[A-Z0-9]+)_QB_(?P<detail>[^_]+)_'
-    r'(?P<token>Q\d+(?:-\d+)?(?:[A-Za-z]+)?)$'
+    r'(?P<token>Q\d+(?:-\d+)?(?:[A-Za-z]+)?(?:~[A-Za-z]+)?)$'
 )
 
 # Longest-first so "cii" yields "ii" not a trailing "i".
@@ -88,10 +97,21 @@ class ParsedQno:
 
     @property
     def parent_part_path(self) -> Optional[str]:
+        """Lettered parent path. A part inside a shared block still names its
+        lettered parent here (``Q7c`` → root); ``structural_parent`` resolves
+        the block."""
         segs = part_segments(self.part_path)
         if len(segs) <= 1:
             return None
         return ''.join(segs[:-1])
+
+    @property
+    def is_block(self) -> bool:
+        return is_block_part(self.own_part)
+
+    @property
+    def block_anchor(self) -> Optional[str]:
+        return block_anchor(self.own_part)
 
 
 @dataclass(frozen=True)
@@ -141,8 +161,17 @@ def format_qno_token(
             raise HierarchyError('A range stem cannot also have a part suffix')
         return f'Q{qno}-{end}'
     if path:
-        if not path.isalpha():
-            raise HierarchyError('Part labels must be letters only (e.g. a, ci)')
+        m = _PART_PATH_RE.match(path)
+        if not m or not (m.group('letters') or m.group('anchor')):
+            raise HierarchyError('Part labels must be letters only (e.g. a, ci, or ~c for a shared block)')
+        anchor = m.group('anchor')
+        if anchor:
+            if part_segments(anchor) != [anchor]:
+                raise HierarchyError(
+                    f'A shared block names one part it comes before (~c, ~iii), not {anchor!r}')
+            if anchor in ('a', 'i'):
+                raise HierarchyError(
+                    'Text before the first part is the stem (or that part\'s own intro), not a shared block')
         return f'Q{qno}{path}'
     return f'Q{qno}'
 
@@ -199,11 +228,35 @@ def normalize_plan_label(raw) -> Optional[str]:
     return tok[1:] if tok.startswith('Q') else tok
 
 
-def normalize_part_box_label(raw) -> Optional[str]:
-    """Pass-2 box label relative to one question crop: ``stem`` or a letter path.
+_BLOCK_LABEL_RE = re.compile(
+    r'^(?:~|(?:intro|before|pre|stem|shared|lead-?in|preamble|background|block)'
+    r'(?:[\s_:\-~]+(?:(?:to|for)[\s_:\-]+)?|\s*(?=\()))'
+    r'\(?(?P<anchor>[a-z]{1,6})\)?$'
+)
 
-    Accepts ``stem`` aliases, letters (``a``, ``ci``), or a full token whose
-    part path is stripped (``3a`` → ``a``, ``3`` → ``stem``).
+
+def block_label_for(anchor_path: str) -> Optional[str]:
+    """Relative block label for text printed before part ``anchor_path``
+    (``c`` → ``~c``, ``diii`` → ``d~iii``). Text before a first part
+    (``a`` / ``i``) is the stem or that part's own intro, so ``a`` →
+    ``stem`` and ``di`` → ``d``."""
+    segs = part_segments(anchor_path)
+    if not segs or any(is_block_part(s) for s in segs):
+        return None
+    prefix, own = ''.join(segs[:-1]), segs[-1]
+    if own in ('a', 'i'):
+        return prefix or 'stem'
+    return f'{prefix}{BLOCK_MARK}{own}'
+
+
+def normalize_part_box_label(raw) -> Optional[str]:
+    """Pass-2 box label relative to one question crop: ``stem``, a letter path,
+    or a shared block (``~c``).
+
+    Accepts ``stem`` aliases, letters (``a``, ``ci``), a full token whose
+    part path is stripped (``3a`` → ``a``, ``3`` → ``stem``), and block
+    forms the model may write for text printed between parts (``intro-c``,
+    ``before (c)``, ``~c``, ``3~c`` → ``~c``).
     """
     if raw is None:
         return None
@@ -212,9 +265,15 @@ def normalize_part_box_label(raw) -> Optional[str]:
         return None
     if s in PART_STEM_ALIASES:
         return 'stem'
+    m = _BLOCK_LABEL_RE.match(s)
+    if m:
+        return block_label_for(m.group('anchor'))
     parsed = parse_qno_token(s)
     if parsed:
         return parsed.part_path or 'stem'
+    pm = _PART_PATH_RE.match(s)
+    if pm and pm.group('anchor'):
+        return block_label_for((pm.group('letters') or '') + pm.group('anchor'))
     if s.isalpha():
         return s
     return None
@@ -264,10 +323,15 @@ def compose_part_label(parent_label: str, child_raw: str) -> Optional[str]:
         return None
 
 
-def label_is_ancestor(parent_label, child_label) -> bool:
+def label_is_ancestor(parent_label, child_label, labels=None) -> bool:
     """True when plan label ``parent_label`` is a strict ancestor of
     ``child_label`` (``5`` ⊃ ``5d`` ⊃ ``5di``). Ranges have no descendants
-    other than the plain numbers they cover."""
+    other than the plain numbers they cover.
+
+    A shared block (``7~c``) is an ancestor of the parts at its level that
+    print at or after its anchor (``7c``, ``7d``, ``7di``), up to the next
+    block. That cut-off needs the other labels: pass ``labels`` (the
+    question's label set) whenever two blocks may share a level."""
     p = parse_qno_token(parent_label)
     c = parse_qno_token(child_label)
     if not p or not c:
@@ -279,6 +343,26 @@ def label_is_ancestor(parent_label, child_label) -> bool:
         return False
     ps = part_segments(p.part_path)
     cs = part_segments(c.part_path)
+    if ps and is_block_part(ps[-1]):
+        level = ps[:-1]
+        if len(cs) <= len(level) or cs[:len(level)] != level:
+            return False
+        seg = cs[len(level)]
+        if not block_covers(block_anchor(ps[-1]), seg):
+            return False
+        if labels is None:
+            return True
+        rivals = []
+        for other in labels:
+            o = parse_qno_token(other)
+            if not o or o.qno != p.qno or o.qno_end:
+                continue
+            os_ = part_segments(o.part_path)
+            if len(os_) == len(ps) and os_[:-1] == level and is_block_part(os_[-1]):
+                rivals.append(os_[-1])
+        if ps[-1] not in rivals:
+            rivals.append(ps[-1])
+        return pick_block(rivals, seg) == ps[-1]
     return len(cs) > len(ps) and cs[:len(ps)] == ps
 
 
@@ -298,9 +382,10 @@ def derive_roles(labels) -> dict:
             labs.append(lab)
     out = {}
     for lab in labs:
-        has_child = any(label_is_ancestor(lab, other) for other in labs
+        p = parse_qno_token(lab)
+        has_child = any(label_is_ancestor(lab, other, labs) for other in labs
                         if other != lab)
-        if has_child:
+        if has_child or (p and p.is_block):
             out[lab] = 'stem'
         else:
             p = parse_qno_token(lab)
@@ -404,6 +489,9 @@ def split_part_path(path: Optional[str]) -> tuple[str, Optional[str]]:
     if not path:
         return ('', None)
     path = path.lower()
+    if BLOCK_MARK in path:
+        letters, anchor = path.split(BLOCK_MARK, 1)
+        return (letters, BLOCK_MARK + anchor)
     if path in _ROMAN_VALUE:
         return ('', path)
     for roman in _ROMAN_TOKENS:
@@ -434,11 +522,55 @@ def part_segments(path: Optional[str]) -> list[str]:
     return segs
 
 
+def is_block_part(label: Optional[str]) -> bool:
+    """True for a shared-block segment (``~c``)."""
+    return bool(label) and str(label).startswith(BLOCK_MARK)
+
+
+def block_anchor(label: Optional[str]) -> Optional[str]:
+    """``~c`` → ``c``; anything else → None."""
+    if not is_block_part(label):
+        return None
+    return str(label)[1:] or None
+
+
+def is_block(q) -> bool:
+    """True for a shared-block node (``part`` = ``~c``)."""
+    return is_block_part(getattr(q, 'part', None))
+
+
+def block_covers(anchor: Optional[str], seg: Optional[str]) -> bool:
+    """True when part segment ``seg`` prints at or after a block's ``anchor``."""
+    if not anchor or not seg or is_block_part(seg):
+        return False
+    return part_sort_key(seg) >= part_sort_key(anchor)
+
+
+def pick_block(block_parts: Iterable, seg: Optional[str]) -> Optional[str]:
+    """The block segment (``~c``) among ``block_parts`` that owns part ``seg``:
+    the one with the latest anchor at or before ``seg``. None when ``seg``
+    prints before every block (it stays under the lettered parent)."""
+    best = None
+    for bp in block_parts:
+        anchor = block_anchor(bp)
+        if not block_covers(anchor, seg):
+            continue
+        if best is None or part_sort_key(anchor) > part_sort_key(block_anchor(best)):
+            best = bp
+    return best
+
+
 def part_sort_key(label: Optional[str]) -> tuple[int, int, str]:
-    """Sort key for one segment: letters, then romans, then other."""
+    """Sort key for one segment: letters, then romans, then other.
+
+    A block (``~c``) shares its anchor's position with an empty tie-break so
+    it sorts after the parts before it and before the parts it owns."""
     if not label:
         return (2, 0, '')
     lab = label.lower()
+    if is_block_part(lab):
+        kind, n, _ = part_sort_key(lab[1:])
+        return (kind, n, '')
     if len(lab) == 1 and lab.isalpha() and lab not in _ROMAN_VALUE:
         return (0, ord(lab) - ord('a') + 1, lab)
     if lab in _ROMAN_VALUE:
@@ -479,8 +611,9 @@ def children(q) -> list:
 
 
 def is_stem(q) -> bool:
-    """True for a range preamble or any node that already has children."""
-    if getattr(q, 'qno_end', None):
+    """True for a range preamble, a shared block, or any node that already
+    has children."""
+    if getattr(q, 'qno_end', None) or is_block(q):
         return True
     return bool(_children(q))
 
@@ -543,24 +676,32 @@ def depth_of(q) -> int:
 
 def earlier_siblings(q) -> list:
     """Siblings of `q` (same parent) that sort before it, in order.
-    Roots have no siblings here (whole-question context is not implied)."""
+    Roots have no siblings here (whole-question context is not implied).
+
+    A shared block does not change what "earlier parts" means: for a part
+    inside a block the result also holds the parts printed before the block
+    at that level (``Q7c`` under ``Q7~c`` → ``Q7a``, ``Q7b``)."""
     parent = getattr(q, 'parent', None)
     if parent is None:
         return []
     me = sort_key(q)
-    return sorted((c for c in _children(parent)
-                   if getattr(c, 'id', id(c)) != getattr(q, 'id', id(q))
-                   and sort_key(c) < me), key=sort_key)
+    own = sorted((c for c in _children(parent)
+                  if getattr(c, 'id', id(c)) != getattr(q, 'id', id(q))
+                  and sort_key(c) < me), key=sort_key)
+    if is_block(parent) and not is_block(q):
+        return earlier_siblings(parent) + own
+    return own
 
 
 def part_path_of(q) -> Optional[str]:
-    """Reconstruct the full part path from this node up to (not including) the root."""
+    """Reconstruct the full part path from this node up to (not including) the root.
+    An ancestor block's segment is skipped (``Q7c`` under ``Q7~c`` is ``c``)."""
     segs = []
     node = q
     seen = set()
     while node is not None:
         part = getattr(node, 'part', None)
-        if part:
+        if part and (node is q or not is_block_part(part)):
             segs.append(part)
         parent = getattr(node, 'parent', None)
         nid = getattr(node, 'id', id(node))
@@ -644,6 +785,12 @@ def rewrite_descendant_token(child_token: str, old_node_token: str,
         raise HierarchyError('Invalid QNO token in rename')
     if child.token == old.token:
         return new.token
+    if old.is_block or new.is_block:
+        # A block's segment never appears in its descendants' tokens, so
+        # renaming the block (moving its anchor) leaves them unchanged.
+        if old.is_block != new.is_block:
+            raise HierarchyError('Cannot turn a shared block into a part (or vice versa)')
+        return child.token
 
     old_range = old.qno_end is not None
     new_range = new.qno_end is not None
@@ -692,6 +839,14 @@ def rename_shape_ok(old_token: str, new_token: str, has_descendants: bool) -> Op
     new = parse_qno_token(new_token)
     if not old or not new:
         return 'Invalid QNO token'
+    if old.is_block != new.is_block:
+        return 'Cannot turn a shared block into a part (or vice versa)'
+    if old.is_block:
+        if (old.qno != new.qno
+                or part_segments(old.part_path)[:-1] != part_segments(new.part_path)[:-1]):
+            return ('A shared block can only move its anchor (Q7~c → Q7~d); '
+                    'it stays in the same question and level')
+        return None
     if not has_descendants:
         # Q3 → Q3a would need a parent that is still called Q3 (this row).
         if new.part_path and not old.part_path:
@@ -722,15 +877,30 @@ def rename_shape_ok(old_token: str, new_token: str, has_descendants: bool) -> Op
 # Dashboard grouping / breadcrumbs (pure; ORM optional)
 # ---------------------------------------------------------------------------
 
+def block_display_label(part: Optional[str]) -> str:
+    """Human label for a block segment: ``~c`` → ``before (c)``."""
+    anchor = block_anchor(part)
+    return f'before ({anchor})' if anchor else ''
+
+
 def breadcrumb_parts(q) -> list[dict]:
-    """Root-first ``[{id, qid, label}]``. Root uses the QNO token; parts use ``(a)``."""
+    """Root-first ``[{id, qid, label, kind}]``. Root uses the QNO token; parts
+    use ``(a)``; a shared block is ``before (c)`` with ``kind='block'``.
+
+    Code that prints a part's position (``(c)(i)``) skips ``kind='block'``
+    crumbs other than the node itself — the block is not a printed label."""
     chain = ancestors(q) + [q]
     out = []
     for node in chain:
         qid = getattr(node, 'qid', '') or ''
         parsed = parse_qid(qid) if qid else None
         part = getattr(node, 'part', None)
-        if part and (getattr(node, 'parent_id', None) or getattr(node, 'parent', None)):
+        has_parent = bool(getattr(node, 'parent_id', None) or getattr(node, 'parent', None))
+        kind = 'part' if has_parent else 'root'
+        if part and is_block_part(part):
+            label = block_display_label(part)
+            kind = 'block'
+        elif part and has_parent:
             label = f'({part})'
         elif parsed:
             label = parsed.qno.token
@@ -742,8 +912,28 @@ def breadcrumb_parts(q) -> list[dict]:
             'id': getattr(node, 'id', None),
             'qid': qid,
             'label': label,
+            'kind': kind,
         })
     return out
+
+
+def part_position_label(q, relative_to=None) -> str:
+    """Printed position of ``q``: ``(c)(i)`` (blocks skipped), relative to
+    the ancestor ``relative_to`` when given. A block itself reads
+    ``before (c)``."""
+    crumbs = breadcrumb_parts(q)
+    if relative_to is not None:
+        rid = getattr(relative_to, 'id', None)
+        for i, c in enumerate(crumbs):
+            if c['id'] == rid:
+                crumbs = crumbs[i + 1:]
+                break
+    else:
+        crumbs = [c for c in crumbs if c['kind'] != 'root']
+    if crumbs and crumbs[-1]['kind'] == 'block':
+        head = ''.join(c['label'] for c in crumbs[:-1] if c['kind'] == 'part')
+        return (head + ' ' + crumbs[-1]['label']).strip()
+    return ''.join(c['label'] for c in crumbs if c['kind'] == 'part')
 
 
 def group_for_dashboard(sorted_questions) -> list[dict]:
@@ -890,6 +1080,8 @@ def token_fits_under(child_qid: str, parent_qid: str) -> bool:
         return pt.qno <= ct.qno <= pt.qno_end
     if ct.qno != pt.qno or ct.qno_end:
         return False
+    if pt.is_block:
+        return label_is_ancestor(pt.token, ct.token)
     parent_path = pt.part_path or ''
     child_path = ct.part_path or ''
     if not child_path.startswith(parent_path):
@@ -906,6 +1098,17 @@ def stem_id_query():
         db.session.query(Question.parent_id)
         .filter(Question.parent_id.isnot(None))
         .distinct()
+    )
+
+
+def leaf_clause():
+    """SQL criterion for leaf rows: no children and not a shared block (a
+    childless block is still background text, never a selectable leaf)."""
+    from sqlalchemy import and_, or_
+    from app.models import Question
+    return and_(
+        ~Question.id.in_(stem_id_query()),
+        or_(Question.part.is_(None), ~Question.part.like(BLOCK_MARK + '%')),
     )
 
 
@@ -973,34 +1176,27 @@ def resolve_render_plan(questions: Iterable, mode: str = HIERARCHY_MODE_SELECTED
         if rid != prev_root_id:
             seen_in_run = set()
             prev_root_id = rid
-        for anc in ancestors(node):
-            aid = _nid(anc)
-            if aid in seen_in_run:
+        nid = _nid(node)
+        context = list(ancestors(node))
+        if (nid not in seen_in_run and mode == HIERARCHY_MODE_SELECTED
+                and not is_stem(node) and getattr(node, 'needs_prev_parts', False)):
+            for sib in earlier_siblings(node):
+                context += [sib] + list(descendants(sib))
+        # Paper order: with a shared block, an earlier part (a) prints before
+        # the block (Q7~c) that is this part's ancestor.
+        for ctx in sorted(context, key=sort_key):
+            cid = _nid(ctx)
+            if cid in seen_in_run:
                 continue
             out.append(RenderItem(
-                question=anc,
+                question=ctx,
                 role='stem',
                 seq_owner_id=None,
-                depth=depth_of(anc),
+                depth=depth_of(ctx),
             ))
-            seen_in_run.add(aid)
-        nid = _nid(node)
+            seen_in_run.add(cid)
         if nid in seen_in_run:
             continue
-        if (mode == HIERARCHY_MODE_SELECTED and not is_stem(node)
-                and getattr(node, 'needs_prev_parts', False)):
-            for sib in earlier_siblings(node):
-                for ctx in [sib] + sorted(descendants(sib), key=sort_key):
-                    cid = _nid(ctx)
-                    if cid in seen_in_run:
-                        continue
-                    out.append(RenderItem(
-                        question=ctx,
-                        role='stem',
-                        seq_owner_id=None,
-                        depth=depth_of(ctx),
-                    ))
-                    seen_in_run.add(cid)
         role = 'stem' if is_stem(node) else 'leaf'
         out.append(RenderItem(
             question=node,
@@ -1150,8 +1346,57 @@ def ensure_question(subject: str, source: str, token: str, *,
     for i, seg in enumerate(segs):
         built += seg
         node_tok = parse_qno_token(format_qno_token(parsed.qno, None, built))
-        current, last_created = _lookup_or_create(node_tok, current)
+        parent = current
+        if not is_block_part(seg):
+            parent = block_child_for(current, seg) or current
+        current, last_created = _lookup_or_create(node_tok, parent)
+        if last_created and is_block_part(seg):
+            relink_block_level(parent)
     return current, last_created
+
+
+def block_child_for(parent, seg: Optional[str]):
+    """The shared-block child of ``parent`` that owns part segment ``seg``
+    (``Q7~c`` for ``c`` / ``d``), or None. Query-based (sees flushed rows)."""
+    from app.models import Question
+    if parent is None or getattr(parent, 'id', None) is None or not seg:
+        return None
+    blocks = (Question.query
+              .filter(Question.parent_id == parent.id)
+              .filter(Question.part.like(BLOCK_MARK + '%'))
+              .all())
+    by_part = {b.part: b for b in blocks}
+    chosen = pick_block(by_part.keys(), seg)
+    return by_part.get(chosen) if chosen else None
+
+
+def relink_block_level(parent, exclude_id=None) -> int:
+    """Re-home every lettered node at ``parent``'s level (its own children
+    and its blocks' children) under the block that owns it, or ``parent``
+    when none does. ``exclude_id`` is a block being deleted: its parts move
+    up. Returns the number of rows moved. Flushes; does not commit."""
+    from app import db
+    from app.models import Question
+    if parent is None or getattr(parent, 'id', None) is None:
+        return 0
+    kids = Question.query.filter(Question.parent_id == parent.id).all()
+    all_blocks = [k for k in kids if is_block(k)]
+    blocks = {b.part: b for b in all_blocks if b.id != exclude_id}
+    members = [k for k in kids if not is_block(k)]
+    for b in all_blocks:
+        members += Question.query.filter(Question.parent_id == b.id).all()
+    moved = 0
+    for m in members:
+        if not m.part or is_block(m):
+            continue
+        chosen = pick_block(blocks.keys(), m.part)
+        target = blocks[chosen].id if chosen else parent.id
+        if m.parent_id != target:
+            m.parent_id = target
+            moved += 1
+    if moved:
+        db.session.flush()
+    return moved
 
 
 def relink_parent(question) -> None:
@@ -1174,7 +1419,13 @@ def relink_parent(question) -> None:
             parsed.subject, parsed.source, parent_token,
             year=parsed.year, paper=parsed.paper, detail=parsed.detail,
         )
-        question.parent_id = parent.id
+        if tok.is_block:
+            question.parent_id = parent.id
+            db.session.flush()
+            relink_block_level(parent)
+            return
+        owner = block_child_for(parent, tok.own_part)
+        question.parent_id = (owner or parent).id
         db.session.flush()
         return
     cover = _find_covering_range(prefix, tok.qno)

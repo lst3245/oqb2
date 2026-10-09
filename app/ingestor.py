@@ -9,7 +9,10 @@ from flask import current_app
 from natsort import natsorted
 from app import db
 from app.models import Question, QuestionAsset, Subject
-from app.hierarchy import QNO_TOKEN_PATTERN, parse_qno_token, ensure_question, HierarchyError
+from sqlalchemy import or_
+from app.hierarchy import (
+    BLOCK_MARK, QNO_TOKEN_PATTERN, parse_qno_token, ensure_question, HierarchyError,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -857,8 +860,10 @@ def get_database_stats(source_path=None):
         .filter(Question.parent_id.isnot(None)).distinct().all()
     }
     
-    # Untagged questions (no major topic) — exclude stems (tags live on leaves)
-    untagged_q = Question.query.filter(Question.major_topic_id == None)
+    # Untagged questions (no major topic) — exclude stems and shared blocks
+    # (tags live on leaves)
+    not_block = or_(Question.part.is_(None), ~Question.part.like(BLOCK_MARK + '%'))
+    untagged_q = Question.query.filter(Question.major_topic_id == None, not_block)
     if ids_with_children:
         untagged_q = untagged_q.filter(~Question.id.in_(ids_with_children))
     untagged_q = untagged_q.filter(Question.qno_end.is_(None)).all()
@@ -866,7 +871,7 @@ def get_database_stats(source_path=None):
     stats['untagged_questions_list'] = [q.qid for q in untagged_q[:LIST_CAP]]
     
     # Questions with no major subtopic — exclude stems
-    no_subtopic_q = Question.query.filter(Question.major_subtopic_id == None)
+    no_subtopic_q = Question.query.filter(Question.major_subtopic_id == None, not_block)
     if ids_with_children:
         no_subtopic_q = no_subtopic_q.filter(~Question.id.in_(ids_with_children))
     no_subtopic_q = no_subtopic_q.filter(Question.qno_end.is_(None)).all()

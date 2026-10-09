@@ -32,6 +32,7 @@ from flask import current_app
 
 from app import pdf_import
 from app.hierarchy import (
+    BLOCK_MARK,
     compose_part_label,
     label_is_ancestor,
     normalize_plan_label,
@@ -336,15 +337,19 @@ def _rel_is_ancestor(parent: str, child: str) -> bool:
 
 
 def compare_parts(expected_rel, actual_rel) -> tuple:
-    """``(missing, extra)`` relative labels. ``stem`` is never *missing* (a
-    question may legitimately have no shared text) and never *extra*.
+    """``(missing, extra)`` relative labels. ``stem`` and shared blocks
+    (``~c``, ``d~iii``) are never *missing* (a question may legitimately
+    have no shared text) and never *extra*.
 
     A grouping letter that exists only as a parent in the outline (Q5 (a)
     going straight to (i)(ii)(iii) with no intro text) is not missing when
     at least one of its children was detected.
     """
-    exp = [x for x in (expected_rel or []) if x != 'stem']
-    act = [x for x in (actual_rel or []) if x != 'stem']
+    def _counted(x):
+        return x != 'stem' and not (x and BLOCK_MARK in x)
+
+    exp = [x for x in (expected_rel or []) if _counted(x)]
+    act = [x for x in (actual_rel or []) if _counted(x)]
     missing = []
     for x in exp:
         if x in act:
@@ -464,11 +469,12 @@ def apply_verify_fixes(items, parent_label: str, verify: dict, legend,
 def mark_depends_prev(items, parent_label: str, rel_labels) -> int:
     """Set ``depends_prev`` on the items whose label is ``parent + rel``.
     A part with no earlier sibling cannot depend on one, so ``a`` / ``i``
-    never get the flag. Returns the number of items flagged."""
+    never get the flag, nor does a shared block (it is not answered).
+    Returns the number of items flagged."""
     n = 0
     for rel in rel_labels or []:
         segs = part_segments(rel)
-        if not segs or segs[-1] in ('a', 'i'):
+        if not segs or segs[-1] in ('a', 'i') or segs[-1].startswith(BLOCK_MARK):
             continue
         want = compose_part_label(parent_label, rel)
         if not want:

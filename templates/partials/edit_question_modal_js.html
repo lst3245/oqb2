@@ -448,15 +448,22 @@ function populateHierarchyDetails(data) {
         if (!kids.length) {
             kidsEl.innerHTML = '<span class="text-muted small">No child parts</span>';
         } else {
-            kidsEl.innerHTML = '<div class="small mb-1">Parts:</div>' + kids.map(c =>
-                `<a href="#" class="badge bg-light text-dark border me-1" onclick="openEditModal(${c.id}, {preserveView:true}); return false;">${c.qid}${c.part ? ' ('+c.part+')' : ''}</a>`
-            ).join('');
+            kidsEl.innerHTML = '<div class="small mb-1">Parts:</div>' + kids.map(c => {
+                const tag = c.is_block ? ` (shared intro before (${c.part.slice(1)}))`
+                    : (c.part ? ' (' + c.part + ')' : '');
+                return `<a href="#" class="badge bg-light text-dark border me-1" onclick="openEditModal(${c.id}, {preserveView:true}); return false;">${c.qid}${tag}</a>`;
+            }).join('');
+        }
+        if (data.is_block) {
+            kidsEl.insertAdjacentHTML('afterbegin',
+                `<div class="small text-muted mb-1"><i class="bi bi-layers"></i> Shared intro printed before part (${data.part.slice(1)}): `
+                + 'that part and the later ones list it as background. It is not selectable or tagged; delete it to dissolve it (its parts move up).</div>');
         }
     }
     const npWrap = document.getElementById('editNeedsPrevWrap');
     const npChk = document.getElementById('editNeedsPrevParts');
     if (npWrap && npChk) {
-        const isPart = !!data.parent_id && !!data.part;
+        const isPart = !!data.parent_id && !!data.part && !data.is_block;
         npWrap.style.display = isPart ? '' : 'none';
         npChk.checked = !!data.needs_prev_parts;
     }
@@ -469,7 +476,7 @@ function populateHierarchyDetails(data) {
             : 'Crop this image into a shared background and lettered parts';
     }
     if (combineBtn) {
-        combineBtn.style.display = (data.is_stem && !data.qno_end) ? '' : 'none';
+        combineBtn.style.display = (data.is_stem && !data.qno_end && !data.is_block) ? '' : 'none';
     }
 }
 
@@ -628,6 +635,42 @@ function setQuestionParent() {
         if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
     })
     .catch(err => { if (status) status.textContent = err.message; showToast(err.message, 'danger'); });
+}
+
+// Repair for questions imported before shared blocks (ADR-015): a passage
+// printed between two parts sits as an extra QUE page of the stem. Dry run
+// first, then confirm; the server moves the page in every IMG version.
+function moveQuePageToBlock(questionId, page) {
+    const kids = ((editQuestionData && editQuestionData.children) || [])
+        .filter(c => !c.is_block && c.part).map(c => c.part);
+    const guess = kids.length > 2 ? kids[Math.floor(kids.length / 2)] : (kids[1] || '');
+    const anchor = (window.prompt(
+        `Page ${page} is printed before which part? (one of: ${kids.join(', ') || 'none'})`, guess) || '').trim();
+    if (!anchor) return;
+    const url = `{{ url_for('admin.move_que_page_to_block', question_id=0) }}`.replace('/0/', `/${questionId}/`);
+    const post = (dry) => fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({page, anchor, dry_run: dry}),
+    }).then(r => r.json().then(d => ({ok: r.ok, d})));
+    post(true).then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Cannot move this page');
+        const lines = [
+            `Create ${d.block_qid} (shared intro before part (${d.anchor})) from page ${d.page}`,
+            `of ${d.qid} in ${d.versions.join(', ')}.`,
+            `${d.moving.join(', ')} will list it as background.`,
+        ];
+        if (d.skipped_versions.length) lines.push(`Skipped (no page ${d.page}): ${d.skipped_versions.join(', ')}.`);
+        d.warnings.forEach(w => lines.push(w));
+        if (!window.confirm(lines.join('\n'))) return null;
+        return post(false);
+    }).then(res => {
+        if (!res) return;
+        if (!res.ok) throw new Error(res.d.error || 'Move failed');
+        showToast(`Created ${res.d.block_qid}`, 'success');
+        openEditModal(questionId, {preserveView: true});
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+    }).catch(err => showToast(err.message, 'danger'));
 }
 
 function setVerifiedUI(verified, verifiedAt, verifiedBy) {
@@ -1374,6 +1417,10 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
         const doc  = allParts.find(p => p.file_format === 'DOC') || null;
         const label = atype === 'QUE' ? 'Question' : atype === 'ANS' ? 'Answer' : 'Solution';
         const isDefault = sectionIdx === 0; // QUE is default paste target
+        const eq = (editQuestionData && String(editQuestionData.id) === String(questionId))
+            ? editQuestionData : null;
+        const canMoveToBlock = ctx === 'edit' && atype === 'QUE' && imgs.length > 1
+            && eq && eq.is_stem && !eq.qno_end && !eq.is_block;
         const fullscreenMdNewUrl = `/admin/questions/${questionId}/assets/md/new?version=${lang}&asset_type=${atype}`;
 
         html += `<div class="asset-section${isDefault ? ' paste-active' : ''}" id="${ctx}_assetSection_${lang}_${atype}"
@@ -1417,6 +1464,7 @@ function renderAssetSections(questionId, lang, langAssets, ctx) {
                         <div class="part-actions">
                             ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="Move up" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'up')"><i class="bi bi-arrow-up"></i></button>` : ''}
                             ${idx < imgs.length - 1 ? `<button class="btn btn-sm btn-outline-secondary" title="Move down" onclick="event.stopPropagation(); moveAssetPart(${questionId},'${lang}','${atype}',${idx},'down')"><i class="bi bi-arrow-down"></i></button>` : ''}
+                            ${canMoveToBlock && idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" title="This page is text printed between two parts: move it to a new shared intro before a later part" onclick="event.stopPropagation(); moveQuePageToBlock(${questionId},${p.part_number})"><i class="bi bi-layers"></i></button>` : ''}
                             <button class="btn btn-sm btn-outline-danger" title="Delete from disk" onclick="event.stopPropagation(); deleteAssetPart(${questionId},${p.id},'${fname}')"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>

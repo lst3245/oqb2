@@ -1613,7 +1613,8 @@ _DEFAULT_PDF_AGENT_VERIFY_USER = (
 _DEFAULT_PDF_PART_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
-    '{"label": <"stem" or a part path like "a" or "ci">, "box": {{box_array}}, '
+    '{"label": <"stem", a part path like "a" or "ci", or "intro-c" when the '
+    'instructions above allow it>, "box": {{box_array}}, '
     '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of THIS crop (not the full page). The box is {{box_corner}}. Example: a "
@@ -1645,6 +1646,15 @@ _DEFAULT_PDF_PART_QUE_SYSTEM = (
     "figure) and then sub-parts (i), (ii) is NESTED: box the introduction as "
     "\"d\" and each sub-part as \"di\", \"dii\". The single \"stem\" box is "
     "only for text shared by the WHOLE question above part (a).\n"
+    "- SHARED TEXT BETWEEN PARTS: a new passage, table, figure or scenario "
+    "printed AFTER an earlier part and BEFORE a later one, which the later "
+    "parts use (e.g. after (b): \"The school then uses the following "
+    "spreadsheet ...\", followed by (c) and (d)), is NOT the stem and NOT "
+    "part of (b). Box it on its own and label it \"intro-\" plus the first "
+    "part printed after it: \"intro-c\". Between sub-parts use the full "
+    "path, e.g. \"intro-diii\" for text after (d)(ii) and before (d)(iii). "
+    "Text that only finishes the part above it (its table, its marks) "
+    "stays in that part.\n"
     "- EXCLUDE blank answering space. Crop tightly to printed content.\n"
     "- If the crop is a single undivided question with no (a)/(b)/(c) "
     "parts, return [].\n"

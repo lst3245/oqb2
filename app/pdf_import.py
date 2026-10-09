@@ -1474,12 +1474,13 @@ def _stitch_continuations(plan: dict):
 
 
 def _label_sort_key(label):
-    from app.hierarchy import parse_qno_token, part_segments
+    from app.hierarchy import parse_qno_token, part_segments, part_sort_key
     p = parse_qno_token(label)
     if not p:
-        return (10**9, 0, 99, str(label or ''))
-    depth = 0 if not p.part_path else len(part_segments(p.part_path))
-    return (p.qno, p.qno_end or p.qno, depth, p.part_path or '')
+        return (10**9, 0, 99, (), str(label or ''))
+    segs = part_segments(p.part_path) if p.part_path else []
+    return (p.qno, p.qno_end or p.qno, len(segs),
+            tuple(part_sort_key(s) for s in segs), p.part_path or '')
 
 
 def _is_part_label(label) -> bool:
@@ -1751,7 +1752,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
                 subject, source, parsed.token, year=year, paper=paper,
                 q_type=q_type)
             if (kind == 'que' and commit_label in depends_labels
-                    and question.parent_id
+                    and question.parent_id and not parsed.is_block
                     and not getattr(question, 'needs_prev_parts', False)):
                 question.needs_prev_parts = True
             db.session.commit()
@@ -1857,7 +1858,8 @@ def detect_parts(config, crop_png: str, atype: str, image_max_dim: int,
 
 
 def expected_part_labels_for(parent_label, que_items) -> list:
-    """Relative pass-2 labels (``stem``, ``a``, ``ci``) already on the QUE side."""
+    """Relative pass-2 labels (``stem``, ``a``, ``ci``) already on the QUE side.
+    Shared blocks (``7~c``) are left out: a marking scheme has none."""
     from app.hierarchy import parse_qno_token
     parent = parse_qno_token(parent_label)
     if not parent:
@@ -1867,6 +1869,8 @@ def expected_part_labels_for(parent_label, que_items) -> list:
         lab = plan_item_label(it)
         p = parse_qno_token(lab)
         if not p or p.qno != parent.qno or p.qno_end != parent.qno_end:
+            continue
+        if p.is_block:
             continue
         if not p.part_path:
             rel = 'stem'
@@ -2147,7 +2151,25 @@ def split_question_png(config, png_path: str, image_max_dim: int,
         strip = missing_stem_box(parent, [(b['label'], b['box']) for b in out])
         if strip and _strip_has_ink(png_path, strip):
             out.insert(0, {'label': 'stem', 'box': strip})
+    out = _reclassify_relative_stems(out)
     return merge_part_boxes_by_label(out), '\n'.join(r for r in raws if r)
+
+
+def _reclassify_relative_stems(boxes: list) -> list:
+    """:func:`reclassify_mid_stems` for crop-relative labels (``stem``,
+    ``a``, ``~c``) as the Split tool uses them."""
+    from app.hierarchy import compose_part_label
+    probe = []
+    for b in boxes:
+        lab = compose_part_label('1', b.get('label'))
+        probe.append({'label': lab, 'box': b['box'], 'page': 0})
+    reclassify_mid_stems(probe, '1')
+    out = []
+    for b, p in zip(boxes, probe):
+        lab = p.get('label')
+        rel = 'stem' if lab in (None, '1') else lab[1:]
+        out.append({**b, 'label': rel if lab else b.get('label')})
+    return out
 
 
 def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
@@ -2197,7 +2219,12 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                 if not child_label:
                     continue
                 parsed_c = parse_qno_token(child_label)
+                if parsed_c and parsed_c.is_block and kind != 'que':
+                    # A marking scheme has no shared intro text.
+                    child_label = parent_norm
+                    parsed_c = parsed_parent
                 page_children.append((b.get('label'), {
+                    '_pi': pi,
                     'page': int(prt['page']),
                     'qno': parsed_c.qno if parsed_c else None,
                     'label': child_label,
@@ -2215,6 +2242,7 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                 if strip and _strip_has_ink(page_png_path(token, kind, prt['page']), strip):
                     stem_label = compose_part_label(parent_label, 'stem')
                     page_children.insert(0, ('stem', {
+                        '_pi': pi,
                         'page': int(prt['page']),
                         'qno': parsed_parent.qno,
                         'label': stem_label,
@@ -2235,11 +2263,60 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                     os.remove(crop_path)
                 except OSError:
                     pass
+    if kind == 'que' and not range_span:
+        reclassify_mid_stems(children, parent_label)
+    for c in children:
+        c.pop('_pi', None)
     apply_derived_roles(children)
     # A stem alone is no split: keep the parent box as it was.
     if not any(c.get('label') != parent_norm for c in children):
         return None, raws
     return children, raws
+
+
+def reclassify_mid_stems(children: list, parent_label: str) -> list:
+    """Turn a pass-2 ``stem`` box that prints *after* a part into the shared
+    block before the next part (ADR-015), in place.
+
+    The model labels any un-numbered passage ``stem``; ``compose_part_label``
+    would map it to the parent, and ``_group_plan`` would merge it into the
+    parent's QUE as an extra page — printing it at the top, above (a). A
+    ``stem`` box is a block when it sits below a part on the same crop page,
+    or on a later crop page (``_pi > 0``), and a part follows it: ``7~c``
+    when (c) follows, ``7c`` when (c)(i) follows (then it is (c)'s intro).
+    Text followed by (a) stays the stem (a stem spilling over a page).
+    """
+    from app.hierarchy import block_label_for, compose_part_label, parse_qno_token
+    parent = parse_qno_token(parent_label)
+    if not parent or parent.qno_end:
+        return children
+    norm = parent.token[1:]
+    base = parent.part_path or ''
+    order = sorted(range(len(children)),
+                   key=lambda i: (children[i].get('_pi', 0),
+                                  children[i].get('page', 0),
+                                  (children[i].get('box') or [0, 0, 0, 0])[1]))
+    seen_part = False
+    for pos, i in enumerate(order):
+        c = children[i]
+        if c.get('label') != norm:
+            seen_part = True
+            continue
+        if c.get('_stem_filled') or not (seen_part or c.get('_pi', 0) > 0):
+            continue
+        nxt = next((children[j] for j in order[pos + 1:]
+                    if children[j].get('label') != norm), None)
+        np = parse_qno_token(nxt.get('label')) if nxt else None
+        if not np or np.is_block or not (np.part_path or '').startswith(base):
+            continue
+        rel = (np.part_path or '')[len(base):]
+        blk = block_label_for(rel) if rel else None
+        if not blk or blk == 'stem':
+            continue
+        new = compose_part_label(parent_label, blk)
+        if new:
+            c['label'] = new
+    return children
 
 
 def _replace_group(items, parent_label, new_items):

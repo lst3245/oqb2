@@ -22,7 +22,7 @@ from PIL import Image
 from app import db
 from app.batch_image_gen import replace_img_assets
 from app.hierarchy import (
-    ancestors, descendants, is_stem, sort_key, subtree_deepest_first,
+    ancestors, descendants, is_block, is_stem, sort_key, subtree_deepest_first,
 )
 from app.models import Question, QuestionAsset
 from app.utils import VERSIONS
@@ -73,6 +73,10 @@ def choose_mode(stem, *, has_whole: bool) -> str:
             'Cannot combine a range stem (for example Q23-24). '
             'Delete or detach the MC items individually.',
             status=409)
+    if is_block(stem):
+        raise CombineError(
+            'A shared intro block cannot be combined on its own: combine the '
+            'question (or part) above it, or delete the block to dissolve it.')
     if not is_stem(stem):
         raise CombineError('This question has no parts to combine.')
     if is_root_question(stem) and has_whole:

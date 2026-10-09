@@ -22,7 +22,10 @@ from PIL import Image
 
 from app import db, storage
 from app.batch_image_gen import replace_img_assets, stitch_vertically
-from app.hierarchy import HierarchyError, ensure_question, format_qno_token, parse_qid, parse_qno_token
+from app.hierarchy import (
+    BLOCK_MARK, HierarchyError, ensure_question, format_qno_token,
+    normalize_part_box_label, parse_qid, parse_qno_token,
+)
 from app.models import Question, QuestionAsset
 from app.pdf_import import crop_page
 from app.utils import VERSIONS
@@ -325,8 +328,9 @@ def _normalize_boxes(raw_boxes, parent_qid: str) -> list[dict]:
             has_stem = True
             token = parsed.qno.token
         else:
-            if not label.isalpha():
-                raise ValueError(f'Invalid part label {label!r}')
+            label = normalize_part_box_label(label) or ''
+            if not label or label == 'stem' or not label.replace(BLOCK_MARK, '').isalpha():
+                raise ValueError(f'Invalid part label {item.get("label")!r}')
             new_path = (parsed.qno.part_path or '') + label
             try:
                 token = format_qno_token(parsed.qno.qno, None, new_path)
@@ -335,6 +339,10 @@ def _normalize_boxes(raw_boxes, parent_qid: str) -> list[dict]:
             if not parse_qno_token(token):
                 raise ValueError(f'Invalid part label {label!r}')
         if label in seen:
+            if label == 'stem':
+                raise ValueError('Only one box can be "stem". Label text printed '
+                                 'between parts with the part it comes before, '
+                                 'e.g. "~c".')
             raise ValueError(f'Duplicate label {label!r}')
         seen.add(label)
         out.append({'label': label, 'token': token, 'box': box})
@@ -374,7 +382,7 @@ def commit_split(question: Question, token: str, raw_boxes, *,
         part_rows[item['label']] = child
         if was_new:
             created.append(child.qid)
-        if copy_tags:
+        if copy_tags and BLOCK_MARK not in item['label']:
             _copy_tags(question, child)
     db.session.flush()
 

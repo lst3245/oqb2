@@ -1688,22 +1688,57 @@ function examLabel(it) {
 }
 const ROMAN_TOKENS = ['viii', 'iii', 'vii', 'ii', 'iv', 'vi', 'ix', 'i', 'v', 'x'];
 const ROMAN_VALUE = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+// Mirrors app/hierarchy.py. "7~c" is a shared block (ADR-015): the text
+// printed before (c) that (c) and every later part at that level share.
 function parseLabel(s) {
     if (s == null) return null;
     const raw = String(s).trim().replace(/^[Qq]/, '').toLowerCase();
     if (!raw) return null;
-    const m = raw.match(/^(\d+)(?:-(\d+))?([a-z]+)?$/);
+    const m = raw.match(/^(\d+)(?:-(\d+))?([a-z]*(?:~[a-z]+)?)$/);
     if (!m) return null;
     if (m[2] && m[3]) return null;
+    const path = m[3] || '';
+    const tilde = path.indexOf('~');
+    if (tilde >= 0) {
+        const anchor = path.slice(tilde + 1);
+        const segs = partSegments(anchor);
+        if (segs.length !== 1 || anchor === 'a' || anchor === 'i') return null;
+    }
     return {
         qno: parseInt(m[1], 10),
         qnoEnd: m[2] ? parseInt(m[2], 10) : null,
-        path: m[3] || '',
+        path,
+        isBlock: tilde >= 0,
     };
 }
+function isBlockSeg(seg) { return !!seg && seg.charAt(0) === '~'; }
+function partSortKey(seg) {
+    const s = isBlockSeg(seg) ? seg.slice(1) : seg;
+    const tie = isBlockSeg(seg) ? 0 : 1;
+    if (s.length === 1 && /^[a-z]$/.test(s) && !Object.prototype.hasOwnProperty.call(ROMAN_VALUE, s)) {
+        return [0, s.charCodeAt(0) - 96, tie];
+    }
+    if (Object.prototype.hasOwnProperty.call(ROMAN_VALUE, s)) return [1, ROMAN_VALUE[s], tie];
+    return [2, 0, tie];
+}
+function cmpKey(a, b) {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+    return 0;
+}
+// A block "~c" covers same-level part segments printed at or after (c).
+function blockCovers(blockSeg, seg) {
+    if (!isBlockSeg(blockSeg) || !seg || isBlockSeg(seg)) return false;
+    const a = partSortKey(blockSeg), s = partSortKey(seg);
+    return a[0] === s[0] ? a[1] <= s[1] : a[0] < s[0];
+}
 function partSegments(path) {
+    const raw = String(path || '').toLowerCase();
+    const tilde = raw.indexOf('~');
+    if (tilde >= 0) {
+        return partSegments(raw.slice(0, tilde)).concat(['~' + raw.slice(tilde + 1)]);
+    }
     const segs = [];
-    let rest = String(path || '').toLowerCase();
+    let rest = raw;
     while (rest) {
         if (ROMAN_TOKENS.indexOf(rest) >= 0) {
             segs.push(rest);
@@ -1729,7 +1764,9 @@ function partSegments(path) {
     segs.reverse();
     return segs;
 }
-function labelIsAncestor(parentLabel, childLabel) {
+// `labels` (the question's label set) lets a later block cut off an earlier
+// one: with 7~c and 7~e, (e) belongs to 7~e only.
+function labelIsAncestor(parentLabel, childLabel, labels) {
     const p = parseLabel(parentLabel);
     const c = parseLabel(childLabel);
     if (!p || !c) return false;
@@ -1739,6 +1776,22 @@ function labelIsAncestor(parentLabel, childLabel) {
     if (c.qnoEnd != null || c.qno !== p.qno) return false;
     const ps = partSegments(p.path);
     const cs = partSegments(c.path);
+    if (ps.length && isBlockSeg(ps[ps.length - 1])) {
+        const level = ps.slice(0, -1);
+        if (cs.length <= level.length) return false;
+        for (let i = 0; i < level.length; i++) if (level[i] !== cs[i]) return false;
+        const seg = cs[level.length];
+        if (!blockCovers(ps[ps.length - 1], seg)) return false;
+        return !(labels || []).some(other => {
+            const o = parseLabel(other);
+            if (!o || o.qno !== p.qno || o.qnoEnd != null || !o.isBlock) return false;
+            const os = partSegments(o.path);
+            if (os.length !== ps.length || os.slice(0, -1).join('') !== level.join('')) return false;
+            const ob = os[os.length - 1];
+            return ob !== ps[ps.length - 1] && blockCovers(ob, seg)
+                && cmpKey(partSortKey(ob), partSortKey(ps[ps.length - 1])) > 0;
+        });
+    }
     if (cs.length <= ps.length) return false;
     for (let i = 0; i < ps.length; i++) {
         if (ps[i] !== cs[i]) return false;
@@ -1752,15 +1805,15 @@ function deriveRoles(kind) {
         const lab = labels[i];
         const parsed = parseLabel(lab);
         if (!parsed) { it.role = null; return; }
-        const hasChild = labels.some(other => other !== lab && labelIsAncestor(lab, other));
-        if (hasChild) it.role = 'stem';
+        const hasChild = labels.some(other => other !== lab && labelIsAncestor(lab, other, labels));
+        if (hasChild || parsed.isBlock) it.role = 'stem';
         else if (parsed.path) it.role = 'part';
         else it.role = 'question';
     });
 }
 function nextPartLabel(label) {
     const p = parseLabel(label);
-    if (!p || p.qnoEnd != null) return null;
+    if (!p || p.qnoEnd != null || p.isBlock) return null;
     if (!p.path) return String(p.qno + 1);
     const segs = partSegments(p.path);
     const own = segs[segs.length - 1];
@@ -1946,11 +1999,11 @@ function resplitPage(kind, pageIndex) {
 
 function parentLabelOf(kind, item) {
     const child = examLabel(item);
+    const labels = (plan[kind] || []).map(it => examLabel(it));
     let best = null;
-    (plan[kind] || []).forEach(it => {
-        const L = examLabel(it);
+    labels.forEach(L => {
         if (!L || L === child) return;
-        if (labelIsAncestor(L, child) && (best == null || L.length > best.length)) best = L;
+        if (labelIsAncestor(L, child, labels) && (best == null || L.length > best.length)) best = L;
     });
     if (best) return best;
     if (item.source_label) return examLabel({ label: item.source_label });
@@ -2238,10 +2291,17 @@ function selectItem(kind, item) {
     else { OQBBboxEditor.selectNone(); selectedItem = item || null; selectedKind = item ? kind : null; }
 }
 
-function styleRoleChip(chip, role) {
+function styleRoleChip(chip, role, item) {
     chip.className = 'badge role-chip';
     chip.style.background = '';
-    if (role === 'stem') {
+    const block = item && parseLabel(examLabel(item));
+    if (role === 'stem' && block && block.isBlock) {
+        chip.style.background = '#6f42c1';
+        chip.textContent = 'shared';
+        chip.title = 'Shared text printed before part ('
+            + block.path.slice(block.path.indexOf('~') + 1)
+            + ') — that part and every later part at its level use it';
+    } else if (role === 'stem') {
         chip.style.background = '#6c757d';
         chip.textContent = 'stem';
         chip.title = 'Shared background for this question';
@@ -2258,7 +2318,9 @@ function styleRoleChip(chip, role) {
 function buildSplitActions(kind, item) {
     const actions = document.createElement('div');
     actions.className = 'split-actions';
-    const canSplit = item.role === 'stem' || item.role === 'question';
+    const parsedItem = parseLabel(examLabel(item));
+    const canSplit = (item.role === 'stem' || item.role === 'question')
+        && !(parsedItem && parsedItem.isBlock);
     if (canSplit) {
         const reBtn = document.createElement('button');
         reBtn.type = 'button';
@@ -2419,9 +2481,10 @@ function rowAddOptions(kind, item) {
         sub: null, subInside: false,
     };
     const lab = examLabel(item);
-    const path = parseLabel(lab).path;
+    const parsedLab = parseLabel(lab);
+    const path = parsedLab.path;
     const leaf = !plan[kind].some(it => labelIsAncestor(lab, examLabel(it)));
-    if (path && leaf) {
+    if (path && leaf && !parsedLab.isBlock) {
         const depth = partSegments(path).length;
         let cand = depth === 1 ? lab + 'i' : nextPartLabel(lab);
         if (depth === 1 && partSegments(parseLabel(cand).path).length !== 2) cand = null;
@@ -2582,7 +2645,7 @@ function addBoxDom(card, kind, item) {
         qInput.className = 'form-control form-control-sm qno-input';
         qInput.value = examLabel(item);
         qInput.placeholder = '3 / 3a / 23-24';
-        qInput.title = 'Question number: 3, 3a, or 23-24';
+        qInput.title = 'Question number: 3, 3a, 23-24, or 3~c for shared text printed before part (c)';
     }
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-outline-danger';
@@ -2598,7 +2661,7 @@ function addBoxDom(card, kind, item) {
     if (!generic) {
         const chip = document.createElement('span');
         chip.id = 'chip-' + item._uid;
-        styleRoleChip(chip, item.role);
+        styleRoleChip(chip, item.role, item);
         row.appendChild(chip);
         row.appendChild(buildSplitActions(kind, item));
     }
@@ -2692,6 +2755,7 @@ function nextTopLetter(kind, root) {
         const p = parseLabel(examLabel(it));
         if (!p || rootOf(it) !== root || !p.path) return;
         const first = partSegments(p.path)[0];
+        if (isBlockSeg(first)) return;
         if (first && !firsts.includes(first)) firsts.push(first);
     });
     if (!firsts.length) return 'a';
@@ -2720,6 +2784,17 @@ function labelDrawnChild(card, kind, item, role) {
         return false;
     }
     if (role === 'stem') {
+        const blk = blockLabelForDrawnStem(kind, item, root);
+        if (blk) {
+            if (plan[kind].some(it => examLabel(it) === blk)) {
+                appendLog(`Q${blk} already exists — resize that box instead.`, 'warning');
+                return null;
+            }
+            applyExamLabel(item, blk);
+            copySourceFromSibling(kind, item, root);
+            appendLog(`Added Q${blk}: shared text printed before part (${blk.slice(blk.indexOf('~') + 1)}).`, 'info');
+            return true;
+        }
         const existing = plan[kind].find(it => it.page === item.page && examLabel(it) === root);
         if (existing) {
             appendLog(`Q${root} already has a box labelled ${root} on this page (its stem or whole question) — resize that box instead.`, 'warning');
@@ -2764,6 +2839,21 @@ function labelDrawnChild(card, kind, item, role) {
     }
     return true;
 }
+// A stem drawn after one of the question's parts is the shared block before
+// the next part ("7~c"), not a second stem (mirrors reclassify_mid_stems).
+function blockLabelForDrawnStem(kind, item, root) {
+    if (/-/.test(root)) return null;
+    const key = readingKey(item);
+    const same = readingOrder(kind).filter(it => it !== item && rootOf(it) === root);
+    const pathOf = it => { const p = parseLabel(examLabel(it)); return p && !p.isBlock ? p.path : ''; };
+    if (!same.some(it => readingKey(it) < key && pathOf(it))) return null;
+    const next = same.find(it => readingKey(it) > key && pathOf(it));
+    if (!next) return null;
+    const segs = partSegments(pathOf(next));
+    const own = segs[segs.length - 1];
+    if (own === 'a' || own === 'i') return null;
+    return root + segs.slice(0, -1).join('') + '~' + own;
+}
 // A hand-added child of an already-split question keeps the split's source
 // fields so Re-split / Unsplit still treat it as part of that question.
 function copySourceFromSibling(kind, item, root) {
@@ -2777,6 +2867,11 @@ function copySourceFromSibling(kind, item, root) {
 function boxLabelText(item) {
     if (isGeneric()) return item.label || 'region';
     const lab = examLabel(item);
+    const parsed = parseLabel(lab);
+    if (parsed && parsed.isBlock) {
+        const t = parsed.path.indexOf('~');
+        return 'Q' + parsed.qno + parsed.path.slice(0, t) + ' before (' + parsed.path.slice(t + 1) + ')';
+    }
     if (item.role === 'stem') return 'Q' + (lab || '?') + ' stem';
     if (item.role === 'part' || isPartItem(item)) return 'Q' + (lab || '?');
     return lab ? ('Q' + lab) : 'Q?';
@@ -3043,7 +3138,7 @@ function refreshNumbersUI(kind) {
             const inp = row.querySelector('.qno-input');
             if (inp) inp.value = examLabel(it);
             const chip = document.getElementById('chip-' + it._uid);
-            if (chip) styleRoleChip(chip, it.role);
+            if (chip) styleRoleChip(chip, it.role, it);
             const oldActions = row.querySelector('.split-actions');
             if (oldActions) oldActions.replaceWith(buildSplitActions(kind, it));
         }

@@ -5,10 +5,14 @@ from types import SimpleNamespace
 from app.hierarchy import (
     HierarchyError,
     QNO_TOKEN_RE,
+    block_label_for,
     breadcrumb_parts,
     build_qid,
     compose_part_label,
     derive_roles,
+    earlier_siblings,
+    part_position_label,
+    pick_block,
     format_qno_token,
     label_is_ancestor,
     next_part_label,
@@ -486,6 +490,19 @@ class SplitBoxNormalizeTests(unittest.TestCase):
         ], qid)
         self.assertEqual([x['token'] for x in out], ['Q3', 'Q3a', 'Q3ci'])
 
+    def test_shared_block_labels(self):
+        from app.question_split import _normalize_boxes
+        box = [0.1, 0.1, 0.9, 0.4]
+        out = _normalize_boxes([
+            {'label': 'stem', 'box': box},
+            {'label': '~c', 'box': box},
+            {'label': 'd~iii', 'box': box},
+        ], 'ICT_DSE_2025_P1B_Q7')
+        self.assertEqual([x['token'] for x in out], ['Q7', 'Q7~c', 'Q7d~iii'])
+        with self.assertRaises(ValueError):
+            _normalize_boxes([{'label': 'stem', 'box': box},
+                              {'label': '~a', 'box': box}], 'ICT_DSE_2025_P1B_Q7')
+
     def test_rejects_range_stem(self):
         from app.question_split import _normalize_boxes
         with self.assertRaises(ValueError):
@@ -494,6 +511,118 @@ class SplitBoxNormalizeTests(unittest.TestCase):
                  {'label': 'a', 'box': [0, 0, 1, 1]}],
                 'ECON_DSE_2023_P1_Q23-24',
             )
+
+
+class SharedBlockTests(unittest.TestCase):
+    """Shared blocks (ADR-015): ``Q7~c`` is the text printed before (c) that
+    (c) and every later part at that level share."""
+
+    def setUp(self):
+        p = 'ICT_DSE_2025_P1B_'
+        kw = dict(subject='ICT', year=2025, paper='P1B', qno=7)
+        self.root = _q(id=1, qid=p + 'Q7', **kw)
+        self.a = _q(id=2, qid=p + 'Q7a', part='a', **kw)
+        self.b = _q(id=3, qid=p + 'Q7b', part='b', **kw)
+        self.blk = _q(id=4, qid=p + 'Q7~c', part='~c', **kw)
+        self.c = _q(id=5, qid=p + 'Q7c', part='c', **kw)
+        self.d = _q(id=6, qid=p + 'Q7d', part='d', needs_prev_parts=True, **kw)
+        for n in (self.root, self.a, self.b, self.blk, self.c, self.d):
+            n.children = []
+        _link(self.root, self.a, self.b, self.blk)
+        _link(self.blk, self.c, self.d)
+
+    def test_token_grammar(self):
+        t = parse_qno_token('Q7~c')
+        self.assertEqual((t.token, t.part_path, t.own_part), ('Q7~c', '~c', '~c'))
+        self.assertTrue(t.is_block)
+        self.assertEqual(t.block_anchor, 'c')
+        self.assertEqual(t.parent_part_path or '', '')
+        t = parse_qno_token('7d~iii')
+        self.assertEqual((t.token, t.own_part, t.parent_part_path), ('Q7d~iii', '~iii', 'd'))
+        self.assertEqual(part_segments('d~iii'), ['d', '~iii'])
+        self.assertFalse(parse_qno_token('Q7c').is_block)
+        for bad in ('~a', 'd~i'):
+            with self.assertRaises(HierarchyError):
+                format_qno_token(7, None, bad)
+        self.assertEqual(parse_qid('ICT_DSE_2025_P1B_Q7~c').qno.token, 'Q7~c')
+        self.assertEqual(QNO_TOKEN_RE.findall('see Q7~c and Q7c'), ['Q7~c', 'Q7c'])
+
+    def test_filename_grammar(self):
+        p = parse_filename('ICT_DSE_2025_P1B_Q7~c_EN_QUE.png')
+        self.assertEqual(p['qno'], 'Q7~c')
+        self.assertEqual(construct_qid(p), 'ICT_DSE_2025_P1B_Q7~c')
+
+    def test_sort_places_block_between_parts(self):
+        nodes = [self.d, self.c, self.blk, self.b, self.a, self.root]
+        self.assertEqual([n.id for n in sorted(nodes, key=sort_key)], [1, 2, 3, 4, 5, 6])
+        self.assertLess(part_sort_key('b'), part_sort_key('~c'))
+        self.assertLess(part_sort_key('~c'), part_sort_key('c'))
+
+    def test_pick_block_and_ancestry(self):
+        self.assertEqual(pick_block(['~c', '~e'], 'd'), '~c')
+        self.assertEqual(pick_block(['~c', '~e'], 'f'), '~e')
+        self.assertIsNone(pick_block(['~c'], 'b'))
+        self.assertTrue(label_is_ancestor('7~c', '7d'))
+        self.assertTrue(label_is_ancestor('7~c', '7di'))
+        self.assertFalse(label_is_ancestor('7~c', '7b'))
+        self.assertTrue(label_is_ancestor('7', '7~c'))
+        labs = ['7', '7a', '7~c', '7c', '7d', '7~e', '7e']
+        self.assertFalse(label_is_ancestor('7~c', '7e', labs))
+        self.assertTrue(label_is_ancestor('7~e', '7e', labs))
+        self.assertTrue(token_fits_under('ICT_DSE_2025_P1B_Q7d', 'ICT_DSE_2025_P1B_Q7~c'))
+        self.assertFalse(token_fits_under('ICT_DSE_2025_P1B_Q7b', 'ICT_DSE_2025_P1B_Q7~c'))
+
+    def test_derive_roles(self):
+        roles = derive_roles(['7', '7a', '7b', '7~c', '7c', '7d'])
+        self.assertEqual(roles['7~c'], 'stem')
+        self.assertEqual(roles['7d'], 'part')
+        self.assertEqual(roles['7'], 'stem')
+        # a childless block is still shared text, never a part
+        self.assertEqual(derive_roles(['7', '7a', '7~c'])['7~c'], 'stem')
+
+    def test_box_label_aliases(self):
+        for raw in ('intro-c', 'before (c)', '~c', 'intro (c)', 'shared-c', '3~c'):
+            self.assertEqual(normalize_part_box_label(raw), '~c', raw)
+        self.assertEqual(normalize_part_box_label('intro-diii'), 'd~iii')
+        self.assertEqual(normalize_part_box_label('stem'), 'stem')
+        self.assertEqual(block_label_for('a'), 'stem')
+        self.assertEqual(block_label_for('di'), 'd')
+        self.assertNotEqual(normalize_part_box_label('introduction'), '~c')
+
+    def test_earlier_siblings_cross_block(self):
+        self.assertEqual([n.id for n in earlier_siblings(self.d)], [2, 3, 5])
+        self.assertEqual([n.id for n in earlier_siblings(self.c)], [2, 3])
+
+    def test_render_plan_prints_block_in_paper_order(self):
+        plan = resolve_render_plan([self.d], mode='selected')
+        self.assertEqual(
+            [(it.role, it.question.id) for it in plan],
+            [('stem', 1), ('stem', 2), ('stem', 3), ('stem', 4), ('stem', 5), ('leaf', 6)],
+        )
+        plan = resolve_render_plan([self.a, self.c], mode='selected')
+        self.assertEqual(
+            [(it.role, it.question.id) for it in plan],
+            [('stem', 1), ('leaf', 2), ('stem', 4), ('leaf', 5)],
+        )
+        self.assertEqual(plan[3].seq_owner_id, 1)
+
+    def test_breadcrumbs_and_position(self):
+        crumbs = breadcrumb_parts(self.c)
+        self.assertEqual([(c['label'], c['kind']) for c in crumbs],
+                         [('Q7', 'root'), ('before (c)', 'block'), ('(c)', 'part')])
+        self.assertEqual(part_position_label(self.c), '(c)')
+        self.assertEqual(part_position_label(self.blk), 'before (c)')
+        self.assertEqual(part_position_label(self.d, relative_to=self.root), '(d)')
+
+    def test_rename_guards(self):
+        self.assertEqual(rewrite_descendant_token('Q7c', 'Q7~c', 'Q7~d'), 'Q7c')
+        self.assertEqual(rewrite_descendant_token('Q7~c', 'Q7', 'Q8'), 'Q8~c')
+        self.assertEqual(rewrite_descendant_token('Q7d~iii', 'Q7d', 'Q7e'), 'Q7e~iii')
+        with self.assertRaises(HierarchyError):
+            rewrite_descendant_token('Q7c', 'Q7~c', 'Q7c')
+        self.assertIsNone(rename_shape_ok('Q7~c', 'Q7~d', True))
+        self.assertIsNotNone(rename_shape_ok('Q7~c', 'Q8~c', True))
+        self.assertIsNotNone(rename_shape_ok('Q7~c', 'Q7c', False))
 
 
 class ExistingQnoSortStillNumeric(unittest.TestCase):

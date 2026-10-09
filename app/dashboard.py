@@ -12,7 +12,8 @@ from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subje
 from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
     children as hier_children, group_for_dashboard, is_stem,
-    paginate_by_root, root as hier_root, stem_id_query,
+    paginate_by_root, root as hier_root, stem_id_query, leaf_clause,
+    is_block, part_position_label,
 )
 from app import md_render
 import os
@@ -182,7 +183,7 @@ def _build_filtered_query(params):
     # Leaves only unless the caller asked for a specific id/qid list (Show
     # Selected Only / health jump may include stem ids).
     if not qid_list and not id_list:
-        query = query.filter(~Question.id.in_(stem_id_query()))
+        query = query.filter(leaf_clause())
 
     return query
 
@@ -521,19 +522,24 @@ def filter_questions():
             if stem_card is not None:
                 chain = [a for a in hier_ancestors(q)
                          if getattr(a, 'id', None) != root_id]
-                for depth_i, anc in enumerate(chain, start=1):
+                # A shared block (Q7~c) sits at the level of the parts it
+                # introduces and does not indent them: (c) lines up with (a).
+                depth_i = 0
+                for anc in chain:
                     aid = getattr(anc, 'id', None)
+                    if not is_block(anc):
+                        depth_i += 1
                     if aid in seen_substems:
                         continue
                     seen_substems.add(aid)
                     sub = _dashboard_card(anc, version_order, role='stem')
                     sub['is_stem'] = True
-                    sub['depth'] = depth_i
+                    sub['depth'] = depth_i + (1 if is_block(anc) else 0)
                     sub['child_count'] = len(hier_children(anc))
                     sub['stem_qid'] = stem_card['qid']
                     sub['leaf_ids'] = leaf_ids_under.get(aid, [])
                     rows.append({'kind': 'substem', 'card': sub})
-                card['depth'] = len(chain) + 1
+                card['depth'] = sum(1 for a in chain if not is_block(a)) + 1
             else:
                 card['depth'] = 0
             rows.append({'kind': 'leaf', 'card': card})
@@ -740,7 +746,7 @@ def get_subtopics():
                     Question.major_subtopic_id == s.id,
                     Question.subtopics.any(Subtopic.id == s.id)
                 ),
-                ~Question.id.in_(stem_id_query()),
+                leaf_clause(),
             )
             .group_by(Question.q_type)
             .all()
@@ -1313,10 +1319,9 @@ def explain_question(question_id):
     # the stem's own text as the shared background followed by every
     # descendant part's QUE (and SOL), labelled relative to the stem, so the
     # tutor can walk through the whole question.
-    from app.hierarchy import descendants as hier_descendants, depth_of, sort_key
+    from app.hierarchy import descendants as hier_descendants, sort_key
     part_ctx = []
     if is_stem(question):
-        base_depth = depth_of(question)
         for d in sorted(hier_descendants(question), key=sort_key):
             dq_imgs, dq_text = _explain_slot_context(
                 d.id, 'QUE', version_priority, source_path, image_max_dim)
@@ -1324,8 +1329,9 @@ def explain_question(question_id):
                 d.id, 'SOL', version_priority, source_path, image_max_dim)
             if not (dq_imgs or dq_text or ds_imgs or ds_text):
                 continue
-            crumbs = breadcrumb_parts(d)
-            label = ''.join(c['label'] for c in crumbs[base_depth + 1:]) or d.qid
+            label = part_position_label(d, relative_to=question) or d.qid
+            if is_block(d):
+                label = f'(shared text printed {label})'
             part_ctx.append((label, dq_imgs, dq_text, ds_imgs, ds_text))
 
     if not (que_imgs or que_text or part_ctx):
@@ -1376,8 +1382,7 @@ def explain_question(question_id):
             for sib in earlier_siblings(question):
                 s_imgs, s_text = _explain_slot_context(
                     sib.id, 'QUE', version_priority, source_path, image_max_dim)
-                crumbs = breadcrumb_parts(sib)
-                label = crumbs[-1]['label'] if crumbs else sib.qid
+                label = part_position_label(sib) or sib.qid
                 if s_imgs:
                     parts.append({'type': 'text', 'text': (
                         f'Earlier part {label} (context only; the part to work on follows) image(s):')})

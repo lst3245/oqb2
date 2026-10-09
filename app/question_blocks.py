@@ -1,0 +1,126 @@
+"""Shared blocks (ADR-015): move a page of a question's QUE into a new block.
+
+Repairs questions imported before blocks existed, where text printed between
+two parts (ICT 2025 P1B Q7: the spreadsheet passage before (c)) was merged
+into the root's QUE as page 2. Files are rewritten through
+``replace_img_assets`` so ``question_assets`` and disk stay in sync.
+"""
+from __future__ import annotations
+
+from flask import current_app
+from PIL import Image
+
+from app import db, storage
+from app.batch_image_gen import replace_img_assets
+from app.hierarchy import (
+    BLOCK_MARK, HierarchyError, ensure_question, format_qno_token, is_block,
+    parse_qid, part_segments, pick_block,
+)
+from app.models import Question, QuestionAsset
+from app.utils import VERSIONS
+
+
+class BlockError(ValueError):
+    pass
+
+
+def _que_rows(question, version):
+    return (QuestionAsset.query
+            .filter_by(question_id=question.id, asset_type='QUE',
+                       version=version, file_format='IMG')
+            .order_by(QuestionAsset.part_number)
+            .all())
+
+
+def _load(rel_path: str) -> Image.Image:
+    path = storage.safe_join(storage.source_path(), *rel_path.replace('\\', '/').split('/'))
+    if not path:
+        raise BlockError(f'Asset path escapes SOURCE_PATH: {rel_path}')
+    # copy() so the file handle is closed before replace_img_assets deletes it.
+    with Image.open(path) as im:
+        im.load()
+        return im.copy()
+
+
+def plan_move_page(question: Question, page: int, anchor: str) -> dict:
+    """Dry run: what moving QUE page ``page`` into block ``~anchor`` does.
+    Raises :class:`BlockError` when it cannot be done."""
+    parsed = parse_qid(question.qid)
+    if not parsed or parsed.qno.qno_end or is_block(question):
+        raise BlockError('Only a question or a lettered part with parts can get a shared intro.')
+    anchor = (anchor or '').strip().lower().strip('()~ ')
+    if not anchor or part_segments(anchor) != [anchor]:
+        raise BlockError('Pick the part the shared intro is printed before, e.g. c.')
+    try:
+        token = format_qno_token(parsed.qno.qno, None,
+                                 (parsed.qno.part_path or '') + BLOCK_MARK + anchor)
+    except HierarchyError as e:
+        raise BlockError(str(e)) from e
+    block_qid = f'{parsed.prefix}_{token}'
+    if Question.query.filter_by(qid=block_qid).first():
+        raise BlockError(f'{block_qid} already exists.')
+
+    kids = list(question.children)
+    blocks = [c for c in kids if is_block(c)]
+    level = [c for c in kids if not is_block(c)]
+    for b in blocks:
+        level += list(b.children)
+    new_seg = BLOCK_MARK + anchor
+    rivals = [b.part for b in blocks] + [new_seg]
+    moving = sorted((c for c in level if c.part and pick_block(rivals, c.part) == new_seg),
+                    key=lambda c: c.part_sort or 0)
+    if not moving:
+        raise BlockError(f'{question.qid} has no part ({anchor}) or later to share this text.')
+
+    versions, skipped, warnings = [], [], []
+    for v in VERSIONS:
+        rows = _que_rows(question, v)
+        if not rows:
+            continue
+        if page < 1 or page > len(rows) or len(rows) < 2:
+            skipped.append(v)
+        else:
+            versions.append(v)
+    if not versions:
+        raise BlockError(f'No version of {question.qid} has a QUE page {page} '
+                         'with another page left behind.')
+    other = {a.file_format for a in QuestionAsset.query.filter_by(
+        question_id=question.id, asset_type='QUE') if a.file_format != 'IMG'}
+    if other:
+        warnings.append(f'{"/".join(sorted(other))} QUE is not split; edit it by hand.')
+    return {
+        'qid': question.qid,
+        'block_qid': block_qid,
+        'block_token': token,
+        'anchor': anchor,
+        'page': page,
+        'moving': [c.qid for c in moving],
+        'versions': versions,
+        'skipped_versions': skipped,
+        'warnings': warnings,
+    }
+
+
+def move_page_to_block(question: Question, page: int, anchor: str) -> dict:
+    """Create the block, move QUE page ``page`` (every IMG version that has
+    it) from ``question`` to the block, and re-home the covered parts."""
+    plan = plan_move_page(question, page, anchor)
+    parsed = parse_qid(question.qid)
+    pages = {}
+    for v in plan['versions']:
+        pages[v] = [_load(r.file_path) for r in _que_rows(question, v)]
+
+    block, _created = ensure_question(
+        parsed.subject, parsed.source, plan['block_token'],
+        year=parsed.year, paper=parsed.paper, detail=parsed.detail,
+    )
+    db.session.commit()
+    source_path = current_app.config['SOURCE_PATH']
+    for v, imgs in pages.items():
+        moved = imgs[page - 1]
+        rest = imgs[:page - 1] + imgs[page:]
+        replace_img_assets(block, 'QUE', v, [moved], stitch=False, source_path=source_path)
+        replace_img_assets(question, 'QUE', v, rest, stitch=False, source_path=source_path)
+    plan['block_id'] = block.id
+    plan['moved_parts'] = [c.qid for c in Question.query.filter_by(parent_id=block.id)]
+    return plan

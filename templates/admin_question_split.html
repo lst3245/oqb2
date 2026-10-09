@@ -98,11 +98,11 @@
                     <div id="boxList" class="box-list list-group list-group-flush small mb-2"></div>
                     <div class="input-group input-group-sm mb-2">
                         <span class="input-group-text">Label</span>
-                        <input type="text" class="form-control" id="boxLabel" placeholder="stem / a / b / ci">
+                        <input type="text" class="form-control" id="boxLabel" placeholder="stem / a / b / ci / ~c">
                         <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">Set</button>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">Delete selected box</button>
-                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge; hold H to hide it), click a thumbnail to preview the crop. After clicking a box, the arrow keys nudge it (Shift = 10&times;). Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, …</div>
+                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge; hold H to hide it), click a thumbnail to preview the crop. After clicking a box, the arrow keys nudge it (Shift = 10&times;). Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, … Text printed <em>between</em> parts that the later parts use (a new table or scenario before (c)) is <code>~c</code>: a shared intro before (c).</div>
                 </div>
             </div>
             <div class="card">
@@ -156,18 +156,24 @@ function loadVersion() {
 }
 img.addEventListener('load', renderList);
 
+// "~c" (or "d~iii") is a shared block: text printed between parts that (c)
+// and every later part at that level use (ADR-015).
+function isShared(label) { return (label || '') === 'stem' || (label || '').indexOf('~') >= 0; }
 function boxCaption(b) {
-    if ((b.label || '') === 'stem') return 'Shared background (stem)';
-    if (b.label) return 'Part (' + b.label + ')';
+    const lab = b.label || '';
+    if (lab === 'stem') return 'Shared background (stem)';
+    const t = lab.indexOf('~');
+    if (t >= 0) return 'Shared intro before (' + lab.slice(t + 1) + ')' + (t ? ' in (' + lab.slice(0, t) + ')' : '');
+    if (lab) return 'Part (' + lab + ')';
     return '(unlabelled)';
 }
 
 const ed = OQBBboxEditor.mount({
     wrap, img,
     overlay: wrap.querySelector('.pdf-overlay'),
-    classNames: it => 'kind-que ' + ((it.label || '') === 'stem' ? 'role-stem' : 'role-part'),
+    classNames: it => 'kind-que ' + (isShared(it.label) ? 'role-stem' : 'role-part'),
     labelText: it => it.label || '?',
-    magnifierColor: it => ((it.label || '') === 'stem' ? '#6c757d' : '#fd7e14'),
+    magnifierColor: it => (isShared(it.label) ? '#6c757d' : '#fd7e14'),
     onSelect: it => { selected = it; labelInput.value = it.label || ''; renderList(); },
     onChange: (it, type, live) => { if (!live) renderList(); },
     onCreate: box => {
