@@ -1,6 +1,6 @@
 # ADR-015 — Shared blocks for text printed between parts
 
-**Status:** accepted, in force. Grammar, tree, render plan, PDF import, prompts, Split tool, dashboard/Present/Explain labels and the Edit-modal repair action are live. Existing questions are not migrated: an admin repairs each affected root (see Consequences).
+**Status:** accepted, in force. Grammar, tree, render plan, PDF import, prompts, Split tool, dashboard/Present/Explain labels and the Edit-modal repair action are live. Existing ICT questions were repaired on 2026-10-09 (see Consequences).
 
 ## Context
 
@@ -28,7 +28,7 @@ Options considered:
 ## Consequences
 
 - QID charset gains `~`. It is safe in Windows filenames, URLs (unreserved), Jinja/JS strings, and is not used in CSS selectors or DOM ids. `werkzeug.secure_filename` strips it, but that is only used for My Files uploads.
-- Rows imported before this change keep the passage as a root QUE page. Repair is per question by a subject admin: **Edit → Assets → (layers icon on QUE page 2) → "printed before which part?"** — `POST /admin/questions/<id>/assets/move-to-block` dry-runs, then moves that page (every IMG version) into the new block through `replace_img_assets`. Never by hand on `SOURCE_PATH`.
+- Rows imported before this change kept the passage as a root QUE page (the 13 ICT cases were repaired on 2026-10-09). Repair is per question by a subject admin: **Edit → Assets → (layers icon on QUE page 2) → "printed before which part?"** — `POST /admin/questions/<id>/assets/move-to-block` dry-runs, then moves that page (every IMG version) into the new block through `replace_img_assets`. Never by hand on `SOURCE_PATH`.
 - Dashboard depth ignores blocks: (c) lines up with (a); the block row reads "Shared · before (c)".
 - A future feature that walks "parts of a question" must treat `is_block` nodes as background, not as answerable parts (`leaf_clause()` in SQL, `is_stem` in Python).
 

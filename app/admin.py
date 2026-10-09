@@ -2290,8 +2290,9 @@ def set_needs_prev_parts(question_id):
 @login_required
 @admin_required
 def move_que_page_to_block(question_id):
-    """Move one QUE page into a new shared block (``Q7~c``) placed before
-    part ``anchor``. ``dry_run`` returns the plan without writing."""
+    """Move one QUE page (or ``pages``) into a new shared block (``Q7~c``)
+    placed before part ``anchor``. ``dry_run`` returns the plan without
+    writing."""
     question = Question.query.get_or_404(question_id)
     denial = _require_md_admin(question)
     if denial:
@@ -2300,9 +2301,11 @@ def move_que_page_to_block(question_id):
     from app import question_blocks as qb
     try:
         page = int(data.get('page') or 0)
+        pages = data.get('pages') if isinstance(data.get('pages'), list) else None
         if data.get('dry_run'):
-            return jsonify({'ok': True, **qb.plan_move_page(question, page, data.get('anchor'))})
-        result = qb.move_page_to_block(question, page, data.get('anchor'))
+            return jsonify({'ok': True, **qb.plan_move_page(
+                question, page, data.get('anchor'), pages=pages)})
+        result = qb.move_page_to_block(question, page, data.get('anchor'), pages=pages)
     except (qb.BlockError, ValueError) as e:
         db.session.rollback()
         return jsonify({'ok': False, 'error': str(e)}), 400

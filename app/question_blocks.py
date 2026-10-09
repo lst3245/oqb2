@@ -42,9 +42,23 @@ def _load(rel_path: str) -> Image.Image:
         return im.copy()
 
 
-def plan_move_page(question: Question, page: int, anchor: str) -> dict:
-    """Dry run: what moving QUE page ``page`` into block ``~anchor`` does.
+def _page_list(page, pages) -> list[int]:
+    raw = pages if pages else [page]
+    try:
+        out = sorted({int(p) for p in raw})
+    except (TypeError, ValueError):
+        raise BlockError('Pages must be numbers.')
+    if not out or out[0] < 1:
+        raise BlockError('Pick the QUE page(s) to move.')
+    return out
+
+
+def plan_move_page(question: Question, page: int | None, anchor: str,
+                   pages: list | None = None) -> dict:
+    """Dry run: what moving QUE page ``page`` (or every page in ``pages``, a
+    block that spans several crops) into block ``~anchor`` does.
     Raises :class:`BlockError` when it cannot be done."""
+    page_list = _page_list(page, pages)
     parsed = parse_qid(question.qid)
     if not parsed or parsed.qno.qno_end or is_block(question):
         raise BlockError('Only a question or a lettered part with parts can get a shared intro.')
@@ -77,12 +91,13 @@ def plan_move_page(question: Question, page: int, anchor: str) -> dict:
         rows = _que_rows(question, v)
         if not rows:
             continue
-        if page < 1 or page > len(rows) or len(rows) < 2:
+        if page_list[-1] > len(rows) or len(rows) <= len(page_list):
             skipped.append(v)
         else:
             versions.append(v)
     if not versions:
-        raise BlockError(f'No version of {question.qid} has a QUE page {page} '
+        label = ', '.join(map(str, page_list))
+        raise BlockError(f'No version of {question.qid} has QUE page {label} '
                          'with another page left behind.')
     other = {a.file_format for a in QuestionAsset.query.filter_by(
         question_id=question.id, asset_type='QUE') if a.file_format != 'IMG'}
@@ -93,7 +108,8 @@ def plan_move_page(question: Question, page: int, anchor: str) -> dict:
         'block_qid': block_qid,
         'block_token': token,
         'anchor': anchor,
-        'page': page,
+        'page': page_list[0],
+        'pages': page_list,
         'moving': [c.qid for c in moving],
         'versions': versions,
         'skipped_versions': skipped,
@@ -101,14 +117,17 @@ def plan_move_page(question: Question, page: int, anchor: str) -> dict:
     }
 
 
-def move_page_to_block(question: Question, page: int, anchor: str) -> dict:
-    """Create the block, move QUE page ``page`` (every IMG version that has
-    it) from ``question`` to the block, and re-home the covered parts."""
-    plan = plan_move_page(question, page, anchor)
+def move_page_to_block(question: Question, page: int | None, anchor: str,
+                       pages: list | None = None) -> dict:
+    """Create the block, move QUE page ``page`` / ``pages`` (every IMG
+    version that has them) from ``question`` to the block, and re-home the
+    covered parts."""
+    plan = plan_move_page(question, page, anchor, pages=pages)
+    moving_idx = {p - 1 for p in plan['pages']}
     parsed = parse_qid(question.qid)
-    pages = {}
+    loaded = {}
     for v in plan['versions']:
-        pages[v] = [_load(r.file_path) for r in _que_rows(question, v)]
+        loaded[v] = [_load(r.file_path) for r in _que_rows(question, v)]
 
     block, _created = ensure_question(
         parsed.subject, parsed.source, plan['block_token'],
@@ -116,10 +135,10 @@ def move_page_to_block(question: Question, page: int, anchor: str) -> dict:
     )
     db.session.commit()
     source_path = current_app.config['SOURCE_PATH']
-    for v, imgs in pages.items():
-        moved = imgs[page - 1]
-        rest = imgs[:page - 1] + imgs[page:]
-        replace_img_assets(block, 'QUE', v, [moved], stitch=False, source_path=source_path)
+    for v, imgs in loaded.items():
+        moved = [im for i, im in enumerate(imgs) if i in moving_idx]
+        rest = [im for i, im in enumerate(imgs) if i not in moving_idx]
+        replace_img_assets(block, 'QUE', v, moved, stitch=False, source_path=source_path)
         replace_img_assets(question, 'QUE', v, rest, stitch=False, source_path=source_path)
     plan['block_id'] = block.id
     plan['moved_parts'] = [c.qid for c in Question.query.filter_by(parent_id=block.id)]
