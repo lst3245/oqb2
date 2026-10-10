@@ -323,7 +323,7 @@ def compose_part_label(parent_label: str, child_raw: str) -> Optional[str]:
         return None
 
 
-def label_is_ancestor(parent_label, child_label, labels=None) -> bool:
+def label_is_ancestor(parent_label, child_label, labels=None, ends=None) -> bool:
     """True when plan label ``parent_label`` is a strict ancestor of
     ``child_label`` (``5`` ⊃ ``5d`` ⊃ ``5di``). Ranges have no descendants
     other than the plain numbers they cover.
@@ -331,7 +331,8 @@ def label_is_ancestor(parent_label, child_label, labels=None) -> bool:
     A shared block (``7~c``) is an ancestor of the parts at its level that
     print at or after its anchor (``7c``, ``7d``, ``7di``), up to the next
     block. That cut-off needs the other labels: pass ``labels`` (the
-    question's label set) whenever two blocks may share a level."""
+    question's label set) whenever two blocks may share a level. ``ends``
+    maps a block label to its end segment (``{'4~b': 'b'}``)."""
     p = parse_qno_token(parent_label)
     c = parse_qno_token(child_label)
     if not p or not c:
@@ -350,8 +351,10 @@ def label_is_ancestor(parent_label, child_label, labels=None) -> bool:
         seg = cs[len(level)]
         if not block_covers(block_anchor(ps[-1]), seg):
             return False
+        ends = {normalize_plan_label(k): v for k, v in (ends or {}).items()}
+        seg_ends = {ps[-1]: ends.get(p.token[1:])}
         if labels is None:
-            return True
+            return pick_block([ps[-1]], seg, seg_ends) == ps[-1]
         rivals = []
         for other in labels:
             o = parse_qno_token(other)
@@ -360,20 +363,22 @@ def label_is_ancestor(parent_label, child_label, labels=None) -> bool:
             os_ = part_segments(o.part_path)
             if len(os_) == len(ps) and os_[:-1] == level and is_block_part(os_[-1]):
                 rivals.append(os_[-1])
+                seg_ends.setdefault(os_[-1], ends.get(o.token[1:]))
         if ps[-1] not in rivals:
             rivals.append(ps[-1])
-        return pick_block(rivals, seg) == ps[-1]
+        return pick_block(rivals, seg, seg_ends) == ps[-1]
     return len(cs) > len(ps) and cs[:len(ps)] == ps
 
 
-def derive_roles(labels) -> dict:
+def derive_roles(labels, ends=None) -> dict:
     """Role of every plan label in one question, derived from the label set.
 
     A label is a ``stem`` when another label in the set descends from it
     (``5`` with ``5a`` present, ``5d`` with ``5di``); a label with a part
     path but no descendants is a ``part``; a plain number / range with no
     descendants is a ``question``. Roles are therefore never stored as
-    model output — they are recomputed whenever labels change.
+    model output — they are recomputed whenever labels change. ``ends``
+    (block label → end segment) narrows a shared block's scope.
     """
     labs = []
     for raw in labels or []:
@@ -383,7 +388,7 @@ def derive_roles(labels) -> dict:
     out = {}
     for lab in labs:
         p = parse_qno_token(lab)
-        has_child = any(label_is_ancestor(lab, other, labs) for other in labs
+        has_child = any(label_is_ancestor(lab, other, labs, ends) for other in labs
                         if other != lab)
         if has_child or (p and p.is_block):
             out[lab] = 'stem'
@@ -539,17 +544,79 @@ def is_block(q) -> bool:
     return is_block_part(getattr(q, 'part', None))
 
 
-def block_covers(anchor: Optional[str], seg: Optional[str]) -> bool:
-    """True when part segment ``seg`` prints at or after a block's ``anchor``."""
+def block_covers(anchor: Optional[str], seg: Optional[str],
+                 end: Optional[str] = None) -> bool:
+    """True when part segment ``seg`` prints at or after a block's ``anchor``
+    and, when the block has an ``end``, not after that end."""
     if not anchor or not seg or is_block_part(seg):
         return False
-    return part_sort_key(seg) >= part_sort_key(anchor)
+    if part_sort_key(seg) < part_sort_key(anchor):
+        return False
+    return not end or part_sort_key(seg) <= part_sort_key(end)
 
 
-def pick_block(block_parts: Iterable, seg: Optional[str]) -> Optional[str]:
+def normalize_block_end(raw) -> Optional[str]:
+    """``'(c)'`` / ``' C '`` → ``'c'``; blank / ``none`` → None."""
+    if raw is None:
+        return None
+    s = str(raw).strip().lower().strip('()~ ')
+    return None if s in ('', 'none', 'null') else s
+
+
+def effective_block_end(block_part: Optional[str], end: Optional[str]) -> Optional[str]:
+    """``end`` when it can bound block ``block_part`` (one plain segment of the
+    anchor's kind, at or after it), else None — a stale end left behind by an
+    anchor rename behaves like no end."""
+    end = normalize_block_end(end)
+    anchor = block_anchor(block_part)
+    if not end or not anchor or part_segments(end) != [end] or is_block_part(end):
+        return None
+    ek, ak = part_sort_key(end), part_sort_key(anchor)
+    if ek[0] != ak[0] or ek[0] == 2 or ek < ak:
+        return None
+    return end
+
+
+def block_end_error(block_part: str, end, level_block_parts: Iterable = ()) -> Optional[str]:
+    """Why ``end`` cannot bound block ``block_part`` (``~b``), or None.
+
+    Rules: one plain part label of the anchor's kind (letter / roman), at or
+    after the anchor, and before the next block's anchor at that level
+    (``level_block_parts``: the block segments that share the level). Blank
+    clears the end and is always valid."""
+    end = normalize_block_end(end)
+    if end is None:
+        return None
+    anchor = block_anchor(block_part)
+    if not anchor:
+        return 'Only a shared block has an end.'
+    if part_segments(end) != [end] or is_block_part(end):
+        return f'"{end}" is not a single part label such as b or iii.'
+    ek, ak = part_sort_key(end), part_sort_key(anchor)
+    if ek[0] == 2 or ek[0] != ak[0]:
+        kind = 'roman numeral' if ak[0] == 1 else 'letter'
+        return f'The end must be a {kind} at the same level as ({anchor}).'
+    if ek < ak:
+        return f'The end ({end}) is before the block starts at ({anchor}).'
+    later = sorted((block_anchor(bp) for bp in level_block_parts
+                    if bp != block_part and block_anchor(bp)
+                    and part_sort_key(block_anchor(bp)) > ak),
+                   key=part_sort_key)
+    if later and ek >= part_sort_key(later[0]):
+        return (f'The end ({end}) must come before the next shared block, '
+                f'which starts at ({later[0]}).')
+    return None
+
+
+def pick_block(block_parts: Iterable, seg: Optional[str],
+               ends: Optional[dict] = None) -> Optional[str]:
     """The block segment (``~c``) among ``block_parts`` that owns part ``seg``:
     the one with the latest anchor at or before ``seg``. None when ``seg``
-    prints before every block (it stays under the lettered parent)."""
+    prints before every block (it stays under the lettered parent).
+
+    ``ends`` maps a block segment to its end (``{'~b': 'b'}``). When the
+    chosen block ends before ``seg``, no block owns it — an earlier block
+    never resumes after a later one."""
     best = None
     for bp in block_parts:
         anchor = block_anchor(bp)
@@ -557,6 +624,10 @@ def pick_block(block_parts: Iterable, seg: Optional[str]) -> Optional[str]:
             continue
         if best is None or part_sort_key(anchor) > part_sort_key(block_anchor(best)):
             best = bp
+    if best is not None and ends:
+        end = effective_block_end(best, ends.get(best))
+        if end and not block_covers(block_anchor(best), seg, end):
+            return None
     return best
 
 
@@ -877,10 +948,18 @@ def rename_shape_ok(old_token: str, new_token: str, has_descendants: bool) -> Op
 # Dashboard grouping / breadcrumbs (pure; ORM optional)
 # ---------------------------------------------------------------------------
 
-def block_display_label(part: Optional[str]) -> str:
-    """Human label for a block segment: ``~c`` → ``before (c)``."""
+def block_display_label(part: Optional[str], end: Optional[str] = None) -> str:
+    """Human label for a block segment: ``~c`` → ``before (c)``; with an end,
+    ``before (c), (c) only`` / ``before (c), up to (d)``."""
     anchor = block_anchor(part)
-    return f'before ({anchor})' if anchor else ''
+    if not anchor:
+        return ''
+    end = effective_block_end(part, end)
+    if not end:
+        return f'before ({anchor})'
+    if end == anchor:
+        return f'before ({anchor}), ({anchor}) only'
+    return f'before ({anchor}), up to ({end})'
 
 
 def breadcrumb_parts(q) -> list[dict]:
@@ -898,7 +977,7 @@ def breadcrumb_parts(q) -> list[dict]:
         has_parent = bool(getattr(node, 'parent_id', None) or getattr(node, 'parent', None))
         kind = 'part' if has_parent else 'root'
         if part and is_block_part(part):
-            label = block_display_label(part)
+            label = block_display_label(part, getattr(node, 'block_end', None))
             kind = 'block'
         elif part and has_parent:
             label = f'({part})'
@@ -1366,37 +1445,139 @@ def block_child_for(parent, seg: Optional[str]):
               .filter(Question.part.like(BLOCK_MARK + '%'))
               .all())
     by_part = {b.part: b for b in blocks}
-    chosen = pick_block(by_part.keys(), seg)
+    ends = {b.part: getattr(b, 'block_end', None) for b in blocks}
+    chosen = pick_block(by_part.keys(), seg, ends)
     return by_part.get(chosen) if chosen else None
+
+
+def plan_block_level(parent_id, members, blocks, exclude_id=None) -> list:
+    """Pure: ``[(member, target_id)]`` for every lettered node at one level
+    whose parent must change so it sits under the block that owns it (block
+    ends honoured), or under ``parent_id`` when none does. ``members`` are
+    the level's parts (the parent's non-block children plus every block's
+    children); ``blocks`` the level's block rows (``id``, ``part``,
+    ``block_end``). ``exclude_id`` is a block being dissolved."""
+    live = [b for b in blocks if getattr(b, 'id', None) != exclude_id]
+    by_part = {b.part: b for b in live}
+    ends = {b.part: getattr(b, 'block_end', None) for b in live}
+    moves = []
+    for m in sorted(members, key=lambda m: part_sort_key(getattr(m, 'part', None))):
+        if not getattr(m, 'part', None) or is_block(m):
+            continue
+        chosen = pick_block(by_part.keys(), m.part, ends)
+        target = by_part[chosen].id if chosen else parent_id
+        if m.parent_id != target:
+            moves.append((m, target))
+    return moves
+
+
+def _block_level_rows(parent):
+    from app.models import Question
+    kids = Question.query.filter(Question.parent_id == parent.id).all()
+    blocks = [k for k in kids if is_block(k)]
+    members = [k for k in kids if not is_block(k)]
+    for b in blocks:
+        members += Question.query.filter(Question.parent_id == b.id).all()
+    return blocks, members
 
 
 def relink_block_level(parent, exclude_id=None) -> int:
     """Re-home every lettered node at ``parent``'s level (its own children
     and its blocks' children) under the block that owns it, or ``parent``
-    when none does. ``exclude_id`` is a block being deleted: its parts move
-    up. Returns the number of rows moved. Flushes; does not commit."""
+    when none does (see :func:`plan_block_level`). ``exclude_id`` is a block
+    being deleted: its parts move up. Returns the number of rows moved.
+    Flushes; does not commit."""
     from app import db
-    from app.models import Question
     if parent is None or getattr(parent, 'id', None) is None:
         return 0
-    kids = Question.query.filter(Question.parent_id == parent.id).all()
-    all_blocks = [k for k in kids if is_block(k)]
-    blocks = {b.part: b for b in all_blocks if b.id != exclude_id}
-    members = [k for k in kids if not is_block(k)]
-    for b in all_blocks:
-        members += Question.query.filter(Question.parent_id == b.id).all()
-    moved = 0
-    for m in members:
-        if not m.part or is_block(m):
-            continue
-        chosen = pick_block(blocks.keys(), m.part)
-        target = blocks[chosen].id if chosen else parent.id
-        if m.parent_id != target:
-            m.parent_id = target
-            moved += 1
-    if moved:
+    blocks, members = _block_level_rows(parent)
+    moves = plan_block_level(parent.id, members, blocks, exclude_id=exclude_id)
+    for m, target in moves:
+        m.parent_id = target
+    if moves:
         db.session.flush()
-    return moved
+    return len(moves)
+
+
+def parse_block_end_rows(lines) -> list:
+    """Pure: ``[(block_qid, end_or_None)]`` from ``block_qid,end_part`` CSV
+    lines. Blank lines, ``#`` comments and a ``block_qid`` header are skipped;
+    an empty / ``none`` end clears it. Raises :class:`HierarchyError` on a
+    row without a QID."""
+    import csv
+    out = []
+    for n, row in enumerate(csv.reader(lines), start=1):
+        cells = [c.strip() for c in row]
+        if not cells or not any(cells) or cells[0].startswith('#'):
+            continue
+        if cells[0].lower() == 'block_qid':
+            continue
+        if not cells[0]:
+            raise HierarchyError(f'Line {n}: missing block_qid.')
+        out.append((cells[0], normalize_block_end(cells[1] if len(cells) > 1 else None)))
+    return out
+
+
+def block_end_choices(block_part, member_parts, level_block_parts=()) -> list:
+    """Pure: the part segments a block may end after, in print order
+    (existing parts at its level that pass :func:`block_end_error`)."""
+    out = []
+    for p in sorted(set(p for p in member_parts if p and not is_block_part(p)),
+                    key=lambda p: (part_sort_value(p), p)):
+        if block_end_error(block_part, p, level_block_parts) is None:
+            out.append(p)
+    return out
+
+
+def block_end_options(block) -> list:
+    """Valid ``block_end`` values for a block row (see :func:`block_end_choices`)."""
+    if not is_block(block) or block.parent is None:
+        return []
+    blocks, members = _block_level_rows(block.parent)
+    return block_end_choices(block.part, [m.part for m in members],
+                             [b.part for b in blocks])
+
+
+def set_block_end(block, end, *, dry_run: bool = False) -> dict:
+    """Set (or clear, ``end=None``) a shared block's end and re-home its
+    level. Raises :class:`HierarchyError` on an invalid end. Returns
+    ``{block_qid, end, old_end, changed, moves: [{qid, from_qid, to_qid}],
+    leaving: [qid], joining: [qid]}``. ``dry_run`` computes the same result
+    without touching the session. Flushes; does not commit."""
+    from types import SimpleNamespace
+    from app import db
+    if not is_block(block):
+        raise HierarchyError(f'{getattr(block, "qid", "?")} is not a shared block.')
+    parent = block.parent
+    if parent is None:
+        raise HierarchyError(f'{block.qid} has no parent question.')
+    end = normalize_block_end(end)
+    blocks, members = _block_level_rows(parent)
+    err = block_end_error(block.part, end, [b.part for b in blocks])
+    if err:
+        raise HierarchyError(err)
+    proxies = [SimpleNamespace(id=b.id, part=b.part,
+                               block_end=end if b.id == block.id else b.block_end)
+               for b in blocks]
+    moves = plan_block_level(parent.id, members, proxies)
+    qids = {parent.id: parent.qid, **{b.id: b.qid for b in blocks}}
+    old_end = normalize_block_end(block.block_end)
+    out = {
+        'block_qid': block.qid,
+        'end': end,
+        'old_end': old_end,
+        'changed': end != old_end or bool(moves),
+        'moves': [{'qid': m.qid, 'from_qid': qids.get(m.parent_id),
+                   'to_qid': qids.get(t)} for m, t in moves],
+        'leaving': [m.qid for m, t in moves if m.parent_id == block.id],
+        'joining': [m.qid for m, t in moves if t == block.id],
+    }
+    if not dry_run:
+        block.block_end = end
+        for m, target in moves:
+            m.parent_id = target
+        db.session.flush()
+    return out
 
 
 def relink_parent(question) -> None:

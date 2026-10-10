@@ -20,7 +20,7 @@ alwaysApply: true
 ## NEVER
 
 - Never run `python init_db.py`, `migrate_versions.py`, `migrate_starring.py`, `migrate_md_format.py`, `import_dse_p2.py`, `tag_topics.py`, or `debug_env.py`. They write to the live DB / library or leak secrets.
-- Never run `python cli.py sync --no-dry-run` or `cli.py migrate-storage --no-dry-run` unless the user asked for that exact command in this session.
+- Never run `python cli.py sync --no-dry-run`, `cli.py migrate-storage --no-dry-run` or `cli.py set-block-end --no-dry-run` unless the user asked for that exact command in this session.
 - Never kill, restart, or start a second dev server; never bind `:5000` yourself. Do not `taskkill` PIDs from the terminal file to "reset" anything.
 - Never print, `cat`, copy, or commit `.env`; never echo `DB_PASSWORD` / `LLM_API_KEY`; never hardcode a credential (one leftover already exists in `debug_env.py` — do not repeat it).
 - Never rotate `SECRET_KEY` or `LLM_KEY_SECRET` — it invalidates every Fernet-encrypted LLM endpoint key in `llm_configs`.
@@ -34,7 +34,7 @@ alwaysApply: true
 ## ALWAYS
 
 - Treat any call to `create_app()` (server, `cli.py`, `init_db.py`, `tests/test_llm_client.py`) as a **write** to the live schema: it runs the idempotent boot patches. Make a patch MariaDB-correct before saving the file — the running server will reload and execute it.
-- Prefer dry runs: `cli.py sync` and `cli.py migrate-storage` default to dry-run; keep it that way.
+- Prefer dry runs: `cli.py sync`, `cli.py migrate-storage` and `cli.py set-block-end` default to dry-run; keep it that way.
 - Run tests as targeted modules (`python -m unittest tests.test_sorting`) rather than the whole suite when you only need pure-logic checks.
 - Read tunables from `current_app.config`; read paths via `app/storage.py` accessors; join with `safe_join`.
 - When a task needs data you would have to fabricate (a test DB, sample assets), stop and ask; do not create rows in the live DB.

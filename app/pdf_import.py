@@ -299,7 +299,9 @@ def apply_derived_roles(items) -> list:
     """
     from app.hierarchy import derive_roles
     labels = [plan_item_label(it) for it in items or []]
-    roles = derive_roles([lab for lab in labels if lab])
+    ends = {lab: it['block_end'] for it, lab in zip(items or [], labels)
+            if lab and it.get('block_end')}
+    roles = derive_roles([lab for lab in labels if lab], ends)
     for it, lab in zip(items or [], labels):
         if lab and lab in roles:
             it['role'] = roles[lab]
@@ -371,10 +373,44 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
                 row['depends_prev'] = True
             if item.get('cont'):
                 row['cont'] = True
+            if kind == 'que' and parsed and parsed.is_block and item.get('block_end'):
+                row['block_end'] = item.get('block_end')
             clean[kind].append(row)
         if not generic:
+            if kind == 'que':
+                validate_plan_block_ends(clean[kind])
             apply_derived_roles(clean[kind])
     return clean
+
+
+def validate_plan_block_ends(items) -> list:
+    """Normalise ``block_end`` on QUE block items and drop any that fails
+    ``hierarchy.block_end_error`` against the other blocks at its level.
+    Mutates and returns ``items``."""
+    from app.hierarchy import (block_end_error, normalize_block_end,
+                               parse_qno_token, part_segments)
+
+    def level_key(p):
+        segs = part_segments(p.part_path)
+        return (p.qno, tuple(segs[:-1]))
+
+    parsed = [parse_qno_token(it.get('label')) if it.get('label') else None
+              for it in items]
+    level_blocks = {}
+    for p in parsed:
+        if p and p.is_block:
+            level_blocks.setdefault(level_key(p), set()).add(part_segments(p.part_path)[-1])
+    for it, p in zip(items, parsed):
+        if 'block_end' not in it:
+            continue
+        end = normalize_block_end(it.get('block_end'))
+        seg = part_segments(p.part_path)[-1] if p and p.is_block else None
+        if (not seg or end is None
+                or block_end_error(seg, end, level_blocks.get(level_key(p), ())) is not None):
+            it.pop('block_end', None)
+        else:
+            it['block_end'] = end
+    return items
 
 
 def discard(token: str) -> bool:
@@ -1680,7 +1716,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     """
     if isinstance(versions, str):
         versions = {'que': versions, 'sol': versions}
-    from app.hierarchy import ensure_question, parse_qno_token
+    from app.hierarchy import ensure_question, parse_qno_token, set_block_end
     from app.ingestor import determine_question_type
     from app.batch_image_gen import replace_img_assets, slot_has_img
 
@@ -1698,6 +1734,8 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     que_labels = _que_label_set(plan)
     depends_labels = {plan_item_label(it) for it in (plan.get('que') or [])
                       if it.get('depends_prev') and plan_item_label(it)}
+    block_ends = {plan_item_label(it): it['block_end'] for it in (plan.get('que') or [])
+                  if it.get('block_end') and plan_item_label(it)}
     groups = _group_plan(plan)
     total = len(groups)
     if total == 0:
@@ -1755,6 +1793,9 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
                     and question.parent_id and not parsed.is_block
                     and not getattr(question, 'needs_prev_parts', False)):
                 question.needs_prev_parts = True
+            if (kind == 'que' and parsed.is_block and commit_label in block_ends
+                    and question.block_end != block_ends[commit_label]):
+                set_block_end(question, block_ends[commit_label])
             db.session.commit()
             is_new = created
             if created:

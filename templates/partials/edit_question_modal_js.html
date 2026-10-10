@@ -449,15 +449,32 @@ function populateHierarchyDetails(data) {
             kidsEl.innerHTML = '<span class="text-muted small">No child parts</span>';
         } else {
             kidsEl.innerHTML = '<div class="small mb-1">Parts:</div>' + kids.map(c => {
-                const tag = c.is_block ? ` (shared intro before (${c.part.slice(1)}))`
+                const tag = c.is_block ? ` (shared intro ${blockScopeText(c.part, c.block_end)})`
                     : (c.part ? ' (' + c.part + ')' : '');
                 return `<a href="#" class="badge bg-light text-dark border me-1" onclick="openEditModal(${c.id}, {preserveView:true}); return false;">${c.qid}${tag}</a>`;
             }).join('');
         }
         if (data.is_block) {
+            const anchor = data.part.slice(1);
+            const scope = !data.block_end
+                ? 'that part and the later ones list it as background.'
+                : (data.block_end === anchor
+                    ? `only (${anchor}) lists it as background.`
+                    : `(${anchor}) to (${data.block_end}) list it as background.`);
             kidsEl.insertAdjacentHTML('afterbegin',
-                `<div class="small text-muted mb-1"><i class="bi bi-layers"></i> Shared intro printed before part (${data.part.slice(1)}): `
-                + 'that part and the later ones list it as background. It is not selectable or tagged; delete it to dissolve it (its parts move up).</div>');
+                `<div class="small text-muted mb-1"><i class="bi bi-layers"></i> Shared intro printed before part (${anchor}): `
+                + scope + ' It is not selectable or tagged; delete it to dissolve it (its parts move up).</div>');
+        }
+    }
+    const endWrap = document.getElementById('editBlockEndWrap');
+    const endSel = document.getElementById('editBlockEnd');
+    if (endWrap && endSel) {
+        endWrap.style.display = data.is_block ? '' : 'none';
+        if (data.is_block) {
+            const opts = [['', 'Up to the next shared block / end of question']]
+                .concat((data.block_end_options || []).map(p => [p, `(${p})`]));
+            endSel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+            endSel.value = data.block_end || '';
         }
     }
     const npWrap = document.getElementById('editNeedsPrevWrap');
@@ -522,6 +539,47 @@ function setNeedsPrevParts(value) {
         if (chk) chk.checked = !value;
         if (status) status.textContent = err.message;
         showToast(err.message, 'danger');
+    });
+}
+
+// Mirror of hierarchy.block_display_label.
+function blockScopeText(part, end) {
+    const anchor = (part || '').slice(1);
+    if (!end) return `before (${anchor})`;
+    return end === anchor ? `before (${anchor}), (${anchor}) only` : `before (${anchor}), up to (${end})`;
+}
+
+// Dry run, confirm the parts that change parent, then apply.
+function setBlockEnd() {
+    const qId = document.getElementById('editQId').value;
+    const end = document.getElementById('editBlockEnd').value || '';
+    const status = document.getElementById('editHierarchyStatus');
+    const url = `{{ url_for('admin.set_question_block_end', question_id=0) }}`.replace('/0/', `/${qId}/`);
+    const post = (dry) => fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({end, dry_run: dry}),
+    }).then(r => r.json().then(d => ({ok: r.ok, d})));
+    post(true).then(({ok, d}) => {
+        if (!ok) throw new Error(d.error || 'Cannot set the end');
+        if (!d.changed) { if (status) status.textContent = 'No change.'; return null; }
+        const lines = [d.end ? `${d.block_qid} will end after (${d.end}).`
+                             : `${d.block_qid} will run to the next shared block / end of question.`];
+        if (d.leaving.length) lines.push(`No longer shown with it: ${d.leaving.join(', ')}.`);
+        if (d.joining.length) lines.push(`Now shown with it: ${d.joining.join(', ')}.`);
+        if (!d.leaving.length && !d.joining.length) lines.push('No part changes parent.');
+        if (!window.confirm(lines.join('\n'))) return null;
+        return post(false);
+    }).then(res => {
+        if (!res) return;
+        if (!res.ok) throw new Error(res.d.error || 'Failed');
+        if (status) status.textContent = res.d.end ? `Ends after (${res.d.end}).` : 'Runs to the next shared block / end.';
+        openEditModal(qId, {preserveView: true});
+        if (typeof refreshOuterQuestionList === 'function') refreshOuterQuestionList();
+    }).catch(err => {
+        if (status) status.textContent = err.message;
+        showToast(err.message, 'danger');
+        if (editQuestionData) document.getElementById('editBlockEnd').value = editQuestionData.block_end || '';
     });
 }
 
@@ -647,16 +705,20 @@ function moveQuePageToBlock(questionId, page) {
     const anchor = (window.prompt(
         `Page ${page} is printed before which part? (one of: ${kids.join(', ') || 'none'})`, guess) || '').trim();
     if (!anchor) return;
+    const endRaw = window.prompt(
+        `Which is the last part that uses page ${page}? Leave blank for every part from (${anchor}) on.`, '');
+    if (endRaw === null) return;
+    const end = endRaw.trim();
     const url = `{{ url_for('admin.move_que_page_to_block', question_id=0) }}`.replace('/0/', `/${questionId}/`);
     const post = (dry) => fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({page, anchor, dry_run: dry}),
+        body: JSON.stringify({page, anchor, end, dry_run: dry}),
     }).then(r => r.json().then(d => ({ok: r.ok, d})));
     post(true).then(({ok, d}) => {
         if (!ok) throw new Error(d.error || 'Cannot move this page');
         const lines = [
-            `Create ${d.block_qid} (shared intro before part (${d.anchor})) from page ${d.page}`,
+            `Create ${d.block_qid} (shared intro ${blockScopeText('~' + d.anchor, d.end)}) from page ${d.page}`,
             `of ${d.qid} in ${d.versions.join(', ')}.`,
             `${d.moving.join(', ')} will list it as background.`,
         ];

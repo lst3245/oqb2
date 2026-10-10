@@ -294,6 +294,14 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                                 (for example (a) and (b) for (c)) are included as background.
                             </label>
                         </div>
+                        <div class="mb-2" id="editBlockEndWrap" style="display:none;">
+                            <label class="form-label small mb-1" for="editBlockEnd">Ends after part</label>
+                            <div class="input-group input-group-sm" style="max-width: 24rem;">
+                                <select class="form-select" id="editBlockEnd"></select>
+                                <button class="btn btn-outline-primary" type="button" onclick="setBlockEnd()">Apply</button>
+                            </div>
+                            <div class="form-text">Parts after this one print without this shared intro (for example a table used by (b) only). The default keeps every later part up to the next shared block.</div>
+                        </div>
                         <div id="editHierarchyStatus" class="small"></div>
                     </div>
                 </div>

@@ -13,8 +13,9 @@ from PIL import Image
 from app import db, storage
 from app.batch_image_gen import replace_img_assets
 from app.hierarchy import (
-    BLOCK_MARK, HierarchyError, ensure_question, format_qno_token, is_block,
-    parse_qid, part_segments, pick_block,
+    BLOCK_MARK, HierarchyError, block_end_error, ensure_question,
+    format_qno_token, is_block, normalize_block_end, parse_qid, part_segments,
+    pick_block, set_block_end,
 )
 from app.models import Question, QuestionAsset
 from app.utils import VERSIONS
@@ -53,12 +54,33 @@ def _page_list(page, pages) -> list[int]:
     return out
 
 
+def new_block_members(kids, anchor: str, end: str | None = None) -> list:
+    """Pure: the parts at one level (``kids`` = the question's children, with
+    their blocks' children) that a new block ``~anchor`` ending at ``end``
+    would own, in print order. Raises :class:`BlockError` on a bad end."""
+    blocks = [c for c in kids if is_block(c)]
+    level = [c for c in kids if not is_block(c)]
+    for b in blocks:
+        level += list(b.children)
+    new_seg = BLOCK_MARK + anchor
+    rivals = [b.part for b in blocks] + [new_seg]
+    err = block_end_error(new_seg, end, rivals)
+    if err:
+        raise BlockError(err)
+    ends = {b.part: getattr(b, 'block_end', None) for b in blocks}
+    ends[new_seg] = end
+    return sorted((c for c in level if c.part and pick_block(rivals, c.part, ends) == new_seg),
+                  key=lambda c: c.part_sort or 0)
+
+
 def plan_move_page(question: Question, page: int | None, anchor: str,
-                   pages: list | None = None) -> dict:
+                   pages: list | None = None, end: str | None = None) -> dict:
     """Dry run: what moving QUE page ``page`` (or every page in ``pages``, a
-    block that spans several crops) into block ``~anchor`` does.
+    block that spans several crops) into block ``~anchor`` does. ``end``
+    (optional) is the last part the block owns (``hierarchy.set_block_end``).
     Raises :class:`BlockError` when it cannot be done."""
     page_list = _page_list(page, pages)
+    end = normalize_block_end(end)
     parsed = parse_qid(question.qid)
     if not parsed or parsed.qno.qno_end or is_block(question):
         raise BlockError('Only a question or a lettered part with parts can get a shared intro.')
@@ -74,15 +96,7 @@ def plan_move_page(question: Question, page: int | None, anchor: str,
     if Question.query.filter_by(qid=block_qid).first():
         raise BlockError(f'{block_qid} already exists.')
 
-    kids = list(question.children)
-    blocks = [c for c in kids if is_block(c)]
-    level = [c for c in kids if not is_block(c)]
-    for b in blocks:
-        level += list(b.children)
-    new_seg = BLOCK_MARK + anchor
-    rivals = [b.part for b in blocks] + [new_seg]
-    moving = sorted((c for c in level if c.part and pick_block(rivals, c.part) == new_seg),
-                    key=lambda c: c.part_sort or 0)
+    moving = new_block_members(list(question.children), anchor, end)
     if not moving:
         raise BlockError(f'{question.qid} has no part ({anchor}) or later to share this text.')
 
@@ -108,6 +122,7 @@ def plan_move_page(question: Question, page: int | None, anchor: str,
         'block_qid': block_qid,
         'block_token': token,
         'anchor': anchor,
+        'end': end,
         'page': page_list[0],
         'pages': page_list,
         'moving': [c.qid for c in moving],
@@ -118,11 +133,11 @@ def plan_move_page(question: Question, page: int | None, anchor: str,
 
 
 def move_page_to_block(question: Question, page: int | None, anchor: str,
-                       pages: list | None = None) -> dict:
+                       pages: list | None = None, end: str | None = None) -> dict:
     """Create the block, move QUE page ``page`` / ``pages`` (every IMG
     version that has them) from ``question`` to the block, and re-home the
-    covered parts."""
-    plan = plan_move_page(question, page, anchor, pages=pages)
+    covered parts (only up to ``end`` when given)."""
+    plan = plan_move_page(question, page, anchor, pages=pages, end=end)
     moving_idx = {p - 1 for p in plan['pages']}
     parsed = parse_qid(question.qid)
     loaded = {}
@@ -133,6 +148,11 @@ def move_page_to_block(question: Question, page: int | None, anchor: str,
         parsed.subject, parsed.source, plan['block_token'],
         year=parsed.year, paper=parsed.paper, detail=parsed.detail,
     )
+    if plan['end']:
+        try:
+            set_block_end(block, plan['end'])
+        except HierarchyError as e:
+            raise BlockError(str(e)) from e
     db.session.commit()
     source_path = current_app.config['SOURCE_PATH']
     for v, imgs in loaded.items():

@@ -182,5 +182,74 @@ def migrate_storage(dry_run, old_pdf_source, old_thumbnails):
             click.echo('\nMigration complete.')
 
 
+@cli.command('set-block-end')
+@click.argument('block_qid', required=False)
+@click.argument('end_part', required=False)
+@click.option('--from-csv', 'csv_path', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='CSV of block_qid,end_part rows (blank end_part clears the end).')
+@click.option('--dry-run/--no-dry-run', default=True,
+              help='Print the parts that would move without writing (default: dry-run).')
+def set_block_end_cmd(block_qid, end_part, csv_path, dry_run):
+    """Set the last part a shared block (ADR-015) owns, e.g.
+
+    \b
+      python cli.py set-block-end ICT_DSE_2017_P2D_Q4~b b
+      python cli.py set-block-end --from-csv ends.csv
+      python cli.py set-block-end ICT_DSE_2017_P2D_Q4~b none   (clear)
+
+    Parts after the end move from the block to its lettered parent. Defaults
+    to a DRY RUN; re-run with --no-dry-run to apply. Idempotent.
+    """
+    from app.hierarchy import (HierarchyError, normalize_block_end,
+                               parse_block_end_rows, set_block_end)
+    if csv_path:
+        if block_qid or end_part:
+            raise click.UsageError('Give either BLOCK_QID END_PART or --from-csv, not both.')
+        with open(csv_path, newline='', encoding='utf-8-sig') as fh:
+            rows = parse_block_end_rows(fh)
+    elif block_qid and end_part:
+        rows = [(block_qid.strip(), normalize_block_end(end_part))]
+    else:
+        raise click.UsageError('Give BLOCK_QID END_PART (END_PART "none" clears) or --from-csv.')
+
+    from app import create_app, db
+    from app.models import Question
+
+    app = create_app()
+    with app.app_context():
+        tag = 'DRY RUN — no changes' if dry_run else 'APPLYING changes'
+        click.echo(f'=== set-block-end ({tag}) ===\n')
+        stats = {'changed': 0, 'unchanged': 0, 'moves': 0, 'errors': 0}
+        for qid, end in rows:
+            block = Question.query.filter_by(qid=qid).first()
+            if block is None:
+                click.echo(f'! {qid}: not found', err=True)
+                stats['errors'] += 1
+                continue
+            try:
+                res = set_block_end(block, end, dry_run=dry_run)
+            except HierarchyError as e:
+                db.session.rollback()
+                click.echo(f'! {qid}: {e}', err=True)
+                stats['errors'] += 1
+                continue
+            if not res['changed']:
+                click.echo(f'= {qid}: already ends after {res["end"] or "(next block / end)"}')
+                stats['unchanged'] += 1
+                continue
+            click.echo(f'* {qid}: end {res["old_end"] or "none"} -> {res["end"] or "none"}')
+            for m in res['moves']:
+                click.echo(f'    move {m["qid"]}: {m["from_qid"]} -> {m["to_qid"]}')
+            stats['changed'] += 1
+            stats['moves'] += len(res['moves'])
+            if not dry_run:
+                db.session.commit()
+        click.echo(f'\nchanged {stats["changed"]}, unchanged {stats["unchanged"]}, '
+                   f'parts moved {stats["moves"]}, errors {stats["errors"]}')
+        if dry_run:
+            db.session.rollback()
+            click.echo('Dry run complete. Re-run with --no-dry-run to apply.')
+
+
 if __name__ == '__main__':
     cli()

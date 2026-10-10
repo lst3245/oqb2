@@ -1725,11 +1725,60 @@ function cmpKey(a, b) {
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
     return 0;
 }
-// A block "~c" covers same-level part segments printed at or after (c).
-function blockCovers(blockSeg, seg) {
+// A block "~c" covers same-level part segments printed at or after (c) and,
+// with an end (block_end), not after that end.
+function blockCovers(blockSeg, seg, end) {
     if (!isBlockSeg(blockSeg) || !seg || isBlockSeg(seg)) return false;
     const a = partSortKey(blockSeg), s = partSortKey(seg);
-    return a[0] === s[0] ? a[1] <= s[1] : a[0] < s[0];
+    if (!(a[0] === s[0] ? a[1] <= s[1] : a[0] < s[0])) return false;
+    const e = effectiveBlockEnd(blockSeg, end);
+    if (!e) return true;
+    const k = partSortKey(e);
+    return s[0] === k[0] ? s[1] <= k[1] : s[0] < k[0];
+}
+function normalizeBlockEnd(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim().toLowerCase().replace(/^[()~ ]+|[()~ ]+$/g, '');
+    return (!s || s === 'none' || s === 'null') ? null : s;
+}
+// Mirrors hierarchy.effective_block_end: an end that cannot bound the block
+// (wrong kind, before the anchor) behaves like no end.
+function effectiveBlockEnd(blockSeg, end) {
+    end = normalizeBlockEnd(end);
+    if (!end || !isBlockSeg(blockSeg) || isBlockSeg(end)) return null;
+    const segs = partSegments(end);
+    if (segs.length !== 1 || segs[0] !== end) return null;
+    const e = partSortKey(end), a = partSortKey(blockSeg);
+    if (e[0] !== a[0] || e[0] === 2 || e[1] < a[1]) return null;
+    return end;
+}
+// Mirrors hierarchy.block_end_choices: existing same-level part segments the
+// block may end after (at or after its anchor, before the next block).
+function blockEndChoices(blockLabel, labels) {
+    const p = parseLabel(blockLabel);
+    if (!p || !p.isBlock) return [];
+    const ps = partSegments(p.path);
+    const own = ps[ps.length - 1];
+    const level = ps.slice(0, -1).join('');
+    const a = partSortKey(own);
+    let next = null;
+    const segs = new Set();
+    (labels || []).forEach(lab => {
+        const o = parseLabel(lab);
+        if (!o || o.qno !== p.qno || o.qnoEnd != null) return;
+        const os = partSegments(o.path);
+        if (os.length < ps.length || os.slice(0, ps.length - 1).join('') !== level) return;
+        const seg = os[ps.length - 1];
+        if (isBlockSeg(seg)) {
+            const k = partSortKey(seg);
+            if (seg !== own && k[0] === a[0] && k[1] > a[1] && (!next || k[1] < next[1])) next = k;
+        } else {
+            segs.add(seg);
+        }
+    });
+    return Array.from(segs)
+        .filter(s => effectiveBlockEnd(own, s) && !(next && partSortKey(s)[1] >= next[1]))
+        .sort((x, y) => cmpKey(partSortKey(x), partSortKey(y)));
 }
 function partSegments(path) {
     const raw = String(path || '').toLowerCase();
@@ -1765,8 +1814,9 @@ function partSegments(path) {
     return segs;
 }
 // `labels` (the question's label set) lets a later block cut off an earlier
-// one: with 7~c and 7~e, (e) belongs to 7~e only.
-function labelIsAncestor(parentLabel, childLabel, labels) {
+// one: with 7~c and 7~e, (e) belongs to 7~e only. `ends` maps a block label
+// ("4~b") to its end; parts after the end belong to no block.
+function labelIsAncestor(parentLabel, childLabel, labels, ends) {
     const p = parseLabel(parentLabel);
     const c = parseLabel(childLabel);
     if (!p || !c) return false;
@@ -1782,7 +1832,7 @@ function labelIsAncestor(parentLabel, childLabel, labels) {
         for (let i = 0; i < level.length; i++) if (level[i] !== cs[i]) return false;
         const seg = cs[level.length];
         if (!blockCovers(ps[ps.length - 1], seg)) return false;
-        return !(labels || []).some(other => {
+        const laterBlock = (labels || []).some(other => {
             const o = parseLabel(other);
             if (!o || o.qno !== p.qno || o.qnoEnd != null || !o.isBlock) return false;
             const os = partSegments(o.path);
@@ -1791,6 +1841,9 @@ function labelIsAncestor(parentLabel, childLabel, labels) {
             return ob !== ps[ps.length - 1] && blockCovers(ob, seg)
                 && cmpKey(partSortKey(ob), partSortKey(ps[ps.length - 1])) > 0;
         });
+        if (laterBlock) return false;
+        const end = ends ? ends[String(p.qno) + p.path] : null;
+        return blockCovers(ps[ps.length - 1], seg, end);
     }
     if (cs.length <= ps.length) return false;
     for (let i = 0; i < ps.length; i++) {
@@ -1801,15 +1854,26 @@ function labelIsAncestor(parentLabel, childLabel, labels) {
 function deriveRoles(kind) {
     const items = plan[kind] || [];
     const labels = items.map(it => examLabel(it));
+    const ends = planBlockEnds(items);
     items.forEach((it, i) => {
         const lab = labels[i];
         const parsed = parseLabel(lab);
         if (!parsed) { it.role = null; return; }
-        const hasChild = labels.some(other => other !== lab && labelIsAncestor(lab, other, labels));
+        const hasChild = labels.some(other => other !== lab && labelIsAncestor(lab, other, labels, ends));
         if (hasChild || parsed.isBlock) it.role = 'stem';
         else if (parsed.path) it.role = 'part';
         else it.role = 'question';
     });
+}
+// {"4~b": "b"} from the block items that carry an end.
+function planBlockEnds(items) {
+    const ends = {};
+    (items || []).forEach(it => {
+        const p = parseLabel(examLabel(it));
+        const end = normalizeBlockEnd(it.block_end);
+        if (p && p.isBlock && end) ends[String(p.qno) + p.path] = end;
+    });
+    return ends;
 }
 function nextPartLabel(label) {
     const p = parseLabel(label);
@@ -1861,6 +1925,7 @@ function serializePlanItem(it) {
         source_box: it.source_box || null,
         depends_prev: !!it.depends_prev,
         cont: !!it.cont,
+        block_end: it.block_end || null,
     };
 }
 async function savePlanToServer() {
@@ -1894,6 +1959,7 @@ function applyServerPlan(serverPlan) {
             source_box: it.source_box || null,
             depends_prev: !!it.depends_prev,
             cont: !!it.cont,
+            block_end: it.block_end || null,
             _uid: nextUid(),
         }));
         deriveRoles(kind);
@@ -2298,9 +2364,12 @@ function styleRoleChip(chip, role, item) {
     if (role === 'stem' && block && block.isBlock) {
         chip.style.background = '#6f42c1';
         chip.textContent = 'shared';
-        chip.title = 'Shared text printed before part ('
-            + block.path.slice(block.path.indexOf('~') + 1)
-            + ') — that part and every later part at its level use it';
+        const anchor = block.path.slice(block.path.indexOf('~') + 1);
+        const end = effectiveBlockEnd('~' + anchor, item.block_end);
+        chip.title = 'Shared text printed before part (' + anchor + ') — '
+            + (!end ? 'that part and every later part at its level use it'
+                : (end === anchor ? 'only (' + anchor + ') uses it'
+                    : '(' + anchor + ') to (' + end + ') use it'));
     } else if (role === 'stem') {
         chip.style.background = '#6c757d';
         chip.textContent = 'stem';
@@ -2352,6 +2421,24 @@ function buildSplitActions(kind, item) {
             refreshNumbersUI(kind);
         });
         actions.appendChild(depBtn);
+    }
+    if (kind === 'que' && parsedItem && parsedItem.isBlock) {
+        const sel = document.createElement('select');
+        sel.className = 'form-select form-select-sm d-inline-block w-auto block-end-select';
+        sel.title = 'Last part that uses this shared text. Later parts print without it.';
+        const choices = blockEndChoices(examLabel(item), plan.que.map(it => examLabel(it)));
+        const cur = normalizeBlockEnd(item.block_end);
+        if (cur && choices.indexOf(cur) < 0) choices.push(cur);
+        sel.innerHTML = '<option value="">Ends: next block / end</option>'
+            + choices.map(s => `<option value="${s}">Ends after (${s})</option>`).join('');
+        sel.value = cur || '';
+        sel.addEventListener('click', (e) => e.stopPropagation());
+        sel.addEventListener('change', (e) => {
+            e.stopPropagation();
+            item.block_end = sel.value || null;
+            refreshNumbersUI(kind);
+        });
+        actions.appendChild(sel);
     }
     if (item.source_label && canSplit) {
         const unBtn = document.createElement('button');
@@ -2870,7 +2957,10 @@ function boxLabelText(item) {
     const parsed = parseLabel(lab);
     if (parsed && parsed.isBlock) {
         const t = parsed.path.indexOf('~');
-        return 'Q' + parsed.qno + parsed.path.slice(0, t) + ' before (' + parsed.path.slice(t + 1) + ')';
+        const anchor = parsed.path.slice(t + 1);
+        const end = effectiveBlockEnd('~' + anchor, item.block_end);
+        const scope = !end ? '' : (end === anchor ? ', (' + anchor + ') only' : ', up to (' + end + ')');
+        return 'Q' + parsed.qno + parsed.path.slice(0, t) + ' before (' + anchor + ')' + scope;
     }
     if (item.role === 'stem') return 'Q' + (lab || '?') + ' stem';
     if (item.role === 'part' || isPartItem(item)) return 'Q' + (lab || '?');

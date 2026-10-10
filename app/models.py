@@ -245,6 +245,10 @@ class Question(db.Model):
     # Distinct from QuestionAsset.part_number (IMG page N of one slot).
     part = db.Column(db.String(10), nullable=True)
     part_sort = db.Column(db.Integer, nullable=True)  # letter 1–26, roman 101–110
+    # Shared blocks only (`part` = `~b`): the last part segment the block owns
+    # at its level (`b`, `iii`). NULL = up to the next block / end of question.
+    # Ignored on every other row. See ADR-015 / hierarchy.set_block_end.
+    block_end = db.Column(db.String(10), nullable=True)
     # A part that refers to the results/setup of earlier sibling parts
     # ("using your answer to (a)..."). When set, viewing/generating this leaf
     # alone also renders its earlier siblings as background (see

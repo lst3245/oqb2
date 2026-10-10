@@ -22,6 +22,7 @@ alwaysApply: false
 - Plan roles are **derived** (`derive_roles` / `label_is_ancestor`), never stored from model output. A nested stem is just a node with children.
 - `needs_prev_parts` is the only sibling-dependency mechanism: `resolve_render_plan` prepends `earlier_siblings` as `stem`-role items for flagged leaves (selected mode). No `depends_on` edges (ADR-009/010).
 - **Shared blocks** (ADR-015): text printed between parts is `Q7~c` (`part='~c'`), child of `Q7`, parent of `Q7c`, `Q7d`… which keep their QIDs. Never an extra QUE page on the root. Always a stem: no tags / WHOLE / `needs_prev_parts` / Combine. No `~a` / `~i`, none at root level or under a range. Deleting one alone dissolves it.
+- **Block end** (`questions.block_end`, NULL = old behaviour): `Q4~b` ending at `b` owns (b) only. Owner = latest anchor ≤ part, then that block's end may exclude it (no earlier block resumes). Every ownership check passes ends (`pick_block(…, ends)`, `block_child_for`, `plan_block_level`, `label_is_ancestor(…, ends)`, `new_block_members`, JS mirror). Write only via `hierarchy.set_block_end`; set-parent against it is 409. `cli.py set-block-end` is dry-run by default; `--no-dry-run` only on request.
 - Parents are **not** "QID minus the last segment" any more. Place parts with `ensure_question` / `relink_parent` (`block_child_for`); after creating / deleting / renaming a block, `relink_block_level(parent)`. SQL leaf filters use `leaf_clause()`, not `~id.in_(stem_id_query())`. Printed position = `part_position_label`, not `part`.
 
 ## Gotchas

@@ -34,6 +34,7 @@ from app.hierarchy import (
     subtree_deepest_first, relink_parent, part_sort_value,
     breadcrumb_parts, is_stem, descendants, format_qno_token,
     token_fits_under, stem_id_query, is_block, relink_block_level, leaf_clause,
+    block_end_options, block_display_label, set_block_end,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -2055,6 +2056,7 @@ def questions_api_list():
             'qno_end': q.qno_end,
             'parent_id': q.parent_id,
             'part': q.part,
+            'block_end': q.block_end if is_block(q) else None,
             'depth': (2 if (q.parent_id and q.parent and q.parent.parent_id) else (1 if q.parent_id else 0)),
             'is_stem': bool(q.qno_end) or bool(q.children),
             'q_type': q.q_type,
@@ -2121,6 +2123,8 @@ def question_details(question_id):
         'parent_id': question.parent_id,
         'part': question.part,
         'is_block': is_block(question),
+        'block_end': question.block_end if is_block(question) else None,
+        'block_end_options': block_end_options(question) if is_block(question) else [],
         'child_count': len(kids),
         'is_stem': stem_row,
         'needs_prev_parts': bool(getattr(question, 'needs_prev_parts', False)),
@@ -2128,7 +2132,8 @@ def question_details(question_id):
             question_id=question.id, asset_type='WHOLE').first() is not None,
         'breadcrumb': crumbs,
         'children': [{'id': c.id, 'qid': c.qid, 'part': c.part,
-                      'is_block': is_block(c)} for c in kids],
+                      'is_block': is_block(c),
+                      'block_end': c.block_end if is_block(c) else None} for c in kids],
         'tag_union': tag_union,
         'q_type': question.q_type,
         'level': question.level,
@@ -2261,10 +2266,52 @@ def set_question_parent(question_id):
     child.parent_id = parent.id
     db.session.flush()
     if child.part:
-        # Parts at a level with a shared block always sit under that block.
+        # Parts at a level with a shared block sit under the block that owns
+        # them (block ends honoured); a request that disagrees is refused.
         relink_parent(child)
+        if child.parent_id != parent.id:
+            owner = Question.query.get(child.parent_id)
+            db.session.rollback()
+            return jsonify({'error': _block_owner_conflict(child, parent, owner)}), 409
     db.session.commit()
     return jsonify({'success': True, 'parent_id': child.parent_id})
+
+
+def _block_owner_conflict(child, requested, owner) -> str:
+    """409 text when set-parent disagrees with shared-block ownership."""
+    seg = f'({child.part})'
+    if owner is not None and is_block(owner):
+        return (f'{seg} belongs to the shared block {owner.qid} '
+                f'({block_display_label(owner.part, owner.block_end)}). To move it '
+                f'out, open that block and change "Ends after part".')
+    if is_block(requested):
+        return (f'{seg} is outside the shared block {requested.qid} '
+                f'({block_display_label(requested.part, requested.block_end)}). To '
+                f'include it, open that block and change "Ends after part".')
+    return f'{seg} cannot sit under {requested.qid}; its parent is {owner.qid if owner else "none"}.'
+
+
+@admin_bp.route('/questions/<int:question_id>/block-end', methods=['POST'])
+@login_required
+@admin_required
+def set_question_block_end(question_id):
+    """Set or clear (``end`` blank) a shared block's last part. ``dry_run``
+    returns the parts that would move without writing."""
+    block = Question.query.get_or_404(question_id)
+    denial = _require_md_admin(block)
+    if denial:
+        return denial
+    if not is_block(block):
+        return jsonify({'ok': False, 'error': 'Only a shared block has an end.'}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        result = set_block_end(block, data.get('end'), dry_run=bool(data.get('dry_run')))
+    except HierarchyError as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    if not data.get('dry_run'):
+        db.session.commit()
+    return jsonify({'ok': True, 'dry_run': bool(data.get('dry_run')), **result})
 
 
 @admin_bp.route('/questions/<int:question_id>/needs-prev-parts', methods=['POST'])
@@ -2302,10 +2349,12 @@ def move_que_page_to_block(question_id):
     try:
         page = int(data.get('page') or 0)
         pages = data.get('pages') if isinstance(data.get('pages'), list) else None
+        end = data.get('end')
         if data.get('dry_run'):
             return jsonify({'ok': True, **qb.plan_move_page(
-                question, page, data.get('anchor'), pages=pages)})
-        result = qb.move_page_to_block(question, page, data.get('anchor'), pages=pages)
+                question, page, data.get('anchor'), pages=pages, end=end)})
+        result = qb.move_page_to_block(question, page, data.get('anchor'),
+                                       pages=pages, end=end)
     except (qb.BlockError, ValueError) as e:
         db.session.rollback()
         return jsonify({'ok': False, 'error': str(e)}), 400

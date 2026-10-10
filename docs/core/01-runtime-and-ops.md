@@ -46,6 +46,8 @@ python cli.py ingest --source-path "D:\other"
 python cli.py sync                                # DRY RUN: list orphaned DB rows (safe)
 python cli.py sync --no-dry-run [--force]         # DELETES orphaned rows - only when the user asks
 python cli.py migrate-storage --dry-run           # storage tree migration preview (idempotent)
+python cli.py set-block-end <block_qid> <end|none> # DRY RUN: parts a shared-block end would move
+python cli.py set-block-end --from-csv ends.csv   # DRY RUN for block_qid,end_part rows; --no-dry-run applies (only on request)
 ```
 
 Test caveats:
@@ -74,7 +76,7 @@ All steps swallow exceptions so the app boots on a broken DB; you will see fallb
 | Script | Status | Run it? |
 |---|---|---|
 | `run.py` | current | Yes (if not already running) |
-| `cli.py` | current | `ingest` / `sync` (dry) are safe; `sync --no-dry-run` and `migrate-storage --no-dry-run` only on request |
+| `cli.py` | current | `ingest` / `sync` (dry) / `set-block-end` (dry) are safe; `sync --no-dry-run`, `migrate-storage --no-dry-run` and `set-block-end --no-dry-run` only on request |
 | `init_db.py` | current bootstrap | **Never on the live DB.** Creates tables (no-op if present) and, if `subjects` is empty, seeds subjects + `admin/admin123` + sample topics. |
 | `test_db.py` | diagnostic | Read-only connectivity check using `.env` |
 | `debug_env.py` | leftover | **Do not run** — prints `.env` values and contains a hardcoded password. Pending deletion (see STATUS). |
