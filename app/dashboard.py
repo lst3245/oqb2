@@ -229,8 +229,8 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         else:
             doc_asset = selected[0]
             preview_doc_asset_id = doc_asset.id
-            preview_doc_file_path = doc_asset.file_path
-            preview_doc_filename = doc_asset.file_path.rsplit('/', 1)[-1]
+            preview_doc_file_path = _forward_asset_path(doc_asset.file_path)
+            preview_doc_filename = preview_doc_file_path.rsplit('/', 1)[-1]
             from app import doc_thumbnails as _doc_thumbnails
             if _doc_thumbnails.ensure_thumbnail(doc_asset.id):
                 preview_mode = 'thumbnail'
@@ -843,9 +843,14 @@ def get_sections(subject_id, source):
 
     return jsonify([s[0] for s in sections])
 
+def _forward_asset_path(file_path):
+    """Stored asset paths use forward slashes. Tolerate a legacy backslash row."""
+    return (file_path or '').replace('\\', '/')
+
+
 def _asset_rel_path(filepath):
     """Forward-slash library path, or None when it is not a relative asset path."""
-    rel = (filepath or '').replace('\\', '/').strip().lstrip('/')
+    rel = _forward_asset_path(filepath).strip().lstrip('/')
     if not rel:
         return None
     parts = rel.split('/')
@@ -865,7 +870,8 @@ def _require_asset_subject(asset):
 
 
 def _source_file(rel_path):
-    full = safe_join(current_app.config['SOURCE_PATH'], *str(rel_path).split('/'))
+    rel = _forward_asset_path(rel_path)
+    full = safe_join(current_app.config['SOURCE_PATH'], *rel.split('/'))
     if not full or not os.path.isfile(full):
         return None
     return full
@@ -878,7 +884,13 @@ def serve_file(filepath):
     rel = _asset_rel_path(filepath)
     if rel is None:
         abort(404)
-    assets = QuestionAsset.query.filter_by(file_path=rel).all()
+    # Match a legacy row still stored with backslashes. The boot patch
+    # rewrites those; this keeps a preview working if one is written again.
+    legacy = rel.replace('/', '\\')
+    path_match = QuestionAsset.file_path == rel
+    if legacy != rel:
+        path_match = or_(path_match, QuestionAsset.file_path == legacy)
+    assets = QuestionAsset.query.filter(path_match).all()
     if not assets:
         abort(404)
     questions = Question.query.filter(
@@ -897,7 +909,7 @@ def get_asset(asset_id):
     """Get asset information"""
     asset = QuestionAsset.query.get_or_404(asset_id)
     _require_asset_subject(asset)
-    file_url = f"/dashboard/files/{asset.file_path}"
+    file_url = f"/dashboard/files/{_forward_asset_path(asset.file_path)}"
     
     return jsonify({
         'id': asset.id,
@@ -948,7 +960,7 @@ def get_question_asset(question_id, asset_type):
             'format': asset.file_format,
             'version': asset.version,
             'part_number': asset.part_number,
-            'url': f"/dashboard/files/{asset.file_path}"
+            'url': f"/dashboard/files/{_forward_asset_path(asset.file_path)}"
         })
     
     return jsonify({
@@ -1054,7 +1066,7 @@ def get_question_preview(question_id, asset_type):
             'parts': [{
                 'id': a.id,
                 'part_number': a.part_number,
-                'url': f"/dashboard/files/{a.file_path}",
+                'url': f"/dashboard/files/{_forward_asset_path(a.file_path)}",
             } for a in selected],
         })
 
@@ -1068,15 +1080,16 @@ def get_question_preview(question_id, asset_type):
             'version': version,
             'asset_id': asset.id,
             'html': html,
-            'url': f"/dashboard/files/{asset.file_path}",
+            'url': f"/dashboard/files/{_forward_asset_path(asset.file_path)}",
         })
 
     # DOC: prefer a server-rendered first-page PNG thumbnail when present;
     # otherwise schedule one in the background and fall back to download-only.
     asset = selected[0]
     from app import doc_thumbnails
-    filename = asset.file_path.rsplit('/', 1)[-1]
-    download_url = f"/dashboard/files/{asset.file_path}"
+    stored = _forward_asset_path(asset.file_path)
+    filename = stored.rsplit('/', 1)[-1]
+    download_url = f"/dashboard/files/{stored}"
     if doc_thumbnails.ensure_thumbnail(asset.id):
         return jsonify({
             'mode': 'thumbnail',
@@ -1153,7 +1166,7 @@ def _explain_slot_context(question_id, asset_type, version_priority,
         question_id, asset_type, version_priority, force_format='IMG')
     blocks = []
     for a in imgs:
-        abs_path = os.path.join(source_path, *a.file_path.split('/'))
+        abs_path = os.path.join(source_path, *_forward_asset_path(a.file_path).split('/'))
         try:
             blocks.append(llm_client.prepare_image(abs_path, image_max_dim))
         except Exception:
@@ -1164,7 +1177,7 @@ def _explain_slot_context(question_id, asset_type, version_priority,
     _v, _f, mds = _resolve_preview_assets(
         question_id, asset_type, version_priority, force_format='MD')
     for a in mds:
-        abs_path = os.path.join(source_path, *a.file_path.split('/'))
+        abs_path = os.path.join(source_path, *_forward_asset_path(a.file_path).split('/'))
         try:
             with open(abs_path, 'r', encoding='utf-8') as f:
                 return [], f.read()

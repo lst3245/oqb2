@@ -526,6 +526,29 @@ def create_app():
         except Exception:
             pass
 
+        # question_assets.file_path is a forward-slash path relative to
+        # SOURCE_PATH. Older MATC DSE imports stored Windows backslashes.
+        # /dashboard/files/ looks the path up after turning `\` into `/`,
+        # so those Answer / Solution previews 404 even though the file is
+        # on disk. CHAR(92) is the backslash; a second boot updates 0 rows.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                result = conn.execute(text(
+                    "UPDATE question_assets "
+                    "SET file_path = REPLACE(file_path, CHAR(92), '/') "
+                    "WHERE LOCATE(CHAR(92), file_path) > 0"
+                ))
+                if result.rowcount:
+                    app.logger.info(
+                        'normalised %s question_assets.file_path row(s) '
+                        'to forward slashes',
+                        result.rowcount,
+                    )
+        except Exception:
+            app.logger.exception(
+                'question_assets file_path slash normalisation failed')
+
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing
     # tables are swallowed and the bootstrap defaults remain authoritative.

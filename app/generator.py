@@ -618,7 +618,7 @@ def get_viewer_asset(question_id, asset_type):
             'format': a.file_format,
             'version': a.version,
             'part_number': a.part_number,
-            'url': f"/dashboard/files/{a.file_path}"
+            'url': f"/dashboard/files/{a.file_path.replace('\\', '/')}"
         })
 
     # Return parts array + backward-compat top-level fields from first part
@@ -638,7 +638,9 @@ def get_viewer_asset(question_id, asset_type):
     if best.file_format == 'MD':
         from app import md_render
         from app.storage import safe_join
-        abs_path = safe_join(current_app.config['SOURCE_PATH'], *best.file_path.split('/'))
+        abs_path = safe_join(
+            current_app.config['SOURCE_PATH'],
+            *best.file_path.replace('\\', '/').split('/'))
         result['html'] = md_render.render_file(best.id, abs_path) if abs_path else ''
 
     # For DOC assets, attach a server-rendered first-page PNG thumbnail when

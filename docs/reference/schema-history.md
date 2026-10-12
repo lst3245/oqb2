@@ -35,6 +35,7 @@ Order is roughly chronological (oldest first). "Boot patch" = idempotent code in
 | `llm_configs.box_coord_order` (VARCHAR(4) NOT NULL DEFAULT '') | boot patch (`INFORMATION_SCHEMA` guard, in the `llm_configs` block) | Additive. `''` = inherit `PDF_IMPORT_COORD_ORDER`, so existing endpoints behave as before. Read via `llm_client.box_coord_order`. Applied to the live DB on 2026-10-07. |
 | `users.file_browser_location` (TEXT NULL) | boot patch (`INFORMATION_SCHEMA` guard) | Additive. JSON `{"user": {"root", "path"}, "admin": {"root", "path"}}` — last file-browser folder per scope. Null until that user navigates. Applied to the live DB on 2026-10-07. |
 | `questions.block_end` (VARCHAR(10) NULL) | boot patch (`INFORMATION_SCHEMA` guard, in the questions hierarchy block) | Additive; NULL on every row = unchanged behaviour. Optional end of a shared block (ADR-015 amendment). Values are set by `hierarchy.set_block_end` (Edit modal, move-to-block, PDF import, `cli.py set-block-end`). Applied to the live DB on 2026-10-09; no existing row was given an end by the patch. |
+| `question_assets.file_path` backslash → `/` | boot patch (`UPDATE` … `REPLACE` / `CHAR(92)`; no-op once none remain) | Data only, no column change. Older MATC DSE imports stored Windows backslashes. `/dashboard/files/` looks the path up after normalising `\` to `/`, so Answer / Solution previews 404'd while the card (loaded by asset id) still showed. Applied to the live DB on 2026-10-13. |
 
 Non-schema data conventions that behave like migrations:
 
