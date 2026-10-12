@@ -16,6 +16,7 @@
 | `app/storage.py` | `ensure_user_generated_dir(user)` / `user_generated_dir(user)` — where output files are written. |
 | `app/user.py` | `_get_or_create_default_section` (new files land in the owner's default My Files section), `_user_can_view_file` (PDF route permission). |
 | `app/ai_prompts.py` | `normalize_inline_math` used by `_preprocess_md_for_pandoc`. |
+| `tests/test_generator_answers.py` | Answer config normalisation (incl. legacy modes), `_pick_answer_source` fallback, per-type inline / end rendering with stubs (no live DB). |
 
 ## Tables
 
@@ -63,19 +64,33 @@ All routes are `@login_required`. `_require_generate_permission()` aborts 403 wh
 
 `generated_file_dir(gen_file)`: prefer `User/<owner>/generated` if the source exists there, else legacy `OUTPUT_PATH` if it exists there, else the per-user dir. Use this helper everywhere you touch a generated file on disk; never hard-code `OUTPUT_PATH`.
 
-### Answer modes
+### Answer placement and per-type answer types
 
-| Mode | Behaviour |
-|---|---|
-| `QUE_ONLY` | Questions only |
-| `QUE_ANS` | Each question immediately followed by its answer |
-| `QUE_SOL` | Each question immediately followed by its solution |
-| `QUE_THEN_ANS` | All questions, then new page + "ANSWERS" heading + all answers |
-| `QUE_THEN_SOL` | All questions, then new page + "SOLUTIONS" heading + all solutions |
+The answer settings are one shared **placement** plus an answer type per question type. `_normalize_answer_config(value, form)` is the single parser (form, saved options, config dict, or legacy string) and returns `{'placement', 'mc', 'cq', 'fallback'}`.
 
-### Compact MC keys (`QUE_THEN_ANS` only)
+| Key | Values | Meaning |
+|---|---|---|
+| `answer_placement` | `none` / `inline` / `end` | Questions only; each leaf followed by its answer; all questions, then a new page with one answers section |
+| `answer_type_mc` | `none` / `ANS` / `SOL` / `KEY` | Answer for `q_type == 'MC'` leaves. `KEY` = compact answer key, valid only with `end` (clamped to `ANS` otherwise) |
+| `answer_type_cq` | `none` / `ANS` / `SOL` | Answer for every other leaf (CQ and `q_type` NULL, same rule as spacing) |
+| `answer_fallback` | bool | Swap ANS ↔ SOL when the requested type is missing (see Asset selection). Default on in the form |
 
-`compact_mc_answers` replaces contiguous eligible MC answer runs with Answer Text blocks. Eligibility (`_compact_mc_answer_text`): `q_type == 'MC'` and non-empty, single-line, trimmed `Question.answer` of at most 80 chars (`_MC_KEY_MAX_ANSWER_LENGTH`). CQ and ineligible MC answers keep full ANS rendering and split the run; MC QID headings are suppressed while compact mode is active.
+With `end`, leaves whose type is `none` are dropped from the answers list **before** `_assign_headings`, so the first answered part carries the answer heading; if nothing is left there is no answers section. Section title: `ANSWERS` (all ANS/KEY), `SOLUTIONS` (all SOL), else `ANSWERS AND SOLUTIONS`.
+
+Legacy `answer_mode` (old presets, regenerated files, direct callers) maps as follows. A legacy config has `fallback=False` unless `answer_fallback` is present, so old files regenerate unchanged:
+
+| Legacy `answer_mode` | placement | MC / CQ |
+|---|---|---|
+| `QUE_ONLY` | `none` | ANS / ANS |
+| `QUE_ANS` / `QUE_SOL` | `inline` | ANS / ANS, SOL / SOL |
+| `QUE_THEN_ANS` | `end` | ANS / ANS (MC = `KEY` when `compact_mc_answers`) |
+| `QUE_THEN_SOL` | `end` | SOL / SOL |
+
+`create_word_document` accepts the config dict or a legacy string (a legacy `QUE_THEN_ANS` uses the key when `mc_answer_key_options['enabled']`). The JS mirror is `normalizeAnswerOptions` / `LEGACY_ANSWER_MODES` in `generate.html`; change both together.
+
+### Compact MC keys (`answer_type_mc = KEY`, placement `end`)
+
+Contiguous eligible MC answer runs become Answer Text blocks. Eligibility (`_compact_mc_answer_text`): `q_type == 'MC'` and non-empty, single-line, trimmed `Question.answer` of at most 80 chars (`_MC_KEY_MAX_ANSWER_LENGTH`). Ineligible MC answers render in full as ANS (with the fallback chain) and split the run; CQ answers render with `answer_type_cq` in their position. MC QID headings are suppressed while the key is active. `_parse_mc_answer_key_options` sets `enabled` from the answer config; `compact_mc_answers` is still stored (`= enabled`) for old readers.
 
 - `_partition_mc_answer_runs(questions, seq_start, seq_nos=)` preserves document order. When `seq_nos` is passed (generator), those are the render-plan leaf numbers; otherwise `seq_start + index`.
 - `_split_mc_answer_run(entries, columns, max_rows)` applies the optional `columns * max_rows` block capacity.
@@ -101,9 +116,13 @@ Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to defa
 | `sort_mode` | `custom` / `selection` | `custom` = Auto Sort via `apply_multi_sort`; `selection` = raw selected order |
 | `sort_config` | JSON string | `[{field, direction}]` (Auto Sort only) |
 | `sort_group_order` | JSON string | `{fields:[...], order:[[id,...],...]}` (Auto Sort only); ignored unless `fields` match the grouping fields in `sort_config` |
-| `answer_mode` | string | `QUE_ONLY` |
+| `answer_placement` | `none` / `inline` / `end` | `none`. See Answer placement |
+| `answer_type_mc` | `none` / `ANS` / `SOL` / `KEY` | `ANS` |
+| `answer_type_cq` | `none` / `ANS` / `SOL` | `ANS` |
+| `answer_fallback` | bool | form default on; missing in a legacy config = off |
+| `answer_mode` | legacy string | no longer written; read through `_normalize_answer_config` when the keys above are absent |
 | `mc_before_mode`, `mc_before_lines`, `mc_after_mode`, `mc_after_lines`, `cq_*` | see spacing | stored flat |
-| `compact_mc_answers` | bool | False; effective in `QUE_THEN_ANS` only |
+| `compact_mc_answers` | bool | derived: `answer_placement == 'end' and answer_type_mc == 'KEY'`; read only for legacy configs |
 | `mc_key_layout` | `table` / `tabs` | `table` |
 | `mc_key_columns` | int 1–20 | 5 |
 | `mc_key_max_rows` | int 1–100 or null | null = automatic |
@@ -132,6 +151,12 @@ Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to defa
 Assets are sorted by `(format_rank, version_rank, part_number)` where `format_rank` comes from `format_priority` (default `IMG > MD > DOC`) and `version_rank = version_priority.index(asset.version)`. **Format outranks version** here and in the viewer (`get_viewer_asset`), unlike the dashboard preview resolver where version outranks format. All parts of the winning `(format, version)` group are included in `part_number` order. Missing file → italic `[File not found: ...]` placeholder.
 
 For `ANS`: `text_first` uses `question.answer` when present else the asset; `image_first` uses the asset when present else the text.
+
+Every answer slot goes through `_pick_answer_source(question, primary, fallback_on, emitted)` → `(source_question, asset_type)`:
+
+1. The requested type, searched across the leaf's chain (`_pick_asset_source`: the leaf, then the nearest ancestor not yet printed in this stem run). If any node in the chain has it, it wins, including an ancestor already printed (covered → no fallback).
+2. Only when no node has it and `answer_fallback` is on: the other type (ANS ↔ SOL), same hierarchy rule. Answer Text counts as ANS content, so a SOL request falls to the ANS asset or Answer Text (in `answer_preference` order), and an ANS request falls to the SOL asset.
+3. Otherwise the placeholder names the requested type (`[SOL not available for QID]`).
 
 ### Rendering by format
 
@@ -164,10 +189,11 @@ One builder, `_format_section_label(question, fields, numbering, suffix, missing
 
 ### Generate-page UX (`generate.html`)
 
-- Progressive disclosure: file name → content/answer mode → numbering/headings → contextual compact-MC panel → question order; Bootstrap collapses for Asset selection, Document structure, Spacing/pagination. Collapsed controls still submit.
+- Progressive disclosure: file name → content/answers (placement, MC/CQ types, fallback) → numbering/headings → contextual compact-MC panel → question order; Bootstrap collapses for Asset selection, Document structure, Spacing/pagination. Collapsed controls still submit.
 - `syncAdvancedOptionSummaries({openCustomized})` flags non-default sections and opens them after regen/preset restore.
 - `getCurrentGenerationOptions()` serialises every control (incl. `sort_config`, `sort_group_order`, compact-MC options, `hierarchy_mode`); `restoreGenerationOptions(opts)` is the single restore path for regen and presets.
-- Compact-key numbering controls are hidden (not disabled/cleared) while `show_seq_no` is off. `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer`; answer/solution spacing is shown only for THEN modes. `updateFileExtLabel()` shows `.zip` vs `.docx`.
+- Answers controls: `#answerPlacement`, `#answerTypeMc` (its `#answerTypeMcKey` option is hidden + disabled unless placement is `end`; switching away resets `KEY` to `ANS`), `#answerTypeCq`, `#answerFallback` (checked by default). `readAnswerState()` feeds `updateAnswerQidVisibility()`: types + fallback show when placement is not `none`; `show_qid_answer` when any type answers; Answer source when any type is ANS/KEY or fallback is on with SOL; answer spacing only for `end`; `#compactMcAnswerKeyPanel` only for MC = `KEY` (no checkbox of its own).
+- Compact-key numbering controls are hidden (not disabled/cleared) while `show_seq_no` is off. `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer`. `updateFileExtLabel()` shows `.zip` vs `.docx`.
 - Reorder blocks (Auto Sort only, hidden in Manual Sort): `openReorderBlocksModal()` POSTs `question_ids` + `group_fields` to `/generate/api/sort-groups`, stores order in `#sortGroupOrderInput`, persisted in `generation_options` and presets.
 - The selected-questions list reads `localStorage['oqb_selectedQuestions']` to stay in sync with the dashboard.
 - Presets bar: load dropdown (starred first under a Starred optgroup, shared under "Shared by admins"), Save-as-preset modal → `POST /user/gen-profiles/save` (upsert by name; `question_ids` stripped client- and server-side), Manage link → `/user/gen-profiles`. Loading a preset never touches `question_ids` or `filter_data`. See [my-files.md](my-files.md).
@@ -214,7 +240,7 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 6. **Section properties are stripped from source DOCX before insertion**; the master layout always wins. Do not swap `Selection.InsertFile` for docxcompose for DOC assets (MathType OLE fidelity).
 7. **Split inherits sort order**: `_split_questions_into_groups` groups the sorted list, so `sort_group_order` applies to zip ordering with no extra wiring. Topic/subtopic/chapter/subchapter sorts use the saved `sort_order` (see [dashboard.md](dashboard.md)), so split files and headings follow the admin list order by default.
 8. **`sort_group_order` is only honoured when its `fields` match the grouping fields in `sort_config`** and only in `sort_mode='custom'`.
-9. **Compact MC keys use runtime sequence numbers, never `Question.qno`**, and always Answer Text regardless of `answer_preference`.
+9. **Compact MC keys use runtime sequence numbers, never `Question.qno`**, and always Answer Text regardless of `answer_preference`. They exist only as `answer_type_mc = KEY` with placement `end`; there is no separate checkbox any more.
 10. **`show_seq_no` gating**: `mc_key_include_seq` / `mc_key_range_title` are forced off server-side when `show_seq_no` is off; the UI hides (does not clear) those controls.
 11. **Files live under `User/<name>/generated`**; resolve paths with `generated_file_dir()` because legacy rows may still be in `OUTPUT_PATH`.
 12. **pandoc absence degrades, it does not fail**: MD slots become italic placeholders. Freshly installed pandoc may be invisible to a long-running process (PATH); set `PANDOC_PATH`.
@@ -223,6 +249,8 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 15. **Stem/part expansion is only `hierarchy.resolve_render_plan`** (ADR-009). Dashboard selection stays ADR-008. Do not expand in the browser or by walking `children` in `create_word_document`.
 16. **Pass `entry['heading_qid']` / `entry['heading_seq']` to `add_question_content_to_doc`, never raw `show_qid` / `entry['seq_no']`.** `seq_no` stays on every leaf for the compact MC key and `leaf_seq_nos`; the heading flags are what keep a split question to one `N. QID` line. Flag the QUE list and the answers list separately (`_assign_headings` is pure and keyed on `owner`).
 17. **`viewer_asset` accepts `WHOLE` only for the Present `Whole` chip.** `viewer()` sets `whole_root_id` per slide when the root has an IMG WHOLE; `syncWholeView` swaps `#stemPanel` + `#queContainer` for `#wholePanel`. Slides, the drawer and the docx never see WHOLE.
+18. **Read answer settings only through `_normalize_answer_config`.** Saved presets and `generation_options` still carry legacy `answer_mode` / `compact_mc_answers`; do not branch on `answer_mode` strings in new code, and keep the JS mirror (`normalizeAnswerOptions`) in step.
+19. **Fallback never overrides an ancestor's answer.** If the requested type exists anywhere in the leaf's chain (even already printed for an earlier part), the other type is not tried; this keeps a stem-level solution from being mixed with part-level answers.
 
 ## Related
 

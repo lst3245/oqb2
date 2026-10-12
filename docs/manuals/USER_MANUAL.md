@@ -281,29 +281,33 @@ Advanced sections are collapsed initially. A **customized** badge appears when a
 - **Custom Sort** — drag-to-reorder multi-level sort (same as dashboard sort)
 - **Selection Order** — output questions in the exact order you selected them
 
-#### Answer Mode
+#### Answers
 
-| Mode | What Gets Generated |
+**Answers** sets where answers go:
+
+| Choice | What Gets Generated |
 |---|---|
-| Questions Only | Just the question images |
-| Question + Answer | Each question immediately followed by its answer |
-| Question + Solution | Each question immediately followed by its solution |
-| All Questions, Then All Answers | Full question section, then a separate "ANSWERS" section |
-| All Questions, Then All Solutions | Full question section, then a separate "SOLUTIONS" section |
+| Questions only | Just the questions |
+| After each question | Each question immediately followed by its answer or solution |
+| After all questions (new page) | Full question section, then a separate answers section |
 
-#### Answer Preference (for modes that include answers)
+When answers are included, pick what to print separately for **MC questions** and **CQ questions**: **Answer**, **Solution**, or **No answer** (MC also offers **Compact answer key** when answers go after all questions). For example, MC = Compact answer key and CQ = Solution gives a short MC key plus full CQ solutions. Questions with no type set count as CQ. The answers section is titled "ANSWERS", "SOLUTIONS", or "ANSWERS AND SOLUTIONS" depending on what it contains.
+
+**If the chosen type is missing, use the other** (on by default): when a question has no solution, its answer (image or Answer Text) is used instead, and vice versa. A solution or answer on the parent question still takes priority over this swap. Turn it off to get a "[SOL not available ...]" placeholder instead. Files and presets saved before this option existed keep it off when regenerated or loaded.
+
+#### Answer Source (when answers are used)
 - **Image First** — uses the ANS image; falls back to the Answer Text field if no image
 - **Text First** — uses the Answer Text field; falls back to the ANS image
 
 #### Compact MC Answer Keys
-In **All Questions, Then All Answers** mode, enable **Compact MC answer keys** to place each contiguous run of MC answers in a space-saving block. Compact keys always use the question's **Answer Text** field rather than the long ANS image.
+Choose **Compact answer key** for MC questions (answers after all questions only) to place each contiguous run of MC answers in a space-saving block. Compact keys always use the question's **Answer Text** field rather than the long ANS image.
 
 - Choose a visible **Word table** or **Whitespace / tabs and new lines**.
 - Set **Answers per row** (default 5).
 - Optionally set **Maximum rows**; leave it blank to calculate rows automatically. A full block is followed by another block.
 - When generated sequential numbering is enabled, independently choose per-answer numbers and/or a `Q21–Q40` title above each block.
 - If generated numbering is off, those two labeling choices are hidden and compact answers remain available without generated labels.
-- CQ answers keep their normal image/text rendering in their original position. An MC question with missing, multiline, or unusually long Answer Text also renders normally and separates adjacent compact blocks.
+- CQ answers keep their normal rendering (Answer or Solution, as chosen for CQ) in their original position. An MC question with missing, multiline, or unusually long Answer Text is printed in full as an Answer (using the fallback above) and separates adjacent compact blocks.
 - For MC answers in compact mode, **Answer Preference** and **Show Question ID as Heading** are ignored. CQ answer headings are unchanged.
 
 #### Output Format

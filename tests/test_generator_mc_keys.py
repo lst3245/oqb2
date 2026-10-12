@@ -48,6 +48,15 @@ class CompactMcOptionTests(unittest.TestCase):
         self.assertFalse(options['include_seq'])
         self.assertFalse(options['range_title'])
 
+    def test_key_answer_type_enables_compact(self):
+        options = generator._parse_mc_answer_key_options(
+            {'answer_placement': 'end', 'answer_type_mc': 'KEY', 'answer_type_cq': 'ANS'},
+            None,
+            False,
+        )
+        self.assertTrue(options['enabled'])
+        self.assertFalse(options['include_seq'])
+
 
 def _node(**kw):
     defaults = dict(parent=None, parent_id=None, children=[], part=None, qno_end=None,

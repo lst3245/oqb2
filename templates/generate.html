@@ -72,14 +72,41 @@
                             </div>
                             <div class="card-body py-3">
                                 <div class="mb-3">
-                                    <label class="form-label fw-bold" for="answerMode">Answer mode</label>
-                                    <select class="form-select" name="answer_mode" id="answerMode" onchange="updateAnswerQidVisibility()">
-                                        <option value="QUE_ONLY" selected>Questions Only</option>
-                                        <option value="QUE_ANS">Question + Answer</option>
-                                        <option value="QUE_SOL">Question + Solution</option>
-                                        <option value="QUE_THEN_ANS">All Questions, Then All Answers</option>
-                                        <option value="QUE_THEN_SOL">All Questions, Then All Solutions</option>
+                                    <label class="form-label fw-bold" for="answerPlacement">Answers</label>
+                                    <select class="form-select" name="answer_placement" id="answerPlacement" onchange="updateAnswerQidVisibility()">
+                                        <option value="none" selected>Questions only</option>
+                                        <option value="inline">After each question</option>
+                                        <option value="end">After all questions (new page)</option>
                                     </select>
+                                </div>
+
+                                <div id="answerTypesDiv" style="display: none;">
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1" for="answerTypeMc">MC questions</label>
+                                            <select class="form-select form-select-sm" name="answer_type_mc" id="answerTypeMc" onchange="updateAnswerQidVisibility()">
+                                                <option value="ANS" selected>Answer</option>
+                                                <option value="SOL">Solution</option>
+                                                <option value="KEY" id="answerTypeMcKey">Compact answer key</option>
+                                                <option value="none">No answer</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1" for="answerTypeCq">CQ questions</label>
+                                            <select class="form-select form-select-sm" name="answer_type_cq" id="answerTypeCq" onchange="updateAnswerQidVisibility()">
+                                                <option value="ANS" selected>Answer</option>
+                                                <option value="SOL">Solution</option>
+                                                <option value="none">No answer</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input type="checkbox" class="form-check-input" id="answerFallback"
+                                               name="answer_fallback" checked onchange="updateAnswerQidVisibility()">
+                                        <label class="form-check-label" for="answerFallback">
+                                            If the chosen type is missing, use the other (Answer &harr; Solution, incl. Answer Text)
+                                        </label>
+                                    </div>
                                 </div>
 
                                 <div id="answerPreferenceDiv" style="display: none;">
@@ -162,16 +189,12 @@
                             </div>
                         </div>
 
-                        <!-- Compact MC answer keys (All Questions, Then All Answers only) -->
+                        <!-- Compact MC answer key (MC answers = Compact answer key; after all questions only) -->
                         <div class="card mb-3 border-primary" id="compactMcAnswerKeyPanel" style="display: none;">
                             <div class="card-header bg-primary bg-opacity-10 py-2">
-                                <div class="form-check mb-0">
-                                    <input type="checkbox" class="form-check-input" id="compactMcAnswers"
-                                           name="compact_mc_answers" onchange="updateCompactMcAnswerKeyUI()">
-                                    <label class="form-check-label fw-bold" for="compactMcAnswers">Compact MC answer keys</label>
-                                </div>
+                                <strong>Compact MC answer key</strong>
                             </div>
-                            <div class="card-body py-2" id="compactMcAnswerKeyOptions" style="display: none;">
+                            <div class="card-body py-2" id="compactMcAnswerKeyOptions">
                                 <div class="row g-2 mb-2">
                                     <div class="col-md-6">
                                         <label class="form-label small fw-bold mb-1" for="mcKeyLayout">Layout</label>
@@ -211,7 +234,7 @@
                                     Compact answers will be shown without generated labels. Turn on sequential numbering above to add them.
                                 </div>
                                 <small class="text-muted d-block">
-                                    Compact MC cells always use Answer Text. Normal CQ and fallback MC answers still use the Answer source setting.
+                                    Compact MC cells always use Answer Text. MC questions without a short single-line Answer Text are printed in full as Answer (with the fallback above).
                                     Question ID headings are ignored for MC answers in this mode.
                                 </small>
                             </div>
@@ -825,10 +848,13 @@ function switchQuestionSource(source) {
 }
 
 function restoreGenerationOptions(opts) {
-    // Answer mode
-    if (opts.answer_mode) {
-        const answerModeSelect = document.getElementById('answerMode');
-        answerModeSelect.value = opts.answer_mode;
+    // Answers: placement + per-type answer types (legacy presets carry answer_mode)
+    const answerConfig = normalizeAnswerOptions(opts);
+    if (answerConfig) {
+        document.getElementById('answerPlacement').value = answerConfig.placement;
+        document.getElementById('answerTypeMc').value = answerConfig.mc;
+        document.getElementById('answerTypeCq').value = answerConfig.cq;
+        document.getElementById('answerFallback').checked = answerConfig.fallback;
         updateAnswerQidVisibility();
     }
     
@@ -839,10 +865,6 @@ function restoreGenerationOptions(opts) {
     }
 
     // Compact MC answer-key options
-    if (opts.compact_mc_answers !== undefined) {
-        document.getElementById('compactMcAnswers').checked =
-            (opts.compact_mc_answers === 'on' || opts.compact_mc_answers === true);
-    }
     if (opts.mc_key_layout) {
         document.getElementById('mcKeyLayout').value = opts.mc_key_layout;
     }
@@ -1224,8 +1246,12 @@ function getCurrentGenerationOptions() {
         sort_mode: getInputValue('sort_mode'),
         sort_config: sortConfigStr,
         sort_group_order: document.getElementById('sortGroupOrderInput')?.value || '',
-        answer_mode: document.getElementById('answerMode')?.value || 'QUE_ONLY',
-        compact_mc_answers: getCheckedValue('compactMcAnswers'),
+        answer_placement: document.getElementById('answerPlacement')?.value || 'none',
+        answer_type_mc: document.getElementById('answerTypeMc')?.value || 'ANS',
+        answer_type_cq: document.getElementById('answerTypeCq')?.value || 'ANS',
+        answer_fallback: getCheckedValue('answerFallback'),
+        compact_mc_answers: document.getElementById('answerPlacement')?.value === 'end'
+            && document.getElementById('answerTypeMc')?.value === 'KEY',
         mc_key_layout: document.getElementById('mcKeyLayout')?.value || 'table',
         mc_key_columns: parseInt(document.getElementById('mcKeyColumns')?.value || '5', 10) || 5,
         mc_key_max_rows: document.getElementById('mcKeyMaxRows')?.value
@@ -1442,49 +1468,92 @@ function updateSequentialNumberUI() {
     updateCompactMcAnswerKeyUI();
 }
 
+// Legacy single-select answer_mode -> [placement, answer type for MC and CQ].
+// Mirrors generator._LEGACY_ANSWER_MODES.
+const LEGACY_ANSWER_MODES = {
+    QUE_ONLY: ['none', 'ANS'],
+    QUE_ANS: ['inline', 'ANS'],
+    QUE_SOL: ['inline', 'SOL'],
+    QUE_THEN_ANS: ['end', 'ANS'],
+    QUE_THEN_SOL: ['end', 'SOL'],
+};
+
+function _optTruthy(value) {
+    return value === true || value === 1 || value === 'on' || value === '1' || value === 'true';
+}
+
+// Saved options -> {placement, mc, cq, fallback}, or null when the options
+// carry no answer settings. Same rules as generator._normalize_answer_config.
+function normalizeAnswerOptions(opts) {
+    if (opts.answer_placement) {
+        return {
+            placement: opts.answer_placement,
+            mc: opts.answer_type_mc || 'ANS',
+            cq: opts.answer_type_cq || 'ANS',
+            fallback: opts.answer_fallback === undefined ? true : _optTruthy(opts.answer_fallback),
+        };
+    }
+    if (!opts.answer_mode) return null;
+    const [placement, atype] = LEGACY_ANSWER_MODES[opts.answer_mode] || ['none', 'ANS'];
+    const compact = placement === 'end' && atype === 'ANS' && _optTruthy(opts.compact_mc_answers);
+    return {
+        placement,
+        mc: compact ? 'KEY' : atype,
+        cq: atype,
+        fallback: _optTruthy(opts.answer_fallback),
+    };
+}
+
+function readAnswerState() {
+    const placement = document.getElementById('answerPlacement').value;
+    const mc = document.getElementById('answerTypeMc').value;
+    const cq = document.getElementById('answerTypeCq').value;
+    const fallback = document.getElementById('answerFallback').checked;
+    const types = placement === 'none' ? [] : [mc, cq];
+    return {
+        placement, mc, cq, fallback,
+        anyAnswer: types.some(t => t !== 'none'),
+        usesAns: types.some(t => t === 'ANS' || t === 'KEY'),
+        usesSol: types.includes('SOL'),
+        compact: placement === 'end' && mc === 'KEY',
+    };
+}
+
 function updateCompactMcAnswerKeyUI() {
-    const answerMode = document.getElementById('answerMode').value;
+    const state = readAnswerState();
     const panel = document.getElementById('compactMcAnswerKeyPanel');
-    const enabled = document.getElementById('compactMcAnswers').checked;
-    const options = document.getElementById('compactMcAnswerKeyOptions');
     const hasSequentialNumbers = document.getElementById('showSeqNo').checked;
     const numberingOptions = document.getElementById('mcKeyNumberingOptions');
     const numberingHint = document.getElementById('mcKeyNumberingHint');
     const answerPreferenceHelp = document.getElementById('answerPreferenceHelp');
 
-    panel.style.display = answerMode === 'QUE_THEN_ANS' ? 'block' : 'none';
-    options.style.display = enabled ? 'block' : 'none';
+    panel.style.display = state.compact ? 'block' : 'none';
     numberingOptions.style.display = hasSequentialNumbers ? 'block' : 'none';
     numberingHint.style.display = hasSequentialNumbers ? 'none' : 'block';
-    answerPreferenceHelp.textContent = enabled && answerMode === 'QUE_THEN_ANS'
-        ? 'Compact MC cells always use Answer Text; this setting still applies to CQ and fallback MC answers.'
-        : 'Choose the preferred source for normal answer content.';
+    answerPreferenceHelp.textContent = state.compact
+        ? 'Compact MC cells always use Answer Text; this setting applies to every other answer.'
+        : 'Choose the preferred source for answer content (also used when a missing Solution falls back to Answer).';
 }
 
 function updateAnswerQidVisibility() {
-    const answerMode = document.getElementById('answerMode').value;
-    const showQidAnswerDiv = document.getElementById('showQidAnswerDiv');
-    const answerPreferenceDiv = document.getElementById('answerPreferenceDiv');
-    const applySpacingToAnsDiv = document.getElementById('applySpacingToAnsDiv');
-    
-    // Show if answer mode includes ANS or SOL
-    if (answerMode !== 'QUE_ONLY') {
-        showQidAnswerDiv.style.display = 'block';
-    } else {
-        showQidAnswerDiv.style.display = 'none';
-    }
-    
-    // Show answer preference only for ANS modes (not SOL)
-    if (answerMode === 'QUE_ANS' || answerMode === 'QUE_THEN_ANS') {
-        answerPreferenceDiv.style.display = 'block';
-    } else {
-        answerPreferenceDiv.style.display = 'none';
-    }
+    const placement = document.getElementById('answerPlacement').value;
+    const mcSelect = document.getElementById('answerTypeMc');
+    const keyOption = document.getElementById('answerTypeMcKey');
+    // The compact key only exists in the answers section after all questions.
+    const keyAllowed = placement === 'end';
+    keyOption.hidden = !keyAllowed;
+    keyOption.disabled = !keyAllowed;
+    if (!keyAllowed && mcSelect.value === 'KEY') mcSelect.value = 'ANS';
 
-    applySpacingToAnsDiv.style.display =
-        (answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL')
-            ? 'block'
-            : 'none';
+    const state = readAnswerState();
+    document.getElementById('answerTypesDiv').style.display =
+        state.placement !== 'none' ? 'block' : 'none';
+    document.getElementById('showQidAnswerDiv').style.display =
+        state.anyAnswer ? 'block' : 'none';
+    document.getElementById('answerPreferenceDiv').style.display =
+        (state.usesAns || (state.fallback && state.usesSol)) ? 'block' : 'none';
+    document.getElementById('applySpacingToAnsDiv').style.display =
+        (state.placement === 'end' && state.anyAnswer) ? 'block' : 'none';
     updateCompactMcAnswerKeyUI();
 }
 
@@ -1536,9 +1605,9 @@ function syncAdvancedOptionSummaries({openCustomized = false} = {}) {
     if (!document.getElementById('cqAfterLines').checked ||
             parseInt(getInputValue('cq_after_lines') || '1', 10) !== 1) spacingCount++;
     if (!document.getElementById('keepTogether').checked) spacingCount++;
-    const answerMode = document.getElementById('answerMode').value;
-    const isThenMode = answerMode === 'QUE_THEN_ANS' || answerMode === 'QUE_THEN_SOL';
-    if (isThenMode && document.getElementById('applySpacingToAns').checked) spacingCount++;
+    const answerState = readAnswerState();
+    if (answerState.placement === 'end' && answerState.anyAnswer &&
+            document.getElementById('applySpacingToAns').checked) spacingCount++;
 
     _setAdvancedSummary('assetOptionsSummary', assetCount);
     _setAdvancedSummary('structureOptionsSummary', structureCount);

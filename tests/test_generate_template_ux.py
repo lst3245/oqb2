@@ -57,6 +57,19 @@ class GenerationOptionsTemplateTests(unittest.TestCase):
         self.assertNotIn('showQidAnswerCheckbox.checked', self.template)
         self.assertIn('id="applySpacingToAnsDiv"', self.template)
 
+    def test_per_type_answer_controls_exist(self):
+        for element_id, name in (
+            ('answerPlacement', 'answer_placement'),
+            ('answerTypeMc', 'answer_type_mc'),
+            ('answerTypeCq', 'answer_type_cq'),
+            ('answerFallback', 'answer_fallback'),
+        ):
+            self.assertRegex(self.template, rf'id="{element_id}"[^>]*name="{name}"|name="{name}"[^>]*id="{element_id}"')
+        self.assertRegex(self.template, r'id="answerFallback"[^>]*checked')
+        self.assertIn('id="answerTypeMcKey"', self.template)
+        self.assertNotIn('name="answer_mode"', self.template)
+        self.assertNotIn('id="compactMcAnswers"', self.template)
+
     def test_hierarchy_mode_control_exists(self):
         self.assertIn('id="hierarchyMode"', self.template)
         self.assertIn('name="hierarchy_mode"', self.template)
