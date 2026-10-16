@@ -7,7 +7,7 @@ from flask import abort, request
 from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
-from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key
+from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key, question_marks
 
 
 # ==================== Asset Versions ====================
@@ -44,6 +44,30 @@ def utc_iso(dt):
     if dt is None:
         return None
     return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+MAX_MARKS = 999
+
+
+def parse_marks(raw):
+    """Form / CSV / LLM value -> int ``0..MAX_MARKS`` or None when blank.
+    Accepts ``'4'``, ``4``, ``'4.0'``; raises ``ValueError`` on junk, a
+    fraction or an out-of-range number."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    s = str(raw).strip()
+    if s == '' or s.lower() in ('none', 'null'):
+        return None
+    try:
+        f = float(s)
+    except ValueError:
+        raise ValueError(f'Marks must be a whole number, got {s!r}') from None
+    if not f.is_integer():
+        raise ValueError(f'Marks must be a whole number, got {s!r}')
+    val = int(f)
+    if not 0 <= val <= MAX_MARKS:
+        raise ValueError(f'Marks must be between 0 and {MAX_MARKS}')
+    return val
 
 
 def parse_version_priority(raw, legacy_preferred=None):
@@ -369,6 +393,18 @@ SORT_FIELDS = {
     'correct_percentage': {
         'label': 'Correct %',
         'key': lambda q: (0, q.correct_percentage) if q.correct_percentage is not None else (1, 0),
+        'natural': False
+    },
+    'marks': {
+        'label': 'Marks (part)',
+        'key': lambda q: getattr(q, 'marks', None),
+        'natural': False
+    },
+    'total_marks': {
+        # Root total (sum of leaf marks), so every part of a 12-mark
+        # question sorts as 12. A range leaf is its own question.
+        'label': 'Marks (whole question)',
+        'key': lambda q: question_marks(q),
         'natural': False
     },
     'chapter': {

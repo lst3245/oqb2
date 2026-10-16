@@ -433,6 +433,11 @@ Step 2: click "Detect questions" (and "Detect parts" for structured papers), or 
                 <div id="orderWarningBody" class="small fw-normal"></div>
                 <div class="small fw-normal mt-2 text-muted">As you read down each side, numbers should go up one at a time (a question that spans pages repeats its number). A <strong>drop</strong> usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# or renumber. A <strong>gap</strong> usually means a page failed or a question was missed &mdash; re-run that page or draw the box with Add box. A <strong>repeat</strong> on one page is imported as one joined image.</div>
             </div>
+            <div id="marksWarning" class="alert alert-warning d-none small py-2" role="alert">
+                <i class="bi bi-calculator"></i> <strong>Check the marks:</strong>
+                <span id="marksWarningBody"></span>
+                <div class="text-muted mt-1">The number on a question or stem row is the printed total; on a part row it is that part's marks. Only part (or unsplit question) marks are saved.</div>
+            </div>
             <div id="reviewBody"></div>
         </div>
     </div>
@@ -1621,7 +1626,8 @@ function startDetect() {
                 // shared width here, or a wider box would be shrunk before it can
                 // raise the max (the shared width only ever grows).
                 const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
-                               cp: !!b.continues_prev, cn: !!b.continues_next };
+                               cp: !!b.continues_prev, cn: !!b.continues_next,
+                               marks: kind === 'que' && Number.isInteger(b.marks) ? b.marks : null };
                 if (!item.label && item.qno != null) applyExamLabel(item, String(item.qno));
                 plan[kind].push(item);
             });
@@ -1926,6 +1932,7 @@ function serializePlanItem(it) {
         depends_prev: !!it.depends_prev,
         cont: !!it.cont,
         block_end: it.block_end || null,
+        marks: Number.isInteger(it.marks) ? it.marks : null,
     };
 }
 async function savePlanToServer() {
@@ -1960,6 +1967,7 @@ function applyServerPlan(serverPlan) {
             depends_prev: !!it.depends_prev,
             cont: !!it.cont,
             block_end: it.block_end || null,
+            marks: Number.isInteger(it.marks) ? it.marks : null,
             _uid: nextUid(),
         }));
         deriveRoles(kind);
@@ -2122,6 +2130,8 @@ function unsplitParent(kind, parentLabel) {
     }
     const firstPage = Math.min(...restored.map(it => it.page));
     restored.forEach(it => { if (it.page > firstPage) it.cont = true; });
+    const total = kids.find(it => examLabel(it) === parentLabel && Number.isInteger(it.marks));
+    if (total && kind === 'que') restored[0].marks = total.marks;
     const drop = new Set(kids);
     plan[kind] = plan[kind].filter(it => !drop.has(it)).concat(restored);
     deriveRoles(kind);
@@ -2383,6 +2393,68 @@ function styleRoleChip(chip, role, item) {
         chip.textContent = 'Q';
         chip.title = 'Whole numbered question';
     }
+}
+// QUE row marks: a part's (or unsplit question's) own marks, which commit
+// saves; on a stem row the printed whole-question total, used only for the
+// sum check. Shared blocks carry none.
+function buildMarksInput(item) {
+    const wrap = document.createElement('span');
+    wrap.className = 'marks-input-wrap';
+    const parsed = parseLabel(examLabel(item));
+    if (parsed && parsed.isBlock) return wrap;
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = '0';
+    inp.max = '999';
+    inp.className = 'form-control form-control-sm d-inline-block marks-input';
+    inp.style.width = '64px';
+    inp.placeholder = 'marks';
+    inp.value = Number.isInteger(item.marks) ? item.marks : '';
+    inp.title = item.role === 'stem'
+        ? 'Printed total for the whole question (checked against the parts; not saved)'
+        : 'Marks for this part / question (saved on import)';
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    inp.addEventListener('change', () => {
+        const n = parseInt(inp.value, 10);
+        item.marks = inp.value === '' || !Number.isFinite(n) || n < 0 ? null : n;
+        inp.value = item.marks == null ? '' : item.marks;
+        updateMarksWarning();
+    });
+    wrap.appendChild(inp);
+    return wrap;
+}
+
+// Per whole question: the parts' marks should add up to the printed total
+// (pass 1 / outline / typed on the stem row). Ranges are skipped.
+function marksIssues(items) {
+    const first = new Map();
+    (items || []).forEach(it => {
+        const lab = examLabel(it);
+        if (lab && Number.isInteger(it.marks) && !first.has(lab)) first.set(lab, it);
+    });
+    const roots = new Map();
+    first.forEach((it, lab) => {
+        const p = parseLabel(lab);
+        if (!p || p.qnoEnd != null || p.isBlock) return;
+        const r = roots.get(p.qno) || { total: null, sum: 0, parts: 0 };
+        if (!p.path) r.total = it.marks;
+        else if (it.role !== 'stem') { r.sum += it.marks; r.parts++; }
+        roots.set(p.qno, r);
+    });
+    const issues = [];
+    roots.forEach((r, qno) => {
+        if (r.total != null && r.parts && r.sum !== r.total) issues.push({ qno, ...r });
+    });
+    return issues.sort((a, b) => a.qno - b.qno);
+}
+function updateMarksWarning() {
+    const box = document.getElementById('marksWarning');
+    if (!box) return;
+    const issues = isGeneric() ? [] : marksIssues(plan.que);
+    box.classList.toggle('d-none', !issues.length);
+    document.getElementById('marksWarningBody').innerHTML = issues.slice(0, 12).map(is =>
+        `Q${is.qno}: parts add up to ${is.sum} but the total is ${is.total}.`).join(' ')
+        + (issues.length > 12 ? ` …and ${issues.length - 12} more.` : '');
 }
 function buildSplitActions(kind, item) {
     const actions = document.createElement('div');
@@ -2750,6 +2822,7 @@ function addBoxDom(card, kind, item) {
         chip.id = 'chip-' + item._uid;
         styleRoleChip(chip, item.role, item);
         row.appendChild(chip);
+        if (kind === 'que') row.appendChild(buildMarksInput(item));
         row.appendChild(buildSplitActions(kind, item));
     }
     row.appendChild(delBtn);
@@ -3262,6 +3335,7 @@ function updateReviewSummary() {
         ? `${plan.que.length} region(s)`
         : `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
     updateOrderWarning();
+    updateMarksWarning();
     refreshSplitDetectBtn();
 }
 
@@ -3439,7 +3513,8 @@ async function rerunPage(card, kind, pageIndex) {
         plan[kind] = plan[kind].filter(it => it.page !== pageIndex);
         (data.boxes || []).forEach(b => {
             const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
-                           cp: !!b.continues_prev, cn: !!b.continues_next };
+                           cp: !!b.continues_prev, cn: !!b.continues_next,
+                           marks: kind === 'que' && Number.isInteger(b.marks) ? b.marks : null };
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });

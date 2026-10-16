@@ -874,9 +874,11 @@ _DEFAULT_TAG_FORMAT = (
     '{"q_type": "MC"|"CQ"|null, "level": 1|2|3|null, "section": "..."|null, '
     '"major_topic": "..."|null, "major_subtopic": "..."|null, '
     '"minor_topics": ["..."], "subtopics": ["..."], '
-    '"chapter": "..."|null, "subchapter": "..."|null, '
+    '"chapter": "..."|null, "subchapter": "..."|null, "marks": <integer>|null, '
     '"confidence": {"<field>": 0.0-1.0}, "reasons": {"<field>": "one short sentence"}}\n'
     "Use the EXACT allowed names. Include only the keys you were asked to tag. "
+    "\"marks\" is the mark allocation printed for THIS question or part "
+    "(e.g. \"(2 marks)\", \"[3]\"); null when none is printed — never guess. "
     "\"confidence\" and \"reasons\" are optional diagnostics keyed by field "
     "name; keep each reason under 25 words."
 )
@@ -927,9 +929,12 @@ TAG_FIELD_LABELS = OrderedDict([
     ('subtopics', 'Minor Subtopics'),
     ('chapter', 'Chapter'),
     ('subchapter', 'Subchapter'),
+    ('marks', 'Marks'),
 ])
 
 TAG_FIELDS = list(TAG_FIELD_LABELS.keys())
+# Upper bound for a model-read mark allocation on one question / part.
+TAG_MAX_MARKS = 100
 
 # Fields that draw on the subject's Topic / Subtopic taxonomy.
 _TAG_TOPIC_FIELDS = {'major_topic', 'major_subtopic', 'minor_topics', 'subtopics'}
@@ -997,6 +1002,8 @@ def build_tag_taxonomy(subject_id, fields):
         blocks.append('QUESTION TYPES: MC (multiple choice), CQ (conventional question)')
     if 'level' in fields:
         blocks.append('LEVELS: 1, 2, 3')
+    if 'marks' in fields:
+        blocks.append('MARKS: the whole number printed for this question / part, or null')
 
     return '\n\n'.join(blocks) if blocks else '(no taxonomy required)'
 
@@ -1281,10 +1288,30 @@ def parse_tag_result(text: str):
             'subtopics': _clean_list(data.get('subtopics')),
             'chapter': _clean_str(data.get('chapter')),
             'subchapter': _clean_str(data.get('subchapter')),
+            'marks': clean_marks(data.get('marks')),
             'confidence': confidence,
             'reasons': reasons,
         }
     return None
+
+
+def clean_marks(value, hi=TAG_MAX_MARKS):
+    """Model-reported marks -> int in ``0..hi`` or None. Tolerates ``"3"``,
+    ``"(3 marks)"``, ``3.0``; rejects fractions, ranges and junk rather than
+    guessing."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        n = float(value)
+    else:
+        m = re.fullmatch(r'\s*[\(\[]?\s*(\d+(?:\.0+)?)\s*(?:marks?|m)?\s*[\)\]]?\s*',
+                         str(value), re.IGNORECASE)
+        if not m:
+            return None
+        n = float(m.group(1))
+    if not n.is_integer() or not 0 <= n <= hi:
+        return None
+    return int(n)
 
 
 # ==================== Question explanation (AI tutor chat) ====================
@@ -1438,7 +1465,11 @@ _DEFAULT_PDF_BOX_JSON_CONTRACT = (
     "Return STRICT JSON only (no prose, no markdown fences): a list, in "
     "top-to-bottom reading order, of objects of the form\n"
     '{"qno": <printed question number>, "box": {{box_array}}, '
-    '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
+    '"continues_prev": <true|false>, "continues_next": <true|false>, '
+    '"marks": <integer or null>}\n'
+    "\"marks\" (optional) is the question's total printed marks: the single "
+    "allocation such as \"(4 marks)\", or the sum of its parts' printed marks; "
+    "null when no marks are printed. Never guess.\n"
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of the page. x is the HORIZONTAL position (x=0 is the left edge, x=1000 "
     "the right edge); y is the VERTICAL position (y=0 is the TOP edge, y=1000 "
@@ -1615,7 +1646,12 @@ _DEFAULT_PDF_PART_BOX_JSON_CONTRACT = (
     "top-to-bottom reading order, of objects of the form\n"
     '{"label": <"stem", a part path like "a" or "ci", or "intro-c" when the '
     'instructions above allow it>, "box": {{box_array}}, '
-    '"continues_prev": <true|false>, "continues_next": <true|false>}\n'
+    '"continues_prev": <true|false>, "continues_next": <true|false>, '
+    '"marks": <integer or null>}\n'
+    "\"marks\" (optional) is the allocation printed for THAT part, e.g. "
+    "\"(2 marks)\" or \"[3]\"; null for \"stem\", for \"intro-\" boxes, for a "
+    "part's introduction whose sub-parts carry the marks, and whenever none "
+    "is printed. Never guess.\n"
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of THIS crop (not the full page). The box is {{box_corner}}. Example: a "
     "shared preamble occupying the top fifth is "
@@ -1697,7 +1733,9 @@ _DEFAULT_PDF_PART_RANGE_JSON_CONTRACT = (
     "top-to-bottom reading order, of objects of the form\n"
     '{"label": <"stem" or a printed question number like "{{first}}">, '
     '"box": {{box_array}}, "continues_prev": <true|false>, '
-    '"continues_next": <true|false>}\n'
+    '"continues_next": <true|false>, "marks": <integer or null>}\n'
+    "\"marks\" (optional) is the allocation printed for THAT question; null "
+    "for \"stem\" and whenever none is printed.\n"
     "COORDINATES: integers on a 0-1000 grid measured from the TOP-LEFT corner "
     "of THIS crop (not the full page). The box is {{box_corner}}. Example: a "
     "shared stimulus occupying the top fifth is "
@@ -3053,6 +3091,7 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
                 'box': [x1, y1, x2, y2],
                 'continues_prev': bool(it.get('continues_prev', False)),
                 'continues_next': bool(it.get('continues_next', False)),
+                'marks': clean_marks(it.get('marks')),
             })
         return out
 
@@ -3080,6 +3119,7 @@ def parse_question_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy'):
             'box': [x1, y1, x2, y2],
             'continues_prev': _salvage_bool(raw, 'continues_prev'),
             'continues_next': _salvage_bool(raw, 'continues_next'),
+            'marks': clean_marks(_salvage_int(raw, 'marks')),
         })
     return out
 
@@ -3130,6 +3170,7 @@ def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy',
                 'box': [x1, y1, x2, y2],
                 'continues_prev': bool(it.get('continues_prev', False)),
                 'continues_next': bool(it.get('continues_next', False)),
+                'marks': None if label == 'stem' else clean_marks(it.get('marks')),
             })
         return out
 
@@ -3156,6 +3197,7 @@ def parse_part_boxes(text: str, img_w=None, img_h=None, coord_order='xyxy',
             'box': [x1, y1, x2, y2],
             'continues_prev': _salvage_bool(raw, 'continues_prev'),
             'continues_next': _salvage_bool(raw, 'continues_next'),
+            'marks': None if label == 'stem' else clean_marks(_salvage_int(raw, 'marks')),
         })
     return out
 
@@ -3232,11 +3274,7 @@ def parse_agent_outline(text: str):
                     qpages.append(int(v))
                 except (TypeError, ValueError):
                     continue
-            marks = q.get('marks')
-            try:
-                marks = int(marks) if marks is not None else None
-            except (TypeError, ValueError):
-                marks = None
+            marks = clean_marks(q.get('marks'))
             deps = []
             for d in (q.get('depends_prev') or []):
                 s = str(d).strip().lower().strip('()')

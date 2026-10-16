@@ -193,6 +193,25 @@ def merge_outline(running: dict | None, batch: dict | None) -> dict:
     }
 
 
+def fill_outline_marks(items, outline) -> int:
+    """Copy the outline's per-question ``marks`` onto the plan item of that
+    exact label (the root, or its stem after a split) when no item of the
+    label has marks yet. Returns the number filled. Mutates ``items``."""
+    have = pdf_import.plan_marks_by_label(items)
+    filled = 0
+    for q in (outline or {}).get('questions') or []:
+        lab, m = q.get('label'), q.get('marks')
+        if not lab or m is None or lab in have:
+            continue
+        for it in items or []:
+            if pdf_import.plan_item_label(it) == lab:
+                it['marks'] = m
+                have[lab] = m
+                filled += 1
+                break
+    return filled
+
+
 def _question_sort_key(label):
     p = parse_qno_token(label)
     return (p.qno, p.qno_end or p.qno) if p else (10**9, 0)
@@ -1060,6 +1079,7 @@ def iter_agent(app, cancel, token: str, config, image_max_dim: int,
         for q in (outlines.get(kind) or {}).get('questions') or []:
             if q.get('depends_prev'):
                 mark_depends_prev(plan.get(kind) or [], q['label'], q['depends_prev'])
+    fill_outline_marks(plan.get('que') or [], outlines.get('que'))
     pdf_import._stitch_continuations(plan)
     plan = pdf_import._strip_split_flags(plan)
     pdf_import.save_plan(token, plan)
@@ -1083,6 +1103,7 @@ def _outline_summary(outline):
     return {
         'questions': [{'label': q['label'], 'pages': q.get('pages'),
                        'parts': flatten_part_tree(q.get('parts')),
+                       'marks': q.get('marks'),
                        'depends_prev': q.get('depends_prev') or []}
                       for q in outline.get('questions') or []],
         'pages': outline.get('pages') or [],

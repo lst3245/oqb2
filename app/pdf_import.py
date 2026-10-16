@@ -314,9 +314,10 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
     """Validate a browser-posted plan into ``{que: [...], sol: [...]}``.
 
     Exam plans get ``role`` recomputed via ``apply_derived_roles``; a
-    browser-sent ``role`` is ignored.
+    browser-sent ``role`` is ignored. QUE items keep a valid ``marks``.
     """
     from app.hierarchy import normalize_plan_label, parse_qno_token
+    from app.utils import parse_marks
 
     clean = {'que': [], 'sol': []}
     roles = {'stem', 'part', 'question'}
@@ -375,6 +376,13 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
                 row['cont'] = True
             if kind == 'que' and parsed and parsed.is_block and item.get('block_end'):
                 row['block_end'] = item.get('block_end')
+            if kind == 'que' and item.get('marks') not in (None, ''):
+                try:
+                    marks = parse_marks(item.get('marks'))
+                except ValueError:
+                    marks = None
+                if marks is not None:
+                    row['marks'] = marks
             clean[kind].append(row)
         if not generic:
             if kind == 'que':
@@ -1296,10 +1304,13 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 # Keep the continuation flags transiently so _stitch_continuations
                 # can re-link multi-page questions in reading order regardless of
                 # the (possibly parallel) page-completion order.
-                plan[kind].append({'page': idx, 'qno': qno, 'label': label,
-                                   'box': b['box'],
-                                   '_cp': bool(b.get('continues_prev')),
-                                   '_cn': bool(b.get('continues_next'))})
+                row = {'page': idx, 'qno': qno, 'label': label,
+                       'box': b['box'],
+                       '_cp': bool(b.get('continues_prev')),
+                       '_cn': bool(b.get('continues_next'))}
+                if kind == 'que' and b.get('marks') is not None:
+                    row['marks'] = b['marks']
+                plan[kind].append(row)
 
     def _page_event(kind, atype, idx, boxes, raw):
         page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
@@ -1736,6 +1747,7 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
                       if it.get('depends_prev') and plan_item_label(it)}
     block_ends = {plan_item_label(it): it['block_end'] for it in (plan.get('que') or [])
                   if it.get('block_end') and plan_item_label(it)}
+    leaf_marks = plan_leaf_marks(plan.get('que') or [])
     groups = _group_plan(plan)
     total = len(groups)
     if total == 0:
@@ -1751,6 +1763,20 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
     yield {'type': 'info',
            'message': f'Importing {total} question slot(s) for {subject}_{source}_{year}_{paper} ({ver_note})...',
            'current': 0, 'total': total}
+
+    if leaf_marks:
+        # Marks are a restore-point field: snapshot once before any write.
+        from app import subject_snapshot
+        try:
+            subject_snapshot.capture_committed(
+                [subject], 'pdf-import',
+                note=f'Before marks from PDF import {subject}_{source}_{year}_{paper}')
+        except Exception as e:
+            logger.exception('pdf-import restore point failed')
+            leaf_marks = {}
+            yield {'type': 'error',
+                   'message': f'Could not save a restore point, so marks will not be written: {e}',
+                   'current': 0, 'total': total}
 
     created_q = assets_written = skipped = errors = 0
     done = 0
@@ -1796,6 +1822,9 @@ def iter_commit(app, cancel, token: str, plan: dict, versions,
             if (kind == 'que' and parsed.is_block and commit_label in block_ends
                     and question.block_end != block_ends[commit_label]):
                 set_block_end(question, block_ends[commit_label])
+            if (kind == 'que' and commit_label in leaf_marks
+                    and (question.marks is None or overwrite)):
+                question.marks = leaf_marks[commit_label]
             db.session.commit()
             is_new = created
             if created:
@@ -2264,7 +2293,7 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                     # A marking scheme has no shared intro text.
                     child_label = parent_norm
                     parsed_c = parsed_parent
-                page_children.append((b.get('label'), {
+                child = {
                     '_pi': pi,
                     'page': int(prt['page']),
                     'qno': parsed_c.qno if parsed_c else None,
@@ -2275,7 +2304,12 @@ def _split_one_group(token, kind, parent_label, parts, config, image_max_dim,
                     'source_box': [float(v) for v in prt['box']],
                     '_cp': bool(b.get('continues_prev')),
                     '_cn': bool(b.get('continues_next')),
-                }))
+                }
+                if (kind == 'que' and b.get('marks') is not None
+                        and child_label != parent_norm
+                        and not (parsed_c and parsed_c.is_block)):
+                    child['marks'] = b['marks']
+                page_children.append((b.get('label'), child))
             # Only the question's first page: on a continuation page the strip
             # above the first part belongs to the previous part.
             if may_fill_stem and pi == 0:
@@ -2358,6 +2392,48 @@ def reclassify_mid_stems(children: list, parent_label: str) -> list:
         if new:
             c['label'] = new
     return children
+
+
+def plan_marks_by_label(items) -> dict:
+    """``{label: marks}``: the first non-null ``marks`` per canonical label
+    (a question split over pages has one item per page)."""
+    out = {}
+    for it in items or []:
+        lab = plan_item_label(it)
+        m = it.get('marks')
+        if lab and m is not None and lab not in out:
+            out[lab] = m
+    return out
+
+
+def carry_total_marks(items, parent_label, children) -> None:
+    """Keep the pass-1 total of ``parent_label`` on its stem child when pass-2
+    replaces the whole-question box. The stem's value is only the expected
+    total for the Step 2 sum check; commit never writes marks to a stem."""
+    from app.hierarchy import normalize_plan_label
+    parent = normalize_plan_label(parent_label) or parent_label
+    total = plan_marks_by_label(
+        [it for it in items or [] if plan_item_label(it) == parent]).get(parent)
+    if total is None:
+        return
+    for c in children:
+        if plan_item_label(c) == parent:
+            c.setdefault('marks', total)
+            return
+
+
+def plan_leaf_marks(items) -> dict:
+    """``{label: marks}`` for QUE items that commit may write: leaves only
+    (no stems by derived role, no shared blocks)."""
+    from app.hierarchy import parse_qno_token
+    stems = {plan_item_label(it) for it in items or [] if it.get('role') == 'stem'}
+    out = {}
+    for lab, m in plan_marks_by_label(items).items():
+        parsed = parse_qno_token(lab)
+        if lab in stems or not parsed or parsed.is_block:
+            continue
+        out[lab] = m
+    return out
 
 
 def _replace_group(items, parent_label, new_items):
@@ -2573,6 +2649,8 @@ def iter_split_detect(app, cancel, token: str, config, image_max_dim: int,
     def _emit(kind, parent, children):
         is_range = _is_range_label(parent)
         if children:
+            if kind == 'que':
+                carry_total_marks(plan.get(kind) or [], parent, children)
             plan[kind] = _replace_group(plan.get(kind) or [], parent, children)
             filled = any(c.get('_stem_filled') for c in children)
             if is_range:

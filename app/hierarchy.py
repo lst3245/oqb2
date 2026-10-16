@@ -764,6 +764,53 @@ def earlier_siblings(q) -> list:
     return own
 
 
+def question_root(q):
+    """The node that owns a *whole question* for ``q``: walk up through
+    lettered parts and shared blocks, stop at the first node without a
+    ``part``. That is the paper root for ``Q3ci``, but the child question
+    itself for a range leaf (``Q16`` under ``Q16-17`` is its own question)."""
+    node = q
+    seen = set()
+    while getattr(node, 'part', None):
+        parent = getattr(node, 'parent', None)
+        nid = getattr(node, 'id', id(node))
+        if parent is None or nid in seen:
+            break
+        seen.add(nid)
+        node = parent
+    return node
+
+
+def whole_marks(node) -> tuple:
+    """``(total, complete)`` marks for ``node``.
+
+    A leaf returns its own ``marks``. A stem sums the marks of its leaf
+    descendants (shared blocks and nested stems add nothing). ``total`` is
+    None when no leaf has marks; ``complete`` is False when any leaf lacks
+    them."""
+    if not is_stem(node):
+        m = getattr(node, 'marks', None)
+        return (m, m is not None)
+    leaves = [d for d in descendants(node) if not is_stem(d)]
+    known = [d.marks for d in leaves if getattr(d, 'marks', None) is not None]
+    if not known:
+        return (None, False)
+    return (sum(known), len(known) == len(leaves))
+
+
+def question_marks(q, memo: Optional[dict] = None):
+    """Whole-question marks total for any node (``whole_marks`` of its
+    ``question_root``), memoised per root id in ``memo``. None when unknown."""
+    r = question_root(q)
+    rid = getattr(r, 'id', id(r))
+    if memo is not None and rid in memo:
+        return memo[rid]
+    total = whole_marks(r)[0]
+    if memo is not None:
+        memo[rid] = total
+    return total
+
+
 def part_path_of(q) -> Optional[str]:
     """Reconstruct the full part path from this node up to (not including) the root.
     An ancestor block's segment is skipped (``Q7c`` under ``Q7~c`` is ``c``)."""

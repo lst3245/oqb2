@@ -147,6 +147,9 @@ class Subject(db.Model):
     # Independent of the Generate-page numbering option.
     topic_number_prefix = db.Column(db.Boolean, default=True, nullable=False)
     subtopic_number_prefix = db.Column(db.Boolean, default=False, nullable=False)
+    # Generate-page "spacing by marks" rules (JSON, see app/marks_spacing.py).
+    # NULL = no rules; the generator falls back to the manual lines value.
+    marks_spacing = db.Column(db.Text, nullable=True)
     
     # Relationships
     topics = db.relationship('Topic', backref='subject', lazy='dynamic', cascade='all, delete-orphan')
@@ -262,6 +265,9 @@ class Question(db.Model):
     subchapter_id = db.Column(db.Integer, db.ForeignKey('subchapters.id', ondelete='SET NULL'), nullable=True, index=True)
     description = db.Column(db.Text, nullable=True)  # Optional description for the question
     correct_percentage = db.Column(db.Integer, nullable=True)  # 0-100, NULL if unknown (public exam correct rate)
+    # Marks printed for this leaf ("(2 marks)"). Stems / shared blocks never
+    # store marks; the whole-question total is hierarchy.whole_marks(root).
+    marks = db.Column(db.SmallInteger, nullable=True)
     answer = db.Column(db.Text, nullable=True)  # Answer text (alternative to ANS image)
     comment = db.Column(db.Text, nullable=True)  # Comment / notes
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

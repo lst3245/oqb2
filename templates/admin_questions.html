@@ -1019,6 +1019,7 @@
                                     <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_subtopics" value="subtopics"><label class="form-check-label" for="aitf_subtopics">Minor Subtopics</label></div></div>
                                     <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_chapter" value="chapter" checked><label class="form-check-label" for="aitf_chapter">Chapter</label></div></div>
                                     <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_subchapter" value="subchapter"><label class="form-check-label" for="aitf_subchapter">Subchapter</label></div></div>
+                                    <div class="col-6"><div class="form-check"><input class="form-check-input ai-tag-field" type="checkbox" id="aitf_marks" value="marks"><label class="form-check-label" for="aitf_marks">Marks</label></div></div>
                                 </div>
                             </div>
                         </div>
@@ -2741,7 +2742,7 @@ function goToAddStep(step) {
         populateTagForm({
             subject: subjectId,
             level: null, q_type: '', section: '', description: '',
-            correct_percentage: null, answer: '', comment: '',
+            correct_percentage: null, marks: null, answer: '', comment: '',
             major_topic_id: null, major_subtopic_id: null,
             minor_topic_ids: [], subtopic_ids: [],
             chapter_id: null, subchapter_id: null

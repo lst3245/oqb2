@@ -62,6 +62,7 @@ ACTION_LABELS = {
     'topic-import': 'Topics CSV import',
     'chapter-import': 'Chapters CSV import',
     'auto-tag': 'Auto Tag run',
+    'pdf-import': 'PDF import (marks)',
     'before-restore': 'Before restore',
 }
 
@@ -77,7 +78,7 @@ KIND_LABELS = {'topics': 'Topic', 'subtopics': 'Subtopic',
                'chapters': 'Chapter', 'subchapters': 'Subchapter'}
 
 QUESTION_FIELDS = ('major_topic_id', 'major_subtopic_id', 'chapter_id', 'subchapter_id',
-                   'level', 'q_type', 'section', 'correct_percentage')
+                   'level', 'q_type', 'section', 'correct_percentage', 'marks')
 LINK_FIELDS = ('minor_topic_ids', 'subtopic_ids')
 QUESTION_COLUMNS = ('id', 'qid') + QUESTION_FIELDS + LINK_FIELDS
 REF_KIND = {
@@ -89,6 +90,7 @@ FIELD_LABELS = {
     'major_topic_id': 'Major topic', 'major_subtopic_id': 'Major subtopic',
     'chapter_id': 'Chapter', 'subchapter_id': 'Subchapter', 'level': 'Level',
     'q_type': 'Type', 'section': 'Section', 'correct_percentage': 'Correct %',
+    'marks': 'Marks',
     'minor_topic_ids': 'Minor topics', 'subtopic_ids': 'Subtopics',
 }
 

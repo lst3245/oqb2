@@ -10,12 +10,15 @@ from app.pdf_import import (
     _resolve_sol_commit_label,
     _split_parent_labels,
     _stitch_continuations,
+    carry_total_marks,
     coerce_plan_item,
     expected_part_labels_for,
     full_width_child_box,
     map_crop_box_to_page,
     original_group_parts,
     plan_item_label,
+    plan_leaf_marks,
+    plan_marks_by_label,
     sanitize_plan,
 )
 
@@ -454,6 +457,35 @@ class RangeSplitTests(unittest.TestCase):
                {'page': 0, 'label': '31', 'source_label': '31-32', 'box': [0, 0.3, 1, 0.8]}]
         out = _replace_group(items, '31-32', new)
         self.assertEqual([plan_item_label(it) for it in out], ['33', '31-32', '31'])
+
+
+class PlanMarksTests(unittest.TestCase):
+    def test_sanitize_keeps_que_marks_only(self):
+        clean = sanitize_plan({
+            'que': [{'page': 0, 'label': '7', 'box': [0, 0, 1, 0.2], 'marks': 12},
+                    {'page': 0, 'label': '7a', 'box': [0, 0.2, 1, 0.5], 'marks': '4'},
+                    {'page': 0, 'label': '7b', 'box': [0, 0.5, 1, 0.9], 'marks': 'x'},
+                    {'page': 0, 'label': '7~c', 'box': [0, 0.9, 1, 1], 'marks': ''}],
+            'sol': [{'page': 0, 'label': '7a', 'box': [0, 0, 1, 1], 'marks': 4}],
+        })
+        self.assertEqual([it.get('marks') for it in clean['que']], [12, 4, None, None])
+        self.assertNotIn('marks', clean['sol'][0])
+
+    def test_leaf_marks_skip_stems_and_blocks(self):
+        items = [{'page': 0, 'label': '7', 'box': [0, 0, 1, 1], 'role': 'stem', 'marks': 12},
+                 {'page': 0, 'label': '7a', 'box': [0, 0, 1, 1], 'role': 'part'},
+                 {'page': 1, 'label': '7a', 'box': [0, 0, 1, 1], 'role': 'part', 'marks': 5},
+                 {'page': 1, 'label': '7~c', 'box': [0, 0, 1, 1], 'marks': 1},
+                 {'page': 1, 'label': '8', 'box': [0, 0, 1, 1], 'role': 'question', 'marks': 3}]
+        self.assertEqual(plan_leaf_marks(items), {'7a': 5, '8': 3})
+        self.assertEqual(plan_marks_by_label(items)['7'], 12)
+
+    def test_split_carries_total_to_stem(self):
+        items = [{'page': 0, 'label': '7', 'box': [0, 0, 1, 1], 'marks': 12}]
+        children = [{'page': 0, 'label': '7', 'box': [0, 0, 1, 0.2]},
+                    {'page': 0, 'label': '7a', 'box': [0, 0.2, 1, 1], 'marks': 4}]
+        carry_total_marks(items, '7', children)
+        self.assertEqual([c.get('marks') for c in children], [12, 4])
 
 
 if __name__ == '__main__':

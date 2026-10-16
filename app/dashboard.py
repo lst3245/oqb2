@@ -13,7 +13,7 @@ from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
     children as hier_children, group_for_dashboard, is_stem,
     paginate_by_root, root as hier_root, stem_id_query, leaf_clause,
-    is_block, part_position_label,
+    is_block, part_position_label, whole_marks,
 )
 from app import md_render
 from app.storage import safe_join
@@ -290,6 +290,9 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         'subchapter_id': q.subchapter_id,
         'description': q.description,
         'correct_percentage': q.correct_percentage,
+        'marks': q.marks,
+        # A stem's (or range stem's) own total over its leaves; None on leaves.
+        'whole_marks': whole_marks(q)[0] if role == 'stem' else None,
         'que_asset_id': que_asset_ids[0] if que_asset_ids else None,
         'que_asset_ids': que_asset_ids,
         'preview_mode': preview_mode,

@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, send_file, current_app, f
 from flask_login import login_required, current_user
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -33,9 +33,11 @@ from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_so
 from app.hierarchy import (
     HIERARCHY_MODE_SELECTED, HIERARCHY_MODE_WHOLE, ancestors, breadcrumb_parts,
     eager_load_tree, is_stem, part_position_label, resolve_render_plan, root as hier_root,
+    question_marks, question_root,
 )
 from app import word_com
 from app import ai_prompts
+from app import marks_spacing
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
@@ -401,8 +403,10 @@ def index():
     
     # Get available sort fields for the UI
     sort_fields = [{"value": key, "label": info["label"]} for key, info in SORT_FIELDS.items()]
+    marks_subjects = _marks_subjects_for(questions)
     
     return render_template('generate.html', 
+                          marks_subjects=marks_subjects,
                           questions=questions,
                           question_ids=question_ids,
                           sort_config=sort_config,
@@ -696,6 +700,21 @@ def get_sort_groups():
     return jsonify({'group_fields': group_fields, 'blocks': blocks})
 
 
+@generator_bp.route('/api/marks-rules/check', methods=['POST'])
+@login_required
+def check_marks_rules():
+    """Validate marks spacing rules edited for one paper (no write). JSON
+    ``{rules}`` -> ``{success, rules}`` (canonical, or null when empty);
+    400 ``{success: false, error}``."""
+    _require_generate_permission()
+    data = request.get_json(silent=True) or {}
+    try:
+        rules = marks_spacing.normalize_rules(data.get('rules'))
+    except marks_spacing.MarksSpacingError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    return jsonify({'success': True, 'rules': rules})
+
+
 @generator_bp.route('/create', methods=['POST'])
 @login_required
 def create_document():
@@ -712,16 +731,20 @@ def create_document():
     filter_data = request.form.get('filter_data', '')
     
     # MC spacing settings
-    mc_before_mode = request.form.get('mc_before_mode', 'lines')
+    # Modes: lines / page / marks (per-subject rules; the lines value is the fallback).
+    mc_before_mode = _spacing_mode(request.form.get('mc_before_mode'))
     mc_before_lines = int(request.form.get('mc_before_lines', 0))
-    mc_after_mode = request.form.get('mc_after_mode', 'lines')
+    mc_after_mode = _spacing_mode(request.form.get('mc_after_mode'))
     mc_after_lines = int(request.form.get('mc_after_lines', 1))
     
     # CQ spacing settings
-    cq_before_mode = request.form.get('cq_before_mode', 'lines')
+    cq_before_mode = _spacing_mode(request.form.get('cq_before_mode'))
     cq_before_lines = int(request.form.get('cq_before_lines', 0))
-    cq_after_mode = request.form.get('cq_after_mode', 'lines')
+    cq_after_mode = _spacing_mode(request.form.get('cq_after_mode'))
     cq_after_lines = int(request.form.get('cq_after_lines', 1))
+    # After-lines style: blank / ruled (answer lines, question pass only)
+    mc_after_style = _spacing_style(request.form.get('mc_after_style'))
+    cq_after_style = _spacing_style(request.form.get('cq_after_style'))
     
     # Show QID options
     show_qid = request.form.get('show_qid') == 'on'
@@ -792,6 +815,19 @@ def create_document():
         if not question_ids:
             return jsonify({'error': 'No questions available for generation with your permissions'}), 403
 
+    # Per-paper edits of the subjects' marks rules (anyone who can generate; never saved)
+    marks_rules_override = {}
+    if request.form.get('marks_rules_override'):
+        selection_subjects = {
+            sid for (sid,) in db.session.query(Question.subject)
+            .filter(Question.id.in_(question_ids)).distinct()
+        }
+        try:
+            marks_rules_override = parse_marks_rules_override(
+                request.form.get('marks_rules_override'), selection_subjects)
+        except marks_spacing.MarksSpacingError as exc:
+            return jsonify({'error': f'Marks spacing rules: {exc}'}), 400
+
     # Build generation options for storage
     generation_options = {
         'sort_mode': sort_mode,
@@ -805,6 +841,8 @@ def create_document():
         'mc_after_mode': mc_after_mode, 'mc_after_lines': mc_after_lines,
         'cq_before_mode': cq_before_mode, 'cq_before_lines': cq_before_lines,
         'cq_after_mode': cq_after_mode, 'cq_after_lines': cq_after_lines,
+        'mc_after_style': mc_after_style, 'cq_after_style': cq_after_style,
+        'marks_rules_override': marks_rules_override,
         'show_qid': show_qid, 'show_qid_answer': show_qid_answer,
         'show_correct_pct': show_correct_pct,
         'show_seq_no': show_seq_no, 'seq_start': seq_start, 'show_page_no': show_page_no,
@@ -873,12 +911,15 @@ def create_document():
     spacing_config = {
         'mc': {
             'before_mode': mc_before_mode, 'before_lines': mc_before_lines,
-            'after_mode': mc_after_mode, 'after_lines': mc_after_lines
+            'after_mode': mc_after_mode, 'after_lines': mc_after_lines,
+            'after_style': mc_after_style,
         },
         'cq': {
             'before_mode': cq_before_mode, 'before_lines': cq_before_lines,
-            'after_mode': cq_after_mode, 'after_lines': cq_after_lines
-        }
+            'after_mode': cq_after_mode, 'after_lines': cq_after_lines,
+            'after_style': cq_after_style,
+        },
+        'marks_rules_override': marks_rules_override,
     }
     
     # Spawn background thread
@@ -955,6 +996,11 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     sort_group_order = None
                 questions = list(questions_dict.values())
                 questions = apply_multi_sort(questions, sort_config, group_order=sort_group_order)
+
+            if _uses_marks_spacing(spacing_config):
+                marks_rules = _load_marks_rules(q.subject for q in questions)
+                marks_rules.update(spacing_config.get('marks_rules_override') or {})
+                spacing_config = dict(spacing_config, marks_rules=marks_rules)
             
             label_opts = {
                 'numbering': (
@@ -1425,6 +1471,122 @@ def get_question_spacing_config(question, spacing_config):
         return spacing_config['cq']
 
 
+_SPACING_MODES = ('lines', 'page', 'marks')
+
+
+def _spacing_mode(raw, default='lines'):
+    """Form value -> ``lines`` / ``page`` / ``marks`` (unknown -> default)."""
+    raw = (raw or '').strip().lower()
+    return raw if raw in _SPACING_MODES else default
+
+
+_SPACING_STYLES = ('blank', 'ruled')
+
+
+def _spacing_style(raw):
+    """Form value -> ``blank`` (empty lines) / ``ruled`` (answer lines)."""
+    raw = (raw or '').strip().lower()
+    return raw if raw in _SPACING_STYLES else 'blank'
+
+
+def _uses_marks_spacing(spacing_config):
+    return any((spacing_config.get(t) or {}).get(k) == 'marks'
+               for t in ('mc', 'cq') for k in ('before_mode', 'after_mode'))
+
+
+def _marks_subjects_for(questions):
+    """Subjects of the selection for the Generate page's marks-rules row."""
+    from app.models import Subject
+    ids = sorted({q.subject for q in questions if q.subject})
+    if not ids:
+        return []
+    return [{
+        'id': s.id,
+        'name': s.name,
+        'has_rules': marks_spacing.load_rules(s.marks_spacing) is not None,
+        'can_edit': bool(current_user.is_subject_admin(s.id)),
+    } for s in Subject.query.filter(Subject.id.in_(ids)).order_by(Subject.id).all()]
+
+
+def parse_marks_rules_override(raw, allowed_subjects):
+    """Generate-form ``marks_rules_override`` (JSON ``{subject_id: rules |
+    null}``) -> ``{subject_id: canonical rules | None}``. Per-paper edits of
+    the subject rules; never saved to the subject. Subjects outside
+    ``allowed_subjects`` are dropped; ``None`` means "no rules for this
+    paper". Raises ``MarksSpacingError`` (user-facing message)."""
+    if raw in (None, ''):
+        return {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise marks_spacing.MarksSpacingError('Edited marks rules are not valid JSON') from None
+    if not isinstance(raw, dict):
+        raise marks_spacing.MarksSpacingError('Edited marks rules must be an object')
+    allowed = set(allowed_subjects)
+    out = {}
+    for sid, rules in raw.items():
+        if sid not in allowed:
+            continue
+        try:
+            out[sid] = marks_spacing.normalize_rules(rules)
+        except marks_spacing.MarksSpacingError as exc:
+            raise marks_spacing.MarksSpacingError(f'{sid}: {exc}') from None
+    return out
+
+
+def _load_marks_rules(subject_ids):
+    """``{subject_id: rules | None}`` from ``Subject.marks_spacing``."""
+    from app.models import Subject
+    ids = sorted({s for s in subject_ids if s})
+    if not ids:
+        return {}
+    return {s.id: marks_spacing.load_rules(s.marks_spacing)
+            for s in Subject.query.filter(Subject.id.in_(ids)).all()}
+
+
+def _spacing_action(side, action, fallback_lines):
+    if action and action[0] == 'pages':
+        return {f'{side}_mode': 'page', f'{side}_pages': action[1]}
+    return {f'{side}_mode': 'lines',
+            f'{side}_lines': action[1] if action else (fallback_lines or 0)}
+
+
+def resolve_entry_spacing(question, spacing_config, *, stem_entry=False,
+                          starts_question=True, ends_question=True, marks_memo=None):
+    """Concrete spacing for one render-plan entry.
+
+    Manual modes pass through unchanged. ``marks`` mode resolves the
+    question's subject rules (``spacing_config['marks_rules']``): *before*
+    on the whole-question total, only on the entry that starts a whole
+    question; *after* on the leaf's own marks (a stem has no after
+    spacing), or, when the subject's after rule is ``per: question``, on
+    the whole-question total only on the entry that ends the question. No
+    rule / unknown marks / a later part's *before* falls back to the
+    card's manual lines value; with ``per: question`` the entries before the
+    last one get no after space."""
+    base = _stem_que_spacing(spacing_config) if stem_entry \
+        else get_question_spacing_config(question, spacing_config)
+    if base.get('before_mode') != 'marks' and base.get('after_mode') != 'marks':
+        return base
+    out = dict(base)
+    rules = (spacing_config.get('marks_rules') or {}).get(getattr(question, 'subject', None))
+    if base.get('before_mode') == 'marks':
+        action = (marks_spacing.resolve(rules, 'before', question_marks(question, marks_memo))
+                  if starts_question else None)
+        out.update(_spacing_action('before', action, base.get('before_lines')))
+    if base.get('after_mode') == 'marks':
+        if marks_spacing.after_per(rules) == 'question':
+            # Parts run on with no gap; the space comes once, after the last one.
+            action = (marks_spacing.resolve(rules, 'after', question_marks(question, marks_memo))
+                      if ends_question else ('lines', 0))
+        else:
+            action = None if stem_entry else marks_spacing.resolve(
+                rules, 'after', getattr(question, 'marks', None))
+        out.update(_spacing_action('after', action, base.get('after_lines')))
+    return out
+
+
 _MC_KEY_MAX_ANSWER_LENGTH = 80
 
 
@@ -1524,7 +1686,7 @@ def _add_mc_answer_key_block(doc, entries, options):
     ]
 
     if options.get('layout') == 'tabs':
-        printable_width_cm = 18.46  # A4 width minus the document's two 1.27 cm margins
+        printable_width_cm = PRINTABLE_WIDTH_CM
         for row in rows:
             paragraph = doc.add_paragraph(style='OQB Body Text')
             tab_stops = paragraph.paragraph_format.tab_stops
@@ -1563,9 +1725,10 @@ def add_before_spacing(doc, spacing, last_had_page_break, is_first):
         return False
     
     if spacing['before_mode'] == 'page':
-        # Want to start from new page
-        if not last_had_page_break:
-            # Previous question didn't add page break, so we need one
+        # Want to start from new page; extra pages (marks rules) are blank
+        # pages before the question.
+        count = max(1, int(spacing.get('before_pages') or 1))
+        for _ in range(count - 1 if last_had_page_break else count):
             doc.add_page_break()
         # Either way, we're now at a new page
         return True
@@ -1576,18 +1739,46 @@ def add_before_spacing(doc, spacing, last_had_page_break, is_first):
         return False
 
 
-def add_after_spacing(doc, spacing):
+PRINTABLE_WIDTH_CM = 18.46  # A4 width minus the document's two 1.27 cm margins
+ANSWER_LINE_HEIGHT_PT = 22  # about 0.78 cm, the pitch of exam answer-book lines
+
+
+def add_answer_line(doc):
+    """One full-width ruled writing line: a right tab at the margin with an
+    underscore leader, at a fixed exam-book line pitch."""
+    paragraph = doc.add_paragraph()
+    fmt = paragraph.paragraph_format
+    fmt.space_before = Pt(0)
+    fmt.space_after = Pt(0)
+    fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    fmt.line_spacing = Pt(ANSWER_LINE_HEIGHT_PT)
+    fmt.tab_stops.add_tab_stop(Cm(PRINTABLE_WIDTH_CM - 0.06), WD_TAB_ALIGNMENT.RIGHT,
+                               WD_TAB_LEADER.LINES)
+    paragraph.add_run('\t')
+    return paragraph
+
+
+def add_after_spacing(doc, spacing, allow_ruled=False):
     """
     Add spacing after a question based on settings.
     Returns whether we added a page break.
+
+    ``allow_ruled``: the caller is the question pass with no inline answer,
+    where ``after_style == 'ruled'`` turns the skipped lines into answer
+    lines. Page breaks always give blank pages.
     """
     if spacing['after_mode'] == 'page':
-        doc.add_page_break()
+        # N breaks = rest of this page plus N-1 blank answer pages.
+        for _ in range(max(1, int(spacing.get('after_pages') or 1))):
+            doc.add_page_break()
         return True
     else:
-        # Skip lines after
+        ruled = allow_ruled and spacing.get('after_style') == 'ruled'
         for _ in range(spacing['after_lines']):
-            doc.add_paragraph()
+            if ruled:
+                add_answer_line(doc)
+            else:
+                doc.add_paragraph()
         return False
 
 
@@ -1981,7 +2172,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
             or a legacy answer_mode string (QUE_ONLY, QUE_ANS, QUE_SOL,
             QUE_THEN_ANS, QUE_THEN_SOL); a legacy QUE_THEN_ANS uses the compact
             key for MC when ``mc_answer_key_options['enabled']``.
-        spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines
+        spacing_config: Dict with mc and cq sub-dicts containing before_mode, before_lines, after_mode, after_lines, after_style (blank / ruled)
         show_qid: Show question ID for questions
         show_qid_answer: Show question ID for answers/solutions
         version_priority: ordered list of version codes (highest priority first),
@@ -2096,7 +2287,6 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
         id(e['question']): (e['heading_qid'], e['heading_seq'])
         for e in leaf_entries
     }
-    stem_spacing = _stem_que_spacing(spacing_config)
     emitted = {'ANS': set(), 'SOL': set()}
 
     def emit_answer(question, atype, answer_show_qid, seq_no):
@@ -2123,14 +2313,33 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
             id(e): s for e, s in zip(heading_entries, suffixes)
         }
 
+    marks_memo = {}
+
+    def _root_key(question):
+        r = question_root(question)
+        return getattr(r, 'id', id(r))
+
+    def _ends_question_flags(questions):
+        keys = [_root_key(q) for q in questions]
+        return [i + 1 == len(keys) or keys[i + 1] != keys[i] for i in range(len(keys))]
+
     def emit_que_pass(with_inline_answer=False):
         """Render stem + leaf QUE items, each leaf followed by its answer when inline."""
         nonlocal last_had_page_break, prev_section_key
+        prev_root = None
+        que_ends = _ends_question_flags([e['question'] for e in que_entries])
         for i, entry in enumerate(que_entries):
             question = entry['question']
             entry_show_qid = show_qid and entry['heading_qid']
             entry_seq = entry['heading_seq']
+            root_key = _root_key(question)
+            starts_question = root_key != prev_root
+            ends_question = que_ends[i]
+            prev_root = root_key
             if entry['role'] == 'stem':
+                stem_spacing = resolve_entry_spacing(
+                    question, spacing_config, stem_entry=True,
+                    starts_question=starts_question, marks_memo=marks_memo)
                 add_before_spacing(doc, stem_spacing, last_had_page_break, i == 0)
                 add_question_content_to_doc(
                     doc, question, 'QUE', entry_show_qid, source_path, version_priority,
@@ -2141,7 +2350,9 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                 last_had_page_break = add_after_spacing(doc, stem_spacing)
                 continue
 
-            spacing = get_question_spacing_config(question, spacing_config)
+            spacing = resolve_entry_spacing(
+                question, spacing_config, starts_question=starts_question,
+                ends_question=ends_question, marks_memo=marks_memo)
             if any_section_heading:
                 prev_section_key = _add_section_heading(
                     doc, question, prev_section_key, section_fields, keep_together,
@@ -2162,7 +2373,8 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                         question, atype,
                         show_qid_answer and entry['heading_qid'], entry_seq,
                     )
-            last_had_page_break = add_after_spacing(doc, spacing)
+            last_had_page_break = add_after_spacing(
+                doc, spacing, allow_ruled=not with_inline_answer)
 
     # Placement: none = questions only; inline = each question followed by its
     # answer; end = all questions, then one answers section. MC and CQ leaves
@@ -2193,6 +2405,20 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
         leaf_questions = [e['question'] for e in leaf_entries]
         leaf_seq_nos = [e['seq_no'] if e['seq_no'] is not None else (seq_start + i)
                         for i, e in enumerate(leaf_entries)]
+        prev_ans_root = None
+        ans_ends = dict(zip(map(id, leaf_questions), _ends_question_flags(leaf_questions)))
+
+        def answer_spacing(question):
+            nonlocal prev_ans_root
+            if not apply_spacing_to_ans:
+                return minimal_ans_spacing
+            root_key = _root_key(question)
+            starts = root_key != prev_ans_root
+            prev_ans_root = root_key
+            return resolve_entry_spacing(question, spacing_config, starts_question=starts,
+                                         ends_question=ans_ends.get(id(question), True),
+                                         marks_memo=marks_memo)
+
         if answer_config['mc'] == 'KEY':
             answer_content_started = False
             for segment in _partition_mc_answer_runs(
@@ -2212,11 +2438,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                     continue
 
                 question = segment['question']
-                spacing = (
-                    get_question_spacing_config(question, spacing_config)
-                    if apply_spacing_to_ans
-                    else minimal_ans_spacing
-                )
+                spacing = answer_spacing(question)
                 add_before_spacing(
                     doc, spacing, last_had_page_break, not answer_content_started
                 )
@@ -2234,7 +2456,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
         else:
             for i, entry in enumerate(leaf_entries):
                 question = entry['question']
-                spacing = get_question_spacing_config(question, spacing_config) if apply_spacing_to_ans else minimal_ans_spacing
+                spacing = answer_spacing(question)
                 add_before_spacing(doc, spacing, last_had_page_break, i == 0)
                 emit_answer(
                     question, answer_type_for(question),

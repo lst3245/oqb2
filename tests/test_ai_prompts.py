@@ -154,6 +154,21 @@ class ParserContractTests(unittest.TestCase):
         self.assertEqual(out['q_type'], 'MC')
         self.assertEqual(out['level'], 2)
         self.assertEqual(out['major_topic'], 'Algebra')
+        self.assertIsNone(out['marks'])
+
+    def test_parse_tag_result_marks(self):
+        self.assertEqual(ai_prompts.parse_tag_result('{"marks": 4}')['marks'], 4)
+        self.assertEqual(ai_prompts.parse_tag_result('{"marks": "(3 marks)"}')['marks'], 3)
+        self.assertIsNone(ai_prompts.parse_tag_result('{"marks": 1.5}')['marks'])
+        self.assertIsNone(ai_prompts.parse_tag_result('{"marks": 500}')['marks'])
+        self.assertIn('marks', ai_prompts.TAG_FIELD_LABELS)
+        self.assertIn('"marks"', ai_prompts.PROMPTS_REGISTRY['TAG_FORMAT']['default'])
+
+    def test_clean_marks(self):
+        c = ai_prompts.clean_marks
+        self.assertEqual([c(2), c('2'), c('[2]'), c('2 marks'), c(2.0), c('0')], [2, 2, 2, 2, 2, 0])
+        for bad in (None, True, '', '2-3', 'two', -1, 101, '1.5'):
+            self.assertIsNone(c(bad), bad)
 
     def test_parse_figure_boxes_contract(self):
         out = ai_prompts.parse_figure_boxes(
@@ -191,6 +206,18 @@ class ParserContractTests(unittest.TestCase):
             ' {"label": "3b", "box": [0, 800, 1000, 950]}]')
         self.assertEqual([b['label'] for b in out], ['stem', 'a', 'ci', 'b'])
         self.assertTrue(all(0 <= v <= 1 for b in out for v in b['box']))
+
+    def test_box_parsers_keep_marks(self):
+        q = ai_prompts.parse_question_boxes(
+            '[{"qno": 5, "box": [0, 0, 1000, 500], "marks": 12},'
+            ' {"qno": 6, "box": [0, 500, 1000, 900]}]')
+        self.assertEqual([b['marks'] for b in q], [12, None])
+        p = ai_prompts.parse_part_boxes(
+            '[{"label": "stem", "box": [0, 0, 1000, 200], "marks": 12},'
+            ' {"label": "a", "box": [0, 200, 1000, 500], "marks": "(4 marks)"}]')
+        self.assertEqual([b['marks'] for b in p], [None, 4])
+        salvaged = ai_prompts.parse_question_boxes('[{"qno": 5, "box": [0, 0, 1000, 500], "marks": 3,}]')
+        self.assertEqual(salvaged[0]['marks'], 3)
 
     def test_parse_part_boxes_drops_invalid_labels(self):
         out = ai_prompts.parse_part_boxes(

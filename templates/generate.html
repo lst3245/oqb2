@@ -420,6 +420,10 @@
                                                             <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforePage" value="page">
                                                             <label class="form-check-label small" for="mcBeforePage">Start on a new page</label>
                                                         </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_before_mode" id="mcBeforeMarks" value="marks">
+                                                            <label class="form-check-label small" for="mcBeforeMarks">By marks (subject rules)</label>
+                                                        </div>
                                                     </div>
                                                     <div class="col-12 col-lg-6">
                                                         <label class="form-label small fw-bold mb-1">After</label>
@@ -430,6 +434,17 @@
                                                         <div class="form-check">
                                                             <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterPage" value="page">
                                                             <label class="form-check-label small" for="mcAfterPage">Add a page break</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="mc_after_mode" id="mcAfterMarks" value="marks">
+                                                            <label class="form-check-label small" for="mcAfterMarks">By marks (subject rules)</label>
+                                                        </div>
+                                                        <div class="small mt-1">
+                                                            <label for="mcAfterStyle" class="me-1">Skipped lines are</label>
+                                                            <select class="form-select form-select-sm d-inline-block w-auto py-0" name="mc_after_style" id="mcAfterStyle" title="Answer lines are ruled writing lines in the questions section; page breaks stay blank">
+                                                                <option value="blank" selected>Blank space</option>
+                                                                <option value="ruled">Answer lines</option>
+                                                            </select>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -449,6 +464,10 @@
                                                             <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforePage" value="page">
                                                             <label class="form-check-label small" for="cqBeforePage">Start on a new page</label>
                                                         </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_before_mode" id="cqBeforeMarks" value="marks">
+                                                            <label class="form-check-label small" for="cqBeforeMarks">By marks (subject rules)</label>
+                                                        </div>
                                                     </div>
                                                     <div class="col-12 col-lg-6">
                                                         <label class="form-label small fw-bold mb-1">After</label>
@@ -460,8 +479,35 @@
                                                             <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterPage" value="page">
                                                             <label class="form-check-label small" for="cqAfterPage">Add a page break</label>
                                                         </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="radio" name="cq_after_mode" id="cqAfterMarks" value="marks">
+                                                            <label class="form-check-label small" for="cqAfterMarks">By marks (subject rules)</label>
+                                                        </div>
+                                                        <div class="small mt-1">
+                                                            <label for="cqAfterStyle" class="me-1">Skipped lines are</label>
+                                                            <select class="form-select form-select-sm d-inline-block w-auto py-0" name="cq_after_style" id="cqAfterStyle" title="Answer lines are ruled writing lines in the questions section; page breaks stay blank">
+                                                                <option value="blank" selected>Blank space</option>
+                                                                <option value="ruled">Answer lines</option>
+                                                            </select>
+                                                        </div>
                                                     </div>
                                                 </div>
+                                            </div>
+                                        </div>
+                                        <div class="small text-muted mb-3" id="marksSpacingInfo">
+                                            <i class="bi bi-rulers me-1"></i>
+                                            <strong>By marks</strong> uses each subject's rules: <em>Before</em> on the whole question's total marks (once, before its first part), <em>After</em> on each part's own marks, or once after the whole question when the subject's rule says so. Questions without marks or a matching rule use the lines value above.
+                                            <div class="mt-1 d-flex flex-wrap align-items-center gap-2">
+                                                <span id="marksSpacingSubjects">
+                                                    {% for s in marks_subjects %}
+                                                    <span class="badge {{ 'bg-success' if s.has_rules else 'bg-light text-muted border' }}" data-sid="{{ s.id }}" data-has-rules="{{ 1 if s.has_rules else 0 }}" title="{{ 'Has marks rules' if s.has_rules else 'No marks rules' }}">{{ s.id }}{% if not s.has_rules %} (no rules){% endif %}</span>
+                                                    {% endfor %}
+                                                </span>
+                                                {% if marks_subjects %}
+                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0" id="editMarksRulesBtn">
+                                                    <i class="bi bi-sliders me-1"></i>Edit marks rules
+                                                </button>
+                                                {% endif %}
                                             </div>
                                         </div>
                                         <div class="form-check mb-2">
@@ -620,6 +666,74 @@
         </div>
     </div>
 </div>
+
+<!-- Marks spacing rules (per subject) -->
+<div class="modal fade" id="marksRulesModal" tabindex="-1" aria-labelledby="marksRulesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="marksRulesModalLabel"><i class="bi bi-rulers"></i> Marks spacing rules</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <label class="form-label small fw-bold mb-0" for="marksRulesSubject">Subject</label>
+                    <select class="form-select form-select-sm w-auto" id="marksRulesSubject">
+                        {% for s in marks_subjects %}
+                        <option value="{{ s.id }}" data-can-edit="{{ 1 if s.can_edit else 0 }}">{{ s.id }} — {{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="badge bg-warning text-dark" id="marksRulesEditedBadge" style="display:none;">Edited for this paper</span>
+                </div>
+                <div class="alert alert-info py-1 px-2 small mb-2">
+                    <strong>Use for this paper</strong> applies your changes to this generation only; the subject's saved rules are not changed.
+                    <span id="marksRulesAdminNote" style="display:none;">As a subject admin you can also <strong>Save as subject default</strong>.</span>
+                </div>
+                <p class="small text-muted mb-3">
+                    Bands are checked from the smallest "up to" value; the first band the marks fit wins. Leave "up to" blank for "anything above".
+                    When no band matches, the per-mark rule (if set) gives <code>base + lines per mark × marks</code> lines. Otherwise the card's lines value is used.
+                    <em>Before</em> uses the whole question's total. <em>After</em> goes either after each part (on that part's marks) or once after the whole question (on its total; the parts then run on with no gap).
+                </p>
+                <div id="marksRulesStatus" class="small text-muted mb-2"></div>
+                <div class="row g-3" id="marksRulesEditor">
+                    {% for side in ('before', 'after') %}
+                    <div class="col-12 col-lg-6" data-marks-side="{{ side }}">
+                        {% if side == 'before' %}
+                        <h6 class="mb-1">Before a question <span class="small text-muted fw-normal">(on its total marks)</span></h6>
+                        {% else %}
+                        <h6 class="mb-1 d-flex flex-wrap align-items-center gap-1">After
+                            <select class="form-select form-select-sm w-auto py-0 marks-after-per" title="Where the after space goes for a question with parts">
+                                <option value="part">each part (on the part's marks)</option>
+                                <option value="question">the whole question (after its last part, on its total)</option>
+                            </select>
+                        </h6>
+                        {% endif %}
+                        <table class="table table-sm align-middle mb-1">
+                            <thead><tr class="small text-muted"><th>Up to marks</th><th>Action</th><th>Count</th><th></th></tr></thead>
+                            <tbody class="marks-bands"></tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 marks-add-band"><i class="bi bi-plus"></i> Add band</button>
+                        <div class="small mt-2">
+                            <span class="fw-bold">Per-mark fallback:</span>
+                            <input type="number" class="form-control form-control-sm d-inline-block marks-pm-base" style="width:60px;" min="0" max="200" placeholder="0"> lines +
+                            <input type="number" class="form-control form-control-sm d-inline-block marks-pm-rate" style="width:65px;" min="0" max="50" step="0.5" placeholder="0"> per mark, max
+                            <input type="number" class="form-control form-control-sm d-inline-block marks-pm-max" style="width:65px;" min="0" max="200" placeholder="—">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="alert alert-danger py-1 px-2 small mt-2 mb-0" id="marksRulesError" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" id="marksRulesClear" title="Delete the subject's saved rules">Clear saved rules</button>
+                <button type="button" class="btn btn-outline-secondary me-auto" id="marksRulesReset" style="display:none;" title="Drop your edits and use the subject's saved rules">Use saved rules</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-outline-primary" id="marksRulesSave"><i class="bi bi-cloud-check"></i> Save as subject default</button>
+                <button type="button" class="btn btn-primary" id="marksRulesApply"><i class="bi bi-check-lg"></i> Use for this paper</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -642,7 +756,9 @@ const SORT_FIELDS = {
     'source': 'Source',
     'section': 'Section',
     'q_type': 'Question Type',
-    'correct_percentage': 'Correct %'
+    'correct_percentage': 'Correct %',
+    'marks': 'Marks (part)',
+    'total_marks': 'Marks (whole question)'
 };
 
 let sortConfig = {{ sort_config | tojson | safe }};
@@ -924,56 +1040,45 @@ function restoreGenerationOptions(opts) {
     }
     
     // MC spacing - before
-    if (opts.mc_before_mode) {
-        if (opts.mc_before_mode === 'page') {
-            document.getElementById('mcBeforePage').checked = true;
-        } else {
-            document.getElementById('mcBeforeLines').checked = true;
-        }
-    }
+    // Modes: lines / page / marks (unknown -> lines)
+    const restoreSpacingMode = (prefix, mode) => {
+        if (!mode) return;
+        const suffix = mode === 'page' ? 'Page' : mode === 'marks' ? 'Marks' : 'Lines';
+        const el = document.getElementById(prefix + suffix);
+        if (el) el.checked = true;
+    };
+    restoreSpacingMode('mcBefore', opts.mc_before_mode);
     if (opts.mc_before_lines !== undefined) {
         const el = document.querySelector('input[name="mc_before_lines"]');
         if (el) el.value = opts.mc_before_lines;
     }
     
     // MC spacing - after
-    if (opts.mc_after_mode) {
-        if (opts.mc_after_mode === 'page') {
-            document.getElementById('mcAfterPage').checked = true;
-        } else {
-            document.getElementById('mcAfterLines').checked = true;
-        }
-    }
+    restoreSpacingMode('mcAfter', opts.mc_after_mode);
     if (opts.mc_after_lines !== undefined) {
         const el = document.querySelector('input[name="mc_after_lines"]');
         if (el) el.value = opts.mc_after_lines;
     }
     
     // CQ spacing - before
-    if (opts.cq_before_mode) {
-        if (opts.cq_before_mode === 'page') {
-            document.getElementById('cqBeforePage').checked = true;
-        } else {
-            document.getElementById('cqBeforeLines').checked = true;
-        }
-    }
+    restoreSpacingMode('cqBefore', opts.cq_before_mode);
     if (opts.cq_before_lines !== undefined) {
         const el = document.querySelector('input[name="cq_before_lines"]');
         if (el) el.value = opts.cq_before_lines;
     }
     
     // CQ spacing - after
-    if (opts.cq_after_mode) {
-        if (opts.cq_after_mode === 'page') {
-            document.getElementById('cqAfterPage').checked = true;
-        } else {
-            document.getElementById('cqAfterLines').checked = true;
-        }
-    }
+    restoreSpacingMode('cqAfter', opts.cq_after_mode);
     if (opts.cq_after_lines !== undefined) {
         const el = document.querySelector('input[name="cq_after_lines"]');
         if (el) el.value = opts.cq_after_lines;
     }
+
+    // After-lines style (older presets have none -> blank)
+    [['mcAfterStyle', opts.mc_after_style], ['cqAfterStyle', opts.cq_after_style]].forEach(([id, v]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v === 'ruled' ? 'ruled' : 'blank';
+    });
     
     // Sort mode
     if (opts.sort_mode) {
@@ -1280,6 +1385,8 @@ function getCurrentGenerationOptions() {
         cq_before_lines: parseInt(getInputValue('cq_before_lines') || '0', 10) || 0,
         cq_after_mode: getRadioValue('cq_after_mode'),
         cq_after_lines: parseInt(getInputValue('cq_after_lines') || '0', 10) || 0,
+        mc_after_style: document.getElementById('mcAfterStyle')?.value || 'blank',
+        cq_after_style: document.getElementById('cqAfterStyle')?.value || 'blank',
         info_fields: {
             topic: getCheckedValue('infoTopic'),
             subtopic: getCheckedValue('infoSubtopic'),
@@ -1604,6 +1711,9 @@ function syncAdvancedOptionSummaries({openCustomized = false} = {}) {
             parseInt(getInputValue('cq_before_lines') || '0', 10) !== 0) spacingCount++;
     if (!document.getElementById('cqAfterLines').checked ||
             parseInt(getInputValue('cq_after_lines') || '1', 10) !== 1) spacingCount++;
+    ['mcAfterStyle', 'cqAfterStyle'].forEach(id => {
+        if ((document.getElementById(id)?.value || 'blank') !== 'blank') spacingCount++;
+    });
     if (!document.getElementById('keepTogether').checked) spacingCount++;
     const answerState = readAnswerState();
     if (answerState.placement === 'end' && answerState.anyAnswer &&
@@ -1950,6 +2060,9 @@ function submitGeneration(e) {
     const form = document.getElementById('generateForm');
     const formData = new FormData(form);
     const btn = document.getElementById('generateBtn');
+    if (Object.keys(window.oqbMarksRulesOverride || {}).length) {
+        formData.set('marks_rules_override', JSON.stringify(window.oqbMarksRulesOverride));
+    }
     
     // Disable button briefly
     btn.disabled = true;
@@ -2121,6 +2234,225 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ---- Marks spacing rules modal (per subject; Generate "By marks" mode) ----
+// Per-paper edits: {subject_id: rules | null}, sent as `marks_rules_override`
+// with Generate. Anyone who can generate may edit; only subject admins save.
+window.oqbMarksRulesOverride = {};
+(function () {
+    const modalEl = document.getElementById('marksRulesModal');
+    const openBtn = document.getElementById('editMarksRulesBtn');
+    if (!modalEl || !openBtn) return;
+    const subjectSel = document.getElementById('marksRulesSubject');
+    const statusEl = document.getElementById('marksRulesStatus');
+    const errEl = document.getElementById('marksRulesError');
+    const saveBtn = document.getElementById('marksRulesSave');
+    const applyBtn = document.getElementById('marksRulesApply');
+    const resetBtn = document.getElementById('marksRulesReset');
+    const clearBtn = document.getElementById('marksRulesClear');
+    const overrides = window.oqbMarksRulesOverride;
+    const urlFor = sid => `{{ url_for('admin.get_marks_spacing', subject_id='__SID__') }}`
+        .replace('__SID__', encodeURIComponent(sid));
+    const checkUrl = `{{ url_for('generator.check_marks_rules') }}`;
+    const hasOverride = sid => Object.prototype.hasOwnProperty.call(overrides, sid);
+
+    function sideEl(side) { return modalEl.querySelector(`[data-marks-side="${side}"]`); }
+    function canEdit() { return subjectSel.selectedOptions[0]?.dataset.canEdit === '1'; }
+
+    function addBand(side, band = {}) {
+        const tr = document.createElement('tr');
+        const mode = band.mode === 'pages' ? 'pages' : 'lines';
+        tr.innerHTML = `
+            <td><input type="number" class="form-control form-control-sm mb-max" min="0" max="999" placeholder="any" style="width:80px;"></td>
+            <td><select class="form-select form-select-sm mb-mode" style="width:auto;">
+                <option value="lines">Skip lines</option>
+                <option value="pages">Page breaks</option>
+            </select></td>
+            <td><input type="number" class="form-control form-control-sm mb-count" min="0" max="200" style="width:70px;"></td>
+            <td><button type="button" class="btn btn-sm btn-link text-danger mb-del" title="Remove"><i class="bi bi-x-lg"></i></button></td>`;
+        tr.querySelector('.mb-max').value = band.max ?? '';
+        tr.querySelector('.mb-mode').value = mode;
+        tr.querySelector('.mb-count').value = band.count ?? (mode === 'pages' ? 1 : 0);
+        tr.querySelector('.mb-del').addEventListener('click', () => tr.remove());
+        sideEl(side).querySelector('.marks-bands').appendChild(tr);
+    }
+
+    function fill(rules) {
+        ['before', 'after'].forEach(side => {
+            const cfg = (rules && rules[side]) || {};
+            const el = sideEl(side);
+            el.querySelector('.marks-bands').innerHTML = '';
+            (cfg.bands || []).forEach(b => addBand(side, b));
+            const pm = cfg.per_mark || {};
+            el.querySelector('.marks-pm-base').value = pm.base ?? '';
+            el.querySelector('.marks-pm-rate').value = pm.lines_per_mark ?? '';
+            el.querySelector('.marks-pm-max').value = pm.max_lines ?? '';
+        });
+        modalEl.querySelector('.marks-after-per').value =
+            (rules && rules.after && rules.after.per === 'question') ? 'question' : 'part';
+    }
+
+    function read() {
+        const out = {};
+        ['before', 'after'].forEach(side => {
+            const el = sideEl(side);
+            const bands = [...el.querySelectorAll('.marks-bands tr')].map(tr => ({
+                max: tr.querySelector('.mb-max').value === '' ? null : tr.querySelector('.mb-max').value,
+                mode: tr.querySelector('.mb-mode').value,
+                count: tr.querySelector('.mb-count').value || 0,
+            }));
+            const base = el.querySelector('.marks-pm-base').value;
+            const rate = el.querySelector('.marks-pm-rate').value;
+            const max = el.querySelector('.marks-pm-max').value;
+            const perMark = (base || rate) ? {base: base || 0, lines_per_mark: rate || 0, max_lines: max === '' ? null : max} : null;
+            out[side] = {bands, per_mark: perMark};
+        });
+        out.after.per = modalEl.querySelector('.marks-after-per').value;
+        return out;
+    }
+
+    function setEditable(on) {
+        modalEl.querySelectorAll('#marksRulesEditor input, #marksRulesEditor select, #marksRulesEditor button')
+            .forEach(el => { el.disabled = !on; });
+        applyBtn.disabled = !on;
+    }
+
+    function syncButtons() {
+        const admin = canEdit();
+        const edited = hasOverride(subjectSel.value);
+        saveBtn.style.display = admin ? '' : 'none';
+        clearBtn.style.display = admin ? '' : 'none';
+        document.getElementById('marksRulesAdminNote').style.display = admin ? '' : 'none';
+        resetBtn.style.display = edited ? '' : 'none';
+        document.getElementById('marksRulesEditedBadge').style.display = edited ? '' : 'none';
+    }
+
+    function showError(msg) {
+        errEl.textContent = msg || '';
+        errEl.style.display = msg ? '' : 'none';
+    }
+
+    // Badge shows: edited for this paper (amber) > saved rules (green) > none.
+    function updateBadge(sid, savedHasRules) {
+        document.querySelectorAll('#marksSpacingSubjects .badge').forEach(b => {
+            if (b.dataset.sid !== sid) return;
+            if (savedHasRules !== undefined) b.dataset.hasRules = savedHasRules ? '1' : '0';
+            const saved = b.dataset.hasRules === '1';
+            if (hasOverride(sid)) {
+                b.className = 'badge bg-warning text-dark';
+                b.textContent = `${sid} (edited)`;
+                b.title = 'Rules edited for this paper only (not saved)';
+            } else {
+                b.className = 'badge ' + (saved ? 'bg-success' : 'bg-light text-muted border');
+                b.textContent = saved ? sid : `${sid} (no rules)`;
+                b.title = saved ? 'Has marks rules' : 'No marks rules';
+            }
+        });
+    }
+    window.oqbSetMarksRulesOverride = function (map) {
+        Object.keys(overrides).forEach(k => delete overrides[k]);
+        Object.entries(map || {}).forEach(([sid, rules]) => { overrides[sid] = rules; });
+        document.querySelectorAll('#marksSpacingSubjects .badge').forEach(b => updateBadge(b.dataset.sid));
+    };
+
+    async function load() {
+        const sid = subjectSel.value;
+        showError('');
+        syncButtons();
+        if (hasOverride(sid)) {
+            fill(overrides[sid]);
+            setEditable(true);
+            statusEl.textContent = 'Showing your edits for this paper. "Use saved rules" goes back to the subject\'s rules.';
+            return;
+        }
+        statusEl.textContent = 'Loading…';
+        fill(null);
+        setEditable(false);
+        try {
+            const resp = await fetch(urlFor(sid), {credentials: 'same-origin'});
+            const data = await resp.json();
+            if (!resp.ok || !data.success) throw new Error(data.error || `HTTP ${resp.status}`);
+            fill(data.rules);
+            statusEl.textContent = data.rules ? '' : 'No rules yet: "By marks" falls back to the lines values for this subject.';
+            setEditable(true);
+        } catch (err) {
+            statusEl.textContent = '';
+            showError(err.message || 'Could not load rules');
+        }
+    }
+
+    async function postJson(url, body) {
+        const resp = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.success) throw new Error(data.error || `HTTP ${resp.status}`);
+        return data;
+    }
+
+    async function applyForPaper() {
+        const sid = subjectSel.value;
+        showError('');
+        applyBtn.disabled = true;
+        try {
+            const data = await postJson(checkUrl, {rules: read()});
+            overrides[sid] = data.rules;
+            fill(data.rules);
+            updateBadge(sid);
+            syncButtons();
+            statusEl.textContent = data.rules
+                ? 'Used for this paper only (not saved).'
+                : 'No rules for this paper: "By marks" uses the lines values.';
+        } catch (err) {
+            showError(err.message || 'Invalid rules');
+        } finally {
+            applyBtn.disabled = false;
+        }
+    }
+
+    async function save(rules) {
+        const sid = subjectSel.value;
+        showError('');
+        saveBtn.disabled = true;
+        try {
+            const data = await postJson(urlFor(sid), {rules});
+            delete overrides[sid];
+            fill(data.rules);
+            updateBadge(sid, !!data.rules);
+            syncButtons();
+            statusEl.textContent = data.rules ? 'Saved as the subject default.' : 'Saved rules cleared.';
+        } catch (err) {
+            showError(err.message || 'Save failed');
+        } finally {
+            saveBtn.disabled = false;
+        }
+    }
+
+    modalEl.querySelectorAll('.marks-add-band').forEach(btn => btn.addEventListener('click', () => {
+        addBand(btn.closest('[data-marks-side]').dataset.marksSide);
+    }));
+    subjectSel.addEventListener('change', load);
+    applyBtn.addEventListener('click', applyForPaper);
+    saveBtn.addEventListener('click', () => save(read()));
+    resetBtn.addEventListener('click', () => {
+        delete overrides[subjectSel.value];
+        updateBadge(subjectSel.value);
+        load();
+    });
+    clearBtn.addEventListener('click', () => {
+        if (confirm(`Delete the saved marks spacing rules for ${subjectSel.value}?`)) save(null);
+    });
+    openBtn.addEventListener('click', () => {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        load();
+    });
+    if (IS_REGEN && savedGenerationOptions.marks_rules_override) {
+        window.oqbSetMarksRulesOverride(savedGenerationOptions.marks_rules_override);
+    }
+})();
 </script>
 
 <style>

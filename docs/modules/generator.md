@@ -37,6 +37,7 @@ All routes are `@login_required`. `_require_generate_permission()` aborts 403 wh
 | GET | `/generate/status/<int:file_id>` | login; owner or super admin (403 JSON) | `{id, status, error_message, display_name, filename}`. Polled every 2 s by `generate.html`. |
 | GET | `/generate/download/<int:file_id>` | login + can_generate; owner or super admin | Sends the `.docx` / `.zip` with mimetype from the extension. Non-completed or missing file → flash + redirect to `/user/files`. |
 | GET | `/generate/pdf/<int:file_id>` | login; `_user_can_view_file` (owner, super admin, or shared-with) | **Lazy PDF.** Serves the cached sibling if present, else builds it synchronously with Word COM, caches, then sends. JSON errors: 403 access, 409 not completed, 400 not convertible (filename not `.docx`/`.zip`), 404 source missing on disk, 503 Word COM unavailable, 500 build failed. Download name is `<display_name>.pdf` or `<display_name>.pdf.zip`. |
+| POST | `/generate/api/marks-rules/check` | login + can_generate | JSON `{rules}` → `{success, rules}` (canonical or null) / 400 `{success:false, error}`. Validates marks rules edited for one paper; writes nothing ([marks.md](marks.md)). |
 | POST | `/generate/api/sort-groups` | login + can_generate | Body `question_ids[]` + `group_fields` (JSON array or csv). Scopes to accessible subjects. Returns `{group_fields, blocks:[{key, labels, count}]}` for the Reorder-blocks modal. |
 | GET | `/generate/api/viewer_asset/<int:question_id>/<asset_type>?version_priority=EN,CH,BI,ENO,CHO` | login; 403 without subject access | `asset_type` in `QUE/ANS/SOL/WHOLE` (400 otherwise; WHOLE serves only the Present `Whole` chip). Best `(format, version)` group for the viewer. Falls back ANS ↔ SOL when the requested type is missing (`asset_type` in the response reports the type actually used). Returns `{parts:[{id,type,format,version,part_number,url}], id, question_id, type, format, version, url, asset_type, html?, thumbnail_url?}`; `html` for MD, `thumbnail_url` for DOC when a cached PNG exists (else one is scheduled). Legacy `?lang=EN` accepted. |
 
@@ -102,10 +103,15 @@ Contiguous eligible MC answer runs become Answer Text blocks. Eligibility (`_com
 
 ```python
 spacing_config = {
-    'mc': {'before_mode': 'lines'|'page', 'before_lines': int, 'after_mode': 'lines'|'page', 'after_lines': int},
-    'cq': { ... same ... }
+    'mc': {'before_mode': 'lines'|'page'|'marks', 'before_lines': int, 'after_mode': 'lines'|'page'|'marks', 'after_lines': int, 'after_style': 'blank'|'ruled'},
+    'cq': { ... same ... },
+    'marks_rules': {subject_id: rules | None},   # added in _generate_in_background when any mode is 'marks'
 }
 ```
+
+**By marks** (`marks` mode): `resolve_entry_spacing` turns each render-plan entry into concrete `lines` / `page` spacing from its subject's rules (`Subject.marks_spacing`, `app/marks_spacing.py`). *Before* uses the whole-question total and fires only on the entry that starts a whole question; *after* uses the leaf's own marks (a stem has none), or, when the subject's rule has `after.per = question`, the whole-question total once on the entry that ends the question (`ends_question` look-ahead in `emit_que_pass` / `answer_spacing`), with 0 lines between its parts. No rule, unknown marks, or a later part falls back to the card's lines value. A page action carries a count (`before_pages` / `after_pages`, N page breaks; a before-page directly after a break emits N−1). Spec, rule JSON and routes: [marks.md](marks.md).
+
+**Answer lines** (`after_style: 'ruled'`, `_spacing_style`, unknown → `blank`): the *after* lines, manual or resolved from marks rules, are printed as full-width ruled writing lines (`add_answer_line`: a right tab at the margin with an underscore leader, exact line pitch `ANSWER_LINE_HEIGHT_PT` = 22 pt ≈ 0.78 cm, so N ruled lines are taller than N blank lines). Only the question pass with no inline answer passes `allow_ruled=True` to `add_after_spacing`; the answers section, inline answers, *before* spacing and page breaks stay blank.
 
 Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to default to a page break before and after; saved presets / regenerated files keep whatever they stored). If the previous question already added a page break, a `before_mode='page'` is skipped to avoid a blank page. `apply_spacing_to_ans=False` (default) uses minimal spacing for ANS/SOL in THEN modes.
 
@@ -121,7 +127,9 @@ Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to defa
 | `answer_type_cq` | `none` / `ANS` / `SOL` | `ANS` |
 | `answer_fallback` | bool | form default on; missing in a legacy config = off |
 | `answer_mode` | legacy string | no longer written; read through `_normalize_answer_config` when the keys above are absent |
-| `mc_before_mode`, `mc_before_lines`, `mc_after_mode`, `mc_after_lines`, `cq_*` | see spacing | stored flat |
+| `mc_before_mode`, `mc_before_lines`, `mc_after_mode`, `mc_after_lines`, `cq_*` | see spacing | stored flat; modes `lines` / `page` / `marks` (unknown → `lines`); in `marks` mode the lines value is the fallback |
+| `mc_after_style`, `cq_after_style` | `blank` / `ruled` | `blank` (absent in older presets / files = blank) |
+| `marks_rules_override` | `{subject_id: rules \| null}` | `{}`; per-paper marks rules (form field JSON), merged over saved subject rules; not in presets |
 | `compact_mc_answers` | bool | derived: `answer_placement == 'end' and answer_type_mc == 'KEY'`; read only for legacy configs |
 | `mc_key_layout` | `table` / `tabs` | `table` |
 | `mc_key_columns` | int 1–20 | 5 |
@@ -194,6 +202,7 @@ One builder, `_format_section_label(question, fields, numbering, suffix, missing
 - `getCurrentGenerationOptions()` serialises every control (incl. `sort_config`, `sort_group_order`, compact-MC options, `hierarchy_mode`); `restoreGenerationOptions(opts)` is the single restore path for regen and presets.
 - Answers controls: `#answerPlacement`, `#answerTypeMc` (its `#answerTypeMcKey` option is hidden + disabled unless placement is `end`; switching away resets `KEY` to `ANS`), `#answerTypeCq`, `#answerFallback` (checked by default). `readAnswerState()` feeds `updateAnswerQidVisibility()`: types + fallback show when placement is not `none`; `show_qid_answer` when any type answers; Answer source when any type is ANS/KEY or fallback is on with SOL; answer spacing only for `end`; `#compactMcAnswerKeyPanel` only for MC = `KEY` (no checkbox of its own).
 - Compact-key numbering controls are hidden (not disabled/cleared) while `show_seq_no` is off. `updateAnswerQidVisibility()` must not overwrite the user's `show_qid_answer`. `updateFileExtLabel()` shows `.zip` vs `.docx`.
+- Spacing card: each Before / After group has a third radio **By marks (subject rules)** (`mcBeforeMarks` etc., value `marks`); `restoreSpacingMode` restores all four. `#marksSpacingInfo` lists the selection's subjects (`marks_subjects` from `_marks_subjects_for`: id, name, `has_rules`, `can_edit`) and opens `#marksRulesModal` (subject switcher, band table + per-mark fallback per side) which reads through `GET /admin/subjects/<id>/marks-spacing`. Everyone can edit: **Use for this paper** validates via `/generate/api/marks-rules/check` and keeps the result in `window.oqbMarksRulesOverride` (badge `SID (edited)`; **Use saved rules** drops it); `submitGeneration` sends it as `marks_rules_override`; Regenerate restores it from `generation_options`. **Save as subject default** / **Clear saved rules** (subject admins only) POST to the admin route. See [marks.md](marks.md). Under each After group a **Skipped lines are** select (`mcAfterStyle` / `cqAfterStyle`, `blank` / `ruled`) chooses blank space or answer lines; it is saved in presets and counted in the spacing summary when not blank.
 - Reorder blocks (Auto Sort only, hidden in Manual Sort): `openReorderBlocksModal()` POSTs `question_ids` + `group_fields` to `/generate/api/sort-groups`, stores order in `#sortGroupOrderInput`, persisted in `generation_options` and presets.
 - The selected-questions list reads `localStorage['oqb_selectedQuestions']` to stay in sync with the dashboard.
 - Presets bar: load dropdown (starred first under a Starred optgroup, shared under "Shared by admins"), Save-as-preset modal → `POST /user/gen-profiles/save` (upsert by name; `question_ids` stripped client- and server-side), Manage link → `/user/gen-profiles`. Loading a preset never touches `question_ids` or `filter_data`. See [my-files.md](my-files.md).
@@ -216,7 +225,7 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 
 ## Permissions
 
-- `can_generate()` (role `user`/`admin` or super admin) is required for `/generate/`, `/create`, `/download/<id>`, `/api/sort-groups`. Viewers get 403.
+- `can_generate()` (role `user`/`admin` or super admin) is required for `/generate/`, `/create`, `/download/<id>`, `/api/sort-groups`, `/api/marks-rules/check`. Viewers get 403.
 - `/create` silently drops questions from subjects where the caller is a viewer; 403 if nothing remains.
 - `/status/<id>` and `/download/<id>`: owner or super admin.
 - `/pdf/<id>`: `_user_can_view_file` — owner, super admin, or any user with a `FileShare` on the file or its section. Note the asymmetry: `/download/<id>` is owner/super-admin only, so a share recipient clicking Download on a "Shared with me" row is redirected with an "Access denied" flash; they can still obtain the file through `/generate/pdf/<id>` or `POST /user/files/bulk-download` (both use `_user_can_view_file`). Treat this as a known inconsistency, not a design rule.

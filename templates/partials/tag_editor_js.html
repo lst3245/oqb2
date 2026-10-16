@@ -510,7 +510,7 @@ function clearEditSubchapterSearch() {
 function populateTagForm(questionData) {
     const stemNote = document.getElementById('editStemTagsNote');
     const tagFields = ['editLevel', 'editQType', 'editMajorTopic', 'editMajorSubtopic',
-                       'editChapter', 'editSubchapter'];
+                       'editChapter', 'editSubchapter', 'editMarks'];
     const isStem = !!questionData.is_stem;
     if (stemNote) {
         stemNote.classList.toggle('d-none', !isStem);
@@ -541,6 +541,24 @@ function populateTagForm(questionData) {
     document.getElementById('editSection').value = questionData.section || '';
     document.getElementById('editDescription').value = questionData.description || '';
     document.getElementById('editCorrectPercentage').value = questionData.correct_percentage !== null && questionData.correct_percentage !== undefined ? questionData.correct_percentage : '';
+    const marksEl = document.getElementById('editMarks');
+    if (marksEl) {
+        marksEl.value = (!isStem && questionData.marks !== null && questionData.marks !== undefined) ? questionData.marks : '';
+        marksEl.placeholder = isStem ? 'on parts' : 'e.g. 4';
+    }
+    const marksTotal = document.getElementById('editMarksTotal');
+    if (marksTotal) {
+        const wm = questionData.whole_marks || null;
+        let text = '';
+        if (wm && wm.total !== null && wm.total !== undefined) {
+            text = (isStem ? 'Total ' : 'Whole question: ') + wm.total + ' marks'
+                + (wm.complete ? '' : ' (some parts have no marks)');
+        } else if (isStem) {
+            text = 'No marks on parts yet';
+        }
+        marksTotal.textContent = text;
+        marksTotal.classList.toggle('d-none', !text || (!isStem && wm && wm.total === questionData.marks));
+    }
     document.getElementById('editAnswer').value = questionData.answer || '';
     document.getElementById('editComment').value = questionData.comment || '';
     const answerAiBtns = document.getElementById('editAnswerAiBtns');

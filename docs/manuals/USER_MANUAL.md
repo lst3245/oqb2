@@ -121,6 +121,7 @@ Each card shows:
 - **Explain** opens an AI tutor chat. You can type an optional first question before sending, or leave the box empty for a full explanation. The modal includes small QUE / ANS / SOL preview buttons for any assets that exist, so you can inspect the source material without leaving the chat.
 - Comment text (if set)
 - Correct percentage (if recorded, e.g. "75% correct")
+- Marks (if recorded): a small `3m` badge on a part or single question, and `12 marks` (the total of all parts) in a split question's header
 - An edit button (admins only)
 
 ### Page Size
@@ -138,7 +139,7 @@ Click the **Sort** button (or the sort icon) in the question header bar to open 
 - **Toggle direction** (↑ / ↓) per criterion
 - Click **Apply Sort**
 
-Available sort fields: QID, Question Number, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Chapter, Subchapter, Created Time.
+Available sort fields: QID, Question Number, Year, Level, Topic, Subtopic, Source, Section, Question Type, Correct %, Marks (part), Marks (whole question), Chapter, Subchapter, Created Time. **Marks (part)** uses each part's own marks; **Marks (whole question)** uses the total of all parts, so every part of a 12-mark question sorts as 12. Questions with no marks recorded go last when sorting smallest first.
 
 **Question Number** is the numeric start of the paper token stored in the QID (`Q2`, `Q10`, `Q3a` → 3), not the optional sequential number generated for a document. It sorts numerically, so Q2 comes before Q10, and lettered parts follow their stem.
 
@@ -329,10 +330,16 @@ A drag-to-reorder list of all versions: **EN** (English), **CH** (Chinese), **BI
 
 #### Spacing
 Set separately for MC and CQ questions:
-- **Before question**: skip N lines, or start from a new page
-- **After question**: skip N lines, or start from a new page
+- **Before question**: skip N lines, start from a new page, or **By marks (subject rules)**
+- **After question**: skip N lines, add a page break, or **By marks (subject rules)**
 
 Both start at skip 0 lines before and skip 1 line after. Choose **New page** for CQ if you want each long question on its own page.
+
+**By marks** lets the question's marks decide the space, using rules your subject admin set up. For example, "up to 7 marks: no extra space before; more: start a new page", and after each part "2 marks: 4 lines; up to 9 marks: a page break; more: 2 page breaks", so a long part gets blank answer pages. *Before* looks at the whole question's total marks and applies once, before its first part. *After* depends on the subject: either after each part, using that part's marks, or (as in Maths) once after the whole question, using its total, with the parts printed straight after each other. A question with no marks recorded, or one that no rule covers, gets the number of lines typed next to **Skip … lines**.
+
+Under each **After** group, **Skipped lines are** chooses **Blank space** (default) or **Answer lines**. Answer lines are full-width ruled lines for students to write on, spaced like an exam answer book, so 10 answer lines take more room than 10 blank lines. They apply to the space after each question or part, whether it is a fixed number or comes from **By marks**. Page breaks still give blank pages, and the answers section (and answers printed straight after each question) always uses blank space.
+
+Below the two cards you can see which subjects in your selection have rules (a green badge) and which do not. Click **Edit marks rules** to see them. You can change them for the paper you are making: edit the bands or the per-mark numbers and click **Use for this paper**. The subject's badge turns amber, `(edited)`, and Generate uses your version. Nothing is saved for anyone else; **Use saved rules** goes back to the subject's rules. Regenerating a file from My Files brings your edits back. Subject admins also see **Save as subject default**, which changes the rules for everyone.
 
 In "All Questions Then..." modes, you can also choose whether to apply the same spacing to the answer section.
 
@@ -603,7 +610,7 @@ MATC_DSE_2024_P1_Q5
 The dashboard groups lettered parts under their shared stem when those parts exist. Text printed between parts has its own QID such as `Q7~c` ("before (c)"); the parts after it keep their usual QIDs (`Q7c`, `Q7d`). Math questions that were never split still appear as one card each.
 
 ### Sort Fields Available
-QID · Question Number · Year · Level · Topic · Subtopic · Source · Section · Question Type · Correct % · Chapter · Subchapter · Created Time
+QID · Question Number · Year · Level · Topic · Subtopic · Source · Section · Question Type · Correct % · Marks (part) · Marks (whole question) · Chapter · Subchapter · Created Time
 
 ### Answer Modes Summary
 | Code | Short name |

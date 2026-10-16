@@ -34,9 +34,11 @@ Payload v1 (`PAYLOAD_VERSION = 1`), compact JSON:
  "subtopics":   [{"id": 10, "topic_id": 1, "name": "...", "hidden": false, "sort_order": 1, "description": null}],
  "chapters":    [...], "subchapters": [{"id": 50, "chapter_id": 5, ...}],
  "question_columns": ["id","qid","major_topic_id","major_subtopic_id","chapter_id","subchapter_id",
-                      "level","q_type","section","correct_percentage","minor_topic_ids","subtopic_ids"],
- "questions": [[1891,"MATC_DSE_2012_P2_Q1",33,28,null,null,null,"MC","A",94,[],[]], ...]}
+                      "level","q_type","section","correct_percentage","marks","minor_topic_ids","subtopic_ids"],
+ "questions": [[1891,"MATC_DSE_2012_P2_Q1",33,28,null,null,null,"MC","A",94,null,[],[]], ...]}
 ```
+
+`marks` was added on 2026-10-16; points taken before carry no `marks` column, so restoring one leaves live marks unchanged.
 
 What is **not** stored: `answer`, `comment`, question `description`, `verified*`, asset rows / check state, files, hierarchy (`parent_id`, `part`), other subjects.
 
@@ -70,11 +72,12 @@ All `@login_required`. Prefix `/admin`.
   | `tag-import` | `import_question_tags` — on each subject's first CSV row, only when a snapshotted column is imported |
   | `topic-import` / `chapter-import` | `import_topics` / `import_chapters` — on each subject's first CSV row |
   | `auto-tag` | `ai_auto_tag` — `capture_committed` (own session, committed) **before** the stream starts, because `apply_tags` commits per question; failure → 500, nothing tagged |
+  | `pdf-import` | `pdf_import.iter_commit` — `capture_committed` once, only when the plan has leaf marks to write; on failure the import continues without writing marks ([marks.md](marks.md)) |
   | `manual` | Take snapshot button |
   | `baseline` | boot, for any subject with no point yet |
   | `before-restore` | `restore`, same transaction as the restore |
 
-- **Not hooked (by decision):** Split / Combine / create child / set parent (they move tags between a stem and its parts as part of a structural change), PDF import commit and ingestion (create new questions; nothing existing to lose), `batch_mcq_ans` (assets only). Question deletes are not undone by a restore.
+- **Not hooked (by decision):** Split / Combine / create child / set parent (they move tags between a stem and its parts as part of a structural change), PDF import question creation (beyond the marks point above) and ingestion (create new questions; nothing existing to lose), `batch_mcq_ans` (assets only). Question deletes are not undone by a restore.
 - **Retention:** after each capture, `prune` keeps the newest `KEEP_PER_SUBJECT` (100) points **plus** the first point of each UTC day within `DAILY_ANCHOR_DAYS` (30), so a busy day cannot push out "start of day", **plus every `pinned` row**. Pins do not use up the newest-100 budget. Restore passes `keep_ids={point being restored}`. Pruning only ever deletes rows of the same subject. `set_pinned` is the only writer of `pinned`; unpinning calls `prune` immediately.
 - **Pins do not survive subject delete.** `delete_for_subject` removes every row of that subject, pinned or not.
 - **Restore is subject-scoped and one transaction:** decode → read live → `gather_context` → `plan_restore` → abort on conflicts → `capture_state(live, 'before-restore')` → `apply_plan` (Core statements, every one filtered by `subject_id` / parent subject) → commit.
@@ -102,7 +105,7 @@ None of its own. `capture_committed` opens a private `Session(db.engine)` so Aut
 
 ## Gotchas
 
-- **Forgetting the hook is the main failure mode.** Any new route (or service) that writes topics / subtopics / chapters / subchapters, or a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, minor topics or subtopics, must capture first. Grep for the writer list in `.cursor/rules/subject-snapshots.mdc`.
+- **Forgetting the hook is the main failure mode.** Any new route (or service) that writes topics / subtopics / chapters / subchapters, or a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, `marks`, minor topics or subtopics, must capture first. Grep for the writer list in `.cursor/rules/subject-snapshots.mdc`.
 - **Do not use ORM attribute history to decide "tags changed".** Autoflush (any `Topic.query.get` mid-route) resets history; `question_tags_differ` compares values against the pre-read state instead.
 - **Writers that commit per row** (Auto Tag, any future SSE tagger) must use `capture_committed` before the first row, not `capture` — a pending point in `db.session` would be committed with the first row only by luck, and committing `db.session` early expires the objects the stream reuses.
 - **Cost:** `read_state` is 5 queries per subject (~20–130 ms for MATC). Fine per save; do not call it per row inside a loop — capture once per subject per request.

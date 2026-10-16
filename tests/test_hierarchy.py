@@ -13,6 +13,9 @@ from app.hierarchy import (
     earlier_siblings,
     part_position_label,
     pick_block,
+    question_marks,
+    question_root,
+    whole_marks,
     format_qno_token,
     label_is_ancestor,
     next_part_label,
@@ -633,6 +636,62 @@ class ExistingQnoSortStillNumeric(unittest.TestCase):
         key = SORT_FIELDS['qno']['key'](q)
         self.assertEqual(key[0], 10)
         self.assertFalse(SORT_FIELDS['qno']['natural'])
+
+
+class WholeMarksTests(unittest.TestCase):
+    """Marks live on leaves; whole-question totals are derived."""
+
+    def _ict_q7(self, a=2, b=3, c=4, d=None):
+        root = _q(id=1, qid='ICT_Q7', qno=7, marks=None)
+        qa = _q(id=2, part='a', qno=7, marks=a)
+        qb = _q(id=3, part='b', qno=7, marks=b)
+        blk = _q(id=4, part='~c', qno=7, marks=None)
+        qc = _q(id=5, part='c', qno=7, marks=c)
+        qd = _q(id=6, part='d', qno=7, marks=d)
+        _link(root, qa, qb, blk)
+        _link(blk, qc, qd)
+        return root, qa, qb, blk, qc, qd
+
+    def test_leaf_returns_own_marks(self):
+        q = _q(id=9, marks=5)
+        self.assertEqual(whole_marks(q), (5, True))
+        self.assertEqual(whole_marks(_q(id=10, marks=None)), (None, False))
+
+    def test_stem_sums_leaves_and_ignores_blocks(self):
+        root, *_ = self._ict_q7(d=1)
+        self.assertEqual(whole_marks(root), (10, True))
+
+    def test_partial_and_all_null(self):
+        root, *_ = self._ict_q7()
+        self.assertEqual(whole_marks(root), (9, False))
+        root2, *_ = self._ict_q7(a=None, b=None, c=None, d=None)
+        self.assertEqual(whole_marks(root2), (None, False))
+
+    def test_question_root_and_memo(self):
+        root, qa, qb, blk, qc, qd = self._ict_q7(d=1)
+        self.assertIs(question_root(qc), root)
+        memo = {}
+        self.assertEqual(question_marks(qc, memo), 10)
+        self.assertEqual(memo, {1: 10})
+        qd.marks = 50  # memo wins within one request
+        self.assertEqual(question_marks(qa, memo), 10)
+
+    def test_range_leaf_is_its_own_question(self):
+        rng = _q(id=20, qno=16, qno_end=17)
+        q16 = _q(id=21, qno=16, marks=1)
+        q17 = _q(id=22, qno=17, marks=1)
+        _link(rng, q16, q17)
+        self.assertIs(question_root(q16), q16)
+        self.assertEqual(question_marks(q16), 1)
+        self.assertEqual(whole_marks(rng), (2, True))
+
+    def test_sort_fields(self):
+        root, qa, qb, blk, qc, qd = self._ict_q7(d=1)
+        other = _q(id=30, qno=8, marks=6)
+        rows = apply_multi_sort([other, qa, qc], [{'field': 'total_marks', 'direction': 'desc'}])
+        self.assertEqual(rows[0].id, qa.id)
+        rows = apply_multi_sort([other, qa, qc], [{'field': 'marks', 'direction': 'asc'}])
+        self.assertEqual([r.id for r in rows], [qa.id, qc.id, other.id])
 
 
 if __name__ == '__main__':

@@ -97,6 +97,29 @@ class CodecTests(unittest.TestCase):
         self.assertFalse(plan['questions']['changed'])
         self.assertNotIn('correct_percentage', plan['questions']['scalar_fields'])
 
+    def test_pre_marks_payload_keeps_live_marks(self):
+        data = json.loads(encode_state(_state()))
+        idx = data['question_columns'].index('marks')
+        data['question_columns'].pop(idx)
+        for row in data['questions']:
+            row.pop(idx)
+        point = decode_state(json.dumps(data))
+        self.assertNotIn('marks', point['fields'])
+
+        live = _copy(_state())
+        live['questions'][101]['marks'] = 6
+        plan = plan_restore(live, point)
+        self.assertFalse(plan['questions']['changed'])
+
+    def test_marks_change_is_restored(self):
+        point = _copy(_state())
+        point['questions'][101]['marks'] = 4
+        live = _copy(_state())
+        live['questions'][101]['marks'] = 9
+        plan = plan_restore(live, point)
+        self.assertIn('marks', plan['questions']['scalar_fields'])
+        self.assertTrue(plan['questions']['changed'])
+
     def test_older_payload_without_topic_hidden_keeps_live_flag(self):
         data = json.loads(encode_state(_state()))
         for kind in ('topics', 'chapters'):

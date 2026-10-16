@@ -7,6 +7,8 @@ match the previous writer: a major subtopic is kept only when it belongs
 to the new major topic, and a subchapter only when it belongs to the new
 chapter; otherwise that child is cleared.
 """
+from app.hierarchy import is_stem
+from app.utils import parse_marks
 
 _NONE = 'None'
 
@@ -15,6 +17,7 @@ _GROUP_LABELS = (
     ('q_type', 'Question type'),
     ('section', 'Section'),
     ('correct_percentage', 'Correct percentage'),
+    ('marks', 'Marks'),
     ('topics', 'Topics & subtopics'),
     ('chapters', 'Chapter & subchapter'),
 )
@@ -25,6 +28,7 @@ _FIELDS = (
     ('q_type', 'Question type', 'scalar'),
     ('section', 'Section', 'scalar'),
     ('correct_percentage', 'Correct percentage', 'percent'),
+    ('marks', 'Marks', 'scalar'),
     ('major_topic', 'Major topic', 'named'),
     ('major_subtopic', 'Major subtopic', 'named'),
     ('minor_topics', 'Minor topics', 'list'),
@@ -109,6 +113,7 @@ def parse_batch_form(form):
         'q_type': form.get('update_q_type') == '1',
         'section': form.get('update_section') == '1',
         'correct_percentage': form.get('update_correct_pct') == '1',
+        'marks': form.get('update_marks') == '1',
         'topics': form.get('update_topics') == '1',
         'chapters': form.get('update_chapters') == '1',
     }
@@ -128,6 +133,13 @@ def parse_batch_form(form):
                     'Correct percentage must be between 0 and 100, so it will be cleared.'
                 )
 
+    marks = None
+    if flags['marks']:
+        try:
+            marks = parse_marks(form.get('marks'))
+        except ValueError as exc:
+            raise BatchEditError(str(exc)) from None
+
     return {
         'flags': flags,
         'level': level,
@@ -135,6 +147,7 @@ def parse_batch_form(form):
         'section': section,
         'correct_percentage': correct_percentage,
         'correct_percentage_warning': correct_percentage_warning,
+        'marks': marks,
         'major_topic_id': _optional_int(form.get('major_topic_id'), 'Major topic') if flags['topics'] else None,
         'major_subtopic_id': _optional_int(form.get('major_subtopic_id'), 'Major subtopic') if flags['topics'] else None,
         'minor_topic_ids': _id_list(form.getlist('minor_topic_ids'), 'Minor topic') if flags['topics'] else [],
@@ -233,6 +246,7 @@ def resolve_batch(parsed, topics, subtopics, chapters, subchapters):
         'q_type': parsed['q_type'],
         'section': parsed['section'],
         'correct_percentage': parsed['correct_percentage'],
+        'marks': parsed.get('marks'),
         'major_topic_id': major[0] if major else None,
         'major_subtopic_id': major_sub[0] if major_sub else None,
         'minor_topic_ids': [item[0] for item in minors],
@@ -263,6 +277,8 @@ def view_from_question(question):
         'q_type': question.q_type or None,
         'section': question.section if question.section else None,
         'correct_percentage': question.correct_percentage,
+        'marks': getattr(question, 'marks', None),
+        'is_stem': is_stem(question),
         'major_topic': named(getattr(question, 'major_topic', None), question.major_topic_id),
         'major_subtopic': named(getattr(question, 'major_subtopic', None), question.major_subtopic_id),
         'minor_topics': [(row.id, row.name) for row in (question.minor_topics or [])],
@@ -279,6 +295,7 @@ def after_view(before, resolved):
         'q_type': before['q_type'],
         'section': before['section'],
         'correct_percentage': before['correct_percentage'],
+        'marks': before.get('marks'),
         'major_topic': before['major_topic'],
         'major_subtopic': before['major_subtopic'],
         'minor_topics': list(before['minor_topics']),
@@ -295,6 +312,8 @@ def after_view(before, resolved):
         after['section'] = resolved['section']
     if flags.get('correct_percentage'):
         after['correct_percentage'] = resolved['correct_percentage']
+    if flags.get('marks') and not before.get('is_stem'):
+        after['marks'] = resolved.get('marks')
     if flags.get('topics'):
         after['major_topic'] = resolved['major_topic']
         after['major_subtopic'] = resolved['major_subtopic']
@@ -422,6 +441,8 @@ def apply_resolved(question, resolved, minor_topics, subtopics):
         question.section = resolved['section']
     if flags.get('correct_percentage'):
         question.correct_percentage = resolved['correct_percentage']
+    if flags.get('marks') and not is_stem(question):
+        question.marks = resolved.get('marks')
     if flags.get('topics'):
         question.major_topic_id = resolved['major_topic_id']
         question.major_subtopic_id = resolved['major_subtopic_id']

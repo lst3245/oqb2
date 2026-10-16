@@ -10,6 +10,7 @@ from app.pdf_agent import (
     check_outline,
     compare_parts,
     expected_relative_labels,
+    fill_outline_marks,
     fix_overlaps,
     flatten_part_tree,
     mark_depends_prev,
@@ -227,6 +228,18 @@ class BudgetTests(unittest.TestCase):
             b.charge(2)
         b.charge(1)
         self.assertEqual(b.remaining, 0)
+
+
+class OutlineMarksTests(unittest.TestCase):
+    def test_fills_only_missing_labels(self):
+        items = [{'page': 0, 'label': '1', 'box': [0, 0, 1, 1]},
+                 {'page': 0, 'label': '2', 'box': [0, 0, 1, 1], 'marks': 6},
+                 {'page': 1, 'label': '3', 'box': [0, 0, 1, 1]},
+                 {'page': 2, 'label': '3', 'box': [0, 0, 1, 1]}]
+        outline = {'questions': [_q('1', [0], marks=4), _q('2', [0], marks=9),
+                                 _q('3', [1, 2], marks=8), _q('4', [3], marks=2)]}
+        self.assertEqual(fill_outline_marks(items, outline), 2)
+        self.assertEqual([it.get('marks') for it in items], [4, 6, 8, None])
 
 
 if __name__ == '__main__':

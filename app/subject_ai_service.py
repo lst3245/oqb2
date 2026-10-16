@@ -250,6 +250,8 @@ def question_labels(question, fields):
             out[f] = question.chapter.name if question.chapter else None
         elif f == 'subchapter':
             out[f] = question.subchapter.name if question.subchapter else None
+        elif f == 'marks':
+            out[f] = None if question.marks is None else str(question.marks)
     return out
 
 
@@ -296,6 +298,9 @@ def labels_from_form_state(state, fields):
             out[f] = _name(Chapter, state.get('chapter_id'))
         elif f == 'subchapter':
             out[f] = _name(Subchapter, state.get('subchapter_id'))
+        elif f == 'marks':
+            mk = state.get('marks')
+            out[f] = None if mk in (None, '') else str(mk).strip()
     return out
 
 
@@ -306,7 +311,7 @@ def display_to_labels(display, fields):
     out = {}
     for f in fields:
         v = display.get(f)
-        if f == 'level' and v is not None:
+        if f in ('level', 'marks') and v is not None:
             v = str(v)
         out[f] = v
     return out
@@ -448,6 +453,8 @@ def sample_tagged_questions(subject_id, fields, n):
         conds.append(Question.level.isnot(None))
     if 'section' in fset:
         conds.append(Question.section.isnot(None))
+    if 'marks' in fset:
+        conds.append(Question.marks.isnot(None))
     if fset & {'major_topic', 'major_subtopic'}:
         conds.append(Question.major_topic_id.isnot(None))
     if fset & {'chapter', 'subchapter'}:

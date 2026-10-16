@@ -957,6 +957,22 @@
                             <small class="text-muted">Leave empty to clear</small>
                         </div>
                     </div>
+
+                    <!-- Marks -->
+                    <div class="mb-3 border rounded p-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input batch-field-toggle" type="checkbox" id="batchMarksToggle"
+                                   onchange="toggleBatchField('marks')">
+                            <label class="form-check-label fw-bold" for="batchMarksToggle">
+                                <i class="bi bi-123"></i> Marks
+                            </label>
+                        </div>
+                        <div id="batchMarksField" class="ms-4" style="display: none;">
+                            <input type="number" class="form-control form-control-sm" id="batchMarks" name="marks"
+                                   min="0" max="999" step="1" placeholder="e.g. 4, or leave empty" style="max-width: 200px;">
+                            <small class="text-muted">Leave empty to clear. Parts only; a stem's total is the sum of its parts.</small>
+                        </div>
+                    </div>
                     
                     <!-- Topics & Subtopics (bundled) -->
                     <div class="mb-3 border rounded p-3">
@@ -2011,7 +2027,9 @@ const SORT_FIELDS = {
     'source': 'Source',
     'section': 'Section',
     'q_type': 'Question Type',
-    'correct_percentage': 'Correct %'
+    'correct_percentage': 'Correct %',
+    'marks': 'Marks (part)',
+    'total_marks': 'Marks (whole question)'
 };
 
 let sortConfig = [{ field: 'qid', direction: 'asc' }];
@@ -5699,6 +5717,7 @@ function showBatchEditModal() {
     document.getElementById('batchQtypeField').style.display = 'none';
     document.getElementById('batchSectionField').style.display = 'none';
     document.getElementById('batchCorrectpctField').style.display = 'none';
+    document.getElementById('batchMarksField').style.display = 'none';
     document.getElementById('batchTopicsField').style.display = 'none';
     document.getElementById('batchChaptersField').style.display = 'none';
 
@@ -5707,6 +5726,7 @@ function showBatchEditModal() {
     document.getElementById('batchQType').value = '';
     document.getElementById('batchSection').value = '';
     document.getElementById('batchCorrectPct').value = '';
+    document.getElementById('batchMarks').value = '';
 
     // Reset topic/subtopic dropdowns
     document.getElementById('batchMajorTopic').value = '';
@@ -5751,6 +5771,7 @@ function toggleBatchField(field) {
         'qtype': 'batchQtypeField',
         'section': 'batchSectionField',
         'correctpct': 'batchCorrectpctField',
+        'marks': 'batchMarksField',
         'topics': 'batchTopicsField',
         'chapters': 'batchChaptersField'
     };
@@ -5760,6 +5781,7 @@ function toggleBatchField(field) {
         'qtype': 'batchQTypeToggle',
         'section': 'batchSectionToggle',
         'correctpct': 'batchCorrectPctToggle',
+        'marks': 'batchMarksToggle',
         'topics': 'batchTopicsToggle',
         'chapters': 'batchChaptersToggle'
     };
@@ -6261,10 +6283,11 @@ function buildBatchEditFormData() {
     const updateQType = document.getElementById('batchQTypeToggle').checked;
     const updateSection = document.getElementById('batchSectionToggle').checked;
     const updateCorrectPct = document.getElementById('batchCorrectPctToggle').checked;
+    const updateMarks = document.getElementById('batchMarksToggle').checked;
     const updateTopics = document.getElementById('batchTopicsToggle').checked;
     const updateChapters = document.getElementById('batchChaptersToggle').checked;
 
-    if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateTopics && !updateChapters) {
+    if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateMarks && !updateTopics && !updateChapters) {
         return { error: 'Please select at least one field to update' };
     }
 
@@ -6286,6 +6309,10 @@ function buildBatchEditFormData() {
     if (updateCorrectPct) {
         formData.append('update_correct_pct', '1');
         formData.append('correct_percentage', document.getElementById('batchCorrectPct').value);
+    }
+    if (updateMarks) {
+        formData.append('update_marks', '1');
+        formData.append('marks', document.getElementById('batchMarks').value);
     }
     if (updateChapters) {
         formData.append('update_chapters', '1');

@@ -937,6 +937,9 @@ function readCurrentTagFormState() {
         section: v('editSection') || null,
         description: v('editDescription') || null,
         correct_percentage: v('editCorrectPercentage') === '' ? null : parseInt(v('editCorrectPercentage'), 10),
+        marks: v('editMarks') === '' ? null : parseInt(v('editMarks'), 10),
+        is_stem: editQuestionData ? !!editQuestionData.is_stem : false,
+        whole_marks: editQuestionData ? (editQuestionData.whole_marks || null) : null,
         answer: v('editAnswer') || null,
         comment: v('editComment') || null,
         major_topic_id: intOrNull(v('editMajorTopic')),
@@ -975,6 +978,7 @@ function applySuggestionsToForm(suggestions, fields, overwrite) {
     setIf('subtopics', 'subtopic_ids', suggestions.subtopic_ids, (cur.subtopic_ids || []).length === 0);
     setIf('chapter', 'chapter_id', suggestions.chapter_id, cur.chapter_id === null);
     setIf('subchapter', 'subchapter_id', suggestions.subchapter_id, cur.subchapter_id === null);
+    setIf('marks', 'marks', suggestions.marks, cur.marks === null || cur.marks === undefined);
 
     populateTagForm(merged);
 
@@ -996,6 +1000,7 @@ function _highlightSuggestedFields(fields) {
         subtopics: '#editSubtopicsDropdown .dropdown-toggle',
         chapter: '#editChapterDropdown .dropdown-toggle',
         subchapter: '#editSubchapterDropdown .dropdown-toggle',
+        marks: '#editMarks',
     };
     (fields || []).forEach(f => {
         const el = document.querySelector(map[f]);

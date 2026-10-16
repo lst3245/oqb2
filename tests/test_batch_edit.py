@@ -272,5 +272,35 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(question.chapter_id, None)
 
 
+class MarksTests(unittest.TestCase):
+    def test_marks_parse_preview_and_apply(self):
+        parsed = parse_batch_form(_Form(_flags(update_marks='1', marks='4')))
+        self.assertTrue(parsed['flags']['marks'])
+        resolved = resolve_batch(parsed, {}, {}, {}, {})
+        question = _question(marks=None, children=[])
+        payload = preview_for_questions(
+            [(1, 'Q1', view_from_question(question))], resolved)
+        change = payload['questions'][0]['changes'][0]
+        self.assertEqual((change['field'], change['after']), ('marks', '4'))
+        apply_resolved(question, resolved, [], [])
+        self.assertEqual(question.marks, 4)
+
+    def test_blank_clears_and_junk_rejected(self):
+        parsed = parse_batch_form(_Form(_flags(update_marks='1', marks='')))
+        self.assertIsNone(parsed['marks'])
+        with self.assertRaises(BatchEditError):
+            parse_batch_form(_Form(_flags(update_marks='1', marks='2.5')))
+
+    def test_stems_are_skipped(self):
+        parsed = parse_batch_form(_Form(_flags(update_marks='1', marks='6')))
+        resolved = resolve_batch(parsed, {}, {}, {}, {})
+        stem = _question(marks=None, children=[_question(marks=2)])
+        payload = preview_for_questions(
+            [(1, 'Q1', view_from_question(stem))], resolved)
+        self.assertEqual(payload['changed_count'], 0)
+        apply_resolved(stem, resolved, [], [])
+        self.assertIsNone(stem.marks)
+
+
 if __name__ == '__main__':
     unittest.main()

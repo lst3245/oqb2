@@ -16,12 +16,14 @@ from app import db
 from app import word_com
 from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
                         User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
-from app.utils import (admin_required, super_admin_required, get_user_admin_subjects,
+from app.utils import (admin_required, super_admin_required, subject_admin_required,
+                       get_user_admin_subjects,
                        VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso,
-                       validate_username)
+                       validate_username, parse_marks)
 from app import md_render
 from app import storage
 from app import subject_snapshot
+from app import marks_spacing
 from sqlalchemy.orm import configure_mappers, selectinload
 from app.batch_edit import (
     BatchEditError, apply_resolved, parse_batch_form,
@@ -35,6 +37,7 @@ from app.hierarchy import (
     breadcrumb_parts, is_stem, descendants, format_qno_token,
     token_fits_under, stem_id_query, is_block, relink_block_level, leaf_clause,
     block_end_options, block_display_label, set_block_end,
+    question_root, whole_marks,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -323,6 +326,41 @@ def set_number_prefixes(subject_id):
         'topic': bool(subject.topic_number_prefix),
         'subtopic': bool(subject.subtopic_number_prefix),
     })
+
+
+@admin_bp.route('/subjects/<subject_id>/marks-spacing', methods=['GET'])
+@login_required
+def get_marks_spacing(subject_id):
+    """Per-subject marks -> spacing rules (Generate "By marks" mode).
+
+    Readable by anyone who can view the subject, so the Generate page can
+    show the rules a paper will use."""
+    if not current_user.has_subject_access(subject_id):
+        abort(403)
+    subject = Subject.query.get_or_404(subject_id)
+    return jsonify({
+        'success': True,
+        'rules': marks_spacing.load_rules(subject.marks_spacing),
+        'can_edit': bool(current_user.is_subject_admin(subject_id)),
+    })
+
+
+@admin_bp.route('/subjects/<subject_id>/marks-spacing', methods=['POST'])
+@login_required
+@subject_admin_required
+def set_marks_spacing(subject_id):
+    """Save the subject's marks spacing rules. Not part of a restore point
+    (paper layout, not tags). An empty body clears the rules."""
+    _require_subject_admin(subject_id)
+    subject = Subject.query.get_or_404(subject_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        rules = marks_spacing.normalize_rules(data.get('rules'))
+    except marks_spacing.MarksSpacingError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    subject.marks_spacing = marks_spacing.dumps(rules)
+    db.session.commit()
+    return jsonify({'success': True, 'rules': rules})
 
 @admin_bp.route('/topics/add', methods=['POST'])
 @login_required
@@ -762,6 +800,14 @@ def update_question(question_id):
             else:
                 question.correct_percentage = None
         
+        # Marks live on leaves too; a stem's total is derived.
+        if not stem_row and 'marks' in request.form:
+            try:
+                question.marks = parse_marks(request.form.get('marks'))
+            except ValueError as e:
+                db.session.rollback()
+                return jsonify({'success': False, 'error': str(e)}), 400
+        
         # Tags live on leaves. Ignore topic/chapter writes on stems.
         if not stem_row:
             # Update major topic
@@ -853,6 +899,7 @@ def update_question(question_id):
                 'chapter_id': question.chapter_id,
                 'subchapter_id': question.subchapter_id,
                 'description': question.description,
+                'marks': question.marks,
                 'answer': question.answer,
                 'comment': question.comment
             }
@@ -2145,6 +2192,8 @@ def question_details(question_id):
         'subchapter_id': question.subchapter_id,
         'description': question.description,
         'correct_percentage': question.correct_percentage,
+        'marks': question.marks,
+        'whole_marks': _whole_marks_payload(question),
         'answer': question.answer,
         'comment': question.comment,
         'created_at': utc_iso(question.created_at) or '',
@@ -2152,6 +2201,14 @@ def question_details(question_id):
         'verified_at': utc_iso(question.verified_at),
         'verified_by': (question.verified_by_user.username if question.verified_by_user else None),
     })
+
+
+def _whole_marks_payload(question):
+    """``{total, complete}`` for the question this row belongs to (a stem's
+    own subtree, or a part's whole question)."""
+    node = question if is_stem(question) else question_root(question)
+    total, complete = whole_marks(node)
+    return {'total': total, 'complete': complete}
 
 
 def _descendant_tag_union(question):
@@ -3884,7 +3941,7 @@ def export_question_tags():
         'qid', 'subject', 'major_topic', 'major_subtopic',
         'minor_topics', 'subtopics',
         'chapter', 'subchapter',
-        'section', 'level', 'q_type', 'correct_percentage', 'description',
+        'section', 'level', 'q_type', 'correct_percentage', 'marks', 'description',
         'answer', 'comment'
     ])
 
@@ -3902,6 +3959,7 @@ def export_question_tags():
             q.level if q.level is not None else '',
             q.q_type or '',
             q.correct_percentage if q.correct_percentage is not None else '',
+            q.marks if q.marks is not None else '',
             q.description or '',
             q.answer or '',
             q.comment or '',
@@ -3931,7 +3989,7 @@ def import_question_tags():
     all_importable = {
         'major_topic', 'major_subtopic', 'minor_topics', 'subtopics',
         'chapter', 'subchapter', 'section', 'level', 'q_type',
-        'correct_percentage', 'description', 'answer', 'comment'
+        'correct_percentage', 'marks', 'description', 'answer', 'comment'
     }
     if not selected_fields:
         selected_fields = all_importable
@@ -3962,7 +4020,7 @@ def import_question_tags():
         # its questions change) — only when a snapshotted field is imported.
         snapshot_fields = {'major_topic', 'major_subtopic', 'minor_topics', 'subtopics',
                            'chapter', 'subchapter', 'section', 'level', 'q_type',
-                           'correct_percentage'}
+                           'correct_percentage', 'marks'}
         wants_snapshot = bool(fields_to_import & snapshot_fields)
         snapshotted = set()
 
@@ -4089,6 +4147,18 @@ def import_question_tags():
                     question.correct_percentage = pct_val if 0 <= pct_val <= 100 else None
                 else:
                     question.correct_percentage = None
+
+            # Marks live on leaves; a stem row's cell is ignored (total is derived).
+            if 'marks' in fields_to_import:
+                raw_marks = row.get('marks', '')
+                if is_stem(question):
+                    if str(raw_marks or '').strip():
+                        warnings.append(f'Row {row_num}: "{qid}" is a stem; marks belong on its parts, ignored.')
+                else:
+                    try:
+                        question.marks = parse_marks(raw_marks)
+                    except ValueError as e:
+                        warnings.append(f'Row {row_num}: {e}; marks left unchanged.')
 
             if 'description' in fields_to_import:
                 description = row.get('description', '').strip()

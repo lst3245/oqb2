@@ -9,7 +9,7 @@
     <span class="union-text">Tags live on parts; this stem inherits the union at filter time.</span>
 </div>
 <div class="row g-3">
-    <div class="col-lg-3 col-md-4">
+    <div class="col-lg-2 col-md-4">
         <label class="form-label">Level</label>
         <select class="form-select" id="editLevel" name="level">
             <option value="">None</option>
@@ -31,10 +31,17 @@
         <input type="text" class="form-control" id="editSection" name="section" 
                placeholder="A, B, or leave empty">
     </div>
-    <div class="col-lg-3 col-md-4">
+    <div class="col-lg-2 col-md-4">
         <label class="form-label">Correct %</label>
         <input type="number" class="form-control" id="editCorrectPercentage" name="correct_percentage" 
                min="0" max="100" placeholder="0-100">
+    </div>
+    <div class="col-lg-2 col-md-4">
+        <label class="form-label">Marks</label>
+        <input type="number" class="form-control" id="editMarks" name="marks"
+               min="0" max="999" step="1" placeholder="e.g. 4"
+               title="Marks printed for this question / part. A stem's total is the sum of its parts.">
+        <div id="editMarksTotal" class="form-text d-none"></div>
     </div>
 </div>
 

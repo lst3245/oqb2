@@ -1594,6 +1594,9 @@ def _map_tag_names(question, parsed, fields):
     if 'section' in fields and parsed.get('section'):
         suggestions['section'] = parsed['section']
         display['section'] = parsed['section']
+    if 'marks' in fields and parsed.get('marks') is not None:
+        suggestions['marks'] = parsed['marks']
+        display['marks'] = parsed['marks']
 
     # ---- major topic ----
     resolved_major_topic = None
@@ -1841,6 +1844,9 @@ def apply_tags(question, suggestions, fields, overwrite):
     if 'section' in fields and 'section' in suggestions and (overwrite or _empty(question.section)):
         question.section = suggestions['section']
         applied.append('section')
+    if 'marks' in fields and 'marks' in suggestions and (overwrite or question.marks is None):
+        question.marks = suggestions['marks']
+        applied.append('marks')
 
     if 'major_topic' in fields and 'major_topic_id' in suggestions and (overwrite or question.major_topic_id is None):
         if question.major_topic_id != suggestions['major_topic_id']:

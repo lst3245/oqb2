@@ -399,6 +399,30 @@ def create_app():
         except Exception:
             pass  # pre-init DB / non-MySQL backend; init_db.py will handle creation
 
+        # Marks: per-leaf allocation (whole-question total is derived) and
+        # per-subject "spacing by marks" rules (JSON). Additive, nullable.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                q_cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions'"
+                ))}
+                if q_cols and 'marks' not in q_cols:
+                    conn.execute(text(
+                        "ALTER TABLE questions ADD COLUMN marks SMALLINT NULL"
+                    ))
+                s_cols = {row[0] for row in conn.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subjects'"
+                ))}
+                if s_cols and 'marks_spacing' not in s_cols:
+                    conn.execute(text(
+                        "ALTER TABLE subjects ADD COLUMN marks_spacing TEXT NULL"
+                    ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend
+
         # WHOLE = unsplit original on a root (Combine restore). Widen the
         # asset_type enum; existing QUE/ANS/SOL rows are unchanged.
         try:

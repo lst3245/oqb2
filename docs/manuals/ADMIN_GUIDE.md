@@ -221,7 +221,7 @@ The **Status** filter can be narrowed with **Advanced** options: choose versions
 ### Tagging a Question
 Click the edit (pencil) icon → a modal opens with three tabs:
 
-**Details tab**: level, question type, section, description, correct percentage, answer text, comment, plus **Hierarchy** (breadcrumb, child parts, create child, set parent, **Split into parts**, **Combine parts**)
+**Details tab**: level, question type, section, description, correct percentage, **marks**, answer text, comment, plus **Hierarchy** (breadcrumb, child parts, create child, set parent, **Split into parts**, **Combine parts**)
 
 **Tags tab**: major topic, major subtopic, minor topics (M2M), subtopics (M2M), chapter, subchapter. On a stem these fields are disabled — tags live on the parts; the stem shows the union of descendant tags.
 
@@ -231,9 +231,31 @@ Rules:
 - Major subtopic must belong to major topic if both are set
 - Minor topics allow cross-topic tagging (question appears in multiple topic filters)
 
-**Batch Edit** (dashboard, yellow **Batch Edit** button once questions are selected): tick the fields to overwrite — level, question type, section, correct percentage, the topics bundle, or the chapter bundle. **Preview changes** lists every selected question that would actually change, with the current value struck out and the new value after the arrow. The review is split into pages of 10; use the page controls above or below the list. The eye icon on a row opens that question's preview without leaving the review. Minor topics and subtopics also show which names are added and removed. Questions that already have those values are counted, not listed as changes. Nothing is written until **Apply changes**, which saves every changed question on every page. Applying saves a restore point for each subject in the selection.
+**Batch Edit** (dashboard, yellow **Batch Edit** button once questions are selected): tick the fields to overwrite — level, question type, section, correct percentage, marks, the topics bundle, or the chapter bundle. Marks are written to parts and single questions only; a split question's stem in the selection is skipped. **Preview changes** lists every selected question that would actually change, with the current value struck out and the new value after the arrow. The review is split into pages of 10; use the page controls above or below the list. The eye icon on a row opens that question's preview without leaving the review. Minor topics and subtopics also show which names are added and removed. Questions that already have those values are counted, not listed as changes. Nothing is written until **Apply changes**, which saves every changed question on every page. Applying saves a restore point for each subject in the selection.
 
 **Suggest tags (AI).** With AI Tools enabled, the Tags tab has a **Suggest tags** button: pick the versions to send and the fields to fill, and the model's suggestions populate the form for review (nothing is saved until you click **Save Tags**). The status line lists any names the model used that do not exist in your taxonomy and, when the model supplies them, its one-line reason per field. When you then click **Save Tags**, the app records what the model suggested against what you actually saved — this feeds the subject's **AI Tagging Tuning** page (below) and does not change the question.
+
+**Marks.** Each part, and each question that is not split, can store the marks printed on the paper (Details tab → **Marks**, a whole number; blank means "not recorded"). On a split question the box is greyed out and shows the total of its parts, because the total is always worked out from the parts, never typed. For ICT-style questions, enter `(a) 2`, `(b) 3` and so on; the question then shows as 5 marks. Other ways to fill marks:
+
+- **Bulk Edit** → **Marks** (one value for every selected part).
+- The Question Tags CSV (`marks` column, see *Export & Import*).
+- **Suggest tags** / **Auto Tag** with the **Marks** field ticked: the model reads the number printed for that question or part, and leaves it empty when none is printed. Auto Tag fills empty marks only, unless you tick overwrite. If a super admin has customised the Auto Tag output format, add `"marks": <integer>|null` to it or the model will not be asked for marks.
+- PDF Batch Import (see *Toolbox*).
+
+Marks appear on dashboard cards (`3m`, or `12 marks` on a split question's header), can be sorted on (Filter and Generate), and drive **By marks** spacing.
+
+**Marks spacing rules** (per subject). On the Generate page, any Before / After spacing option can be set to **By marks (subject rules)**. The rules are edited from the Generate page: **Edit marks rules** under the spacing cards. Any teacher can change them for one paper (**Use for this paper**, never saved); subject admins also get **Save as subject default** and **Clear saved rules**. For each side you add bands, "up to N marks → skip L lines / add P page breaks", in any order (they are sorted by the number). Leave **Up to** blank for one final "anything more" band. Below the bands, an optional **per-mark fallback** gives `base + lines per mark × marks` lines (with a cap) when no band matches. *Before a question* is judged on the whole question's total and applies once before its first part. For *After*, choose **each part** (judged on that part's own marks; ICT, CHEM, ECON style) or **the whole question** (judged on the total, applied once after the last part, with no gap between parts; MATC style). Questions with no marks, or no rule that matches, fall back to the lines number on the Generate card. **Clear saved rules** removes the subject's rules.
+
+Rules apply to every question of the subject, MC included, so use **By marks** on the CQ card and keep the MC card on a fixed number of lines. Starting rules set up for DSE-style papers (adjust after printing a sample):
+
+| Subject | Before a question (whole-question total) | After | Skipped lines are |
+|---|---|---|---|
+| MATC | up to 7: 1 line; more: new page | once after the **whole question**, on its total: up to 3: 12 lines; up to 5: 16; up to 7: 22; up to 9: 1 page break; more: 2 page breaks | Blank space (working) |
+| ICT | up to 15: 2 lines; more: new page | after **each part**: 2 lines per mark, at most 16 | Answer lines |
+| CHEM | up to 12: 2 lines; more: new page | after **each part**: 1 + 2 lines per mark, at most 20 | Answer lines |
+| ECON | up to 8: 2 lines; more: new page | after **each part**: 1 + 2 lines per mark, at most 20 | Answer lines |
+
+MATC is set to *After the whole question*: parts of a split question run on, and the space follows the last part, sized on the total (Section A 3–7 marks, Section B 10+ marks: rest of the page plus one blank page). The per-mark rules for ICT, CHEM and ECON follow the answer-book habit of about two writing lines per mark.
 
 ### AI Tagging Tuning (`Admin → AI Tagging Tuning`, per subject)
 
@@ -254,7 +276,10 @@ A per-subject undo for tagging mistakes. Just **before** any of these saves, the
 - **Save Tags** in the edit modal (only when the question's tags actually change);
 - **Bulk Edit** on the dashboard (one point per subject);
 - importing the Question Tags, Topics or Chapters CSV;
-- starting an **Auto Tag** run.
+- starting an **Auto Tag** run;
+- a PDF Batch Import that writes marks (one point, taken just before the import saves them).
+
+Marks count as part of the saved state, so restoring a point also restores the marks.
 
 The page shows one subject at a time (same subject picker as Topics / Chapters) and lists the points newest first, whether or not they are pinned: when it was saved, which kind of save it was taken before, who made it, and an optional note. The newest 100 points per subject are kept, plus the first point of each day for the last 30 days. A pinned point is kept as well, and does not count toward the 100.
 
@@ -483,9 +508,9 @@ All exports are CSV. Imports are **idempotent** — safe to re-run.
 
 **Export** produces one row per question with all tag fields:
 ```
-qid, major_topic, major_subtopic, level, q_type, section, minor_topics, subtopics, chapter, subchapter
+qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, marks, description, answer, comment
 ```
-`minor_topics` and `subtopics` are semicolon-separated lists.
+`minor_topics` and `subtopics` are semicolon-separated lists. `marks` is blank for split-question stems (their total comes from the parts); on import, a value on a stem row is ignored with a warning, a blank cell clears the marks, and anything that is not a whole number from 0 to 999 is left unchanged with a warning.
 
 **Import** reads the CSV and updates each question's tags. Choose which fields to import using the checkboxes before uploading.
 
@@ -587,7 +612,8 @@ The PDF Tool is admin-only. It is a workbench for preparing scanned PDFs:
    - While a Re-run or Re-split is in flight the clicked button shows a spinner and the other page actions grey out (the log still lists each model step). Q# can be `3`, `3a`, `3ci`, or `23-24`; a part with its own sub-parts (`4d` above `4di`, `4dii`) is simply labelled that way and turns grey automatically — the grey/amber role is worked out from the labels you type, never set by hand. The **Delete** key removes the highlighted box. After you click a box, the **arrow keys** nudge it (hold **Shift** for bigger steps). Hold **H** while dragging to hide the magnifier. Each page's list runs top to bottom in the same order as the boxes on the page. The link icon marks a part as **uses earlier parts** (see below).
    - Once a job has run, a strip stays pinned under the top bar while you scroll. It shows what is happening (loading the PDF, detecting questions with a page count, splitting parts, the AI agent, re-running a page, importing), whether it finished, stopped or failed, and the latest log line. It has **Stop** while a job can be stopped and **Log** to jump to the full log. Detection method, custom prompt, and debug are under **Advanced**, which also shows the box axis order of the chosen endpoint.
    - **Run AI agent** (experimental; exam papers, after the PDF is loaded): a full-auto alternative to the detection buttons, in its own strip in this review step. The agent first reads the whole paper as thumbnails to build an outline (which pages hold questions, which numbers, which parts), then locates questions with those expectations, splits multi-part questions, re-draws its own boxes and asks the model to check them, and repairs what it can. Anything it could not settle appears in the **Needs attention** panel (red = a question or part it could not find, amber = something to double-check); click an entry to jump to the box. Review only those, then Import. Running the agent replaces any boxes already in the session. The run continues on the server if the browser tab drops; reopen the page or click **Run AI agent** to rejoin. Cost is capped by **AI agent: LLM call budget per run** in System Settings.
-3. **Import** — exam: pick QUE/SOL versions (both default to ENO), overwrite/trim options, **Import to database**; generic: **Download all as ZIP**. Parts flagged "uses earlier parts" are stored with that flag.
+   - **Marks**: on exam papers each question box row has a small marks box. Detection fills it with the printed marks when it can read them: the question total on a whole question, each part's own marks after **Split into parts** (the stem row then keeps the printed total, if any). Correct or type values by hand. When a question's parts add up to something other than its total, an amber **Check the marks** banner above the pages lists it (e.g. "Q4: parts add up to 9 but the total is 10"). Only the marks on parts and unsplit questions are saved; a stem's number is just the check value.
+3. **Import** — exam: pick QUE/SOL versions (both default to ENO), overwrite/trim options, **Import to database**; generic: **Download all as ZIP**. Parts flagged "uses earlier parts" are stored with that flag. Marks are written only where the question has none yet, unless Overwrite is ticked; when any marks will be written, a restore point (`PDF import (marks)`) is saved first.
 - Config keys: `TOOLBOX_DEFAULT_DPI` (default resolution; also in Admin → System Settings), `TOOLBOX_OCR_DPI`, `TOOLBOX_OCR_WORKERS`, `TOOLBOX_OCR_AUTO_ORIENT` (System Settings), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, `TESSERACT_CMD` (`.env` only). Dependencies: `pypdf>=4.0`, `rapidfuzz`, `pytesseract` (+ local Tesseract install for OCR).
 
 ---
