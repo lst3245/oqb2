@@ -496,10 +496,17 @@
                             </label>
                         </div>
                         <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="bulkDeleteChildren">
+                            <input class="form-check-input" type="checkbox" id="bulkDeleteChildren" onchange="previewEmptyParents()">
                             <label class="form-check-label" for="bulkDeleteChildren">
                                 Also delete child parts (required when a selected question is a stem)
                             </label>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="bulkDeleteEmptyParents" checked onchange="previewEmptyParents()">
+                            <label class="form-check-label" for="bulkDeleteEmptyParents">
+                                Also delete parent rows left with no parts (stem text, shared intros, range preambles)
+                            </label>
+                            <div class="small text-muted" id="bulkDeleteEmptyParentsNote"></div>
                         </div>
                         <div class="alert alert-warning py-2 mt-2 mb-0 d-none" id="deleteFilesWarning">
                             <i class="bi bi-exclamation-triangle-fill"></i>
@@ -1999,6 +2006,8 @@ function bulkDeleteSelected() {
     document.getElementById('deleteFilesWarning').classList.add('d-none');
     const delKids = document.getElementById('bulkDeleteChildren');
     if (delKids) delKids.checked = false;
+    document.getElementById('bulkDeleteEmptyParents').checked = true;
+    previewEmptyParents();
 
     // Reset Tab 2 state — default deselect-all so the user opts in to each axis.
     document.querySelectorAll('.bd-asset-fmt, .bd-asset-lang, .bd-asset-type').forEach(cb => cb.checked = false);
@@ -2052,14 +2061,63 @@ function executeBulkDelete() {
     return mode === 'assets' ? _execBulkDeleteAssets() : _execBulkDeleteQuestions();
 }
 
+// Dry run of the delete: lists the parent rows (Q4, Q7~c, Q23-24) that would
+// be left with no parts, so the confirm shows exactly what else goes.
+let _emptyParentsPreviewSeq = 0;
+function previewEmptyParents() {
+    const note = document.getElementById('bulkDeleteEmptyParentsNote');
+    if (!note) return;
+    note.textContent = '';
+    if (selectedQIds.size === 0) return;
+    const seq = ++_emptyParentsPreviewSeq;
+    const formData = new FormData();
+    Array.from(selectedQIds).forEach(id => formData.append('question_ids', id));
+    if (document.getElementById('bulkDeleteChildren')?.checked) formData.append('delete_children', 'true');
+    formData.append('dry_run', 'true');
+    note.textContent = 'Checking parent rows…';
+    fetch('{{ url_for("admin.delete_questions") }}', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(d => {
+            if (seq !== _emptyParentsPreviewSeq) return;
+            if (!d.success) { note.textContent = ''; return; }
+            const on = document.getElementById('bulkDeleteEmptyParents').checked;
+            const list = q => q.slice(0, 12).join(', ') + (q.length > 12 ? `, … (${q.length})` : '');
+            const parts = [];
+            if (d.empty_parent_qids.length) {
+                parts.push((on ? 'Will also delete ' : 'Will be left behind: ')
+                    + `${d.empty_parent_qids.length} empty parent row(s): ${list(d.empty_parent_qids)}.`);
+            } else {
+                parts.push('No parent row is left empty.');
+            }
+            if (d.kept_archive_qids.length) {
+                parts.push(`Kept because they hold a whole-question archive: ${list(d.kept_archive_qids)}.`);
+            }
+            note.textContent = parts.join(' ');
+        })
+        .catch(() => { if (seq === _emptyParentsPreviewSeq) note.textContent = ''; });
+}
+
+// Drop deleted ids from the dashboard selection so it does not keep
+// counting rows that no longer exist.
+function forgetDashboardSelection(deletedIds) {
+    if (!deletedIds || !deletedIds.length) return;
+    try {
+        const gone = new Set(deletedIds.map(String));
+        const kept = getDashboardSelectedIds().filter(id => !gone.has(String(id)));
+        localStorage.setItem('oqb_selectedQuestions', JSON.stringify(kept));
+    } catch (e) { /* storage unavailable */ }
+}
+
 function _execBulkDeleteQuestions() {
     const ids = Array.from(selectedQIds);
     const deleteFiles = document.getElementById('bulkDeleteFiles').checked;
     const deleteChildren = document.getElementById('bulkDeleteChildren')?.checked;
+    const deleteEmptyParents = document.getElementById('bulkDeleteEmptyParents')?.checked;
     const formData = new FormData();
     ids.forEach(id => formData.append('question_ids', id));
     if (deleteFiles) formData.append('delete_files', 'true');
     if (deleteChildren) formData.append('delete_children', 'true');
+    if (deleteEmptyParents) formData.append('delete_empty_parents', 'true');
 
     const btn = document.getElementById('bulkDeleteExecBtn');
     btn.disabled = true;
@@ -2070,7 +2128,10 @@ function _execBulkDeleteQuestions() {
         .then(data => {
             if (data.success) {
                 bootstrap.Modal.getInstance(document.getElementById('bulkDeleteModal')).hide();
-                showToast(`Deleted ${data.deleted_count} question(s)`);
+                const left = (data.left_empty_qids || []).length;
+                showToast(`Deleted ${data.deleted_count} question(s)`
+                    + (left ? `; ${left} parent row(s) without parts were kept` : ''));
+                forgetDashboardSelection(data.deleted_ids);
                 clearSelectedQuestions();
                 loadQuestions();
             } else {

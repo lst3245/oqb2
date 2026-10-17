@@ -1664,6 +1664,31 @@ def relink_parent(question) -> None:
     db.session.flush()
 
 
+def ancestors_left_empty(delete_ids, parent_of: dict, children_of: dict,
+                         keep_ids=()) -> list:
+    """Pure: ids of ancestors that would have no children left once
+    ``delete_ids`` are gone, cascading upward (``Q7~c`` empties, then ``Q7``).
+    ``parent_of`` maps id → parent id; ``children_of`` maps id → child ids
+    (every child, not only deleted ones). ``keep_ids`` are never returned
+    and stop the cascade above them."""
+    gone = set(delete_ids)
+    keep = set(keep_ids)
+    out = []
+    frontier = {parent_of.get(i) for i in gone} - {None}
+    while frontier:
+        nxt = set()
+        for pid in sorted(frontier):
+            if pid in gone or pid in keep:
+                continue
+            if all(c in gone for c in children_of.get(pid, ())):
+                gone.add(pid)
+                out.append(pid)
+                if parent_of.get(pid) is not None:
+                    nxt.add(parent_of[pid])
+        frontier = nxt - gone
+    return out
+
+
 def collect_subtree_ids(question) -> list[int]:
     """`[question.id]` plus every descendant id (query-based, session-safe)."""
     from app.models import Question

@@ -37,7 +37,7 @@ from app.hierarchy import (
     breadcrumb_parts, is_stem, descendants, format_qno_token,
     token_fits_under, stem_id_query, is_block, relink_block_level, leaf_clause,
     block_end_options, block_display_label, set_block_end,
-    question_root, whole_marks,
+    question_root, whole_marks, ancestors_left_empty,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -987,6 +987,22 @@ def delete_questions():
             )
             questions = questions + extra_rows
 
+        empty_parents, kept_archive = _empty_parents_after_delete(
+            questions, dissolve, admin_subject_ids)
+        if request.form.get('dry_run') == 'true':
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'count': len(questions),
+                'empty_parent_qids': [p.qid for p in empty_parents],
+                'kept_archive_qids': kept_archive,
+            })
+        left_empty = []
+        if request.form.get('delete_empty_parents') == 'true':
+            questions = questions + empty_parents
+        else:
+            left_empty = [p.qid for p in empty_parents]
+
         for blk in dissolve:
             if blk.parent is not None and blk.parent_id not in selected_ids:
                 relink_block_level(blk.parent, exclude_id=blk.id)
@@ -1001,8 +1017,10 @@ def delete_questions():
         doc_ids_to_drop = []
         md_ids_to_drop = []
         
+        deleted_ids = []
         for question in questions:
             deleted_qids.append(question.qid)
+            deleted_ids.append(question.id)
 
             for asset in question.assets:
                 if asset.file_format == 'DOC':
@@ -1048,6 +1066,8 @@ def delete_questions():
             'success': True,
             'deleted_count': deleted_count,
             'deleted_qids': deleted_qids,
+            'deleted_ids': deleted_ids,
+            'left_empty_qids': left_empty,
             'files_deleted': files_deleted,
             'message': msg
         })
@@ -1058,6 +1078,44 @@ def delete_questions():
             'success': False,
             'error': str(e)
         }), 500
+
+
+def _empty_parents_after_delete(questions, dissolve, admin_subject_ids):
+    """Parent rows (roots, intermediate stems, shared blocks, range stems)
+    that would have no children left after ``questions`` are deleted.
+    Returns ``(rows, kept_archive_qids)``. Never offered: a row with a WHOLE
+    archive (the unsplit original), and the ancestors of a block being
+    dissolved (its parts move up into them)."""
+    delete_ids = {q.id for q in questions}
+    parent_of = {}
+    for q in questions:
+        node = q
+        while node is not None and node.parent_id and node.id not in parent_of:
+            parent_of[node.id] = node.parent_id
+            node = node.parent
+    ancestor_ids = set(parent_of.values()) - delete_ids
+    if not ancestor_ids:
+        return [], []
+    children_of = {}
+    for cid, pid in (db.session.query(Question.id, Question.parent_id)
+                     .filter(Question.parent_id.in_(ancestor_ids)).all()):
+        children_of.setdefault(pid, []).append(cid)
+    keep = set()
+    for blk in dissolve:
+        node = blk.parent
+        while node is not None:
+            keep.add(node.id)
+            node = node.parent
+    archive_ids = {qid for (qid,) in db.session.query(QuestionAsset.question_id)
+                   .filter(QuestionAsset.question_id.in_(ancestor_ids),
+                           QuestionAsset.asset_type == 'WHOLE').distinct()}
+    ids = ancestors_left_empty(delete_ids, parent_of, children_of, keep | archive_ids)
+    archived = [i for i in ancestors_left_empty(delete_ids, parent_of, children_of, keep)
+                if i in archive_ids]
+    wanted = set(ids) | set(archived)
+    by_id = {r.id: r for r in Question.query.filter(
+        Question.id.in_(wanted), Question.subject.in_(admin_subject_ids)).all()} if wanted else {}
+    return [by_id[i] for i in ids if i in by_id], [by_id[i].qid for i in archived if i in by_id]
 
 
 @admin_bp.route('/questions/batch_delete_assets', methods=['POST'])

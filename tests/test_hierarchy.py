@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.hierarchy import (
     HierarchyError,
+    ancestors_left_empty,
     QNO_TOKEN_RE,
     block_label_for,
     breadcrumb_parts,
@@ -626,6 +627,39 @@ class SharedBlockTests(unittest.TestCase):
         self.assertIsNone(rename_shape_ok('Q7~c', 'Q7~d', True))
         self.assertIsNotNone(rename_shape_ok('Q7~c', 'Q8~c', True))
         self.assertIsNotNone(rename_shape_ok('Q7~c', 'Q7c', False))
+
+
+class AncestorsLeftEmptyTests(unittest.TestCase):
+    """Deleting every dashboard leaf must not strand the parent rows."""
+
+    # Q7(1) → a(2), b(3), ~c(4) → c(5), d(6);  Q8(10) → a(11), b(12);
+    # Q23-24(20) → Q23(21), Q24(22);  Q1(30) → c(31) → ci(32), cii(33)
+    PARENT = {2: 1, 3: 1, 4: 1, 5: 4, 6: 4, 11: 10, 12: 10, 21: 20, 22: 20,
+              31: 30, 32: 31, 33: 31}
+
+    def setUp(self):
+        self.children = {}
+        for c, p in self.PARENT.items():
+            self.children.setdefault(p, []).append(c)
+
+    def _run(self, delete, keep=()):
+        return sorted(ancestors_left_empty(delete, self.PARENT, self.children, keep))
+
+    def test_all_leaves_take_every_parent(self):
+        leaves = [2, 3, 5, 6, 11, 12, 21, 22, 32, 33]
+        self.assertEqual(self._run(leaves), [1, 4, 10, 20, 30, 31])
+
+    def test_partial_selection_keeps_parents(self):
+        self.assertEqual(self._run([2, 5]), [])
+        self.assertEqual(self._run([5, 6]), [4])          # block empties, Q7 keeps a, b
+        self.assertEqual(self._run([11]), [])
+        self.assertEqual(self._run([32, 33]), [30, 31])   # Q1c empties, then Q1 (c was its only part)
+        self.assertEqual(self._run([32]), [])
+
+    def test_keep_stops_the_cascade(self):
+        leaves = [2, 3, 5, 6]
+        self.assertEqual(self._run(leaves, keep={1}), [4])   # root has a WHOLE archive
+        self.assertEqual(self._run(leaves, keep={4}), [])    # Q7 still has the kept block
 
 
 class ExistingQnoSortStillNumeric(unittest.TestCase):

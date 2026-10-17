@@ -477,10 +477,17 @@ def filter_questions():
     # the *whole* result set (not just this page), so ticking Q1 selects every
     # matched part of Q1 even when they spill onto the next page. Selection
     # itself stores leaf ids only (see docs/modules/dashboard.md).
+    # A range preamble whose child questions are gone (Q23-24 alone) is
+    # still a stem row, but it is the only thing left to select or delete.
+    def _selectable(q):
+        return not is_stem(q) or (bool(q.qno_end) and not hier_children(q))
+
     leaf_ids_under: dict = {}
     for q in sorted_questions:
-        if is_stem(q):
+        if not _selectable(q):
             continue
+        if is_stem(q):
+            leaf_ids_under.setdefault(q.id, []).append(q.id)
         for anc in hier_ancestors(q):
             leaf_ids_under.setdefault(getattr(anc, 'id', None), []).append(q.id)
 
@@ -554,7 +561,7 @@ def filter_questions():
         question_groups.append({'stem': stem_card, 'leaves': leaves, 'rows': rows})
     
     # Select-all uses leaves only so a stem header is not double-counted.
-    all_question_ids = [q.id for q in sorted_questions if not is_stem(q)]
+    all_question_ids = [q.id for q in sorted_questions if _selectable(q)]
     
     # Get subjects user has admin access to for showing edit buttons
     admin_subjects = current_user.get_admin_subjects()
