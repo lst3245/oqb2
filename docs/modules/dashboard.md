@@ -251,7 +251,7 @@ Admin-only (same gate as the card Edit button). **Preview changes** POSTs `/admi
 
 ### localStorage keys (`STORAGE_KEYS` in `dashboard.html`)
 
-`oqb_selectedQuestions`, `oqb_filterSettings`, `oqb_sortConfig`, `oqb_sortGroupOrder`, `oqb_viewSettings`, `oqb_previewLanguage` (legacy fallback), `oqb_versionPriority`, `oqb_pageSize`, `oqb_showSelectedOnly`, `oqb_showHiddenSubtopics`, `oqb_showHiddenSubchapters`, `oqb_currentPage`, `oqb_scratchSets`. Plus ad-hoc `qids_token` keys written by DB Health.
+`oqb_selectedQuestions`, `oqb_filterSettings`, `oqb_sortConfig`, `oqb_sortGroupOrder`, `oqb_viewSettings`, `oqb_previewLanguage` (legacy fallback), `oqb_versionPriority` (absent → the widget starts from `OQB_DEFAULT_VERSION_PRIORITY`, i.e. the device's paper language; the navbar **Paper language** menu removes both version keys, see [i18n.md](i18n.md)), `oqb_pageSize`, `oqb_showSelectedOnly`, `oqb_showHiddenSubtopics`, `oqb_showHiddenSubchapters`, `oqb_currentPage`, `oqb_scratchSets`. Plus ad-hoc `qids_token` keys written by DB Health.
 
 `oqb_viewSettings` holds the View settings → Show Tags toggles (`level`, `qtype`, `marks`, `major-topic`, `major-subtopic`, `minor-topics`, `subtopics`, `chapter`, `subchapter`), each hiding the matching `.tag-<key>` span from `tag_badges` in `question_list.html`. Defaults in `DEFAULT_VIEW_SETTINGS`: Level, Subtopics (M2M) and Subchapter off, the rest on. A saved key wins over the default; a key missing from saved settings (added later) falls back to the default.
 

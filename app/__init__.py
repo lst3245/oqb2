@@ -73,13 +73,15 @@ def create_app():
     # Expose the canonical asset-version list to every template (including
     # viewer.html, which does not extend base.html). Templates build their
     # version UIs from these instead of re-hardcoding EN/CH/BI/ENO/CHO.
+    # The default priority follows the device's paper-language cookie.
     @app.context_processor
     def _inject_versions():
-        from app.utils import VERSIONS, VERSION_LABELS, DEFAULT_VERSION_PRIORITY
+        from app.utils import VERSIONS, VERSION_LABELS
+        from app.i18n import paper_lang, paper_version_priority
         return {
             'OQB_VERSIONS': VERSIONS,
             'OQB_VERSION_LABELS': VERSION_LABELS,
-            'OQB_DEFAULT_VERSION_PRIORITY': DEFAULT_VERSION_PRIORITY,
+            'OQB_DEFAULT_VERSION_PRIORITY': paper_version_priority(paper_lang()),
         }
     
     # Create output directory if it doesn't exist (legacy generated-files base)

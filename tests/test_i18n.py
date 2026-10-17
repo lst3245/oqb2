@@ -162,6 +162,40 @@ class TranslateTests(unittest.TestCase):
             self.assertEqual(i18n.tax_lang(), 'en')
             self.assertEqual(i18n.t('Dashboard'), 'Dashboard')
 
+    def test_paper_lang_cookie(self):
+        app = Flask(__name__)
+        with app.test_request_context(headers={'Cookie': 'oqb_paper_lang=zh'}):
+            self.assertEqual(i18n.paper_lang(), 'zh')
+            self.assertEqual(i18n.ui_lang(), 'en')
+        with app.test_request_context(headers={'Cookie': 'oqb_paper_lang=CH'}):
+            self.assertIsNone(i18n.paper_lang())
+        with app.test_request_context():
+            self.assertIsNone(i18n.paper_lang())
+        self.assertIsNone(i18n.paper_lang())
+
+
+class PaperVersionPriorityTests(unittest.TestCase):
+    def test_orders(self):
+        self.assertEqual(i18n.paper_version_priority('en'), ['EN', 'BI', 'ENO', 'CH', 'CHO'])
+        self.assertEqual(i18n.paper_version_priority('zh'), ['CH', 'BI', 'CHO', 'EN', 'ENO'])
+        self.assertEqual(i18n.paper_version_priority('bi'), ['BI', 'EN', 'CH', 'ENO', 'CHO'])
+
+    def test_unset_keeps_default(self):
+        from app.utils import DEFAULT_VERSION_PRIORITY
+        for lang in (None, '', 'xx'):
+            self.assertEqual(i18n.paper_version_priority(lang), list(DEFAULT_VERSION_PRIORITY))
+
+    def test_every_order_is_complete(self):
+        from app.utils import VERSIONS
+        for lang in i18n.PAPER_LANGS:
+            self.assertEqual(set(i18n.PAPER_VERSION_HEAD[lang]) <= set(VERSIONS), True, lang)
+            self.assertEqual(sorted(i18n.paper_version_priority(lang)), sorted(VERSIONS), lang)
+
+    def test_top_version_matches_heading_language(self):
+        expected = {'en': 'en', 'zh': 'zh', 'bi': 'both'}
+        for lang, heading in expected.items():
+            self.assertEqual(i18n.doc_lang('auto', i18n.paper_version_priority(lang)), heading)
+
     def test_catalogue_route(self):
         app = Flask(__name__)
         app.register_blueprint(i18n.i18n_bp)

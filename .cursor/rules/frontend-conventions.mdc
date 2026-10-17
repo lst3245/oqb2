@@ -11,7 +11,7 @@ Server-rendered Jinja2 + Bootstrap 5.3 + HTMX 1.9; no bundler, no SPA (ADR-001).
 ## Must
 - Pages `{% extends "base.html" %}`; exceptions are `viewer.html` and `markup.html` (fullscreen, own minimal helper copies — duplicate deliberately if they need a new shared helper).
 - HTMX: target a specific `id`, return the matching `templates/partials/*.html`; hook post-swap work on `htmx:afterSwap`.
-- Build version UIs from `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` (Jinja globals) — never a literal `EN/CH/BI` list. Version ordering UI = `oqbInitVersionPriorityWidget` (hidden comma input `version_priority`).
+- Build version UIs from `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` (Jinja globals) — never a literal `EN/CH/BI` list. Version ordering UI = `oqbInitVersionPriorityWidget` (hidden comma input `version_priority`). Seed new version widgets from `OQB_DEFAULT_VERSION_PRIORITY` (it carries the device's Paper language order), not `OQB_VERSIONS`.
 - Datetimes through `oqbFormatLocalTime` (`YYYY-MM-DD HH:mm`, 24 h); API values are naive-UTC ISO with `Z`.
 - Drag-to-reorder uses **SortableJS** with the standard config (`forceFallback: true`, `delayOnTouchOnly`, `.drag-handle`, idempotent init via `container._sortableInstance`). Never native HTML5 DnD (breaks touch).
 - Multi-select filters follow the custom Bootstrap dropdown + checkbox + hidden `<select multiple>` pattern.

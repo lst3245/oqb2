@@ -6,8 +6,10 @@
  *   keyed by the English text; a missing key returns the English text.
  *   `{name}` placeholders are filled from `params` (same syntax as the
  *   Python t()).
- * OQB.setLang(kind, value) -> kind 'ui' (en|zh) or 'tax' (en|zh|both);
- *   writes the per-device cookie and reloads.
+ * OQB.setLang(kind, value) -> kind 'ui' (en|zh), 'tax' (en|zh|both) or
+ *   'paper' (en|zh|bi); writes the per-device cookie and reloads.
+ * OQB.paperLang() -> preferred paper language, or null when unset. The
+ *   server turns it into OQB_DEFAULT_VERSION_PRIORITY.
  * OQB.taxName(node) -> display name of an API node that carries
  *   name_en / name_zh (falls back to node.name), in the taxonomy mode.
  * OQB.taxLabel(node) -> node.name with the subject's number prefix
@@ -16,8 +18,10 @@
  */
 (function () {
     var OQB = window.OQB = window.OQB || {};
-    var COOKIES = { ui: 'oqb_lang', tax: 'oqb_tax_lang' };
-    var ALLOWED = { ui: ['en', 'zh'], tax: ['en', 'zh', 'both'] };
+    var COOKIES = { ui: 'oqb_lang', tax: 'oqb_tax_lang', paper: 'oqb_paper_lang' };
+    var ALLOWED = { ui: ['en', 'zh'], tax: ['en', 'zh', 'both'], paper: ['en', 'zh', 'bi'] };
+    // Dashboard keys that would override the new default version order.
+    var PAPER_RESET_KEYS = ['oqb_versionPriority', 'oqb_previewLanguage'];
 
     function readCookie(name) {
         var parts = document.cookie ? document.cookie.split('; ') : [];
@@ -36,6 +40,11 @@
     OQB.taxLang = function () {
         var v = readCookie(COOKIES.tax);
         return ALLOWED.tax.indexOf(v) >= 0 ? v : 'en';
+    };
+
+    OQB.paperLang = function () {
+        var v = readCookie(COOKIES.paper);
+        return ALLOWED.paper.indexOf(v) >= 0 ? v : null;
     };
 
     OQB.t = function (text, params) {
@@ -84,6 +93,11 @@
         if (!name || ALLOWED[kind].indexOf(value) < 0) return;
         document.cookie = name + '=' + encodeURIComponent(value) +
             '; path=/; max-age=31536000; SameSite=Lax';
+        if (kind === 'paper') {
+            try {
+                PAPER_RESET_KEYS.forEach(function (k) { localStorage.removeItem(k); });
+            } catch (e) { /* storage blocked: the cookie still sets the default */ }
+        }
         window.location.reload();
     };
 })();

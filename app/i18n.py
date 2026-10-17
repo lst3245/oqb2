@@ -1,13 +1,17 @@
 """
 Bilingual UI (English / Traditional Chinese) and taxonomy display names.
 
-Two independent per-device cookies, no DB column:
+Three independent per-device cookies, no DB column:
 
 * ``oqb_lang`` (``en`` | ``zh``) — the UI language. Strings go through
   :func:`t` (Jinja global) / ``OQB.t()`` (``static/js/i18n.js``), both reading
   ``app/translations/zh_Hant.json`` keyed by the English text.
 * ``oqb_tax_lang`` (``en`` | ``zh`` | ``both``) — how subject / topic /
   subtopic / chapter / subchapter names are shown (:func:`display_name`).
+* ``oqb_paper_lang`` (``en`` | ``zh`` | ``bi``, unset = no preference) — the
+  default version priority for previews, the viewer and new papers
+  (:func:`paper_version_priority`). It only seeds defaults; an explicit
+  ``version_priority`` (dashboard widget, preset, regenerate) still wins.
 
 Generated documents do not read either cookie: the Generate page's
 ``heading_lang`` resolves through :func:`doc_lang` (``auto`` follows the top
@@ -28,11 +32,21 @@ from flask import Blueprint, Response, abort
 UI_LANGS = ('en', 'zh')
 TAX_MODES = ('en', 'zh', 'both')
 HEADING_LANGS = ('auto', 'en', 'zh', 'both')
+PAPER_LANGS = ('en', 'zh', 'bi')
 UI_COOKIE = 'oqb_lang'
 TAX_COOKIE = 'oqb_tax_lang'
+PAPER_COOKIE = 'oqb_paper_lang'
 DEFAULT_UI_LANG = 'en'
 DEFAULT_TAX_MODE = 'en'
 HTML_LANG = {'en': 'en', 'zh': 'zh-Hant-HK'}
+
+# Paper language -> versions moved to the front of DEFAULT_VERSION_PRIORITY:
+# typed version, then bilingual, then the official scan in that language.
+PAPER_VERSION_HEAD = {
+    'en': ('EN', 'BI', 'ENO'),
+    'zh': ('CH', 'BI', 'CHO'),
+    'bi': ('BI',),
+}
 
 # Top paper version -> document heading language for `heading_lang=auto`.
 VERSION_DOC_LANG = {'EN': 'en', 'ENO': 'en', 'CH': 'zh', 'CHO': 'zh', 'BI': 'both'}
@@ -133,6 +147,24 @@ def tax_lang():
     """Taxonomy display mode for this request (``oqb_tax_lang`` cookie)."""
     v = _cookie(TAX_COOKIE)
     return v if v in TAX_MODES else DEFAULT_TAX_MODE
+
+
+def paper_lang():
+    """Preferred paper language for this request (``oqb_paper_lang`` cookie),
+    or None when this device has not chosen one."""
+    v = _cookie(PAPER_COOKIE)
+    return v if v in PAPER_LANGS else None
+
+
+def paper_version_priority(lang=None):
+    """Default version order for ``lang`` (``en`` / ``zh`` / ``bi``): its
+    ``PAPER_VERSION_HEAD`` first, the rest in ``DEFAULT_VERSION_PRIORITY``
+    order. None or unknown -> ``DEFAULT_VERSION_PRIORITY``. Pure."""
+    from app.utils import DEFAULT_VERSION_PRIORITY, parse_version_priority
+    head = PAPER_VERSION_HEAD.get(lang)
+    if not head:
+        return list(DEFAULT_VERSION_PRIORITY)
+    return parse_version_priority(','.join(head))
 
 
 def t(text, **params):
@@ -257,6 +289,7 @@ def template_globals():
         'OQB_UI_LANG': lang,
         'OQB_HTML_LANG': HTML_LANG[lang],
         'OQB_TAX_LANG': tax_lang(),
+        'OQB_PAPER_LANG': paper_lang(),
         'OQB_I18N_VERSION': catalogue_version(),
         'tax_name': display_name,
     }

@@ -14,18 +14,18 @@
 |---|---|
 | `window.OQB_IS_ADMIN` | any subject-admin or super-admin role; hides admin-only UI (server decorators are the real gate) |
 | `window.OQB_AI_TOOLS_ENABLED` | `AI_TOOLS_ENABLED` setting; gates AI buttons |
-| `window.OQB_VERSIONS`, `OQB_VERSION_LABELS`, `OQB_DEFAULT_VERSION_PRIORITY` | canonical version list from `app/utils.VERSIONS` via a context processor (also available in `viewer.html`). Build version UIs from these, never a literal list |
+| `window.OQB_VERSIONS`, `OQB_VERSION_LABELS`, `OQB_DEFAULT_VERSION_PRIORITY` | canonical version list from `app/utils.VERSIONS` via a context processor (also available in `viewer.html`). Build version UIs from these, never a literal list. `OQB_DEFAULT_VERSION_PRIORITY` is per request: the device's paper-language order (`i18n.paper_version_priority`), else `DEFAULT_VERSION_PRIORITY` |
 | `window.OQB_I18N` | Chinese UI catalogue (`{English: 中文}`), loaded from `/i18n/zh.js?v=<mtime>` in `<head>` **only** when the UI language is Chinese; read it through `OQB.t`, never directly |
 
 ## UI language (`OQB.*`, `static/js/i18n.js`)
 
-Loaded in the `<head>` of `base.html`, `viewer.html` and `markup.html`, so page scripts can call it at parse time. Spec: [../modules/i18n.md](../modules/i18n.md).
+Loaded in the `<head>` of `base.html`, `viewer.html` and `markup.html` as `js/i18n.js?v=N`, so page scripts can call it at parse time. Bump `N` in all three templates whenever the file changes: static files have no automatic cache-busting, and a stale copy breaks new menu items. Spec: [../modules/i18n.md](../modules/i18n.md).
 
 | Helper | Purpose |
 |---|---|
 | `OQB.t(text, params)` | UI text: the catalogue value when the UI is Chinese, else `text`; fills `{name}` placeholders. Pass **one plain string literal** (the catalogue coverage test only sees literals) and put variable parts in `params`: `OQB.t('Delete asset "{name}"?', {name})` |
-| `OQB.uiLang()` / `OQB.taxLang()` | `en` / `zh` and `en` / `zh` / `both` from the `oqb_lang` / `oqb_tax_lang` cookies |
-| `OQB.setLang('ui' \| 'tax', value)` | writes the cookie (per device, one year, path `/`) and reloads; used by `partials/language_menu.html` (navbar globe dropdown) |
+| `OQB.uiLang()` / `OQB.taxLang()` / `OQB.paperLang()` | `en` / `zh`, `en` / `zh` / `both`, and `en` / `zh` / `bi` or `null` from the `oqb_lang` / `oqb_tax_lang` / `oqb_paper_lang` cookies |
+| `OQB.setLang('ui' \| 'tax' \| 'paper', value)` | writes the cookie (per device, one year, path `/`) and reloads; used by `partials/language_menu.html` (navbar globe dropdown). `'paper'` also removes the dashboard's `oqb_versionPriority` / `oqb_previewLanguage` localStorage so the dashboard adopts the new default order |
 | `OQB.taxName(node)` / `OQB.bilingual(name, nameZh, mode)` | display name of a taxonomy API node (`name_en` / `name_zh`) in the taxonomy mode; falls back to `node.name` |
 | `OQB.taxSearchKey(node)` | lower-cased `name name_en name_zh` haystack — use for every taxonomy search box so both languages match |
 

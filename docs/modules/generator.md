@@ -136,7 +136,7 @@ Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to defa
 | `mc_key_columns` | int 1–20 | 5 |
 | `mc_key_max_rows` | int 1–100 or null | null = automatic |
 | `mc_key_include_seq`, `mc_key_range_title` | bool | effective only with `show_seq_no` |
-| `version_priority` | csv | `EN,CH,BI,ENO,CHO`; legacy `preferred_language` accepted on input and converted by `parse_version_priority()` |
+| `version_priority` | csv | `EN,CH,BI,ENO,CHO`; legacy `preferred_language` accepted on input and converted by `parse_version_priority()`. The form starts from `OQB_DEFAULT_VERSION_PRIORITY` (the device's **Paper language** order, [i18n.md](i18n.md)) unless a preset or regenerate options set it; the viewer starts from the same default |
 | `answer_preference` | `image_first` / `text_first` | `image_first` |
 | `format_priority` | csv | `IMG,MD,DOC`; parsed by `_parse_format_priority()` |
 | `output_format` | string | always `DOCX` (see above) |

@@ -97,7 +97,7 @@ one or more super admins (users, subjects, settings, everything).
 | [014](docs/decisions/ADR-014-crop-width-mode.md) | PDF import crop width is one select (`auto` = frame else uniform width, `uniform`, `model`) replacing the frame-snap and uniform-width checkboxes; one setting `PDF_IMPORT_WIDTH_MODE_DEFAULT` |
 | [015](docs/decisions/ADR-015-shared-blocks.md) | Text printed between parts = shared block `Q7~c`: child of the lettered parent, parent of the parts from the anchor on; parts keep their QIDs; always a stem; no schema change |
 | [016](docs/decisions/ADR-016-single-subject-question-management.md) | Question Management is scoped to one subject (no "All" option); list APIs require `subject`; bulk routes refuse ids outside `subject_id`; tree list paged by root; one bulk panel with typed-subject confirms |
-| [017](docs/decisions/ADR-017-bilingual-ui-and-taxonomy.md) | Bilingual UI = in-house JSON catalogue keyed by English text (`t()` / `OQB.t()`) + per-device cookies `oqb_lang` and `oqb_tax_lang`; taxonomy keeps `name` (English) and adds optional `name_zh`; documents use a Generate-page heading language (`auto` follows the top version); matching accepts either language |
+| [017](docs/decisions/ADR-017-bilingual-ui-and-taxonomy.md) | Bilingual UI = in-house JSON catalogue keyed by English text (`t()` / `OQB.t()`) + per-device cookies `oqb_lang`, `oqb_tax_lang` and `oqb_paper_lang` (default version order only); taxonomy keeps `name` (English) and adds optional `name_zh`; documents use a Generate-page heading language (`auto` follows the top version); matching accepts either language |
 
 ## Documentation map
 

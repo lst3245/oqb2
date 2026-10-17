@@ -30,6 +30,8 @@
   "Language": "語言",
   "Interface language": "介面語言",
   "Topic and chapter names": "課題及章節名稱",
+  "Paper language": "試卷語言",
+  "Sets the version order for previews, the viewer and new papers.": "設定預覽、檢視器及新試卷所用的版本次序。",
   "Both": "雙語",
   "Question Viewer - Presentation Mode": "題目檢視器 - 簡報模式",
   "Markup - OQB": "標註 - OQB",

@@ -7,6 +7,7 @@ alwaysApply: false
 # Bilingual UI and taxonomy (bootloader — spec in `docs/modules/i18n.md`, ADR-017)
 
 UI language (`oqb_lang` cookie, en | zh) and taxonomy display (`oqb_tax_lang`, en | zh | both) are per-device cookies set only by `OQB.setLang`. **Neither is the paper version** (`EN/CH/BI/ENO/CHO`); never derive one from the other. The only bridge is Generate `heading_lang=auto`.
+A third cookie, `oqb_paper_lang` (en | zh | bi, unset = none), is the explicit paper-language choice: it only seeds `OQB_DEFAULT_VERSION_PRIORITY` via `i18n.paper_version_priority`. Explicit orders (widget drag, preset, regenerate) win; threads never read it. Bump `js/i18n.js?v=N` in `base.html` / `viewer.html` / `markup.html` whenever `static/js/i18n.js` changes.
 
 ## UI text
 - Wrap new teacher-facing text: Jinja `{{ t('English text', n=x) }}`, Python `_t('…')` (`from app.i18n import t as _t` — `utils`, `generator`, `admin`, `auth` use `t` as a loop variable), JS `OQB.t('…', {n: x})`.

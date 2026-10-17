@@ -114,6 +114,7 @@ Conventions:
 | Warning | 警告 |
 | Access denied | 拒絕存取 |
 | Both (bilingual) | 雙語 |
+| Paper language | 試卷語言 |
 | English / 中文 | English / 中文 (language names are shown in their own language) |
 | Loading… / Saving… | 載入中… / 儲存中… |
 | Refresh / Retry | 重新整理 / 重試 |

@@ -56,11 +56,17 @@ The top navigation bar has:
 - **File Browser** — your personal **My Files** home plus the **Shared** folder for each subject you can access (subject admins can edit their Shared folder; other members have read-only access; pure read-only viewers don't see it). It reopens in the folder you last used, on any computer you sign in from.
 - **Toolbox** — utilities such as Markup
 - **Admin** — visible to admins only
-- **Language** (globe icon, also on the login page) — two separate choices, remembered on this computer / browser only:
+- **Language** (globe icon, also on the login page) — three separate choices, remembered on this computer / browser only:
   - **Interface language**: English or 繁體中文 for every page's menus, buttons, labels and messages. Progress logs of long jobs (import, sync, AI batch runs), AI replies and the text of your questions stay as they are.
   - **Topic and chapter names**: English, 中文 or Both (`Basic Algebra 基礎代數`). A topic without a Chinese name always shows its English name. Searching a topic or chapter box finds it by either name.
+  - **Paper language**: English, 中文 or Bilingual. Sets the starting **Version Priority** on this computer, i.e. which version of a question you see first in dashboard previews, Present mode, and a new paper on the Generate page:
+    - English: EN, then BI, then the official English scan (ENO), then Chinese.
+    - 中文: CH, then BI, then the official Chinese scan (CHO), then English.
+    - Bilingual: BI first.
 
-  Neither choice changes which version (EN / CH / BI …) of a question is printed — that is still **Version Priority** on the Generate page.
+    Picking one resets the dashboard's Version Priority to that order. You can still drag the order on the dashboard or the Generate page, and a loaded preset keeps its own order. With 中文 and Heading language left on Auto, new papers get Chinese headings.
+
+  Interface language and topic names never change which version is printed; only Paper language and Version Priority do.
 
 ---
 
