@@ -267,9 +267,21 @@
                         <!-- Section -->
                         <div class="mb-3">
                             <label class="form-label">{{ t('Section') }}</label>
-                            <select class="form-select" name="section" id="sectionSelect">
-                                <option value="all">{{ t('All') }}</option>
-                            </select>
+                            <div class="dropdown year-dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button"
+                                        id="sectionDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                    <span id="sectionDropdownLabel">{{ t('Select subject first') }}</span>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" id="sectionDropdownMenu">
+                                    <div class="d-flex gap-1 mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSections()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSections()">{{ t('None') }}</button>
+                                    </div>
+                                    <div id="sectionCheckboxes" class="year-checkbox-list">
+                                        <small class="text-muted">{{ t('Select subject first') }}</small>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Topics -->
@@ -1683,7 +1695,7 @@ function getCurrentFilterValues() {
         subject: document.getElementById('subjectSelect')?.value || '',
         source_type: document.querySelector('input[name="source_type"]:checked')?.value || 'DSE',
         years: Array.from(document.querySelectorAll('.year-checkbox:checked')).map(cb => cb.value).sort().join(','),
-        section: document.querySelector('select[name="section"]')?.value || 'all',
+        sections: Array.from(document.querySelectorAll('.section-checkbox:checked')).map(cb => cb.value).sort().join(','),
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value).sort().join(','),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
         show_hidden_topics: document.getElementById('showHiddenTopics')?.checked || false,
@@ -1721,9 +1733,10 @@ function updateAllFilterActiveStates() {
     const totalYears    = document.querySelectorAll('.year-checkbox').length;
     setFilterActive('yearDropdownBtn', checkedYears > 0 && checkedYears < totalYears);
 
-    // Section: active when not "all"
-    const section = document.getElementById('sectionSelect')?.value;
-    setFilterActive('sectionSelect', section && section !== 'all');
+    // Sections: active when some (not zero, not all)
+    const checkedSections = document.querySelectorAll('.section-checkbox:checked').length;
+    const totalSections   = document.querySelectorAll('.section-checkbox').length;
+    setFilterActive('sectionDropdownBtn', checkedSections > 0 && checkedSections < totalSections);
 
     // Topics: active when some (not zero, not all)
     const checkedTopics = document.querySelectorAll('.topic-checkbox:checked').length;
@@ -2873,7 +2886,7 @@ function saveStateToStorage() {
         subject: document.getElementById('subjectSelect').value,
         source_type: document.querySelector('input[name="source_type"]:checked')?.value || 'DSE',
         years: Array.from(document.querySelectorAll('.year-checkbox:checked')).map(cb => cb.value),
-        section: document.querySelector('select[name="section"]').value,
+        sections: Array.from(document.querySelectorAll('.section-checkbox:checked')).map(cb => cb.value),
         topics: Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => cb.value),
         topic_mode: document.querySelector('input[name="topic_mode"]:checked')?.value || 'OR',
         show_hidden_topics: document.getElementById('showHiddenTopics')?.checked || false,
@@ -3073,12 +3086,13 @@ async function restoreFilterSettings(settings) {
     if (settings.subject) {
         await loadSubjectData(settings.subject, settings.source_type || 'DSE');
         
-        // Restore section AFTER loadSubjectData has populated the dropdown
-        if (settings.section) {
-            const sectionSelect = document.querySelector('select[name="section"]');
-            if (sectionSelect) {
-                sectionSelect.value = settings.section;
-            }
+        // Restore sections AFTER loadSubjectData has populated the dropdown
+        const savedSections = settingsSections(settings);
+        if (savedSections.length > 0) {
+            document.querySelectorAll('.section-checkbox').forEach(cb => {
+                cb.checked = savedSections.includes(cb.value);
+            });
+            updateSectionDropdownLabel();
         }
         
         // Topics are now in the DOM after loadSubjectData — restore selected topics immediately
@@ -3268,28 +3282,65 @@ function clearAllYears() {
 
 // ============== SECTION DROPDOWN FUNCTIONS ==============
 
-// Populate section dropdown with dynamic sections from database
-function populateSectionDropdown(sections, selectedSection = 'all') {
-    const sectionSelect = document.getElementById('sectionSelect');
-    
+// Saved filters carry `sections` (array); older ones a single `section` string ('all' = none).
+function settingsSections(settings) {
+    if (Array.isArray(settings.sections)) return settings.sections.map(String);
+    if (settings.section && settings.section !== 'all') return [String(settings.section)];
+    return [];
+}
+
+// Render section checkboxes from the sections in the database
+function populateSectionDropdown(sections) {
+    const sectionDiv = document.getElementById('sectionCheckboxes');
+    const label = document.getElementById('sectionDropdownLabel');
+
     if (!sections || sections.length === 0) {
-        sectionSelect.innerHTML = '<option value="all">' + OQB.t('All (No sections available)') + '</option>';
+        sectionDiv.innerHTML = '<small class="text-muted">' + OQB.t('No sections available') + '</small>';
+        label.textContent = OQB.t('No sections');
+        saveStateToStorage();
+        checkFilterModification();
         return;
     }
-    
-    // Build options: start with "All"
-    let optionsHtml = '<option value="all">' + OQB.t('All') + '</option>';
-    
-    // Add each section from database
-    sections.forEach(section => {
-        optionsHtml += `<option value="${section}">${section}</option>`;
-    });
-    
-    sectionSelect.innerHTML = optionsHtml;
-    sectionSelect.value = selectedSection;
-    
+
+    sectionDiv.innerHTML = sections.map((s, i) => `
+        <div class="form-check">
+            <input class="form-check-input section-checkbox" type="checkbox" name="section"
+                   value="${_escapeHtmlAttr(s)}" id="section${i}" onchange="updateSectionDropdownLabel()">
+            <label class="form-check-label" for="section${i}">${_escapeHtmlAttr(s)}</label>
+        </div>
+    `).join('');
+
+    updateSectionDropdownLabel();
+}
+
+// Update the section dropdown button label
+function updateSectionDropdownLabel() {
+    const checked = Array.from(document.querySelectorAll('.section-checkbox:checked')).map(cb => cb.value);
+    const total = document.querySelectorAll('.section-checkbox').length;
+    const label = document.getElementById('sectionDropdownLabel');
+
+    if (total === 0) {
+        label.textContent = OQB.t('No sections');
+    } else if (checked.length === 0 || checked.length === total) {
+        label.textContent = OQB.t('All');
+    } else if (checked.length <= 3) {
+        label.textContent = checked.join(', ');
+    } else {
+        label.innerHTML = OQB.t('{n} sections <span class="badge bg-primary">{n}</span>', {n: checked.length});
+    }
+
     saveStateToStorage();
     checkFilterModification();
+}
+
+function selectAllSections() {
+    document.querySelectorAll('.section-checkbox').forEach(cb => cb.checked = true);
+    updateSectionDropdownLabel();
+}
+
+function clearAllSections() {
+    document.querySelectorAll('.section-checkbox').forEach(cb => cb.checked = false);
+    updateSectionDropdownLabel();
 }
 
 // ============== TOPIC DROPDOWN FUNCTIONS ==============
@@ -4230,8 +4281,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                     // Different subject: hand a clean subject-only filter to the restore path
                     profileFilters = {
                         subject: setSubject,
-                        source_type: 'DSE', section: 'all', topic_mode: 'OR', subtopic_mode: 'OR', q_type: 'all',
-                        years: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
+                        source_type: 'DSE', topic_mode: 'OR', subtopic_mode: 'OR', q_type: 'all',
+                        years: [], sections: [], topics: [], subtopics: [], chapters: [], subchapters: [], levels: [],
                         qid_search: '', qid_strict: false,
                         is_crosstopic: false, is_crosssubtopic: false,
                         show_hidden_topics: false, show_hidden_chapters: false,
@@ -4477,12 +4528,6 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
         saveStateToStorage();
         checkFilterModification();
     });
-});
-
-// Section change - save state
-document.getElementById('sectionSelect').addEventListener('change', function() {
-    saveStateToStorage();
-    checkFilterModification();
 });
 
 // Topic change is now handled by onTopicChange() via checkbox onclick handlers
@@ -5504,8 +5549,8 @@ function resetFilters() {
     // Reset source type to DSE
     document.getElementById('sourceDSE').checked = true;
     
-    // Reset section
-    document.querySelector('select[name="section"]').value = 'all';
+    // Clear section selections
+    clearAllSections();
     
     // Clear topic selection
     const topicSelect = document.getElementById('topicSelect');
@@ -6907,7 +6952,7 @@ function convertProfileToSettings(data) {
         subject: data.subject || '',
         source_type: data.source_type || 'DSE',
         years: toArray(data.years),
-        section: data.section || 'all',
+        sections: data.sections !== undefined ? toArray(data.sections) : settingsSections(data),
         topics: toArray(data.topics),
         topic_mode: data.topic_mode || 'OR',
         subtopics: toArray(data.subtopics),

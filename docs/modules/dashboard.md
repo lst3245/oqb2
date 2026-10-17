@@ -52,7 +52,7 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 | `subject` | string | Subject ID (e.g. `MATC`). 403 if the user lacks access. |
 | `source_type` | string | `DSE`, `CE`, `AL` (matched against `Question.source`) or `QB`. |
 | `years` | list[int] | Multi-select, past papers only. |
-| `section` | string | `A`, `Section I`, ...; `all` or empty = no filter. |
+| `section` | list[str] | Multi-select (repeated `section=` fields), matched with `IN`; none checked = no filter. `normalize_sections` still accepts the legacy single string (`all` / empty = no filter) from old saved profiles. Client state uses `sections` (array in localStorage, comma list in profiles); `settingsSections()` falls back to the old `section` key. |
 | `topics` | list[int] | Topic IDs. |
 | `topic_mode` | `AND` / `OR` | Default `OR`. |
 | `subtopics` | list[int] | Subtopic IDs. |

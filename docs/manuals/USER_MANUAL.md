@@ -81,7 +81,7 @@ Use the radio buttons: **DSE**, **CE**, **AL**, or **QB**. DSE/CE/AL are past pa
 | Filter | How It Works |
 |---|---|
 | **Years** | Multi-select dropdown (past papers only). Click "All" or "None" to toggle. |
-| **Section** | Selects from available sections for the chosen subject and source (e.g. Section A, Section B). |
+| **Section** | Multi-select dropdown of the sections available for the chosen subject and source (e.g. A, A1, B). Click "All" or "None" to toggle; leaving none ticked shows every section. |
 | **Topics** | Multi-select dropdown. Use **OR** mode (any selected topic) or **AND** mode (all selected topics). A subject can prefix each topic with its number, written as ordinary text (`01 Basic Algebra`). That is on for every subject unless an admin turns it off. |
 | **Include tagged in minor** | (Topics) Also includes questions where the topic is a *minor* topic, not just the primary one. |
 | **Subtopics** | Appears after selecting topics. Also has OR/AND mode and an "Include tagged in minor" option. Each subtopic shows its question count (follows the Question Type filter) and an **MC** and/or **CQ** chip for the question types it contains (always for the whole library, whatever the Question Type filter). A subject can also prefix the number as ordinary text (`1.1 Law of Indices`); that is off unless an admin turns it on. The number is not a chip. |

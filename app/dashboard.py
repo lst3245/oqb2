@@ -25,6 +25,17 @@ import json
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 
 
+def normalize_sections(raw):
+    """Section filter values as a list. Accepts the multi-select list or the
+    legacy single string (``'all'`` / ``''`` mean no filter) that older saved
+    profiles and localStorage still carry."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [s for s in raw if s is not None and str(s).strip() and s != 'all']
+
+
 def _build_filtered_query(params):
     """
     Build the question query from a normalized filter-params dict (same shape as
@@ -35,7 +46,7 @@ def _build_filtered_query(params):
     subject = params.get('subject')
     source_type = params.get('source_type')
     years = params.get('years') or []
-    section = params.get('section')
+    sections = normalize_sections(params.get('section'))
     topics = params.get('topics') or []
     topic_mode = params.get('topic_mode') or 'OR'
     subtopics = params.get('subtopics') or []
@@ -60,8 +71,8 @@ def _build_filtered_query(params):
             Question.qid.in_(qid_list),
             Question.subject.in_(accessible_subjects)
         )
-        subject = source_type = section = q_type = qid_search = None
-        years = topics = subtopics = chapters = subchapters = levels = []
+        subject = source_type = q_type = qid_search = None
+        years = sections = topics = subtopics = chapters = subchapters = levels = []
     # Explicit DB id list - same override semantics as `qids` but keyed on Question.id.
     elif id_list:
         accessible_subjects = [s.id for s in get_user_accessible_subjects()]
@@ -69,8 +80,8 @@ def _build_filtered_query(params):
             Question.id.in_(id_list),
             Question.subject.in_(accessible_subjects)
         )
-        subject = source_type = section = q_type = qid_search = None
-        years = topics = subtopics = chapters = subchapters = levels = []
+        subject = source_type = q_type = qid_search = None
+        years = sections = topics = subtopics = chapters = subchapters = levels = []
     # Direct QID search - if provided, search by QID directly
     elif qid_search and qid_search.strip():
         if qid_strict:
@@ -105,9 +116,9 @@ def _build_filtered_query(params):
         if year_ints:
             query = query.filter(Question.year.in_(year_ints))
 
-    # Filter by section
-    if section and section != 'all':
-        query = query.filter(Question.section == section)
+    # Filter by sections
+    if sections:
+        query = query.filter(Question.section.in_(sections))
 
     # Filter by topics
     if topics:
@@ -350,7 +361,7 @@ def filter_questions():
         return jsonify({'error': _t('Access denied to this subject')}), 403
     source_type = request.args.get('source_type') or request.form.get('source_type')
     years = request.args.getlist('years') or request.form.getlist('years')
-    section = request.args.get('section') or request.form.get('section')
+    section = request.args.getlist('section') or request.form.getlist('section')
     topics = request.args.getlist('topics') or request.form.getlist('topics')
     topic_mode = request.args.get('topic_mode') or request.form.get('topic_mode') or 'OR'  # AND or OR
     subtopics = request.args.getlist('subtopics') or request.form.getlist('subtopics')
@@ -642,7 +653,7 @@ def get_sort_groups():
         'subject': subject,
         'source_type': request.form.get('source_type') or request.args.get('source_type'),
         'years': request.form.getlist('years') or request.args.getlist('years'),
-        'section': request.form.get('section') or request.args.get('section'),
+        'section': request.form.getlist('section') or request.args.getlist('section'),
         'topics': request.form.getlist('topics') or request.args.getlist('topics'),
         'topic_mode': request.form.get('topic_mode') or request.args.get('topic_mode') or 'OR',
         'subtopics': request.form.getlist('subtopics') or request.args.getlist('subtopics'),
