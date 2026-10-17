@@ -1687,6 +1687,7 @@ function saveViewSettings() {
 document.body.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'questionList') {
         applyViewSettings();
+        seedSelectionUnits();
         initializeSelectionState();
         applyShowSelectedOnly();
         oqbFitSheetImages(event.detail.target);
@@ -1981,13 +1982,14 @@ function updateVisibleCountDisplay() {
     if (isEnabled) {
         // Cards on this page (post server-filter) — paginated subset of the selection.
         const onPage = countLeafCardsOnPage();
+        const text = OQB.t('{selection} (page shows {onPage})', {selection: selectionCountText(), onPage: onPage});
         const counter = document.getElementById('selectionCounter');
         if (counter) {
-            counter.textContent = OQB.t('{n} selected (page shows {onPage})', {n: selectedQuestions.size, onPage: onPage});
+            counter.textContent = text;
         }
         const mainCounter = document.getElementById('mainSelectionCounter');
         if (mainCounter) {
-            mainCounter.textContent = OQB.t('{n} selected (page shows {onPage})', {n: selectedQuestions.size, onPage: onPage});
+            mainCounter.textContent = text;
         }
     }
 }
@@ -2784,21 +2786,89 @@ function updateSelectAllCheckbox() {
     }
 }
 
+// Selected id -> id of the whole question it counts toward
+// (hierarchy.question_unit_id; null = deleted or no access). Seeded from
+// #allQuestionIds after each list swap, the rest fetched from
+// /dashboard/api/selection-units.
+const selectionUnitCache = new Map();
+let selectionUnitTimer = null;
+let selectionUnitInFlight = false;
+let selectionUnitFailed = false;
+
+function seedSelectionUnits() {
+    const el = document.getElementById('allQuestionIds');
+    if (!el || !el.dataset.units) return;
+    const ids = el.dataset.ids.split(',');
+    const units = el.dataset.units.split(',');
+    ids.forEach((id, i) => {
+        if (id && units[i]) selectionUnitCache.set(id, units[i]);
+    });
+}
+
+function scheduleSelectionUnitFetch() {
+    if (selectionUnitInFlight || selectionUnitFailed) return;
+    clearTimeout(selectionUnitTimer);
+    selectionUnitTimer = setTimeout(() => {
+        const want = Array.from(selectedQuestions).filter(id => !selectionUnitCache.has(id));
+        if (!want.length) return;
+        selectionUnitInFlight = true;
+        fetch(`{{ url_for('dashboard.selection_units') }}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: want }),
+        })
+            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+            .then(data => {
+                const units = data.units || {};
+                want.forEach(id => selectionUnitCache.set(id, units[id] != null ? String(units[id]) : null));
+            })
+            .catch(() => { selectionUnitFailed = true; })
+            .finally(() => {
+                selectionUnitInFlight = false;
+                updateSelectionCounter();
+                updateVisibleCountDisplay();
+            });
+    }, 250);
+}
+
+// "N selected" when every selected part is a whole question, otherwise
+// "N questions · M parts selected". Plain count until every id is resolved.
+function selectionCountText() {
+    const parts = selectedQuestions.size;
+    const units = new Set();
+    let unresolved = false;
+    selectedQuestions.forEach(id => {
+        if (!selectionUnitCache.has(id)) { unresolved = true; return; }
+        const unit = selectionUnitCache.get(id);
+        units.add(unit === null ? 'id:' + id : unit);
+    });
+    if (unresolved) {
+        scheduleSelectionUnitFetch();
+        return OQB.t('{n} selected', {n: parts});
+    }
+    const n = units.size;
+    if (n === parts) return OQB.t('{n} selected', {n: parts});
+    return n === 1
+        ? OQB.t('{n} question · {p} parts selected', {n: n, p: parts})
+        : OQB.t('{n} questions · {p} parts selected', {n: n, p: parts});
+}
+
 // Update selection counter
 function updateSelectionCounter() {
     const count = selectedQuestions.size;
+    const text = selectionCountText();
     
     // Update counter in question list
     const counter = document.getElementById('selectionCounter');
     if (counter) {
-        counter.textContent = OQB.t('{n} selected', {n: count});
+        counter.textContent = text;
         counter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
     }
     
     // Update main counter in header
     const mainCounter = document.getElementById('mainSelectionCounter');
     if (mainCounter) {
-        mainCounter.textContent = OQB.t('{n} selected', {n: count});
+        mainCounter.textContent = text;
         mainCounter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
     }
 }

@@ -1128,6 +1128,16 @@ def _bucket_question_weight(stem, rows) -> int:
     return 1
 
 
+def question_unit_id(q):
+    """Id of the *question* a selected row counts toward, by the same rule as
+    ``_bucket_question_weight``: the root id, except that each row under a
+    range stem (Q16-17) is its own question."""
+    r = root(q)
+    if r is not q and getattr(r, 'qno_end', None):
+        return getattr(q, 'id', None)
+    return getattr(r, 'id', None)
+
+
 def paginate_by_root(sorted_questions, page: int, per_page: int) -> tuple[list, int, int]:
     """Slice a sorted result list by *whole question* instead of by row.
 

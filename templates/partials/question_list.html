@@ -1,7 +1,8 @@
 <!-- Question list partial for HTMX updates -->
 {% if questions %}
     <!-- Store all question IDs for "Select All" functionality -->
-    <div id="allQuestionIds" data-ids="{{ all_question_ids|join(',') }}" style="display:none;"></div>
+    <div id="allQuestionIds" data-ids="{{ all_question_ids|join(',') }}"
+         data-units="{{ (all_question_units or [])|join(',') }}" style="display:none;"></div>
     
     <!-- Select All -->
     <div class="mb-3 d-flex justify-content-between align-items-center">

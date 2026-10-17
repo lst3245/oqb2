@@ -193,7 +193,7 @@ Once you have a selection, the action buttons become active:
 - **Viewer** — open presentation/review mode
 - **Clear** — deselect all
 
-The selection count is shown in the header.
+The selection count is shown in the header. When some ticked items are parts of split questions, it shows both numbers, e.g. **5 questions · 20 parts selected** (a question split into (a), (b), (c) counts once; each number of a shared-data range like Q16-17 counts as its own question).
 
 ---
 

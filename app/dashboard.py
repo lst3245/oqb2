@@ -13,7 +13,7 @@ from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
     children as hier_children, group_for_dashboard, is_stem,
     paginate_by_root, root as hier_root, stem_id_query, leaf_clause,
-    is_block, part_position_label, whole_marks,
+    is_block, part_position_label, whole_marks, question_unit_id,
 )
 from app import md_render
 from app.i18n import display_name, t as _t
@@ -574,7 +574,10 @@ def filter_questions():
         question_groups.append({'stem': stem_card, 'leaves': leaves, 'rows': rows})
     
     # Select-all uses leaves only so a stem header is not double-counted.
-    all_question_ids = [q.id for q in sorted_questions if _selectable(q)]
+    selectable = [q for q in sorted_questions if _selectable(q)]
+    all_question_ids = [q.id for q in selectable]
+    # Parallel list: which whole question each id counts toward (selection badge).
+    all_question_units = [question_unit_id(q) for q in selectable]
     
     # Get subjects user has admin access to for showing edit buttons
     admin_subjects = current_user.get_admin_subjects()
@@ -589,6 +592,7 @@ def filter_questions():
                              total=total,
                              total_parts=total_parts,
                              all_question_ids=all_question_ids,
+                             all_question_units=all_question_units,
                              sort_config=sort_config,
                              admin_subjects=admin_subjects)
     
@@ -603,6 +607,7 @@ def filter_questions():
                          total=total,
                          total_parts=total_parts,
                          all_question_ids=all_question_ids,
+                         all_question_units=all_question_units,
                          sort_config=sort_config,
                          admin_subjects=admin_subjects)
 
@@ -699,6 +704,29 @@ def _subtopic_numbers_for(topic_ids):
     for sid in subject_ids:
         numbers.update(subject_numbers(sid)[1])
     return numbers
+
+
+@dashboard_bp.route('/api/selection-units', methods=['POST'])
+@login_required
+def selection_units():
+    """Which whole question each selected id counts toward, for the
+    "N questions · M parts selected" badge. JSON ``{ids: [...]}`` →
+    ``{units: {"<id>": <question id>}}``. Ids outside the caller's subjects or
+    no longer in the DB are left out."""
+    data = request.get_json(silent=True) or {}
+    ids = []
+    for v in data.get('ids') or []:
+        try:
+            ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return jsonify({'units': {}})
+    accessible = [s.id for s in get_user_accessible_subjects()]
+    rows = eager_load_tree(Question.query.filter(
+        Question.id.in_(ids), Question.subject.in_(accessible),
+    )).all()
+    return jsonify({'units': {str(q.id): question_unit_id(q) for q in rows}})
 
 
 @dashboard_bp.route('/api/topics/<subject_id>')

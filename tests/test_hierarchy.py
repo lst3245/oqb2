@@ -24,6 +24,7 @@ from app.hierarchy import (
     group_for_dashboard,
     normalize_part_box_label,
     paginate_by_root,
+    question_unit_id,
     normalize_plan_label,
     parse_qid,
     parse_qno_token,
@@ -457,6 +458,17 @@ class PaginateByRootTests(unittest.TestCase):
         self.assertEqual(page1, [q16, q17])
         page2, _, _ = paginate_by_root([q16, q17, self.q9], 2, 2)
         self.assertEqual(page2, [self.q9])
+
+    def test_question_unit_id_matches_pagination_count(self):
+        pre = _q(id=20, qno=16, qno_end=17, qid='ECON_DSE_2012_P1_Q16-17')
+        q16 = _q(id=16, qno=16, qid='ECON_DSE_2012_P1_Q16')
+        q17 = _q(id=17, qno=17, qid='ECON_DSE_2012_P1_Q17')
+        _link(pre, q16, q17)
+        units = [question_unit_id(q) for q in (self.a, self.b, self.c, self.q9, q16, q17, pre)]
+        self.assertEqual(units, [1, 1, 1, 9, 16, 17, 20])
+        rows = [self.a, self.b, self.c, self.q9, q16, q17]
+        _, total, _ = paginate_by_root(rows, 1, 20)
+        self.assertEqual(len({question_unit_id(q) for q in rows}), total)
 
 
 class FilenameGrammarTests(unittest.TestCase):
