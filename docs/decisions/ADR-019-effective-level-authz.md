@@ -28,3 +28,4 @@ Options considered:
 - Routes that relied on the pass-through now need an explicit check; all routes that carry the decorators pass `subject_id` in the URL, so none changed behaviour.
 - Generation requires `user` level on each question's subject; a viewer grant on one subject plus a user grant on another no longer lets a teacher generate from the viewer subject.
 - One extra grant query per request per user (cached), plus one `Subject` query for super admins.
+- The session marker added in stage 6 ([ADR-018](ADR-018-sessions-csrf-and-headers.md), `session['oqb_auth']`) records only how and when the user signed in; it never carries levels. An SMS sign-in drops the per-request cache (`authz.invalidate()`) so the new levels apply at once.

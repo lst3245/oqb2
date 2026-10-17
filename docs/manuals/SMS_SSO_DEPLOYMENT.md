@@ -2,7 +2,7 @@
 
 > For the person deploying branch `feature/sms-sso` to the live host (`https://oqb.mathedu.info`). Spec: [../modules/sms-sso.md](../modules/sms-sso.md). Contract: `OQB_CONTRACT_v1.2.md` (sections 2, 2a, 3, 13).
 
-**State of the branch:** stages 1–5 are built (authorization, trust list, verifier, sign-in, linking, directory feed, the super-admin screens under **Admin → SMS sign-in** `/admin/sms/`). CSRF / session limits / cookie flags (stage 6) are **not**. Steps marked *(stage 6)* need that stage merged first. Do not switch `SMS_SSO_ENABLED` on in production before stage 6 is merged.
+**State of the branch:** all six stages are built (authorization, trust list, verifier, sign-in, linking, directory feed, the super-admin screens under **Admin → SMS sign-in** `/admin/sms/`, cookies + session limits + CSRF + security headers). Not deployed yet.
 
 Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject mapping** `/admin/sms/mapping`, **Linking** `/admin/sms/linking`, **Snapshots** `/admin/sms/snapshots`, **Trust list** `/admin/sms/trust`, **Audit and alerts** `/admin/sms/audit`. The red badge on the Admin menu counts unacknowledged alerts.
 
@@ -11,11 +11,13 @@ Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject
 1. **Back up the database** (`mysqldump` of `oqb`, plus the `Storage` tree), because the boot patches run as soon as the new code starts: they add the `users` columns and create 12 tables. They are additive; nothing existing is changed or dropped.
 2. Install the new dependency into the **live interpreter** (the one that runs `run.py`): `python -m pip install "PyJWT>=2.8,<3"` (from `requirements.txt`).
 3. Deploy by merging while the server is stopped, then start it once and check the log for `sso_schema` errors. If `SMS_SCHEMA_READY` is false (log line `sso_schema patches failed` / `creating … failed`), SMS sign-in stays off (503) and password login keeps working. Fix the cause before going further.
-4. Everyone signs in again once (session ids carry the session version since stage 1).
+4. **Everyone is signed out once, at the first start.** The cookies are renamed (`session` → `oqb_session`, `remember_token` → `oqb_remember`) and session ids carry the session version. Announce it before the deploy ("you will need to sign in again; tick *Remember me* on your own computer to stay signed in"). Remember-me is now opt-in, lasts at most 30 days, and is never offered to SMS-linked accounts; password sessions without it end after 12 hours or 2 hours idle.
+5. Set `CSRF_MODE=report` in System Settings → **Sign-in and sessions** (or `.env`) **before** the first start — see section 2a.
 
 ## 1. Host prerequisites (contract section 13)
 
-- HTTPS on `oqb.mathedu.info` with a publicly trusted certificate; HSTS on the proxy.
+- HTTPS on `oqb.mathedu.info` with a publicly trusted certificate, terminated at the reverse proxy; **HSTS** on the proxy (`Strict-Transport-Security: max-age=31536000`; OQB itself does not send it). The proxy forwards `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For`, matching `PROXY_FIX_HOPS`.
+- LAN users must reach OQB through the same HTTPS name (for example split-horizon DNS) once cookies are `Secure`; plain `http://host:5000` can no longer keep a session. If they cannot move yet, set `SESSION_COOKIE_SECURE=false` for the transition and switch it back to `auto` afterwards.
 - The Windows clock synced by NTP (`w32time`), within ±5 seconds (`w32tm /query /status`). Tokens allow 30 s of skew.
 - A local **break-glass** super admin with a password (`local_only`); it is never linked to SMS. The Overview screen warns when no active super admin can sign in with a password.
 
@@ -27,12 +29,27 @@ Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject
 | `SMS_TRUST_BOOTSTRAP_FILE` | `.env` | unset (ignored in production, with an alert) |
 | `PUBLIC_ORIGIN` | `.env` | `https://oqb.mathedu.info` |
 | `PROXY_FIX_HOPS` | `.env` | the number of reverse proxies in front of Flask (normally `1`) |
-| `SESSION_COOKIE_SECURE` | `.env` *(stage 6)* | on |
-| `CSRF_MODE` | `.env` *(stage 6)* | `report` first; `enforce` after the logs show no `csrf_failed` for real pages |
+| `SESSION_COOKIE_SECURE` | `.env` | `auto` (the default: `Secure` because `PUBLIC_ORIGIN` is https); `false` only during the LAN transition above |
+| `CSRF_MODE` | System Settings → Sign-in and sessions (or `.env`) | `report` first; `enforce` after the logs show no `csrf_failed` for real pages (section 2a) |
+| `PASSWORD_SESSION_LIMITS` | System Settings → Sign-in and sessions | on (12 h / 2 h for password sessions without remember-me) |
+| `PASSWORD_REMEMBER_DAYS` | System Settings → Sign-in and sessions | 30 (0 hides "Remember me") |
+| `SMS_EMBED_ENABLED` | System Settings → SMS sign-in | **off** unless SMS is to show OQB inside its own page (needs HTTPS; cookies become `SameSite=None; Secure; Partitioned`) |
 | `SMS_SSO_ENABLED` | System Settings → SMS sign-in | on, only after the steps below |
 | `SMS_FEED_ENABLED` | System Settings | on when the feed should start (before linking, to get the roster; works while `SMS_SSO_ENABLED` is still off) |
 | `SMS_FEED_BRAKE_MIN` / `SMS_FEED_BRAKE_PCT` | System Settings | leave at 5 / 10 (hold a snapshot that would disable more than max(5, 10 % of linked) accounts) |
 | `SMS_JIT_ENABLED` | System Settings | **off** until linking (phase A) is complete |
+
+## 2a. CSRF rollout: `report`, then `enforce`
+
+Every POST / PUT / PATCH / DELETE now needs the page's CSRF token. The pages send it automatically (`static/js/csrf.js`, `csrf_field()` in every form), but a browser holding an old cached page, a bookmark that posts, or a script outside OQB would be refused.
+
+1. Deploy with `CSRF_MODE=report`. Requests without a valid token go through and the server log gets a warning line: `csrf_failed mode=report endpoint=<name> path=<path>` (never the token).
+2. Use the site normally for a few school days (generate papers, edit questions, upload files, PDF import, Markup, the admin screens). Then search the server log for `csrf_failed` and count by `endpoint=`.
+3. Expect only stray hits (pages opened before the deploy, sessions that just ended). An endpoint that fails repeatedly for signed-in users is a page that does not send the token: fix it before switching.
+4. Set `CSRF_MODE=enforce`. A refused request then answers 400 ("Your session has expired. Reload the page and try again."); the login form shows the same message. Switching back to `report` is immediate (no restart).
+5. The two SSO endpoints never need a token (`POST /sso/sms` checks `Origin`, `POST /api/sms/directory` checks the snapshot signature). The Markup share target without a token is sent to the Markup tool (303).
+
+Headers to check once after the deploy (browser dev tools, any page): `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`; cookies `oqb_session` (and `oqb_remember` after a remembered login) with `HttpOnly; Secure; SameSite=Lax`. With `SMS_EMBED_ENABLED` on: `frame-ancestors https://ms.tic.edu.hk` (plus `https://ms-test.tic.edu.hk` only while the test window is open), no `X-Frame-Options`, cookies `SameSite=None; Secure; Partitioned`.
 
 ## 3. Pin the live key
 
@@ -87,4 +104,4 @@ This procedure is rehearsed end to end by `tests/test_sms_workshop_window.py` wi
 
 ## 6. Rollback
 
-Redeploy `main` (stop the server, check out `main`, start). The new columns and tables are additive and ignored by the old code; leave them in place. To switch SMS sign-in off without a redeploy: System Settings → `SMS_SSO_ENABLED` off (SMS routes 404, SMS levels stop counting, local grants and passwords keep working). To stop the feed: `SMS_FEED_ENABLED` off (`/api/sms/directory` answers 404; SMS keeps retrying on its schedule). Accounts the feed disabled (`sms_deprovisioned`) are re-enabled by their next valid sign-in or snapshot, or at once by a super admin (Admin → Users → Account → **Enable account**). To lock someone out at once: **Disable account** (SMS never re-enables it) or **End all sessions**. Key compromise: **Trust list → Unpin** the kid at once; password login keeps working.
+Redeploy `main` (stop the server, check out `main`, start). The new columns and tables are additive and ignored by the old code; leave them in place. To switch SMS sign-in off without a redeploy: System Settings → `SMS_SSO_ENABLED` off (SMS routes 404, SMS levels stop counting, local grants and passwords keep working). To stop the feed: `SMS_FEED_ENABLED` off (`/api/sms/directory` answers 404; SMS keeps retrying on its schedule). Accounts the feed disabled (`sms_deprovisioned`) are re-enabled by their next valid sign-in or snapshot, or at once by a super admin (Admin → Users → Account → **Enable account**). To lock someone out at once: **Disable account** (SMS never re-enables it) or **End all sessions**. Key compromise: **Trust list → Unpin** the kid at once; password login keeps working. If CSRF refusals block real work after `enforce`, set `CSRF_MODE=report` (immediate) and look up the `endpoint=` in the log. A rollback to `main` signs everyone out once more (the old cookie names).

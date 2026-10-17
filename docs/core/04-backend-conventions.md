@@ -6,7 +6,7 @@
 
 | Blueprint | Module | Prefix | Owns |
 |---|---|---|---|
-| `auth_bp` | `app/auth.py` | `/` | `/`, `/login`, `/logout`, `/register` |
+| `auth_bp` | `app/auth.py` | `/` | `/`, `/login`, `/logout` (GET confirm, POST sign out), `/register` |
 | `dashboard_bp` | `app/dashboard.py` | `/dashboard` | browse / filter / previews / Explain |
 | `generator_bp` | `app/generator.py` | `/generate` | generation, status, download, lazy PDF, viewer |
 | `user_bp` | `app/user.py` | `/user` | My Files, sections, shares, profiles, gen-profiles, sets |
@@ -39,6 +39,15 @@ def something(question_id):
 - Decorator order: `route` → `login_required` → authz decorator.
 - Read params from URL kwargs, then `request.args`, `request.form`, or JSON (`request.get_json(silent=True) or {}`).
 - Commit at the route (or service) boundary; on error `db.session.rollback()` and return an error.
+- A route that changes state is POST / PUT / PATCH / DELETE, never GET, so the CSRF check covers it (the SSE GETs that still write are a known open issue, [../modules/sms-sso.md](../modules/sms-sso.md)).
+
+## CSRF (`app/csrf.py`, ADR-018)
+
+- `csrf.protect` (`before_request`) checks **every** POST / PUT / PATCH / DELETE: `X-CSRF-Token` header, else the `csrf_token` form field (urlencoded / multipart only; a JSON body needs the header), against `session['_csrf']` with `hmac.compare_digest`. Requests that match no route are left to routing (404 / 405).
+- Exemptions are endpoint names in `csrf.EXEMPT_ENDPOINTS` — only `sso.token_post` (Origin check) and `sso.directory_feed` (signed, cookie-less). Do not add one for convenience; a request that can never carry a token gets a redirect in `REDIRECT_ON_FAILURE` instead (the Markup Web Share Target fallback).
+- Failure with `CSRF_MODE=enforce`: `authz.wants_json()` requests get 400 `{"success": false, "error": "csrf_failed", "message"}`; HTML posts get the 400 page `templates/csrf_failed.html`; `auth.login` re-renders with a flash. Both modes log `csrf_failed mode=… endpoint=… path=…` at WARNING (never the token); `report` then lets the request through.
+- Templates: `{{ csrf_field() }}` inside every `<form method="post">`, `{{ csrf_token() }}` for the meta tag. The client side is `static/js/csrf.js` ([../frontend/conventions.md](../frontend/conventions.md)), so `fetch` / XHR / htmx calls need no change.
+- Rotate with `csrf.rotate()` whenever the signed-in identity changes (login, SMS sign-in, logout, forced session end).
 
 ## Restore points before tag / taxonomy writes
 
@@ -148,4 +157,4 @@ Read tunables via `current_app.config[KEY]` (or `app.config` inside a thread con
 
 ## Tests
 
-`unittest` modules in `tests/`, run with `python -m unittest discover -s tests`. Test pure helpers (parsers, sort keys, layout maths, prompt builders) with plain inputs; avoid `create_app()` (it touches the live DB). Template-level UX assertions exist in `tests/test_generate_template_ux.py` as a pattern for checking rendered HTML without a DB.
+`unittest` modules in `tests/`, run with `python -m unittest discover -s tests`. Test pure helpers (parsers, sort keys, layout maths, prompt builders) with plain inputs; avoid `create_app()` (it touches the live DB). Template-level UX assertions exist in `tests/test_generate_template_ux.py` as a pattern for checking rendered HTML without a DB. DB-backed route tests (`tests/dbcase.py`) use `FreshGClient`, which sends the session's CSRF token on unsafe requests, and `dbcase.sign_in(client, user)` to sign a test client in (it also writes the `oqb_auth` session marker).
