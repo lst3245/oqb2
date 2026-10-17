@@ -21,6 +21,7 @@ from app.utils import (admin_required, super_admin_required, subject_admin_requi
                        VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso,
                        validate_username, parse_marks)
 from app import authz
+from app import auth_audit
 from app import md_render
 from app import storage
 from app import subject_snapshot
@@ -4100,6 +4101,8 @@ def edit_user(user_id):
             return jsonify({'error': _t('Enter a new password')}), 400
         user.set_password(password)
         user.bump_session_version()
+        auth_audit.record(auth_audit.PASSWORD_CHANGE, 'ok', user_id=user.id,
+                          actor_id=current_user.id, detail={'self': True})
         db.session.commit()
         # Other sessions of this account end; this one carries the new version.
         login_user(user, remember=True)
@@ -4125,6 +4128,12 @@ def edit_user(user_id):
     if existing and existing.id != user_id:
         return jsonify({'error': _t('Username already exists')}), 400
 
+    # Super admins stay password-only: an SMS-linked account must be unlinked first.
+    if is_super_admin and not user.is_super_admin:
+        from app.models import ExternalIdentity
+        if ExternalIdentity.query.filter_by(user_id=user.id).first() is not None:
+            return jsonify({'error': _t('Unlink this account from SMS before making it a super admin.')}), 400
+
     # If the username changed, move the user's personal storage folder so its
     # files (incl. generated docs) follow the new folder name.
     old_username = user.username
@@ -4138,6 +4147,8 @@ def edit_user(user_id):
     if password:
         user.set_password(password)
         user.bump_session_version()
+        auth_audit.record(auth_audit.PASSWORD_CHANGE, 'ok', user_id=user.id,
+                          actor_id=current_user.id, detail={'self': False})
     
     db.session.commit()
     

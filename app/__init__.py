@@ -64,7 +64,11 @@ def create_app():
     from app.subject_ai import subject_ai_bp
     from app.restore_points import restore_points_bp
     from app.i18n import i18n_bp, template_globals as _i18n_globals
-    
+    from app.sso import sso_bp
+    from app import web_security
+
+    web_security.init_app(app)
+    app.register_blueprint(sso_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(admin_bp)
@@ -115,6 +119,15 @@ def create_app():
         except Exception:
             app.logger.exception('sso_schema patches failed')
             app.config['SMS_SCHEMA_READY'] = False
+        if app.config['SMS_SCHEMA_READY']:
+            # Live issuer (enabled, primary, no key) + workshop (disabled);
+            # inserted only if absent, never updated.
+            from app import sms_trust as _sms_trust
+            try:
+                _sms_trust.seed_defaults()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('sms_trust seed failed')
 
     # Create output directory if it doesn't exist (legacy generated-files base)
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)

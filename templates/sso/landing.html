@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="{{ OQB_HTML_LANG }}">
+<head>
+<script nonce="{{ nonce }}">
+(function () {
+  var hash = location.hash || "";
+  history.replaceState(null, "", "/sso/sms");
+  var allowed = {{ next_paths | list | tojson }};
+  function go(path) {
+    location.replace(allowed.indexOf(path) >= 0 ? path : {{ failed_path | tojson }});
+  }
+  var m = /^#handoff=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*)$/.exec(hash);
+  hash = "";
+  if (!m) { go({{ failed_path | tojson }}); return; }
+  fetch({{ post_path | tojson }}, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {"Content-Type": "application/json", "Accept": "application/json"},
+    body: JSON.stringify({token: m[1]})
+  }).then(function (r) { return r.json(); })
+    .then(function (d) { go(d && d.next); }, function () { go({{ failed_path | tojson }}); });
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{ t('Signing in from SMS') }}</title>
+</head>
+<body>
+<p>{{ t('Signing you in from SMS...') }}</p>
+<noscript><p>{{ t('Sign-in from SMS needs JavaScript. Sign in with your OQB password instead.') }} <a href="/login">{{ t('Login') }}</a></p></noscript>
+</body>
+</html>

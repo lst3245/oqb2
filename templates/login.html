@@ -12,6 +12,9 @@
                         <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="OQB" width="72" height="72" class="mb-2">
                         <h3 class="card-title mb-0">{{ t('Question Bank Login') }}</h3>
                     </div>
+                    {% if sso_link_pending %}
+                    <div class="alert alert-info small">{{ t('Sign in with your OQB password to link your SMS account.') }}</div>
+                    {% endif %}
                     <form method="POST" action="{{ url_for('auth.login', next=login_next) if login_next else url_for('auth.login') }}">
                         <div class="mb-3">
                             <label for="username" class="form-label">{{ t('Username') }}</label>
@@ -27,6 +30,14 @@
                             </button>
                         </div>
                     </form>
+                    {% if sms_signin_url and not sso_link_pending %}
+                    <div class="text-center text-muted small my-3">{{ t('or') }}</div>
+                    <div class="d-grid">
+                        <a class="btn btn-outline-secondary" href="{{ sms_signin_url }}" rel="noreferrer" id="smsSignIn">
+                            <i class="bi bi-building"></i> {{ t('Sign in with SMS') }}
+                        </a>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

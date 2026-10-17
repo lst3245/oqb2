@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('Link your SMS account') }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h4 class="card-title">{{ t('Link your SMS account') }}</h4>
+                    <p>{{ message }}</p>
+                    <p class="text-muted small mb-3">
+                        {{ t('SMS account') }}: <strong>{{ sms_name }}</strong>{% if sms_staff_code %} ({{ sms_staff_code }}){% endif %}
+                    </p>
+                    <div class="d-flex gap-2">
+                        <a class="btn btn-primary" href="{{ url_for('auth.login') }}">
+                            <i class="bi bi-box-arrow-in-right"></i> {{ t('Sign in with your OQB password') }}
+                        </a>
+                        <form method="POST" action="{{ url_for('sso.link_cancel') }}">
+                            <input type="hidden" name="form_token" value="{{ form_token }}">
+                            <button type="submit" class="btn btn-outline-secondary">{{ t('Cancel') }}</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
