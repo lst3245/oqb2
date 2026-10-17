@@ -32,6 +32,14 @@
 
 You stay signed in on this browser for 90 days. After too many wrong passwords the page asks you to wait (about 15 minutes) before trying again.
 
+### Signing in from the school SMS
+
+When the school has switched SMS sign-in on, you can open the Question Bank from the SMS, or press **Sign in with SMS** on the login page. Your subject access then follows your SMS role and subjects. An SMS sign-in lasts until you close the browser (there is no "remember me").
+
+The first time, OQB may not know which account is yours. It then asks you to **sign in with your OQB username and password once** and press **Link** to connect the two. If you do not have an OQB account, ask a Question Bank administrator. You can also press **Cancel** and nothing is linked. Super admin accounts cannot be linked and always sign in with their password.
+
+If the SMS sign-in fails ("Sign-in from SMS failed"), open the Question Bank from the SMS again; the link is used once and expires after about a minute.
+
 ### User Roles
 
 Your role determines what you can do:

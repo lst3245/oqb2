@@ -82,6 +82,11 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | Toolbox | `TOOLBOX_OCR_AUTO_ORIENT` | bool | True | retry OCR at 90/180/270° on sparse pages |
 | Toolbox | `TOOLBOX_SESSION_RETENTION_HOURS` | int 1–720 | 48 | how long PDF Tool staging sessions stay restorable before purge (no `Config` attribute; registry default only) |
 | Markup | `MARKUP_NORMALIZED_MAX_DIM` | int 400–8000 | 2400 | longest-edge world units for imported images |
+| SMS sign-in | `SMS_SSO_ENABLED` | bool | False | master switch for `/sso/*` (404 when off) and for counting SMS-sourced levels; also needs `PUBLIC_ORIGIN` and a pinned key on the primary issuer ([../modules/sms-sso.md](../modules/sms-sso.md)) |
+| SMS sign-in | `SMS_JIT_ENABLED` | bool | False | create a password-less account for an unlinked SMS user from the **primary** issuer (also needs the trust entry's `allow_jit`); never for non-primary issuers |
+| SMS sign-in | `SMS_FEED_ENABLED` | bool | False | accept `POST /api/sms/directory` (stage 4; the route does not exist yet) |
+| SMS sign-in | `SMS_FEED_BRAKE_MIN` | int 1–10000 | 5 | feed safety brake: hold a snapshot deactivating more than max(this, pct below) (stage 4) |
+| SMS sign-in | `SMS_FEED_BRAKE_PCT` | int 1–100 | 10 | feed safety brake: percent of linked accounts (stage 4) |
 
 Not in the registry but stored in `system_settings`: `FILE_BROWSER_EXTRA_ROOTS` (JSON list of absolute paths) — managed by the File Browser's own roots routes; `load_all` logs and ignores it as unknown.
 
@@ -89,7 +94,7 @@ LLM **endpoints** are not settings; they live in `llm_configs` (Admin → LLM En
 
 ## What stays in `.env` only
 
-Secrets and infrastructure: `SECRET_KEY`, `DB_*`, all path roots ([05-storage-and-paths.md](05-storage-and-paths.md)), `PANDOC_PATH`, `TESSERACT_CMD`, `LLM_API_KEY`, `LLM_KEY_SECRET`, `TRUSTED_PROXIES` (login client-IP; unset = private/loopback/link-local peers), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, and anything needing a restart (engine options).
+Secrets and infrastructure: `SECRET_KEY`, `DB_*`, all path roots ([05-storage-and-paths.md](05-storage-and-paths.md)), `PANDOC_PATH`, `TESSERACT_CMD`, `LLM_API_KEY`, `LLM_KEY_SECRET`, `TRUSTED_PROXIES` (login client-IP; unset = private/loopback/link-local peers), the SMS sign-in infrastructure keys (`OQB_ENVIRONMENT` = `production` (default; anything unknown counts as production) / `staging` / `test` / `dev` — contract-test issuers and the bootstrap file are honoured only outside production; `SMS_TRUST_BOOTSTRAP_FILE` (JSON trust list replacing the DB list, non-production only, format [../reference/sms-trust-bootstrap.example.json](../reference/sms-trust-bootstrap.example.json)); `PUBLIC_ORIGIN` (`scheme://host[:port]` users reach OQB at; the token POST requires `Origin` equal to it; empty = SMS sign-in off); `PROXY_FIX_HOPS` (reverse-proxy hops for ProxyFix; 0 = off)), `TOOLBOX_RASTER_WIDTH`, `TOOLBOX_EXPORT_WIDTH`, `TOOLBOX_SAVE_SUBDIR`, and anything needing a restart (engine options).
 
 ## Adding a tunable
 

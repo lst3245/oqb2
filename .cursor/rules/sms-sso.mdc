@@ -1,0 +1,31 @@
+---
+description: SMS sign-in - trust list, token verifier, /sso/sms handoff, linking, SMS levels in authz, auth audit; fail-closed invariants and test rituals
+globs: app/sso.py,app/sso_schema.py,app/sms_*.py,app/auth_audit.py,app/web_security.py,app/rate_limit.py,app/authz.py,app/auth.py,templates/sso/*.html,scripts/sms_contract_mint.py,tests/test_sms_*.py,tests/smskit.py,tests/ssocase.py,tests/fixtures/sms/**
+alwaysApply: false
+---
+
+# SMS sign-in (bootloader — spec in `docs/modules/sms-sso.md`, runbook `docs/manuals/SMS_SSO_DEPLOYMENT.md`)
+
+Contract: `OQB_CONTRACT_v1.2.md` + addenda. Branch `feature/sms-sso`; stages 1–3 built, feed (4), admin screens (5), CSRF / headers (6) pending.
+
+## Invariants
+
+- **Fail closed.** `SMS_SCHEMA_READY` false → `/sso/*` 503 and no SMS levels. `SMS_SSO_ENABLED` off or `PUBLIC_ORIGIN` empty → `/sso/*` 404. Never let an SSO error break password login.
+- **The verifier is pure** (`app/sms_verify.py`): no DB, no Flask, `now` injected. Keep the check order and reason codes exactly as the contract (shape → issuer → alg/kid → signature → aud/purpose/ver → not_yet_valid → expired → bad_lifetime → types → non-primary allowlist). The 31 fixture cases pin it.
+- **Clock:** read time through `app/sms_clock.now()`; tests freeze it with `sms_clock.frozen(ts)` (process-wide).
+- **Level names** (`none/viewer/user/admin`) are spelled only in `app/sms_levels.py`; `test_sms_levels` scans for literals elsewhere (a line that means something else, e.g. link method `'admin'`, carries `# not a level`). Display labels: Viewer / User / Admin.
+- **Trust:** keys are pinned only with a matching fingerprint (`sms_trust.pin_key`); the boot seed never pins a key (live issuer seeded keyless; workshop disabled). Non-primary issuers: `enabled_until` ≤ 7 days, never primary / JIT / feed, level cap on, `allowed_subs` required. The bootstrap file and `.invalid` issuers only outside production (`OQB_ENVIRONMENT`). Never trust `deploy/sms/sms-live-202610.pub.pem` in tests or staging.
+- **Handoff transaction** (`sms_sso_service.complete_handoff`): jti insert first (unique → replay); a failure rolls back and audits via `auth_audit.record_now`. Privileged (`is_super_admin`, `local_only`) accounts are never linked or signed in via SMS.
+- **Session:** SMS login is `remember=False`, clears any remember cookie, sets `session['auth_method']='sms'`; a different user's session is cleared first. Link confirm needs `auth_method == 'password'`.
+- **Never** merge SMS levels into `user_subject_permissions`; they live in `user_sms_levels` and are replaced per issuer.
+- `/api/sms/directory` stays 404 until stage 4. SSE GETs that write are an open issue, not to be changed here.
+- Every attempt (ok or not) writes an `auth_audit_log` row; scrub tokens / secrets (`auth_audit.scrub`).
+
+## Gotchas
+
+- `record_now` commits on its own connection: in DB tests call `db.session.rollback()` before reading audit rows (REPEATABLE READ).
+- `tests/fixtures/sms/` is a byte copy of the contract fixtures; `.gitattributes` marks it `-text`. Never regenerate or reformat it.
+- `app/translations/zh_Hant.json` has duplicate keys and CRLF: append keys as text, never JSON round-trip it.
+- The landing page CSP is exact (`default-src 'none'; script-src 'self' 'nonce-…'; …`); its inline script must keep the nonce and stay the first child of `<head>`.
+- `client_ip`: with `PROXY_FIX_HOPS > 0` trust `remote_addr` (ProxyFix rewrote it); otherwise the login-guard rules.
+- DB tests run only through the worktree launcher on `oqb_sso_test` (`tests/dbcase.py` guards); they skip elsewhere.

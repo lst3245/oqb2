@@ -173,6 +173,14 @@ On your own card, click **Change password**, enter the new password, and save. Y
 ### Deleting a User
 Click **Delete** on the user card. Cannot delete your own account.
 
+### SMS sign-in (when enabled)
+Staff can sign in from the school SMS (System Settings → **SMS sign-in**: `SMS_SSO_ENABLED`, `SMS_JIT_ENABLED`, feed keys). Deployment, key pinning and the workshop test window are in [SMS_SSO_DEPLOYMENT.md](SMS_SSO_DEPLOYMENT.md).
+
+- A teacher's level on a subject is the **higher** of the grant you set here and their SMS level (SMS role → default level; SMS subjects mapped to OQB subjects). SMS levels are never written into these dropdowns, and disappear when SMS sign-in is switched off.
+- An SMS-linked user cannot be made super admin, and a super admin can never be linked or sign in through SMS — keep a password-only break-glass super admin.
+- Linking: teachers link themselves on first SMS sign-in (with their OQB password), or a super admin links them (screen in a later release). With `SMS_JIT_ENABLED` an unlinked teacher from the live SMS gets a new password-less account; its username is the e-mail name, with `-2`, `-3` … on a clash.
+- **Workshop test accounts** (contract section 2a): create one dedicated, non-privileged account per SMS test account here (**Add User**, any strong password), then link it by typing the workshop issuer and the test account's `sub`. Never link a test account to a real teacher's account. When the test window closes, unlink or disable these accounts.
+
 ---
 
 ## 6. Topic & Chapter Management

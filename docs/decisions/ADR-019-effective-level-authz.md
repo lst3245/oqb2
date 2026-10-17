@@ -1,6 +1,6 @@
 # ADR-019 — One effective-level function decides every subject permission
 
-**Status:** accepted, in force since 2026-10-18 (stage 1 of the SMS sign-in work, [../modules/sms-sso.md](../modules/sms-sso.md)). Local grants only until stage 2 adds SMS levels.
+**Status:** accepted, in force since 2026-10-18 (stage 1 of the SMS sign-in work, [../modules/sms-sso.md](../modules/sms-sso.md)). Since stage 2 `authz._sms_inputs` feeds SMS levels (`user_sms_levels` + `sms_subject_map` + the trust list's issuer caps) into `compute_levels`, only while `SMS_SSO_ENABLED` is on and the SSO schema is ready; any error falls back to local grants.
 
 ## Context
 

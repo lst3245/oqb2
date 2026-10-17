@@ -60,6 +60,25 @@ erDiagram
 | `TagCorrection` | `tag_corrections` | Model suggestion vs teacher decision per field | `question_id` CASCADE, `subject_id` idx, `field`, `suggested` / `saved` display names, `agreed`, `reason`, `model`, `user_id`, `created_at` |
 | `SubjectRestorePoint` | `subject_restore_points` | One subject's topic/chapter lists + every question's tag fields, as they were **before** a save | `subject_id` VARCHAR(10) idx, **no FK** (subject delete clears rows explicitly); `user_id` FK `users.id` `SET NULL`; `action`; `note` ≤ 200; `pinned` TINYINT(1) NOT NULL DEFAULT 0; `payload` MEDIUMTEXT versioned JSON (`subject_snapshot.encode_state`); `created_at`. Pruned per subject on every capture (newest 100 + first per UTC day for 30 days + every pinned row). See [../modules/subject-snapshots.md](../modules/subject-snapshots.md) |
 
+### SMS sign-in tables
+
+Created by `app/sso_schema.create_sso_tables` (`checkfirst`, in `SSO_MODELS` FK order), all `ENGINE=InnoDB`, `utf8mb4` / `utf8mb4_unicode_ci`. Issuer columns are VARCHAR(191) (utf8mb4 index limit). Times are naive UTC via `app/sms_clock.py`. Spec: [../modules/sms-sso.md](../modules/sms-sso.md).
+
+| Model | Table | Purpose | Constraints and notes |
+|---|---|---|---|
+| `ExternalIdentity` | `external_identities` | Link `(issuer, sub)` → one user | unique `uq_extid_issuer_sub (issuer, sub)` and `uq_extid_issuer_user (issuer, user_id)`; `user_id` FK CASCADE; `link_method` `self` / `admin` / `jit`; `linked_by_user_id`, `linked_at`, `last_login_at`, `last_seen_snapshot_at`, `missing_since` |
+| `UserSmsLevel` | `user_sms_levels` | SMS-sourced levels (never mixed with `user_subject_permissions`) | unique `uq_sms_level (user_id, issuer, sms_subject_uuid)`, index `ix_sms_level_uuid`; `sms_subject_uuid = ''` is the `default_level` row; `level` holds the **OQB** level name; `source` `handoff` / `snapshot`; replaced per user + issuer |
+| `SmsSubjectMap` | `sms_subject_map` | Admin-confirmed SMS uuid → OQB subject (one-to-many) | unique `uq_sms_map (sms_uuid, oqb_subject_id)`, index on the subject; FK `subjects.id` CASCADE; `confirmed_by_user_id`, `confirmed_at` |
+| `SmsSubjectCatalogue` | `sms_subject_catalogue` | SMS subjects seen | PK `sms_uuid`; `code`, `name_en`, `name_zh`, `is_active`, `seen_in` `snapshot` / `token`, `issuer`, first / last seen |
+| `SmsRoster` | `sms_roster` | Latest snapshot entry per `(issuer, sub)` (stage 4) | unique `(issuer, sub)`; `active`, profile fields, `default_level` (SMS label), `subjects_json`, `snapshot_id` |
+| `SmsFeedState` | `sms_feed_state` | Last applied snapshot per issuer (stage 4) | PK `issuer`; `last_iat` BIGINT, `last_snapshot_id` |
+| `SmsSnapshot` | `sms_snapshots` | Received snapshots (stage 4) | `status`, `counts_json`, `held_subs_json` MEDIUMTEXT, `unmapped_json`, decision fields; index `(issuer, iat)` |
+| `SsoUsedJti` | `sso_used_jti` | Shared single-use store | unique `uq_jti (issuer, jti)` (the replay guard), index on `used_at`; `purpose`, `exp` BIGINT; purged after 24 h |
+| `SsoPendingLink` | `sso_pending_links` | Verified claims of an unlinked handoff | unique `nonce_hash` (sha256 of the session nonce); `claims_json`, `expires_at` (10 min), `consumed_at` |
+| `SmsTrustIssuer` | `sms_trust_issuers` | Trust list entry | unique `issuer`; `enabled`, `enabled_until`, `is_primary`, `allow_jit`, `accepts_feed`, `allowed_subs_json` (`[{"sub","label"}]`), `level_cap`, `jwks_url`, `jwks_auto`, `jwks_seen_kids_json`, `updated_*`; seeded insert-if-absent |
+| `SmsTrustKey` | `sms_trust_keys` | Pinned public key | unique `(issuer_id, kid)`; FK CASCADE; `public_pem`, `fingerprint` (sha256 of DER SPKI), `pinned_at`, `pinned_by_user_id` |
+| `AuthAuditLog` | `auth_audit_log` | Sign-in / link / trust / feed audit | BIGINT id; `created_at` / `event` indexed, index `(is_alert, acknowledged_at)`; `outcome` `ok` / `fail` / `info`, `reason`, `issuer`, `sub`, `user_id` / `actor_user_id` (no FK: rows outlive users), `ip`, `detail` JSON (tokens scrubbed), `is_alert`, acknowledgement |
+
 JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation_options`, `check_result`, `system_settings.value`, `users.file_browser_location`) are parsed in Python; keep them backward compatible — old blobs are never migrated.
 
 ## Invariants the DB does not enforce
@@ -79,7 +98,7 @@ JSON-in-text columns (`filter_data`, `options_data`, `question_ids`, `generation
    - New table: `Model.__table__.create(db.engine, checkfirst=True)`.
    - New column / index / enum widening: query `INFORMATION_SCHEMA.COLUMNS` for `TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ...`, and only `ALTER TABLE` when the column is missing (or the enum lacks the value). Wrap in `try/except Exception: pass` like the neighbours so a broken DB still boots.
    - Back-fills go in the same block, guarded by the same "was just added" flag.
-   - Exception: account-state and SMS sign-in patches live in `app/sso_schema.py` (pure SQL builders + `patch_users`, testable against the guarded test DB) and are called first from `create_app()`. They return `False` on failure instead of swallowing silently, which keeps SMS sign-in disabled (`SMS_SCHEMA_READY`).
+   - Exception: account-state and SMS sign-in patches live in `app/sso_schema.py` (pure SQL builders + `patch_users`, and `create_sso_tables` for the SMS tables; testable against the guarded test DB) and are called first from `create_app()`. They return `False` on failure instead of swallowing silently, which keeps SMS sign-in disabled (`SMS_SCHEMA_READY`, `/sso/*` answer 503). New SSO models go into `SSO_MODELS` in FK order with `_SSO_TABLE` table args (InnoDB, utf8mb4_unicode_ci).
 3. Record the change in [../reference/schema-history.md](../reference/schema-history.md) and update the table above and the module doc's Tables section.
 4. Do **not** write a new `migrate_*.py`; those three root scripts are historical and superseded by the boot patches. Do not introduce Alembic without an ADR.
 5. Remember the patch runs against the **live** database the next time anything calls `create_app()` (server reload, `cli.py`, some tests). Test the SQL mentally for MariaDB syntax; you cannot rehearse it on a copy unless the user provides one.

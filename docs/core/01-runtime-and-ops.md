@@ -57,6 +57,8 @@ Test caveats:
 - Tests import `app.*` directly; run from the repo root so `app` is importable.
 - There is no coverage tooling or CI. Add a `tests/test_<module>.py` with the change when you touch pure logic (sorting, parsers, layout helpers, prompt builders).
 - DB-backed tests (`tests/dbcase.py` → `test_scope_gaps.py`, `test_schema_patches.py`) run **only** when `OQB_TEST_DB_GUARD=oqb_sso_test` and `DB_NAME=oqb_sso_test` are set by the SMS worktree launcher (`tools/run_tests.py`, outside this repo). They check both values and `SELECT DATABASE()` before dropping or creating anything, and skip otherwise — so on this host, with the live `.env`, they always skip. Never point them at another database.
+- SMS sign-in tests: the official SMS contract fixtures are a byte copy in `tests/fixtures/sms/` (`cases.json`, tokens, snapshots, **contract-test** keys including private ones — public on purpose, dev / CI only, never trusted in production; `.gitattributes` keeps them byte-exact). `tests/test_sms_fixtures.py` runs all 31 cases (`test_case_<name>`) against OQB's verifier with the clock frozen to each `verify_at` (`app/sms_clock.frozen`); `tests/test_sms_routes_fixtures.py` and `tests/test_sms_acceptance.py` run them through `POST /sso/sms` on the test DB. Tests never fetch JWKS (`dbcase` stubs the fetcher).
+- `scripts/sms_contract_mint.py --key <private.pem> --kid <kid> --iss <issuer> --purpose handoff|snapshot --claims claims.json [--now N] [--lifetime S] [--out file]` mints a token for manual tests (no app import, no DB). It refuses an issuer that does not end in `.invalid` unless `--allow-issuer` is given.
 
 ## Boot side effects of `create_app()`
 
@@ -65,7 +67,7 @@ Anything that imports and calls `create_app()` (server, `init_db.py`, `cli.py`, 
 1. `load_dotenv(.env, override=True)` and build the DB URI.
 2. `ensure_storage_tree()` — creates `Shared/ System/ User/` dirs if missing.
 3. Mark stale `generated_files` rows (`pending`/`generating`) as `failed`.
-4. Run idempotent schema patches (`CREATE TABLE ... checkfirst`, `INFORMATION_SCHEMA`-guarded `ALTER TABLE`) — see [03-data-model-and-migrations.md](03-data-model-and-migrations.md). The `users` account-state patch (`app/sso_schema.py`) runs first, before the storage tree, and sets `SMS_SCHEMA_READY`.
+4. Run idempotent schema patches (`CREATE TABLE ... checkfirst`, `INFORMATION_SCHEMA`-guarded `ALTER TABLE`) — see [03-data-model-and-migrations.md](03-data-model-and-migrations.md). The `users` account-state patch and the SMS sign-in tables (`app/sso_schema.py`) run first, before the storage tree, and set `SMS_SCHEMA_READY`; then `sms_trust.seed_defaults()` inserts the live / workshop trust entries if absent (no key is ever pinned automatically).
 5. `ai_prompts.ensure_seeded()` — insert built-in prompt variant rows if missing.
 6. `subject_snapshot.ensure_baselines()` — insert one `baseline` restore point for any subject that has none (no-op once every subject has a point).
 7. `settings.load_all(app)` — overlay DB-backed tunables onto `app.config`.
