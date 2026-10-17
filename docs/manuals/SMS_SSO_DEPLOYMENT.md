@@ -9,16 +9,19 @@ Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject
 ## 0. Before the first live boot
 
 1. **Back up the database** (`mysqldump` of `oqb`, plus the `Storage` tree), because the boot patches run as soon as the new code starts: they add the `users` columns and create 12 tables. They are additive; nothing existing is changed or dropped.
+   - With the server stopped: `D:\xampp\mysql\bin\mysqldump.exe --single-transaction --routines --triggers --default-character-set=utf8mb4 -u <user> -p --result-file=D:\oqb_backups\oqb_<yyyymmdd_hhmmss>_pre_sso.sql oqb`, then check that the file ends with `-- Dump completed`. Also take an OQB restore point as usual. Keep the dump until the release has run cleanly for a few weeks.
+   - Record the live schema before the first boot (read-only `information_schema` snapshot), so the change can be compared afterwards.
+   - Rehearsed on 2026-10-18 (UTC+8): the first boot of this branch against `oqb_sso_staging` (a 01:44 copy of live) ran every patch without an error; the schema went from 417 to 621 `information_schema` lines and password login kept working.
 2. Install the new dependency into the **live interpreter** (the one that runs `run.py`): `python -m pip install "PyJWT>=2.8,<3"` (from `requirements.txt`).
 3. Deploy by merging while the server is stopped, then start it once and check the log for `sso_schema` errors. If `SMS_SCHEMA_READY` is false (log line `sso_schema patches failed` / `creating … failed`), SMS sign-in stays off (503) and password login keeps working. Fix the cause before going further.
 4. **Everyone is signed out once, at the first start.** The cookies are renamed (`session` → `oqb_session`, `remember_token` → `oqb_remember`) and session ids carry the session version. Announce it before the deploy ("you will need to sign in again; tick *Remember me* on your own computer to stay signed in"). Remember-me is now opt-in, lasts at most 30 days, and is never offered to SMS-linked accounts; password sessions without it end after 12 hours or 2 hours idle.
-5. Set `CSRF_MODE=report` in System Settings → **Sign-in and sessions** (or `.env`) **before** the first start — see section 2a.
+5. Set `CSRF_MODE=report` in `.env` **before** the first start (the code default is `enforce`, and System Settings can only be changed once the server is up) - see section 2a. Leave `SMS_SSO_ENABLED`, `SMS_FEED_ENABLED` and `SMS_JIT_ENABLED` unset (off) for the first start.
 
 ## 1. Host prerequisites (contract section 13)
 
 - HTTPS on `oqb.mathedu.info` with a publicly trusted certificate, terminated at the reverse proxy; **HSTS** on the proxy (`Strict-Transport-Security: max-age=31536000`; OQB itself does not send it). The proxy forwards `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For`, matching `PROXY_FIX_HOPS`.
 - LAN users must reach OQB through the same HTTPS name (for example split-horizon DNS) once cookies are `Secure`; plain `http://host:5000` can no longer keep a session. If they cannot move yet, set `SESSION_COOKIE_SECURE=false` for the transition and switch it back to `auto` afterwards.
-- The Windows clock synced by NTP (`w32time`), within ±5 seconds (`w32tm /query /status`). Tokens allow 30 s of skew.
+- The Windows clock synced by NTP (`w32time`), within 5 seconds either way. Check with `w32tm /query /status` and `w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly`; if needed, `w32tm /config /manualpeerlist:"time.windows.com,0x8 hk.pool.ntp.org,0x8" /syncfromflags:manual /update` then `w32tm /resync` (admin prompt), and make sure the `w32time` service starts automatically. Tokens allow 30 s of skew.
 - A local **break-glass** super admin with a password (`local_only`); it is never linked to SMS. The Overview screen warns when no active super admin can sign in with a password.
 
 ## 2. Settings and `.env`
@@ -55,7 +58,7 @@ Headers to check once after the deploy (browser dev tools, any page): `Content-S
 
 The repo carries SMS's live public key: `deploy/sms/sms-live-202610.pub.pem` (kid `sms-live-202610`, RSA 3072). OQB never pins it by itself; the live trust entry `https://ms.tic.edu.hk` is seeded **enabled, primary, without a key**, so every SMS token is refused until this step.
 
-1. Confirm the fingerprint over a second channel with SMS (SMS shows it on **System → Connected apps**): `fed812e5e0ebcc47e44ec3942ccc74db8310ac9ea873cd56bfe628e9ca5ea1f2` (SHA-256 of the DER SubjectPublicKeyInfo; reproduce with `openssl pkey -pubin -in sms-live-202610.pub.pem -outform DER | sha256sum`).
+1. Confirm the fingerprint over a second channel with SMS (SMS shows it on **System → Connected apps**): `fed812e5e0ebcc47e44ec3942ccc74db8310ac9ea873cd56bfe628e9ca5ea1f2`. The owner confirmed this fingerprint on 2026-10-18 (UTC+8) and asked for it to be pinned at deployment; re-check it on the day if SMS reports a new key (SHA-256 of the DER SubjectPublicKeyInfo; reproduce with `openssl pkey -pubin -in sms-live-202610.pub.pem -outform DER | sha256sum`).
 2. Pin it on the live entry: **Trust list** → `https://ms.tic.edu.hk` → **Pin a key**: kid `sms-live-202610`, paste the PEM, type the confirmed fingerprint (a mismatch is refused, nothing is saved). Keep "Trust new keys from the JWKS automatically" off. The Overview then lists the kid next to the primary issuer.
 3. Staging and test never trust this key (their trust lists hold only the contract-test issuers).
 
@@ -104,4 +107,25 @@ This procedure is rehearsed end to end by `tests/test_sms_workshop_window.py` wi
 
 ## 6. Rollback
 
+If the first boot fails so badly that `main` cannot run either (not expected: the patches are additive and were rehearsed on a copy of live), stop the server and restore the pre-deploy dump from section 0 into `oqb`, then start `main`. Restoring loses anything written since the dump, so prefer redeploying `main` over the new columns.
+
 Redeploy `main` (stop the server, check out `main`, start). The new columns and tables are additive and ignored by the old code; leave them in place. To switch SMS sign-in off without a redeploy: System Settings → `SMS_SSO_ENABLED` off (SMS routes 404, SMS levels stop counting, local grants and passwords keep working). To stop the feed: `SMS_FEED_ENABLED` off (`/api/sms/directory` answers 404; SMS keeps retrying on its schedule). Accounts the feed disabled (`sms_deprovisioned`) are re-enabled by their next valid sign-in or snapshot, or at once by a super admin (Admin → Users → Account → **Enable account**). To lock someone out at once: **Disable account** (SMS never re-enables it) or **End all sessions**. Key compromise: **Trust list → Unpin** the kid at once; password login keeps working. If CSRF refusals block real work after `enforce`, set `CSRF_MODE=report` (immediate) and look up the `endpoint=` in the log. A rollback to `main` signs everyone out once more (the old cookie names).
+
+## 7. Deployment order (summary)
+
+1. Owner approves the release. Announce the one-time sign-out.
+2. Stop live OQB. Dump `oqb` (section 0), take a restore point, record the schema.
+3. Merge `feature/sms-sso` into `main` and check it out in the live folder. Install `PyJWT` into the live interpreter.
+4. `.env`: `OQB_ENVIRONMENT=production`, `PUBLIC_ORIGIN=https://oqb.mathedu.info`, `PROXY_FIX_HOPS`, `SESSION_COOKIE_SECURE` (auto, or false during the LAN transition), `CSRF_MODE=report`. No `SMS_TRUST_BOOTSTRAP_FILE`.
+5. Check NTP. Start the server once, check the log for `sso_schema` errors, sign in with the break-glass super admin's password, and check the headers and cookies (section 2a).
+6. Pin the live key (section 3). Turn on the feed, map subjects, link teachers with JIT off (section 4). Then turn on `SMS_SSO_ENABLED`.
+7. Optional: the workshop test window (section 5), test accounts only, at most 7 days.
+8. After a few school days: `CSRF_MODE=enforce`. Later: `SMS_JIT_ENABLED` once linking is complete.
+
+## 8. Verification before release (feature/sms-sso, 2026-10-18 UTC+8)
+
+- Full suite in the worktree venv against `oqb_sso_test`: 917 passed, 0 failed, 0 skipped (125 subtests).
+- All 31 SMS contract fixtures (23 tokens, 8 snapshots) match `cases.json` through OQB's own verifier, `POST /sso/sms` and `POST /api/sms/directory`.
+- Acceptance tests AT01-AT22 and the workshop window / level-cap tests pass.
+- Staging smoke on `127.0.0.1:5001` against `oqb_sso_staging` (contract-test issuer only): password login, CSRF refusal, headers and cookies, feed snapshot applied and re-send refused (409), subject mapping through the admin route, unlinked token to link prompt, self-link with the OQB password, SSO sign-in, out-of-scope 403, replay 401: 26/26 passed. No token appeared in the server log or the audit table.
+- Still to check in a real browser over HTTPS: the landing page's `fetch` under the live proxy, Secure cookies, and embedding (only if `SMS_EMBED_ENABLED`).
