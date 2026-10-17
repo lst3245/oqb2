@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}PDF Tool - Toolbox{% endblock %}
+{% block title %}{{ t('PDF Tool - Toolbox') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -179,14 +179,13 @@
 {% block content %}
 <div class="container-fluid mt-3">
     <div class="d-flex align-items-center mb-2">
-        <h3 class="mb-0"><i class="bi bi-filetype-pdf"></i> PDF Tool</h3>
+        <h3 class="mb-0"><i class="bi bi-filetype-pdf"></i> {{ t('PDF Tool') }}</h3>
         <a href="{{ url_for('toolbox.index') }}" class="btn btn-sm btn-outline-secondary ms-auto">
-            <i class="bi bi-arrow-left"></i> Toolbox
+            <i class="bi bi-arrow-left"></i> {{ t('Toolbox') }}
         </a>
     </div>
     <p class="text-muted small">
-        Upload a PDF, process it (split A3 booklets, deskew, rotate, adjust image), then add the pages to the
-        preview. Select, drag to reorder, tweak pages, upload more PDFs to merge, and export the selection.
+        {{ t('Upload a PDF, process it (split A3 booklets, deskew, rotate, adjust image), then add the pages to the preview. Select, drag to reorder, tweak pages, upload more PDFs to merge, and export the selection.') }}
     </p>
 
     <div class="row g-3">
@@ -194,63 +193,63 @@
         <div class="col-lg-4 tb-left-col">
             <!-- Step 1: upload -->
             <div class="card mb-3">
-                <div class="card-header py-2"><strong><i class="bi bi-1-circle"></i> Upload source PDF</strong></div>
+                <div class="card-header py-2"><strong><i class="bi bi-1-circle"></i> {{ t('Upload source PDF') }}</strong></div>
                 <div class="card-body">
                     <div class="input-group input-group-sm mb-2">
                         <input type="file" class="form-control" id="pdfFile" accept="application/pdf,.pdf">
-                        <button class="btn btn-primary" id="uploadBtn" type="button"><i class="bi bi-upload"></i> Load</button>
+                        <button class="btn btn-primary" id="uploadBtn" type="button"><i class="bi bi-upload"></i> {{ t('Load') }}</button>
                     </div>
                     {% if pdf_source_available %}
                     <button class="btn btn-outline-secondary btn-sm w-100 mb-2" id="pickServerBtn" type="button">
-                        <i class="bi bi-hdd-network"></i> Pick from server
+                        <i class="bi bi-hdd-network"></i> {{ t('Pick from server') }}
                     </button>
                     {% endif %}
-                    <div id="sourceList" class="small text-muted">No PDF loaded yet.</div>
+                    <div id="sourceList" class="small text-muted">{{ t('No PDF loaded yet.') }}</div>
                 </div>
             </div>
 
             <!-- Step 2: process & add -->
             <div class="card mb-3" id="processCard" style="display:none;">
-                <div class="card-header py-2"><strong><i class="bi bi-2-circle"></i> Process &amp; add to preview</strong></div>
+                <div class="card-header py-2"><strong><i class="bi bi-2-circle"></i> {{ t('Process & add to preview') }}</strong></div>
                 <div class="card-body">
                     <div class="mb-2">
-                        <label class="form-label small mb-1">Active source</label>
+                        <label class="form-label small mb-1">{{ t('Active source') }}</label>
                         <select id="activeSource" class="form-select form-select-sm"></select>
                     </div>
                     <!-- active source preview lives here (step 2) -->
                     <div id="srcStrip" class="tb-src-strip mb-2"></div>
                     <div class="mb-2">
-                        <label class="form-label small mb-1">Resolution (DPI)</label>
+                        <label class="form-label small mb-1">{{ t('Resolution (DPI)') }}</label>
                         <select id="procDpi" class="form-select form-select-sm">
-                            <option value="150">150 DPI — draft / screen</option>
-                            <option value="200">200 DPI — normal (recommended)</option>
-                            <option value="300">300 DPI — high / print</option>
-                            <option value="400">400 DPI — very high</option>
+                            <option value="150">{{ t('150 DPI — draft / screen') }}</option>
+                            <option value="200">{{ t('200 DPI — normal (recommended)') }}</option>
+                            <option value="300">{{ t('300 DPI — high / print') }}</option>
+                            <option value="400">{{ t('400 DPI — very high') }}</option>
                         </select>
-                        <div class="form-text">Page-size independent: A4 @200 ≈ 1654px, A3 @200 ≈ 2339px wide. Higher = sharper but larger files.</div>
+                        <div class="form-text">{{ t('Page-size independent: A4 @200 ≈ 1654px, A3 @200 ≈ 2339px wide. Higher = sharper but larger files.') }}</div>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label small mb-1">Rotate whole page first</label>
+                        <label class="form-label small mb-1">{{ t('Rotate whole page first') }}</label>
                         <select id="preRotate" class="form-select form-select-sm">
-                            <option value="0">No rotation</option>
-                            <option value="90">90° clockwise</option>
+                            <option value="0">{{ t('No rotation') }}</option>
+                            <option value="90">{{ t('90° clockwise') }}</option>
                             <option value="180">180°</option>
-                            <option value="270">270° (90° anti-clockwise)</option>
+                            <option value="270">{{ t('270° (90° anti-clockwise)') }}</option>
                         </select>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label small mb-1">A3 split mode</label>
+                        <label class="form-label small mb-1">{{ t('A3 split mode') }}</label>
                         <select id="splitMode" class="form-select form-select-sm">
-                            <option value="none">None (keep whole pages)</option>
-                            <option value="simple">Split each A3 down the middle (L, R)</option>
-                            <option value="mode1">Mode 1 — folded individual copies / booklets</option>
-                            <option value="mode2">Mode 2 — destapled A4 booklet stack (reorder)</option>
+                            <option value="none">{{ t('None (keep whole pages)') }}</option>
+                            <option value="simple">{{ t('Split each A3 down the middle (L, R)') }}</option>
+                            <option value="mode1">{{ t('Mode 1 — folded individual copies / booklets') }}</option>
+                            <option value="mode2">{{ t('Mode 2 — destapled A4 booklet stack (reorder)') }}</option>
                         </select>
                         <div id="mode1PagesWrap" class="mt-2" style="display:none;">
-                            <label class="form-label small mb-1" for="mode1PagesPerStudent">Pages per student</label>
+                            <label class="form-label small mb-1" for="mode1PagesPerStudent">{{ t('Pages per student') }}</label>
                             <input type="number" id="mode1PagesPerStudent" class="form-control form-control-sm"
                                    min="1" max="200" step="1" value="4">
-                            <div class="form-text">Mode 1 keeps this many ordered A4 pages per student and drops padding pages, e.g. 7 drops the 8th page.</div>
+                            <div class="form-text">{{ t('Mode 1 keeps this many ordered A4 pages per student and drops padding pages, e.g. 7 drops the 8th page.') }}</div>
                         </div>
                         <div class="form-text" id="splitHelp"></div>
                     </div>
@@ -258,12 +257,12 @@
                     <div class="form-check form-check-sm mb-2">
                         <input class="form-check-input" type="checkbox" id="fDeskew" {% if not numpy_available %}disabled{% endif %}>
                         <label class="form-check-label small" for="fDeskew">
-                            Deskew (straighten){% if not numpy_available %} <span class="text-danger">— needs NumPy</span>{% endif %}
+                            {{ t('Deskew (straighten)') }}{% if not numpy_available %} <span class="text-danger">{{ t('— needs NumPy') }}</span>{% endif %}
                         </label>
                     </div>
-                    <p class="form-text small mb-2">Brightness, contrast, sharpen, grayscale, and B&amp;W are in the Step 3 toolbar after pages are added.</p>
+                    <p class="form-text small mb-2">{{ t('Brightness, contrast, sharpen, grayscale, and B&W are in the Step 3 toolbar after pages are added.') }}</p>
                     <button class="btn btn-success btn-sm w-100" id="addPagesBtn" type="button">
-                        <i class="bi bi-plus-lg"></i> Process &amp; add to preview
+                        <i class="bi bi-plus-lg"></i> {{ t('Process & add to preview') }}
                     </button>
                 </div>
             </div>
@@ -275,12 +274,12 @@
         <div class="col-lg-8 tb-right-col">
             <div class="card tb-right-card">
                 <div class="card-header py-2 d-flex flex-wrap align-items-center gap-2">
-                    <strong><i class="bi bi-3-circle"></i> Preview &amp; assemble</strong>
-                    <span class="badge bg-secondary" id="pageCount">0 pages</span>
-                    <span class="badge bg-primary" id="selCount" style="display:none;">0 selected</span>
+                    <strong><i class="bi bi-3-circle"></i> {{ t('Preview & assemble') }}</strong>
+                    <span class="badge bg-secondary" id="pageCount">{{ t('{n} pages', n=0) }}</span>
+                    <span class="badge bg-primary" id="selCount" style="display:none;">{{ t('{n} selected', n=0) }}</span>
                     <button class="btn btn-outline-secondary btn-sm ms-auto" id="restoreSessionBtn" type="button"
-                            title="Browse and restore sessions from the last {{ session_retention_hours }} hours">
-                        <i class="bi bi-clock-history"></i> Sessions
+                            title="{{ t('Browse and restore sessions from the last {hours} hours', hours=session_retention_hours) }}">
+                        <i class="bi bi-clock-history"></i> {{ t('Sessions') }}
                     </button>
                 </div>
                 <div class="card-body">
@@ -288,46 +287,46 @@
                     <div class="tb-ops-bar bg-body border rounded p-2 mb-2">
                         <div class="d-flex flex-wrap align-items-center gap-2">
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary" id="selAllBtn" type="button" title="Select all (Ctrl+A)"><i class="bi bi-check2-square"></i> All</button>
-                                <button class="btn btn-outline-secondary" id="selClearBtn" type="button" title="Clear selection (Esc)">None</button>
-                                <button class="btn btn-outline-secondary" id="selectModeBtn" type="button" title="Tap-to-select mode (long-press a page on touch devices)"><i class="bi bi-ui-checks-grid"></i> Select</button>
+                                <button class="btn btn-outline-secondary" id="selAllBtn" type="button" title="{{ t('Select all (Ctrl+A)') }}"><i class="bi bi-check2-square"></i> {{ t('All') }}</button>
+                                <button class="btn btn-outline-secondary" id="selClearBtn" type="button" title="{{ t('Clear selection (Esc)') }}">{{ t('None') }}</button>
+                                <button class="btn btn-outline-secondary" id="selectModeBtn" type="button" title="{{ t('Tap-to-select mode (long-press a page on touch devices)') }}"><i class="bi bi-ui-checks-grid"></i> {{ t('Select') }}</button>
                             </div>
-                            <button class="btn btn-sm btn-outline-secondary" id="undoBtn" type="button" title="Undo (Ctrl+Z)" disabled><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="undoBtn" type="button" title="{{ t('Undo (Ctrl+Z)') }}" disabled><i class="bi bi-arrow-counterclockwise"></i> {{ t('Undo') }}</button>
                             <div class="vr"></div>
                             <span id="mainImageOps" class="d-flex flex-wrap align-items-center gap-2"></span>
-                            <button class="btn btn-sm btn-outline-primary" id="findMarkBtn" type="button" title="Search text (digital / OCR / AI) and add highlights or redactions"><i class="bi bi-search"></i> Find &amp; Mark</button>
+                            <button class="btn btn-sm btn-outline-primary" id="findMarkBtn" type="button" title="{{ t('Search text (digital / OCR / AI) and add highlights or redactions') }}"><i class="bi bi-search"></i> {{ t('Find & Mark') }}</button>
                             <div class="vr"></div>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" title="Reorder selected pages (or all if none selected)">
-                                    <i class="bi bi-arrow-left-right"></i> Reorder
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" title="{{ t('Reorder selected pages (or all if none selected)') }}">
+                                    <i class="bi bi-arrow-left-right"></i> {{ t('Reorder') }}
                                 </button>
                                 <ul class="dropdown-menu">
-                                    <li><h6 class="dropdown-header">Acts on selection, else all pages</h6></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="interleave"><i class="bi bi-distribute-vertical"></i> Interleave</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="deinterleave"><i class="bi bi-distribute-horizontal"></i> Deinterleave</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="alt_interleave"><i class="bi bi-distribute-vertical"></i> Alternate interleave</a></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="alt_deinterleave"><i class="bi bi-distribute-horizontal"></i> Alternate deinterleave</a></li>
+                                    <li><h6 class="dropdown-header">{{ t('Acts on selection, else all pages') }}</h6></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="interleave"><i class="bi bi-distribute-vertical"></i> {{ t('Interleave') }}</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="deinterleave"><i class="bi bi-distribute-horizontal"></i> {{ t('Deinterleave') }}</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="alt_interleave"><i class="bi bi-distribute-vertical"></i> {{ t('Alternate interleave') }}</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="alt_deinterleave"><i class="bi bi-distribute-horizontal"></i> {{ t('Alternate deinterleave') }}</a></li>
                                     <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#" data-reorder="reverse"><i class="bi bi-arrow-down-up"></i> Reverse order</a></li>
+                                    <li><a class="dropdown-item" href="#" data-reorder="reverse"><i class="bi bi-arrow-down-up"></i> {{ t('Reverse order') }}</a></li>
                                 </ul>
                             </div>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="copy" type="button" title="Copy (Ctrl+C)"><i class="bi bi-files"></i></button>
-                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="cut" type="button" title="Cut (Ctrl+X)"><i class="bi bi-scissors"></i></button>
-                                <button class="btn btn-outline-secondary" id="pasteBtn" data-op="paste" type="button" title="Paste (Ctrl+V)" disabled><i class="bi bi-clipboard-plus"></i></button>
+                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="copy" type="button" title="{{ t('Copy (Ctrl+C)') }}"><i class="bi bi-files"></i></button>
+                                <button class="btn btn-outline-secondary tb-needs-sel" data-op="cut" type="button" title="{{ t('Cut (Ctrl+X)') }}"><i class="bi bi-scissors"></i></button>
+                                <button class="btn btn-outline-secondary" id="pasteBtn" data-op="paste" type="button" title="{{ t('Paste (Ctrl+V)') }}" disabled><i class="bi bi-clipboard-plus"></i></button>
                             </div>
-                            <button class="btn btn-sm btn-outline-danger tb-needs-sel ms-auto" data-op="del" type="button" title="Delete selected (Del)"><i class="bi bi-trash"></i> Delete</button>
+                            <button class="btn btn-sm btn-outline-danger tb-needs-sel ms-auto" data-op="del" type="button" title="{{ t('Delete selected (Del)') }}"><i class="bi bi-trash"></i> {{ t('Delete') }}</button>
                             <div class="vr"></div>
                             <button class="btn btn-primary btn-sm" id="exportOpenBtn" type="button" disabled>
-                                <i class="bi bi-download"></i> Export…
+                                <i class="bi bi-download"></i> {{ t('Export…') }}
                             </button>
                         </div>
                     </div>
                     <div class="d-flex align-items-center gap-3 mb-2">
                         <div class="text-muted small flex-grow-1">
-                            Click to select, Ctrl/Shift-click or drag a box to multi-select, double-click to preview; drop a PDF or image here to add pages.
+                            {{ t('Click to select, Ctrl/Shift-click or drag a box to multi-select, double-click to preview; drop a PDF or image here to add pages.') }}
                         </div>
-                        <div class="d-flex align-items-center gap-1 text-muted" title="Page thumbnail size" style="min-width:150px;">
+                        <div class="d-flex align-items-center gap-1 text-muted" title="{{ t('Page thumbnail size') }}" style="min-width:150px;">
                             <i class="bi bi-zoom-out small"></i>
                             <input type="range" class="form-range" id="gridSizeRange" min="80" max="340" step="10">
                             <i class="bi bi-zoom-in"></i>
@@ -337,7 +336,7 @@
                     <div id="previewCanvas" class="tb-canvas">
                         <div class="tb-rubber" id="rubberBand"></div>
                         <div id="previewGrid" class="tb-preview-grid"></div>
-                        <div class="text-muted text-center w-100 py-5" id="previewEmpty">No pages yet — load a PDF and click "Process &amp; add to preview".</div>
+                        <div class="text-muted text-center w-100 py-5" id="previewEmpty">{{ t('No pages yet — load a PDF and click "Process & add to preview".') }}</div>
                     </div>
                 </div>
             </div>
@@ -354,15 +353,15 @@
         <div class="modal-content">
             <!-- Tap zones live here (in .modal-content, position:relative) so they
                  stay fixed over the viewport and never scroll with the image. -->
-            <div class="tb-tapzone tb-tap-left" id="modalTapPrev" title="Previous page"><span><i class="bi bi-chevron-left"></i></span></div>
-            <div class="tb-tapzone tb-tap-right" id="modalTapNext" title="Next page"><span><i class="bi bi-chevron-right"></i></span></div>
+            <div class="tb-tapzone tb-tap-left" id="modalTapPrev" title="{{ t('Previous page') }}"><span><i class="bi bi-chevron-left"></i></span></div>
+            <div class="tb-tapzone tb-tap-right" id="modalTapNext" title="{{ t('Next page') }}"><span><i class="bi bi-chevron-right"></i></span></div>
             <div class="modal-header py-2 d-flex align-items-center gap-2 flex-wrap">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="prevPageBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="nextPageBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
-                <h5 class="modal-title mb-0" id="previewModalTitle">Page preview</h5>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="prevPageBtn" title="{{ t('Previous page (←)') }}"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="nextPageBtn" title="{{ t('Next page (→)') }}"><i class="bi bi-chevron-right"></i></button>
+                <h5 class="modal-title mb-0" id="previewModalTitle">{{ t('Page preview') }}</h5>
                 <div class="btn-group btn-group-sm" role="group" id="previewResToggle">
-                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="Fast preview (smaller render)">Quick</button>
-                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="Full export resolution (slower)">Full res</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="{{ t('Fast preview (smaller render)') }}">{{ t('Quick') }}</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="{{ t('Full export resolution (slower)') }}">{{ t('Full res') }}</button>
                 </div>
                 <span class="badge bg-secondary" id="previewModalRes"></span>
                 <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
@@ -371,7 +370,7 @@
                 <div id="modalImageOps" class="d-flex flex-wrap align-items-center gap-2"></div>
             </div>
             <div class="modal-body text-center" id="previewModalBody">
-                <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="Page preview"></div>
+                <div class="tb-modal-imgwrap"><img id="previewModalImg" alt="{{ t('Page preview') }}"></div>
             </div>
         </div>
     </div>
@@ -382,13 +381,13 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-warning"></i> File already exists</h5>
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-warning"></i> {{ t('File already exists') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body"><p id="overwriteMsg" class="mb-0"></p></div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" id="overwriteRenameBtn">Rename</button>
-                <button type="button" class="btn btn-danger" id="overwriteConfirmBtn"><i class="bi bi-exclamation-octagon"></i> Overwrite</button>
+                <button type="button" class="btn btn-outline-secondary" id="overwriteRenameBtn">{{ t('Rename') }}</button>
+                <button type="button" class="btn btn-danger" id="overwriteConfirmBtn"><i class="bi bi-exclamation-octagon"></i> {{ t('Overwrite') }}</button>
             </div>
         </div>
     </div>
@@ -399,13 +398,13 @@
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-crop"></i> Crop</h5>
+                <h5 class="modal-title"><i class="bi bi-crop"></i> {{ t('Crop') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body text-center">
-                <div class="text-muted small mb-2">Drag on the page to draw the crop area; drag the box or its corners to adjust. The same crop applies to every targeted page.</div>
+                <div class="text-muted small mb-2">{{ t('Drag on the page to draw the crop area; drag the box or its corners to adjust. The same crop applies to every targeted page.') }}</div>
                 <div id="cropStage">
-                    <img id="cropImg" alt="page">
+                    <img id="cropImg" alt="{{ t('page') }}">
                     <div id="cropBox" style="display:none;">
                         <div class="crop-handle" data-h="nw"></div>
                         <div class="crop-handle" data-h="ne"></div>
@@ -415,9 +414,9 @@
                 </div>
             </div>
             <div class="modal-footer py-2">
-                <button type="button" class="btn btn-outline-danger me-auto" id="cropRemoveBtn" style="display:none;"><i class="bi bi-x-circle"></i> Remove crop</button>
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="cropApplyBtn" disabled><i class="bi bi-check-lg"></i> Apply</button>
+                <button type="button" class="btn btn-outline-danger me-auto" id="cropRemoveBtn" style="display:none;"><i class="bi bi-x-circle"></i> {{ t('Remove crop') }}</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="cropApplyBtn" disabled><i class="bi bi-check-lg"></i> {{ t('Apply') }}</button>
             </div>
         </div>
     </div>
@@ -428,20 +427,19 @@
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-clock-history"></i> Recent sessions</h5>
+                <h5 class="modal-title"><i class="bi bi-clock-history"></i> {{ t('Recent sessions') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-2" id="restoreSessionBody">
-                <div class="text-muted text-center py-4" id="restoreSessionEmpty">Loading…</div>
+                <div class="text-muted text-center py-4" id="restoreSessionEmpty">{{ t('Loading…') }}</div>
                 <div id="restoreSessionList"></div>
             </div>
             <div class="modal-footer justify-content-between">
                 <button class="btn btn-sm btn-outline-danger" id="clearAllSessionsBtn" type="button">
-                    <i class="bi bi-trash"></i> Clear all
+                    <i class="bi bi-trash"></i> {{ t('Clear all') }}
                 </button>
-                <small class="text-muted">Sessions kept for {{ session_retention_hours }} h
-                    (Admin → System Settings → <em>PDF Tool session retention</em>)</small>
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                <small class="text-muted">{{ t('Sessions kept for {hours} h (Admin → System Settings → <em>PDF Tool session retention</em>)', hours=session_retention_hours)|safe }}</small>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">{{ t('Close') }}</button>
             </div>
         </div>
     </div>
@@ -452,13 +450,13 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-question-circle"></i> Which pages?</h5>
+                <h5 class="modal-title"><i class="bi bi-question-circle"></i> {{ t('Which pages?') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body"><p id="exportScopeMsg" class="mb-0"></p></div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" id="exportScopeAllBtn">All pages</button>
-                <button type="button" class="btn btn-primary" id="exportScopeSelBtn">Selected only</button>
+                <button type="button" class="btn btn-outline-secondary" id="exportScopeAllBtn">{{ t('All pages') }}</button>
+                <button type="button" class="btn btn-primary" id="exportScopeSelBtn">{{ t('Selected only') }}</button>
             </div>
         </div>
     </div>
@@ -469,64 +467,64 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-download"></i> Export</h5>
+                <h5 class="modal-title"><i class="bi bi-download"></i> {{ t('Export') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="row g-3">
                     <div class="col-sm-6">
-                        <label class="form-label small mb-1 fw-bold">Format</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Format') }}</label>
                         <select id="exportFmt" class="form-select form-select-sm">
-                            <option value="pdf">Combined PDF</option>
-                            <option value="zip">ZIP of page images</option>
+                            <option value="pdf">{{ t('Combined PDF') }}</option>
+                            <option value="zip">{{ t('ZIP of page images') }}</option>
                         </select>
                     </div>
                     <div class="col-sm-6" id="outputModeWrap">
-                        <label class="form-label small mb-1 fw-bold">Output</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Output') }}</label>
                         <select id="exportOutput" class="form-select form-select-sm"
-                                title="Digital keeps vector pages and applies TRUE redaction (covered text is removed from the file). Image flattens every page to pixels, so redacted content can never be recovered.">
-                            <option value="digital">Digital (true redaction)</option>
-                            <option value="image">Image (flatten pages)</option>
+                                title="{{ t('Digital keeps vector pages and applies TRUE redaction (covered text is removed from the file). Image flattens every page to pixels, so redacted content can never be recovered.') }}">
+                            <option value="digital">{{ t('Digital (true redaction)') }}</option>
+                            <option value="image">{{ t('Image (flatten pages)') }}</option>
                         </select>
                     </div>
                     <div class="col-sm-6" id="compressWrap">
-                        <label class="form-label small mb-1 fw-bold">Compression</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Compression') }}</label>
                         <select id="exportCompress" class="form-select form-select-sm"
-                                title="Recompresses/downsamples the images inside the PDF. Light keeps the resolution; Medium/Strong downsample to ~150/~100 DPI; Fit to size retries until the file fits under the limit.">
-                            <option value="none">None</option>
-                            <option value="light">Light — recompress only</option>
-                            <option value="medium">Medium — ~150 DPI</option>
-                            <option value="strong">Strong — ~100 DPI</option>
-                            <option value="size">Fit to size…</option>
+                                title="{{ t('Recompresses/downsamples the images inside the PDF. Light keeps the resolution; Medium/Strong downsample to ~150/~100 DPI; Fit to size retries until the file fits under the limit.') }}">
+                            <option value="none">{{ t('None') }}</option>
+                            <option value="light">{{ t('Light — recompress only') }}</option>
+                            <option value="medium">{{ t('Medium — ~150 DPI') }}</option>
+                            <option value="strong">{{ t('Strong — ~100 DPI') }}</option>
+                            <option value="size">{{ t('Fit to size…') }}</option>
                         </select>
                     </div>
                     <div class="col-sm-6" id="targetMbWrap" style="display:none;">
-                        <label class="form-label small mb-1 fw-bold">Max size (MB)</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Max size (MB)') }}</label>
                         <input type="number" class="form-control form-control-sm" id="exportTargetMb"
                                min="0.2" step="0.5" value="10">
                     </div>
                     <div class="col-12" id="splitEveryWrap" style="display:none;">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="splitEveryChk">
-                            <label class="form-check-label small" for="splitEveryChk" id="splitEveryLabel">Separate file every 4 pages (per student)</label>
+                            <label class="form-check-label small" for="splitEveryChk" id="splitEveryLabel">{{ t('Separate file every {n} pages (per student)', n=4) }}</label>
                         </div>
                     </div>
                     <div class="col-12">
-                        <label class="form-label small mb-1 fw-bold">File name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control form-control-sm" id="exportName" placeholder="Enter a file name">
+                        <label class="form-label small mb-1 fw-bold">{{ t('File name') }} <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="exportName" placeholder="{{ t('Enter a file name') }}">
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 {% if pdf_source_available %}
                 <button class="btn btn-outline-primary btn-sm" id="saveServerBtn" type="button"
-                        title="Save under PDF_SOURCE_PATH/{{ save_subdir }} so Batch PDF Import can pick it">
-                    <i class="bi bi-hdd"></i> Save to server
+                        title="{{ t('Save under PDF_SOURCE_PATH/{subdir} so Batch PDF Import can pick it', subdir=save_subdir) }}">
+                    <i class="bi bi-hdd"></i> {{ t('Save to server') }}
                 </button>
                 {% endif %}
                 <button class="btn btn-primary btn-sm" id="exportBtn" type="button">
-                    <i class="bi bi-download"></i> Download
+                    <i class="bi bi-download"></i> {{ t('Download') }}
                 </button>
             </div>
         </div>
@@ -538,56 +536,56 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="bi bi-search"></i> Find &amp; Mark</h5>
+                <h5 class="modal-title"><i class="bi bi-search"></i> {{ t('Find & Mark') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="row g-2 mb-2">
                     <div class="col-sm-6">
-                        <label class="form-label small mb-1 fw-bold">Search engine</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Search engine') }}</label>
                         <select id="fmEngine" class="form-select form-select-sm">
-                            <option value="auto">Auto (text layer, else OCR)</option>
-                            <option value="digital">Digital text layer</option>
-                            <option value="ocr">OCR (scanned pages)</option>
-                            <option value="ai">AI vision (LLM)</option>
+                            <option value="auto">{{ t('Auto (text layer, else OCR)') }}</option>
+                            <option value="digital">{{ t('Digital text layer') }}</option>
+                            <option value="ocr">{{ t('OCR (scanned pages)') }}</option>
+                            <option value="ai">{{ t('AI vision (LLM)') }}</option>
                         </select>
                         <div class="form-text" id="fmEngineHint"></div>
                     </div>
                     <div class="col-sm-6">
-                        <label class="form-label small mb-1 fw-bold">Pages</label>
+                        <label class="form-label small mb-1 fw-bold">{{ t('Pages') }}</label>
                         <select id="fmScope" class="form-select form-select-sm">
-                            <option value="all">All pages</option>
-                            <option value="selected">Selected pages only</option>
+                            <option value="all">{{ t('All pages') }}</option>
+                            <option value="selected">{{ t('Selected pages only') }}</option>
                         </select>
                     </div>
                 </div>
 
                 <div class="btn-group btn-group-sm w-100 mb-2" role="group" id="fmAiModeRow" style="display:none;">
                     <input type="radio" class="btn-check" name="fmAiMode" id="fmAiModeTerms" value="terms" checked>
-                    <label class="btn btn-outline-secondary" for="fmAiModeTerms"><i class="bi bi-type"></i> Find the search terms</label>
+                    <label class="btn btn-outline-secondary" for="fmAiModeTerms"><i class="bi bi-type"></i> {{ t('Find the search terms') }}</label>
                     <input type="radio" class="btn-check" name="fmAiMode" id="fmAiModeCustom" value="custom">
-                    <label class="btn btn-outline-secondary" for="fmAiModeCustom"><i class="bi bi-stars"></i> Custom instruction</label>
+                    <label class="btn btn-outline-secondary" for="fmAiModeCustom"><i class="bi bi-stars"></i> {{ t('Custom instruction') }}</label>
                 </div>
 
                 <div id="fmTermsBlock">
-                    <label class="form-label small mb-1 fw-bold">Search terms</label>
+                    <label class="form-label small mb-1 fw-bold">{{ t('Search terms') }}</label>
                     <div id="fmTerms"></div>
-                    <button class="btn btn-sm btn-outline-secondary mb-3" id="fmAddTermBtn" type="button"><i class="bi bi-plus-lg"></i> Add term</button>
+                    <button class="btn btn-sm btn-outline-secondary mb-3" id="fmAddTermBtn" type="button"><i class="bi bi-plus-lg"></i> {{ t('Add term') }}</button>
                 </div>
 
                 <div id="fmCustomBlock" style="display:none;">
-                    <label class="form-label small mb-1 fw-bold">Describe what to find</label>
-                    <textarea class="form-control form-control-sm mb-2" id="fmCustomPrompt" rows="3" placeholder='e.g. "every signature", "all personal names", "each figure or chart"'></textarea>
+                    <label class="form-label small mb-1 fw-bold">{{ t('Describe what to find') }}</label>
+                    <textarea class="form-control form-control-sm mb-2" id="fmCustomPrompt" rows="3" placeholder="{{ t('e.g. "every signature", "all personal names", "each figure or chart"')|e }}"></textarea>
                     <div class="row g-1 align-items-center mb-3">
-                        <div class="col-auto small fw-bold">Mark matches as</div>
+                        <div class="col-auto small fw-bold">{{ t('Mark matches as') }}</div>
                         <div class="col-auto">
                             <select class="form-select form-select-sm" id="fmCustomKind">
-                                <option value="highlight">Highlight</option>
-                                <option value="redact">Redact</option>
-                                <option value="erase">Remove</option>
+                                <option value="highlight">{{ t('Highlight') }}</option>
+                                <option value="redact">{{ t('Redact') }}</option>
+                                <option value="erase">{{ t('Remove') }}</option>
                             </select>
                         </div>
-                        <div class="col-auto"><input type="color" class="form-control form-control-color" id="fmCustomColor" value="#ffff00" title="Mark colour"></div>
+                        <div class="col-auto"><input type="color" class="form-control form-control-color" id="fmCustomColor" value="#ffff00" title="{{ t('Mark colour') }}"></div>
                     </div>
                 </div>
 
@@ -595,39 +593,39 @@
                     <div class="col-auto">
                         <div class="form-check form-check-sm">
                             <input class="form-check-input" type="checkbox" id="fmFuzzy" checked>
-                            <label class="form-check-label small" for="fmFuzzy">Fuzzy match</label>
+                            <label class="form-check-label small" for="fmFuzzy">{{ t('Fuzzy match') }}</label>
                         </div>
                     </div>
                     <div class="col">
                         <div class="d-flex align-items-center gap-2">
-                            <span class="small text-nowrap">Threshold <b id="fmThresholdVal">85</b>%</span>
+                            <span class="small text-nowrap">{{ t('Threshold') }} <b id="fmThresholdVal">85</b>%</span>
                             <input type="range" class="form-range" id="fmThreshold" min="50" max="100" step="1" value="85">
                         </div>
                     </div>
                     <div class="col-auto">
                         <div class="form-check form-check-sm">
                             <input class="form-check-input" type="checkbox" id="fmCase">
-                            <label class="form-check-label small" for="fmCase">Case sensitive</label>
+                            <label class="form-check-label small" for="fmCase">{{ t('Case sensitive') }}</label>
                         </div>
                     </div>
                 </div>
 
                 <div class="row g-2 align-items-center mb-2">
-                    <div class="col-auto small text-nowrap">Highlight opacity <b id="fmOpacityVal">40</b>%</div>
+                    <div class="col-auto small text-nowrap">{{ t('Highlight opacity') }} <b id="fmOpacityVal">40</b>%</div>
                     <div class="col"><input type="range" class="form-range" id="fmOpacity" min="10" max="100" step="5" value="40"></div>
                 </div>
 
                 <div class="form-check form-check-sm mb-2" id="fmParallelRow"
-                     title="Scan pages concurrently — OCR across CPU cores, or LLM round-trips across the endpoint's concurrency (cloud endpoints only).">
+                     title="{{ t('Scan pages concurrently — OCR across CPU cores, or LLM round-trips across the endpoint\'s concurrency (cloud endpoints only).') }}">
                     <input class="form-check-input" type="checkbox" id="fmParallel" checked>
-                    <label class="form-check-label small" for="fmParallel">Run pages in parallel (faster)</label>
+                    <label class="form-check-label small" for="fmParallel">{{ t('Run pages in parallel (faster)') }}</label>
                 </div>
 
                 <div id="fmAiBlock" style="display:none;">
                     <hr class="my-2">
                     <div class="row g-2 align-items-end mb-2">
                         <div class="col">
-                            <label class="form-label small mb-1 fw-bold">LLM endpoint</label>
+                            <label class="form-label small mb-1 fw-bold">{{ t('LLM endpoint') }}</label>
                             <select id="fmEndpoint" class="form-select form-select-sm"></select>
                         </div>
                     </div>
@@ -637,11 +635,11 @@
             </div>
             <div class="modal-footer flex-wrap">
                 <span class="me-auto small text-muted" id="fmSummary"></span>
-                <button type="button" class="btn btn-sm btn-outline-success" id="fmAcceptBtn" style="display:none;"><i class="bi bi-check2-all"></i> Accept all pending</button>
-                <button type="button" class="btn btn-sm btn-outline-danger" id="fmDiscardBtn" style="display:none;" title="Delete every pending mark"><i class="bi bi-x-lg"></i> Discard pending</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="fmUndoBtn" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Undo</button>
-                <button type="button" class="btn btn-sm btn-outline-danger" id="fmCancelBtn" style="display:none;"><i class="bi bi-x-octagon"></i> Stop</button>
-                <button type="button" class="btn btn-sm btn-primary" id="fmRunBtn"><i class="bi bi-search"></i> Search &amp; mark</button>
+                <button type="button" class="btn btn-sm btn-outline-success" id="fmAcceptBtn" style="display:none;"><i class="bi bi-check2-all"></i> {{ t('Accept all pending') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="fmDiscardBtn" style="display:none;" title="{{ t('Delete every pending mark') }}"><i class="bi bi-x-lg"></i> {{ t('Discard pending') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fmUndoBtn" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> {{ t('Undo') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="fmCancelBtn" style="display:none;"><i class="bi bi-x-octagon"></i> {{ t('Stop') }}</button>
+                <button type="button" class="btn btn-sm btn-primary" id="fmRunBtn"><i class="bi bi-search"></i> {{ t('Search & mark') }}</button>
             </div>
         </div>
     </div>
@@ -674,10 +672,10 @@ let dragPreSnapshot = null;    // snapshot captured at drag start
 let previewRes = localStorage.getItem('oqb_tbPreviewRes') === 'full' ? 'full' : 'thumb';
 
 const SPLIT_HELP = {
-    none: 'Pages are added as-is.',
-    simple: 'Each page is cut into a left and a right half (in that order).',
-    mode1: 'Folded individual copies/booklets. Enter the ordered A4 pages per student; extra padding pages in each booklet are dropped.',
-    mode2: 'A whole booklet was destapled and the A3 sheets scanned as a stack. The split halves are reordered back into reading order. Assumes an even number of A3 pages.',
+    none: OQB.t('Pages are added as-is.'),
+    simple: OQB.t('Each page is cut into a left and a right half (in that order).'),
+    mode1: OQB.t('Folded individual copies/booklets. Enter the ordered A4 pages per student; extra padding pages in each booklet are dropped.'),
+    mode2: OQB.t('A whole booklet was destapled and the A3 sheets scanned as a stack. The split halves are reordered back into reading order. Assumes an even number of A3 pages.'),
 };
 
 // ---------- helpers ----------
@@ -767,7 +765,7 @@ async function pushServerPages() {
     });
 }
 async function doUndo() {
-    if (!undoStack.length) { log('Nothing to undo.'); return; }
+    if (!undoStack.length) { log(OQB.t('Nothing to undo.')); return; }
     const snap = undoStack.pop();
     pages = snap.map(p => ({id: p.id, src: p.src, page: p.page, mode: p.mode,
                             mode1_pages_per_student: p.mode1_pages_per_student,
@@ -776,10 +774,10 @@ async function doUndo() {
     const ids = new Set(pages.map(p => p.id));
     selected = new Set([...selected].filter(id => ids.has(id)));
     clipboard = null;
-    try { await pushServerPages(); } catch (e) { log('Undo sync failed: ' + e.message, 'error'); }
+    try { await pushServerPages(); } catch (e) { log(OQB.t('Undo sync failed: {error}', {error: e.message}), 'error'); }
     renderPreview();
     updateUndoButton();
-    log('Undid last action.');
+    log(OQB.t('Undid last action.'));
 }
 
 function thumbUrl(p, w) {
@@ -791,7 +789,7 @@ function setBtnLoading(btn, on) {
     if (on) {
         btn.dataset.html = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Working...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> ' + OQB.t('Working...');
     } else {
         btn.disabled = false;
         if (btn.dataset.html !== undefined) { btn.innerHTML = btn.dataset.html; delete btn.dataset.html; }
@@ -808,20 +806,20 @@ async function uploadSource(file, serverPath, serverRoot) {
         fd.append('server_path', serverPath);
         if (serverRoot) fd.append('server_root', serverRoot);
     }
-    log('Uploading PDF...');
+    log(OQB.t('Uploading PDF...'));
     let data;
     try {
         const r = await fetch(`${BASE}/upload`, {method: 'POST', body: fd});
         data = await r.json();
         if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
     } catch (e) {
-        log('Upload failed: ' + e.message, 'error');
+        log(OQB.t('Upload failed: {error}', {error: e.message}), 'error');
         return;
     }
     TOKEN = data.token;
     sources[data.srcid] = {filename: data.filename, page_count: data.page_count};
     activeSrc = data.srcid;
-    log(`Loaded "${data.filename}" (${data.page_count} page(s)).`, 'success');
+    log(OQB.t('Loaded "{name}" ({n} page(s)).', {name: data.filename, n: data.page_count}), 'success');
     renderSourceList();
     renderSrcStrip(data.srcid, data.page_count);
     document.getElementById('processCard').style.display = '';
@@ -844,7 +842,7 @@ async function addPagesWithDefaults(srcid) {
     data.pages.forEach(sp => {
         pages.push(pageFromServer(sp));
     });
-    log(`Added ${data.added} page(s).`, 'success');
+    log(OQB.t('Added {n} page(s).', {n: data.added}), 'success');
     renderPreview();
 }
 
@@ -875,14 +873,14 @@ function initDropZone() {
         const files = [...e.dataTransfer.files].filter(f =>
             f.type === 'application/pdf' || f.type.startsWith('image/')
             || /\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i.test(f.name));
-        if (!files.length) { log('Drop a PDF or image file.', 'error'); return; }
+        if (!files.length) { log(OQB.t('Drop a PDF or image file.'), 'error'); return; }
         for (const f of files) {
             const d = await uploadSource(f, null);
             if (!d) continue;
             try {
                 await addPagesWithDefaults(d.srcid);
             } catch (err) {
-                log('Add failed: ' + err.message, 'error');
+                log(OQB.t('Add failed: {error}', {error: err.message}), 'error');
             }
         }
     });
@@ -891,8 +889,8 @@ function initDropZone() {
 function renderSourceList() {
     const el = document.getElementById('sourceList');
     const ids = Object.keys(sources);
-    if (!ids.length) { el.textContent = 'No PDF loaded yet.'; return; }
-    el.innerHTML = ids.map(id => `<div><i class="bi bi-file-earmark-pdf"></i> ${sources[id].filename} <span class="text-muted">(${sources[id].page_count}p)</span></div>`).join('');
+    if (!ids.length) { el.textContent = OQB.t('No PDF loaded yet.'); return; }
+    el.innerHTML = ids.map(id => `<div><i class="bi bi-file-earmark-pdf"></i> ${sources[id].filename} <span class="text-muted">(${OQB.t('{n}p', {n: sources[id].page_count})})</span></div>`).join('');
     const sel = document.getElementById('activeSource');
     sel.innerHTML = ids.map(id => `<option value="${id}">${sources[id].filename}</option>`).join('');
     sel.value = activeSrc;
@@ -912,7 +910,7 @@ function renderSrcStrip(srcid, count) {
     if (count > max) {
         const more = document.createElement('span');
         more.className = 'align-self-center text-muted small';
-        more.textContent = `+${count - max} more`;
+        more.textContent = OQB.t('+{n} more', {n: count - max});
         strip.appendChild(more);
     }
 }
@@ -925,7 +923,7 @@ function gatherFilters() {
 }
 
 async function addPages() {
-    if (!activeSrc) { log('Load a PDF first.', 'error'); return; }
+    if (!activeSrc) { log(OQB.t('Load a PDF first.'), 'error'); return; }
     const btn = document.getElementById('addPagesBtn');
     setBtnLoading(btn, true);
     const body = {
@@ -941,7 +939,7 @@ async function addPages() {
     try {
         data = await postJSON(`${BASE}/add-pages`, body);
     } catch (e) {
-        log('Add failed: ' + e.message, 'error');
+        log(OQB.t('Add failed: {error}', {error: e.message}), 'error');
         setBtnLoading(btn, false);
         return;
     }
@@ -949,7 +947,7 @@ async function addPages() {
     data.pages.forEach(sp => {
         pages.push(pageFromServer(sp));
     });
-    log(`Added ${data.added} page(s).`, 'success');
+    log(OQB.t('Added {n} page(s).', {n: data.added}), 'success');
     setBtnLoading(btn, false);
     renderPreview();
 }
@@ -978,19 +976,19 @@ function renderPreview() {
 function editBadges(p) {
     const labels = [];
     if (p.edit.rotate) labels.push(`${p.edit.rotate.deg}°`);
-    if (p.edit.crop) labels.push('crop');
-    if (p.edit.deskew) labels.push('deskew');
-    if (p.edit.bw) labels.push('B&W');
-    if (p.edit.brightness) labels.push('bright');
-    if (p.edit.contrast) labels.push('contrast');
-    if (p.edit.sharpen) labels.push('sharpen');
-    if (p.edit.grayscale) labels.push('gray');
+    if (p.edit.crop) labels.push(OQB.t('crop'));
+    if (p.edit.deskew) labels.push(OQB.t('deskew'));
+    if (p.edit.bw) labels.push(OQB.t('B&W'));
+    if (p.edit.brightness) labels.push(OQB.t('bright'));
+    if (p.edit.contrast) labels.push(OQB.t('contrast'));
+    if (p.edit.sharpen) labels.push(OQB.t('sharpen'));
+    if (p.edit.grayscale) labels.push(OQB.t('gray'));
     let html = labels.map(l => `<span class="badge bg-info text-dark">${l}</span>`).join('');
     const annots = p.annots || [];
     if (annots.length) {
         const pend = annots.filter(a => a.pending).length;
-        html += `<span class="badge bg-warning text-dark" title="${annots.length} mark(s) on this page"><i class="bi bi-pen"></i> ${annots.length}</span>`;
-        if (pend) html += `<span class="badge bg-danger" title="${pend} pending mark(s) awaiting review">${pend} pending</span>`;
+        html += `<span class="badge bg-warning text-dark" title="${OQB.t('{n} mark(s) on this page', {n: annots.length})}"><i class="bi bi-pen"></i> ${annots.length}</span>`;
+        if (pend) html += `<span class="badge bg-danger" title="${OQB.t('{n} pending mark(s) awaiting review', {n: pend})}">${OQB.t('{n} pending', {n: pend})}</span>`;
     }
     return html;
 }
@@ -1050,8 +1048,8 @@ function setSelectMode(on) {
         b.classList.toggle('btn-primary', selectMode);
         b.classList.toggle('btn-outline-secondary', !selectMode);
         b.innerHTML = selectMode
-            ? '<i class="bi bi-check2-square"></i> Done'
-            : '<i class="bi bi-ui-checks-grid"></i> Select';
+            ? '<i class="bi bi-check2-square"></i> ' + OQB.t('Done')
+            : '<i class="bi bi-ui-checks-grid"></i> ' + OQB.t('Select');
     }
     if (sortable) sortable.option('disabled', selectMode);
 }
@@ -1114,7 +1112,7 @@ function updateSelectionUI() {
     const n = selected.size;
     const badge = document.getElementById('selCount');
     badge.style.display = n ? '' : 'none';
-    badge.textContent = `${n} selected`;
+    badge.textContent = OQB.t('{n} selected', {n});
     if (n === 0) {
         // Close any open dropdowns on tb-needs-sel buttons before disabling them;
         // a disabled button cannot close its own dropdown via a click.
@@ -1245,7 +1243,9 @@ function openCropModal(targets) {
         targets.some(t => t.edit.crop) ? '' : 'none';
     const n = targets.length;
     document.getElementById('cropApplyBtn').innerHTML =
-        `<i class="bi bi-check-lg"></i> Apply to ${n} page${n === 1 ? '' : 's'}`;
+        '<i class="bi bi-check-lg"></i> ' + (n === 1
+            ? OQB.t('Apply to 1 page')
+            : OQB.t('Apply to {n} pages', {n}));
     cropModal.show();
 }
 
@@ -1319,7 +1319,7 @@ function initCropEvents() {
     document.getElementById('cropApplyBtn').addEventListener('click', async () => {
         if (!cropFrac || (cropFrac[2] - cropFrac[0]) < 0.02
             || (cropFrac[3] - cropFrac[1]) < 0.02) {
-            log('Draw a crop area first.', 'error');
+            log(OQB.t('Draw a crop area first.'), 'error');
             return;
         }
         pushUndo();
@@ -1339,7 +1339,7 @@ function initCropEvents() {
         cropModal.hide();
         await saveMany(cropTargets);
         refreshModalImg();
-        log(`Cropped ${cropTargets.length} page(s).`, 'success');
+        log(OQB.t('Cropped {n} page(s).', {n: cropTargets.length}), 'success');
     });
 
     document.getElementById('cropRemoveBtn').addEventListener('click', async () => {
@@ -1348,7 +1348,7 @@ function initCropEvents() {
         cropModal.hide();
         await saveMany(cropTargets);
         refreshModalImg();
-        log('Crop removed.', 'success');
+        log(OQB.t('Crop removed.'), 'success');
     });
 }
 
@@ -1374,13 +1374,13 @@ async function deleteSelected() {
 function copySel(sel) {
     if (!sel.length) return;
     clipboard = {mode: 'copy', ids: sel.map(p => p.id)};
-    log(`Copied ${sel.length} page(s).`);
+    log(OQB.t('Copied {n} page(s).', {n: sel.length}));
     updateSelectionUI();
 }
 function cutSel(sel) {
     if (!sel.length) return;
     clipboard = {mode: 'cut', ids: sel.map(p => p.id)};
-    log(`Cut ${sel.length} page(s) — paste to move them.`);
+    log(OQB.t('Cut {n} page(s) — paste to move them.', {n: sel.length}));
     updateSelectionUI();
 }
 
@@ -1398,14 +1398,14 @@ async function pasteClipboard() {
     if (clipboard.mode === 'copy') {
         let data;
         try { data = await postJSON(`${BASE}/duplicate`, {token: TOKEN, page_ids: clipboard.ids, after_id: afterId}); }
-        catch (e) { log('Paste failed: ' + e.message, 'error'); return; }
+        catch (e) { log(OQB.t('Paste failed: {error}', {error: e.message}), 'error'); return; }
         const byId = {}; pages.forEach(p => byId[p.id] = p);
         data.pages.forEach(sp => {
             byId[sp.id] = pageFromServer(sp);
         });
         pages = data.order.map(id => byId[id]).filter(Boolean);
         setSelection(data.pages.map(p => p.id));
-        log(`Pasted ${data.pages.length} copied page(s).`, 'success');
+        log(OQB.t('Pasted {n} copied page(s).', {n: data.pages.length}), 'success');
         renderPreview();
     } else {
         // cut = move
@@ -1423,7 +1423,7 @@ async function pasteClipboard() {
         clipboard = null;
         setSelection(moving);
         persistOrder();
-        log(`Moved ${moving.length} page(s).`, 'success');
+        log(OQB.t('Moved {n} page(s).', {n: moving.length}), 'success');
         renderPreview();
     }
 }
@@ -1452,13 +1452,23 @@ function arrangeIds(ids, kind) {
     return ids;
 }
 
+function reorderLabel(kind) {
+    return {
+        interleave: OQB.t('Interleave'),
+        deinterleave: OQB.t('Deinterleave'),
+        alt_interleave: OQB.t('Alternate interleave'),
+        alt_deinterleave: OQB.t('Alternate deinterleave'),
+        reverse: OQB.t('Reverse order'),
+    }[kind] || kind;
+}
+
 function reorderOp(kind) {
     // Act on the current selection (in document order) if 2+ are selected,
     // otherwise on the whole working set.
     const useSel = selected.size >= 2;
     const positions = [];
     pages.forEach((p, i) => { if (!useSel || selected.has(p.id)) positions.push(i); });
-    if (positions.length < 2) { log('Select at least 2 pages, or load more pages.', 'error'); return; }
+    if (positions.length < 2) { log(OQB.t('Select at least 2 pages, or load more pages.'), 'error'); return; }
     const subsetIds = positions.map(i => pages[i].id);
     const arranged = arrangeIds(subsetIds, kind);
     if (arranged.join(',') === subsetIds.join(',')) return;
@@ -1469,7 +1479,7 @@ function reorderOp(kind) {
     pages = next;
     persistOrder();
     renderPreview();
-    log(`Reordered ${subsetIds.length} page(s): ${kind}.`, 'success');
+    log(OQB.t('Reordered {n} page(s): {kind}.', {n: subsetIds.length, kind: reorderLabel(kind)}), 'success');
 }
 
 // ---------- reorder (group-aware drag) ----------
@@ -1712,15 +1722,15 @@ function renderModalPage() {
     const p = currentPreviewPage;
     if (!p) return;
     const idx = pages.findIndex(x => x.id === p.id);
-    document.getElementById('previewModalTitle').textContent = `Page #${idx + 1} of ${pages.length}`;
+    document.getElementById('previewModalTitle').textContent = OQB.t('Page #{n} of {total}', {n: idx + 1, total: pages.length});
     const img = document.getElementById('previewModalImg');
     const resBadge = document.getElementById('previewModalRes');
     const full = previewRes === 'full';
-    resBadge.textContent = full ? `${p.dpi || DEFAULT_DPI} DPI` : 'quick';
+    resBadge.textContent = full ? OQB.t('{n} DPI', {n: p.dpi || DEFAULT_DPI}) : OQB.t('quick');
     img.onload = () => {
         resBadge.textContent = full
-            ? `${img.naturalWidth} × ${img.naturalHeight} px @ ${p.dpi || DEFAULT_DPI} DPI`
-            : `quick · ${img.naturalWidth} × ${img.naturalHeight} px`;
+            ? OQB.t('{w} × {h} px @ {dpi} DPI', {w: img.naturalWidth, h: img.naturalHeight, dpi: p.dpi || DEFAULT_DPI})
+            : OQB.t('quick · {w} × {h} px', {w: img.naturalWidth, h: img.naturalHeight});
     };
     img.src = full ? fullResUrl(p) : thumbUrl(p, PREVIEW_W);
     document.getElementById('prevPageBtn').disabled = idx <= 0;
@@ -1762,33 +1772,33 @@ function adjustSliderRowHTML(type, label, icon, min, max) {
 function adjustMenuHTML() {
     return `
       <div class="dropdown-menu dropdown-menu-end p-3 tb-adjust-menu">
-        ${adjustSliderRowHTML('brightness', 'Brightness', 'bi-brightness-high', 30, 200)}
-        ${adjustSliderRowHTML('contrast', 'Contrast', 'bi-circle-square', 30, 200)}
-        ${adjustSliderRowHTML('sharpen', 'Sharpen', 'bi-triangle-half', 0, 300)}
+        ${adjustSliderRowHTML('brightness', OQB.t('Brightness'), 'bi-brightness-high', 30, 200)}
+        ${adjustSliderRowHTML('contrast', OQB.t('Contrast'), 'bi-circle-square', 30, 200)}
+        ${adjustSliderRowHTML('sharpen', OQB.t('Sharpen'), 'bi-triangle-half', 0, 300)}
         <hr class="my-2">
         <div class="d-flex gap-3 mb-2">
           <div class="form-check form-check-sm mb-0">
             <input class="form-check-input tb-adj-gray" type="checkbox">
-            <label class="form-check-label small">Grayscale</label>
+            <label class="form-check-label small">${OQB.t('Grayscale')}</label>
           </div>
           <div class="form-check form-check-sm mb-0">
             <input class="form-check-input tb-adj-deskew" type="checkbox" ${NUMPY_OK ? '' : 'disabled'}>
-            <label class="form-check-label small">Deskew${NUMPY_OK ? '' : ' (needs NumPy)'}</label>
+            <label class="form-check-label small">${NUMPY_OK ? OQB.t('Deskew') : OQB.t('Deskew (needs NumPy)')}</label>
           </div>
         </div>
         <div class="form-check form-check-sm mb-1">
           <input class="form-check-input tb-bw-enable" type="checkbox">
-          <label class="form-check-label small">Black &amp; white</label>
+          <label class="form-check-label small">${OQB.t('Black & white')}</label>
         </div>
         <div class="tb-bw-row mb-2">
-          <label class="form-label small mb-1">Threshold: <span class="tb-bw-val fw-bold">160</span></label>
+          <label class="form-label small mb-1">${OQB.t('Threshold')}: <span class="tb-bw-val fw-bold">160</span></label>
           <div class="d-flex align-items-center gap-2">
             <input type="range" class="form-range tb-bw-range" min="0" max="255" step="1" value="160">
             <input type="number" class="form-control form-control-sm tb-bw-num" style="width:76px;" min="0" max="255" step="1" value="160">
           </div>
         </div>
         <div class="d-flex justify-content-end">
-          <button class="btn btn-sm btn-link p-0 tb-adj-resetall" type="button">Reset adjustments</button>
+          <button class="btn btn-sm btn-link p-0 tb-adj-resetall" type="button">${OQB.t('Reset adjustments')}</button>
         </div>
       </div>`;
 }
@@ -1797,19 +1807,19 @@ function imageOpsHTML(needsSel) {
     const ns = needsSel ? ' tb-needs-sel' : '';
     return `
       <div class="btn-group btn-group-sm" role="group">
-        <button class="btn btn-outline-secondary${ns}" data-op="rotL" type="button" title="Rotate left 90°"><i class="bi bi-arrow-counterclockwise"></i></button>
-        <button class="btn btn-outline-secondary${ns}" data-op="rotR" type="button" title="Rotate right 90°"><i class="bi bi-arrow-clockwise"></i></button>
+        <button class="btn btn-outline-secondary${ns}" data-op="rotL" type="button" title="${OQB.t('Rotate left 90°')}"><i class="bi bi-arrow-counterclockwise"></i></button>
+        <button class="btn btn-outline-secondary${ns}" data-op="rotR" type="button" title="${OQB.t('Rotate right 90°')}"><i class="bi bi-arrow-clockwise"></i></button>
       </div>
       <div class="btn-group btn-group-sm" role="group">
         <button class="btn btn-outline-secondary dropdown-toggle${ns}" type="button" data-bs-toggle="dropdown"
-                data-bs-auto-close="outside" data-adjustmenu="1" title="Brightness, contrast, sharpen, grayscale, deskew, B&amp;W">
-          <i class="bi bi-sliders"></i> Adjust
+                data-bs-auto-close="outside" data-adjustmenu="1" title="${OQB.t('Brightness, contrast, sharpen, grayscale, deskew, B&W')}">
+          <i class="bi bi-sliders"></i> ${OQB.t('Adjust')}
         </button>
         ${adjustMenuHTML()}
       </div>
-      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="crop" type="button" title="Crop the selected page(s)"><i class="bi bi-crop"></i> Crop</button>
-      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="markup" type="button" title="Redact, highlight, draw, or add text on the page"><i class="bi bi-pen"></i> Mark up</button>
-      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="Reset page edits (keeps marks)"><i class="bi bi-eraser"></i> Reset</button>`;
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="crop" type="button" title="${OQB.t('Crop the selected page(s)')}"><i class="bi bi-crop"></i> ${OQB.t('Crop')}</button>
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="markup" type="button" title="${OQB.t('Redact, highlight, draw, or add text on the page')}"><i class="bi bi-pen"></i> ${OQB.t('Mark up')}</button>
+      <button class="btn btn-sm btn-outline-secondary${ns}" data-op="reset" type="button" title="${OQB.t('Reset page edits (keeps marks)')}"><i class="bi bi-eraser"></i> ${OQB.t('Reset')}</button>`;
 }
 
 function buildToolbars() {
@@ -1895,7 +1905,9 @@ function initAdjustMenus() {
 
 // ---------- counts / visibility ----------
 function updateCount() {
-    document.getElementById('pageCount').textContent = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
+    document.getElementById('pageCount').textContent = pages.length === 1
+        ? OQB.t('1 page')
+        : OQB.t('{n} pages', {n: pages.length});
 }
 function mode1CountsForPageIds(pageIds) {
     const scope = pageIds ? new Set(pageIds) : null;
@@ -1917,11 +1929,11 @@ function updateSplitEveryVisibility(pageIds) {
     wrap.style.display = (hasMode1 && fmtPdf) ? '' : 'none';
     if (counts.length === 1) {
         chk.disabled = false;
-        label.textContent = `Separate file every ${counts[0]} pages (per student)`;
+        label.textContent = OQB.t('Separate file every {n} pages (per student)', {n: counts[0]});
     } else if (counts.length > 1) {
         chk.checked = false;
         chk.disabled = true;
-        label.textContent = 'Separate per student unavailable for mixed Mode 1 page counts';
+        label.textContent = OQB.t('Separate per student unavailable for mixed Mode 1 page counts');
     }
     document.getElementById('outputModeWrap').style.display = fmtPdf ? '' : 'none';
     document.getElementById('compressWrap').style.display = fmtPdf ? '' : 'none';
@@ -1950,7 +1962,7 @@ function _fmtDate(iso) {
 async function openRestoreSessionModal() {
     if (!restoreSessionModalInst)
         restoreSessionModalInst = new bootstrap.Modal(document.getElementById('restoreSessionModal'));
-    document.getElementById('restoreSessionEmpty').textContent = 'Loading…';
+    document.getElementById('restoreSessionEmpty').textContent = OQB.t('Loading…');
     document.getElementById('restoreSessionEmpty').style.display = '';
     document.getElementById('restoreSessionList').innerHTML = '';
     restoreSessionModalInst.show();
@@ -1965,34 +1977,37 @@ async function loadSessionList() {
         const data = await (await fetch(`${BASE}/sessions`)).json();
         const sessions = data.sessions || [];
         if (!sessions.length) {
-            empty.textContent = 'No saved sessions found.';
+            empty.textContent = OQB.t('No saved sessions found.');
             return;
         }
         empty.style.display = 'none';
         sessions.forEach(s => {
             const isCurrent = (s.token === TOKEN);
-            const names = s.source_names.join(', ') || '(no sources)';
+            const names = s.source_names.join(', ') || OQB.t('(no sources)');
             const row = document.createElement('div');
             row.className = 'border rounded p-2 mb-2 d-flex align-items-start gap-2';
+            const pageLabel = s.page_count === 1
+                ? OQB.t('1 page')
+                : OQB.t('{n} pages', {n: s.page_count});
             row.innerHTML = `
                 <div class="flex-grow-1 small">
                     <div class="fw-bold">${names}
-                        ${isCurrent ? '<span class="badge bg-success ms-1">current</span>' : ''}
+                        ${isCurrent ? '<span class="badge bg-success ms-1">' + OQB.t('current') + '</span>' : ''}
                     </div>
                     <div class="text-muted">
-                        ${s.page_count} page${s.page_count !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                        ${pageLabel} &nbsp;·&nbsp;
                         ${_fmtBytes(s.size_bytes)} &nbsp;·&nbsp;
-                        Saved ${_fmtDate(s.last_saved)}
+                        ${OQB.t('Saved {when}', {when: _fmtDate(s.last_saved)})}
                     </div>
                     <div class="text-muted" style="font-size:.75em;word-break:break-all;">
-                        Token: ${s.token}
+                        ${OQB.t('Token: {token}', {token: s.token})}
                     </div>
                 </div>
                 <div class="d-flex flex-column gap-1" style="min-width:6.5em;">
                     ${isCurrent
-                        ? '<button class="btn btn-sm btn-outline-secondary" disabled>Active</button>'
+                        ? '<button class="btn btn-sm btn-outline-secondary" disabled>' + OQB.t('Active') + '</button>'
                         : `<button class="btn btn-sm btn-primary restore-btn" data-token="${s.token}">
-                               <i class="bi bi-arrow-counterclockwise"></i> Restore
+                               <i class="bi bi-arrow-counterclockwise"></i> ${OQB.t('Restore')}
                            </button>`}
                     <button class="btn btn-sm btn-outline-danger del-session-btn" data-token="${s.token}">
                         <i class="bi bi-trash"></i>
@@ -2005,12 +2020,12 @@ async function loadSessionList() {
         list.querySelectorAll('.del-session-btn').forEach(btn =>
             btn.addEventListener('click', () => doDeleteSession(btn.dataset.token)));
     } catch (e) {
-        empty.textContent = 'Failed to load sessions: ' + e.message;
+        empty.textContent = OQB.t('Failed to load sessions: {error}', {error: e.message});
     }
 }
 
 async function doRestoreSession(token) {
-    if (!confirm('Restore this session? Your current work will be replaced.')) return;
+    if (!confirm(OQB.t('Restore this session? Your current work will be replaced.'))) return;
     try {
         const data = await postJSON(`${BASE}/session-restore`, {token});
         // Reinitialise all state from the saved session.
@@ -2045,39 +2060,39 @@ async function doRestoreSession(token) {
         renderPreview();
 
         if (restoreSessionModalInst) restoreSessionModalInst.hide();
-        log(`Session restored: ${pages.length} page(s).`, 'success');
+        log(OQB.t('Session restored: {n} page(s).', {n: pages.length}), 'success');
     } catch (e) {
-        log('Restore failed: ' + e.message, 'error');
+        log(OQB.t('Restore failed: {error}', {error: e.message}), 'error');
     }
 }
 
 async function doDeleteSession(token) {
-    if (!confirm('Delete this session? This cannot be undone.')) return;
+    if (!confirm(OQB.t('Delete this session? This cannot be undone.'))) return;
     try {
         await postJSON(`${BASE}/sessions/delete`, {tokens: [token]});
         if (token === TOKEN) {
             TOKEN = null; pages.length = 0; selected.clear();
             Object.keys(sources).forEach(k => delete sources[k]);
             renderPreview();
-            log('Current session deleted.', 'success');
+            log(OQB.t('Current session deleted.'), 'success');
         }
         await loadSessionList();
     } catch (e) {
-        log('Delete failed: ' + e.message, 'error');
+        log(OQB.t('Delete failed: {error}', {error: e.message}), 'error');
     }
 }
 
 async function doClearAllSessions() {
-    if (!confirm('Delete ALL saved sessions? This cannot be undone.')) return;
+    if (!confirm(OQB.t('Delete ALL saved sessions? This cannot be undone.'))) return;
     try {
         const res = await postJSON(`${BASE}/sessions/clear-all`, {});
         TOKEN = null; pages.length = 0; selected.clear();
         Object.keys(sources).forEach(k => delete sources[k]);
         renderPreview();
-        log(`Cleared ${res.deleted} session(s).`, 'success');
+        log(OQB.t('Cleared {n} session(s).', {n: res.deleted}), 'success');
         await loadSessionList();
     } catch (e) {
-        log('Clear failed: ' + e.message, 'error');
+        log(OQB.t('Clear failed: {error}', {error: e.message}), 'error');
     }
 }
 
@@ -2134,8 +2149,8 @@ function resolveExportScope() {
         }
         exportScopeResolve = resolve;
         document.getElementById('exportScopeMsg').textContent =
-            `You have ${sel.length} of ${pages.length} page(s) selected. Export only the selected pages, or everything?`;
-        document.getElementById('exportScopeSelBtn').textContent = `Selected only (${sel.length})`;
+            OQB.t('You have {sel} of {total} page(s) selected. Export only the selected pages, or everything?', {sel: sel.length, total: pages.length});
+        document.getElementById('exportScopeSelBtn').textContent = OQB.t('Selected only ({n})', {n: sel.length});
         exportScopeModal.show();
     });
 }
@@ -2154,9 +2169,9 @@ function exportBody(pageIds) {
 }
 
 async function doExport() {
-    if (!pages.length) { log('Nothing to export.', 'error'); return; }
+    if (!pages.length) { log(OQB.t('Nothing to export.'), 'error'); return; }
     if (!document.getElementById('exportName').value.trim()) {
-        log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
+        log(OQB.t('Enter a file name first.'), 'error'); document.getElementById('exportName').focus(); return;
     }
     const ids = pendingExportIds || pages.map(p => p.id);
     const body = exportBody(ids);
@@ -2166,7 +2181,7 @@ async function doExport() {
     // Show loading on the toolbar button so the user knows work is in progress.
     const btn = document.getElementById('exportOpenBtn');
     setBtnLoading(btn, true);
-    log(`Exporting ${ids.length} page(s)…`);
+    log(OQB.t('Exporting {n} page(s)…', {n: ids.length}));
     try {
         // Start the async job — returns immediately with a job_id.
         const {job_id: jobId} = await postJSON(`${BASE}/export-start`, body);
@@ -2178,14 +2193,14 @@ async function doExport() {
             es.onmessage = (e) => {
                 const ev = JSON.parse(e.data);
                 if (ev.type === 'heartbeat') {
-                    log('Exporting… (processing)');
+                    log(OQB.t('Exporting… (processing)'));
                 } else if (ev.type === 'done') {
                     es.close(); resolve(jobId);
                 } else if (ev.type === 'error') {
                     es.close(); reject(new Error(ev.message));
                 }
             };
-            es.onerror = () => { es.close(); reject(new Error('Connection lost during export.')); };
+            es.onerror = () => { es.close(); reject(new Error(OQB.t('Connection lost during export.'))); };
         });
 
         // Trigger the browser download — the server serves the prepared blob.
@@ -2193,17 +2208,17 @@ async function doExport() {
         a.href = `${BASE}/export-download?job_id=${encodeURIComponent(jobId)}`;
         a.download = body.filename + (body.fmt === 'zip' || body.split_every ? '.zip' : '.pdf');
         a.click();
-        log('Export ready — download started.', 'success');
-    } catch (e) { log('Export failed: ' + e.message, 'error'); }
+        log(OQB.t('Export ready — download started.'), 'success');
+    } catch (e) { log(OQB.t('Export failed: {error}', {error: e.message}), 'error'); }
     setBtnLoading(btn, false);
 }
 
 let overwriteModal = null;
 let saveScopeIds = null;       // page ids chosen when the save flow started
 async function doSaveServer(overwrite) {
-    if (!pages.length) { log('Nothing to save.', 'error'); return; }
+    if (!pages.length) { log(OQB.t('Nothing to save.'), 'error'); return; }
     const body = exportBody(saveScopeIds || pages.map(p => p.id));
-    if (!body.filename) { log('Enter a file name first.', 'error'); return; }
+    if (!body.filename) { log(OQB.t('Enter a file name first.'), 'error'); return; }
     body.dest = saveDest;
     if (saveDestRoot) body.dest_root = saveDestRoot;
     if (overwrite) body.overwrite = true;
@@ -2211,7 +2226,7 @@ async function doSaveServer(overwrite) {
     // Show loading on the toolbar button.
     const btn = document.getElementById('exportOpenBtn');
     setBtnLoading(btn, true);
-    log('Starting server save…');
+    log(OQB.t('Starting server save…'));
     try {
         // Start async save job (returns job_id, or 409 for overwrite conflict).
         const startData = await postJSON(`${BASE}/export-save-start`, body);
@@ -2223,25 +2238,25 @@ async function doSaveServer(overwrite) {
             es.onmessage = (e) => {
                 const ev = JSON.parse(e.data);
                 if (ev.type === 'heartbeat') {
-                    log('Saving to server… (processing)');
+                    log(OQB.t('Saving to server… (processing)'));
                 } else if (ev.type === 'done') {
                     es.close(); resolve(ev);
                 } else if (ev.type === 'error') {
                     es.close(); reject(new Error(ev.message));
                 }
             };
-            es.onerror = () => { es.close(); reject(new Error('Connection lost during save.')); };
+            es.onerror = () => { es.close(); reject(new Error(OQB.t('Connection lost during save.'))); };
         });
-        log(`Saved to server: ${result.saved}`, 'success');
+        log(OQB.t('Saved to server: {path}', {path: result.saved}), 'success');
     } catch (e) {
         if (e.status === 409 && e.data && e.data.exists) {
             setBtnLoading(btn, false);
             if (!overwriteModal) overwriteModal = new bootstrap.Modal(document.getElementById('overwriteModal'));
-            document.getElementById('overwriteMsg').textContent = e.data.error + ' Overwrite it, or rename and try again?';
+            document.getElementById('overwriteMsg').textContent = e.data.error + ' ' + OQB.t('Overwrite it, or rename and try again?');
             overwriteModal.show();
             return;
         }
-        log('Save failed: ' + e.message, 'error');
+        log(OQB.t('Save failed: {error}', {error: e.message}), 'error');
     }
     setBtnLoading(btn, false);
 }
@@ -2252,7 +2267,7 @@ let saveDestRoot = '';                // chosen destination root id ('' = legacy
 
 async function openSaveDest() {
     if (!document.getElementById('exportName').value.trim()) {
-        log('Enter a file name first.', 'error'); document.getElementById('exportName').focus(); return;
+        log(OQB.t('Enter a file name first.'), 'error'); document.getElementById('exportName').focus(); return;
     }
     // Scope was already resolved when the settings modal was opened — reuse it.
     saveScopeIds = pendingExportIds || pages.map(p => p.id);
@@ -2260,7 +2275,7 @@ async function openSaveDest() {
     await waitModalHidden('exportSettingsModal');
     OQBFileSelector.open({
         mode: 'folder',
-        title: 'Choose save destination',
+        title: OQB.t('Choose save destination'),
         onPick: function (sel) {
             saveDest = sel.rel_path;
             saveDestRoot = sel.root_id;
@@ -2274,7 +2289,7 @@ function openServerPicker() {
     OQBFileSelector.open({
         mode: 'file',
         extensions: ['.pdf'],
-        title: 'Pick a PDF from the server',
+        title: OQB.t('Pick a PDF from the server'),
         onPick: function (sel) { uploadSource(null, sel.rel_path, sel.root_id); },
     });
 }
@@ -2308,16 +2323,16 @@ function fmAddTermRow(text) {
     const row = document.createElement('div');
     row.className = 'fm-term row g-1 align-items-center mb-1';
     row.innerHTML = `
-        <div class="col"><input class="form-control form-control-sm fm-text" placeholder="Phrase to find" value="${(text || '').replace(/"/g, '&quot;')}"></div>
+        <div class="col"><input class="form-control form-control-sm fm-text" placeholder="${OQB.t('Phrase to find')}" value="${(text || '').replace(/"/g, '&quot;')}"></div>
         <div class="col-auto">
             <select class="form-select form-select-sm fm-kind">
-                <option value="highlight">Highlight</option>
-                <option value="redact">Redact</option>
-                <option value="erase">Remove</option>
+                <option value="highlight">${OQB.t('Highlight')}</option>
+                <option value="redact">${OQB.t('Redact')}</option>
+                <option value="erase">${OQB.t('Remove')}</option>
             </select>
         </div>
-        <div class="col-auto"><input type="color" class="form-control form-control-color fm-color" value="#ffff00" title="Mark colour"></div>
-        <div class="col-auto"><button class="btn btn-sm btn-outline-danger fm-del" type="button" title="Remove term"><i class="bi bi-x-lg"></i></button></div>`;
+        <div class="col-auto"><input type="color" class="form-control form-control-color fm-color" value="#ffff00" title="${OQB.t('Mark colour')}"></div>
+        <div class="col-auto"><button class="btn btn-sm btn-outline-danger fm-del" type="button" title="${OQB.t('Remove term')}"><i class="bi bi-x-lg"></i></button></div>`;
     const kind = row.querySelector('.fm-kind');
     const color = row.querySelector('.fm-color');
     kind.addEventListener('change', () => {
@@ -2337,12 +2352,12 @@ function fmAddTermRow(text) {
 async function fmLoadEndpoints() {
     if (fmEndpointsLoaded) return;
     const sel = document.getElementById('fmEndpoint');
-    sel.innerHTML = '<option value="">Loading…</option>';
+    sel.innerHTML = '<option value="">' + OQB.t('Loading…') + '</option>';
     try {
         const r = await fetch(AI_ENDPOINTS_URL);
         const data = await r.json();
         const eps = (data.endpoints || []).filter(e => e.supports_vision !== false);
-        sel.innerHTML = '<option value="">Default endpoint</option>';
+        sel.innerHTML = '<option value="">' + OQB.t('Default endpoint') + '</option>';
         eps.forEach(e => {
             const o = document.createElement('option');
             o.value = e.id;
@@ -2351,7 +2366,7 @@ async function fmLoadEndpoints() {
         });
         fmEndpointsLoaded = true;
     } catch (e) {
-        sel.innerHTML = '<option value="">Default endpoint</option>';
+        sel.innerHTML = '<option value="">' + OQB.t('Default endpoint') + '</option>';
     }
 }
 
@@ -2372,18 +2387,23 @@ function fmSyncEngineUI() {
     document.getElementById('fmParallelRow').style.display =
         engine === 'digital' ? 'none' : '';
     const hints = {
-        auto: 'Uses the PDF text layer when present, else OCR.' + (OCR_OK ? '' : ' (OCR is unavailable on this server — scanned pages will be skipped.)'),
-        digital: 'Born-digital PDFs only — pages without a text layer are skipped.',
-        ocr: OCR_OK ? 'Recognises text on scanned pages (slower).' : 'Unavailable — install Tesseract or set TESSERACT_CMD in .env.',
-        ai: custom ? 'A vision LLM locates whatever you describe (text, figures, signatures…).'
-                   : 'A vision LLM locates the search-term phrases on each page.',
+        auto: OCR_OK
+            ? OQB.t('Uses the PDF text layer when present, else OCR.')
+            : OQB.t('Uses the PDF text layer when present, else OCR. (OCR is unavailable on this server — scanned pages will be skipped.)'),
+        digital: OQB.t('Born-digital PDFs only — pages without a text layer are skipped.'),
+        ocr: OCR_OK
+            ? OQB.t('Recognises text on scanned pages (slower).')
+            : OQB.t('Unavailable — install Tesseract or set TESSERACT_CMD in .env.'),
+        ai: custom
+            ? OQB.t('A vision LLM locates whatever you describe (text, figures, signatures…).')
+            : OQB.t('A vision LLM locates the search-term phrases on each page.'),
     };
     document.getElementById('fmEngineHint').textContent = hints[engine] || '';
     if (engine === 'ai') fmLoadEndpoints();
 }
 
 function openFindMark() {
-    if (!pages.length) { log('Add pages to the preview first.', 'error'); return; }
+    if (!pages.length) { log(OQB.t('Add pages to the preview first.'), 'error'); return; }
     if (!findMarkModal) {
         findMarkModal = new bootstrap.Modal(document.getElementById('findMarkModal'));
         document.getElementById('fmAddTermBtn').addEventListener('click', () => fmAddTermRow(''));
@@ -2422,7 +2442,9 @@ function openFindMark() {
     const scopeSel = document.getElementById('fmScope');
     const selOpt = scopeSel.querySelector('option[value="selected"]');
     selOpt.disabled = selected.size === 0;
-    selOpt.textContent = selected.size ? `Selected pages only (${selected.size})` : 'Selected pages only';
+    selOpt.textContent = selected.size
+        ? OQB.t('Selected pages only ({n})', {n: selected.size})
+        : OQB.t('Selected pages only');
     if (selected.size) scopeSel.value = 'selected';
     else scopeSel.value = 'all';
     fmClearLog();
@@ -2446,11 +2468,11 @@ function fmGather() {
     const customPrompt = custom
         ? document.getElementById('fmCustomPrompt').value.trim() : '';
     if (custom && !customPrompt) {
-        fmLog('Describe what the AI should find.', true);
+        fmLog(OQB.t('Describe what the AI should find.'), true);
         return null;
     }
     if (!custom && !terms.length) {
-        fmLog('Enter at least one search term.', true);
+        fmLog(OQB.t('Enter at least one search term.'), true);
         return null;
     }
     const customStyle = {kind: document.getElementById('fmCustomKind').value,
@@ -2508,8 +2530,8 @@ function fmApplyResults(resultsByPage, opts) {
         document.getElementById('fmUndoBtn').style.display = '';
     }
     document.getElementById('fmSummary').textContent = added
-        ? `Added ${added} pending mark(s) on ${touched.length} page(s) — review in the grid or Mark up editor, then accept.`
-        : 'No matches found.';
+        ? OQB.t('Added {n} pending mark(s) on {pages} page(s) — review in the grid or Mark up editor, then accept.', {n: added, pages: touched.length})
+        : OQB.t('No matches found.');
     return added;
 }
 
@@ -2524,7 +2546,7 @@ function fmAcceptAllPending() {
     pushServerPages().then(() => touched.forEach(refreshCard))
         .catch(e => log(e.message, 'error'));
     fmSyncPendingButtons();
-    document.getElementById('fmSummary').textContent = 'All pending marks accepted.';
+    document.getElementById('fmSummary').textContent = OQB.t('All pending marks accepted.');
 }
 
 function fmDiscardAllPending() {
@@ -2541,7 +2563,7 @@ function fmDiscardAllPending() {
     pushServerPages().then(() => touched.forEach(refreshCard))
         .catch(e => log(e.message, 'error'));
     fmSyncPendingButtons();
-    document.getElementById('fmSummary').textContent = `Discarded ${n} pending mark(s).`;
+    document.getElementById('fmSummary').textContent = OQB.t('Discarded {n} pending mark(s).', {n});
 }
 
 function fmSyncPendingButtons() {
@@ -2584,7 +2606,7 @@ function runFindMarkText(opts) {
 
     setBtnLoading(document.getElementById('fmRunBtn'), true);
     document.getElementById('fmCancelBtn').style.display = '';
-    fmLog(`Scanning ${opts.ids.length} page(s)…`);
+    fmLog(OQB.t('Scanning {n} page(s)…', {n: opts.ids.length}));
 
     let resultsPayload = null;
     let skippedCount = 0;
@@ -2596,8 +2618,9 @@ function runFindMarkText(opts) {
         fmJobId = null;
         fmSetRunning(false);
         if (resultsPayload) {
-            fmLog(`Scanned ${resultsPayload.pages_scanned} page(s)`
-                  + (skippedCount ? `, ${skippedCount} skipped.` : '.'));
+            fmLog(skippedCount
+                ? OQB.t('Scanned {n} page(s), {skipped} skipped.', {n: resultsPayload.pages_scanned, skipped: skippedCount})
+                : OQB.t('Scanned {n} page(s).', {n: resultsPayload.pages_scanned}));
             fmApplyResults(resultsPayload.results || {}, opts);
         }
     };
@@ -2606,18 +2629,21 @@ function runFindMarkText(opts) {
         try { d = JSON.parse(ev.data); } catch (_) { return; }
         if (d.type === 'job') { fmJobId = d.job_id; }
         else if (d.type === 'progress') {
-            fmLog(`Page #${d.index} (${d.current}/${d.total}) · ${d.engine.toUpperCase()}: ${d.words} word(s).`);
+            fmLog(OQB.t('Page #{index} ({current}/{total}) · {engine}: {n} word(s).', {
+                index: d.index, current: d.current, total: d.total,
+                engine: d.engine.toUpperCase(), n: d.words}));
         }
         else if (d.type === 'skip') {
             skippedCount++;
-            fmLog(`Page #${d.index} (${d.current}/${d.total}) skipped: ${d.reason}`, true);
+            fmLog(OQB.t('Page #{index} ({current}/{total}) skipped: {reason}', {
+                index: d.index, current: d.current, total: d.total, reason: d.reason}), true);
         }
         else if (d.type === 'results') { resultsPayload = d; }
         else if (d.type === 'error') fmLog(d.message, true);
         else if (d.type === 'info') fmLog(d.message);
         else if (d.type === 'done') finish();
     };
-    fmES.onerror = () => { fmLog('Connection lost.', true); finish(); };
+    fmES.onerror = () => { fmLog(OQB.t('Connection lost.'), true); finish(); };
 }
 
 function runFindMarkAI(opts) {
@@ -2633,7 +2659,7 @@ function runFindMarkAI(opts) {
 
     setBtnLoading(document.getElementById('fmRunBtn'), true);
     document.getElementById('fmCancelBtn').style.display = '';
-    fmLog(`AI scan of ${opts.ids.length} page(s)…`);
+    fmLog(OQB.t('AI scan of {n} page(s)…', {n: opts.ids.length}));
 
     const collected = {};
     fmJobId = null;
@@ -2653,13 +2679,14 @@ function runFindMarkAI(opts) {
                 rect: b.box, term: fmTermIndexForLabel(b.label, opts.terms)}));
             const p = pageById(d.page_id);
             const idx = p ? pages.indexOf(p) + 1 : '?';
-            fmLog(`Page #${idx} (${d.current}/${d.total}): ${(d.boxes || []).length} region(s).`);
+            fmLog(OQB.t('Page #{index} ({current}/{total}): {n} region(s).', {
+                index: idx, current: d.current, total: d.total, n: (d.boxes || []).length}));
         }
         else if (d.type === 'error') fmLog(d.message, true);
         else if (d.type === 'info') fmLog(d.message);
         else if (d.type === 'done') finish();
     };
-    fmES.onerror = () => { fmLog('Connection lost.', true); finish(); };
+    fmES.onerror = () => { fmLog(OQB.t('Connection lost.'), true); finish(); };
 }
 
 // ---------- wiring ----------
@@ -2667,13 +2694,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // default DPI
     const dpiSel = document.getElementById('procDpi');
     if (![...dpiSel.options].some(o => parseInt(o.value, 10) === DEFAULT_DPI)) {
-        const o = document.createElement('option'); o.value = DEFAULT_DPI; o.textContent = DEFAULT_DPI + ' DPI'; dpiSel.appendChild(o);
+        const o = document.createElement('option'); o.value = DEFAULT_DPI; o.textContent = OQB.t('{n} DPI', {n: DEFAULT_DPI}); dpiSel.appendChild(o);
     }
     dpiSel.value = String(DEFAULT_DPI);
 
     document.getElementById('uploadBtn').addEventListener('click', () => {
         const f = document.getElementById('pdfFile').files[0];
-        if (!f) { log('Choose a PDF file first.', 'error'); return; }
+        if (!f) { log(OQB.t('Choose a PDF file first.'), 'error'); return; }
         uploadSource(f, null);
         document.getElementById('pdfFile').value = '';
     });

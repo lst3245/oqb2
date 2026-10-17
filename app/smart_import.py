@@ -44,6 +44,7 @@ from app import storage
 from app import md_render
 from app.models import Question, QuestionAsset
 from app.utils import VERSIONS
+from app.i18n import t as _t
 from app.ingestor import (
     parse_filename, construct_qid, determine_file_format,
     determine_question_type, parse_qno,
@@ -265,7 +266,7 @@ def infer_structure_rule(base_dir, rel_path, profile, config):
     profile = normalize_profile(profile)
     samples = list_sample_paths(base_dir, rel_path, limit=80)
     if not samples:
-        raise RuntimeError('No files found in the selected folder.')
+        raise RuntimeError(_t('No files found in the selected folder.'))
 
     tree = '\n'.join(samples[:80])
     system = ai_prompts.system_prompt('SMART_IMPORT_SYSTEM', config.id)
@@ -276,11 +277,11 @@ def infer_structure_rule(base_dir, rel_path, profile, config):
     try:
         text, _info = llm_client.chat(config, system, user)
     except Exception as e:
-        raise RuntimeError(f'LLM request failed: {e}')
+        raise RuntimeError(_t('LLM request failed: {error}', error=e))
 
     obj = _parse_json_object(text)
     if obj is None:
-        raise RuntimeError('Could not parse a structure rule from the AI reply.')
+        raise RuntimeError(_t('Could not parse a structure rule from the AI reply.'))
 
     rule = {}
     for key in ('subject', 'source', 'version', 'asset_type', 'detail', 'notes'):
@@ -394,7 +395,7 @@ def _resolve_file(rel_path, filename, profile):
     }
 
     if not file_format:
-        base['note'] = f'Unsupported file type (.{ext})' if ext else 'No file extension'
+        base['note'] = _t('Unsupported file type (.{ext})', ext=ext) if ext else _t('No file extension')
         return base
 
     # 1) Strict canonical filename — same parser as ingestion.
@@ -453,18 +454,18 @@ def _resolve_file(rel_path, filename, profile):
     # Classify against the DB.
     if not base['qid']:
         base['status'] = 'skip'
-        base['note'] = base['note'] or 'Could not determine a question number / QID from the path.'
+        base['note'] = base['note'] or _t('Could not determine a question number / QID from the path.')
         return base
 
     if not base['subject']:
         base['status'] = 'ambiguous'
-        base['note'] = 'No subject set — choose a subject in the profile.'
+        base['note'] = _t('No subject set — choose a subject in the profile.')
         return base
 
     question = Question.query.filter_by(qid=base['qid']).first()
     if question is None:
         base['status'] = 'unmatched'
-        base['note'] = f'No question {base["qid"]} in the database.'
+        base['note'] = _t('No question {qid} in the database.', qid=base['qid'])
         base['accept'] = bool(profile.get('create_missing'))
         return base
 
@@ -474,17 +475,20 @@ def _resolve_file(rel_path, filename, profile):
 
     if base['confidence'] == 'low':
         base['status'] = 'ambiguous'
-        base['note'] = 'Low confidence — please confirm the QID / slot.'
+        base['note'] = _t('Low confidence — please confirm the QID / slot.')
         base['accept'] = False
         return base
 
     if existing:
         base['status'] = 'overwrite'
-        base['note'] = f'{len(existing)} existing {file_format} file(s) in {base["asset_type"]}/{base["version"]} will be replaced.'
+        base['note'] = _t('{n} existing {fmt} file(s) in {type}/{version} will be replaced.',
+                          n=len(existing), fmt=file_format,
+                          type=base['asset_type'], version=base['version'])
         base['accept'] = bool(profile.get('overwrite'))
     else:
         base['status'] = 'add'
-        base['note'] = f'New {file_format} into empty {base["asset_type"]}/{base["version"]} slot.'
+        base['note'] = _t('New {fmt} into empty {type}/{version} slot.',
+                          fmt=file_format, type=base['asset_type'], version=base['version'])
         base['accept'] = True
 
     return base
@@ -511,7 +515,7 @@ def resolve_folder(base_dir, rel_path, profile, qid_scope=None):
 
     if not start or not os.path.isdir(start):
         return {'proposals': [], 'stats': _empty_stats(), 'folder': rel_path,
-                'error': 'Folder not found or access denied.'}
+                'error': _t('Folder not found or access denied.')}
 
     for cur, dirs, files in os.walk(start):
         dirs.sort()
@@ -523,7 +527,7 @@ def resolve_folder(base_dir, rel_path, profile, qid_scope=None):
                 if prop['status'] not in ('skip',):
                     prop['status'] = 'skip'
                     prop['accept'] = False
-                    prop['note'] = f'{prop["qid"]} is outside the selected questions.'
+                    prop['note'] = _t('{qid} is outside the selected questions.', qid=prop['qid'])
             proposals.append(prop)
 
     # Stable row ids for the review grid.
@@ -652,7 +656,7 @@ def build_plan(base_dir, root_id, items, profile):
         rel = str(it.get('src_rel', '')).strip().lstrip('/')
         full = storage.safe_join(root, rel) if rel else None
         if not full or not os.path.isfile(full):
-            skipped.append({'src_rel': rel, 'reason': 'source file not found'})
+            skipped.append({'src_rel': rel, 'reason': _t('source file not found')})
             continue
 
         ext = str(it.get('ext') or '').lower()
@@ -660,7 +664,7 @@ def build_plan(base_dir, root_id, items, profile):
             ext = rel.rsplit('.', 1)[-1].lower()
         file_format = _format_from_ext(ext)
         if not file_format:
-            skipped.append({'src_rel': rel, 'reason': 'unsupported file type'})
+            skipped.append({'src_rel': rel, 'reason': _t('unsupported file type')})
             continue
 
         subject = str(it.get('subject', '') or '').strip().upper()
@@ -671,10 +675,10 @@ def build_plan(base_dir, root_id, items, profile):
         qid = str(it.get('qid', '') or '').strip()
 
         if source not in ALL_SOURCES or version not in VERSIONS or asset_type not in ASSET_TYPES:
-            skipped.append({'src_rel': rel, 'reason': 'invalid slot (source/version/type)'})
+            skipped.append({'src_rel': rel, 'reason': _t('invalid slot (source/version/type)')})
             continue
         if not qid or not subject:
-            skipped.append({'src_rel': rel, 'reason': 'missing QID / subject'})
+            skipped.append({'src_rel': rel, 'reason': _t('missing QID / subject')})
             continue
 
         year = it.get('year')
@@ -684,7 +688,7 @@ def build_plan(base_dir, root_id, items, profile):
         except (TypeError, ValueError):
             year = None
         if source in PP_SOURCES and (year is None or not paper):
-            skipped.append({'src_rel': rel, 'reason': 'missing year/paper for past-paper QID'})
+            skipped.append({'src_rel': rel, 'reason': _t('missing year/paper for past-paper QID')})
             continue
 
         jobs.append({

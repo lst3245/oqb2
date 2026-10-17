@@ -5,57 +5,57 @@
     <div class="d-flex flex-wrap align-items-center gap-2">
         <div class="me-2">
             <i class="bi bi-check2-square text-primary"></i>
-            <strong id="aqSelCount">0</strong> selected in <strong id="aqSelSubject"></strong>
+            <span id="aqSelSummary"></span>
             <span class="text-muted small" id="aqSelBreakdown"></span>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqShowSelectedOnly()" title="List only the selected rows">
-            <i class="bi bi-eye"></i> Review
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqShowSelectedOnly()" title="{{ t('List only the selected rows') }}">
+            <i class="bi bi-eye"></i> {{ t('Review') }}
         </button>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqClearSelection()">
-            <i class="bi bi-x-lg"></i> Clear
+            <i class="bi bi-x-lg"></i> {{ t('Clear') }}
         </button>
         <div class="vr mx-1"></div>
 
         <div class="dropup">
-            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-patch-check"></i> Status</button>
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-patch-check"></i> {{ t('Status') }}</button>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('verified'); return false;"><i class="bi bi-patch-check-fill text-success"></i> Set verified…<small>Mark the selection verified or not verified.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('checkState'); return false;"><i class="bi bi-clipboard-check"></i> Set proofread state…<small>Mark asset slots OK, with issues, error, or unchecked.</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('verified'); return false;"><i class="bi bi-patch-check-fill text-success"></i> {{ t('Set verified…') }}<small>{{ t('Mark the selection verified or not verified.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('checkState'); return false;"><i class="bi bi-clipboard-check"></i> {{ t('Set proofread state…') }}<small>{{ t('Mark asset slots OK, with issues, error, or unchecked.') }}</small></a></li>
             </ul>
         </div>
         <div class="dropup">
-            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-images"></i> Assets</button>
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-images"></i> {{ t('Assets') }}</button>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('img'); return false;"><i class="bi bi-image"></i> Generate IMG…<small>Render DOC / MD sources to PNG with Word.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('mcq'); return false;"><i class="bi bi-check-circle"></i> Set MCQ ANS images…<small>Copy the A/B/C/D answer image from the answer tag.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('assetOps'); return false;"><i class="bi bi-files"></i> Copy / move assets…<small>Copy or move files between version / type slots.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenSmartImport(true); return false;"><i class="bi bi-folder-plus"></i> Import files for selection<small>Opens Smart Import limited to the selected QIDs.</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('img'); return false;"><i class="bi bi-image"></i> {{ t('Generate IMG…') }}<small>{{ t('Render DOC / MD sources to PNG with Word.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('mcq'); return false;"><i class="bi bi-check-circle"></i> {{ t('Set MCQ ANS images…') }}<small>{{ t('Copy the A/B/C/D answer image from the answer tag.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('assetOps'); return false;"><i class="bi bi-files"></i> {{ t('Copy / move assets…') }}<small>{{ t('Copy or move files between version / type slots.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenSmartImport(true); return false;"><i class="bi bi-folder-plus"></i> {{ t('Import files for selection') }}<small>{{ t('Opens Smart Import limited to the selected QIDs.') }}</small></a></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="#" onclick="aqOpenOp('deleteAssets'); return false;"><i class="bi bi-file-earmark-x"></i> Delete assets…<small>Remove chosen format × version × type assets; questions stay.</small></a></li>
+                <li><a class="dropdown-item text-danger" href="#" onclick="aqOpenOp('deleteAssets'); return false;"><i class="bi bi-file-earmark-x"></i> {{ t('Delete assets…') }}<small>{{ t('Remove chosen format × version × type assets; questions stay.') }}</small></a></li>
             </ul>
         </div>
         {% if ai_tools_enabled %}
         <div class="dropup">
             <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-robot"></i> AI</button>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiCheck'); return false;"><i class="bi bi-search"></i> Proofread images…<small>Compare a typed version with the official scan.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiMd'); return false;"><i class="bi bi-markdown"></i> Generate Markdown…<small>Transcribe images into Markdown assets.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiSolveGen'); return false;"><i class="bi bi-lightbulb"></i> Generate ANS / SOL…<small>The model solves each question.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiSolveCheck'); return false;"><i class="bi bi-clipboard2-check"></i> Check ANS / SOL…<small>The model checks existing answers and solutions.</small></a></li>
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiTag'); return false;"><i class="bi bi-tags"></i> Auto-tag…<small>Classify and write tags (no per-question review).</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiCheck'); return false;"><i class="bi bi-search"></i> {{ t('Proofread images…') }}<small>{{ t('Compare a typed version with the official scan.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiMd'); return false;"><i class="bi bi-markdown"></i> {{ t('Generate Markdown…') }}<small>{{ t('Transcribe images into Markdown assets.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiSolveGen'); return false;"><i class="bi bi-lightbulb"></i> {{ t('Generate ANS / SOL…') }}<small>{{ t('The model solves each question.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiSolveCheck'); return false;"><i class="bi bi-clipboard2-check"></i> {{ t('Check ANS / SOL…') }}<small>{{ t('The model checks existing answers and solutions.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('aiTag'); return false;"><i class="bi bi-tags"></i> {{ t('Auto-tag…') }}<small>{{ t('Classify and write tags (no per-question review).') }}</small></a></li>
             </ul>
         </div>
         {% endif %}
         <div class="dropup">
-            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-diagram-3"></i> Structure</button>
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-diagram-3"></i> {{ t('Structure') }}</button>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('combine'); return false;"><i class="bi bi-intersect"></i> Combine parts…<small>Fold parts back into one question per selected stem.</small></a></li>
-                <li><a class="dropdown-item" href="#" id="aqSplitItem" onclick="aqOpenSplit(); return false;"><i class="bi bi-scissors"></i> Split into parts<small>One standalone question at a time.</small></a></li>
+                <li><a class="dropdown-item" href="#" onclick="aqOpenOp('combine'); return false;"><i class="bi bi-intersect"></i> {{ t('Combine parts…') }}<small>{{ t('Fold parts back into one question per selected stem.') }}</small></a></li>
+                <li><a class="dropdown-item" href="#" id="aqSplitItem" onclick="aqOpenSplit(); return false;"><i class="bi bi-scissors"></i> {{ t('Split into parts') }}<small>{{ t('One standalone question at a time.') }}</small></a></li>
             </ul>
         </div>
         <div class="ms-auto">
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="aqOpenOp('deleteQuestions')">
-                <i class="bi bi-trash"></i> Delete questions…
+                <i class="bi bi-trash"></i> {{ t('Delete questions…') }}
             </button>
         </div>
     </div>

@@ -116,8 +116,8 @@ function renderRootSelect() {
     ROOTS.forEach(r => {
         const opt = document.createElement('option');
         opt.value = r.id;
-        opt.textContent = rootLabelFor(r) + (r.missing ? ' (missing)' : '')
-            + (r.can_write === false ? ' (read-only)' : '');
+        opt.textContent = rootLabelFor(r) + (r.missing ? OQB.t(' (missing)') : '')
+            + (r.can_write === false ? OQB.t(' (read-only)') : '');
         if (r.id === currentRoot) opt.selected = true;
         sel.appendChild(opt);
     });
@@ -156,7 +156,7 @@ function refreshRoots() {
 
 {% if fb_can_manage_roots %}
 function showRootsModal() {
-    document.getElementById('rootsDriveLabel').textContent = ALLOWED_DRIVE;
+    document.getElementById('rootsHelp').innerHTML = OQB.t('Add directories the file browser can open. Every root must live on the <code>{drive}</code> drive. The built-in <strong>Source</strong> and <strong>Storage</strong> roots cannot be removed.', {drive: escapeHtml(ALLOWED_DRIVE)});
     document.getElementById('rootsError').classList.add('d-none');
     document.getElementById('newRootPath').value = '';
     renderRootsList();
@@ -172,14 +172,14 @@ function renderRootsList() {
         li.className = 'list-group-item d-flex justify-content-between align-items-center';
         const left = document.createElement('span');
         left.innerHTML = `<i class="bi bi-folder-fill text-warning"></i> <code>${escapeHtml(r.path || r.label)}</code>`
-            + (r.missing ? ' <span class="badge bg-danger ms-1">missing</span>' : '')
-            + (r.removable ? '' : ' <span class="badge bg-secondary ms-1">built-in</span>');
+            + (r.missing ? ' <span class="badge bg-danger ms-1">' + OQB.t('missing') + '</span>' : '')
+            + (r.removable ? '' : ' <span class="badge bg-secondary ms-1">' + OQB.t('built-in') + '</span>');
         li.appendChild(left);
         if (r.removable) {
             const btn = document.createElement('button');
             btn.className = 'btn btn-sm btn-outline-danger';
             btn.innerHTML = '<i class="bi bi-trash"></i>';
-            btn.title = 'Remove root';
+            btn.title = OQB.t('Remove root');
             btn.onclick = () => doRemoveRoot(r.id);
             li.appendChild(btn);
         }
@@ -205,17 +205,17 @@ function doAddRoot() {
     })
     .then(r => r.json().then(d => ({ok: r.ok, d})))
     .then(({ok, d}) => {
-        if (!ok || d.error) { showRootsError(d.error || 'Could not add root.'); return; }
+        if (!ok || d.error) { showRootsError(d.error || OQB.t('Could not add root.')); return; }
         ROOTS = d.roots || ROOTS;
         input.value = '';
         renderRootsList();
         renderRootSelect();
     })
-    .catch(err => showRootsError('Add failed: ' + err.message));
+    .catch(err => showRootsError(OQB.t('Add failed: {error}', {error: err.message})));
 }
 
 function doRemoveRoot(id) {
-    if (!confirm('Remove this root from the browser? (The folder itself is NOT deleted.)')) return;
+    if (!confirm(OQB.t('Remove this root from the browser? (The folder itself is NOT deleted.)'))) return;
     fetch(URLS.rootsRemove, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -223,7 +223,7 @@ function doRemoveRoot(id) {
     })
     .then(r => r.json().then(d => ({ok: r.ok, d})))
     .then(({ok, d}) => {
-        if (!ok || d.error) { showRootsError(d.error || 'Could not remove root.'); return; }
+        if (!ok || d.error) { showRootsError(d.error || OQB.t('Could not remove root.')); return; }
         ROOTS = d.roots || ROOTS;
         if (!ROOTS.some(r => r.id === currentRoot)) {
             currentRoot = (ROOTS[0] && ROOTS[0].id) || '';
@@ -232,7 +232,7 @@ function doRemoveRoot(id) {
         renderRootsList();
         renderRootSelect();
     })
-    .catch(err => showRootsError('Remove failed: ' + err.message));
+    .catch(err => showRootsError(OQB.t('Remove failed: {error}', {error: err.message})));
 }
 {% endif %}
 
@@ -300,7 +300,7 @@ function loadDirectory(path, opts) {
 function updateBreadcrumb(path) {
     const nav = document.getElementById('breadcrumbNav');
     const ro = currentRootObj();
-    const rootName = rootLabelFor(ro) || 'Root';
+    const rootName = rootLabelFor(ro) || OQB.t('Root');
     let html = `<a href="#" onclick="navigateTo(''); return false;"><i class="bi bi-house-door"></i> ${escapeHtml(rootName)}</a>`;
     if (path) {
         const parts = path.split('/');
@@ -404,18 +404,18 @@ function renderFileTable(items) {
         // Action buttons
         let actions = '';
         if (!item.is_dir) {
-            actions += `<a href="${withRoot(URLS.download + '?path=' + encodeURIComponent(itemPath))}" class="btn btn-outline-primary btn-sm" title="Download"><i class="bi bi-download"></i></a> `;
+            actions += `<a href="${withRoot(URLS.download + '?path=' + encodeURIComponent(itemPath))}" class="btn btn-outline-primary btn-sm" title="${OQB.t('Download')}"><i class="bi bi-download"></i></a> `;
         }
-        actions += `<button class="btn btn-outline-secondary btn-sm" title="Copy to clipboard" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
+        actions += `<button class="btn btn-outline-secondary btn-sm" title="${OQB.t('Copy to clipboard')}" onclick="copyToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-clipboard"></i></button> `;
         if (writable) {
-            actions += `<button class="btn btn-outline-secondary btn-sm" title="Cut to clipboard" onclick="cutToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-scissors"></i></button> `;
+            actions += `<button class="btn btn-outline-secondary btn-sm" title="${OQB.t('Cut to clipboard')}" onclick="cutToClipboard('${escapeJs(itemPath)}')"><i class="bi bi-scissors"></i></button> `;
         }
         if (writable && !item.is_dir) {
-            actions += `<button class="btn btn-outline-secondary btn-sm" title="Duplicate" onclick="duplicateItem('${escapeJs(itemPath)}')"><i class="bi bi-copy"></i></button> `;
+            actions += `<button class="btn btn-outline-secondary btn-sm" title="${OQB.t('Duplicate')}" onclick="duplicateItem('${escapeJs(itemPath)}')"><i class="bi bi-copy"></i></button> `;
         }
         if (writable) {
-            actions += `<button class="btn btn-outline-warning btn-sm" title="Rename" onclick="showRenameModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}')"><i class="bi bi-pencil"></i></button> `;
-            actions += `<button class="btn btn-outline-danger btn-sm" title="Delete" onclick="showSingleDeleteModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}', ${item.is_dir})"><i class="bi bi-trash"></i></button>`;
+            actions += `<button class="btn btn-outline-warning btn-sm" title="${OQB.t('Rename')}" onclick="showRenameModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}')"><i class="bi bi-pencil"></i></button> `;
+            actions += `<button class="btn btn-outline-danger btn-sm" title="${OQB.t('Delete')}" onclick="showSingleDeleteModal('${escapeJs(itemPath)}', '${escapeJs(item.name)}', ${item.is_dir})"><i class="bi bi-trash"></i></button>`;
         }
 
         tr.innerHTML = `
@@ -497,7 +497,7 @@ function updateSelectionUI() {
     const count = document.getElementById('selectionCount');
     if (selectedItems.size > 0) {
         actions.classList.remove('d-none');
-        count.textContent = selectedItems.size + ' selected';
+        count.textContent = OQB.t('{n} selected', {n: selectedItems.size});
     } else {
         actions.classList.add('d-none');
     }
@@ -516,7 +516,7 @@ function showUploadModal() {
     document.getElementById('uploadProgress').classList.add('d-none');
     document.getElementById('uploadResult').classList.add('d-none');
     document.getElementById('btnUpload').disabled = true;
-    document.getElementById('uploadTarget').textContent = currentPath || '/ (root)';
+    document.getElementById('uploadTarget').textContent = currentPath || OQB.t('/ (root)');
     new bootstrap.Modal(document.getElementById('uploadModal')).show();
 }
 
@@ -548,7 +548,7 @@ function renderUploadFileList() {
             <i class="bi bi-file-earmark"></i>
             <span class="flex-grow-1">${escapeHtml(label)}</span>
             <span class="text-muted">${formatSize(it.file.size)}</span>
-            <i class="bi bi-x-circle remove-file" onclick="removeUploadFile(${idx})" title="Remove"></i>
+            <i class="bi bi-x-circle remove-file" onclick="removeUploadFile(${idx})" title="${OQB.t('Remove')}"></i>
         `;
         container.appendChild(div);
     });
@@ -622,13 +622,13 @@ function doUpload() {
             const data = JSON.parse(xhr.responseText);
             let html = '';
             if (data.uploaded && data.uploaded.length > 0) {
-                html += `<div class="alert alert-success py-2 small"><i class="bi bi-check-circle"></i> Uploaded: ${escapeHtml(data.uploaded.join(', '))}</div>`;
+                html += '<div class="alert alert-success py-2 small"><i class="bi bi-check-circle"></i> ' + OQB.t('Uploaded: {names}', {names: escapeHtml(data.uploaded.join(', '))}) + '</div>';
             }
             if (data.error) {
                 html += `<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> ${escapeHtml(data.error)}</div>`;
             }
             if (data.errors && data.errors.length > 0) {
-                html += `<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> Errors:<br>${escapeHtml(data.errors.join('; '))}</div>`;
+                html += '<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> ' + OQB.t('Errors:') + '<br>' + escapeHtml(data.errors.join('; ')) + '</div>';
             }
             resultDiv.innerHTML = html;
             resultDiv.classList.remove('d-none');
@@ -636,7 +636,7 @@ function doUpload() {
             renderUploadFileList();
             refreshListing();
         } catch (e) {
-            resultDiv.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: ${escapeHtml(xhr.statusText)}</div>`;
+            resultDiv.innerHTML = '<div class="alert alert-danger py-2 small">' + OQB.t('Upload failed: {error}', {error: escapeHtml(xhr.statusText)}) + '</div>';
             resultDiv.classList.remove('d-none');
         }
         btn.disabled = false;
@@ -644,7 +644,7 @@ function doUpload() {
 
     xhr.onerror = function() {
         progress.classList.add('d-none');
-        resultDiv.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: network error</div>`;
+        resultDiv.innerHTML = '<div class="alert alert-danger py-2 small">' + OQB.t('Upload failed: network error') + '</div>';
         resultDiv.classList.remove('d-none');
         btn.disabled = false;
     };
@@ -721,13 +721,13 @@ function doRename() {
     .then(r => r.json())
     .then(data => {
         if (data.error) {
-            alert('Rename failed: ' + data.error);
+            alert(OQB.t('Rename failed: {error}', {error: data.error}));
         } else {
             bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
             refreshListing();
         }
     })
-    .catch(err => alert('Rename failed: ' + err.message));
+    .catch(err => alert(OQB.t('Rename failed: {error}', {error: err.message})));
 }
 
 // ==================== New Folder ====================
@@ -750,13 +750,13 @@ function doNewFolder() {
     .then(r => r.json())
     .then(data => {
         if (data.error) {
-            alert('Create folder failed: ' + data.error);
+            alert(OQB.t('Create folder failed: {error}', {error: data.error}));
         } else {
             bootstrap.Modal.getInstance(document.getElementById('newFolderModal')).hide();
             refreshListing();
         }
     })
-    .catch(err => alert('Create folder failed: ' + err.message));
+    .catch(err => alert(OQB.t('Create folder failed: {error}', {error: err.message})));
 }
 
 // ==================== Delete ====================
@@ -798,7 +798,7 @@ function doSingleDelete() {
 
     const btn = document.getElementById('btnSingleDelete');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting…';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Deleting…');
 
     fetch(URLS.delete, {
         method: 'POST',
@@ -808,19 +808,19 @@ function doSingleDelete() {
     .then(r => r.json())
     .then(data => {
         bootstrap.Modal.getInstance(document.getElementById('singleDeleteModal')).hide();
-        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        btn.innerHTML = '<i class="bi bi-trash"></i> ' + OQB.t('Delete');
         btn.disabled = false;
         if (data.error) {
-            showToast('Delete failed: ' + data.error, 'danger');
+            showToast(OQB.t('Delete failed: {error}', {error: data.error}), 'danger');
         } else if (data.errors && data.errors.length > 0) {
-            showToast('Delete errors: ' + data.errors.join('; '), 'danger');
+            showToast(OQB.t('Delete errors: {errors}', {errors: data.errors.join('; ')}), 'danger');
         }
         refreshListing();
     })
     .catch(err => {
-        btn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        btn.innerHTML = '<i class="bi bi-trash"></i> ' + OQB.t('Delete');
         btn.disabled = false;
-        showToast('Delete failed: ' + err.message, 'danger');
+        showToast(OQB.t('Delete failed: {error}', {error: err.message}), 'danger');
     });
 }
 
@@ -829,7 +829,7 @@ function batchDelete() {
     if (selectedItems.size === 0) return;
 
     const list = Array.from(selectedItems);
-    document.getElementById('batchDeleteCount').textContent = list.length;
+    document.getElementById('batchDeleteLead').innerHTML = OQB.t('You are about to delete <strong>{n}</strong> item(s):', {n: list.length});
     const listDiv = document.getElementById('batchDeleteList');
     listDiv.innerHTML = list.map(p => {
         return `<div class="small"><i class="bi bi-file-earmark text-muted"></i> ${escapeHtml(p)}</div>`;
@@ -851,7 +851,7 @@ function doBatchDelete() {
     const paths = Array.from(selectedItems);
     const btn = document.getElementById('btnBatchDelete');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Deleting...');
 
     fetch(URLS.delete, {
         method: 'POST',
@@ -861,11 +861,11 @@ function doBatchDelete() {
     .then(r => r.json())
     .then(data => {
         bootstrap.Modal.getInstance(document.getElementById('batchDeleteModal')).hide();
-        btn.innerHTML = '<i class="bi bi-trash"></i> Permanently Delete';
+        btn.innerHTML = '<i class="bi bi-trash"></i> ' + OQB.t('Permanently Delete');
 
-        let msg = data.message || data.error || `Deleted ${(data.deleted || []).length} item(s).`;
+        let msg = data.message || data.error || OQB.t('Deleted {n} item(s).', {n: (data.deleted || []).length});
         if (data.errors && data.errors.length > 0) {
-            msg += '\n\nErrors:\n' + data.errors.join('\n');
+            msg += '\n\n' + OQB.t('Errors:') + '\n' + data.errors.join('\n');
         }
         alert(msg);
 
@@ -874,9 +874,9 @@ function doBatchDelete() {
         refreshListing();
     })
     .catch(err => {
-        btn.innerHTML = '<i class="bi bi-trash"></i> Permanently Delete';
+        btn.innerHTML = '<i class="bi bi-trash"></i> ' + OQB.t('Permanently Delete');
         btn.disabled = false;
-        alert('Batch delete failed: ' + err.message);
+        alert(OQB.t('Batch delete failed: {error}', {error: err.message}));
     });
 }
 
@@ -886,7 +886,7 @@ function copyToClipboard(path) {
     if (clipboardMode !== 'copy') { clipboard = []; clipboardMode = 'copy'; }
     if (!clipboard.includes(path)) clipboard.push(path);
     updateClipboardUI();
-    showToast(`Copied to clipboard.`, 'info');
+    showToast(OQB.t('Copied to clipboard.'), 'info');
 }
 
 function copySelected() {
@@ -894,14 +894,14 @@ function copySelected() {
     if (clipboardMode !== 'copy') { clipboard = []; clipboardMode = 'copy'; }
     selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
     updateClipboardUI();
-    showToast(`${selectedItems.size} item(s) copied to clipboard.`, 'info');
+    showToast(OQB.t('{n} item(s) copied to clipboard.', {n: selectedItems.size}), 'info');
 }
 
 function cutToClipboard(path) {
     if (clipboardMode !== 'cut') { clipboard = []; clipboardMode = 'cut'; }
     if (!clipboard.includes(path)) clipboard.push(path);
     updateClipboardUI();
-    showToast(`Cut to clipboard.`, 'info');
+    showToast(OQB.t('Cut to clipboard.'), 'info');
 }
 
 function cutSelected() {
@@ -909,7 +909,7 @@ function cutSelected() {
     if (clipboardMode !== 'cut') { clipboard = []; clipboardMode = 'cut'; }
     selectedItems.forEach(p => { if (!clipboard.includes(p)) clipboard.push(p); });
     updateClipboardUI();
-    showToast(`${selectedItems.size} item(s) cut to clipboard.`, 'info');
+    showToast(OQB.t('{n} item(s) cut to clipboard.', {n: selectedItems.size}), 'info');
 }
 
 function clearClipboard() {
@@ -925,12 +925,14 @@ function updateClipboardUI() {
     const isCut = clipboardMode === 'cut';
     if (clipboard.length > 0) {
         actions.classList.remove('d-none');
-        countEl.textContent = clipboard.length + (isCut ? ' cut' : ' copied');
+        countEl.textContent = isCut
+            ? OQB.t('{n} cut', {n: clipboard.length})
+            : OQB.t('{n} copied', {n: clipboard.length});
         countEl.className = 'badge me-1 ' + (isCut ? 'bg-warning text-dark' : 'bg-info text-dark');
         if (pasteBtn) {
-            pasteBtn.innerHTML = isCut
-                ? '<i class="bi bi-clipboard-check"></i> Move here'
-                : '<i class="bi bi-clipboard-check"></i> Paste here';
+            pasteBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> ' + (isCut
+                ? OQB.t('Move here')
+                : OQB.t('Paste here'));
         }
     } else {
         actions.classList.add('d-none');
@@ -939,12 +941,12 @@ function updateClipboardUI() {
 
 function pasteFromClipboard() {
     if (clipboard.length === 0) return;
-    if (!canWrite()) { showToast('This location is read-only.', 'warning'); return; }
+    if (!canWrite()) { showToast(OQB.t('This location is read-only.'), 'warning'); return; }
     const isCut = clipboardMode === 'cut';
     const btn = document.getElementById('btnPaste');
     const orig = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${isCut ? 'Moving…' : 'Pasting…'}`;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (isCut ? OQB.t('Moving…') : OQB.t('Pasting…'));
 
     fetch(isCut ? URLS.move : URLS.copy, {
         method: 'POST',
@@ -955,22 +957,27 @@ function pasteFromClipboard() {
     .then(data => {
         btn.disabled = false;
         if (data.error) {
-            showToast((isCut ? 'Move' : 'Paste') + ' failed: ' + data.error, 'danger');
+            showToast(isCut
+                ? OQB.t('Move failed: {error}', {error: data.error})
+                : OQB.t('Paste failed: {error}', {error: data.error}), 'danger');
         } else if (data.errors && data.errors.length > 0) {
-            showToast((isCut ? 'Move' : 'Paste') + ' errors: ' + data.errors.join('; '), 'danger');
+            showToast(isCut
+                ? OQB.t('Move errors: {errors}', {errors: data.errors.join('; ')})
+                : OQB.t('Paste errors: {errors}', {errors: data.errors.join('; ')}), 'danger');
         } else {
-            showToast(data.message || (isCut ? 'Moved successfully.' : 'Pasted successfully.'), 'success');
+            showToast(data.message || (isCut ? OQB.t('Moved successfully.') : OQB.t('Pasted successfully.')), 'success');
         }
         if (isCut) clearClipboard();  // cut items consumed by the move
         updateClipboardUI();
-        btn.innerHTML = isCut ? '<i class="bi bi-clipboard-check"></i> Move here'
-                              : '<i class="bi bi-clipboard-check"></i> Paste here';
+        btn.innerHTML = '<i class="bi bi-clipboard-check"></i> ' + (isCut ? OQB.t('Move here') : OQB.t('Paste here'));
         refreshListing();
     })
     .catch(err => {
         btn.disabled = false;
         btn.innerHTML = orig;
-        showToast((isCut ? 'Move' : 'Paste') + ' failed: ' + err.message, 'danger');
+        showToast(isCut
+            ? OQB.t('Move failed: {error}', {error: err.message})
+            : OQB.t('Paste failed: {error}', {error: err.message}), 'danger');
     });
 }
 
@@ -984,16 +991,16 @@ function duplicateItem(path) {
     .then(r => r.json())
     .then(data => {
         if (data.error) {
-            showToast('Duplicate failed: ' + data.error, 'danger');
+            showToast(OQB.t('Duplicate failed: {error}', {error: data.error}), 'danger');
         } else if (data.errors && data.errors.length > 0) {
-            showToast('Duplicate failed: ' + data.errors.join('; '), 'danger');
+            showToast(OQB.t('Duplicate failed: {error}', {error: data.errors.join('; ')}), 'danger');
         } else {
             const newName = (data.copied && data.copied[0]) ? data.copied[0].new_name : '';
-            showToast(newName ? `Duplicated as "${newName}".` : 'Duplicated.', 'success');
+            showToast(newName ? OQB.t('Duplicated as "{name}".', {name: newName}) : OQB.t('Duplicated.'), 'success');
         }
         refreshListing();
     })
-    .catch(err => showToast('Duplicate failed: ' + err.message, 'danger'));
+    .catch(err => showToast(OQB.t('Duplicate failed: {error}', {error: err.message}), 'danger'));
 }
 
 function showToast(message, type) {

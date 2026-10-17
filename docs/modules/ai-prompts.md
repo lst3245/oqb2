@@ -160,7 +160,7 @@ One card per key:
 2. Append `('NEW_KEY', _prompt(group=..., label=..., description=..., default=..., variables=[...], role='system'|'user'|'format', format_key='NEW_FORMAT'|None))` to `PROMPTS_REGISTRY`.
 3. At the call site use `ai_prompts.system_prompt('NEW_KEY', config.id)` / `render_prompt('NEW_KEY', endpoint_id=config.id, **vars)` + `append_format` for the user turn.
 4. The UI and seeding auto-discover it (`ensure_seeded` creates the built-in row on next boot / data fetch).
-5. Write the purpose in `description` — it is shown verbatim in the admin UI.
+5. Write the purpose in `description`. The admin UI shows it, with `group` and `label`, through `OQB.t(...)`, so add all three as keys to `app/translations/zh_Hant.json` (`tests.test_i18n` → `test_dynamic_keys_are_translated` fails otherwise). The prompt text itself stays English.
 
 ### Checklist for any new LLM-powered feature
 

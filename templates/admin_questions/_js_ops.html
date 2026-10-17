@@ -15,7 +15,7 @@
 // outside it (ADR-016).
 const opVals = sel => Array.from(document.querySelectorAll(sel + ':checked')).map(cb => cb.value);
 const opOn = id => !!(document.getElementById(id) || {}).checked;
-const opYes = b => b ? 'yes' : 'no';
+const opYes = b => b ? OQB.t('yes') : OQB.t('no');
 const opList = a => a.length ? a.map(aqEsc).join(', ') : '—';
 
 function opIdsForm(ids, extra) {
@@ -30,7 +30,7 @@ function opIdsForm(ids, extra) {
 
 function opQidPreview(qids, max) {
     max = max || 12;
-    return qids.slice(0, max).map(q => `<code>${aqEsc(q)}</code>`).join(', ') + (qids.length > max ? `, … (${qids.length})` : '');
+    return qids.slice(0, max).map(q => `<code>${aqEsc(q)}</code>`).join(', ') + (qids.length > max ? OQB.t(', … ({n})', {n: qids.length}) : '');
 }
 
 // ---- AI endpoint picker (shared) ----
@@ -51,18 +51,18 @@ function opLoadAiEndpoints(opKey) {
         opAiParallelUI();
     };
     if (AQ_AI.loaded) { apply(); return; }
-    sel.innerHTML = '<option value="">Loading…</option>';
+    sel.innerHTML = '<option value="">' + OQB.t('Loading…') + '</option>';
     AQ_AI.loaded = fetch(AQ.cfg.urls.aiEndpoints)
         .then(r => r.json())
         .then(d => {
             AQ_AI.endpoints = d.endpoints || [];
             AQ_AI.defaults = d.defaults || {};
             sel.innerHTML = AQ_AI.endpoints.length
-                ? AQ_AI.endpoints.map(ep => `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${aqEsc(ep.name)} — ${aqEsc(ep.model_name)}${ep.supports_vision ? '' : ' (text-only, not usable)'}</option>`).join('')
-                : '<option value="">No endpoints configured</option>';
+                ? AQ_AI.endpoints.map(ep => `<option value="${ep.id}"${ep.supports_vision ? '' : ' disabled'}>${aqEsc(ep.name)} — ${aqEsc(ep.model_name)}${ep.supports_vision ? '' : ' ' + OQB.t('(text-only, not usable)')}</option>`).join('')
+                : '<option value="">' + OQB.t('No endpoints configured') + '</option>';
             apply();
         })
-        .catch(() => { sel.innerHTML = '<option value="">Could not load endpoints</option>'; AQ_AI.loaded = null; });
+        .catch(() => { sel.innerHTML = '<option value="">' + OQB.t('Could not load endpoints') + '</option>'; AQ_AI.loaded = null; });
 }
 
 function opAiParallelUI() {
@@ -72,7 +72,7 @@ function opAiParallelUI() {
     const ep = AQ_AI.endpoints.find(e => String(e.id) === String(sel.value));
     const cloud = !!(ep && ep.kind === 'cloud' && (ep.max_concurrency || 1) > 1);
     wrap.classList.toggle('d-none', !cloud);
-    if (cloud) document.getElementById('opAiParallelHint').textContent = `(up to ${ep.max_concurrency} at once)`;
+    if (cloud) document.getElementById('opAiParallelHint').textContent = OQB.t('(up to {n} at once)', {n: ep.max_concurrency});
 }
 
 function opAiCommon() {
@@ -82,9 +82,14 @@ function opAiCommon() {
     return { endpoint_id: sel.value, endpoint_name: ep ? `${ep.name} — ${ep.model_name}` : '', parallel };
 }
 
-function opAiValidate(p) { return p.endpoint_id ? [] : ['Pick a vision-capable LLM endpoint.']; }
+function opAiValidate(p) { return p.endpoint_id ? [] : [OQB.t('Pick a vision-capable LLM endpoint.')]; }
 function opAiParams(p) { const o = { endpoint_id: p.endpoint_id }; if (p.parallel) o.parallel = '1'; return o; }
-function opAiSummary(p) { return [`Endpoint: <strong>${aqEsc(p.endpoint_name)}</strong>${p.parallel ? ' (parallel)' : ''}`]; }
+function opAiSummary(p) {
+    const name = aqEsc(p.endpoint_name);
+    return [p.parallel
+        ? OQB.t('Endpoint: <strong>{name}</strong> (parallel)', {name: name})
+        : OQB.t('Endpoint: <strong>{name}</strong>', {name: name})];
+}
 
 // ---- check state ----
 function opCsStateChanged() {
@@ -126,42 +131,45 @@ function opBaoChoices(opId, side, axis, values, labels, defaults) {
 
 function opBaoCardHtml(opId) {
     const vl = {};
-    AQ_VERSIONS.forEach(v => { vl[v] = v + ((window.OQB_VERSION_LABELS || {})[v] ? ` <small class="text-muted">${window.OQB_VERSION_LABELS[v]}</small>` : ''); });
+    AQ_VERSIONS.forEach(v => {
+        const lab = (window.OQB_VERSION_LABELS || {})[v];
+        vl[v] = v + (lab ? ' <small class="text-muted">' + OQB.t(lab) + '</small>' : '');
+    });
     const side = (s, title, icon, verDefaults) => `
         <div class="col-md-6"><div class="border rounded p-2 h-100">
             <div class="fw-semibold small mb-1"><i class="bi ${icon}"></i> ${title}</div>
             <div class="row g-1">
-                <div class="col-5"><div class="aq-filter-label">Versions</div>${opBaoChoices(opId, s, 'version', AQ_VERSIONS, vl, verDefaults)}</div>
-                <div class="col-4"><div class="aq-filter-label">Types</div>${opBaoChoices(opId, s, 'atype', AQ_ATYPES, {}, AQ_ATYPES)}</div>
-                <div class="col-3"><div class="aq-filter-label">Formats</div>${opBaoChoices(opId, s, 'format', AQ_FORMATS, {}, ['IMG'])}</div>
+                <div class="col-5"><div class="aq-filter-label">${OQB.t('Versions')}</div>${opBaoChoices(opId, s, 'version', AQ_VERSIONS, vl, verDefaults)}</div>
+                <div class="col-4"><div class="aq-filter-label">${OQB.t('Types')}</div>${opBaoChoices(opId, s, 'atype', AQ_ATYPES, {}, AQ_ATYPES)}</div>
+                <div class="col-3"><div class="aq-filter-label">${OQB.t('Formats')}</div>${opBaoChoices(opId, s, 'format', AQ_FORMATS, {}, ['IMG'])}</div>
             </div>
         </div></div>`;
     return `
         <div class="card mb-2 bao-card" data-op-id="${opId}">
             <div class="card-header py-1 d-flex flex-wrap align-items-center gap-2">
-                <strong class="small">Step <span class="bao-n"></span></strong>
-                <select class="form-select form-select-sm w-auto bao-action" title="Copy keeps the source; Move removes it after every target succeeds">
-                    <option value="copy">Copy</option><option value="move">Move</option>
+                <strong class="small bao-step"></strong>
+                <select class="form-select form-select-sm w-auto bao-action" title="${OQB.t('Copy keeps the source; Move removes it after every target succeeds')}">
+                    <option value="copy">${OQB.t('Copy')}</option><option value="move">${OQB.t('Move')}</option>
                 </select>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input bao-overwrite" type="checkbox" id="bao_${opId}_overwrite">
-                    <label class="form-check-label small" for="bao_${opId}_overwrite">Overwrite targets</label>
+                    <label class="form-check-label small" for="bao_${opId}_overwrite">${OQB.t('Overwrite targets')}</label>
                 </div>
                 <div class="btn-group btn-group-sm ms-auto">
-                    <button type="button" class="btn btn-outline-secondary" onclick="opAssetOpsMove(${opId}, -1)" title="Up"><i class="bi bi-arrow-up"></i></button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="opAssetOpsMove(${opId}, 1)" title="Down"><i class="bi bi-arrow-down"></i></button>
-                    <button type="button" class="btn btn-outline-danger" onclick="opAssetOpsRemove(${opId})" title="Remove"><i class="bi bi-x-lg"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="opAssetOpsMove(${opId}, -1)" title="${OQB.t('Up')}"><i class="bi bi-arrow-up"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="opAssetOpsMove(${opId}, 1)" title="${OQB.t('Down')}"><i class="bi bi-arrow-down"></i></button>
+                    <button type="button" class="btn btn-outline-danger" onclick="opAssetOpsRemove(${opId})" title="${OQB.t('Remove')}"><i class="bi bi-x-lg"></i></button>
                 </div>
             </div>
             <div class="card-body py-2"><div class="row g-2">
-                ${side('src', 'From', 'bi-box-arrow-up-right', ['ENO'])}
-                ${side('tgt', 'To', 'bi-box-arrow-in-down-right', ['EN', 'BI'])}
+                ${side('src', OQB.t('From'), 'bi-box-arrow-up-right', ['ENO'])}
+                ${side('tgt', OQB.t('To'), 'bi-box-arrow-in-down-right', ['EN', 'BI'])}
             </div></div>
         </div>`;
 }
 
 function opAssetOpsRenumber() {
-    document.querySelectorAll('#opAssetOpsList .bao-card').forEach((c, i) => { c.querySelector('.bao-n').textContent = i + 1; });
+    document.querySelectorAll('#opAssetOpsList .bao-card').forEach((c, i) => { c.querySelector('.bao-step').textContent = OQB.t('Step {n}', {n: i + 1}); });
 }
 
 function opBaoLocks(card) {
@@ -217,18 +225,20 @@ function opAssetOpsCollect() {
 // ---- the registry ----
 const AQ_OPS = {
     verified: {
-        title: 'Set verified', icon: 'bi-patch-check',
-        intro: 'Sets the whole-question <strong>Verified</strong> flag on every selected row.',
+        title: OQB.t('Set verified'), icon: 'bi-patch-check',
+        intro: OQB.t('Sets the whole-question <strong>Verified</strong> flag on every selected row.'),
         transport: 'json',
         collect: () => ({ verified: opOn('opVerifiedYes') }),
-        summary: p => [`Mark every row <strong>${p.verified ? 'verified' : 'not verified'}</strong>.`],
-        runLabel: (p, n) => `Mark ${n} ${p.verified ? 'verified' : 'not verified'}`,
+        summary: p => [p.verified
+            ? OQB.t('Mark every row <strong>verified</strong>.')
+            : OQB.t('Mark every row <strong>not verified</strong>.')],
+        runLabel: (p, n) => p.verified ? OQB.t('Mark {n} verified', {n: n}) : OQB.t('Mark {n} not verified', {n: n}),
         request: (ids, p) => ({ url: AQ.cfg.urls.verified, json: { question_ids: ids, verified: p.verified, subject_id: AQ.subject } }),
-        result: d => ({ ok: !!d.success, stats: [['Updated', d.updated, 'success']], message: d.error }),
+        result: d => ({ ok: !!d.success, stats: [[OQB.t('Updated'), d.updated, 'success']], message: d.error }),
     },
     checkState: {
-        title: 'Set proofread state', icon: 'bi-clipboard-check',
-        intro: 'Writes a manual proofread state on the chosen asset slots of every selected row.',
+        title: OQB.t('Set proofread state'), icon: 'bi-clipboard-check',
+        intro: OQB.t('Writes a manual proofread state on the chosen asset slots of every selected row.'),
         transport: 'json',
         onOpen: () => opCsStateChanged(),
         collect: () => ({
@@ -238,18 +248,24 @@ const AQ_OPS = {
             note: document.getElementById('opCsNote').value.trim(),
             overwrite: opOn('opCsOverwrite'),
         }),
-        validate: p => [!p.versions.length && 'Pick at least one version.', !p.atypes.length && 'Pick at least one asset type.'].filter(Boolean),
-        summary: p => [
-            `State: <strong>${aqEsc(document.querySelector('#opCsState option:checked').textContent)}</strong>${p.state === 'issues' ? ` (${aqEsc(p.severity)})` : ''}`,
-            `Slots: ${opList(p.versions)} × ${opList(p.atypes)}`,
-            `Overwrite existing states: ${opYes(p.overwrite || p.state === 'clear')}`,
-        ],
+        validate: p => [!p.versions.length && OQB.t('Pick at least one version.'), !p.atypes.length && OQB.t('Pick at least one asset type.')].filter(Boolean),
+        summary: p => {
+            const state = aqEsc(document.querySelector('#opCsState option:checked').textContent);
+            const sev = { minor: OQB.t('Minor'), major: OQB.t('Major'), critical: OQB.t('Critical') }[p.severity] || p.severity;
+            return [
+                p.state === 'issues'
+                    ? OQB.t('State: <strong>{state}</strong> ({severity})', {state: state, severity: aqEsc(sev)})
+                    : OQB.t('State: <strong>{state}</strong>', {state: state}),
+                OQB.t('Slots: {versions} × {types}', {versions: opList(p.versions), types: opList(p.atypes)}),
+                OQB.t('Overwrite existing states: {value}', {value: opYes(p.overwrite || p.state === 'clear')}),
+            ];
+        },
         request: (ids, p) => ({ url: AQ.cfg.urls.checkState, json: Object.assign({ question_ids: ids, subject_id: AQ.subject }, p) }),
-        result: d => ({ ok: !!d.success, stats: [['Slots', d.slots_updated, 'success'], ['Assets', d.assets_updated, 'info']], message: d.error || d.message }),
+        result: d => ({ ok: !!d.success, stats: [[OQB.t('Slots'), d.slots_updated, 'success'], [OQB.t('Assets'), d.assets_updated, 'info']], message: d.error || d.message }),
     },
     img: {
-        title: 'Generate IMG', icon: 'bi-image',
-        intro: 'Renders DOC / MD sources to PNG with Microsoft Word on the server, one slot at a time.',
+        title: OQB.t('Generate IMG'), icon: 'bi-image',
+        intro: OQB.t('Renders DOC / MD sources to PNG with Microsoft Word on the server, one slot at a time.'),
         transport: 'sse',
         onOpen: () => opLoadImgDefaults(),
         collect: () => ({
@@ -258,12 +274,12 @@ const AQ_OPS = {
             overwrite: opOn('opImgOverwrite'), width: document.getElementById('opImgWidth').value.trim(),
             transparent: opOn('opImgTransparent'), symmetric: opOn('opImgSymmetric'),
         }),
-        validate: p => [!p.types.length && 'Pick at least one asset type.', !p.versions.length && 'Pick at least one version.',
-                        !p.sources.length && 'Pick at least one source format.'].filter(Boolean),
+        validate: p => [!p.types.length && OQB.t('Pick at least one asset type.'), !p.versions.length && OQB.t('Pick at least one version.'),
+                        !p.sources.length && OQB.t('Pick at least one source format.')].filter(Boolean),
         summary: p => [
-            `Render ${opList(p.types)} for ${opList(p.versions)} from ${p.sources.join(' → ')}`,
-            `${p.stitch === '1' ? 'One stitched PNG' : 'One PNG per page'}, width ${aqEsc(p.width || 'system default')}`,
-            `Replace existing IMG: <strong>${opYes(p.overwrite)}</strong>`,
+            OQB.t('Render {types} for {versions} from {sources}', {types: opList(p.types), versions: opList(p.versions), sources: p.sources.join(' → ')}),
+            OQB.t('{layout}, width {width}', {layout: p.stitch === '1' ? OQB.t('One stitched PNG') : OQB.t('One PNG per page'), width: aqEsc(p.width || OQB.t('system default'))}),
+            OQB.t('Replace existing IMG: <strong>{value}</strong>', {value: opYes(p.overwrite)}),
         ],
         sse: {
             url: () => AQ.cfg.urls.img,
@@ -274,165 +290,178 @@ const AQ_OPS = {
                 return o;
             },
         },
-        stats: [['rendered', 'Rendered', 'success'], ['skipped_no_src', 'No source', 'secondary'], ['skipped_has_img', 'IMG exists', 'secondary'], ['failed', 'Failed', 'danger']],
+        stats: [['rendered', OQB.t('Rendered'), 'success'], ['skipped_no_src', OQB.t('No source'), 'secondary'], ['skipped_has_img', OQB.t('IMG exists'), 'secondary'], ['failed', OQB.t('Failed'), 'danger']],
     },
     mcq: {
-        title: 'Set MCQ ANS images', icon: 'bi-check-circle',
-        intro: 'Copies the A / B / C / D answer image for MC questions whose Answer tag is a single letter.',
+        title: OQB.t('Set MCQ ANS images'), icon: 'bi-check-circle',
+        intro: OQB.t('Copies the A / B / C / D answer image for MC questions whose Answer tag is a single letter.'),
         transport: 'sse',
         collect: () => ({ versions: opVals('.op-mcq-version'), overwrite: opOn('opMcqOverwrite') }),
-        validate: p => [!p.versions.length && 'Pick at least one version.'].filter(Boolean),
-        summary: p => [`Versions: ${opList(p.versions)}`, `Replace an existing ANS image: <strong>${opYes(p.overwrite)}</strong>`],
+        validate: p => [!p.versions.length && OQB.t('Pick at least one version.')].filter(Boolean),
+        summary: p => [OQB.t('Versions: {versions}', {versions: opList(p.versions)}), OQB.t('Replace an existing ANS image: <strong>{value}</strong>', {value: opYes(p.overwrite)})],
         sse: { url: () => AQ.cfg.urls.mcq, params: p => ({ versions: p.versions.join(','), overwrite: p.overwrite ? '1' : '0' }) },
-        stats: [['success', 'Set', 'success'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['success', OQB.t('Set'), 'success'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     assetOps: {
-        title: 'Copy / move assets', icon: 'bi-files',
-        intro: 'Copies or moves asset files between version / type slots for every selected row. Steps run in order.',
+        title: OQB.t('Copy / move assets'), icon: 'bi-files',
+        intro: OQB.t('Copies or moves asset files between version / type slots for every selected row. Steps run in order.'),
         transport: 'sse',
         onOpen: () => { if (!document.querySelector('#opAssetOpsList .bao-card')) opAssetOpsAdd(); },
         collect: () => ({ ops: opAssetOpsCollect() }),
         validate: p => {
             const errs = [];
-            if (!p.ops.length) errs.push('Add at least one step.');
+            if (!p.ops.length) errs.push(OQB.t('Add at least one step.'));
+            const axisMsg = {
+                source_versions: n => OQB.t('Step {n}: pick at least one source version.', {n: n}),
+                source_atypes: n => OQB.t('Step {n}: pick at least one source asset type.', {n: n}),
+                source_formats: n => OQB.t('Step {n}: pick at least one source format.', {n: n}),
+                target_versions: n => OQB.t('Step {n}: pick at least one target version.', {n: n}),
+                target_atypes: n => OQB.t('Step {n}: pick at least one target asset type.', {n: n}),
+                target_formats: n => OQB.t('Step {n}: pick at least one target format.', {n: n}),
+            };
             p.ops.forEach((o, i) => {
-                const pre = `Step ${i + 1}`;
+                const n = i + 1;
                 ['source_versions', 'source_atypes', 'source_formats', 'target_versions', 'target_atypes', 'target_formats'].forEach(k => {
-                    if (!o[k].length) errs.push(`${pre}: pick at least one ${k.replace('_', ' ').replace('atypes', 'asset type').replace(/s$/, '')}.`);
+                    if (!o[k].length) errs.push(axisMsg[k](n));
                 });
-                if (!o.source_formats.some(f => o.target_formats.includes(f))) errs.push(`${pre}: source and target formats must overlap (no conversion).`);
+                if (!o.source_formats.some(f => o.target_formats.includes(f))) errs.push(OQB.t('Step {n}: source and target formats must overlap (no conversion).', {n: n}));
             });
-            if (JSON.stringify(p.ops).length > 3000) errs.push('Too many steps for one request; remove a few.');
+            if (JSON.stringify(p.ops).length > 3000) errs.push(OQB.t('Too many steps for one request; remove a few.'));
             return errs;
         },
-        summary: p => p.ops.map((o, i) =>
-            `Step ${i + 1}: <strong>${o.action}</strong> ${opList(o.source_versions)} ${opList(o.source_atypes)} ${opList(o.source_formats)}
-             → ${opList(o.target_versions)} ${opList(o.target_atypes)} ${opList(o.target_formats)}${o.overwrite ? ' <span class="text-danger">(overwrite)</span>' : ''}`),
+        summary: p => p.ops.map((o, i) => {
+            const action = o.action === 'move' ? OQB.t('Move') : OQB.t('Copy');
+            const src = [opList(o.source_versions), opList(o.source_atypes), opList(o.source_formats)].join(' ');
+            const tgt = [opList(o.target_versions), opList(o.target_atypes), opList(o.target_formats)].join(' ');
+            return o.overwrite
+                ? OQB.t('Step {n}: <strong>{action}</strong> {src} → {tgt} <span class="text-danger">(overwrite)</span>', {n: i + 1, action: action, src: src, tgt: tgt})
+                : OQB.t('Step {n}: <strong>{action}</strong> {src} → {tgt}', {n: i + 1, action: action, src: src, tgt: tgt});
+        }),
         danger: p => p.ops.some(o => o.action === 'move' || o.overwrite) ? 'typed' : null,
-        dangerText: 'Move removes the source files and overwrite replaces existing targets.',
+        dangerText: OQB.t('Move removes the source files and overwrite replaces existing targets.'),
         sse: { url: () => AQ.cfg.urls.assetOps, params: p => ({ ops: JSON.stringify(p.ops) }) },
-        stats: [['copied', 'Copied', 'success'], ['moved', 'Moved', 'success'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['copied', OQB.t('Copied'), 'success'], ['moved', OQB.t('Moved'), 'success'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     deleteAssets: {
-        title: 'Delete assets', icon: 'bi-file-earmark-x', destructive: true,
-        intro: 'Removes the assets that match <strong>format × version × type</strong>. The questions stay.',
+        title: OQB.t('Delete assets'), icon: 'bi-file-earmark-x', destructive: true,
+        intro: OQB.t('Removes the assets that match <strong>format × version × type</strong>. The questions stay.'),
         transport: 'form',
         collect: () => ({ formats: opVals('.op-da-format'), versions: opVals('.op-da-version'), atypes: opVals('.op-da-atype'), files: opOn('opDaFiles') }),
-        validate: p => [!p.formats.length && 'Pick at least one format.', !p.versions.length && 'Pick at least one version.',
-                        !p.atypes.length && 'Pick at least one asset type.'].filter(Boolean),
+        validate: p => [!p.formats.length && OQB.t('Pick at least one format.'), !p.versions.length && OQB.t('Pick at least one version.'),
+                        !p.atypes.length && OQB.t('Pick at least one asset type.')].filter(Boolean),
         summary: p => [
-            `Delete ${opList(p.formats)} assets of ${opList(p.versions)} × ${opList(p.atypes)}`,
-            p.files ? '<span class="text-danger">Files are deleted from disk too.</span>' : 'Files stay on disk (database rows only).',
+            OQB.t('Delete {formats} assets of {versions} × {types}', {formats: opList(p.formats), versions: opList(p.versions), types: opList(p.atypes)}),
+            p.files ? OQB.t('<span class="text-danger">Files are deleted from disk too.</span>') : OQB.t('Files stay on disk (database rows only).'),
         ],
         preview: (ids, p) => fetch(AQ.cfg.urls.deleteAssets, {
             method: 'POST',
             body: opIdsForm(ids, { formats: p.formats, versions: p.versions, atypes: p.atypes, dry_run: 'true' }),
         }).then(r => r.json()).then(d => {
-            if (!d.success) return { html: `<span class="text-danger">${aqEsc(d.error || 'Dry run failed')}</span>`, block: true };
-            if (!d.count) return { html: 'No asset matches these choices — nothing would be deleted.', block: true };
-            return { html: `<strong>${d.count}</strong> asset(s) on <strong>${d.questions_touched}</strong> row(s) will be deleted.` };
+            if (!d.success) return { html: '<span class="text-danger">' + aqEsc(d.error || OQB.t('Dry run failed')) + '</span>', block: true };
+            if (!d.count) return { html: OQB.t('No asset matches these choices — nothing would be deleted.'), block: true };
+            return { html: OQB.t('<strong>{count}</strong> asset(s) on <strong>{rows}</strong> row(s) will be deleted.', {count: d.count, rows: d.questions_touched}) };
         }),
         danger: () => 'typed',
-        runLabel: (p, n) => 'Delete assets',
+        runLabel: (p, n) => OQB.t('Delete assets'),
         request: (ids, p) => ({ url: AQ.cfg.urls.deleteAssets, form: opIdsForm(ids, {
             formats: p.formats, versions: p.versions, atypes: p.atypes, delete_files: p.files ? 'true' : 'false' }) }),
-        result: d => ({ ok: !!d.success, stats: [['Assets deleted', d.deleted_count, 'danger'], ['Files deleted', d.files_deleted, 'secondary'], ['Rows touched', d.questions_touched, 'info']],
+        result: d => ({ ok: !!d.success, stats: [[OQB.t('Assets deleted'), d.deleted_count, 'danger'], [OQB.t('Files deleted'), d.files_deleted, 'secondary'], [OQB.t('Rows touched'), d.questions_touched, 'info']],
                         message: d.error || d.message }),
     },
     aiCheck: {
-        title: 'AI proofread', icon: 'bi-search', ai: true,
-        intro: 'Compares a typed version against the official scan and stores the result on each asset.',
+        title: OQB.t('AI proofread'), icon: 'bi-search', ai: true,
+        intro: OQB.t('Compares a typed version against the official scan and stores the result on each asset.'),
         transport: 'sse',
         collect: () => Object.assign(opAiCommon(), {
             typed: document.getElementById('opAiCheckTyped').value, ref: document.getElementById('opAiCheckRef').value,
             atypes: opVals('.op-aicheck-atype'), formats: opVals('.op-aicheck-format'), recheck: opOn('opAiCheckRecheck'),
         }),
-        validate: p => opAiValidate(p).concat([p.typed === p.ref && 'Typed and reference versions must differ.',
-            !p.atypes.length && 'Pick at least one asset type.', !p.formats.length && 'Pick at least one format.'].filter(Boolean)),
-        summary: p => opAiSummary(p).concat([`Check ${aqEsc(p.typed)} against ${aqEsc(p.ref)} · ${opList(p.atypes)} · ${opList(p.formats)}`,
-            `Re-check slots already checked: ${opYes(p.recheck)}`]),
+        validate: p => opAiValidate(p).concat([p.typed === p.ref && OQB.t('Typed and reference versions must differ.'),
+            !p.atypes.length && OQB.t('Pick at least one asset type.'), !p.formats.length && OQB.t('Pick at least one format.')].filter(Boolean)),
+        summary: p => opAiSummary(p).concat([OQB.t('Check {typed} against {ref} · {types} · {formats}', {typed: aqEsc(p.typed), ref: aqEsc(p.ref), types: opList(p.atypes), formats: opList(p.formats)}),
+            OQB.t('Re-check slots already checked: {value}', {value: opYes(p.recheck)})]),
         sse: { url: () => AQ.cfg.urls.aiCheck, params: p => Object.assign(opAiParams(p), {
             atypes: p.atypes.join(','), typed_version: p.typed, ref_version: p.ref, recheck: p.recheck ? '1' : '0', formats: p.formats.join(',') }) },
-        stats: [['ok', 'OK', 'success'], ['issues', 'Issues', 'warning'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['ok', OQB.t('OK'), 'success'], ['issues', OQB.t('Issues'), 'warning'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     aiMd: {
-        title: 'AI generate Markdown', icon: 'bi-markdown', ai: true,
-        intro: 'Transcribes image assets into Markdown assets.',
+        title: OQB.t('AI generate Markdown'), icon: 'bi-markdown', ai: true,
+        intro: OQB.t('Transcribes image assets into Markdown assets.'),
         transport: 'sse',
         collect: () => Object.assign(opAiCommon(), {
             source: document.getElementById('opAiMdSource').value, target: document.getElementById('opAiMdTarget').value,
             atypes: opVals('.op-aimd-atype'), embed: opOn('opAiMdEmbed'), overwrite: opOn('opAiMdOverwrite'),
         }),
-        validate: p => opAiValidate(p).concat([!p.atypes.length && 'Pick at least one asset type.'].filter(Boolean)),
-        summary: p => opAiSummary(p).concat([`${aqEsc(p.source)} images → ${aqEsc(p.target)} Markdown · ${opList(p.atypes)}`,
-            `Embed figures: ${opYes(p.embed)} · Overwrite existing Markdown: <strong>${opYes(p.overwrite)}</strong>`]),
+        validate: p => opAiValidate(p).concat([!p.atypes.length && OQB.t('Pick at least one asset type.')].filter(Boolean)),
+        summary: p => opAiSummary(p).concat([OQB.t('{source} images → {target} Markdown · {types}', {source: aqEsc(p.source), target: aqEsc(p.target), types: opList(p.atypes)}),
+            OQB.t('Embed figures: {embed} · Overwrite existing Markdown: <strong>{overwrite}</strong>', {embed: opYes(p.embed), overwrite: opYes(p.overwrite)})]),
         sse: { url: () => AQ.cfg.urls.aiMd, params: p => Object.assign(opAiParams(p), {
             atypes: p.atypes.join(','), source_version: p.source, target_version: p.target,
             embed_image: p.embed ? '1' : '0', overwrite: p.overwrite ? '1' : '0' }) },
-        stats: [['created', 'Created / updated', 'success'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['created', OQB.t('Created / updated'), 'success'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     aiSolveGen: {
-        title: 'AI generate ANS / SOL', icon: 'bi-lightbulb', ai: true,
-        intro: 'The model solves each question and writes answer / solution Markdown (and optionally the ANS text).',
+        title: OQB.t('AI generate ANS / SOL'), icon: 'bi-lightbulb', ai: true,
+        intro: OQB.t('The model solves each question and writes answer / solution Markdown (and optionally the ANS text).'),
         transport: 'sse',
         collect: () => Object.assign(opAiCommon(), {
             versions: opVals('.op-solvegen-version'), targets: opVals('.op-solvegen-target'),
             official: opOn('opSolveGenOfficial'), overwrite: opOn('opSolveGenOverwrite'),
         }),
-        validate: p => opAiValidate(p).concat([!p.versions.length && 'Pick at least one target version.',
-            !p.targets.length && 'Pick at least one thing to generate.'].filter(Boolean)),
-        summary: p => opAiSummary(p).concat([`Generate ${opList(p.targets)} for ${opList(p.versions)}`,
-            `Send official SOL: ${opYes(p.official)} · Overwrite existing: <strong>${opYes(p.overwrite)}</strong>`]),
+        validate: p => opAiValidate(p).concat([!p.versions.length && OQB.t('Pick at least one target version.'),
+            !p.targets.length && OQB.t('Pick at least one thing to generate.')].filter(Boolean)),
+        summary: p => opAiSummary(p).concat([OQB.t('Generate {targets} for {versions}', {targets: opList(p.targets), versions: opList(p.versions)}),
+            OQB.t('Send official SOL: {official} · Overwrite existing: <strong>{overwrite}</strong>', {official: opYes(p.official), overwrite: opYes(p.overwrite)})]),
         sse: { url: () => AQ.cfg.urls.aiSolveGen, params: p => Object.assign(opAiParams(p), {
             versions: p.versions.join(','), targets: p.targets.join(','),
             include_official_sol: p.official ? '1' : '0', overwrite: p.overwrite ? '1' : '0' }) },
-        stats: [['created', 'Created', 'success'], ['updated', 'Updated', 'info'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['created', OQB.t('Created'), 'success'], ['updated', OQB.t('Updated'), 'info'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     aiSolveCheck: {
-        title: 'AI check ANS / SOL', icon: 'bi-clipboard2-check', ai: true,
-        intro: 'The model checks existing answers and solutions; findings go to each asset\'s proofread state.',
+        title: OQB.t('AI check ANS / SOL'), icon: 'bi-clipboard2-check', ai: true,
+        intro: OQB.t('The model checks existing answers and solutions; findings go to each asset\'s proofread state.'),
         transport: 'sse',
         collect: () => Object.assign(opAiCommon(), {
             versions: opVals('.op-solvecheck-version'), targets: opVals('.op-solvecheck-target'),
             formats: opVals('.op-solvecheck-format'), official: opOn('opSolveCheckOfficial'),
         }),
-        validate: p => opAiValidate(p).concat([!p.versions.length && 'Pick at least one version.',
-            !p.targets.length && 'Pick at least one thing to check.',
-            !p.formats.length && p.targets.some(t => t !== 'ANS_TEXT') && 'Pick at least one format.'].filter(Boolean)),
-        summary: p => opAiSummary(p).concat([`Check ${opList(p.targets)} for ${opList(p.versions)} · ${opList(p.formats)}`,
-            `Send official SOL: ${opYes(p.official)}`]),
+        validate: p => opAiValidate(p).concat([!p.versions.length && OQB.t('Pick at least one version.'),
+            !p.targets.length && OQB.t('Pick at least one thing to check.'),
+            !p.formats.length && p.targets.some(t => t !== 'ANS_TEXT') && OQB.t('Pick at least one format.')].filter(Boolean)),
+        summary: p => opAiSummary(p).concat([OQB.t('Check {targets} for {versions} · {formats}', {targets: opList(p.targets), versions: opList(p.versions), formats: opList(p.formats)}),
+            OQB.t('Send official SOL: {value}', {value: opYes(p.official)})]),
         sse: { url: () => AQ.cfg.urls.aiSolveCheck, params: p => Object.assign(opAiParams(p), {
             versions: p.versions.join(','), targets: p.targets.join(','), formats: p.formats.join(','),
             include_official_sol: p.official ? '1' : '0' }) },
-        stats: [['ok', 'OK', 'success'], ['issues', 'Issues', 'warning'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['ok', OQB.t('OK'), 'success'], ['issues', OQB.t('Issues'), 'warning'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     aiTag: {
-        title: 'AI auto-tag', icon: 'bi-tags', ai: true,
-        intro: 'Classifies each question and writes the chosen tags. A restore point is saved first.',
+        title: OQB.t('AI auto-tag'), icon: 'bi-tags', ai: true,
+        intro: OQB.t('Classifies each question and writes the chosen tags. A restore point is saved first.'),
         transport: 'sse',
         collect: () => Object.assign(opAiCommon(), {
             versions: opVals('.op-tag-version'), fields: opVals('.op-tag-field'), overwrite: opOn('opTagOverwrite'),
         }),
-        validate: p => opAiValidate(p).concat([!p.versions.length && 'Pick at least one version to send.',
-            !p.fields.length && 'Pick at least one tag field.'].filter(Boolean)),
-        summary: p => opAiSummary(p).concat([`Write ${opList(p.fields)} (sending ${opList(p.versions)})`,
-            p.overwrite ? '<span class="text-danger">Existing tag values are overwritten.</span>' : 'Only empty fields are filled.']),
+        validate: p => opAiValidate(p).concat([!p.versions.length && OQB.t('Pick at least one version to send.'),
+            !p.fields.length && OQB.t('Pick at least one tag field.')].filter(Boolean)),
+        summary: p => opAiSummary(p).concat([OQB.t('Write {fields} (sending {versions})', {fields: opList(p.fields), versions: opList(p.versions)}),
+            p.overwrite ? OQB.t('<span class="text-danger">Existing tag values are overwritten.</span>') : OQB.t('Only empty fields are filled.')]),
         danger: p => p.overwrite ? 'typed' : null,
-        dangerText: 'Overwrite replaces tags teachers may have set by hand (Admin → Restore Points can undo it).',
+        dangerText: OQB.t('Overwrite replaces tags teachers may have set by hand (Admin → Restore Points can undo it).'),
         sse: { url: () => AQ.cfg.urls.aiTag, params: p => Object.assign(opAiParams(p), {
             fields: p.fields.join(','), versions: p.versions.join(','), overwrite: p.overwrite ? '1' : '0' }) },
-        stats: [['tagged', 'Tagged', 'success'], ['skipped', 'Skipped', 'secondary'], ['errors', 'Errors', 'danger']],
+        stats: [['tagged', OQB.t('Tagged'), 'success'], ['skipped', OQB.t('Skipped'), 'secondary'], ['errors', OQB.t('Errors'), 'danger']],
     },
     combine: {
-        title: 'Combine parts', icon: 'bi-intersect', destructive: true,
-        intro: 'Folds the parts of each selected stem back into one question. The part rows are deleted.',
+        title: OQB.t('Combine parts'), icon: 'bi-intersect', destructive: true,
+        intro: OQB.t('Folds the parts of each selected stem back into one question. The part rows are deleted.'),
         transport: 'json',
         collect: () => ({ stitch: opOn('opCombineStitch'), save_whole: opOn('opCombineSaveWhole') }),
-        summary: p => ['Each selected stem is combined; selected rows that are not stems are skipped.',
-            `Stitch images: ${opYes(p.stitch)} · Save a whole archive when missing: ${opYes(p.save_whole)}`],
+        summary: p => [OQB.t('Each selected stem is combined; selected rows that are not stems are skipped.'),
+            OQB.t('Stitch images: {stitch} · Save a whole archive when missing: {save}', {stitch: opYes(p.stitch), save: opYes(p.save_whole)})],
         danger: () => 'typed',
-        dangerText: 'Part rows (and their tags) are deleted. Split can rebuild parts, but not their tags.',
-        runLabel: () => 'Combine',
+        dangerText: OQB.t('Part rows (and their tags) are deleted. Split can rebuild parts, but not their tags.'),
+        runLabel: () => OQB.t('Combine'),
         request: (ids, p) => ({ url: AQ.cfg.urls.combine, json: { ids, stitch: p.stitch, save_whole: p.save_whole, subject_id: AQ.subject } }),
         result: d => {
             const res = d.results || [];
@@ -441,41 +470,45 @@ const AQ_OPS = {
             good.forEach(x => (x.deleted_ids || []).forEach(id => deleted.push(id)));
             return {
                 ok: !d.error && !bad.length,
-                stats: [['Combined', good.length, 'success'], ['Failed', bad.length, 'danger']],
+                stats: [[OQB.t('Combined'), good.length, 'success'], [OQB.t('Failed'), bad.length, 'danger']],
                 message: d.error,
-                lines: res.map(x => [x.ok ? 'success' : 'error', `${x.qid || x.id}: ${x.ok ? 'combined' : (x.error || 'failed')}`]),
+                lines: res.map(x => [x.ok ? 'success' : 'error', x.ok
+                    ? OQB.t('{qid}: combined', {qid: x.qid || x.id})
+                    : OQB.t('{qid}: {error}', {qid: x.qid || x.id, error: x.error || OQB.t('failed')})]),
                 deletedIds: deleted,
             };
         },
     },
     deleteQuestions: {
-        title: 'Delete questions', icon: 'bi-trash', destructive: true,
-        intro: 'Deletes the selected question rows and all their assets.',
+        title: OQB.t('Delete questions'), icon: 'bi-trash', destructive: true,
+        intro: OQB.t('Deletes the selected question rows and all their assets.'),
         transport: 'form',
         collect: () => ({ children: opOn('opDqChildren'), emptyParents: opOn('opDqEmptyParents'), files: opOn('opDqFiles') }),
         summary: p => [
-            `Delete the selected rows${p.children ? ' and every part under them' : ''}.`,
-            p.emptyParents ? 'Parent rows left without parts are deleted too.' : 'Parent rows left without parts are kept.',
-            p.files ? '<span class="text-danger">Asset files are deleted from disk.</span>' : 'Asset files stay on disk.',
+            p.children ? OQB.t('Delete the selected rows and every part under them.') : OQB.t('Delete the selected rows.'),
+            p.emptyParents ? OQB.t('Parent rows left without parts are deleted too.') : OQB.t('Parent rows left without parts are kept.'),
+            p.files ? OQB.t('<span class="text-danger">Asset files are deleted from disk.</span>') : OQB.t('Asset files stay on disk.'),
         ],
         preview: (ids, p) => fetch(AQ.cfg.urls.delete, {
             method: 'POST', body: opIdsForm(ids, { delete_children: p.children ? 'true' : undefined, dry_run: 'true' }),
         }).then(r => r.json().then(d => ({ status: r.status, d }))).then(({ status, d }) => {
             if (status === 409) {
-                return { block: true, html: `<span class="text-danger"><i class="bi bi-exclamation-triangle"></i> ${aqEsc(d.error)}</span>
-                    <div class="mt-1">Unselected parts: ${opQidPreview(d.blocking_qids || [])}</div>
-                    <div class="mt-1">Go back and tick <em>Also delete child parts that are not selected</em>, or select those parts too.</div>` };
+                return { block: true, html: '<span class="text-danger"><i class="bi bi-exclamation-triangle"></i> ' + aqEsc(d.error) + '</span>'
+                    + '<div class="mt-1">' + OQB.t('Unselected parts: {qids}', {qids: opQidPreview(d.blocking_qids || [])}) + '</div>'
+                    + '<div class="mt-1">' + OQB.t('Go back and tick <em>Also delete child parts that are not selected</em>, or select those parts too.') + '</div>' };
             }
-            if (!d.success) return { block: true, html: `<span class="text-danger">${aqEsc(d.error || 'Dry run failed')}</span>` };
+            if (!d.success) return { block: true, html: '<span class="text-danger">' + aqEsc(d.error || OQB.t('Dry run failed')) + '</span>' };
             const empty = d.empty_parent_qids || [], archives = d.archive_qids || [];
             const total = d.count + (p.emptyParents ? empty.length : 0);
-            let html = `<div><strong>${total}</strong> row(s) will be deleted.</div>`;
-            if (empty.length) html += `<div class="mt-1">${p.emptyParents ? 'Includes' : 'Left behind'} ${empty.length} parent row(s) with no parts: ${opQidPreview(empty)}</div>`;
-            if (archives.length && p.emptyParents) html += `<div class="mt-1 text-danger"><i class="bi bi-archive"></i> Their whole-question images are deleted too: ${opQidPreview(archives)}</div>`;
+            let html = '<div>' + OQB.t('<strong>{n}</strong> row(s) will be deleted.', {n: total}) + '</div>';
+            if (empty.length) html += '<div class="mt-1">' + (p.emptyParents
+                ? OQB.t('Includes {n} parent row(s) with no parts: {qids}', {n: empty.length, qids: opQidPreview(empty)})
+                : OQB.t('Left behind {n} parent row(s) with no parts: {qids}', {n: empty.length, qids: opQidPreview(empty)})) + '</div>';
+            if (archives.length && p.emptyParents) html += '<div class="mt-1 text-danger"><i class="bi bi-archive"></i> ' + OQB.t('Their whole-question images are deleted too: {qids}', {qids: opQidPreview(archives)}) + '</div>';
             return { html, total };
         }),
         danger: () => 'typed',
-        runLabel: (p, n, pre) => `Delete ${pre && pre.total ? pre.total : n} row(s)`,
+        runLabel: (p, n, pre) => OQB.t('Delete {n} row(s)', {n: pre && pre.total ? pre.total : n}),
         request: (ids, p) => ({ url: AQ.cfg.urls.delete, form: opIdsForm(ids, {
             delete_files: p.files ? 'true' : undefined, delete_children: p.children ? 'true' : undefined,
             delete_empty_parents: p.emptyParents ? 'true' : undefined }) }),
@@ -485,7 +518,7 @@ const AQ_OPS = {
             if (d.blocking_qids && d.blocking_qids.length) message += ' (' + d.blocking_qids.slice(0, 8).join(', ') + (d.blocking_qids.length > 8 ? ', …' : '') + ')';
             return {
                 ok: !!d.success,
-                stats: [['Deleted', d.deleted_count, 'danger'], ['Files deleted', d.files_deleted, 'secondary'], ['Empty parents kept', left, 'secondary']],
+                stats: [[OQB.t('Deleted'), d.deleted_count, 'danger'], [OQB.t('Files deleted'), d.files_deleted, 'secondary'], [OQB.t('Empty parents kept'), left, 'secondary']],
                 message: message || d.message,
                 deletedIds: d.deleted_ids || [],
             };

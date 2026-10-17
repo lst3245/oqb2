@@ -160,26 +160,26 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
     <div class="modal-dialog modal-xxl modal-fullscreen-md-down">
         <div class="modal-content">
             <div class="modal-header oqb-edit-modal-header">
-                <h5 class="modal-title oqb-edit-modal-title"><i class="bi bi-pencil-square"></i> Edit: <span id="editQidTitle"></span></h5>
+                <h5 class="modal-title oqb-edit-modal-title"><i class="bi bi-pencil-square"></i> {{ t('Edit:') }} <span id="editQidTitle"></span></h5>
                 <div class="d-none align-items-center gap-1" id="editNavControls">
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="editNavPrev"
-                            title="Previous question (keeps the current tab)" onclick="oqbEditNavGo(-1)">
+                            title="{{ t('Previous question (keeps the current tab)') }}" onclick="oqbEditNavGo(-1)">
                         <i class="bi bi-chevron-left"></i>
                     </button>
                     <span class="small text-muted text-nowrap" id="editNavPos" style="min-width:3.5rem; text-align:center"></span>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="editNavNext"
-                            title="Next question (keeps the current tab)" onclick="oqbEditNavGo(1)">
+                            title="{{ t('Next question (keeps the current tab)') }}" onclick="oqbEditNavGo(1)">
                         <i class="bi bi-chevron-right"></i>
                     </button>
                 </div>
-                <button type="button" class="btn-close oqb-edit-modal-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close oqb-edit-modal-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body">
                 <!-- Tabs (order: Tags, Assets, Details) -->
                 <ul class="nav nav-tabs" role="tablist">
-                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabTags">Tags</a></li>
-                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAssets">Assets</a></li>
-                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDetails">Details</a></li>
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabTags">{{ t('Tags') }}</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabAssets">{{ t('Assets') }}</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDetails">{{ t('Details') }}</a></li>
                 </ul>
                 <div class="tab-content pt-3">
                     <!-- Tags Tab -->
@@ -189,11 +189,11 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                             <div class="mt-3 d-flex justify-content-end gap-2">
                                 <button type="button" class="btn btn-outline-info" id="autoTagBtn"
                                         style="display:none" onclick="openAutoTagModal()"
-                                        title="Suggest tags with an LLM (review before saving)">
-                                    <i class="bi bi-robot"></i> Auto Tag
+                                        title="{{ t('Suggest tags with an LLM (review before saving)') }}">
+                                    <i class="bi bi-robot"></i> {{ t('Auto Tag') }}
                                 </button>
                                 <button type="button" class="btn btn-primary" onclick="saveQuestionTags()">
-                                    <i class="bi bi-check-lg"></i> Save Tags
+                                    <i class="bi bi-check-lg"></i> {{ t('Save Tags') }}
                                 </button>
                             </div>
                         </form>
@@ -207,10 +207,10 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                                 <li class="nav-item"><a class="nav-link{% if loop.first %} active{% endif %}" data-bs-toggle="pill" href="#lang{{ v }}" onclick="switchAssetLang('{{ v }}')" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</a></li>
                                 {% endfor %}
                             </ul>
-                            <div class="form-check form-switch mb-0" title="Toggle small thumbnail grid vs full-width stacked images">
+                            <div class="form-check form-switch mb-0" title="{{ t('Toggle small thumbnail grid vs full-width stacked images') }}">
                                 <input class="form-check-input" type="checkbox" id="editAssetCompactToggle">
                                 <label class="form-check-label small" for="editAssetCompactToggle">
-                                    <i class="bi bi-grid-3x3-gap"></i> Compact previews
+                                    <i class="bi bi-grid-3x3-gap"></i> {{ t('Compact previews') }}
                                 </label>
                             </div>
                         </div>
@@ -226,81 +226,76 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                         <input type="hidden" id="editQId">
                         <div class="row">
                             <div class="col-md-8">
-                                <label class="form-label fw-bold">Question ID</label>
+                                <label class="form-label fw-bold">{{ t('Question ID') }}</label>
                                 <div class="input-group">
-                                    <input type="text" class="form-control" id="editQidInput" placeholder="e.g. MATC_DSE_2024_P1_Q5">
+                                    <input type="text" class="form-control" id="editQidInput" placeholder="{{ t('e.g. MATC_DSE_2024_P1_Q5') }}">
                                     <button class="btn btn-warning" type="button" id="renameBtn" onclick="renameQuestion()">
-                                        <i class="bi bi-arrow-repeat"></i> Rename
+                                        <i class="bi bi-arrow-repeat"></i> {{ t('Rename') }}
                                     </button>
                                 </div>
-                                <small class="text-muted">Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO. QNO may be <code>Q5</code>, <code>Q5a</code>, <code>Q3ci</code>, or <code>Q23-24</code>.</small>
+                                <small class="text-muted">{{ t('Format: SUBJ_SOURCE_YEAR_PAPER_QNO or SUBJ_QB_DETAIL_QNO. QNO may be <code>Q5</code>, <code>Q5a</code>, <code>Q3ci</code>, or <code>Q23-24</code>.')|safe }}</small>
                                 <div id="renameStatus" class="mt-2"></div>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label">Created</label>
+                                <label class="form-label">{{ t('Created') }}</label>
                                 <input type="text" class="form-control-plaintext" id="editCreatedAt" readonly>
                             </div>
                         </div>
 
                         <hr class="my-3">
-                        <h6 class="mb-2"><i class="bi bi-patch-check"></i> Verification</h6>
+                        <h6 class="mb-2"><i class="bi bi-patch-check"></i> {{ t('Verification') }}</h6>
                         <p class="text-muted small mb-2">
-                            Mark the whole question as verified once its assets are checked and the
-                            tagging is correct. You'll get a soft warning if not all assets are
-                            checked-OK, but you can still mark it verified.
+                            {{ t('Mark the whole question as verified once its assets are checked and the tagging is correct. You\'ll get a soft warning if not all assets are checked-OK, but you can still mark it verified.') }}
                         </p>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="editVerifiedToggle" onchange="onEditVerifiedToggle()">
                             <label class="form-check-label" for="editVerifiedToggle">
-                                <span id="editVerifiedBadge" class="badge bg-secondary"><i class="bi bi-shield"></i> Not verified</span>
+                                <span id="editVerifiedBadge" class="badge bg-secondary"><i class="bi bi-shield"></i> {{ t('Not verified') }}</span>
                             </label>
                         </div>
                         <div id="editVerifiedMeta" class="small text-muted mt-1"></div>
 
                         <hr class="my-3">
-                        <h6 class="mb-2"><i class="bi bi-diagram-3"></i> Hierarchy</h6>
+                        <h6 class="mb-2"><i class="bi bi-diagram-3"></i> {{ t('Hierarchy') }}</h6>
                         <p class="small text-muted mb-2">
-                            A long question has a <strong>shared background</strong> (stem) and lettered <strong>parts</strong>
-                            (a, b, ci). Parts must belong to a question in the same paper; the parent QID has to exist first
-                            (for example <code>Q3a</code> sits under <code>Q3</code>).
+                            {{ t('A long question has a <strong>shared background</strong> (stem) and lettered <strong>parts</strong> (a, b, ci). Parts must belong to a question in the same paper; the parent QID has to exist first (for example <code>Q3a</code> sits under <code>Q3</code>).')|safe }}
                         </p>
                         <div id="editHierarchyBreadcrumb" class="mb-2"></div>
                         <div id="editHierarchyChildren" class="mb-2"></div>
                         <div class="d-flex flex-wrap gap-2 mb-2">
                             <div class="input-group input-group-sm" style="max-width: 16rem;">
-                                <span class="input-group-text">Part</span>
-                                <input type="text" class="form-control" id="editNewChildPart" placeholder="a, b, ci"
-                                       title="Letters for a part (a, b, ci), or ~c for shared text printed before part (c)">
-                                <button type="button" class="btn btn-outline-primary" id="editCreateChildBtn" onclick="createChildPart()">Create child</button>
+                                <span class="input-group-text">{{ t('Part') }}</span>
+                                <input type="text" class="form-control" id="editNewChildPart" placeholder="{{ t('a, b, ci') }}"
+                                       title="{{ t('Letters for a part (a, b, ci), or ~c for shared text printed before part (c)') }}">
+                                <button type="button" class="btn btn-outline-primary" id="editCreateChildBtn" onclick="createChildPart()">{{ t('Create child') }}</button>
                             </div>
                             <div class="input-group input-group-sm" style="max-width: 18rem;">
-                                <span class="input-group-text">Parent ID</span>
-                                <input type="text" class="form-control" id="editSetParentId" placeholder="id or blank to detach">
-                                <button type="button" class="btn btn-outline-secondary" onclick="setQuestionParent()">Set</button>
+                                <span class="input-group-text">{{ t('Parent ID') }}</span>
+                                <input type="text" class="form-control" id="editSetParentId" placeholder="{{ t('id or blank to detach') }}">
+                                <button type="button" class="btn btn-outline-secondary" onclick="setQuestionParent()">{{ t('Set') }}</button>
                             </div>
                             <a class="btn btn-sm btn-outline-dark" id="editSplitLink" href="#" style="display:none;">
-                                <i class="bi bi-scissors"></i> Split into parts
+                                <i class="bi bi-scissors"></i> {{ t('Split into parts') }}
                             </a>
                             <button type="button" class="btn btn-sm btn-outline-danger" id="editCombineBtn"
                                     style="display:none;" onclick="openCombineConfirm()">
-                                <i class="bi bi-intersect"></i> Combine parts
+                                <i class="bi bi-intersect"></i> {{ t('Combine parts') }}
                             </button>
                         </div>
-                        <div class="form-text mb-2">Parent ID is the numeric database id of the stem (same paper), shown in the address bar when you open that question. Leave blank and click Set to detach a standalone question. Labelled parts cannot be detached.</div>
+                        <div class="form-text mb-2">{{ t('Parent ID is the numeric database id of the stem (same paper), shown in the address bar when you open that question. Leave blank and click Set to detach a standalone question. Labelled parts cannot be detached.') }}</div>
                         <div class="form-check form-switch mb-2" id="editNeedsPrevWrap" style="display:none;">
                             <input class="form-check-input" type="checkbox" id="editNeedsPrevParts" onchange="setNeedsPrevParts(this.checked)">
                             <label class="form-check-label small" for="editNeedsPrevParts">
-                                Depends on earlier parts — when this part is viewed or generated on its own, the earlier parts
-                                (for example (a) and (b) for (c)) are included as background.
+                                {{ t('Depends on earlier parts — when this part is viewed or generated on its own, the earlier parts (for example (a) and (b) for (c)) are included as background.') }}
                             </label>
                         </div>
                         <div class="mb-2" id="editBlockEndWrap" style="display:none;">
-                            <label class="form-label small mb-1" for="editBlockEnd">Ends after part</label>
+                            <label class="form-label small mb-1" for="editBlockEnd">{{ t('Ends after part') }}</label>
                             <div class="input-group input-group-sm" style="max-width: 24rem;">
                                 <select class="form-select" id="editBlockEnd"></select>
-                                <button class="btn btn-outline-primary" type="button" onclick="setBlockEnd()">Apply</button>
+                                <button class="btn btn-outline-primary" type="button" onclick="setBlockEnd()">{{ t('Apply') }}</button>
                             </div>
-                            <div class="form-text">Parts after this one print without this shared intro (for example a table used by (b) only). The default keeps every later part up to the next shared block.</div>
+                            <div class="form-text">{{ t('Parts after this one print without this shared intro (for example a table used by (b) only). The default keeps every later part up to the next shared block.') }}</div>
                         </div>
                         <div id="editHierarchyStatus" class="small"></div>
                     </div>
@@ -315,28 +310,25 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-info text-dark">
-                <h5 class="modal-title"><i class="bi bi-robot"></i> Auto Tag with AI</h5>
+                <h5 class="modal-title"><i class="bi bi-robot"></i> {{ t('Auto Tag with AI') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info py-2 small">
                     <i class="bi bi-info-circle"></i>
-                    The model is sent the question's image(s) (and solution if present) plus this
-                    subject's allowed tag values, and suggests tags. Suggestions <strong>populate the
-                    form for review</strong> — nothing is saved until you click <em>Save Tags</em>.
-                    Shared-background rows (stems) cannot be tagged here; tag each lettered part instead.
+                    {{ t('The model is sent the question\'s image(s) (and solution if present) plus this subject\'s allowed tag values, and suggests tags. Suggestions <strong>populate the form for review</strong> — nothing is saved until you click <em>Save Tags</em>. Shared-background rows (stems) cannot be tagged here; tag each lettered part instead.')|safe }}
                 </div>
 
                 <div class="row g-3">
                     <div class="col-md-7">
-                        <label class="form-label fw-bold" for="autoTagEndpoint">LLM endpoint</label>
+                        <label class="form-label fw-bold" for="autoTagEndpoint">{{ t('LLM endpoint') }}</label>
                         <select class="form-select form-select-sm" id="autoTagEndpoint">
-                            <option value="">Loading…</option>
+                            <option value="">{{ t('Loading…') }}</option>
                         </select>
-                        <small class="text-muted">A vision-capable endpoint is required.</small>
+                        <small class="text-muted">{{ t('A vision-capable endpoint is required.') }}</small>
                     </div>
                     <div class="col-md-5">
-                        <label class="form-label fw-bold d-block">Send versions</label>
+                        <label class="form-label fw-bold d-block">{{ t('Send versions') }}</label>
                         <div id="autoTagVersions" class="d-flex flex-wrap gap-2">
                             {% for v in OQB_VERSIONS %}
                             <div class="form-check">
@@ -346,58 +338,58 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                             </div>
                             {% endfor %}
                         </div>
-                        <small class="text-muted">First available per type (IMG → MD → DOC) is sent.</small>
+                        <small class="text-muted">{{ t('First available per type (IMG → MD → DOC) is sent.') }}</small>
                     </div>
                 </div>
 
                 <hr class="my-3">
 
-                <label class="form-label fw-bold d-block mb-2">Tags to apply</label>
+                <label class="form-label fw-bold d-block mb-2">{{ t('Tags to apply') }}</label>
                 <div class="row g-2">
                     {# Defaults: q_type / major_topic / major_subtopic / chapter ON; rest OFF #}
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_q_type" value="q_type" checked>
-                        <label class="form-check-label" for="atf_q_type">Question Type</label></div></div>
+                        <label class="form-check-label" for="atf_q_type">{{ t('Question Type') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_level" value="level">
-                        <label class="form-check-label" for="atf_level">Level</label></div></div>
+                        <label class="form-check-label" for="atf_level">{{ t('Level') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_section" value="section">
-                        <label class="form-check-label" for="atf_section">Section</label></div></div>
+                        <label class="form-check-label" for="atf_section">{{ t('Section') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_major_topic" value="major_topic" checked>
-                        <label class="form-check-label" for="atf_major_topic">Major Topic</label></div></div>
+                        <label class="form-check-label" for="atf_major_topic">{{ t('Major Topic') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_major_subtopic" value="major_subtopic" checked>
-                        <label class="form-check-label" for="atf_major_subtopic">Major Subtopic</label></div></div>
+                        <label class="form-check-label" for="atf_major_subtopic">{{ t('Major Subtopic') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_minor_topics" value="minor_topics">
-                        <label class="form-check-label" for="atf_minor_topics">Minor Topics</label></div></div>
+                        <label class="form-check-label" for="atf_minor_topics">{{ t('Minor Topics') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_subtopics" value="subtopics">
-                        <label class="form-check-label" for="atf_subtopics">Minor Subtopics</label></div></div>
+                        <label class="form-check-label" for="atf_subtopics">{{ t('Minor Subtopics') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_chapter" value="chapter" checked>
-                        <label class="form-check-label" for="atf_chapter">Chapter</label></div></div>
+                        <label class="form-check-label" for="atf_chapter">{{ t('Chapter') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_subchapter" value="subchapter">
-                        <label class="form-check-label" for="atf_subchapter">Subchapter</label></div></div>
+                        <label class="form-check-label" for="atf_subchapter">{{ t('Subchapter') }}</label></div></div>
                     <div class="col-sm-6 col-md-4"><div class="form-check">
                         <input class="form-check-input autotag-field" type="checkbox" id="atf_marks" value="marks">
-                        <label class="form-check-label" for="atf_marks">Marks</label></div></div>
+                        <label class="form-check-label" for="atf_marks">{{ t('Marks') }}</label></div></div>
                 </div>
 
                 <div class="form-check form-switch mt-3">
                     <input class="form-check-input" type="checkbox" id="autoTagOverwrite">
-                    <label class="form-check-label" for="autoTagOverwrite">Overwrite fields that already have a value</label>
+                    <label class="form-check-label" for="autoTagOverwrite">{{ t('Overwrite fields that already have a value') }}</label>
                 </div>
 
                 <div id="autoTagStatus" class="small mt-3"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" id="autoTagRunBtn" onclick="runAutoTag()">
-                    <i class="bi bi-robot"></i> Suggest tags
+                    <i class="bi bi-robot"></i> {{ t('Suggest tags') }}
                 </button>
             </div>
         </div>
@@ -409,22 +401,22 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-warning">
-                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> Confirm Rename</h5>
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> {{ t('Confirm Rename') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p>Rename question from <strong id="renameOldQid"></strong> to <strong id="renameNewQid"></strong>?</p>
+                <p id="renamePrompt"></p>
                 <p class="small text-muted d-none mb-2" id="renameDescendantNote"></p>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="renameFilesCheck" checked>
                     <label class="form-check-label" for="renameFilesCheck">
-                        Also rename and move physical asset files on disk
+                        {{ t('Also rename and move physical asset files on disk') }}
                     </label>
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-warning" onclick="executeRename()">Confirm Rename</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button class="btn btn-warning" onclick="executeRename()">{{ t('Confirm Rename') }}</button>
             </div>
         </div>
     </div>
@@ -438,11 +430,11 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
             <div class="modal-header">
                 <h5 class="modal-title">
                     <i class="bi bi-markdown"></i>
-                    <span id="mdEditorModalTitle">Markdown Editor</span>
+                    <span id="mdEditorModalTitle">{{ t('Markdown Editor') }}</span>
                 </h5>
                 <div class="ms-auto d-flex gap-2 align-items-center">
-                    <small id="mdEditorModalStatus" class="text-muted">Loading...</small>
-                    <a id="mdEditorModalFullscreenLink" href="#" target="_blank" class="btn btn-sm btn-outline-secondary" title="Open in fullscreen">
+                    <small id="mdEditorModalStatus" class="text-muted">{{ t('Loading...') }}</small>
+                    <a id="mdEditorModalFullscreenLink" href="#" target="_blank" class="btn btn-sm btn-outline-secondary" title="{{ t('Open in fullscreen') }}">
                         <i class="bi bi-arrows-fullscreen"></i>
                     </a>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -452,9 +444,9 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                 <textarea id="mdEditorModalTextarea"></textarea>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Close') }}</button>
                 <button type="button" class="btn btn-primary" id="mdEditorModalSaveBtn">
-                    <i class="bi bi-save"></i> Save
+                    <i class="bi bi-save"></i> {{ t('Save') }}
                 </button>
             </div>
         </div>
@@ -466,29 +458,28 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-intersect"></i> Combine parts</h5>
+                <h5 class="modal-title"><i class="bi bi-intersect"></i> {{ t('Combine parts') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-2" id="combineModeHint"></p>
-                <p class="mb-1"><strong id="combineSurvivorQid"></strong>
-                    <span class="badge bg-secondary" id="combineDescCount">0</span> part(s) will be deleted</p>
+                <p class="mb-1" id="combineDeleteLine"></p>
                 <ul class="small mb-2" id="combineDescList" style="max-height:10rem; overflow:auto;"></ul>
                 <div id="combineWholePreview" class="mb-2" style="display:none;"></div>
                 <div class="form-check" id="combineStitchWrap" style="display:none;">
                     <input class="form-check-input" type="checkbox" id="combineStitchChk">
-                    <label class="form-check-label" for="combineStitchChk">Stitch images into one tall image (otherwise keep them as multiple pages on this question)</label>
+                    <label class="form-check-label" for="combineStitchChk">{{ t('Stitch images into one tall image (otherwise keep them as multiple pages on this question)') }}</label>
                 </div>
                 <div class="form-check" id="combineSaveWholeWrap" style="display:none;">
                     <input class="form-check-input" type="checkbox" id="combineSaveWholeChk" checked>
-                    <label class="form-check-label" for="combineSaveWholeChk">Also save this as the whole-question archive so a later Combine can restore it</label>
+                    <label class="form-check-label" for="combineSaveWholeChk">{{ t('Also save this as the whole-question archive so a later Combine can restore it') }}</label>
                 </div>
                 <div class="alert alert-warning py-2 small mb-0" id="combineMdWarn" style="display:none;"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-danger" id="combineConfirmBtn" onclick="confirmCombineParts()">
-                    Combine and delete parts
+                    {{ t('Combine and delete parts') }}
                 </button>
             </div>
         </div>

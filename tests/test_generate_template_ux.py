@@ -90,7 +90,7 @@ class GenerationOptionsTemplateTests(unittest.TestCase):
         for name, el_id in (('mc_after_style', 'mcAfterStyle'), ('cq_after_style', 'cqAfterStyle')):
             self.assertIn(f'name="{name}" id="{el_id}"', self.template)
             self.assertIn(f"{name}: document.getElementById('{el_id}')", self.template)
-        self.assertIn('<option value="ruled">Answer lines</option>', self.template)
+        self.assertIn('<option value="ruled">{{ t(\'Answer lines\') }}</option>', self.template)
 
     def test_hierarchy_mode_control_exists(self):
         self.assertIn('id="hierarchyMode"', self.template)

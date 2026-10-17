@@ -1,21 +1,21 @@
 <div class="bp-op d-none" data-op="mcq">
     <div class="row g-3">
         <div class="col-sm-6">
-            <div class="bp-section-title">Versions</div>
+            <div class="bp-section-title">{{ t('Versions') }}</div>
             {% for v in OQB_VERSIONS %}
             <div class="form-check">
                 <input class="form-check-input op-mcq-version" type="checkbox" value="{{ v }}" id="opMcqVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
-                <label class="form-check-label" for="opMcqVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</label>
+                <label class="form-check-label" for="opMcqVer_{{ v }}" title="{{ t(OQB_VERSION_LABELS[v]) }}">{{ v }}</label>
             </div>
             {% endfor %}
         </div>
         <div class="col-sm-6">
-            <div class="bp-section-title">Existing ANS image</div>
+            <div class="bp-section-title">{{ t('Existing ANS image') }}</div>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="opMcqOverwrite" checked>
-                <label class="form-check-label" for="opMcqOverwrite">Replace if it already exists</label>
+                <label class="form-check-label" for="opMcqOverwrite">{{ t('Replace if it already exists') }}</label>
             </div>
         </div>
     </div>
-    <div class="form-text">Only MC questions whose Answer tag is a single A–D get an image; the rest are skipped.</div>
+    <div class="form-text">{{ t('Only MC questions whose Answer tag is a single A–D get an image; the rest are skipped.') }}</div>
 </div>

@@ -78,12 +78,12 @@ def _taxonomy_name_updates():
     if 'name' in request.form:
         name = (request.form.get('name') or '').strip()
         if not name:
-            return None, 'Name is required'
+            return None, _t('Name is required')
         updates['name'] = name
     if 'name_zh' in request.form:
         updates['name_zh'] = _form_name_zh()
     if not updates:
-        return None, 'Name is required'
+        return None, _t('Name is required')
     return updates, None
 
 
@@ -108,8 +108,9 @@ def _csv_match_node(index, name, name_zh, row_num, label, warnings):
     if node is None and name_zh:
         node = lookup_name(index, name_zh)
         if node is not None:
-            warnings.append(f'Row {row_num}: {label} "{name}" matched existing '
-                            f'"{node.name}" by its Chinese name; English name kept.')
+            warnings.append(_t(
+                'Row {row_num}: {label} "{name}" matched existing "{existing}" by its Chinese name; English name kept.',
+                row_num=row_num, label=label, name=name, existing=node.name))
     return node
 
 
@@ -175,11 +176,11 @@ def add_subject():
     name = (request.form.get('name') or '').strip()
 
     if not subject_id or not name:
-        return jsonify({'error': 'Subject ID and name are required'}), 400
+        return jsonify({'error': _t('Subject ID and name are required')}), 400
     if not _SUBJECT_ID_RE.match(subject_id):
-        return jsonify({'error': 'Subject ID must be 1-10 uppercase letters/digits (A-Z, 0-9)'}), 400
+        return jsonify({'error': _t('Subject ID must be 1-10 uppercase letters/digits (A-Z, 0-9)')}), 400
     if Subject.query.get(subject_id):
-        return jsonify({'error': f'Subject {subject_id} already exists'}), 400
+        return jsonify({'error': _t('Subject {subject_id} already exists', subject_id=subject_id)}), 400
 
     subject = Subject(id=subject_id, name=name, name_zh=_form_name_zh(),
                       split_parts_default=False)
@@ -201,7 +202,7 @@ def edit_subject(subject_id):
     name = (request.form.get('name') or '').strip()
 
     if not name:
-        return jsonify({'error': 'Name is required'}), 400
+        return jsonify({'error': _t('Name is required')}), 400
 
     subject.name = name
     if 'name_zh' in request.form:
@@ -230,8 +231,8 @@ def delete_subject(subject_id):
     question_count = Question.query.filter_by(subject=subject.id).count()
     if question_count > 0:
         return jsonify({
-            'error': f'Cannot delete {subject.id}: {question_count} question(s) still '
-                     f'reference it. Remove all questions first.'
+            'error': _t('Cannot delete {subject_id}: {question_count} question(s) still reference it. Remove all questions first.',
+                        subject_id=subject.id, question_count=question_count)
         }), 400
 
     try:
@@ -256,7 +257,7 @@ def delete_subject(subject_id):
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Failed to delete subject: {e}'}), 500
+        return jsonify({'error': _t('Failed to delete subject: {e}', e=e)}), 500
 
     return jsonify({'success': True})
 
@@ -428,7 +429,7 @@ def add_topic():
     name = request.form.get('name')
     
     if not subject_id or not name:
-        return jsonify({'error': 'Missing required fields'}), 400
+        return jsonify({'error': _t('Missing required fields')}), 400
     
     subject_snapshot.capture(subject_id, 'topic-edit')
     # Get max sort_order for this subject
@@ -496,7 +497,7 @@ def add_subtopic():
     hidden = request.form.get('hidden', '0') == '1'
     
     if not topic_id or not name:
-        return jsonify({'error': 'Missing required fields'}), 400
+        return jsonify({'error': _t('Missing required fields')}), 400
     
     subject_snapshot.capture_many(_subjects_of(Topic, [topic_id]), 'topic-edit')
     # Get max sort_order for this topic
@@ -633,7 +634,7 @@ def add_chapter():
     name = request.form.get('name')
 
     if not subject_id or not name:
-        return jsonify({'error': 'Missing required fields'}), 400
+        return jsonify({'error': _t('Missing required fields')}), 400
 
     subject_snapshot.capture(subject_id, 'chapter-edit')
     # Get max sort_order for this subject
@@ -705,7 +706,7 @@ def add_subchapter():
     hidden = request.form.get('hidden', '0') == '1'
 
     if not chapter_id or not name:
-        return jsonify({'error': 'Missing required fields'}), 400
+        return jsonify({'error': _t('Missing required fields')}), 400
 
     subject_snapshot.capture_many(_subjects_of(Chapter, [chapter_id]), 'chapter-edit')
     # Get max sort_order for this chapter
@@ -1021,7 +1022,7 @@ def delete_questions():
         if not question_ids:
             return jsonify({
                 'success': False,
-                'error': 'No questions selected'
+                'error': _t('No questions selected')
             }), 400
         
         # Convert to integers
@@ -1030,7 +1031,7 @@ def delete_questions():
         if not question_ids:
             return jsonify({
                 'success': False,
-                'error': 'Invalid question IDs'
+                'error': _t('Invalid question IDs')
             }), 400
         refused = _bulk_subject_guard(question_ids)
         if refused:
@@ -1048,7 +1049,7 @@ def delete_questions():
         if not questions:
             return jsonify({
                 'success': False,
-                'error': 'No questions found with the given IDs'
+                'error': _t('No questions found with the given IDs')
             }), 404
 
         selected_ids = {q.id for q in questions}
@@ -1069,10 +1070,7 @@ def delete_questions():
             extra_rows = [r for r in extra_rows if r.subject in admin_subject_ids]
             return jsonify({
                 'success': False,
-                'error': (
-                    'Some selected questions have parts/children. '
-                    'Tick "Also delete child parts" or delete the parts first.'
-                ),
+                'error': _t('Some selected questions have parts/children. Tick "Also delete child parts" or delete the parts first.'),
                 'blocking_qids': [r.qid for r in extra_rows],
             }), 409
         if extra:
@@ -1155,9 +1153,12 @@ def delete_questions():
             except Exception:
                 pass
         
-        msg = f'Successfully deleted {deleted_count} question(s) from database'
         if delete_files:
-            msg += f' and {files_deleted} file(s) from disk'
+            msg = _t('Successfully deleted {deleted_count} question(s) from database and {files_deleted} file(s) from disk',
+                     deleted_count=deleted_count, files_deleted=files_deleted)
+        else:
+            msg = _t('Successfully deleted {deleted_count} question(s) from database',
+                     deleted_count=deleted_count)
         
         return jsonify({
             'success': True,
@@ -1242,17 +1243,17 @@ def batch_delete_assets():
         delete_files = request.form.get('delete_files', 'true') == 'true'
 
         if not question_ids:
-            return jsonify({'success': False, 'error': 'No questions selected'}), 400
+            return jsonify({'success': False, 'error': _t('No questions selected')}), 400
         if not formats:
-            return jsonify({'success': False, 'error': 'Pick at least one format (IMG / MD / DOC)'}), 400
+            return jsonify({'success': False, 'error': _t('Pick at least one format (IMG / MD / DOC)')}), 400
         if not versions:
-            return jsonify({'success': False, 'error': 'Pick at least one version (' + ' / '.join(VERSIONS) + ')'}), 400
+            return jsonify({'success': False, 'error': _t('Pick at least one version ({versions})', versions=' / '.join(VERSIONS))}), 400
         if not atypes:
-            return jsonify({'success': False, 'error': 'Pick at least one asset type (QUE / ANS / SOL)'}), 400
+            return jsonify({'success': False, 'error': _t('Pick at least one asset type (QUE / ANS / SOL)')}), 400
 
         question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
         if not question_ids:
-            return jsonify({'success': False, 'error': 'Invalid question IDs'}), 400
+            return jsonify({'success': False, 'error': _t('Invalid question IDs')}), 400
         refused = _bulk_subject_guard(question_ids)
         if refused:
             return refused
@@ -1266,7 +1267,7 @@ def batch_delete_assets():
                 .all()
         ]
         if not accessible_qids:
-            return jsonify({'success': False, 'error': 'No accessible questions in selection'}), 403
+            return jsonify({'success': False, 'error': _t('No accessible questions in selection')}), 403
 
         assets = (
             QuestionAsset.query
@@ -1291,7 +1292,7 @@ def batch_delete_assets():
                 'deleted_count': 0,
                 'files_deleted': 0,
                 'questions_touched': 0,
-                'message': 'No matching assets found',
+                'message': _t('No matching assets found'),
             })
 
         source_path = current_app.config['SOURCE_PATH']
@@ -1347,14 +1348,17 @@ def batch_delete_assets():
                 stub.version = ver
                 doc_thumbnails.on_img_asset_deleted(stub)
 
-        msg = f'Deleted {deleted_count} asset(s) across {len(touched_qids)} question(s)'
-        if delete_files:
-            msg += f' ({files_deleted} file(s) removed from disk'
-            if files_missing:
-                msg += f', {files_missing} already missing'
-            msg += ')'
+        n_questions = len(touched_qids)
+        if not delete_files:
+            msg = _t('Deleted {deleted_count} asset(s) across {n_questions} question(s) (files on disk left intact)',
+                     deleted_count=deleted_count, n_questions=n_questions)
+        elif files_missing:
+            msg = _t('Deleted {deleted_count} asset(s) across {n_questions} question(s) ({files_deleted} file(s) removed from disk, {files_missing} already missing)',
+                     deleted_count=deleted_count, n_questions=n_questions,
+                     files_deleted=files_deleted, files_missing=files_missing)
         else:
-            msg += ' (files on disk left intact)'
+            msg = _t('Deleted {deleted_count} asset(s) across {n_questions} question(s) ({files_deleted} file(s) removed from disk)',
+                     deleted_count=deleted_count, n_questions=n_questions, files_deleted=files_deleted)
 
         return jsonify({
             'success': True,
@@ -1439,10 +1443,10 @@ def _load_batch_update():
     question_ids = parse_batch_question_ids(request.form)
     parsed = parse_batch_form(request.form)
     if not any(parsed['flags'].values()):
-        raise BatchEditError('Select at least one field to update')
+        raise BatchEditError(_t('Select at least one field to update'))
     questions = _load_batch_questions(question_ids)
     if not questions:
-        raise BatchEditError('No questions found with the given IDs', 404)
+        raise BatchEditError(_t('No questions found with the given IDs'), 404)
     topics, subtopics, chapters, subchapters = _taxonomy_maps(parsed)
     resolved = resolve_batch(parsed, topics, subtopics, chapters, subchapters)
     return question_ids, questions, resolved
@@ -1494,7 +1498,7 @@ def batch_update_questions():
         return jsonify({
             'success': True,
             'updated_count': updated_count,
-            'message': f'Successfully updated {updated_count} question(s)'
+            'message': _t('Successfully updated {updated_count} question(s)', updated_count=updated_count)
         })
     except BatchEditError as exc:
         return _batch_edit_error(exc)
@@ -1591,17 +1595,17 @@ def _assetop_clean_list(values, allowed, preserve_order=None):
 
 def _normalize_asset_ops(raw_ops):
     if not isinstance(raw_ops, list) or not raw_ops:
-        raise ValueError('Add at least one operation.')
+        raise ValueError(_t('Add at least one operation.'))
     if len(raw_ops) > 25:
-        raise ValueError('Too many operations; please run at most 25 at a time.')
+        raise ValueError(_t('Too many operations; please run at most 25 at a time.'))
 
     ops = []
     for idx, raw in enumerate(raw_ops, start=1):
         if not isinstance(raw, dict):
-            raise ValueError(f'Operation {idx} is invalid.')
+            raise ValueError(_t('Operation {idx} is invalid.', idx=idx))
         action = str(raw.get('action', '')).strip().lower()
         if action not in ('copy', 'move'):
-            raise ValueError(f'Operation {idx}: action must be copy or move.')
+            raise ValueError(_t('Operation {idx}: action must be copy or move.', idx=idx))
 
         source_versions = _assetop_clean_list(raw.get('source_versions'), VERSIONS, VERSIONS)
         target_versions = _assetop_clean_list(raw.get('target_versions'), VERSIONS, VERSIONS)
@@ -1613,21 +1617,21 @@ def _normalize_asset_ops(raw_ops):
 
         missing = []
         if not source_versions:
-            missing.append('source version')
+            missing.append(_t('source version'))
         if len(source_versions) == 1 and not target_versions:
-            missing.append('target version')
+            missing.append(_t('target version'))
         if not source_atypes:
-            missing.append('source asset type')
+            missing.append(_t('source asset type'))
         if len(source_atypes) == 1 and not target_atypes:
-            missing.append('target asset type')
+            missing.append(_t('target asset type'))
         if not source_formats:
-            missing.append('source format')
+            missing.append(_t('source format'))
         if not target_formats:
-            missing.append('target format')
+            missing.append(_t('target format'))
         if missing:
-            raise ValueError(f'Operation {idx}: missing {", ".join(missing)}.')
+            raise ValueError(_t('Operation {idx}: missing {fields}.', idx=idx, fields=', '.join(missing)))
         if not common_formats:
-            raise ValueError(f'Operation {idx}: source and target formats must overlap; conversion is not supported.')
+            raise ValueError(_t('Operation {idx}: source and target formats must overlap; conversion is not supported.', idx=idx))
 
         version_targets = (
             [(source_versions[0], target_versions)]
@@ -1826,16 +1830,16 @@ def batch_asset_ops():
     raw_qids = request.args.get('question_ids', '').strip()
     raw_ops = request.args.get('ops', '').strip()
     if not raw_qids:
-        return jsonify({'error': 'question_ids is required'}), 400
+        return jsonify({'error': _t('question_ids is required')}), 400
     if not raw_ops:
-        return jsonify({'error': 'ops is required'}), 400
+        return jsonify({'error': _t('ops is required')}), 400
 
     try:
         question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
     except ValueError:
-        return jsonify({'error': 'question_ids must be integers'}), 400
+        return jsonify({'error': _t('question_ids must be integers')}), 400
     if not question_ids:
-        return jsonify({'error': 'question_ids is empty'}), 400
+        return jsonify({'error': _t('question_ids is empty')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return refused
@@ -1851,7 +1855,7 @@ def batch_asset_ops():
         qs = [q for q in qs if q.subject in admin_subject_ids]
     qs.sort(key=lambda q: question_ids.index(q.id) if q.id in question_ids else len(question_ids))
     if not qs:
-        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+        return jsonify({'error': _t('No questions you have admin access to in the selection.')}), 403
 
     app = current_app._get_current_object()
     accessible_ids = [q.id for q in qs]
@@ -2006,10 +2010,10 @@ def _admin_list_subject(args):
     (ADR-016). Returns ``(subject_id, None)`` or ``(None, (response, code))``."""
     sid = (args.get('subject') or '').strip()
     if not sid:
-        return None, (jsonify({'error': 'Pick a subject first.',
+        return None, (jsonify({'error': _t('Pick a subject first.'),
                                'error_code': 'subject_required'}), 400)
     if sid not in {s.id for s in get_user_admin_subjects()}:
-        return None, (jsonify({'error': 'Access denied', 'error_code': 'subject_denied'}), 403)
+        return None, (jsonify({'error': _t('Access denied'), 'error_code': 'subject_denied'}), 403)
     return sid, None
 
 
@@ -2435,7 +2439,7 @@ def question_details(question_id):
     # Check subject access
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     if question.subject not in admin_subjects:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     kids = sorted(list(question.children), key=lambda c: (c.part_sort or 0, c.id or 0))
     stem_row = is_stem(question)
@@ -2547,14 +2551,13 @@ def create_child_part(question_id):
     data = request.get_json(silent=True) or {}
     part = (data.get('part') or '').strip().lower()
     if not part or not part.replace('~', '', 1).isalpha():
-        return jsonify({'error': 'Part label must be letters only (a, b, ci, …), '
-                                 'or ~c for shared text printed before (c)'}), 400
+        return jsonify({'error': _t('Part label must be letters only (a, b, ci, …), or ~c for shared text printed before (c)')}), 400
     parsed = parse_qid(parent.qid)
     if not parsed:
-        return jsonify({'error': 'Parent QID is invalid'}), 400
+        return jsonify({'error': _t('Parent QID is invalid')}), 400
     if parsed.qno.qno_end:
         return jsonify({
-            'error': 'Range stems use existing Qn children; add those as standalone question numbers.'
+            'error': _t('Range stems use existing Qn children; add those as standalone question numbers.')
         }), 400
     # A shared block is transparent: its parts are named from its parent.
     base = (parsed.qno.parent_part_path if parsed.qno.is_block
@@ -2589,7 +2592,7 @@ def set_question_parent(question_id):
     if parent_id in ('', None):
         if child.part:
             return jsonify({
-                'error': 'Cannot detach a labelled part; rename it to a standalone Qn first.'
+                'error': _t('Cannot detach a labelled part; rename it to a standalone Qn first.')
             }), 400
         child.parent_id = None
         db.session.commit()
@@ -2597,14 +2600,14 @@ def set_question_parent(question_id):
     try:
         parent_id = int(parent_id)
     except (TypeError, ValueError):
-        return jsonify({'error': 'Invalid parent_id'}), 400
+        return jsonify({'error': _t('Invalid parent_id')}), 400
     parent = Question.query.get_or_404(parent_id)
     if parent.subject != child.subject:
-        return jsonify({'error': 'Parent must be in the same subject'}), 400
+        return jsonify({'error': _t('Parent must be in the same subject')}), 400
     if parent.id == child.id or parent.id in collect_subtree_ids(child):
-        return jsonify({'error': 'Cannot set a descendant as parent'}), 400
+        return jsonify({'error': _t('Cannot set a descendant as parent')}), 400
     if not token_fits_under(child.qid, parent.qid):
-        return jsonify({'error': 'Child QID is not under that parent token'}), 400
+        return jsonify({'error': _t('Child QID is not under that parent token')}), 400
     child.parent_id = parent.id
     db.session.flush()
     if child.part:
@@ -2622,15 +2625,19 @@ def set_question_parent(question_id):
 def _block_owner_conflict(child, requested, owner) -> str:
     """409 text when set-parent disagrees with shared-block ownership."""
     seg = f'({child.part})'
+    label = block_display_label(owner.part, owner.block_end) if owner is not None and is_block(owner) else None
     if owner is not None and is_block(owner):
-        return (f'{seg} belongs to the shared block {owner.qid} '
-                f'({block_display_label(owner.part, owner.block_end)}). To move it '
-                f'out, open that block and change "Ends after part".')
+        return _t('{seg} belongs to the shared block {qid} ({label}). To move it out, open that block and change "Ends after part".',
+                  seg=seg, qid=owner.qid, label=label)
     if is_block(requested):
-        return (f'{seg} is outside the shared block {requested.qid} '
-                f'({block_display_label(requested.part, requested.block_end)}). To '
-                f'include it, open that block and change "Ends after part".')
-    return f'{seg} cannot sit under {requested.qid}; its parent is {owner.qid if owner else "none"}.'
+        return _t('{seg} is outside the shared block {qid} ({label}). To include it, open that block and change "Ends after part".',
+                  seg=seg, qid=requested.qid,
+                  label=block_display_label(requested.part, requested.block_end))
+    if owner:
+        return _t('{seg} cannot sit under {qid}; its parent is {parent}.',
+                  seg=seg, qid=requested.qid, parent=owner.qid)
+    return _t('{seg} cannot sit under {qid}; its parent is none.',
+              seg=seg, qid=requested.qid)
 
 
 @admin_bp.route('/questions/<int:question_id>/block-end', methods=['POST'])
@@ -2644,7 +2651,7 @@ def set_question_block_end(question_id):
     if denial:
         return denial
     if not is_block(block):
-        return jsonify({'ok': False, 'error': 'Only a shared block has an end.'}), 400
+        return jsonify({'ok': False, 'error': _t('Only a shared block has an end.')}), 400
     data = request.get_json(silent=True) or {}
     try:
         result = set_block_end(block, data.get('end'), dry_run=bool(data.get('dry_run')))
@@ -2669,7 +2676,7 @@ def set_needs_prev_parts(question_id):
     data = request.get_json(silent=True) or {}
     value = bool(data.get('value'))
     if value and (not q.parent_id or is_block(q)):
-        return jsonify({'error': 'Only a lettered part can depend on earlier parts.'}), 400
+        return jsonify({'error': _t('Only a lettered part can depend on earlier parts.')}), 400
     q.needs_prev_parts = value
     db.session.commit()
     return jsonify({'success': True, 'needs_prev_parts': q.needs_prev_parts})
@@ -2763,7 +2770,7 @@ def combine_questions_bulk():
         except (TypeError, ValueError):
             continue
     if not ids:
-        return jsonify({'error': 'No questions selected', 'ok': False}), 400
+        return jsonify({'error': _t('No questions selected'), 'ok': False}), 400
     refused = _bulk_subject_guard(ids)
     if refused:
         return refused
@@ -2775,7 +2782,7 @@ def combine_questions_bulk():
         .all()
     )
     if not questions:
-        return jsonify({'error': 'No accessible questions in selection', 'ok': False}), 403
+        return jsonify({'error': _t('No accessible questions in selection'), 'ok': False}), 403
     from app import question_combine as qc
     results = qc.combine_many(
         questions,
@@ -2879,8 +2886,7 @@ def split_question_detect(question_id):
     """
     if request.method == 'POST':
         return jsonify({
-            'error': 'Reload this page — Auto-detect now streams progress '
-                     'like PDF import (stitches images first, then one split).',
+            'error': _t('Reload this page — Auto-detect now streams progress like PDF import (stitches images first, then one split).'),
         }), 400
 
     question = Question.query.get_or_404(question_id)
@@ -3022,7 +3028,7 @@ def set_asset_check_state(question_id):
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
@@ -3032,11 +3038,11 @@ def set_asset_check_state(question_id):
     severity = (data.get('severity') or 'minor').strip().lower()
 
     if version not in set(VERSIONS):
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be QUE / ANS / SOL')}), 400
     if state not in ('ok', 'issues', 'error', 'clear'):
-        return jsonify({'error': "state must be ok / issues / error / clear"}), 400
+        return jsonify({'error': _t('state must be ok / issues / error / clear')}), 400
     if severity not in ('minor', 'major', 'critical'):
         severity = 'minor'
 
@@ -3044,7 +3050,7 @@ def set_asset_check_state(question_id):
         question_id=question_id, version=version, asset_type=asset_type
     ).all()
     if not slot_assets:
-        return jsonify({'error': f'No {version}/{asset_type} assets to mark.'}), 404
+        return jsonify({'error': _t('No {version}/{asset_type} assets to mark.', version=version, asset_type=asset_type)}), 404
 
     if state == 'clear':
         new_state = None
@@ -3081,7 +3087,7 @@ def set_asset_check_state(question_id):
         db.session.rollback()
         logger.exception('Manual check-state write failed for q%s %s/%s',
                          question_id, version, asset_type)
-        return jsonify({'error': f'Save failed: {e}'}), 500
+        return jsonify({'error': _t('Save failed: {e}', e=e)}), 500
 
     return jsonify({
         'success': True,
@@ -3106,10 +3112,10 @@ def rename_question(question_id):
     confirm_rename_files = data.get('confirm_rename_files', False)
 
     if not new_qid:
-        return jsonify({'error': 'New QID is required'}), 400
+        return jsonify({'error': _t('New QID is required')}), 400
 
     if new_qid == question.qid:
-        return jsonify({'success': True, 'message': 'QID unchanged'})
+        return jsonify({'success': True, 'message': _t('QID unchanged')})
 
     # Validate format
     parsed, err = validate_qid_format(new_qid)
@@ -3120,18 +3126,18 @@ def rename_question(question_id):
 
     # Check subject exists
     if not Subject.query.get(new_subject):
-        return jsonify({'error': f'Subject {new_subject} does not exist'}), 400
+        return jsonify({'error': _t('Subject {subject} does not exist', subject=new_subject)}), 400
 
     # Check subject access (superadmins can access all subjects)
     if not current_user.is_super_admin:
         admin_subjects = [s.id for s in get_user_admin_subjects()]
         if new_subject not in admin_subjects:
-            return jsonify({'error': f'You do not have admin access to subject {new_subject}'}), 403
+            return jsonify({'error': _t('You do not have admin access to subject {subject}', subject=new_subject)}), 403
 
     # Check for duplicate
     existing = Question.query.filter_by(qid=new_qid).first()
     if existing and existing.id != question_id:
-        return jsonify({'error': f'A question with QID {new_qid} already exists'}), 409
+        return jsonify({'error': _t('A question with QID {qid} already exists', qid=new_qid)}), 409
 
     old_qid = question.qid
     old_parsed_qid = parse_qid(old_qid)
@@ -3154,7 +3160,7 @@ def rename_question(question_id):
     for node in subtree:
         node_parsed = parse_qid(node.qid)
         if not node_parsed:
-            return jsonify({'error': f'Cannot parse existing QID {node.qid}'}), 400
+            return jsonify({'error': _t('Cannot parse existing QID {qid}', qid=node.qid)}), 400
         try:
             if node.id == question.id:
                 node_new_token = new_token
@@ -3169,7 +3175,7 @@ def rename_question(question_id):
         new_qids.append(node_new_qid)
 
     if len(set(new_qids)) != len(new_qids):
-        return jsonify({'error': 'Rename would produce duplicate QIDs in the subtree'}), 409
+        return jsonify({'error': _t('Rename would produce duplicate QIDs in the subtree')}), 409
 
     collisions = (
         Question.query
@@ -3179,7 +3185,7 @@ def rename_question(question_id):
     )
     if collisions:
         return jsonify({
-            'error': f'A question with QID {collisions[0].qid} already exists'
+            'error': _t('A question with QID {qid} already exists', qid=collisions[0].qid)
         }), 409
 
     # Apply QID + hierarchy columns. parent_id is recomputed after all QIDs
@@ -3216,16 +3222,18 @@ def rename_question(question_id):
                         renamed_files.append({'old': asset.file_path, 'new': new_rel})
                         asset.file_path = new_rel
                     except Exception as e:
-                        errors.append(f'Error moving {asset.file_path}: {str(e)}')
+                        errors.append(_t('Error moving {path}: {e}', path=asset.file_path, e=str(e)))
                 else:
                     asset.file_path = new_rel
 
     db.session.commit()
 
     n_extra = len(plans) - 1
-    msg = f'Question renamed from {old_qid} to {new_qid}'
     if n_extra:
-        msg += f' ({n_extra} descendant QID(s) updated)'
+        msg = _t('Question renamed from {old_qid} to {new_qid} ({n_extra} descendant QID(s) updated)',
+                 old_qid=old_qid, new_qid=new_qid, n_extra=n_extra)
+    else:
+        msg = _t('Question renamed from {old_qid} to {new_qid}', old_qid=old_qid, new_qid=new_qid)
 
     return jsonify({
         'success': True,
@@ -3247,22 +3255,22 @@ def upload_question_asset(question_id):
 
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     if question.subject not in admin_subjects:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     version = request.form.get('version') or request.form.get('language', 'EN')
     asset_type = request.form.get('asset_type', 'QUE')
     
     if version not in VERSIONS:
-        return jsonify({'error': 'Invalid version'}), 400
+        return jsonify({'error': _t('Invalid version')}), 400
     if asset_type == 'WHOLE':
         if question.parent_id:
-            return jsonify({'error': 'A whole-question copy can only be stored on the root question, not on a part.'}), 400
+            return jsonify({'error': _t('A whole-question copy can only be stored on the root question, not on a part.')}), 400
     elif asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'Invalid asset type'}), 400
+        return jsonify({'error': _t('Invalid asset type')}), 400
 
     files = request.files.getlist('files')
     if not files:
-        return jsonify({'error': 'No files provided'}), 400
+        return jsonify({'error': _t('No files provided')}), 400
 
     source_path = current_app.config['SOURCE_PATH']
     md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
@@ -3292,11 +3300,11 @@ def upload_question_asset(question_id):
         elif ext in ('md', 'markdown'):
             file_format = 'MD'
         else:
-            errors.append(f'{f.filename}: unsupported extension')
+            errors.append(_t('{filename}: unsupported extension', filename=f.filename))
             continue
 
         if asset_type == 'WHOLE' and file_format != 'IMG':
-            errors.append(f'{f.filename}: a whole-question copy must be an image')
+            errors.append(_t('{filename}: a whole-question copy must be an image', filename=f.filename))
             continue
 
         if file_format == 'MD':
@@ -3306,18 +3314,16 @@ def upload_question_asset(question_id):
                 asset_type=asset_type, file_format='MD'
             ).first()
             if existing_md:
-                errors.append(
-                    f'{f.filename}: a Markdown asset already exists for {asset_type}/{version}. '
-                    f'Edit or delete it first.'
-                )
+                errors.append(_t(
+                    '{filename}: a Markdown asset already exists for {asset_type}/{version}. Edit or delete it first.',
+                    filename=f.filename, asset_type=asset_type, version=version))
                 continue
 
             # Enforce size cap (read into memory; MD files are small text).
             data = f.read()
             if len(data) > md_max:
-                errors.append(
-                    f'{f.filename}: exceeds MD_MAX_SIZE_BYTES ({md_max} bytes)'
-                )
+                errors.append(_t('{filename}: exceeds MD_MAX_SIZE_BYTES ({md_max} bytes)',
+                                 filename=f.filename, md_max=md_max))
                 continue
             # Normalise extension to .md for consistency.
             ext = 'md'
@@ -3331,10 +3337,9 @@ def upload_question_asset(question_id):
                 asset_type=asset_type, file_format='DOC'
             ).first()
             if existing_doc:
-                errors.append(
-                    f'{f.filename}: a Word document already exists for {asset_type}/{version}. '
-                    f'Delete it first to replace.'
-                )
+                errors.append(_t(
+                    '{filename}: a Word document already exists for {asset_type}/{version}. Delete it first to replace.',
+                    filename=f.filename, asset_type=asset_type, version=version))
                 continue
             filename = f"{question.qid}_{version}_{asset_type}.{ext}"
             part_to_use = 1
@@ -3397,8 +3402,10 @@ def upload_question_asset(question_id):
         'success': True,
         'uploaded_count': len(uploaded),
         'errors': errors,
-        'message': f'Uploaded {len(uploaded)} asset(s)' + (
-            f', skipped {len(errors)}' if errors else ''
+        'message': (
+            _t('Uploaded {n} asset(s), skipped {skipped}', n=len(uploaded), skipped=len(errors))
+            if errors else
+            _t('Uploaded {n} asset(s)', n=len(uploaded))
         )
     })
 
@@ -3416,7 +3423,7 @@ def _require_md_admin(question):
         return None
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     if question.subject not in admin_subjects:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     return None
 
 
@@ -3452,7 +3459,7 @@ def get_md_asset_content(question_id, asset_id):
 
     asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
     if asset.file_format != 'MD':
-        return jsonify({'error': 'Asset is not Markdown'}), 400
+        return jsonify({'error': _t('Asset is not Markdown')}), 400
 
     source_path = current_app.config['SOURCE_PATH']
     full_path = os.path.join(source_path, *asset.file_path.split('/'))
@@ -3465,17 +3472,17 @@ def get_md_asset_content(question_id, asset_id):
     try:
         mtime_ns = os.stat(full_path).st_mtime_ns
     except OSError:
-        return jsonify({'error': 'File not found on disk'}), 404
+        return jsonify({'error': _t('File not found on disk')}), 404
 
     try:
         with open(full_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except OSError as e:
-        return jsonify({'error': f'Read failed: {e}'}), 500
+        return jsonify({'error': _t('Read failed: {e}', e=e)}), 500
     except UnicodeDecodeError as e:
         return jsonify({
-            'error': f'File is not valid UTF-8 ({e.reason} at byte {e.start}). '
-                     f'Check the source file encoding.'
+            'error': _t('File is not valid UTF-8 ({reason} at byte {start}). Check the source file encoding.',
+                        reason=e.reason, start=e.start)
         }), 400
 
     return jsonify({
@@ -3502,20 +3509,20 @@ def save_md_asset_content(question_id, asset_id):
 
     asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
     if asset.file_format != 'MD':
-        return jsonify({'error': 'Asset is not Markdown'}), 400
+        return jsonify({'error': _t('Asset is not Markdown')}), 400
 
     data = request.get_json(silent=True) or {}
     content = data.get('content')
     if content is None:
-        return jsonify({'error': 'content is required'}), 400
+        return jsonify({'error': _t('content is required')}), 400
     if not isinstance(content, str):
-        return jsonify({'error': 'content must be a string'}), 400
+        return jsonify({'error': _t('content must be a string')}), 400
 
     md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
     payload = content.encode('utf-8')
     if len(payload) > md_max:
         return jsonify({
-            'error': f'Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {len(payload)}'
+            'error': _t('Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {n}', md_max=md_max, n=len(payload))
         }), 413
 
     source_path = current_app.config['SOURCE_PATH']
@@ -3531,8 +3538,7 @@ def save_md_asset_content(question_id, asset_id):
             current = os.stat(full_path).st_mtime_ns
             if expected != current:
                 return jsonify({
-                    'error': 'File changed on disk since you opened it. '
-                             'Reload to see the latest content, or pass force=true to overwrite.',
+                    'error': _t('File changed on disk since you opened it. Reload to see the latest content, or pass force=true to overwrite.'),
                     'current_mtime_ns': _mtime_ns_json(current),
                 }), 409
         except (OSError, ValueError):
@@ -3542,7 +3548,7 @@ def save_md_asset_content(question_id, asset_id):
         with open(full_path, 'wb') as f:
             f.write(payload)
     except OSError as e:
-        return jsonify({'error': f'Write failed: {e}'}), 500
+        return jsonify({'error': _t('Write failed: {e}', e=e)}), 500
 
     md_render.invalidate(asset.id)
 
@@ -3573,17 +3579,17 @@ def create_md_asset(question_id):
     content = data.get('content', '')
 
     if version not in VERSIONS:
-        return jsonify({'error': 'Invalid version'}), 400
+        return jsonify({'error': _t('Invalid version')}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'Invalid asset_type'}), 400
+        return jsonify({'error': _t('Invalid asset_type')}), 400
     if not isinstance(content, str):
-        return jsonify({'error': 'content must be a string'}), 400
+        return jsonify({'error': _t('content must be a string')}), 400
 
     md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
     payload = content.encode('utf-8')
     if len(payload) > md_max:
         return jsonify({
-            'error': f'Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {len(payload)}'
+            'error': _t('Content exceeds MD_MAX_SIZE_BYTES ({md_max} bytes); got {n}', md_max=md_max, n=len(payload))
         }), 413
 
     existing = QuestionAsset.query.filter_by(
@@ -3592,8 +3598,8 @@ def create_md_asset(question_id):
     ).first()
     if existing:
         return jsonify({
-            'error': f'A Markdown asset already exists for {asset_type}/{version}. '
-                     f'Edit or delete it first.',
+            'error': _t('A Markdown asset already exists for {asset_type}/{version}. Edit or delete it first.',
+                        asset_type=asset_type, version=version),
             'existing_asset_id': existing.id,
         }), 409
 
@@ -3614,7 +3620,7 @@ def create_md_asset(question_id):
         with open(full_path, 'wb') as f:
             f.write(payload)
     except OSError as e:
-        return jsonify({'error': f'Write failed: {e}'}), 500
+        return jsonify({'error': _t('Write failed: {e}', e=e)}), 500
 
     asset = QuestionAsset(
         question_id=question_id,
@@ -3749,11 +3755,12 @@ def delete_question_asset(question_id, asset_id):
         stub.version = deleted_version
         doc_thumbnails.on_img_asset_deleted(stub)
 
-    msg = 'Asset deleted from database'
     if file_deleted:
-        msg += ' and disk'
+        msg = _t('Asset deleted from database and disk')
     elif delete_from_disk:
-        msg += ' (file was not found on disk)'
+        msg = _t('Asset deleted from database (file was not found on disk)')
+    else:
+        msg = _t('Asset deleted from database')
     
     return jsonify({'success': True, 'message': msg})
 
@@ -3769,7 +3776,7 @@ def reorder_question_assets(question_id):
     asset_ids = data.get('asset_ids', [])  # ordered list of asset IDs
 
     if not version or not asset_type or not asset_ids:
-        return jsonify({'error': 'Missing required fields'}), 400
+        return jsonify({'error': _t('Missing required fields')}), 400
 
     question = Question.query.get_or_404(question_id)
     denied = _require_md_admin(question)
@@ -3804,7 +3811,7 @@ def reorder_question_assets(question_id):
 
     if skipped and not assets_to_reorder:
         return jsonify({
-            'error': 'Reorder only supports IMG parts; MD and DOC are single-slot.'
+            'error': _t('Reorder only supports IMG parts; MD and DOC are single-slot.')
         }), 400
 
     # Two-phase DB update to avoid UniqueConstraint violation when swapping part numbers.
@@ -3837,7 +3844,7 @@ def reorder_question_assets(question_id):
                 os.rename(old_norm, temp_path)
                 temp_renames.append((temp_path, item))
             except OSError as e:
-                rename_errors.append(f"Failed to rename {os.path.basename(old_norm)}: {e}")
+                rename_errors.append(_t('Failed to rename {name}: {e}', name=os.path.basename(old_norm), e=e))
 
     # Now move from temp to final paths
     files_renamed = 0
@@ -3854,7 +3861,7 @@ def reorder_question_assets(question_id):
                 os.rename(temp_path, os.path.normpath(item['old_full_path']))
             except OSError:
                 pass
-            rename_errors.append(f"Failed to rename to {os.path.basename(final_path)}: {e}")
+            rename_errors.append(_t('Failed to rename to {name}: {e}', name=os.path.basename(final_path), e=e))
 
     db.session.commit()
 
@@ -3879,40 +3886,40 @@ def create_question():
     detail = data.get('detail', '').strip()  # For QB source
 
     if not subject or not source or qno in (None, ''):
-        return jsonify({'error': 'Subject, source, and question number are required'}), 400
+        return jsonify({'error': _t('Subject, source, and question number are required')}), 400
 
     # Check subject exists
     if not Subject.query.get(subject):
-        return jsonify({'error': f'Subject {subject} does not exist'}), 400
+        return jsonify({'error': _t('Subject {subject} does not exist', subject=subject)}), 400
 
     # Check subject access (superadmins can access all subjects)
     if not current_user.is_super_admin:
         admin_subjects = [s.id for s in get_user_admin_subjects()]
         if subject not in admin_subjects:
-            return jsonify({'error': f'You do not have admin access to subject {subject}'}), 403
+            return jsonify({'error': _t('You do not have admin access to subject {subject}', subject=subject)}), 403
 
     qno_parsed = parse_qno_token(qno)
     if not qno_parsed:
         return jsonify({
-            'error': 'Invalid question number. Use 5, 5a, 3ci, or 23-24.'
+            'error': _t('Invalid question number. Use 5, 5a, 3ci, or 23-24.')
         }), 400
 
     # Build QID
     if source in ('DSE', 'CE', 'AL'):
         if not year or not paper:
-            return jsonify({'error': 'Year and paper are required for PP questions'}), 400
+            return jsonify({'error': _t('Year and paper are required for PP questions')}), 400
         year_int = int(year)
         qid = f"{subject}_{source}_{year_int}_{paper}_{qno_parsed.token}"
     elif source == 'QB':
         if not detail:
-            return jsonify({'error': 'Detail/book name is required for QB questions'}), 400
+            return jsonify({'error': _t('Detail/book name is required for QB questions')}), 400
         if '_' in detail:
-            return jsonify({'error': 'Detail/book name cannot contain underscores'}), 400
+            return jsonify({'error': _t('Detail/book name cannot contain underscores')}), 400
         qid = f"{subject}_QB_{detail}_{qno_parsed.token}"
         year_int = None
         paper = None
     else:
-        return jsonify({'error': 'Invalid source type'}), 400
+        return jsonify({'error': _t('Invalid source type')}), 400
 
     # Validate format
     parsed, err = validate_qid_format(qid)
@@ -3933,7 +3940,7 @@ def create_question():
         return jsonify({'error': str(e)}), 400
 
     if not created:
-        return jsonify({'error': f'Question {qid} already exists'}), 409
+        return jsonify({'error': _t('Question {qid} already exists', qid=qid)}), 409
 
     db.session.commit()
 
@@ -3943,7 +3950,7 @@ def create_question():
             'id': question.id,
             'qid': question.qid,
         },
-        'message': f'Question {qid} created successfully'
+        'message': _t('Question {qid} created successfully', qid=qid)
     })
 
 
@@ -4007,7 +4014,7 @@ def add_user():
     is_super_admin = request.form.get('is_super_admin') == '1'
     
     if not username or not password:
-        return jsonify({'error': 'Username and password are required'}), 400
+        return jsonify({'error': _t('Username and password are required')}), 400
 
     ok, err = validate_username(username)
     if not ok:
@@ -4015,7 +4022,7 @@ def add_user():
     
     # Check if username already exists
     if User.query.filter_by(username=username).first():
-        return jsonify({'error': 'Username already exists'}), 400
+        return jsonify({'error': _t('Username already exists')}), 400
     
     # Create user
     user = User(username=username, is_super_admin=is_super_admin)
@@ -4049,7 +4056,7 @@ def edit_user(user_id):
     if user.id == current_user.id:
         password = request.form.get('password', '')
         if not password:
-            return jsonify({'error': 'Enter a new password'}), 400
+            return jsonify({'error': _t('Enter a new password')}), 400
         user.set_password(password)
         db.session.commit()
         return jsonify({
@@ -4063,7 +4070,7 @@ def edit_user(user_id):
     is_super_admin = request.form.get('is_super_admin') == '1'
     
     if not username:
-        return jsonify({'error': 'Username is required'}), 400
+        return jsonify({'error': _t('Username is required')}), 400
 
     ok, err = validate_username(username)
     if not ok:
@@ -4072,7 +4079,7 @@ def edit_user(user_id):
     # Check if username is taken by another user
     existing = User.query.filter_by(username=username).first()
     if existing and existing.id != user_id:
-        return jsonify({'error': 'Username already exists'}), 400
+        return jsonify({'error': _t('Username already exists')}), 400
 
     # If the username changed, move the user's personal storage folder so its
     # files (incl. generated docs) follow the new folder name.
@@ -4105,7 +4112,7 @@ def delete_user(user_id):
     
     # Prevent deleting yourself
     if user.id == current_user.id:
-        return jsonify({'error': 'Cannot delete your own account'}), 400
+        return jsonify({'error': _t('Cannot delete your own account')}), 400
     
     db.session.delete(user)
     db.session.commit()
@@ -4346,19 +4353,19 @@ def import_question_tags():
             qid = row.get('qid', '').strip()
             if not qid:
                 skipped += 1
-                warnings.append(f'Row {row_num}: empty qid, skipped.')
+                warnings.append(_t('Row {row_num}: empty qid, skipped.', row_num=row_num))
                 continue
 
             question = Question.query.filter_by(qid=qid).first()
             if not question:
                 skipped += 1
-                warnings.append(f'Row {row_num}: question "{qid}" not found, skipped.')
+                warnings.append(_t('Row {row_num}: question "{qid}" not found, skipped.', row_num=row_num, qid=qid))
                 continue
 
             # Check subject access
             if question.subject not in subject_ids:
                 skipped += 1
-                warnings.append(f'Row {row_num}: no admin access to subject "{question.subject}", skipped.')
+                warnings.append(_t('Row {row_num}: no admin access to subject "{subject}", skipped.', row_num=row_num, subject=question.subject))
                 continue
 
             subj_id = question.subject
@@ -4374,7 +4381,7 @@ def import_question_tags():
                     if topic:
                         question.major_topic_id = topic.id
                     else:
-                        warnings.append(f'Row {row_num}: major_topic "{major_topic_name}" not found for subject {subj_id}.')
+                        warnings.append(_t('Row {row_num}: major_topic "{name}" not found for subject {subject}.', row_num=row_num, name=major_topic_name, subject=subj_id))
                         question.major_topic_id = None
                 else:
                     question.major_topic_id = None
@@ -4388,7 +4395,7 @@ def import_question_tags():
                     if subtopic:
                         question.major_subtopic_id = subtopic.id
                     else:
-                        warnings.append(f'Row {row_num}: major_subtopic "{major_subtopic_name}" not found under topic.')
+                        warnings.append(_t('Row {row_num}: major_subtopic "{name}" not found under topic.', row_num=row_num, name=major_subtopic_name))
                         question.major_subtopic_id = None
                 else:
                     question.major_subtopic_id = None
@@ -4403,7 +4410,7 @@ def import_question_tags():
                         if topic:
                             question.minor_topics.append(topic)
                         else:
-                            warnings.append(f'Row {row_num}: minor topic "{tname}" not found.')
+                            warnings.append(_t('Row {row_num}: minor topic "{name}" not found.', row_num=row_num, name=tname))
 
             # Subtopics (semicolon separated)
             if 'subtopics' in fields_to_import:
@@ -4416,7 +4423,7 @@ def import_question_tags():
                         if subtopic:
                             question.subtopics.append(subtopic)
                         else:
-                            warnings.append(f'Row {row_num}: subtopic "{sname}" not found.')
+                            warnings.append(_t('Row {row_num}: subtopic "{name}" not found.', row_num=row_num, name=sname))
 
             # Chapter
             if 'chapter' in fields_to_import:
@@ -4426,7 +4433,7 @@ def import_question_tags():
                     if chapter:
                         question.chapter_id = chapter.id
                     else:
-                        warnings.append(f'Row {row_num}: chapter "{chapter_name}" not found.')
+                        warnings.append(_t('Row {row_num}: chapter "{name}" not found.', row_num=row_num, name=chapter_name))
                         question.chapter_id = None
                 else:
                     question.chapter_id = None
@@ -4440,7 +4447,7 @@ def import_question_tags():
                     if subchapter:
                         question.subchapter_id = subchapter.id
                     else:
-                        warnings.append(f'Row {row_num}: subchapter "{subchapter_name}" not found.')
+                        warnings.append(_t('Row {row_num}: subchapter "{name}" not found.', row_num=row_num, name=subchapter_name))
                         question.subchapter_id = None
                 else:
                     question.subchapter_id = None
@@ -4471,12 +4478,12 @@ def import_question_tags():
                 raw_marks = row.get('marks', '')
                 if is_stem(question):
                     if str(raw_marks or '').strip():
-                        warnings.append(f'Row {row_num}: "{qid}" is a stem; marks belong on its parts, ignored.')
+                        warnings.append(_t('Row {row_num}: "{qid}" is a stem; marks belong on its parts, ignored.', row_num=row_num, qid=qid))
                 else:
                     try:
                         question.marks = parse_marks(raw_marks)
                     except ValueError as e:
-                        warnings.append(f'Row {row_num}: {e}; marks left unchanged.')
+                        warnings.append(_t('Row {row_num}: {e}; marks left unchanged.', row_num=row_num, e=e))
 
             if 'description' in fields_to_import:
                 description = row.get('description', '').strip()
@@ -4611,11 +4618,11 @@ def import_topics():
             subject = Subject.query.get(subj_id)
             if not subject:
                 skipped += 1
-                warnings.append(f'Row {row_num}: subject "{subj_id}" not found.')
+                warnings.append(_t('Row {row_num}: subject "{subject}" not found.', row_num=row_num, subject=subj_id))
                 continue
             if subj_id not in subject_ids:
                 skipped += 1
-                warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
+                warnings.append(_t('Row {row_num}: no admin access to subject "{subject}".', row_num=row_num, subject=subj_id))
                 continue
             if subj_id not in snapshotted:
                 subject_snapshot.capture(subj_id, 'topic-import')
@@ -4800,11 +4807,11 @@ def import_chapters():
             subject = Subject.query.get(subj_id)
             if not subject:
                 skipped += 1
-                warnings.append(f'Row {row_num}: subject "{subj_id}" not found.')
+                warnings.append(_t('Row {row_num}: subject "{subject}" not found.', row_num=row_num, subject=subj_id))
                 continue
             if subj_id not in subject_ids:
                 skipped += 1
-                warnings.append(f'Row {row_num}: no admin access to subject "{subj_id}".')
+                warnings.append(_t('Row {row_num}: no admin access to subject "{subject}".', row_num=row_num, subject=subj_id))
                 continue
             if subj_id not in snapshotted:
                 subject_snapshot.capture(subj_id, 'chapter-import')
@@ -4915,20 +4922,20 @@ def ingestion_preview():
     
     subject_id = request.args.get('subject_id')
     if not subject_id:
-        return jsonify({'error': 'No subject selected'}), 400
+        return jsonify({'error': _t('No subject selected')}), 400
     
     # Verify admin access to this subject
     admin_subjects = get_user_admin_subjects()
     admin_subject_ids = [s.id for s in admin_subjects]
     if subject_id not in admin_subject_ids:
-        return jsonify({'error': 'Access denied for this subject'}), 403
+        return jsonify({'error': _t('Access denied for this subject')}), 403
     
     source_path = current_app.config['SOURCE_PATH']
     subject_path = os.path.join(source_path, subject_id)
     
     if not os.path.exists(subject_path):
         return jsonify({
-            'error': f'Source folder not found: {subject_id}/',
+            'error': _t('Source folder not found: {subject_id}/', subject_id=subject_id),
             'folders': [],
             'total_files': 0,
             'parseable_files': 0,
@@ -4994,7 +5001,7 @@ def _smart_import_resolve_root(root_id):
     from app.files_service import RootRegistry
     root = RootRegistry(current_user).resolve(root_id)
     if root is None:
-        return None, 'You do not have access to that location.'
+        return None, _t('You do not have access to that location.')
     return root, None
 
 
@@ -5012,12 +5019,12 @@ def _smart_import_sources(data):
         try:
             base = smart_import.upload_dir(token)
         except ValueError:
-            return None, 'Invalid upload token.'
+            return None, _t('Invalid upload token.')
         if not os.path.isdir(base):
-            return None, 'Uploaded folder not found or expired.'
+            return None, _t('Uploaded folder not found or expired.')
         return [{
             'root_id': None,
-            'root_label': 'Uploaded folder',
+            'root_label': _t('Uploaded folder'),
             'base_dir': base,
             'rel_path': '',
         }], None
@@ -5028,7 +5035,7 @@ def _smart_import_sources(data):
         seen = set()
         for raw in raw_sources:
             if not isinstance(raw, dict):
-                return None, 'Invalid folder selection.'
+                return None, _t('Invalid folder selection.')
             root, err = _smart_import_resolve_root(raw.get('root_id'))
             if err:
                 return None, err
@@ -5044,7 +5051,7 @@ def _smart_import_sources(data):
                 'rel_path': rel_path,
             })
         if not sources:
-            return None, 'No folders selected.'
+            return None, _t('No folders selected.')
         return sources, None
 
     root, err = _smart_import_resolve_root(data.get('root_id'))
@@ -5059,7 +5066,9 @@ def _smart_import_sources(data):
 
 
 def _smart_import_folder_label(source):
-    return f"{source.get('root_label') or 'Folder'} / {source.get('rel_path') or '(root)'}"
+    root = source.get('root_label') or _t('Folder')
+    rel = source.get('rel_path') or _t('(root)')
+    return f'{root} / {rel}'
 
 
 def _smart_import_resolve_source_set(sources, profile, qids):
@@ -5072,7 +5081,7 @@ def _smart_import_resolve_source_set(sources, profile, qids):
         result = smart_import.resolve_folder(
             source['base_dir'], source['rel_path'], profile, qid_scope=qids)
         if result.get('error'):
-            return None, f"{_smart_import_folder_label(source)}: {result['error']}"
+            return None, _t('{label}: {error}', label=_smart_import_folder_label(source), error=result['error'])
         folders.append({
             'root_id': source.get('root_id'),
             'root_label': source.get('root_label'),
@@ -5207,7 +5216,7 @@ def smart_import_analyze_llm():
     from app import smart_import
 
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
+        return jsonify({'error': _t('AI features are disabled.')}), 400
 
     data = request.get_json(silent=True) or {}
     sources, err = _smart_import_sources(data)
@@ -5226,7 +5235,7 @@ def smart_import_analyze_llm():
         cfg = llm_client.resolve_default_endpoint('SMART_IMPORT_DEFAULT_LLM',
                                                   vision_only=False)
     if cfg is None:
-        return jsonify({'error': 'No enabled LLM endpoint is available.'}), 400
+        return jsonify({'error': _t('No enabled LLM endpoint is available.')}), 400
 
     profile = data.get('profile') or {}
     try:
@@ -5274,12 +5283,12 @@ def smart_import_prepare():
     items = [it for it in items
              if (str(it.get('subject', '')).upper() in admin_ids)]
     if not items:
-        return jsonify({'error': 'No applicable items selected.'}), 400
+        return jsonify({'error': _t('No applicable items selected.')}), 400
 
     plan = _smart_import_build_plan_for_sources(
         sources, items, data.get('profile') or {})
     if not plan['jobs']:
-        return jsonify({'error': 'Nothing to apply.', 'skipped': plan['skipped']}), 400
+        return jsonify({'error': _t('Nothing to apply.'), 'skipped': plan['skipped']}), 400
 
     token = smart_import.save_plan(plan)
     return jsonify({'token': token, 'count': len(plan['jobs']),
@@ -5337,7 +5346,7 @@ def smart_import_upload():
     files = request.files.getlist('files')
     paths = request.form.getlist('paths')
     if not files:
-        return jsonify({'error': 'No files uploaded.'}), 400
+        return jsonify({'error': _t('No files uploaded.')}), 400
 
     token = smart_import.create_upload()
     base = smart_import.upload_dir(token)
@@ -5362,7 +5371,7 @@ def smart_import_upload():
 
     if saved == 0:
         smart_import.discard_upload(token)
-        return jsonify({'error': 'No files could be saved.'}), 400
+        return jsonify({'error': _t('No files could be saved.')}), 400
 
     return jsonify({'upload_token': token, 'count': saved,
                     'folder_name': top or 'uploaded folder'})
@@ -5460,22 +5469,22 @@ def _resolve_server_pdf(rel_path, root_id=None):
     """
     rel = (rel_path or '').strip().strip('/').strip('\\')
     if not rel:
-        return None, 'No server PDF selected.'
+        return None, _t('No server PDF selected.')
 
     if root_id:
         from app.files_service import RootRegistry
         root = RootRegistry(current_user).resolve(root_id)
         if root is None:
-            return None, 'You do not have access to that location.'
+            return None, _t('You do not have access to that location.')
         base = root.path
     else:
         base = _pdf_source_root()
         if not base or not os.path.isdir(base):
-            return None, 'The server source-PDF folder is not configured or missing.'
+            return None, _t('The server source-PDF folder is not configured or missing.')
 
     full = storage.safe_join(base, rel)
     if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
-        return None, 'Selected PDF not found on the server.'
+        return None, _t('Selected PDF not found on the server.')
     return _ServerPDF(full, os.path.basename(full)), None
 
 
@@ -5490,12 +5499,12 @@ def pdf_import_source_list():
     if not root or not os.path.isdir(root):
         return jsonify({'configured': False, 'root': root, 'current_path': '',
                         'dirs': [], 'files': [],
-                        'message': 'Server source-PDF folder is not configured or does not exist.'})
+                        'message': _t('Server source-PDF folder is not configured or does not exist.')})
 
     rel_path = (request.args.get('path') or '').strip().strip('/').strip('\\')
     cur_dir = storage.safe_join(root, rel_path) if rel_path else root
     if not cur_dir or not os.path.isdir(cur_dir):
-        return jsonify({'error': 'Directory not found or access denied'}), 404
+        return jsonify({'error': _t('Directory not found or access denied')}), 404
 
     rel_norm = os.path.relpath(cur_dir, root).replace('\\', '/')
     if rel_norm == '.':
@@ -5535,11 +5544,11 @@ def pdf_import_guess_paper():
     from app import pdf_import
 
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
+        return jsonify({'error': _t('AI features are disabled.')}), 400
 
     config = _pdf_default_endpoint()
     if config is None:
-        return jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+        return jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
 
     subjects = [s.id for s in get_user_admin_subjects()]
 
@@ -5565,7 +5574,7 @@ def pdf_import_guess_paper():
             pdf_path = server_pdf._abs
             filename = server_pdf.filename
         else:
-            return jsonify({'error': 'No PDF supplied.'}), 400
+            return jsonify({'error': _t('No PDF supplied.')}), 400
 
         image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
         try:
@@ -5573,7 +5582,7 @@ def pdf_import_guess_paper():
                 config, pdf_path, filename, subjects, image_max_dim)
         except Exception as e:
             current_app.logger.exception('PDF import paper-name guess failed')
-            return jsonify({'error': f'Could not read the PDF: {e}'}), 500
+            return jsonify({'error': _t('Could not read the PDF: {e}', e=e)}), 500
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -5588,7 +5597,7 @@ def _pdf_load_token_meta(token):
     try:
         meta = pdf_import.load_meta(token)
     except (ValueError, OSError):
-        return None, 'Staging session not found or expired. Please re-upload.'
+        return None, _t('Staging session not found or expired. Please re-upload.')
     # Generic Extraction sessions have no subject (they never touch the
     # question DB), so any admin who can use the tool may access them.
     if meta.get('mode') == 'generic':
@@ -5597,7 +5606,7 @@ def _pdf_load_token_meta(token):
     if not current_user.is_super_admin:
         admin_ids = [s.id for s in get_user_admin_subjects()]
         if subject not in admin_ids:
-            return None, f'You do not have admin access to subject {subject}.'
+            return None, _t('You do not have admin access to subject {subject}.', subject=subject)
     return meta, None
 
 
@@ -5664,11 +5673,11 @@ def pdf_import_stage():
 
         subject = meta['subject']
         if not Subject.query.get(subject):
-            return jsonify({'error': f'Subject {subject} does not exist.'}), 400
+            return jsonify({'error': _t('Subject {subject} does not exist.', subject=subject)}), 400
         if not current_user.is_super_admin:
             admin_ids = [s.id for s in get_user_admin_subjects()]
             if subject not in admin_ids:
-                return jsonify({'error': f'You do not have admin access to subject {subject}.'}), 403
+                return jsonify({'error': _t('You do not have admin access to subject {subject}.', subject=subject)}), 403
 
         # Versions are chosen at import time (Step 3); staging defaults match UI.
         legacy = (request.form.get('version') or '').strip().upper()
@@ -5702,7 +5711,7 @@ def pdf_import_stage():
             que_file, err = _resolve_server_pdf(
                 que_server, (request.form.get('que_server_root') or '').strip() or None)
             if err:
-                return jsonify({'error': f'Question PDF: {err}'}), 400
+                return jsonify({'error': _t('Question PDF: {err}', err=err)}), 400
             has_que = True
     if not has_sol:
         sol_server = (request.form.get('sol_server_path') or '').strip()
@@ -5710,11 +5719,11 @@ def pdf_import_stage():
             sol_file, err = _resolve_server_pdf(
                 sol_server, (request.form.get('sol_server_root') or '').strip() or None)
             if err:
-                return jsonify({'error': f'Solution PDF: {err}'}), 400
+                return jsonify({'error': _t('Solution PDF: {err}', err=err)}), 400
             has_sol = True
 
     if not has_que and not has_sol:
-        return jsonify({'error': 'Upload or pick at least one PDF (a question PDF and/or a solution PDF).'}), 400
+        return jsonify({'error': _t('Upload or pick at least one PDF (a question PDF and/or a solution PDF).')}), 400
 
     raster_width = int(current_app.config.get('PDF_IMPORT_RASTER_WIDTH', 1700))
     deskew = (request.form.get('deskew', '1').strip().lower()
@@ -5775,7 +5784,7 @@ def pdf_import_stage():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         current_app.logger.exception('PDF import staging failed')
-        return jsonify({'error': f'Could not process PDF: {e}'}), 500
+        return jsonify({'error': _t('Could not process PDF: {e}', e=e)}), 500
 
     def _pages(kind):
         info = saved_meta.get(kind)
@@ -6093,7 +6102,7 @@ def pdf_import_redo_page():
     from app.models import LLMConfig
 
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
+        return jsonify({'error': _t('AI features are disabled.')}), 400
 
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
@@ -6102,21 +6111,21 @@ def pdf_import_redo_page():
     if err:
         return jsonify({'error': err}), 404
     if kind not in ('que', 'sol') or not meta.get(kind):
-        return jsonify({'error': 'invalid kind'}), 400
+        return jsonify({'error': _t('invalid kind')}), 400
     try:
         index = int(data.get('index'))
     except (ValueError, TypeError):
-        return jsonify({'error': 'invalid page index'}), 400
+        return jsonify({'error': _t('invalid page index')}), 400
 
     raw_eid = data.get('endpoint_id')
     if raw_eid in (None, '', 0, '0'):
         cfg = _pdf_default_endpoint()
         if cfg is None:
-            return jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+            return jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
     else:
         cfg = LLMConfig.query.get(raw_eid or 0)
         if cfg is None or not cfg.enabled or not cfg.supports_vision:
-            return jsonify({'error': 'Selected LLM endpoint is unavailable or not vision-capable.'}), 400
+            return jsonify({'error': _t('Selected LLM endpoint is unavailable or not vision-capable.')}), 400
 
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     debug = bool(data.get('debug'))
@@ -6133,13 +6142,13 @@ def pdf_import_redo_page():
         if not instruction:
             instruction = (meta.get('instruction') or '').strip()
         if not instruction:
-            return jsonify({'error': 'Describe what to extract first.'}), 400
+            return jsonify({'error': _t('Describe what to extract first.')}), 400
         meta['instruction'] = instruction
     elif custom_prompt:
         if not instruction:
             instruction = (meta.get('instruction') or '').strip()
         if not instruction:
-            return jsonify({'error': 'Describe what to detect for the custom prompt.'}), 400
+            return jsonify({'error': _t('Describe what to detect for the custom prompt.')}), 400
         meta['custom_prompt'] = True
         meta['instruction'] = instruction
     else:
@@ -6156,7 +6165,7 @@ def pdf_import_redo_page():
                                                    timeout=pdf_import.redo_timeout(cfg))
     except Exception as e:
         current_app.logger.exception('PDF import redo-page failed')
-        return jsonify({'error': f'Detection failed: {e}'}), 502
+        return jsonify({'error': _t('Detection failed: {e}', e=e)}), 502
     # Same alignment rule as full detect / split: the page frame governs x.
     if bool(data.get('frame_snap')) and meta.get('mode') != 'generic':
         meta = pdf_import.ensure_frames(token, meta)
@@ -6214,7 +6223,7 @@ def pdf_import_save_frame():
     kind = (data.get('kind') or '').strip().lower()
     box = data.get('box')
     if box is not None and not (isinstance(box, list) and len(box) == 4):
-        return jsonify({'error': 'box must be [x1,y1,x2,y2] or null'}), 400
+        return jsonify({'error': _t('box must be [x1,y1,x2,y2] or null')}), 400
     try:
         entry = pdf_import.set_manual_frame(token, kind, int(data.get('page', -1)), box)
     except (ValueError, TypeError, OSError) as e:
@@ -6304,7 +6313,7 @@ def pdf_import_cancel():
     data = request.get_json(silent=True) or {}
     job_id = (data.get('job_id') or '').strip()
     if not job_id:
-        return jsonify({'error': 'job_id is required'}), 400
+        return jsonify({'error': _t('job_id is required')}), 400
     known = pdf_import.cancel_job(job_id)
     return jsonify({'success': True, 'known': known})
 
@@ -6371,11 +6380,11 @@ def pdf_import_export_zip():
         return jsonify({'error': err}), 404
     kind = (data.get('kind') or 'que').strip()
     if kind not in ('que', 'sol'):
-        return jsonify({'error': 'invalid kind'}), 400
+        return jsonify({'error': _t('invalid kind')}), 400
 
     items = data.get('items') or []
     if not isinstance(items, list) or not items:
-        return jsonify({'error': 'No regions to export. Detect or draw some boxes first.'}), 400
+        return jsonify({'error': _t('No regions to export. Detect or draw some boxes first.')}), 400
 
     crop_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_CROP_PAD_PCT', 0.6))) / 100.0
     try:
@@ -6387,7 +6396,7 @@ def pdf_import_export_zip():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         current_app.logger.exception('PDF import ZIP export failed')
-        return jsonify({'error': f'Could not build ZIP: {e}'}), 500
+        return jsonify({'error': _t('Could not build ZIP: {e}', e=e)}), 500
 
     stem = 'extraction' if meta.get('mode') == 'generic' else \
         f"{meta.get('subject')}_{meta.get('paper')}_{kind}"
@@ -6478,7 +6487,7 @@ def doc_thumbnail_backfill():
 
     if not word_com.IS_AVAILABLE:
         return jsonify({
-            'error': 'Word COM unavailable on this server — DOC thumbnails cannot be rendered.'
+            'error': _t('Word COM unavailable on this server — DOC thumbnails cannot be rendered.')
         }), 400
 
     force = request.args.get('force', '0') in ('1', 'true', 'yes')
@@ -6563,11 +6572,11 @@ def rerender_doc_thumbnail(question_id, asset_id):
     # Subject-admin permission check.
     question = Question.query.get(question_id)
     if question is None:
-        return jsonify({'error': 'Question not found'}), 404
+        return jsonify({'error': _t('Question not found')}), 404
     if not current_user.is_super_admin:
         admin_subjects = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subjects:
-            return jsonify({'error': 'Access denied — not an admin for this subject'}), 403
+            return jsonify({'error': _t('Access denied — not an admin for this subject')}), 403
 
     from app import doc_thumbnails as _doc_thumbnails
 
@@ -6576,13 +6585,13 @@ def rerender_doc_thumbnail(question_id, asset_id):
         return jsonify({
             'success': False,
             'asset_id': asset_id,
-            'error': 'Word COM not available on this server — re-render skipped.',
+            'error': _t('Word COM not available on this server — re-render skipped.'),
         }), 503
 
     return jsonify({
         'success': True,
         'asset_id': asset_id,
-        'message': 'Re-render scheduled. Poll the thumbnail URL for the new PNG.',
+        'message': _t('Re-render scheduled. Poll the thumbnail URL for the new PNG.'),
     })
 
 
@@ -6601,7 +6610,7 @@ def doc_thumbnail_clear():
     """
     thumb_dir = current_app.config.get('DOC_THUMBNAIL_PATH')
     if not thumb_dir or not os.path.isdir(thumb_dir):
-        return jsonify({'success': True, 'deleted': 0, 'message': 'No thumbnail directory present.'})
+        return jsonify({'success': True, 'deleted': 0, 'message': _t('No thumbnail directory present.')})
 
     deleted = 0
     errors = []
@@ -6613,14 +6622,17 @@ def doc_thumbnail_clear():
             os.remove(full)
             deleted += 1
         except OSError as e:
-            errors.append(f'{entry}: {e}')
+            errors.append(_t('{entry}: {e}', entry=entry, e=e))
 
     return jsonify({
         'success': True,
         'deleted': deleted,
         'errors': errors,
-        'message': f'Deleted {deleted} thumbnail file(s).' + (
-            f' {len(errors)} error(s) — see response.' if errors else ''
+        'message': (
+            _t('Deleted {deleted} thumbnail file(s). {n} error(s) — see response.',
+               deleted=deleted, n=len(errors))
+            if errors else
+            _t('Deleted {deleted} thumbnail file(s).', deleted=deleted)
         ),
     })
 
@@ -6662,19 +6674,19 @@ def batch_generate_images():
     """
     if not word_com.IS_AVAILABLE:
         return jsonify({
-            'error': 'Word COM unavailable on this server — batch image generation requires Windows + Microsoft Word + pywin32.'
+            'error': _t('Word COM unavailable on this server — batch image generation requires Windows + Microsoft Word + pywin32.')
         }), 400
 
     # Parse + validate query params.
     raw_qids = request.args.get('question_ids', '').strip()
     if not raw_qids:
-        return jsonify({'error': 'question_ids is required'}), 400
+        return jsonify({'error': _t('question_ids is required')}), 400
     try:
         question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
     except ValueError:
-        return jsonify({'error': 'question_ids must be a comma-separated list of integers'}), 400
+        return jsonify({'error': _t('question_ids must be a comma-separated list of integers')}), 400
     if not question_ids:
-        return jsonify({'error': 'question_ids resolved to empty list'}), 400
+        return jsonify({'error': _t('question_ids resolved to empty list')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return refused
@@ -6695,9 +6707,9 @@ def batch_generate_images():
     sources = _csv_set('sources', ['DOC', 'MD']) & {'DOC', 'MD'}
 
     if not types:
-        return jsonify({'error': 'types must include at least one of QUE / ANS / SOL'}), 400
+        return jsonify({'error': _t('types must include at least one of QUE / ANS / SOL')}), 400
     if not sources:
-        return jsonify({'error': 'sources must include at least one of DOC / MD'}), 400
+        return jsonify({'error': _t('sources must include at least one of DOC / MD')}), 400
 
     stitch = request.args.get('stitch', '1') in ('1', 'true', 'yes')
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
@@ -6712,7 +6724,7 @@ def batch_generate_images():
         qs = [q for q in qs if q.subject in admin_subject_ids]
     if not qs:
         return jsonify({
-            'error': 'No questions you have admin access to in the selection.'
+            'error': _t('No questions you have admin access to in the selection.')
         }), 403
 
     app = current_app._get_current_object()
@@ -6877,13 +6889,13 @@ def batch_mcq_ans():
     """
     raw_qids = request.args.get('question_ids', '').strip()
     if not raw_qids:
-        return jsonify({'error': 'question_ids is required'}), 400
+        return jsonify({'error': _t('question_ids is required')}), 400
     try:
         question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
     except ValueError:
-        return jsonify({'error': 'question_ids must be integers'}), 400
+        return jsonify({'error': _t('question_ids must be integers')}), 400
     if not question_ids:
-        return jsonify({'error': 'question_ids is empty'}), 400
+        return jsonify({'error': _t('question_ids is empty')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return refused
@@ -6892,7 +6904,7 @@ def batch_mcq_ans():
                     or request.args.get('langs', '').strip() or 'EN')
     versions = sorted({s.strip().upper() for s in raw_versions.split(',') if s.strip()} & set(VERSIONS))
     if not versions:
-        return jsonify({'error': 'versions must include at least one of ' + ' / '.join(VERSIONS)}), 400
+        return jsonify({'error': _t('versions must include at least one of {versions}', versions=' / '.join(VERSIONS))}), 400
 
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
 
@@ -6901,7 +6913,7 @@ def batch_mcq_ans():
     if not current_user.is_super_admin:
         qs = [q for q in qs if q.subject in admin_subject_ids]
     if not qs:
-        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+        return jsonify({'error': _t('No questions you have admin access to in the selection.')}), 403
 
     app = current_app._get_current_object()
 
@@ -7024,7 +7036,7 @@ def _ai_tools_guard():
     """Shared pre-flight for AI Tools routes. Returns (error_response, code)
     on failure, else None."""
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
     return None
 
 
@@ -7041,13 +7053,13 @@ def _ai_parse_qs():
     """Parse + permission-scope question_ids. Returns (qs, error, code)."""
     raw_qids = request.args.get('question_ids', '').strip()
     if not raw_qids:
-        return None, jsonify({'error': 'question_ids is required'}), 400
+        return None, jsonify({'error': _t('question_ids is required')}), 400
     try:
         question_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
     except ValueError:
-        return None, jsonify({'error': 'question_ids must be integers'}), 400
+        return None, jsonify({'error': _t('question_ids must be integers')}), 400
     if not question_ids:
-        return None, jsonify({'error': 'question_ids resolved to empty list'}), 400
+        return None, jsonify({'error': _t('question_ids resolved to empty list')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return None, refused[0], refused[1]
@@ -7057,7 +7069,7 @@ def _ai_parse_qs():
     if not current_user.is_super_admin:
         qs = [q for q in qs if q.subject in admin_subject_ids]
     if not qs:
-        return None, jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+        return None, jsonify({'error': _t('No questions you have admin access to in the selection.')}), 403
     return qs, None, None
 
 
@@ -7086,17 +7098,17 @@ def _ai_load_endpoint(default_setting_key=None):
         if default_setting_key:
             cfg = _default_ai_endpoint(default_setting_key)
             if cfg is None:
-                return None, jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+                return None, jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
             return cfg, None, None
-        return None, jsonify({'error': 'endpoint_id is required'}), 400
+        return None, jsonify({'error': _t('endpoint_id is required')}), 400
     try:
         cfg = LLMConfig.query.get(int(raw))
     except ValueError:
-        return None, jsonify({'error': 'endpoint_id must be an integer'}), 400
+        return None, jsonify({'error': _t('endpoint_id must be an integer')}), 400
     if not cfg or not cfg.enabled:
-        return None, jsonify({'error': 'Endpoint not found or disabled'}), 404
+        return None, jsonify({'error': _t('Endpoint not found or disabled')}), 404
     if not cfg.supports_vision:
-        return None, jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable; image operations require a vision model.'}), 400
+        return None, jsonify({'error': _t('Endpoint "{name}" is not vision-capable; image operations require a vision model.', name=cfg.name)}), 400
     return cfg, None, None
 
 
@@ -7110,17 +7122,17 @@ def _ai_load_endpoint_from_body(data, default_setting_key=None):
         if default_setting_key:
             cfg = _default_ai_endpoint(default_setting_key)
             if cfg is None:
-                return None, jsonify({'error': 'No vision-capable LLM endpoint is configured.'}), 400
+                return None, jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
             return cfg, None, None
-        return None, jsonify({'error': 'endpoint_id is required'}), 400
+        return None, jsonify({'error': _t('endpoint_id is required')}), 400
     try:
         cfg = LLMConfig.query.get(int(raw))
     except (TypeError, ValueError):
-        return None, jsonify({'error': 'endpoint_id must be an integer'}), 400
+        return None, jsonify({'error': _t('endpoint_id must be an integer')}), 400
     if not cfg or not cfg.enabled:
-        return None, jsonify({'error': 'Endpoint not found or disabled'}), 404
+        return None, jsonify({'error': _t('Endpoint not found or disabled')}), 404
     if not cfg.supports_vision:
-        return None, jsonify({'error': f'Endpoint "{cfg.name}" is not vision-capable.'}), 400
+        return None, jsonify({'error': _t('Endpoint "{name}" is not vision-capable.', name=cfg.name)}), 400
     return cfg, None, None
 
 
@@ -7209,7 +7221,7 @@ def ai_cancel():
     data = request.get_json(silent=True) or {}
     job_id = (data.get('job_id') or '').strip()
     if not job_id:
-        return jsonify({'error': 'job_id is required'}), 400
+        return jsonify({'error': _t('job_id is required')}), 400
     known = ai_tools.cancel_job(job_id)
     return jsonify({'success': True, 'known': known})
 
@@ -7261,15 +7273,15 @@ def ai_check():
     typed_version = _ai_csv_versions('typed_version')
     ref_version = _ai_csv_versions('ref_version')
     if not typed_version or not ref_version:
-        return jsonify({'error': 'typed_version and ref_version must each be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('typed_version and ref_version must each be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if typed_version == ref_version:
-        return jsonify({'error': 'typed_version and ref_version must differ'}), 400
+        return jsonify({'error': _t('typed_version and ref_version must differ')}), 400
     atypes = _ai_atypes()
     if not atypes:
-        return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
+        return jsonify({'error': _t('atypes must include at least one of QUE/ANS/SOL')}), 400
     formats = _ai_check_formats()
     if not formats:
-        return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
+        return jsonify({'error': _t('formats must include at least one of IMG/MD/DOC')}), 400
     recheck = request.args.get('recheck', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
@@ -7312,10 +7324,10 @@ def ai_generate_md():
     source_version = _ai_csv_versions('source_version')
     target_version = _ai_csv_versions('target_version')
     if not source_version or not target_version:
-        return jsonify({'error': 'source_version and target_version must each be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('source_version and target_version must each be one of {versions}', versions='/'.join(VERSIONS))}), 400
     atypes = _ai_atypes()
     if not atypes:
-        return jsonify({'error': 'atypes must include at least one of QUE/ANS/SOL'}), 400
+        return jsonify({'error': _t('atypes must include at least one of QUE/ANS/SOL')}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     embed_image = request.args.get('embed_image', '1') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
@@ -7358,10 +7370,10 @@ def ai_solve_generate():
 
     versions = _ai_versions_list('versions')
     if not versions:
-        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('versions must include at least one of {versions}', versions='/'.join(VERSIONS))}), 400
     targets = _ai_solve_targets('targets')
     if not targets:
-        return jsonify({'error': 'targets must include at least one of ANS/SOL/ANS_TEXT'}), 400
+        return jsonify({'error': _t('targets must include at least one of ANS/SOL/ANS_TEXT')}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     include_official_sol = request.args.get('include_official_sol', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
@@ -7402,13 +7414,13 @@ def ai_solve_check():
 
     versions = _ai_versions_list('versions')
     if not versions:
-        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('versions must include at least one of {versions}', versions='/'.join(VERSIONS))}), 400
     targets = _ai_solve_targets('targets')
     if not targets:
-        return jsonify({'error': 'targets must include at least one of ANS/SOL/ANS_TEXT'}), 400
+        return jsonify({'error': _t('targets must include at least one of ANS/SOL/ANS_TEXT')}), 400
     formats = _ai_check_formats()
     if not formats:
-        return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
+        return jsonify({'error': _t('formats must include at least one of IMG/MD/DOC')}), 400
     include_official_sol = request.args.get('include_official_sol', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
@@ -7443,24 +7455,24 @@ def ai_generate_md_slot(question_id):
     ``source_version`` when set, otherwise from ``version`` (same-version).
     """
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
     source_version = (data.get('source_version') or version).strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     if version not in set(VERSIONS):
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if source_version not in set(VERSIONS):
-        return jsonify({'error': 'source_version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('source_version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be QUE / ANS / SOL')}), 400
 
     cfg, err, code = _ai_load_endpoint_from_body(data, 'MD_DEFAULT_LLM')
     if err:
@@ -7500,24 +7512,24 @@ def ai_check_slot(question_id):
     formats? (list of IMG/MD/DOC)}.
     """
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     ref_version = (data.get('ref_version') or '').strip().upper()
     if version not in set(VERSIONS) or ref_version not in set(VERSIONS):
-        return jsonify({'error': 'version and ref_version must each be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version and ref_version must each be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if version == ref_version:
-        return jsonify({'error': 'version and ref_version must differ'}), 400
+        return jsonify({'error': _t('version and ref_version must differ')}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be QUE / ANS / SOL')}), 400
 
     cfg, err, code = _ai_load_endpoint_from_body(data, 'CHECK_DEFAULT_LLM')
     if err:
@@ -7570,21 +7582,21 @@ def ai_check_slot(question_id):
 def ai_solve_generate_slot(question_id):
     """Synchronously solve and generate ANS/SOL Markdown for one target slot."""
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     if version not in set(VERSIONS):
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if asset_type not in ('ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be ANS / SOL')}), 400
 
     cfg, err, code = _ai_load_endpoint_from_body(data, 'SOLVEGEN_DEFAULT_LLM')
     if err:
@@ -7623,21 +7635,21 @@ def ai_solve_generate_slot(question_id):
 def ai_solve_check_slot(question_id):
     """Synchronously solve and check one ANS/SOL slot across selected formats."""
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     if version not in set(VERSIONS):
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if asset_type not in ('ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be ANS / SOL')}), 400
     cfg, err, code = _ai_load_endpoint_from_body(data, 'SOLVECHECK_DEFAULT_LLM')
     if err:
         return err, code
@@ -7652,7 +7664,7 @@ def ai_solve_check_slot(question_id):
             if v in ('IMG', 'MD', 'DOC'):
                 formats.add(v)
         if not formats:
-            return jsonify({'error': 'formats must include at least one of IMG/MD/DOC'}), 400
+            return jsonify({'error': _t('formats must include at least one of IMG/MD/DOC')}), 400
 
     from app import ai_tools
     word = ai_tools._LazyWord(float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600)))
@@ -7693,18 +7705,18 @@ def ai_solve_check_slot(question_id):
 def ai_answer_text(question_id):
     """Generate or check the version-independent Question.answer field."""
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     mode = (data.get('mode') or '').strip().lower()
     if mode not in ('generate', 'check'):
-        return jsonify({'error': 'mode must be generate or check'}), 400
+        return jsonify({'error': _t('mode must be generate or check')}), 400
     versions = [str(v).strip().upper() for v in (data.get('source_versions') or data.get('versions') or [])]
     versions = [v for v in versions if v in set(VERSIONS)]
     if not versions:
@@ -7760,24 +7772,24 @@ def generate_img_slot(question_id):
       source_format ∈ 'DOC' | 'MD' | '' (auto: prefer DOC, else MD).
     """
     if not word_com.IS_AVAILABLE:
-        return jsonify({'error': 'Word COM unavailable on this server — image generation requires Windows + Microsoft Word + pywin32.'}), 400
+        return jsonify({'error': _t('Word COM unavailable on this server — image generation requires Windows + Microsoft Word + pywin32.')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     version = (data.get('version') or '').strip().upper()
     asset_type = (data.get('asset_type') or '').strip().upper()
     source_format = (data.get('source_format') or '').strip().upper()
     if version not in set(VERSIONS):
-        return jsonify({'error': 'version must be one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('version must be one of {versions}', versions='/'.join(VERSIONS))}), 400
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'asset_type must be QUE / ANS / SOL'}), 400
+        return jsonify({'error': _t('asset_type must be QUE / ANS / SOL')}), 400
     if source_format not in ('', 'DOC', 'MD'):
-        return jsonify({'error': 'source_format must be DOC / MD (or empty for auto)'}), 400
+        return jsonify({'error': _t('source_format must be DOC / MD (or empty for auto)')}), 400
     stitch = bool(data.get('stitch', True))
 
     from app import batch_image_gen
@@ -7787,12 +7799,12 @@ def generate_img_slot(question_id):
         allow_md=(source_format in ('', 'MD')),
     )
     if src_asset is None:
-        return jsonify({'error': f'No {source_format or "DOC/MD"} source for {version}/{asset_type} to render.'}), 404
+        return jsonify({'error': _t('No {source} source for {version}/{asset_type} to render.', source=source_format or 'DOC/MD', version=version, asset_type=asset_type)}), 404
 
     source_path = current_app.config['SOURCE_PATH']
     src_abs = os.path.join(source_path, *src_asset.file_path.split('/'))
     if not os.path.isfile(src_abs):
-        return jsonify({'error': 'Source file missing on disk.'}), 404
+        return jsonify({'error': _t('Source file missing on disk.')}), 404
 
     width = int(current_app.config.get('BATCH_IMG_DEFAULT_WIDTH',
                                        current_app.config.get('DOC_THUMBNAIL_WIDTH', 1000)))
@@ -7812,21 +7824,23 @@ def generate_img_slot(question_id):
                     word_app, src_abs, width, transparent, whiteness, padding, symmetric)
     except Exception as e:
         current_app.logger.exception('generate_img_slot render failed for q%s %s/%s', question_id, version, asset_type)
-        return jsonify({'error': f'Render failed: {e}'}), 502
+        return jsonify({'error': _t('Render failed: {e}', e=e)}), 502
 
     if not pages:
-        return jsonify({'error': 'Render produced 0 pages.'}), 502
+        return jsonify({'error': _t('Render produced 0 pages.')}), 502
 
     try:
         summary = batch_image_gen.replace_img_assets(
             question, asset_type, version, pages, stitch, source_path)
     except Exception as e:
         current_app.logger.exception('generate_img_slot replace failed for q%s %s/%s', question_id, version, asset_type)
-        return jsonify({'error': f'Saving images failed: {e}'}), 502
+        return jsonify({'error': _t('Saving images failed: {e}', e=e)}), 502
 
     return jsonify({
         'success': True,
-        'message': f'{version}/{asset_type} — wrote {summary["wrote"]} IMG part(s) from {src_asset.file_format}, replaced {summary["deleted"]}.',
+        'message': _t('{version}/{asset_type} — wrote {wrote} IMG part(s) from {fmt}, replaced {deleted}.',
+                     version=version, asset_type=asset_type, wrote=summary['wrote'],
+                     fmt=src_asset.file_format, deleted=summary['deleted']),
         'wrote': summary['wrote'],
         'deleted': summary['deleted'],
         'source_format': src_asset.file_format,
@@ -7885,10 +7899,10 @@ def ai_auto_tag():
 
     versions = _ai_versions_list('versions')
     if not versions:
-        return jsonify({'error': 'versions must include at least one of ' + '/'.join(VERSIONS)}), 400
+        return jsonify({'error': _t('versions must include at least one of {versions}', versions='/'.join(VERSIONS))}), 400
     fields = _ai_tag_fields_list('fields')
     if not fields:
-        return jsonify({'error': 'fields must include at least one tag field'}), 400
+        return jsonify({'error': _t('fields must include at least one tag field')}), 400
     overwrite = request.args.get('overwrite', '0') in ('1', 'true', 'yes')
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
@@ -7898,7 +7912,7 @@ def ai_auto_tag():
         subject_snapshot.capture_committed({q.subject for q in qs}, 'auto-tag')
     except Exception as e:
         current_app.logger.exception('Auto Tag restore point failed')
-        return jsonify({'error': f'Could not save a restore point, so nothing was tagged: {e}'}), 500
+        return jsonify({'error': _t('Could not save a restore point, so nothing was tagged: {e}', e=e)}), 500
 
     def factory(app, cancel):
         from app import ai_tools
@@ -7926,24 +7940,24 @@ def ai_suggest_tags(question_id):
     Body JSON: {versions[], fields[], endpoint_id}.
     """
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     from app import ai_prompts
     valid_fields = set(ai_prompts.TAG_FIELDS)
     fields = [f for f in (data.get('fields') or []) if f in valid_fields]
     if not fields:
-        return jsonify({'error': 'Select at least one tag field.'}), 400
+        return jsonify({'error': _t('Select at least one tag field.')}), 400
     versions = [str(v).strip().upper() for v in (data.get('versions') or [])]
     versions = [v for v in versions if v in set(VERSIONS)]
     if not versions:
-        return jsonify({'error': 'Select at least one version.'}), 400
+        return jsonify({'error': _t('Select at least one version.')}), 400
 
     cfg, err, code = _ai_load_endpoint_from_body(data, 'AUTOTAG_DEFAULT_LLM')
     if err:
@@ -7964,7 +7978,7 @@ def ai_suggest_tags(question_id):
         return jsonify({'error': str(e)}), 500
 
     if not res.get('ok'):
-        return jsonify({'success': False, 'error': res.get('error') or 'No suggestion',
+        return jsonify({'success': False, 'error': res.get('error') or _t('No suggestion'),
                         'raw': res.get('raw', '')}), 200
     return jsonify({
         'success': True,
@@ -7994,7 +8008,7 @@ def set_question_verified(question_id):
     if not current_user.is_super_admin:
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
         if question.subject not in admin_subject_ids:
-            return jsonify({'error': 'You do not have admin access to this subject.'}), 403
+            return jsonify({'error': _t('You do not have admin access to this subject.')}), 403
 
     data = request.get_json(silent=True) or {}
     verified = bool(data.get('verified'))
@@ -8013,7 +8027,7 @@ def set_question_verified(question_id):
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Save failed: {e}'}), 500
+        return jsonify({'error': _t('Save failed: {e}', e=e)}), 500
 
     return jsonify({
         'success': True,
@@ -8036,9 +8050,9 @@ def batch_set_verified():
     try:
         question_ids = [int(x) for x in (data.get('question_ids') or [])]
     except (TypeError, ValueError):
-        return jsonify({'error': 'question_ids must be integers'}), 400
+        return jsonify({'error': _t('question_ids must be integers')}), 400
     if not question_ids:
-        return jsonify({'error': 'No questions selected'}), 400
+        return jsonify({'error': _t('No questions selected')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return refused
@@ -8049,7 +8063,7 @@ def batch_set_verified():
     if not current_user.is_super_admin:
         qs = [q for q in qs if q.subject in admin_subject_ids]
     if not qs:
-        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+        return jsonify({'error': _t('No questions you have admin access to in the selection.')}), 403
 
     now = datetime.utcnow()
     updated = 0
@@ -8066,7 +8080,7 @@ def batch_set_verified():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Save failed: {e}'}), 500
+        return jsonify({'error': _t('Save failed: {e}', e=e)}), 500
 
     return jsonify({'success': True, 'updated': updated, 'verified': verified})
 
@@ -8087,9 +8101,9 @@ def batch_set_check_state():
     try:
         question_ids = [int(x) for x in (data.get('question_ids') or [])]
     except (TypeError, ValueError):
-        return jsonify({'error': 'question_ids must be integers'}), 400
+        return jsonify({'error': _t('question_ids must be integers')}), 400
     if not question_ids:
-        return jsonify({'error': 'No questions selected'}), 400
+        return jsonify({'error': _t('No questions selected')}), 400
     refused = _bulk_subject_guard(question_ids)
     if refused:
         return refused
@@ -8097,14 +8111,14 @@ def batch_set_check_state():
     versions = [str(v).strip().upper() for v in (data.get('versions') or [])]
     versions = [v for v in versions if v in set(VERSIONS)]
     if not versions:
-        return jsonify({'error': 'Select at least one version.'}), 400
+        return jsonify({'error': _t('Select at least one version.')}), 400
     atypes = [str(a).strip().upper() for a in (data.get('atypes') or [])]
     atypes = [a for a in atypes if a in ('QUE', 'ANS', 'SOL')]
     if not atypes:
-        return jsonify({'error': 'Select at least one asset type (QUE/ANS/SOL).'}), 400
+        return jsonify({'error': _t('Select at least one asset type (QUE/ANS/SOL).')}), 400
     state = (data.get('state') or '').strip().lower()
     if state not in ('ok', 'issues', 'error', 'clear'):
-        return jsonify({'error': 'state must be ok / issues / error / clear'}), 400
+        return jsonify({'error': _t('state must be ok / issues / error / clear')}), 400
     note = (data.get('note') or '').strip()
     severity = (data.get('severity') or 'minor').strip().lower()
     if severity not in ('minor', 'major', 'critical'):
@@ -8116,7 +8130,7 @@ def batch_set_check_state():
     if not current_user.is_super_admin:
         qs = [q for q in qs if q.subject in admin_subject_ids]
     if not qs:
-        return jsonify({'error': 'No questions you have admin access to in the selection.'}), 403
+        return jsonify({'error': _t('No questions you have admin access to in the selection.')}), 403
 
     if state == 'clear':
         new_state = None
@@ -8164,7 +8178,7 @@ def batch_set_check_state():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Save failed: {e}'}), 500
+        return jsonify({'error': _t('Save failed: {e}', e=e)}), 500
 
     return jsonify({'success': True, 'slots_updated': slots_updated,
                     'assets_updated': assets_updated})
@@ -8213,14 +8227,14 @@ def settings_save():
 
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return jsonify({'error': 'JSON object body required'}), 400
+        return jsonify({'error': _t('JSON object body required')}), 400
 
     saved = []
     errors = {}
     values = {}
     for key, raw in payload.items():
         if key not in system_settings.REGISTRY:
-            errors[key] = 'unknown setting key'
+            errors[key] = _t('unknown setting key')
             continue
         try:
             parsed = system_settings.set_value(key, raw, user_id=current_user.id)
@@ -8229,7 +8243,7 @@ def settings_save():
         except (ValueError, KeyError) as e:
             errors[key] = str(e)
         except Exception as e:  # pragma: no cover — surface DB errors gracefully
-            errors[key] = f'unexpected error: {e}'
+            errors[key] = _t('unexpected error: {e}', e=e)
 
     return jsonify({'saved': saved, 'errors': errors, 'values': values})
 
@@ -8246,7 +8260,7 @@ def settings_reset(key):
     from app import settings as system_settings
 
     if key not in system_settings.REGISTRY:
-        return jsonify({'error': 'Unknown setting key'}), 404
+        return jsonify({'error': _t('Unknown setting key')}), 404
 
     try:
         default = system_settings.reset(key, user_id=current_user.id)
@@ -8302,7 +8316,7 @@ def prompts_variant_create():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'id': row.id, 'key': row.prompt_key, 'name': row.name})
 
 
@@ -8324,7 +8338,7 @@ def prompts_variant_save(variant_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'id': row.id, 'key': row.prompt_key, 'name': row.name})
 
 
@@ -8343,7 +8357,7 @@ def prompts_variant_delete(variant_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'ok': True})
 
 
@@ -8359,7 +8373,7 @@ def prompts_variant_activate(variant_id):
     except KeyError as e:
         return jsonify({'error': str(e).strip("'")}), 404
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'ok': True, 'key': row.prompt_key, 'active_id': row.id})
 
 
@@ -8372,7 +8386,7 @@ def prompts_reset_builtin(key):
     from app import ai_prompts
 
     if key not in ai_prompts.PROMPTS_REGISTRY:
-        return jsonify({'error': 'Unknown prompt key'}), 404
+        return jsonify({'error': _t('Unknown prompt key')}), 404
     try:
         default = ai_prompts.reset_builtin(key, user_id=current_user.id)
     except Exception as e:  # pragma: no cover
@@ -8396,7 +8410,7 @@ def prompts_variant_assign(variant_id):
     except KeyError as e:
         return jsonify({'error': str(e).strip("'")}), 404
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'ok': True})
 
 
@@ -8409,14 +8423,14 @@ def prompts_unassign(key):
     from app import ai_prompts
 
     if key not in ai_prompts.PROMPTS_REGISTRY:
-        return jsonify({'error': 'Unknown prompt key'}), 404
+        return jsonify({'error': _t('Unknown prompt key')}), 404
     data = request.get_json(silent=True) or {}
     try:
         ai_prompts.unassign_endpoint(key, int(data.get('endpoint_id') or 0))
     except (TypeError, ValueError):
-        return jsonify({'error': 'endpoint_id required'}), 400
+        return jsonify({'error': _t('endpoint_id required')}), 400
     except Exception as e:  # pragma: no cover
-        return jsonify({'error': f'unexpected error: {e}'}), 500
+        return jsonify({'error': _t('unexpected error: {e}', e=e)}), 500
     return jsonify({'ok': True})
 
 
@@ -8499,13 +8513,13 @@ def llm_endpoints_save():
     base_url = (data.get('base_url') or '').strip()
     model_name = (data.get('model_name') or '').strip()
     if not name or not base_url or not model_name:
-        return jsonify({'error': 'name, base_url and model_name are required'}), 400
+        return jsonify({'error': _t('name, base_url and model_name are required')}), 400
 
     cid = data.get('id')
     if cid:
         cfg = LLMConfig.query.get(cid)
         if not cfg:
-            return jsonify({'error': 'Endpoint not found'}), 404
+            return jsonify({'error': _t('Endpoint not found')}), 404
     else:
         cfg = None
 
@@ -8515,7 +8529,7 @@ def llm_endpoints_save():
     if cid:
         clash = clash.filter(LLMConfig.id != cid)
     if clash.first():
-        return jsonify({'error': f'An endpoint named "{name}" already exists'}), 409
+        return jsonify({'error': _t('An endpoint named "{name}" already exists', name=name)}), 409
 
     if cfg is None:
         cfg = LLMConfig()
@@ -8571,7 +8585,7 @@ def llm_endpoints_save():
             extra_obj = parse_request_extra_json(extra_raw)
             cfg.request_extra_json = json.dumps(extra_obj) if extra_obj else None
         except ValueError as e:
-            return jsonify({'error': f'request_extra_json: {e}'}), 400
+            return jsonify({'error': _t('request_extra_json: {e}', e=e)}), 400
     cfg.max_output_tokens = max(1, _int(data.get('max_output_tokens'), 4096))
     cfg.temperature = _float(data.get('temperature'), 0.0)
     cfg.timeout_seconds = max(5, _int(data.get('timeout_seconds'), 120))
@@ -8703,7 +8717,7 @@ def llm_endpoints_chat(cid):
 
     cfg = LLMConfig.query.get_or_404(cid)
     if not cfg.enabled:
-        return jsonify({'error': 'This endpoint is disabled.'}), 400
+        return jsonify({'error': _t('This endpoint is disabled.')}), 400
 
     data = request.get_json(silent=True) or {}
     raw_turns = data.get('turns') or []
@@ -8731,7 +8745,7 @@ def llm_endpoints_chat(cid):
         if raw_images:
             if not cfg.supports_vision:
                 return jsonify({
-                    'error': "This endpoint is marked text-only and can't receive images.",
+                    'error': _t("This endpoint is marked text-only and can't receive images."),
                 }), 400
             for du in raw_images[:max_images_per_turn]:
                 if not isinstance(du, str):
@@ -8740,14 +8754,13 @@ def llm_endpoints_chat(cid):
                     b64, mime = llm_client.prepare_image_from_data_url(du, image_max_dim)
                 except (ValueError, OSError) as e:
                     return jsonify({
-                        'error': f'Could not decode an attached image: {e}',
+                        'error': _t('Could not decode an attached image: {e}', e=e),
                     }), 400
                 image_blocks.append((b64, mime))
                 total_image_bytes += (len(b64) * 3) // 4
                 if total_image_bytes > max_total_image_bytes:
                     return jsonify({
-                        'error': 'Total attached-image size exceeds the 32 MB limit. '
-                                 'Drop a few images and try again.',
+                        'error': _t('Total attached-image size exceeds the 32 MB limit. Drop a few images and try again.'),
                     }), 413
 
         if not text.strip() and not image_blocks:
@@ -8763,7 +8776,7 @@ def llm_endpoints_chat(cid):
             messages.append({'role': 'user', 'content': text})
 
     if not messages:
-        return jsonify({'error': 'No messages to send.'}), 400
+        return jsonify({'error': _t('No messages to send.')}), 400
 
     chat_timeout = int(current_app.config.get('LLM_CHAT_TIMEOUT_SECONDS') or 0) or None
     app = current_app._get_current_object()

@@ -1,6 +1,6 @@
 # ADR-017 — Bilingual UI and taxonomy (English / Traditional Chinese)
 
-**Status:** accepted, in force since 2026-10-17. Phase 1 is live: the schema, both language switches, bilingual taxonomy display and matching, document heading language, and the navbar / login / Toolbox hub / flash strings. Later phases translate the remaining pages one area at a time (see [STATUS.md](../../STATUS.md)).
+**Status:** accepted, in force since 2026-10-17. Phase 1 (the schema, both language switches, bilingual taxonomy display and matching, document heading language, navbar / login / Toolbox hub) and Phase 2 (every remaining page, admin pages included, plus route JSON messages) are both live (see [STATUS.md](../../STATUS.md)).
 
 ## Context
 

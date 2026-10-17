@@ -6,89 +6,89 @@
 #}
 <div id="editStemTagsNote" class="alert alert-secondary py-2 small d-none">
     <i class="bi bi-diagram-3"></i>
-    <span class="union-text">Tags live on parts; this stem inherits the union at filter time.</span>
+    <span class="union-text">{{ t('Tags live on parts; this stem inherits the union at filter time.') }}</span>
 </div>
 <div class="row g-3">
     <div class="col-lg-2 col-md-4">
-        <label class="form-label">Level</label>
+        <label class="form-label">{{ t('Level') }}</label>
         <select class="form-select" id="editLevel" name="level">
-            <option value="">None</option>
+            <option value="">{{ t('None') }}</option>
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
         </select>
     </div>
     <div class="col-lg-3 col-md-4">
-        <label class="form-label">Question Type</label>
+        <label class="form-label">{{ t('Question Type') }}</label>
         <select class="form-select" id="editQType" name="q_type">
-            <option value="">None</option>
-            <option value="MC">Multiple Choice</option>
-            <option value="CQ">Conventional Question</option>
+            <option value="">{{ t('None') }}</option>
+            <option value="MC">{{ t('Multiple Choice') }}</option>
+            <option value="CQ">{{ t('Conventional Question') }}</option>
         </select>
     </div>
     <div class="col-lg-3 col-md-4">
-        <label class="form-label">Section</label>
+        <label class="form-label">{{ t('Section') }}</label>
         <input type="text" class="form-control" id="editSection" name="section" 
-               placeholder="A, B, or leave empty">
+               placeholder="{{ t('A, B, or leave empty') }}">
     </div>
     <div class="col-lg-2 col-md-4">
-        <label class="form-label">Correct %</label>
+        <label class="form-label">{{ t('Correct %') }}</label>
         <input type="number" class="form-control" id="editCorrectPercentage" name="correct_percentage" 
-               min="0" max="100" placeholder="0-100">
+               min="0" max="100" placeholder="{{ t('0-100') }}">
     </div>
     <div class="col-lg-2 col-md-4">
-        <label class="form-label">Marks</label>
+        <label class="form-label">{{ t('Marks') }}</label>
         <input type="number" class="form-control" id="editMarks" name="marks"
-               min="0" max="999" step="1" placeholder="e.g. 4"
-               title="Marks printed for this question / part. A stem's total is the sum of its parts.">
+               min="0" max="999" step="1" placeholder="{{ t('e.g. 4') }}"
+               title="{{ t('Marks printed for this question / part. A stem\'s total is the sum of its parts.') }}">
         <div id="editMarksTotal" class="form-text d-none"></div>
     </div>
 </div>
 
 <div class="row g-3 mt-1">
     <div class="col-lg-4 col-md-6">
-        <label class="form-label">Description</label>
+        <label class="form-label">{{ t('Description') }}</label>
         <textarea class="form-control" id="editDescription" name="description" 
-                  rows="2" placeholder="Optional description"></textarea>
+                  rows="2" placeholder="{{ t('Optional description') }}"></textarea>
     </div>
     <div class="col-lg-4 col-md-6">
         <div class="d-flex justify-content-between align-items-center">
-            <label class="form-label mb-0">Answer Text</label>
+            <label class="form-label mb-0">{{ t('Answer Text') }}</label>
             <div class="btn-group btn-group-sm" id="editAnswerAiBtns">
                 <button type="button" class="btn btn-outline-dark" onclick="openAnswerTextAiModal('generate')">
-                    <i class="bi bi-lightbulb"></i> Generate
+                    <i class="bi bi-lightbulb"></i> {{ t('Generate') }}
                 </button>
                 <button type="button" class="btn btn-outline-primary" onclick="openAnswerTextAiModal('check')">
-                    <i class="bi bi-robot"></i> Check
+                    <i class="bi bi-robot"></i> {{ t('Check') }}
                 </button>
             </div>
         </div>
         <textarea class="form-control" id="editAnswer" name="answer" 
-                  rows="2" placeholder="Plain text answer (alt to ANS image)"></textarea>
+                  rows="2" placeholder="{{ t('Plain text answer (alt to ANS image)') }}"></textarea>
         <div id="editAnswerAiStatus" class="form-text"></div>
     </div>
     <div class="col-lg-4 col-md-6">
-        <label class="form-label">Comment</label>
+        <label class="form-label">{{ t('Comment') }}</label>
         <textarea class="form-control" id="editComment" name="comment" 
-                  rows="2" placeholder="Notes"></textarea>
+                  rows="2" placeholder="{{ t('Notes') }}"></textarea>
     </div>
 </div>
 
 <hr>
-<h6 class="mb-3"><i class="bi bi-tags"></i> Topic Tagging</h6>
+<h6 class="mb-3"><i class="bi bi-tags"></i> {{ t('Topic Tagging') }}</h6>
 
 <div class="row g-3">
     {# Major Topic - searchable single-select #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Major Topic (select 1)</label>
+        <label class="form-label">{{ t('Major Topic (select 1)') }}</label>
         <div class="dropdown searchable-single-select" id="editMajorTopicDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editMajorTopicLabel">None</span>
+                <span id="editMajorTopicLabel">{{ t('None') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editMajorTopicSearch" placeholder="Search topics...">
+                    <input type="text" class="form-control" id="editMajorTopicSearch" placeholder="{{ t('Search topics...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorTopicSearch()">
                         <i class="bi bi-x"></i>
                     </button>
@@ -102,48 +102,48 @@
 
     {# Major Subtopic - searchable single-select #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Major Subtopic</label>
+        <label class="form-label">{{ t('Major Subtopic') }}</label>
         <div class="dropdown searchable-single-select" id="editMajorSubtopicDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editMajorSubtopicLabel">None</span>
+                <span id="editMajorSubtopicLabel">{{ t('None') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editMajorSubtopicSearch" placeholder="Search subtopics...">
+                    <input type="text" class="form-control" id="editMajorSubtopicSearch" placeholder="{{ t('Search subtopics...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditMajorSubtopicSearch()">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
                 <div id="editMajorSubtopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
-                    <div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic('', 'None')">None</div>
+                    <div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic('', '')">{{ t('None') }}</div>
                 </div>
             </div>
         </div>
         <input type="hidden" id="editMajorSubtopic" name="major_subtopic_id" value="">
-        <small class="text-muted">Select major topic first to see subtopics</small>
+        <small class="text-muted">{{ t('Select major topic first to see subtopics') }}</small>
     </div>
 </div>
 
 <div class="row g-3 mt-1">
     {# Minor Topics - multi-select with checkboxes #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Minor Topics (multiple)</label>
+        <label class="form-label">{{ t('Minor Topics (multiple)') }}</label>
         <div class="dropdown multi-select-dropdown" id="editMinorTopicsDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editMinorTopicsLabel">None selected</span>
+                <span id="editMinorTopicsLabel">{{ t('None selected') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editMinorTopicsSearch" placeholder="Search topics...">
+                    <input type="text" class="form-control" id="editMinorTopicsSearch" placeholder="{{ t('Search topics...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditMinorTopicsSearch()">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
                 <div class="d-flex gap-1 mb-2">
-                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditMinorTopics()">All</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditMinorTopics()">None</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditMinorTopics()">{{ t('All') }}</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditMinorTopics()">{{ t('None') }}</button>
                 </div>
                 <div id="editMinorTopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
                 </div>
@@ -155,22 +155,22 @@
 
     {# Subtopics - multi-select with checkboxes #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Subtopics (from Major + Minor Topics)</label>
+        <label class="form-label">{{ t('Subtopics (from Major + Minor Topics)') }}</label>
         <div class="dropdown multi-select-dropdown" id="editSubtopicsDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editSubtopicsLabel">None selected</span>
+                <span id="editSubtopicsLabel">{{ t('None selected') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editSubtopicsSearch" placeholder="Search subtopics...">
+                    <input type="text" class="form-control" id="editSubtopicsSearch" placeholder="{{ t('Search subtopics...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubtopicsSearch()">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
                 <div class="d-flex gap-1 mb-2">
-                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditSubtopics()">All</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditSubtopics()">None</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllEditSubtopics()">{{ t('All') }}</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllEditSubtopics()">{{ t('None') }}</button>
                 </div>
                 <div id="editSubtopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 200px; overflow-y: auto;">
                 </div>
@@ -178,25 +178,25 @@
         </div>
         <!-- Hidden select to store values -->
         <select id="editSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
-        <small class="text-muted">All subtopics shown (including hidden ones)</small>
+        <small class="text-muted">{{ t('All subtopics shown (including hidden ones)') }}</small>
     </div>
 </div>
 
 <hr>
-<h6 class="mb-3"><i class="bi bi-book"></i> Chapter Tagging</h6>
+<h6 class="mb-3"><i class="bi bi-book"></i> {{ t('Chapter Tagging') }}</h6>
 
 <div class="row g-3">
     {# Chapter - searchable single-select #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Chapter</label>
+        <label class="form-label">{{ t('Chapter') }}</label>
         <div class="dropdown searchable-single-select" id="editChapterDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editChapterLabel">None</span>
+                <span id="editChapterLabel">{{ t('None') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editChapterSearch" placeholder="Search chapters...">
+                    <input type="text" class="form-control" id="editChapterSearch" placeholder="{{ t('Search chapters...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditChapterSearch()">
                         <i class="bi bi-x"></i>
                     </button>
@@ -210,25 +210,25 @@
 
     {# Subchapter - searchable single-select #}
     <div class="col-lg-6 col-md-6">
-        <label class="form-label">Subchapter</label>
+        <label class="form-label">{{ t('Subchapter') }}</label>
         <div class="dropdown searchable-single-select" id="editSubchapterDropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" 
                     data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <span id="editSubchapterLabel">None</span>
+                <span id="editSubchapterLabel">{{ t('None') }}</span>
             </button>
             <div class="dropdown-menu w-100 p-2">
                 <div class="input-group input-group-sm mb-2">
-                    <input type="text" class="form-control" id="editSubchapterSearch" placeholder="Search subchapters...">
+                    <input type="text" class="form-control" id="editSubchapterSearch" placeholder="{{ t('Search subchapters...') }}">
                     <button class="btn btn-outline-secondary" type="button" onclick="clearEditSubchapterSearch()">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
                 <div id="editSubchapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
-                    <div class="searchable-option" data-value="" onclick="selectEditSubchapter('', 'None')">None</div>
+                    <div class="searchable-option" data-value="" onclick="selectEditSubchapter('', '')">{{ t('None') }}</div>
                 </div>
             </div>
         </div>
         <input type="hidden" id="editSubchapter" name="subchapter_id" value="">
-        <small class="text-muted">Select chapter first to see subchapters (all shown including hidden)</small>
+        <small class="text-muted">{{ t('Select chapter first to see subchapters (all shown including hidden)') }}</small>
     </div>
 </div>

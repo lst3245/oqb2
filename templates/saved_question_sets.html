@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Question Sets - Question Bank{% endblock %}
+{% block title %}{{ t('Question Sets - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -12,42 +12,40 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h2><i class="bi bi-collection"></i> Question Sets</h2>
+        <h2><i class="bi bi-collection"></i> {{ t('Question Sets') }}</h2>
         <div class="d-flex align-items-center gap-3">
             <div>
-                <label for="subjectFilter" class="form-label small mb-0 me-2 text-muted">Subject:</label>
+                <label for="subjectFilter" class="form-label small mb-0 me-2 text-muted">{{ t('Subject:') }}</label>
                 <select id="subjectFilter" class="form-select form-select-sm d-inline-block" style="width:auto;" onchange="loadSets()">
-                    <option value="">All</option>
+                    <option value="">{{ t('All') }}</option>
                 </select>
             </div>
             {% if current_user.is_super_admin %}
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadSets()">
-                <label class="form-check-label" for="showAllToggle">Show all users</label>
+                <label class="form-check-label" for="showAllToggle">{{ t('Show all users') }}</label>
             </div>
             {% endif %}
         </div>
     </div>
 
     <p class="text-muted small">
-        Saved question sets are subject-scoped collections of questions. Use the
-        <i class="bi bi-intersect"></i> <strong>Set</strong> button on the dashboard to create one
-        from a selection or from the result of a Union/Intersection/Difference operation.
+        {{ t('Saved question sets are subject-scoped collections of questions. Use the <i class="bi bi-intersect"></i> <strong>Set</strong> button on the dashboard to create one from a selection or from the result of a Union/Intersection/Difference operation.')|safe }}
     </p>
 
     <!-- Bulk action bar -->
     <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
-        <span id="selectedCount" class="text-muted small">0 selected</span>
+        <span id="selectedCount" class="text-muted small">{{ t('{n} selected', n=0) }}</span>
         <button class="btn btn-sm btn-danger" onclick="bulkDelete()">
-            <i class="bi bi-trash"></i> Delete Selected
+            <i class="bi bi-trash"></i> {{ t('Delete Selected') }}
         </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">{{ t('Cancel') }}</button>
     </div>
 
     <div id="setsContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading question sets...</p>
+            <p class="mt-2 text-muted">{{ t('Loading question sets...') }}</p>
         </div>
     </div>
 </div>
@@ -88,13 +86,9 @@ function loadSets() {
             const container = document.getElementById('setsContainer');
 
             if (!Array.isArray(sets) || sets.length === 0) {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> No saved question sets yet.
-                        Go to the <a href="{{ url_for('dashboard.index') }}">Dashboard</a>,
-                        select some questions, click the <i class="bi bi-intersect"></i> <strong>Set</strong>
-                        button, then "Save Selection as set…".
-                    </div>`;
+                container.innerHTML = '<div class="alert alert-info"><i class="bi bi-info-circle"></i> ' +
+                    OQB.t('No saved question sets yet. Go to the <a href="{url}">Dashboard</a>, select some questions, click the <i class="bi bi-intersect"></i> <strong>Set</strong> button, then "Save Selection as set…".', {url: {{ url_for('dashboard.index')|tojson }}}) +
+                    '</div>';
                 updateBulkBar();
                 return;
             }
@@ -109,13 +103,13 @@ function loadSets() {
                     <thead class="table-light">
                         <tr>
                             <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
-                            <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
-                            <th>Name</th>
-                            <th>Subject</th>
-                            <th class="text-end" title="Number of questions"># Q</th>
-                            ${showUsername ? '<th>Owner</th>' : ''}
-                            <th>Updated</th>
-                            <th class="text-end">Actions</th>
+                            <th style="width:2.5rem" title="${OQB.t('Starred')}"><i class="bi bi-star"></i></th>
+                            <th>${OQB.t('Name')}</th>
+                            <th>${OQB.t('Subject')}</th>
+                            <th class="text-end" title="${OQB.t('Number of questions')}">${OQB.t('# Q')}</th>
+                            ${showUsername ? '<th>' + OQB.t('Owner') + '</th>' : ''}
+                            <th>${OQB.t('Updated')}</th>
+                            <th class="text-end">${OQB.t('Actions')}</th>
                         </tr>
                     </thead>
                     <tbody>`;
@@ -127,24 +121,24 @@ function loadSets() {
                 const canManage = s.is_own || isSuperAdmin;
                 const starBtn = canManage
                     ? `<button class="btn btn-sm btn-link p-0" onclick="toggleStar(${s.id}, ${s.is_starred ? 'false' : 'true'})"
-                              title="${s.is_starred ? 'Unstar' : 'Star'}">${starIcon}</button>`
-                    : `<span title="Only the owner can star this set">${starIcon}</span>`;
+                              title="${s.is_starred ? OQB.t('Unstar') : OQB.t('Star')}">${starIcon}</button>`
+                    : `<span title="${OQB.t('Only the owner can star this set')}">${starIcon}</span>`;
                 const sharedBadge = s.is_shared
-                    ? ' <span class="badge bg-success" title="Shared with all users with subject access"><i class="bi bi-share-fill"></i> Shared</span>'
+                    ? ' <span class="badge bg-success" title="' + OQB.t('Shared with all users with subject access') + '"><i class="bi bi-share-fill"></i> ' + OQB.t('Shared') + '</span>'
                     : '';
                 const shareBtn = isSuperAdmin
                     ? `<button class="btn btn-sm ${s.is_shared ? 'btn-success' : 'btn-outline-success'}" onclick="toggleShare(${s.id}, ${s.is_shared ? 'false' : 'true'})"
-                               title="${s.is_shared ? 'Stop sharing (make private)' : 'Share with all users'}">
+                               title="${s.is_shared ? OQB.t('Stop sharing (make private)') : OQB.t('Share with all users')}">
                           <i class="bi bi-${s.is_shared ? 'share-fill' : 'share'}"></i>
                        </button>`
                     : '';
                 const renameBtn = canManage
-                    ? `<button class="btn btn-sm btn-outline-secondary" onclick="renameSet(${s.id}, '${escapeAttr(s.name)}')" title="Rename">
+                    ? `<button class="btn btn-sm btn-outline-secondary" onclick="renameSet(${s.id}, '${escapeAttr(s.name)}')" title="${OQB.t('Rename')}">
                           <i class="bi bi-pencil"></i>
                        </button>`
                     : '';
                 const deleteBtn = canManage
-                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteSet(${s.id})" title="Delete">
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteSet(${s.id})" title="${OQB.t('Delete')}">
                           <i class="bi bi-trash"></i>
                        </button>`
                     : '';
@@ -158,11 +152,11 @@ function loadSets() {
                             <td><strong>${escapeHtml(s.name)}</strong>${sharedBadge}</td>
                             <td><span class="badge bg-secondary">${escapeHtml(s.subject)}</span></td>
                             <td class="text-end"><span class="badge bg-info">${s.question_count}</span></td>
-                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(s.username || 'me')}</span></td>` : ''}
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(s.username || OQB.t('me'))}</span></td>` : ''}
                             <td><small class="text-muted">${formatLocalTime(s.updated_at || s.created_at)}</small></td>
                             <td class="text-end">
-                                <a href="{{ url_for('dashboard.index') }}?question_set_id=${s.id}" class="btn btn-sm btn-primary" title="Apply this set as the dashboard selection">
-                                    <i class="bi bi-play-fill"></i> Apply
+                                <a href="{{ url_for('dashboard.index') }}?question_set_id=${s.id}" class="btn btn-sm btn-primary" title="${OQB.t('Apply this set as the dashboard selection')}">
+                                    <i class="bi bi-play-fill"></i> ${OQB.t('Apply')}
                                 </a>
                                 ${renameBtn}
                                 ${shareBtn}
@@ -180,8 +174,8 @@ function loadSets() {
             updateBulkBar();
         })
         .catch(err => {
-            document.getElementById('setsContainer').innerHTML = `
-                <div class="alert alert-danger">Error loading question sets: ${err.message}</div>`;
+            document.getElementById('setsContainer').innerHTML =
+                '<div class="alert alert-danger">' + OQB.t('Error loading question sets: {error}', {error: err.message}) + '</div>';
         });
 }
 
@@ -196,7 +190,7 @@ function updateBulkBar() {
     const countEl = document.getElementById('selectedCount');
     if (checked.length > 0) {
         bar.classList.add('show');
-        countEl.textContent = checked.length + ' selected';
+        countEl.textContent = OQB.t('{n} selected', {n: checked.length});
     } else {
         bar.classList.remove('show');
     }
@@ -222,7 +216,7 @@ function getSelectedIds() {
 function bulkDelete() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected question set(s)? This cannot be undone.`)) return;
+    if (!confirm(OQB.t('Delete {n} selected question set(s)? This cannot be undone.', {n: ids.length}))) return;
 
     fetch(`{{ url_for('user.sets_bulk_delete') }}`, {
         method: 'POST',
@@ -232,9 +226,9 @@ function bulkDelete() {
     .then(r => r.json())
     .then(data => {
         if (data.success) loadSets();
-        else alert(data.error || 'Error deleting sets');
+        else alert(data.error || OQB.t('Error deleting sets'));
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function toggleStar(id, makeStarred) {
@@ -246,14 +240,15 @@ function toggleStar(id, makeStarred) {
     .then(r => r.json())
     .then(data => {
         if (data.success) loadSets();
-        else alert(data.error || 'Error updating star');
+        else alert(data.error || OQB.t('Error updating star'));
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function toggleShare(id, makeShared) {
-    const verb = makeShared ? 'share this set with all users' : 'stop sharing this set';
-    if (!confirm(`Are you sure you want to ${verb}?`)) return;
+    if (!confirm(makeShared
+        ? OQB.t('Are you sure you want to share this set with all users?')
+        : OQB.t('Are you sure you want to stop sharing this set?'))) return;
     fetch(`{{ url_for('user.sets_share', set_id=0) }}`.replace('/0/', `/${id}/`), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -262,26 +257,26 @@ function toggleShare(id, makeShared) {
     .then(r => r.json())
     .then(data => {
         if (data.success) loadSets();
-        else alert(data.error || 'Error updating share status');
+        else alert(data.error || OQB.t('Error updating share status'));
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function deleteSet(id) {
-    if (!confirm('Delete this question set?')) return;
+    if (!confirm(OQB.t('Delete this question set?'))) return;
     fetch(`{{ url_for('user.sets_delete', set_id=0) }}`.replace('/0', `/${id}`), {
         method: 'DELETE'
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) loadSets();
-        else alert(data.error || 'Error deleting set');
+        else alert(data.error || OQB.t('Error deleting set'));
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function renameSet(id, currentName) {
-    const newName = prompt('Rename question set:', currentName);
+    const newName = prompt(OQB.t('Rename question set:'), currentName);
     if (newName === null) return;
     const trimmed = newName.trim();
     if (!trimmed || trimmed === currentName) return;
@@ -294,9 +289,9 @@ function renameSet(id, currentName) {
     .then(r => r.json())
     .then(data => {
         if (data.success) loadSets();
-        else alert(data.error || 'Error renaming set');
+        else alert(data.error || OQB.t('Error renaming set'));
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function formatLocalTime(utcStr) {

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}System Settings - Admin{% endblock %}
+{% block title %}{{ t('System Settings - Admin') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -20,38 +20,38 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2><i class="bi bi-sliders"></i> System Settings</h2>
+        <h2><i class="bi bi-sliders"></i> {{ t('System Settings') }}</h2>
         <div>
             <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-chat-square-text"></i> AI Prompts
+                <i class="bi bi-chat-square-text"></i> {{ t('AI Prompts') }}
             </a>
             <a href="{{ url_for('admin.llm_endpoints_page') }}" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-robot"></i> LLM Endpoints
+                <i class="bi bi-robot"></i> {{ t('LLM Endpoints') }}
             </a>
             <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Admin
+                <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
             </a>
         </div>
     </div>
 
     <div class="alert alert-info">
         <i class="bi bi-info-circle"></i>
-        Settings persist in the database and override the <code>.env</code> bootstrap. Changes apply immediately to the running server &mdash; no restart needed. Secrets (DB credentials, paths, <code>PANDOC_PATH</code>, etc.) intentionally stay in <code>.env</code> and are not editable here.
+        {{ t('Settings persist in the database and override the <code>.env</code> bootstrap. Changes apply immediately to the running server &mdash; no restart needed. Secrets (DB credentials, paths, <code>PANDOC_PATH</code>, etc.) intentionally stay in <code>.env</code> and are not editable here.')|safe }}
     </div>
 
     <div id="settingsContainer">
         <div class="text-center py-5">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-3 text-muted">Loading settings...</p>
+            <p class="mt-3 text-muted">{{ t('Loading settings...') }}</p>
         </div>
     </div>
 
     <div class="d-flex justify-content-end gap-2 mt-3 mb-5" id="actionBar" style="display: none !important;">
         <button class="btn btn-outline-secondary" onclick="reloadSettings()">
-            <i class="bi bi-arrow-clockwise"></i> Reload
+            <i class="bi bi-arrow-clockwise"></i> {{ t('Reload') }}
         </button>
         <button class="btn btn-primary" id="saveBtn" onclick="saveAllDirty()" disabled>
-            <i class="bi bi-floppy"></i> Save changes
+            <i class="bi bi-floppy"></i> {{ t('Save changes') }}
         </button>
     </div>
 </div>
@@ -67,11 +67,11 @@ const dirty = new Set();
 document.addEventListener('DOMContentLoaded', reloadSettings);
 
 function reloadSettings() {
-    document.getElementById('settingsContainer').innerHTML = `
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-3 text-muted">Loading settings...</p>
-        </div>`;
+    document.getElementById('settingsContainer').innerHTML =
+        '<div class="text-center py-5">' +
+        '<div class="spinner-border text-primary" role="status"></div>' +
+        '<p class="mt-3 text-muted">' + OQB.t('Loading settings...') + '</p>' +
+        '</div>';
     document.getElementById('actionBar').style.display = 'none';
     dirty.clear();
 
@@ -85,7 +85,7 @@ function reloadSettings() {
         })
         .catch(err => {
             document.getElementById('settingsContainer').innerHTML =
-                `<div class="alert alert-danger">Failed to load settings: ${err.message}</div>`;
+                '<div class="alert alert-danger">' + OQB.t('Failed to load settings: {error}', {error: err.message}) + '</div>';
         });
 }
 
@@ -100,7 +100,7 @@ function renderSettings() {
         const rows = keysInGroup.map(k => renderRow(registry[k])).join('');
         return `
             <div class="card mb-3">
-                <div class="card-header bg-light"><strong>${escapeHtml(group)}</strong></div>
+                <div class="card-header bg-light"><strong>${escapeHtml(OQB.t(group))}</strong></div>
                 <div class="card-body py-2">${rows}</div>
             </div>`;
     }).join('');
@@ -111,10 +111,10 @@ function renderSettings() {
 
 function renderRow(spec) {
     const overrideBadge = spec.has_override
-        ? `<span class="badge badge-override ms-2">DB override</span>`
-        : `<span class="badge badge-default ms-2">.env default</span>`;
+        ? `<span class="badge badge-override ms-2">${OQB.t('DB override')}</span>`
+        : `<span class="badge badge-default ms-2">${OQB.t('.env default')}</span>`;
     const resetLink = spec.has_override
-        ? `<a href="#" class="ms-2 small text-decoration-none" onclick="resetSetting('${spec.key}'); return false;"><i class="bi bi-arrow-counterclockwise"></i> Reset to .env default</a>`
+        ? `<a href="#" class="ms-2 small text-decoration-none" onclick="resetSetting('${spec.key}'); return false;"><i class="bi bi-arrow-counterclockwise"></i> ${OQB.t('Reset to .env default')}</a>`
         : '';
 
     let input = '';
@@ -126,7 +126,7 @@ function renderRow(spec) {
             <div class="form-check form-switch ${overriddenClass}">
                 <input class="form-check-input" type="checkbox" id="cb_${spec.key}" ${dataKey} ${checked}
                        onchange="markDirty('${spec.key}')">
-                <label class="form-check-label" for="cb_${spec.key}">Enabled</label>
+                <label class="form-check-label" for="cb_${spec.key}">${OQB.t('Enabled')}</label>
             </div>`;
     } else if (spec.type === 'int' || spec.type === 'float') {
         const step = spec.type === 'int' ? '1' : 'any';
@@ -139,14 +139,14 @@ function renderRow(spec) {
     } else if (spec.choices && Array.isArray(spec.choices)) {
         // string setting with a dynamic dropdown
         const currentVal = spec.value ?? '';
-        let opts = `<option value="">(auto — use first by sort order)</option>`;
+        let opts = `<option value="">${OQB.t('(auto — use first by sort order)')}</option>`;
         spec.choices.forEach(ch => {
             const sel = ch.value === currentVal ? ' selected' : '';
             opts += `<option value="${escapeAttr(ch.value)}"${sel}>${escapeHtml(ch.label)}</option>`;
         });
         // Keep current value even if the endpoint was deleted / disabled since last save
         if (currentVal && !spec.choices.find(c => c.value === currentVal)) {
-            opts += `<option value="${escapeAttr(currentVal)}" selected>${escapeHtml(currentVal)} (not found)</option>`;
+            opts += `<option value="${escapeAttr(currentVal)}" selected>${OQB.t('{name} (not found)', {name: escapeHtml(currentVal)})}</option>`;
         }
         input = `
             <select class="form-select form-select-sm ${overriddenClass}" style="max-width: 400px;"
@@ -160,21 +160,21 @@ function renderRow(spec) {
     }
 
     const rangeNote = (spec.min !== null && spec.min !== undefined) || (spec.max !== null && spec.max !== undefined)
-        ? `range: ${spec.min ?? '−∞'}..${spec.max ?? '+∞'}`
-        : `type: ${spec.type}`;
+        ? OQB.t('range: {min}..{max}', {min: spec.min ?? '−∞', max: spec.max ?? '+∞'})
+        : OQB.t('type: {type}', {type: spec.type});
 
     return `
         <div class="setting-row" id="row_${spec.key}">
             <div class="setting-label">
-                ${escapeHtml(spec.label)}
+                ${escapeHtml(OQB.t(spec.label))}
                 ${overrideBadge}
                 ${resetLink}
             </div>
             <div class="mt-1">${input}</div>
-            <div class="setting-help">${escapeHtml(spec.help || '')}</div>
+            <div class="setting-help">${escapeHtml(spec.help ? OQB.t(spec.help) : '')}</div>
             <div class="setting-meta">
                 <code>${escapeHtml(spec.key)}</code> &middot; ${rangeNote}
-                &middot; default: <code>${escapeHtml(String(spec.default ?? 'unset'))}</code>
+                &middot; ${OQB.t('default: <code>{value}</code>', {value: escapeHtml(String(spec.default ?? OQB.t('unset')))})}
             </div>
         </div>`;
 }
@@ -191,8 +191,10 @@ function updateSaveBtn() {
     if (!btn) return;
     btn.disabled = dirty.size === 0;
     btn.innerHTML = dirty.size === 0
-        ? '<i class="bi bi-floppy"></i> Save changes'
-        : `<i class="bi bi-floppy"></i> Save ${dirty.size} change${dirty.size === 1 ? '' : 's'}`;
+        ? '<i class="bi bi-floppy"></i> ' + OQB.t('Save changes')
+        : '<i class="bi bi-floppy"></i> ' + (dirty.size === 1
+            ? OQB.t('Save {n} change', {n: dirty.size})
+            : OQB.t('Save {n} changes', {n: dirty.size}));
 }
 
 function readInputValue(key) {
@@ -213,7 +215,7 @@ function saveAllDirty() {
     const btn = document.getElementById('saveBtn');
     const orig = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Saving...');
 
     fetch('{{ url_for("admin.settings_save") }}', {
         method: 'POST',
@@ -245,7 +247,7 @@ function saveAllDirty() {
                         err.className = 'setting-error text-danger small mt-1';
                         row.appendChild(err);
                     }
-                    err.textContent = `Save failed: ${msg}`;
+                    err.textContent = OQB.t('Save failed: {msg}', {msg: msg});
                 }
             });
 
@@ -254,13 +256,16 @@ function saveAllDirty() {
             updateSaveBtn();
 
             if (Object.keys(errors).length === 0) {
-                showToast('All changes saved.', 'success');
+                showToast(OQB.t('All changes saved.'), 'success');
             } else {
-                showToast(`Saved ${savedKeys.length}; ${Object.keys(errors).length} failed (see fields).`, 'warning');
+                showToast(OQB.t('Saved {saved}; {failed} failed (see fields).', {
+                    saved: savedKeys.length,
+                    failed: Object.keys(errors).length,
+                }), 'warning');
             }
         })
         .catch(err => {
-            showToast('Network error: ' + err.message, 'danger');
+            showToast(OQB.t('Network error: {error}', {error: err.message}), 'danger');
         })
         .finally(() => {
             btn.innerHTML = orig;
@@ -269,14 +274,14 @@ function saveAllDirty() {
 }
 
 function resetSetting(key) {
-    if (!confirm(`Reset ${key} to its .env / Config default? The DB override will be deleted.`)) return;
+    if (!confirm(OQB.t('Reset {key} to its .env / Config default? The DB override will be deleted.', {key: key}))) return;
     fetch(`{{ url_for("admin.settings_reset", key="__KEY__") }}`.replace('__KEY__', encodeURIComponent(key)), {
         method: 'POST',
         headers: {'X-Requested-With': 'XMLHttpRequest'},
     })
         .then(r => r.json())
         .then(data => {
-            if (data.error) { showToast('Reset failed: ' + data.error, 'danger'); return; }
+            if (data.error) { showToast(OQB.t('Reset failed: {error}', {error: data.error}), 'danger'); return; }
             if (serverData.registry[key]) {
                 serverData.registry[key].value = data.value;
                 serverData.registry[key].has_override = false;
@@ -284,9 +289,9 @@ function resetSetting(key) {
             dirty.delete(key);
             renderSettings();
             updateSaveBtn();
-            showToast(`Reset ${key} to default.`, 'success');
+            showToast(OQB.t('Reset {key} to default.', {key: key}), 'success');
         })
-        .catch(err => showToast('Network error: ' + err.message, 'danger'));
+        .catch(err => showToast(OQB.t('Network error: {error}', {error: err.message}), 'danger'));
 }
 
 function showToast(msg, level) {

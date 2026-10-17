@@ -1,7 +1,12 @@
 <div class="bp-op d-none" data-op="aiSolveCheck">
+    {% set sc_labels = {
+        'ANS': t('ANS assets'),
+        'SOL': t('SOL assets'),
+        'ANS_TEXT': t('ANS text (report only)')
+    } %}
     <div class="row g-3">
         <div class="col-sm-4">
-            <div class="bp-section-title">Versions</div>
+            <div class="bp-section-title">{{ t('Versions') }}</div>
             {% for v in OQB_VERSIONS %}
             <div class="form-check">
                 <input class="form-check-input op-solvecheck-version" type="checkbox" value="{{ v }}" id="opSolveCheckVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
@@ -10,16 +15,16 @@
             {% endfor %}
         </div>
         <div class="col-sm-4">
-            <div class="bp-section-title">Check</div>
-            {% for val, label, on in [('ANS', 'ANS assets', true), ('SOL', 'SOL assets', true), ('ANS_TEXT', 'ANS text (report only)', false)] %}
+            <div class="bp-section-title">{{ t('Check') }}</div>
+            {% for val, on in [('ANS', true), ('SOL', true), ('ANS_TEXT', false)] %}
             <div class="form-check">
                 <input class="form-check-input op-solvecheck-target" type="checkbox" value="{{ val }}" id="opSolveCheckTarget_{{ val }}"{% if on %} checked{% endif %}>
-                <label class="form-check-label" for="opSolveCheckTarget_{{ val }}">{{ label }}</label>
+                <label class="form-check-label" for="opSolveCheckTarget_{{ val }}">{{ sc_labels[val] }}</label>
             </div>
             {% endfor %}
         </div>
         <div class="col-sm-4">
-            <div class="bp-section-title">Formats</div>
+            <div class="bp-section-title">{{ t('Formats') }}</div>
             <div class="d-flex flex-wrap gap-2 mb-2">
                 {% for f in ['IMG', 'MD', 'DOC'] %}
                 <div class="form-check">
@@ -30,9 +35,9 @@
             </div>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="opSolveCheckOfficial">
-                <label class="form-check-label" for="opSolveCheckOfficial">Also send ENO/CHO SOL when available</label>
+                <label class="form-check-label" for="opSolveCheckOfficial">{{ t('Also send ENO/CHO SOL when available') }}</label>
             </div>
         </div>
     </div>
-    <div class="form-text">ANS / SOL issues are written to the proofread state of each asset. ANS text findings only appear in the log.</div>
+    <div class="form-text">{{ t('ANS / SOL issues are written to the proofread state of each asset. ANS text findings only appear in the log.') }}</div>
 </div>

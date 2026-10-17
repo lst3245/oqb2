@@ -4,100 +4,100 @@
     <div class="card-body py-2">
         <div class="row g-2 align-items-end">
             <div class="col-lg-4 col-md-6">
-                <div class="aq-filter-label">Search QID</div>
+                <div class="aq-filter-label">{{ t('Search QID') }}</div>
                 <div class="input-group input-group-sm">
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
                     <input type="text" class="form-control" id="aqSearch" autocomplete="off"
-                           placeholder="e.g. 2025_P1B or *_Q7* (in this subject)">
-                    <button class="btn btn-outline-secondary" type="button" onclick="aqSetFilter('q', '')" title="Clear search">
+                           placeholder="{{ t('e.g. 2025_P1B or *_Q7* (in this subject)') }}">
+                    <button class="btn btn-outline-secondary" type="button" onclick="aqSetFilter('q', '')" title="{{ t('Clear search') }}">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Source</div>
+                <div class="aq-filter-label">{{ t('Source') }}</div>
                 <select class="form-select form-select-sm" id="aqSource" onchange="aqSetFilter('source', this.value)">
-                    <option value="">Any</option>
+                    <option value="">{{ t('Any') }}</option>
                 </select>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Years</div>
+                <div class="aq-filter-label">{{ t('Years') }}</div>
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="aqYearsBtn"
-                            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Any</button>
+                            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">{{ t('Any') }}</button>
                     <div class="dropdown-menu p-2 aq-years-menu" id="aqYearsMenu"></div>
                 </div>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Paper</div>
+                <div class="aq-filter-label">{{ t('Paper') }}</div>
                 <select class="form-select form-select-sm" id="aqPaper" onchange="aqSetFilter('paper', this.value)">
-                    <option value="">Any</option>
+                    <option value="">{{ t('Any') }}</option>
                 </select>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Type</div>
+                <div class="aq-filter-label">{{ t('Type') }}</div>
                 <select class="form-select form-select-sm" id="aqType" onchange="aqSetFilter('q_type', this.value)">
-                    <option value="">Any</option>
+                    <option value="">{{ t('Any') }}</option>
                     <option value="MC">MC</option>
                     <option value="CQ">CQ</option>
                 </select>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Structure</div>
+                <div class="aq-filter-label">{{ t('Structure') }}</div>
                 <select class="form-select form-select-sm" id="aqStructure" onchange="aqSetFilter('tree_scope', this.value)"
-                        title="Which rows count as a match">
-                    <option value="all">Any</option>
-                    <option value="with_parts">Questions with parts</option>
-                    <option value="standalone">Standalone questions</option>
-                    <option value="leaves">Printable parts only (leaves)</option>
-                    <option value="roots">Top-level rows only</option>
+                        title="{{ t('Which rows count as a match') }}">
+                    <option value="all">{{ t('Any') }}</option>
+                    <option value="with_parts">{{ t('Questions with parts') }}</option>
+                    <option value="standalone">{{ t('Standalone questions') }}</option>
+                    <option value="leaves">{{ t('Printable parts only (leaves)') }}</option>
+                    <option value="roots">{{ t('Top-level rows only') }}</option>
                 </select>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Verified</div>
+                <div class="aq-filter-label">{{ t('Verified') }}</div>
                 <select class="form-select form-select-sm" id="aqVerified" onchange="aqSetFilter('verified', this.value)">
-                    <option value="">Any</option>
-                    <option value="1">Verified</option>
-                    <option value="0">Not verified</option>
+                    <option value="">{{ t('Any') }}</option>
+                    <option value="1">{{ t('Verified') }}</option>
+                    <option value="0">{{ t('Not verified') }}</option>
                 </select>
             </div>
             <div class="col-auto">
-                <div class="aq-filter-label">Proofread status</div>
+                <div class="aq-filter-label">{{ t('Proofread status') }}</div>
                 <div class="input-group input-group-sm">
                     <select class="form-select form-select-sm" id="aqCheckStatus" onchange="aqSetFilter('check_status', this.value)">
-                        <option value="">Any</option>
-                        <option value="issues">Has issues</option>
-                        <option value="ok">All checked OK</option>
-                        <option value="unchecked">Has unchecked</option>
+                        <option value="">{{ t('Any') }}</option>
+                        <option value="issues">{{ t('Has issues') }}</option>
+                        <option value="ok">{{ t('All checked OK') }}</option>
+                        <option value="unchecked">{{ t('Has unchecked') }}</option>
                     </select>
                     <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"
-                            data-bs-auto-close="outside" aria-expanded="false" title="Which assets the status looks at">
-                        Scope <span id="aqScopeBadge" class="badge bg-primary d-none">!</span>
+                            data-bs-auto-close="outside" aria-expanded="false" title="{{ t('Which assets the status looks at') }}">
+                        {{ t('Scope') }} <span id="aqScopeBadge" class="badge bg-primary d-none">!</span>
                     </button>
                     <div class="dropdown-menu dropdown-menu-end p-3 shadow" style="min-width: 300px;">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div class="fw-bold small"><i class="bi bi-sliders"></i> Status scope</div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqResetScope()">Reset</button>
+                            <div class="fw-bold small"><i class="bi bi-sliders"></i> {{ t('Status scope') }}</div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqResetScope()">{{ t('Reset') }}</button>
                         </div>
-                        <div class="aq-filter-label">Versions</div>
+                        <div class="aq-filter-label">{{ t('Versions') }}</div>
                         <div class="d-flex flex-wrap gap-2 mb-2">
                             {% for v in OQB_VERSIONS %}
                             <div class="form-check">
                                 <input class="form-check-input aq-scope-version" type="checkbox" id="aqScopeVer_{{ v }}" value="{{ v }}" onchange="aqScopeChanged()">
-                                <label class="form-check-label" for="aqScopeVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</label>
+                                <label class="form-check-label" for="aqScopeVer_{{ v }}" title="{{ t(OQB_VERSION_LABELS[v]) }}">{{ v }}</label>
                             </div>
                             {% endfor %}
                         </div>
-                        <div class="aq-filter-label">Asset types</div>
+                        <div class="aq-filter-label">{{ t('Asset types') }}</div>
                         <div class="d-flex flex-wrap gap-2 mb-2">
-                            {% for t in ['QUE', 'ANS', 'SOL'] %}
+                            {% for code in ['QUE', 'ANS', 'SOL'] %}
                             <div class="form-check">
-                                <input class="form-check-input aq-scope-atype" type="checkbox" id="aqScopeType_{{ t }}" value="{{ t }}" onchange="aqScopeChanged()">
-                                <label class="form-check-label" for="aqScopeType_{{ t }}">{{ t }}</label>
+                                <input class="form-check-input aq-scope-atype" type="checkbox" id="aqScopeType_{{ code }}" value="{{ code }}" onchange="aqScopeChanged()">
+                                <label class="form-check-label" for="aqScopeType_{{ code }}">{{ code }}</label>
                             </div>
                             {% endfor %}
                         </div>
-                        <div class="aq-filter-label">Formats</div>
+                        <div class="aq-filter-label">{{ t('Formats') }}</div>
                         <div class="d-flex flex-wrap gap-2">
                             {% for f in ['IMG', 'MD', 'DOC'] %}
                             <div class="form-check">
@@ -110,18 +110,18 @@
                 </div>
             </div>
             <div class="col-auto">
-                <div class="form-check mb-1" title="Only questions that keep an unsplit whole-question archive image">
+                <div class="form-check mb-1" title="{{ t('Only questions that keep an unsplit whole-question archive image') }}">
                     <input class="form-check-input" type="checkbox" id="aqHasWhole" onchange="aqSetFilter('has_whole', this.checked)">
-                    <label class="form-check-label small" for="aqHasWhole"><i class="bi bi-archive"></i> Has archive</label>
+                    <label class="form-check-label small" for="aqHasWhole"><i class="bi bi-archive"></i> {{ t('Has archive') }}</label>
                 </div>
             </div>
             <div class="col-auto ms-auto d-flex gap-2">
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="aqDashSelBtn" onclick="aqUseDashboardSelection()"
-                        title="Show only the questions selected on the dashboard (inside this subject)">
-                    <i class="bi bi-check2-square"></i> Dashboard selection <span class="badge bg-secondary" id="aqDashSelCount">0</span>
+                        title="{{ t('Show only the questions selected on the dashboard (inside this subject)') }}">
+                    <i class="bi bi-check2-square"></i> {{ t('Dashboard selection') }} <span class="badge bg-secondary" id="aqDashSelCount">0</span>
                 </button>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="aqResetFilters()" title="Clear every filter">
-                    <i class="bi bi-funnel"></i> Reset
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="aqResetFilters()" title="{{ t('Clear every filter') }}">
+                    <i class="bi bi-funnel"></i> {{ t('Reset') }}
                 </button>
             </div>
         </div>

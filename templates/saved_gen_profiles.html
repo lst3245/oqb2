@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Generation Presets - Question Bank{% endblock %}
+{% block title %}{{ t('Generation Presets - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -12,34 +12,32 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2><i class="bi bi-bookmark-star"></i> Generation Presets</h2>
+        <h2><i class="bi bi-bookmark-star"></i> {{ t('Generation Presets') }}</h2>
         {% if current_user.is_super_admin %}
         <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="loadPresets()">
-            <label class="form-check-label" for="showAllToggle">Show all users</label>
+            <label class="form-check-label" for="showAllToggle">{{ t('Show all users') }}</label>
         </div>
         {% endif %}
     </div>
 
     <p class="text-muted small">
-        Presets are reusable generation-option templates. Load them on the
-        <a href="{{ url_for('generator.index') }}">Generate page</a> via the "Presets" dropdown.
-        Starred presets always appear at the top of the dropdown.
+        {{ t('Presets are reusable generation-option templates. Load them on the <a href="{url}">Generate page</a> via the "Presets" dropdown. Starred presets always appear at the top of the dropdown.', url=url_for('generator.index'))|safe }}
     </p>
 
     <!-- Bulk action bar -->
     <div id="bulkBar" class="bulk-bar align-items-center gap-2 mb-2">
-        <span id="selectedCount" class="text-muted small">0 selected</span>
+        <span id="selectedCount" class="text-muted small">{{ t('{n} selected', n=0) }}</span>
         <button class="btn btn-sm btn-danger" onclick="bulkDelete()">
-            <i class="bi bi-trash"></i> Delete Selected
+            <i class="bi bi-trash"></i> {{ t('Delete Selected') }}
         </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Cancel</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">{{ t('Cancel') }}</button>
     </div>
 
     <div id="presetsContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading presets...</p>
+            <p class="mt-2 text-muted">{{ t('Loading presets...') }}</p>
         </div>
     </div>
 </div>
@@ -58,12 +56,9 @@ function loadPresets() {
             const container = document.getElementById('presetsContainer');
 
             if (presets.length === 0) {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> No saved generation presets yet.
-                        Go to the <a href="{{ url_for('generator.index') }}">Generate page</a>,
-                        set up the options you want, and click <i class="bi bi-floppy"></i> <strong>Save as preset</strong>.
-                    </div>`;
+                container.innerHTML = '<div class="alert alert-info"><i class="bi bi-info-circle"></i> ' +
+                    OQB.t('No saved generation presets yet. Go to the <a href="{url}">Generate page</a>, set up the options you want, and click <i class="bi bi-floppy"></i> <strong>Save as preset</strong>.', {url: {{ url_for('generator.index')|tojson }}}) +
+                    '</div>';
                 updateBulkBar();
                 return;
             }
@@ -78,12 +73,12 @@ function loadPresets() {
                     <thead class="table-light">
                         <tr>
                             <th style="width:2.5rem"><input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleAll(this)"></th>
-                            <th style="width:2.5rem" title="Starred"><i class="bi bi-star"></i></th>
-                            <th>Name</th>
-                            ${showUsername ? '<th>Owner</th>' : ''}
-                            <th>Created</th>
-                            <th>Updated</th>
-                            <th class="text-end">Actions</th>
+                            <th style="width:2.5rem" title="${OQB.t('Starred')}"><i class="bi bi-star"></i></th>
+                            <th>${OQB.t('Name')}</th>
+                            ${showUsername ? '<th>' + OQB.t('Owner') + '</th>' : ''}
+                            <th>${OQB.t('Created')}</th>
+                            <th>${OQB.t('Updated')}</th>
+                            <th class="text-end">${OQB.t('Actions')}</th>
                         </tr>
                     </thead>
                     <tbody>`;
@@ -95,19 +90,19 @@ function loadPresets() {
                 const canManage = p.is_own || isSuperAdmin;
                 const starBtn = canManage
                     ? `<button class="btn btn-sm btn-link p-0" onclick="toggleStar(${p.id}, ${p.is_starred ? 'false' : 'true'})"
-                              title="${p.is_starred ? 'Unstar' : 'Star'}">${starIcon}</button>`
-                    : `<span title="Only the owner can star this preset">${starIcon}</span>`;
+                              title="${p.is_starred ? OQB.t('Unstar') : OQB.t('Star')}">${starIcon}</button>`
+                    : `<span title="${OQB.t('Only the owner can star this preset')}">${starIcon}</span>`;
                 const sharedBadge = p.is_shared
-                    ? ' <span class="badge bg-success" title="Shared with all users"><i class="bi bi-share-fill"></i> Shared</span>'
+                    ? ' <span class="badge bg-success" title="' + OQB.t('Shared with all users') + '"><i class="bi bi-share-fill"></i> ' + OQB.t('Shared') + '</span>'
                     : '';
                 const shareBtn = isSuperAdmin
                     ? `<button class="btn btn-sm ${p.is_shared ? 'btn-success' : 'btn-outline-success'}" onclick="toggleShare(${p.id}, ${p.is_shared ? 'false' : 'true'})"
-                               title="${p.is_shared ? 'Stop sharing (make private)' : 'Share with all users'}">
+                               title="${p.is_shared ? OQB.t('Stop sharing (make private)') : OQB.t('Share with all users')}">
                           <i class="bi bi-${p.is_shared ? 'share-fill' : 'share'}"></i>
                        </button>`
                     : '';
                 const deleteBtn = canManage
-                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deletePreset(${p.id})" title="Delete">
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deletePreset(${p.id})" title="${OQB.t('Delete')}">
                           <i class="bi bi-trash"></i>
                        </button>`
                     : '';
@@ -119,7 +114,7 @@ function loadPresets() {
                             <td>${checkbox}</td>
                             <td>${starBtn}</td>
                             <td><strong>${escapeHtml(p.name)}</strong>${sharedBadge}</td>
-                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || 'me')}</span></td>` : ''}
+                            ${showUsername ? `<td><span class="badge bg-info">${escapeHtml(p.username || OQB.t('me'))}</span></td>` : ''}
                             <td><small class="text-muted">${formatLocalTime(p.created_at)}</small></td>
                             <td><small class="text-muted">${formatLocalTime(p.updated_at)}</small></td>
                             <td class="text-end">
@@ -138,8 +133,8 @@ function loadPresets() {
             updateBulkBar();
         })
         .catch(err => {
-            document.getElementById('presetsContainer').innerHTML = `
-                <div class="alert alert-danger">Error loading presets: ${err.message}</div>`;
+            document.getElementById('presetsContainer').innerHTML =
+                '<div class="alert alert-danger">' + OQB.t('Error loading presets: {error}', {error: err.message}) + '</div>';
         });
 }
 
@@ -154,15 +149,16 @@ function toggleStar(id, makeStarred) {
         if (data.success) {
             loadPresets();
         } else {
-            alert(data.error || 'Error updating star');
+            alert(data.error || OQB.t('Error updating star'));
         }
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function toggleShare(id, makeShared) {
-    const verb = makeShared ? 'share this preset with all users' : 'stop sharing this preset';
-    if (!confirm(`Are you sure you want to ${verb}?`)) return;
+    if (!confirm(makeShared
+        ? OQB.t('Are you sure you want to share this preset with all users?')
+        : OQB.t('Are you sure you want to stop sharing this preset?'))) return;
     fetch(`{{ url_for('user.gen_profiles_share', preset_id=0) }}`.replace('/0/', `/${id}/`), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -173,10 +169,10 @@ function toggleShare(id, makeShared) {
         if (data.success) {
             loadPresets();
         } else {
-            alert(data.error || 'Error updating share status');
+            alert(data.error || OQB.t('Error updating share status'));
         }
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function toggleAll(master) {
@@ -190,7 +186,7 @@ function updateBulkBar() {
     const countEl = document.getElementById('selectedCount');
     if (checked.length > 0) {
         bar.classList.add('show');
-        countEl.textContent = checked.length + ' selected';
+        countEl.textContent = OQB.t('{n} selected', {n: checked.length});
     } else {
         bar.classList.remove('show');
     }
@@ -216,7 +212,7 @@ function getSelectedIds() {
 function bulkDelete() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected preset(s)? This cannot be undone.`)) return;
+    if (!confirm(OQB.t('Delete {n} selected preset(s)? This cannot be undone.', {n: ids.length}))) return;
 
     fetch(`{{ url_for('user.gen_profiles_bulk_delete') }}`, {
         method: 'POST',
@@ -228,14 +224,14 @@ function bulkDelete() {
         if (data.success) {
             loadPresets();
         } else {
-            alert(data.error || 'Error deleting presets');
+            alert(data.error || OQB.t('Error deleting presets'));
         }
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function deletePreset(id) {
-    if (!confirm('Delete this generation preset?')) return;
+    if (!confirm(OQB.t('Delete this generation preset?'))) return;
 
     fetch(`{{ url_for('user.gen_profiles_delete', preset_id=0) }}`.replace('/0', `/${id}`), {
         method: 'DELETE'
@@ -245,10 +241,10 @@ function deletePreset(id) {
         if (data.success) {
             loadPresets();
         } else {
-            alert(data.error || 'Error deleting preset');
+            alert(data.error || OQB.t('Error deleting preset'));
         }
     })
-    .catch(err => alert('Error: ' + err.message));
+    .catch(err => alert(OQB.t('Error: {error}', {error: err.message})));
 }
 
 function formatLocalTime(utcStr) {

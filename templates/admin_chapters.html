@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Chapters{% if subject %} — {{ subject.id }}{% endif %} - Question Bank{% endblock %}
+{% block title %}{% if subject %}{{ t('Manage Chapters — {subject} - Question Bank', subject=subject.id) }}{% else %}{{ t('Manage Chapters - Question Bank') }}{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -25,7 +25,7 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
-        <h2 class="mb-0"><i class="bi bi-book"></i> Manage Chapters &amp; Subchapters
+        <h2 class="mb-0"><i class="bi bi-book"></i> {{ t('Manage Chapters & Subchapters') }}
             {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ tax_name(subject) }}</small>{% endif %}
         </h2>
         <div class="d-flex align-items-center gap-2">
@@ -34,31 +34,28 @@
             {% endwith %}
             {% if subject %}
             <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-tags"></i> Topics
+                <i class="bi bi-tags"></i> {{ t('Topics') }}
             </a>
             <a href="{{ url_for('restore_points.page', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-clock-history"></i> Restore Points
+                <i class="bi bi-clock-history"></i> {{ t('Restore Points') }}
             </a>
             {% endif %}
             <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-arrow-left"></i> Back to Admin
+                <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
             </a>
         </div>
     </div>
-    <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> One subject at a time.
-        Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it.
-        The grey name beside it is the optional Chinese name (double-click or <strong>中</strong> to edit; blank clears it).
-        Hidden chapters / subchapters stay taggable but drop out of the dashboard filter and AI tag hints.</p>
+    <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> {{ t('One subject at a time. Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it. The grey name beside it is the optional Chinese name (double-click or <strong>中</strong> to edit; blank clears it). Hidden chapters / subchapters stay taggable but drop out of the dashboard filter and AI tag hints.')|safe }}</p>
     <hr>
 
     {% if not subject %}
-    <p class="text-muted">No subjects you administer.</p>
+    <p class="text-muted">{{ t('No subjects you administer.') }}</p>
     {% else %}
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-folder"></i> {{ tax_name(subject) }} ({{ subject.id }})</h5>
             <button class="btn btn-sm btn-success" onclick="showAddChapterModal()">
-                <i class="bi bi-plus-circle"></i> Add Chapter
+                <i class="bi bi-plus-circle"></i> {{ t('Add Chapter') }}
             </button>
         </div>
         <div class="card-body">
@@ -69,25 +66,25 @@
                      data-level="parent" data-id="{{ chapter.id }}" data-hidden="{{ 1 if chapter.hidden else 0 }}">
                     <div class="card-header bg-primary text-white tax-row d-flex justify-content-between align-items-center gap-2">
                         <div class="d-flex align-items-center flex-grow-1 min-w-0">
-                            <span class="drag-handle tax-parent-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                            <span class="drag-handle tax-parent-handle" title="{{ t('Drag to reorder') }}"><i class="bi bi-grip-vertical"></i></span>
                             <div class="order-controls">
-                                <button class="btn btn-light reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
-                                <button class="btn btn-light reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
+                                <button class="btn btn-light reorder-btn" data-act="up" title="{{ t('Move up') }}"><i class="bi bi-chevron-up"></i></button>
+                                <button class="btn btn-light reorder-btn" data-act="down" title="{{ t('Move down') }}"><i class="bi bi-chevron-down"></i></button>
                             </div>
                             <h6 class="mb-0">
                                 <i class="bi bi-book"></i>
-                                <span class="tax-name" title="Double-click to rename">{{ chapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ chapter.name_zh or '' }}</span>
-                                <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not chapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                <span class="tax-name" title="{{ t('Double-click to rename') }}">{{ chapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="{{ t('Chinese name — double-click to edit') }}" data-placeholder="+ 中文名稱">{{ chapter.name_zh or '' }}</span>
+                                <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not chapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> {{ t('Hidden') }}</span>
                             </h6>
                         </div>
                         <div class="text-nowrap">
-                            <button class="btn btn-sm btn-light" data-act="toggle" title="{{ 'Unhide' if chapter.hidden else 'Hide' }}">
+                            <button class="btn btn-sm btn-light" data-act="toggle" title="{{ t('Unhide') if chapter.hidden else t('Hide') }}">
                                 <i class="bi bi-{{ 'eye' if chapter.hidden else 'eye-slash' }}"></i>
                             </button>
-                            <button class="btn btn-sm btn-light" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-light" data-act="rename-zh" title="Edit Chinese name">中</button>
-                            <button class="btn btn-sm btn-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
-                            <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> Subchapter</button>
+                            <button class="btn btn-sm btn-light" data-act="rename" title="{{ t('Rename') }}"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-light" data-act="rename-zh" title="{{ t('Edit Chinese name') }}">中</button>
+                            <button class="btn btn-sm btn-danger" data-act="delete" title="{{ t('Delete') }}"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> {{ t('Subchapter') }}</button>
                         </div>
                     </div>
                     <div class="card-body py-2">
@@ -97,24 +94,24 @@
                                  data-level="child" data-id="{{ subchapter.id }}" data-hidden="{{ 1 if subchapter.hidden else 0 }}">
                                 <div class="tax-row d-flex justify-content-between align-items-center gap-2">
                                     <div class="d-flex align-items-center flex-grow-1 min-w-0">
-                                        <span class="drag-handle tax-child-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                                        <span class="drag-handle tax-child-handle" title="{{ t('Drag to reorder') }}"><i class="bi bi-grip-vertical"></i></span>
                                         <div class="order-controls">
-                                            <button class="btn btn-outline-secondary reorder-btn" data-act="up" title="Move up"><i class="bi bi-chevron-up"></i></button>
-                                            <button class="btn btn-outline-secondary reorder-btn" data-act="down" title="Move down"><i class="bi bi-chevron-down"></i></button>
+                                            <button class="btn btn-outline-secondary reorder-btn" data-act="up" title="{{ t('Move up') }}"><i class="bi bi-chevron-up"></i></button>
+                                            <button class="btn btn-outline-secondary reorder-btn" data-act="down" title="{{ t('Move down') }}"><i class="bi bi-chevron-down"></i></button>
                                         </div>
                                         <span>
                                             <i class="bi bi-bookmark"></i>
-                                            <span class="tax-name" title="Double-click to rename">{{ subchapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ subchapter.name_zh or '' }}</span>
-                                            <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subchapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
+                                            <span class="tax-name" title="{{ t('Double-click to rename') }}">{{ subchapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="{{ t('Chinese name — double-click to edit') }}" data-placeholder="+ 中文名稱">{{ subchapter.name_zh or '' }}</span>
+                                            <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subchapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> {{ t('Hidden') }}</span>
                                         </span>
                                     </div>
                                     <div class="text-nowrap">
-                                        <button class="btn btn-sm btn-outline-secondary" data-act="toggle" title="{{ 'Unhide' if subchapter.hidden else 'Hide' }}">
+                                        <button class="btn btn-sm btn-outline-secondary" data-act="toggle" title="{{ t('Unhide') if subchapter.hidden else t('Hide') }}">
                                             <i class="bi bi-{{ 'eye' if subchapter.hidden else 'eye-slash' }}"></i>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
-                                        <button class="btn btn-sm btn-outline-primary" data-act="rename-zh" title="Edit Chinese name">中</button>
-                                        <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
+                                        <button class="btn btn-sm btn-outline-primary" data-act="rename" title="{{ t('Rename') }}"><i class="bi bi-pencil"></i></button>
+                                        <button class="btn btn-sm btn-outline-primary" data-act="rename-zh" title="{{ t('Edit Chinese name') }}">中</button>
+                                        <button class="btn btn-sm btn-outline-danger" data-act="delete" title="{{ t('Delete') }}"><i class="bi bi-trash"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -125,7 +122,7 @@
                 {% endfor %}
             </div>
             {% else %}
-                <p class="text-muted mb-0">No chapters for this subject yet. Click "Add Chapter" to create one.</p>
+                <p class="text-muted mb-0">{{ t('No chapters for this subject yet. Click "Add Chapter" to create one.') }}</p>
             {% endif %}
         </div>
     </div>
@@ -137,22 +134,22 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Add Chapter</h5>
+                <h5 class="modal-title">{{ t('Add Chapter') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="chapterForm" onsubmit="event.preventDefault(); saveChapter();">
                     <div class="mb-3">
-                        <label class="form-label" for="chapterName">Chapter Name</label>
+                        <label class="form-label" for="chapterName">{{ t('Chapter Name') }}</label>
                         <input type="text" class="form-control" id="chapterName" required>
                     </div>
-                    <label class="form-label" for="chapterNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                    <label class="form-label" for="chapterNameZh">{{ t('Chinese name') }} <span class="text-muted">{{ t('(optional)') }}</span></label>
                     <input type="text" class="form-control" id="chapterNameZh" maxlength="200" lang="zh-Hant">
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveChapter()">Add</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" onclick="saveChapter()">{{ t('Add') }}</button>
             </div>
         </div>
     </div>
@@ -163,30 +160,30 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Add Subchapter <small class="text-muted" id="subchapterParentName"></small></h5>
+                <h5 class="modal-title">{{ t('Add Subchapter') }} <small class="text-muted" id="subchapterParentName"></small></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="subchapterForm" onsubmit="event.preventDefault(); saveSubchapter();">
                     <input type="hidden" id="subchapterChapterId">
                     <div class="mb-3">
-                        <label class="form-label" for="subchapterName">Subchapter Name</label>
+                        <label class="form-label" for="subchapterName">{{ t('Subchapter Name') }}</label>
                         <input type="text" class="form-control" id="subchapterName" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" for="subchapterNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                        <label class="form-label" for="subchapterNameZh">{{ t('Chinese name') }} <span class="text-muted">{{ t('(optional)') }}</span></label>
                         <input type="text" class="form-control" id="subchapterNameZh" maxlength="200" lang="zh-Hant">
                     </div>
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" role="switch" id="subchapterHidden">
-                        <label class="form-check-label" for="subchapterHidden"><i class="bi bi-eye-slash"></i> Hidden</label>
+                        <label class="form-check-label" for="subchapterHidden"><i class="bi bi-eye-slash"></i> {{ t('Hidden') }}</label>
                     </div>
-                    <small class="text-muted">Hidden subchapters are not shown by default in the dashboard filter.</small>
+                    <small class="text-muted">{{ t('Hidden subchapters are not shown by default in the dashboard filter.') }}</small>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveSubchapter()">Add</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" onclick="saveSubchapter()">{{ t('Add') }}</button>
             </div>
         </div>
     </div>
@@ -219,8 +216,8 @@ document.addEventListener('DOMContentLoaded', function() {
             deleteParent: '{{ url_for("admin.delete_chapter", chapter_id=0) }}',
             deleteChild: '{{ url_for("admin.delete_subchapter", subchapter_id=0) }}',
         },
-        confirmDeleteParent: 'Delete this chapter and all its subchapters? Questions tagged with this chapter will have their chapter cleared.',
-        confirmDeleteChild: 'Delete this subchapter? Questions tagged with this subchapter will have their subchapter cleared.',
+        confirmDeleteParent: OQB.t('Delete this chapter and all its subchapters? Questions tagged with this chapter will have their chapter cleared.'),
+        confirmDeleteChild: OQB.t('Delete this subchapter? Questions tagged with this subchapter will have their subchapter cleared.'),
         onAddChild: showAddSubchapterModal,
     });
 });
@@ -250,7 +247,7 @@ function saveChapter() {
         subject_id: {{ (subject.id if subject else '')|tojson }},
     })
         .then(() => location.reload())
-        .catch(err => alert('Error adding chapter: ' + err.message));
+        .catch(err => alert(OQB.t('Error adding chapter: {error}', {error: err.message})));
 }
 
 function showAddSubchapterModal(chapterId, chapterName) {
@@ -272,7 +269,7 @@ function saveSubchapter() {
         hidden: document.getElementById('subchapterHidden').checked ? '1' : '0',
     })
         .then(() => location.reload())
-        .catch(err => alert('Error adding subchapter: ' + err.message));
+        .catch(err => alert(OQB.t('Error adding subchapter: {error}', {error: err.message})));
 }
 </script>
 {% endblock %}

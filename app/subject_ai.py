@@ -22,6 +22,7 @@ from flask_login import login_required, current_user
 from app import db
 from app import ai_prompts
 from app import subject_ai_service as svc
+from app.i18n import t as _t
 from app.models import Subject, Question, LLMConfig
 from app.utils import (admin_required, subject_admin_required,
                        get_user_admin_subjects, VERSIONS)
@@ -36,7 +37,7 @@ subject_ai_bp = Blueprint('subject_ai', __name__, url_prefix='/admin')
 
 def _ai_enabled_or_400():
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI Tools are disabled (see System Settings).'}), 400
+        return jsonify({'error': _t('AI Tools are disabled (see System Settings).')}), 400
     return None
 
 
@@ -200,15 +201,15 @@ def _load_subject_question(subject, body):
         try:
             q = Question.query.get(int(body['question_id']))
         except (TypeError, ValueError):
-            return None, jsonify({'error': 'question_id must be an integer'}), 400
+            return None, jsonify({'error': _t('question_id must be an integer')}), 400
     elif (body.get('qid') or '').strip():
         q = Question.query.filter_by(qid=body['qid'].strip()).first()
     else:
-        return None, jsonify({'error': 'question_id or qid is required'}), 400
+        return None, jsonify({'error': _t('question_id or qid is required')}), 400
     if q is None:
-        return None, jsonify({'error': 'question not found'}), 404
+        return None, jsonify({'error': _t('question not found')}), 404
     if q.subject != subject.id:
-        return None, jsonify({'error': 'question belongs to another subject'}), 400
+        return None, jsonify({'error': _t('question belongs to another subject')}), 400
     return q, None, None
 
 
@@ -228,7 +229,7 @@ def preview(subject_id):
         return err, code
     fields = _fields_from(body.get('fields'))
     if not fields:
-        return jsonify({'error': 'Select at least one tag field.'}), 400
+        return jsonify({'error': _t('Select at least one tag field.')}), 400
     versions = _versions_from(body.get('versions')) or list(VERSIONS)
 
     from app.admin import _ai_load_endpoint_from_body
@@ -243,7 +244,12 @@ def preview(subject_id):
         source_path=current_app.config['SOURCE_PATH'],
         include_images=False)
     if prompt.get('error'):
-        return jsonify({'success': False, 'error': prompt['error']}), 200
+        err = prompt['error']
+        if err == 'no fields selected':
+            err = _t('no fields selected')
+        elif err == 'no QUE/SOL content (IMG/MD/DOC) found in the selected version(s)':
+            err = _t('no QUE/SOL content (IMG/MD/DOC) found in the selected version(s)')
+        return jsonify({'success': False, 'error': err}), 200
     return jsonify({
         'success': True,
         'question': {'id': q.id, 'qid': q.qid},
@@ -274,7 +280,7 @@ def evaluate(subject_id):
     subject = _subject_or_404(subject_id)
     fields = _fields_from(_csv('fields'))
     if not fields:
-        return jsonify({'error': 'fields must include at least one tag field'}), 400
+        return jsonify({'error': _t('fields must include at least one tag field')}), 400
     versions = _versions_from(_csv('versions')) or list(VERSIONS)
 
     from app.admin import _ai_load_endpoint, _ai_parallel, _ai_stream
@@ -287,14 +293,14 @@ def evaluate(subject_id):
         try:
             ids = [int(s) for s in raw_ids]
         except ValueError:
-            return jsonify({'error': 'question_ids must be integers'}), 400
+            return jsonify({'error': _t('question_ids must be integers')}), 400
         qs = (Question.query.filter(Question.id.in_(ids))
               .filter(Question.subject == subject.id).all())
     else:
         qs = svc.sample_tagged_questions(subject.id, fields,
                                          request.args.get('sample', 20, type=int))
     if not qs:
-        return jsonify({'error': 'No tagged questions found to evaluate.'}), 400
+        return jsonify({'error': _t('No tagged questions found to evaluate.')}), 400
 
     want_parallel = request.args.get('parallel', '0') in ('1', 'true', 'yes')
 
@@ -331,7 +337,7 @@ def log_tag_corrections(question_id):
     body = request.get_json(silent=True) or {}
     fields = _fields_from(body.get('fields'))
     if not fields:
-        return jsonify({'success': False, 'error': 'fields is required'}), 400
+        return jsonify({'success': False, 'error': _t('fields is required')}), 400
     suggested = svc.display_to_labels(body.get('suggested_display') or {}, fields)
     saved = svc.labels_from_form_state(body.get('saved') or {}, fields)
     try:

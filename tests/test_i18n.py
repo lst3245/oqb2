@@ -195,6 +195,19 @@ class CatalogueTests(unittest.TestCase):
                    if text not in self.cat}
         self.assertEqual(missing, {}, 'add these to app/translations/zh_Hant.json')
 
+    def test_dynamic_keys_are_translated(self):
+        """Strings the UI passes to t()/OQB.t() through a variable."""
+        from app.ai_prompts import PROMPTS_REGISTRY
+        from app.settings import REGISTRY
+        from app.utils import GROUP_NONE_LABELS, VERSION_LABELS
+        texts = set(VERSION_LABELS.values()) | set(GROUP_NONE_LABELS.values())
+        for spec in REGISTRY.values():
+            texts |= {spec['group'], spec['label'], spec['help']}
+        for spec in PROMPTS_REGISTRY.values():
+            texts |= {spec['group'], spec['label'], spec['description']}
+        missing = sorted(s for s in texts if s and s not in self.cat)
+        self.assertEqual(missing, [], 'add these to app/translations/zh_Hant.json')
+
 
 class TagPromptTaxonomyTests(unittest.TestCase):
     @staticmethod

@@ -23,6 +23,7 @@ from flask import (Response, abort, current_app, jsonify, render_template,
 from flask_login import current_user, login_required
 
 from app import pdf_tools
+from app.i18n import t as _t
 from app.toolbox import toolbox_bp
 from app.toolbox.common import pdf_source_root, safe_filename, safe_join
 from app.utils import admin_required
@@ -43,9 +44,9 @@ def _resolve_root_base(root_id, require_write=False):
         from app.files_service import RootRegistry
         root = RootRegistry(current_user).resolve(root_id)
         if root is None:
-            return None, 'You do not have access to that location.'
+            return None, _t('You do not have access to that location.')
         if require_write and root.can_write is False:
-            return None, 'That location is read-only.'
+            return None, _t('That location is read-only.')
         try:
             os.makedirs(root.path, exist_ok=True)
         except OSError:
@@ -53,7 +54,7 @@ def _resolve_root_base(root_id, require_write=False):
         return root.path, None
     base = pdf_source_root()
     if not base or not os.path.isdir(base):
-        return None, 'The server source-PDF folder is not configured.'
+        return None, _t('The server source-PDF folder is not configured.')
     return base, None
 
 _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
@@ -388,7 +389,7 @@ def pdf_upload():
     token = (request.form.get('token') or '').strip()
     if token:
         if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-            return jsonify({'error': 'Session expired — reload the page.'}), 400
+            return jsonify({'error': _t('Session expired — reload the page.')}), 400
     else:
         token = _new_session()
 
@@ -403,13 +404,13 @@ def pdf_upload():
             try:
                 _image_file_to_pdf(upload, dest)
             except Exception as e:
-                return jsonify({'error': f'Could not read image: {e}'}), 400
+                return jsonify({'error': _t('Could not read image: {err}', err=e)}), 400
             filename = upload.filename
         elif lower.endswith('.pdf'):
             upload.save(dest)
             filename = upload.filename
         else:
-            return jsonify({'error': 'Please upload a .pdf file or an image.'}), 400
+            return jsonify({'error': _t('Please upload a .pdf file or an image.')}), 400
     else:
         rel = (request.form.get('server_path') or '').strip().strip('/').strip('\\')
         root, err = _resolve_root_base((request.form.get('server_root') or '').strip())
@@ -417,7 +418,7 @@ def pdf_upload():
             return jsonify({'error': err}), 400
         full = safe_join(root, rel) if rel else None
         if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
-            return jsonify({'error': 'Select a PDF (upload one or pick from the server).'}), 400
+            return jsonify({'error': _t('Select a PDF (upload one or pick from the server).')}), 400
         shutil.copyfile(full, dest)
         filename = os.path.basename(full)
 
@@ -433,7 +434,7 @@ def pdf_upload():
             os.remove(dest)
         except OSError:
             pass
-        return jsonify({'error': f'Could not read PDF: {e}'}), 400
+        return jsonify({'error': _t('Could not read PDF: {err}', err=e)}), 400
 
     session = _load_session(token)
     session['sources'][srcid] = {'filename': filename, 'page_count': page_count}
@@ -452,12 +453,12 @@ def pdf_add_pages():
     token = (data.get('token') or '').strip()
     srcid = (data.get('srcid') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
 
     session = _load_session(token)
     src = session['sources'].get(srcid)
     if not src:
-        return jsonify({'error': 'Unknown source — upload it again.'}), 400
+        return jsonify({'error': _t('Unknown source — upload it again.')}), 400
 
     mode = (data.get('mode') or 'none').strip().lower()
     if mode not in pdf_tools.SPLIT_MODES:
@@ -502,7 +503,7 @@ def pdf_reorder():
     token = (data.get('token') or '').strip()
     order = data.get('order') or []
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
     session = _load_session(token)
     by_id = {p['id']: p for p in session['pages']}
     new_pages = [by_id[i] for i in order if i in by_id]
@@ -523,9 +524,9 @@ def pdf_page_ops():
     page_id = (data.get('page_id') or '').strip()
     ops = data.get('ops')
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
     if not isinstance(ops, list):
-        return jsonify({'error': 'ops must be a list'}), 400
+        return jsonify({'error': _t('ops must be a list')}), 400
     ops = _sanitize_ops(ops)
     session = _load_session(token)
     found = None
@@ -535,7 +536,7 @@ def pdf_page_ops():
             found = p
             break
     if not found:
-        return jsonify({'error': 'page not found'}), 404
+        return jsonify({'error': _t('page not found')}), 404
     _save_session(token, session)
     return jsonify({'ok': True, 'page': found})
 
@@ -548,7 +549,7 @@ def pdf_page_delete():
     token = (data.get('token') or '').strip()
     page_ids = set(data.get('page_ids') or [])
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
     session = _load_session(token)
     session['pages'] = [p for p in session['pages'] if p['id'] not in page_ids]
     _save_session(token, session)
@@ -564,7 +565,7 @@ def pdf_duplicate():
     page_ids = list(data.get('page_ids') or [])
     after_id = (data.get('after_id') or '').strip() or None
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
     session = _load_session(token)
     by_id = {p['id']: p for p in session['pages']}
     clones = []
@@ -581,7 +582,7 @@ def pdf_duplicate():
                 src.get('mode1_pages_per_student'))
         clones.append(clone)
     if not clones:
-        return jsonify({'error': 'Nothing to paste.'}), 400
+        return jsonify({'error': _t('Nothing to paste.')}), 400
 
     pages = session['pages']
     insert_at = len(pages)
@@ -605,9 +606,9 @@ def pdf_set_pages():
     token = (data.get('token') or '').strip()
     incoming = data.get('pages')
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session expired — reload the page.'}), 400
+        return jsonify({'error': _t('Session expired — reload the page.')}), 400
     if not isinstance(incoming, list):
-        return jsonify({'error': 'pages must be a list'}), 400
+        return jsonify({'error': _t('pages must be a list')}), 400
     session = _load_session(token)
     srcs = session.get('sources') or {}
     default_dpi = int(current_app.config.get('TOOLBOX_DEFAULT_DPI', 200))
@@ -773,11 +774,11 @@ def pdf_session_restore():
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        return jsonify({'error': 'Session not found.'}), 404
+        return jsonify({'error': _t('Session not found.')}), 404
     try:
         session = _load_session(token)
     except Exception as e:
-        return jsonify({'error': f'Could not load session: {e}'}), 500
+        return jsonify({'error': _t('Could not load session: {err}', err=e)}), 500
     return jsonify({
         'ok': True,
         'token': token,
@@ -834,7 +835,7 @@ def _parse_export_common(data):
     """
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
-        raise ValueError('Session expired — reload the page.')
+        raise ValueError(_t('Session expired — reload the page.'))
     fmt = (data.get('fmt') or 'pdf').strip().lower()
     if fmt not in ('pdf', 'zip'):
         fmt = 'pdf'
@@ -931,7 +932,7 @@ def pdf_export_download():
     job_id = (request.args.get('job_id') or '').strip()
     job = _EXPORT_JOBS.pop(job_id, None)
     if not job or job.get('mode') != 'download' or not job.get('blob'):
-        return jsonify({'error': 'Export job not found or not ready.'}), 404
+        return jsonify({'error': _t('Export job not found or not ready.')}), 404
     buf = io.BytesIO(job['blob'])
     return send_file(buf, mimetype=job['mime'], as_attachment=True,
                      download_name=job['download_name'])
@@ -956,27 +957,28 @@ def pdf_export_save_start():
         subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
     save_dir = safe_join(root, subdir) if subdir else root
     if not save_dir:
-        return jsonify({'error': 'Invalid save directory.'}), 400
+        return jsonify({'error': _t('Invalid save directory.')}), 400
     os.makedirs(save_dir, exist_ok=True)
     subdir = os.path.relpath(save_dir, root).replace('\\', '/')
 
     ext, _mime = _export_meta(fmt, split_every)
     raw_name = (data.get('filename') or '').strip()
     if not raw_name:
-        return jsonify({'error': 'Enter a file name.'}), 400
+        return jsonify({'error': _t('Enter a file name.')}), 400
     stem = safe_filename(raw_name, '')
     if not stem:
-        return jsonify({'error': 'Enter a valid file name.'}), 400
+        return jsonify({'error': _t('Enter a valid file name.')}), 400
     dest = safe_join(save_dir, f'{stem}.{ext}')
     if not dest:
-        return jsonify({'error': 'Invalid filename.'}), 400
+        return jsonify({'error': _t('Invalid filename.')}), 400
 
     overwrite = str(data.get('overwrite') or '').strip().lower() in ('1', 'true', 'yes', 'on')
     if os.path.exists(dest) and not overwrite:
         return jsonify({'exists': True,
                         'filename': f'{stem}.{ext}',
                         'subdir': subdir,
-                        'error': f'"{stem}.{ext}" already exists in {subdir}.'}), 409
+                        'error': _t('"{name}" already exists in {subdir}.',
+                                    name=f'{stem}.{ext}', subdir=subdir)}), 409
 
     page_ids = data.get('page_ids')
     session = _load_session(token)
@@ -1018,17 +1020,17 @@ def pdf_mkdir():
     name = (data.get('name') or '').strip()
     name = re.sub(r'[^\w\-. ]+', '_', name).strip('. ')
     if not name:
-        return jsonify({'error': 'Enter a folder name.'}), 400
+        return jsonify({'error': _t('Enter a folder name.')}), 400
     parent = safe_join(root, parent_rel) if parent_rel else root
     if not parent or not os.path.isdir(parent):
-        return jsonify({'error': 'Parent folder not found.'}), 400
+        return jsonify({'error': _t('Parent folder not found.')}), 400
     target = safe_join(parent, name)
     if not target:
-        return jsonify({'error': 'Invalid folder name.'}), 400
+        return jsonify({'error': _t('Invalid folder name.')}), 400
     try:
         os.makedirs(target, exist_ok=True)
     except OSError as e:
-        return jsonify({'error': f'Could not create folder: {e}'}), 400
+        return jsonify({'error': _t('Could not create folder: {err}', err=e)}), 400
     rel = os.path.relpath(target, root).replace('\\', '/')
     return jsonify({'ok': True, 'rel_path': rel, 'name': name})
 

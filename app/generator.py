@@ -566,7 +566,7 @@ def get_viewer_asset(question_id, asset_type):
     # WHOLE is allowed here only for the Present "Whole question" view; it is
     # read by asset id, never planned into slides or papers.
     if asset_type not in ('QUE', 'ANS', 'SOL', 'WHOLE'):
-        return jsonify({'error': 'Invalid asset_type'}), 400
+        return jsonify({'error': _t('Invalid asset_type')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.has_subject_access(question.subject):
@@ -596,7 +596,7 @@ def get_viewer_asset(question_id, asset_type):
                 asset_type = fallback_type  # Update to indicate the fallback
     
     if not assets:
-        return jsonify({'error': 'Asset not found', 'asset_type': asset_type}), 404
+        return jsonify({'error': _t('Asset not found'), 'asset_type': asset_type}), 404
     
     # Sort by version preference and format. Priority: IMG > MD > DOC.
     def version_order(asset):
@@ -810,7 +810,7 @@ def create_document():
     output_format = 'DOCX'
 
     if not question_ids:
-        return jsonify({'error': 'No questions selected'}), 400
+        return jsonify({'error': _t('No questions selected')}), 400
 
     # Filter out questions from view-only subjects
     if not current_user.is_super_admin:
@@ -819,7 +819,7 @@ def create_document():
         qs = Question.query.filter(Question.id.in_(question_ids)).all()
         question_ids = [str(q.id) for q in qs if q.subject in allowed_subjects]
         if not question_ids:
-            return jsonify({'error': 'No questions available for generation with your permissions'}), 403
+            return jsonify({'error': _t('No questions available for generation with your permissions')}), 403
 
     # Per-paper edits of the subjects' marks rules (anyone who can generate; never saved)
     marks_rules_override = {}
@@ -832,7 +832,7 @@ def create_document():
             marks_rules_override = parse_marks_rules_override(
                 request.form.get('marks_rules_override'), selection_subjects)
         except marks_spacing.MarksSpacingError as exc:
-            return jsonify({'error': f'Marks spacing rules: {exc}'}), 400
+            return jsonify({'error': _t('Marks spacing rules: {error}', error=exc)}), 400
 
     # Build generation options for storage
     generation_options = {
@@ -1236,7 +1236,7 @@ def generation_status(file_id):
     
     # Only owner or super admin
     if gen_file.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     
     return jsonify({
         'id': gen_file.id,
@@ -1425,27 +1425,26 @@ def download_pdf(file_id):
     # (`buildAndDownloadPdf` in my_files.html) can surface them via toast.
     # Successful response is a binary `send_file`.
     if not _user_can_view_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     if gen_file.status != 'completed':
-        return jsonify({'error': 'File is not ready yet — wait for generation to finish.'}), 409
+        return jsonify({'error': _t('File is not ready yet — wait for generation to finish.')}), 409
 
     sibling_filename = _pdf_sibling_filename(gen_file.filename)
     if sibling_filename is None:
-        return jsonify({'error': 'This file is not convertible to PDF (already a PDF or unsupported type).'}), 400
+        return jsonify({'error': _t('This file is not convertible to PDF (already a PDF or unsupported type).')}), 400
 
     output_path = generated_file_dir(gen_file)
     src_path = os.path.join(output_path, gen_file.filename)
     pdf_path = os.path.join(output_path, sibling_filename)
 
     if not os.path.exists(src_path):
-        return jsonify({'error': 'Source file not found on disk.'}), 404
+        return jsonify({'error': _t('Source file not found on disk.')}), 404
 
     if not os.path.exists(pdf_path):
         if not word_com.IS_AVAILABLE:
             return jsonify({
-                'error': 'PDF generation requires Microsoft Word + pywin32 on the server, '
-                         'which is not available.'
+                'error': _t('PDF generation requires Microsoft Word + pywin32 on the server, which is not available.')
             }), 503
         try:
             app = current_app._get_current_object()
@@ -1455,7 +1454,7 @@ def download_pdf(file_id):
                 _build_pdf_from_docx(app, src_path, pdf_path)
         except Exception as e:
             logger.exception('PDF build failed for gen_file_id=%s', gen_file.id)
-            return jsonify({'error': f'PDF generation failed: {e}'}), 500
+            return jsonify({'error': _t('PDF generation failed: {error}', error=e)}), 500
 
     # Pretty download name preserves the display_name + correct extension.
     pretty_ext = '.pdf.zip' if gen_file.filename.lower().endswith('.zip') else '.pdf'

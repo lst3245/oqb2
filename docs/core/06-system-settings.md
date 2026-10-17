@@ -97,6 +97,7 @@ Secrets and infrastructure: `SECRET_KEY`, `DB_*`, all path roots ([05-storage-an
 3. Add a commented line to `.env.example` under the right group with `[tunable]`.
 4. Read it via `current_app.config['KEY']` in the consumer.
 5. Add the row to the table above. The UI needs no changes.
+6. Add `group` (if new), `label` and `help` as keys to `app/translations/zh_Hant.json`: the settings page shows them through `OQB.t(spec.label)` / `OQB.t(spec.help)`, and `tests.test_i18n` (`test_dynamic_keys_are_translated`) fails on a missing one. Changing a label or help text orphans its translation.
 
 ## Gotchas
 

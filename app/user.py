@@ -15,6 +15,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import or_, and_
 
 from app import db
+from app.i18n import t as _t
 from app.models import (
     SavedFilter, SavedGenerationProfile, SavedQuestionSet,
     GeneratedFile, FileSection, FileShare,
@@ -317,15 +318,15 @@ def profiles_save():
     """API: save a new filter profile"""
     data = request.get_json()
     if not data:
-        return jsonify({'error': 'No data provided'}), 400
+        return jsonify({'error': _t('No data provided')}), 400
     
     name = data.get('name', '').strip()
     filter_data = data.get('filter_data')
     
     if not name:
-        return jsonify({'error': 'Profile name is required'}), 400
+        return jsonify({'error': _t('Profile name is required')}), 400
     if not filter_data:
-        return jsonify({'error': 'Filter data is required'}), 400
+        return jsonify({'error': _t('Filter data is required')}), 400
     
     profile = SavedFilter(
         user_id=current_user.id,
@@ -349,7 +350,7 @@ def profiles_data(profile_id):
 
     is_owner_or_admin = profile.user_id == current_user.id or current_user.is_super_admin
     if not is_owner_or_admin and not profile.is_shared:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     
     try:
         filter_data = json.loads(profile.filter_data)
@@ -371,7 +372,7 @@ def profiles_delete(profile_id):
     
     # Only owner or super admin can delete
     if profile.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     
     db.session.delete(profile)
     db.session.commit()
@@ -386,7 +387,7 @@ def profiles_bulk_delete():
     data = request.get_json()
     ids = data.get('ids', []) if data else []
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     deleted = 0
     for pid in ids:
@@ -409,7 +410,7 @@ def profiles_star(profile_id):
     profile = SavedFilter.query.get_or_404(profile_id)
 
     if profile.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     if 'is_starred' in data:
@@ -429,7 +430,7 @@ def profiles_share(profile_id):
     Shared profiles are visible to every logged-in user in their dropdown and list.
     """
     if not current_user.is_super_admin:
-        return jsonify({'error': 'Only super admins can share profiles'}), 403
+        return jsonify({'error': _t('Only super admins can share profiles')}), 403
 
     profile = SavedFilter.query.get_or_404(profile_id)
 
@@ -498,15 +499,15 @@ def gen_profiles_save():
     """API: save (upsert by name) a generation preset for the current user."""
     data = request.get_json()
     if not data:
-        return jsonify({'error': 'No data provided'}), 400
+        return jsonify({'error': _t('No data provided')}), 400
 
     name = (data.get('name') or '').strip()
     options_data = data.get('options_data')
 
     if not name:
-        return jsonify({'error': 'Preset name is required'}), 400
+        return jsonify({'error': _t('Preset name is required')}), 400
     if not options_data:
-        return jsonify({'error': 'Options data is required'}), 400
+        return jsonify({'error': _t('Options data is required')}), 400
 
     # Never store question_ids in a reusable preset
     if isinstance(options_data, dict):
@@ -554,7 +555,7 @@ def gen_profiles_data(preset_id):
 
     is_owner_or_admin = preset.user_id == current_user.id or current_user.is_super_admin
     if not is_owner_or_admin and not preset.is_shared:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     try:
         options_data = json.loads(preset.options_data)
@@ -576,7 +577,7 @@ def gen_profiles_delete(preset_id):
     preset = SavedGenerationProfile.query.get_or_404(preset_id)
 
     if preset.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     db.session.delete(preset)
     db.session.commit()
@@ -590,7 +591,7 @@ def gen_profiles_bulk_delete():
     data = request.get_json()
     ids = data.get('ids', []) if data else []
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     deleted = 0
     for pid in ids:
@@ -613,7 +614,7 @@ def gen_profiles_star(preset_id):
     preset = SavedGenerationProfile.query.get_or_404(preset_id)
 
     if preset.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     if 'is_starred' in data:
@@ -633,7 +634,7 @@ def gen_profiles_share(preset_id):
     Shared presets appear under the 'Shared' optgroup of every user's preset dropdown.
     """
     if not current_user.is_super_admin:
-        return jsonify({'error': 'Only super admins can share presets'}), 403
+        return jsonify({'error': _t('Only super admins can share presets')}), 403
 
     preset = SavedGenerationProfile.query.get_or_404(preset_id)
 
@@ -762,16 +763,16 @@ def sets_save():
     question_ids = data.get('question_ids') or []
 
     if not name:
-        return jsonify({'error': 'Set name is required'}), 400
+        return jsonify({'error': _t('Set name is required')}), 400
     if not subject:
-        return jsonify({'error': 'Subject is required'}), 400
+        return jsonify({'error': _t('Subject is required')}), 400
     if not isinstance(question_ids, list):
-        return jsonify({'error': 'question_ids must be a list'}), 400
+        return jsonify({'error': _t('question_ids must be a list')}), 400
 
     if not Subject.query.get(subject):
-        return jsonify({'error': f'Unknown subject: {subject}'}), 400
+        return jsonify({'error': _t('Unknown subject: {subject}', subject=subject)}), 400
     if not current_user.has_subject_access(subject):
-        return jsonify({'error': 'No access to this subject'}), 403
+        return jsonify({'error': _t('No access to this subject')}), 403
 
     # Coerce to int and de-duplicate while preserving order
     seen = set()
@@ -830,7 +831,7 @@ def sets_data(set_id):
     qs = SavedQuestionSet.query.get_or_404(set_id)
 
     if not _can_view_set(qs):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     payload = _serialize_question_set(qs, include_ids=True)
     # Strip IDs the user no longer has subject access to (paranoid: subject
@@ -847,7 +848,7 @@ def sets_data(set_id):
 def sets_delete(set_id):
     qs = SavedQuestionSet.query.get_or_404(set_id)
     if not _can_manage_set(qs):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     db.session.delete(qs)
     db.session.commit()
     return jsonify({'success': True})
@@ -859,7 +860,7 @@ def sets_bulk_delete():
     data = request.get_json() or {}
     ids = data.get('ids', [])
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     deleted = 0
     for sid in ids:
@@ -879,7 +880,7 @@ def sets_bulk_delete():
 def sets_star(set_id):
     qs = SavedQuestionSet.query.get_or_404(set_id)
     if not _can_manage_set(qs):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     if 'is_starred' in data:
@@ -895,7 +896,7 @@ def sets_star(set_id):
 def sets_share(set_id):
     """Toggle shared status (super admin only)."""
     if not current_user.is_super_admin:
-        return jsonify({'error': 'Only super admins can share sets'}), 403
+        return jsonify({'error': _t('Only super admins can share sets')}), 403
 
     qs = SavedQuestionSet.query.get_or_404(set_id)
     data = request.get_json() or {}
@@ -912,12 +913,12 @@ def sets_share(set_id):
 def sets_rename(set_id):
     qs = SavedQuestionSet.query.get_or_404(set_id)
     if not _can_manage_set(qs):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     new_name = (data.get('name') or '').strip()
     if not new_name:
-        return jsonify({'error': 'New name is required'}), 400
+        return jsonify({'error': _t('New name is required')}), 400
 
     # Avoid collision with another set the same user has under the same subject
     clash = SavedQuestionSet.query.filter(
@@ -927,7 +928,7 @@ def sets_rename(set_id):
         SavedQuestionSet.id != qs.id,
     ).first()
     if clash:
-        return jsonify({'error': f'A set named "{new_name}" already exists for this subject'}), 409
+        return jsonify({'error': _t('A set named "{name}" already exists for this subject', name=new_name)}), 409
 
     qs.name = new_name
     db.session.commit()
@@ -1008,7 +1009,7 @@ def sections_list():
         if shared_ids:
             result.append({
                 'id': _SHARED_SECTION_ID,
-                'name': 'Shared with me',
+                'name': _t('Shared with me'),
                 'sort_order': 9999,
                 'sort_field': 'created_at',
                 'sort_direction': 'desc',
@@ -1030,18 +1031,18 @@ def sections_list():
 def sections_create():
     """Create a new section for the current user."""
     if not current_user.can_generate():
-        return jsonify({'error': 'Only users with generate permission can create sections'}), 403
+        return jsonify({'error': _t('Only users with generate permission can create sections')}), 403
 
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     if not name:
-        return jsonify({'error': 'Name is required'}), 400
+        return jsonify({'error': _t('Name is required')}), 400
     if len(name) > 120:
-        return jsonify({'error': 'Name too long (max 120 chars)'}), 400
+        return jsonify({'error': _t('Name too long (max 120 chars)')}), 400
 
     clash = FileSection.query.filter_by(user_id=current_user.id, name=name).first()
     if clash:
-        return jsonify({'error': f'A section named "{name}" already exists'}), 409
+        return jsonify({'error': _t('A section named "{name}" already exists', name=name)}), 409
 
     # Append to the bottom by default. Default section keeps sort_order=0.
     max_order = db.session.query(db.func.max(FileSection.sort_order)).filter(
@@ -1072,46 +1073,46 @@ def sections_update(section_id):
     """
     section = FileSection.query.get_or_404(section_id)
     if section.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
 
     if 'name' in data:
         new_name = (data.get('name') or '').strip()
         if not new_name:
-            return jsonify({'error': 'Name cannot be empty'}), 400
+            return jsonify({'error': _t('Name cannot be empty')}), 400
         if section.is_default:
-            return jsonify({'error': 'The default section cannot be renamed'}), 400
+            return jsonify({'error': _t('The default section cannot be renamed')}), 400
         if len(new_name) > 120:
-            return jsonify({'error': 'Name too long (max 120 chars)'}), 400
+            return jsonify({'error': _t('Name too long (max 120 chars)')}), 400
         clash = FileSection.query.filter(
             FileSection.user_id == section.user_id,
             FileSection.name == new_name,
             FileSection.id != section.id,
         ).first()
         if clash:
-            return jsonify({'error': f'A section named "{new_name}" already exists'}), 409
+            return jsonify({'error': _t('A section named "{name}" already exists', name=new_name)}), 409
         section.name = new_name
 
     if 'sort_field' in data:
         sf = (data.get('sort_field') or '').strip()
         if sf not in _VALID_SORT_FIELDS:
-            return jsonify({'error': f'Invalid sort_field: {sf}'}), 400
+            return jsonify({'error': _t('Invalid sort_field: {field}', field=sf)}), 400
         section.sort_field = sf
 
     if 'sort_direction' in data:
         sd = (data.get('sort_direction') or '').strip()
         if sd not in _VALID_SORT_DIRS:
-            return jsonify({'error': f'Invalid sort_direction: {sd}'}), 400
+            return jsonify({'error': _t('Invalid sort_direction: {direction}', direction=sd)}), 400
         section.sort_direction = sd
 
     if 'page_size' in data:
         try:
             ps = int(data.get('page_size'))
         except (TypeError, ValueError):
-            return jsonify({'error': 'page_size must be an integer'}), 400
+            return jsonify({'error': _t('page_size must be an integer')}), 400
         if ps not in _VALID_PAGE_SIZES:
-            return jsonify({'error': f'page_size must be one of {sorted(_VALID_PAGE_SIZES)}'}), 400
+            return jsonify({'error': _t('page_size must be one of {sizes}', sizes=sorted(_VALID_PAGE_SIZES))}), 400
         section.page_size = ps
 
     if 'collapsed' in data:
@@ -1127,9 +1128,9 @@ def sections_delete(section_id):
     """Delete a section. Its files are moved to the user's default section."""
     section = FileSection.query.get_or_404(section_id)
     if section.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     if section.is_default:
-        return jsonify({'error': 'The default section cannot be deleted'}), 400
+        return jsonify({'error': _t('The default section cannot be deleted')}), 400
 
     default = _get_or_create_default_section(section.user_id)
 
@@ -1154,7 +1155,7 @@ def sections_reorder():
     data = request.get_json() or {}
     ids = data.get('ids') or []
     if not isinstance(ids, list):
-        return jsonify({'error': 'ids must be a list'}), 400
+        return jsonify({'error': _t('ids must be a list')}), 400
 
     own = {s.id: s for s in FileSection.query.filter_by(user_id=current_user.id).all()}
     order = 1  # default takes 0
@@ -1207,7 +1208,7 @@ def files_list():
     try:
         section_id = int(section_id_raw)
     except (TypeError, ValueError):
-        return jsonify({'error': 'section_id is required'}), 400
+        return jsonify({'error': _t('section_id is required')}), 400
 
     try:
         page = max(1, int(request.args.get('page', '1')))
@@ -1288,7 +1289,7 @@ def files_list():
     # --- Real section ---
     section = FileSection.query.get_or_404(section_id)
     if section.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     # show_all only meaningful for super-admin viewing across all owners;
     # otherwise scoped to the section's owner.
@@ -1321,15 +1322,15 @@ def files_filter_data(file_id):
     gen_file = GeneratedFile.query.get_or_404(file_id)
 
     if not _user_can_view_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     if not gen_file.filter_data:
-        return jsonify({'error': 'No filter data saved for this file'}), 404
+        return jsonify({'error': _t('No filter data saved for this file')}), 404
 
     try:
         filter_data = json.loads(gen_file.filter_data)
     except (json.JSONDecodeError, TypeError):
-        return jsonify({'error': 'Invalid filter data'}), 500
+        return jsonify({'error': _t('Invalid filter data')}), 500
 
     return jsonify({'filter_data': filter_data})
 
@@ -1341,7 +1342,7 @@ def files_generation_options(file_id):
     gen_file = GeneratedFile.query.get_or_404(file_id)
 
     if not _user_can_view_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     try:
         generation_options = json.loads(gen_file.generation_options) if gen_file.generation_options else {}
@@ -1361,17 +1362,17 @@ def files_move(file_id):
     """Move one file into a different section (owner / super admin)."""
     gen_file = GeneratedFile.query.get_or_404(file_id)
     if not _user_owns_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     try:
         target_id = int(data.get('section_id'))
     except (TypeError, ValueError):
-        return jsonify({'error': 'section_id is required'}), 400
+        return jsonify({'error': _t('section_id is required')}), 400
 
     target = FileSection.query.get_or_404(target_id)
     if target.user_id != gen_file.user_id:
-        return jsonify({'error': 'Section belongs to another user'}), 403
+        return jsonify({'error': _t('Section belongs to another user')}), 403
 
     gen_file.section_id = target.id
     db.session.commit()
@@ -1392,9 +1393,9 @@ def files_bulk_move():
     try:
         target_id = int(data.get('section_id'))
     except (TypeError, ValueError):
-        return jsonify({'error': 'section_id is required'}), 400
+        return jsonify({'error': _t('section_id is required')}), 400
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     target = FileSection.query.get_or_404(target_id)
     moved = 0
@@ -1420,14 +1421,14 @@ def files_rename(file_id):
     """Rename a file's display_name (does NOT touch the file on disk)."""
     gen_file = GeneratedFile.query.get_or_404(file_id)
     if not _user_owns_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     data = request.get_json() or {}
     new_name = (data.get('display_name') or '').strip()
     if not new_name:
-        return jsonify({'error': 'display_name cannot be empty'}), 400
+        return jsonify({'error': _t('display_name cannot be empty')}), 400
     if len(new_name) > 200:
-        return jsonify({'error': 'display_name too long (max 200 chars)'}), 400
+        return jsonify({'error': _t('display_name too long (max 200 chars)')}), 400
 
     gen_file.display_name = new_name
     db.session.commit()
@@ -1448,14 +1449,14 @@ def files_reorder():
     try:
         section_id = int(data.get('section_id'))
     except (TypeError, ValueError):
-        return jsonify({'error': 'section_id is required'}), 400
+        return jsonify({'error': _t('section_id is required')}), 400
     ids = data.get('ids') or []
     if not isinstance(ids, list):
-        return jsonify({'error': 'ids must be a list'}), 400
+        return jsonify({'error': _t('ids must be a list')}), 400
 
     section = FileSection.query.get_or_404(section_id)
     if section.user_id != current_user.id and not current_user.is_super_admin:
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     for idx, fid in enumerate(ids):
         try:
@@ -1498,7 +1499,7 @@ def files_delete(file_id):
     gen_file = GeneratedFile.query.get_or_404(file_id)
 
     if not _user_owns_file(gen_file, current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
 
     _remove_file_and_pdf_sibling(gen_file)
 
@@ -1515,7 +1516,7 @@ def files_bulk_delete():
     data = request.get_json()
     ids = data.get('ids', []) if data else []
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     deleted = 0
     for fid in ids:
@@ -1545,7 +1546,7 @@ def files_bulk_download():
     data = request.get_json() or {}
     ids = data.get('ids') or []
     if not ids:
-        return jsonify({'error': 'No IDs provided'}), 400
+        return jsonify({'error': _t('No IDs provided')}), 400
 
     from app.generator import generated_file_dir  # avoid module-cycle
 
@@ -1579,7 +1580,7 @@ def files_bulk_download():
         files_to_zip.append((disk_path, candidate))
 
     if not files_to_zip:
-        return jsonify({'error': 'No downloadable files in selection'}), 400
+        return jsonify({'error': _t('No downloadable files in selection')}), 400
 
     # Build the ZIP in-memory. The output_path docs already produce files
     # on the order of a few MB each; if usage outgrows this we can switch
@@ -1603,7 +1604,7 @@ def files_bulk_download():
 
 def _require_super_admin():
     if not current_user.is_super_admin:
-        return jsonify({'error': 'Only super admins can manage file shares'}), 403
+        return jsonify({'error': _t('Only super admins can manage file shares')}), 403
     return None
 
 
@@ -1626,7 +1627,7 @@ def shares_get():
     file_id = request.args.get('file_id', type=int)
     section_id = request.args.get('section_id', type=int)
     if (file_id is None) == (section_id is None):
-        return jsonify({'error': 'Exactly one of file_id / section_id required'}), 400
+        return jsonify({'error': _t('Exactly one of file_id / section_id required')}), 400
 
     if file_id is not None:
         gf = GeneratedFile.query.get_or_404(file_id)
@@ -1635,7 +1636,7 @@ def shares_get():
     else:
         sect = FileSection.query.get_or_404(section_id)
         if sect.is_default:
-            return jsonify({'error': 'The default section cannot be shared'}), 400
+            return jsonify({'error': _t('The default section cannot be shared')}), 400
         owner_id = sect.user_id
         rows = FileShare.query.filter_by(section_id=section_id).all()
 
@@ -1673,7 +1674,7 @@ def shares_set():
     section_id = data.get('section_id')
     user_ids = data.get('user_ids') or []
     if (file_id is None) == (section_id is None):
-        return jsonify({'error': 'Exactly one of file_id / section_id required'}), 400
+        return jsonify({'error': _t('Exactly one of file_id / section_id required')}), 400
 
     if file_id is not None:
         gf = GeneratedFile.query.get_or_404(int(file_id))
@@ -1683,7 +1684,7 @@ def shares_set():
     else:
         sect = FileSection.query.get_or_404(int(section_id))
         if sect.is_default:
-            return jsonify({'error': 'The default section cannot be shared'}), 400
+            return jsonify({'error': _t('The default section cannot be shared')}), 400
         owner_id = sect.user_id
         existing = {sh.shared_with_user_id: sh for sh in FileShare.query.filter_by(section_id=sect.id).all()}
         target_kwargs = {'section_id': sect.id}

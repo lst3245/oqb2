@@ -168,7 +168,7 @@
                 return '\n\n<div class="katex-display-wrap">' + html + '</div>\n\n';
             } catch (e) {
                 return '\n\n<pre class="text-danger small">' +
-                       String(e && e.message ? e.message : 'KaTeX error') +
+                       String(e && e.message ? e.message : OQB.t('KaTeX error')) +
                        '</pre>\n\n';
             }
         });
@@ -187,7 +187,7 @@
                 });
             } catch (e) {
                 return '<code class="text-danger">' +
-                       String(e && e.message ? e.message : 'math err') +
+                       String(e && e.message ? e.message : OQB.t('math err')) +
                        '</code>';
             }
         });
@@ -199,6 +199,34 @@
         if (n < 1024) return n + ' B';
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KiB';
         return (n / (1024 * 1024)).toFixed(2) + ' MiB';
+    }
+
+    function _oqbApplyBuiltinToolbarTitles(easymde) {
+        const titles = [
+            ['fa-bold', OQB.t('Bold')],
+            ['fa-italic', OQB.t('Italic')],
+            ['fa-header', OQB.t('Heading')],
+            ['fa-quote-left', OQB.t('Quote')],
+            ['fa-list-ul', OQB.t('Generic List')],
+            ['fa-list-ol', OQB.t('Numbered List')],
+            ['fa-link', OQB.t('Create Link')],
+            ['fa-table', OQB.t('Insert Table')],
+            ['fa-code', OQB.t('Code')],
+            ['fa-eye', OQB.t('Toggle Preview')],
+            ['fa-columns', OQB.t('Toggle Side by Side')],
+            ['fa-arrows-alt', OQB.t('Toggle Fullscreen')],
+            ['fa-question-circle', OQB.t('Markdown Guide')],
+        ];
+        const root = easymde.codemirror.getWrapperElement().closest('.EasyMDEContainer');
+        if (!root) return;
+        root.querySelectorAll('.editor-toolbar button, .editor-toolbar a').forEach(function(btn) {
+            for (let i = 0; i < titles.length; i++) {
+                if (btn.classList.contains(titles[i][0])) {
+                    btn.title = titles[i][1];
+                    break;
+                }
+            }
+        });
     }
 
     /**
@@ -244,7 +272,7 @@
                     cm.focus();
                 },
                 className: 'fa fa-superscript',
-                title: 'Inline math: $...$',
+                title: OQB.t('Inline math: $...$'),
             },
             {
                 name: 'mathBlock',
@@ -255,7 +283,7 @@
                     cm.focus();
                 },
                 className: 'fa fa-calculator',
-                title: 'Display math block: $$...$$',
+                title: OQB.t('Display math block: $$...$$'),
             },
             {
                 name: 'imageBase64',
@@ -274,7 +302,7 @@
                     });
                 },
                 className: 'fa fa-picture-o',
-                title: 'Insert image (embedded as base64)',
+                title: OQB.t('Insert image (embedded as base64)'),
             },
             '|',
             'preview', 'side-by-side', 'fullscreen',
@@ -316,11 +344,12 @@
             try {
                 return marked.parse(_oqbPreprocessMath(plainText || ''));
             } catch (e) {
-                return '<pre>' + (e && e.message ? e.message : 'preview error') + '</pre>';
+                return '<pre>' + (e && e.message ? e.message : OQB.t('preview error')) + '</pre>';
             }
         };
 
         const easymde = new EasyMDE(easymdeOptions);
+        _oqbApplyBuiltinToolbarTitles(easymde);
 
         // Back-reference so the fullscreen MutationObserver can call
         // codemirror.refresh() after reparenting the container to <body>.

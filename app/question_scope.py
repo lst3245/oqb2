@@ -1,12 +1,15 @@
 """Pure helpers for the single-subject Question Management page (ADR-016).
 
-No Flask / DB imports: `app/admin.py` feeds these plain rows and request
+No DB imports: `app/admin.py` feeds these plain rows and request
 args, and `tests/test_admin_questions_scope.py` exercises them directly.
+`_t` stays English when there is no request.
 """
 from __future__ import annotations
 
 from collections import Counter
 from typing import Iterable, Optional
+
+from app.i18n import t as _t
 
 LIST_PAGE_SIZES = (10, 20, 50, 100, 200)
 DEFAULT_PAGE_SIZE = 50
@@ -40,16 +43,14 @@ def ids_subject_violation(rows: Iterable, subject_id: Optional[str] = None) -> O
             'subject_id': subject_id,
             'outside_count': n,
             'outside_subjects': outside,
-            'message': (f'{n} selected question(s) are not in {subject_id} '
-                        f'({names}). Bulk actions work on one subject at a time.'),
+            'message': _t('{n} selected question(s) are not in {subject_id} ({names}). Bulk actions work on one subject at a time.', n=n, subject_id=subject_id, names=names),
         }
     if len(counts) > 1:
         names = ', '.join(f'{s} ({c})' for s, c in sorted(counts.items()))
         return {
             'error_code': 'mixed_subjects',
             'subjects': dict(sorted(counts.items())),
-            'message': (f'The selection spans several subjects ({names}). '
-                        'Bulk actions work on one subject at a time.'),
+            'message': _t('The selection spans several subjects ({names}). Bulk actions work on one subject at a time.', names=names),
         }
     return None
 

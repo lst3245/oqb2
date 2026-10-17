@@ -159,3 +159,4 @@ Cookies (not localStorage, because the server renders with them): `oqb_lang` (`e
 - Modals stack: keyboard shortcuts in the Edit modal ignore input while a child modal is open — follow the same guard if you add shortcuts.
 - Dates always through `oqbFormatLocalTime`.
 - New teacher-facing text goes through `t()` / `OQB.t()` with a matching entry in `app/translations/zh_Hant.json` (Hong Kong terms: [../reference/glossary-zh.md](../reference/glossary-zh.md)); taxonomy names through `tax_name` / `OQB.taxName`. Logs, SSE progress lines and AI prompts stay English.
+- Logic never reads displayed text. Keep status values English in JS state and translate when rendering (`statusLabel()` in `admin_pdf_import.html`); use `data-*` attributes for anything a handler needs to read back. Never name a Jinja variable `t` (it shadows `t()`).

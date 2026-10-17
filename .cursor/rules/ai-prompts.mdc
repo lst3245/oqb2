@@ -18,5 +18,5 @@ alwaysApply: false
 
 ## Gotchas
 - Keep `[FIGURE: ...]` markers in `MD_FORMAT` and the `8\.` escaped numbering; only `normalize_inline_math` post-processes math.
-- Adding a prompt key: registry entry (default, variables, format block) + parser if JSON + module doc table. The admin page renders keys automatically.
+- Adding a prompt key: registry entry (default, variables, format block) + parser if JSON + module doc table. The admin page renders keys automatically. Its `group`, `label` and `description` are UI catalogue keys (`app/translations/zh_Hant.json`, checked by `tests.test_i18n`); the prompt text stays English.
 - Routes are super-admin only: `/admin/prompts`, `/admin/prompts/data`, and the variant/assignment mutation routes listed in the doc.

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Question Bank{% endblock %}
+{% block title %}{{ t('Dashboard - Question Bank') }}{% endblock %}
 
 {% block content %}
 <style>
@@ -172,8 +172,8 @@
 {% if no_access %}
 <div class="container mt-5">
     <div class="alert alert-warning">
-        <h4><i class="bi bi-exclamation-triangle"></i> No Access</h4>
-        <p>You don't have access to any subjects. Please contact an administrator to request access.</p>
+        <h4><i class="bi bi-exclamation-triangle"></i> {{ t('No Access') }}</h4>
+        <p>{{ t("You don't have access to any subjects. Please contact an administrator to request access.") }}</p>
     </div>
 </div>
 {% else %}
@@ -183,20 +183,20 @@
         <div class="col-md-3">
             <div class="card filter-sidebar">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Filters</h5>
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> {{ t('Filters') }}</h5>
                     <div class="btn-group">
                         <div class="dropdown">
                             <button type="button" class="btn btn-sm btn-outline-primary"
                                     data-bs-toggle="dropdown" aria-expanded="false"
-                                    title="Load a saved search profile">
+                                    title="{{ t('Load a saved search profile') }}">
                                 <i class="bi bi-folder2-open"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end" id="filterProfileMenu"
                                 style="max-height: 60vh; overflow-y: auto; min-width: 240px;">
-                                <li><span class="dropdown-item-text text-muted small">Loading…</span></li>
+                                <li><span class="dropdown-item-text text-muted small">{{ t('Loading…') }}</span></li>
                             </ul>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveFilterModal()" title="Save current filter as profile">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showSaveFilterModal()" title="{{ t('Save current filter as profile') }}">
                             <i class="bi bi-floppy"></i>
                         </button>
                     </div>
@@ -211,9 +211,9 @@
                         
                         <!-- Subject -->
                         <div class="mb-3">
-                            <label class="form-label">Subject</label>
+                            <label class="form-label">{{ t('Subject') }}</label>
                             <select class="form-select" name="subject" id="subjectSelect" required>
-                                <option value="">Select Subject</option>
+                                <option value="">{{ t('Select Subject') }}</option>
                                 {% for subject in subjects %}
                                 <option value="{{ subject.id }}">{{ tax_name(subject) }}</option>
                                 {% endfor %}
@@ -222,8 +222,8 @@
 
                         <!-- Source Type -->
                         <div class="mb-3">
-                            <label class="form-label">Source Type</label>
-                            <div class="btn-group w-100" role="group" aria-label="Source type selection">
+                            <label class="form-label">{{ t('Source Type') }}</label>
+                            <div class="btn-group w-100" role="group" aria-label="{{ t('Source type selection') }}">
                                 <input type="radio" class="btn-check" name="source_type" id="sourceDSE" value="DSE" autocomplete="off" checked>
                                 <label class="btn btn-outline-primary" for="sourceDSE">DSE</label>
                                 
@@ -240,25 +240,25 @@
 
                         <!-- Years (for PP only) -->
                         <div class="mb-3" id="yearFilter">
-                            <label class="form-label">Years</label>
+                            <label class="form-label">{{ t('Years') }}</label>
                             <div class="dropdown year-dropdown">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="yearDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                    <span id="yearDropdownLabel">Select subject first</span>
+                                    <span id="yearDropdownLabel">{{ t('Select subject first') }}</span>
                                 </button>
                                 <div class="dropdown-menu w-100 p-2" id="yearDropdownMenu">
                                     <div class="input-group input-group-sm mb-2">
-                                        <input type="text" class="form-control" id="yearSearchInput" placeholder="Search years...">
-                                        <button class="btn btn-outline-secondary" type="button" onclick="clearYearSearch()">
+                                        <input type="text" class="form-control" id="yearSearchInput" placeholder="{{ t('Search years...') }}">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="clearYearSearch()" title="{{ t('Clear') }}">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </div>
                                     <div class="d-flex gap-1 mb-2">
-                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllYears()">All</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllYears()">None</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllYears()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllYears()">{{ t('None') }}</button>
                                     </div>
                                     <div id="yearCheckboxes" class="year-checkbox-list">
-                                        <small class="text-muted">Select subject first</small>
+                                        <small class="text-muted">{{ t('Select subject first') }}</small>
                                     </div>
                                 </div>
                             </div>
@@ -266,27 +266,27 @@
 
                         <!-- Section -->
                         <div class="mb-3">
-                            <label class="form-label">Section</label>
+                            <label class="form-label">{{ t('Section') }}</label>
                             <select class="form-select" name="section" id="sectionSelect">
-                                <option value="all">All</option>
+                                <option value="all">{{ t('All') }}</option>
                             </select>
                         </div>
 
                         <!-- Topics -->
                         <div class="mb-3">
                             <label class="form-label d-flex justify-content-between align-items-center">
-                                <span>Topics</span>
+                                <span>{{ t('Topics') }}</span>
                                 <div class="d-flex align-items-center gap-2">
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Topic match mode">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="{{ t('Topic match mode') }}">
                                         <input type="radio" class="btn-check" name="topic_mode" id="topicModeOR" value="OR" autocomplete="off" checked>
-                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="Match ANY selected topic">OR</label>
+                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeOR" title="{{ t('Match ANY selected topic') }}">{{ t('OR') }}</label>
                                         <input type="radio" class="btn-check" name="topic_mode" id="topicModeAND" value="AND" autocomplete="off">
-                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="Match ALL selected topics">AND</label>
+                                        <label class="btn btn-outline-secondary btn-xs" for="topicModeAND" title="{{ t('Match ALL selected topics') }}">{{ t('AND') }}</label>
                                     </div>
                                     <div class="form-check form-switch mb-0">
                                         <input class="form-check-input" type="checkbox" role="switch" id="showHiddenTopics"
                                                onchange="onShowHiddenTopicsChange()">
-                                        <label class="form-check-label small" for="showHiddenTopics" title="Show hidden topics">
+                                        <label class="form-check-label small" for="showHiddenTopics" title="{{ t('Show hidden topics') }}">
                                             <i class="bi bi-eye-slash"></i>
                                         </label>
                                     </div>
@@ -295,21 +295,21 @@
                             <div class="dropdown multi-select-dropdown" id="topicDropdownContainer">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="topicDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                    <span id="topicDropdownLabel">Select subject first</span>
+                                    <span id="topicDropdownLabel">{{ t('Select subject first') }}</span>
                                 </button>
                                 <div class="dropdown-menu w-100 p-2" id="topicDropdownMenu">
                                     <div class="input-group input-group-sm mb-2">
-                                        <input type="text" class="form-control" id="topicSearchInput" placeholder="Search topics...">
+                                        <input type="text" class="form-control" id="topicSearchInput" placeholder="{{ t('Search topics...') }}">
                                         <button class="btn btn-outline-secondary" type="button" onclick="clearTopicSearch()">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </div>
                                     <div class="d-flex gap-1 mb-2">
-                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllTopics()">All</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllTopics()">None</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllTopics()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllTopics()">{{ t('None') }}</button>
                                     </div>
                                     <div id="topicCheckboxes" class="multi-select-checkbox-list">
-                                        <small class="text-muted">Select subject first</small>
+                                        <small class="text-muted">{{ t('Select subject first') }}</small>
                                     </div>
                                 </div>
                             </div>
@@ -322,25 +322,25 @@
                             <input type="checkbox" class="form-check-input" id="crosstopic" 
                                    name="is_crosstopic" value="1">
                             <label class="form-check-label" for="crosstopic">
-                                Include tagged in minor<span id="crosstopicImplied" class="text-muted fst-italic ms-1" style="display:none;">(implied by AND)</span>
+                                {{ t('Include tagged in minor') }}<span id="crosstopicImplied" class="text-muted fst-italic ms-1" style="display:none;">{{ t('(implied by AND)') }}</span>
                             </label>
                         </div>
 
                         <!-- Subtopics -->
                         <div class="mb-3" id="subtopicContainer" style="display:none;">
                             <label class="form-label d-flex justify-content-between align-items-center">
-                                <span>Subtopics</span>
+                                <span>{{ t('Subtopics') }}</span>
                                 <div class="d-flex align-items-center gap-2">
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Subtopic match mode">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="{{ t('Subtopic match mode') }}">
                                         <input type="radio" class="btn-check" name="subtopic_mode" id="subtopicModeOR" value="OR" autocomplete="off" checked>
-                                        <label class="btn btn-outline-secondary btn-xs" for="subtopicModeOR" title="Match ANY selected subtopic">OR</label>
+                                        <label class="btn btn-outline-secondary btn-xs" for="subtopicModeOR" title="{{ t('Match ANY selected subtopic') }}">{{ t('OR') }}</label>
                                         <input type="radio" class="btn-check" name="subtopic_mode" id="subtopicModeAND" value="AND" autocomplete="off">
-                                        <label class="btn btn-outline-secondary btn-xs" for="subtopicModeAND" title="Match ALL selected subtopics">AND</label>
+                                        <label class="btn btn-outline-secondary btn-xs" for="subtopicModeAND" title="{{ t('Match ALL selected subtopics') }}">{{ t('AND') }}</label>
                                     </div>
                                     <div class="form-check form-switch mb-0">
                                         <input class="form-check-input" type="checkbox" role="switch" id="showHiddenSubtopics" 
                                                onchange="onShowHiddenSubtopicsChange()">
-                                        <label class="form-check-label small" for="showHiddenSubtopics" title="Show hidden subtopics (e.g. textbook chapters)">
+                                        <label class="form-check-label small" for="showHiddenSubtopics" title="{{ t('Show hidden subtopics (e.g. textbook chapters)') }}">
                                             <i class="bi bi-eye-slash"></i>
                                         </label>
                                     </div>
@@ -349,18 +349,18 @@
                             <div class="dropdown multi-select-dropdown">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="subtopicDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                    <span id="subtopicDropdownLabel">Select subtopics...</span>
+                                    <span id="subtopicDropdownLabel">{{ t('Select subtopics...') }}</span>
                                 </button>
                                 <div class="dropdown-menu w-100 p-2" id="subtopicDropdownMenu">
                                     <div class="input-group input-group-sm mb-2">
-                                        <input type="text" class="form-control" id="subtopicSearchInput" placeholder="Search subtopics...">
+                                        <input type="text" class="form-control" id="subtopicSearchInput" placeholder="{{ t('Search subtopics...') }}">
                                         <button class="btn btn-outline-secondary" type="button" onclick="clearSubtopicSearch()">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </div>
                                     <div class="d-flex gap-1 mb-2">
-                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubtopics()">All</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubtopics()">None</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubtopics()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubtopics()">{{ t('None') }}</button>
                                     </div>
                                     <div id="subtopicCheckboxes" class="multi-select-checkbox-list">
                                     </div>
@@ -371,7 +371,7 @@
                                 <input type="checkbox" class="form-check-input" id="crosssubtopic" 
                                        name="is_crosssubtopic" value="1">
                                 <label class="form-check-label small" for="crosssubtopic">
-                                    Include tagged in minor<span id="crosssubtopicImplied" class="text-muted fst-italic ms-1" style="display:none;">(implied by AND)</span>
+                                    {{ t('Include tagged in minor') }}<span id="crosssubtopicImplied" class="text-muted fst-italic ms-1" style="display:none;">{{ t('(implied by AND)') }}</span>
                                 </label>
                             </div>
                             <!-- Hidden select to store values for form submission -->
@@ -381,11 +381,11 @@
                         <!-- Chapters -->
                         <div class="mb-3">
                             <label class="form-label d-flex justify-content-between align-items-center">
-                                <span>Chapters</span>
+                                <span>{{ t('Chapters') }}</span>
                                 <div class="form-check form-switch mb-0">
                                     <input class="form-check-input" type="checkbox" role="switch" id="showHiddenChapters"
                                            onchange="onShowHiddenChaptersChange()">
-                                    <label class="form-check-label small" for="showHiddenChapters" title="Show hidden chapters">
+                                    <label class="form-check-label small" for="showHiddenChapters" title="{{ t('Show hidden chapters') }}">
                                         <i class="bi bi-eye-slash"></i>
                                     </label>
                                 </div>
@@ -393,21 +393,21 @@
                             <div class="dropdown multi-select-dropdown" id="chapterDropdownContainer">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="chapterDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                    <span id="chapterDropdownLabel">Select chapters...</span>
+                                    <span id="chapterDropdownLabel">{{ t('Select chapters...') }}</span>
                                 </button>
                                 <div class="dropdown-menu w-100 p-2" id="chapterDropdownMenu">
                                     <div class="input-group input-group-sm mb-2">
-                                        <input type="text" class="form-control" id="chapterSearchInput" placeholder="Search chapters...">
+                                        <input type="text" class="form-control" id="chapterSearchInput" placeholder="{{ t('Search chapters...') }}">
                                         <button class="btn btn-outline-secondary" type="button" onclick="clearChapterSearch()">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </div>
                                     <div class="d-flex gap-1 mb-2">
-                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllChapters()">All</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllChapters()">None</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllChapters()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllChapters()">{{ t('None') }}</button>
                                     </div>
                                     <div id="chapterCheckboxes" class="multi-select-checkbox-list">
-                                        <small class="text-muted">Loading chapters...</small>
+                                        <small class="text-muted">{{ t('Loading chapters...') }}</small>
                                     </div>
                                 </div>
                             </div>
@@ -418,11 +418,11 @@
                         <!-- Subchapters -->
                         <div class="mb-3" id="subchapterContainer" style="display:none;">
                             <label class="form-label d-flex justify-content-between align-items-center">
-                                <span>Subchapters</span>
+                                <span>{{ t('Subchapters') }}</span>
                                 <div class="form-check form-switch mb-0">
                                     <input class="form-check-input" type="checkbox" role="switch" id="showHiddenSubchapters" 
                                            onchange="onShowHiddenSubchaptersChange()">
-                                    <label class="form-check-label small" for="showHiddenSubchapters" title="Show hidden subchapters">
+                                    <label class="form-check-label small" for="showHiddenSubchapters" title="{{ t('Show hidden subchapters') }}">
                                         <i class="bi bi-eye-slash"></i>
                                     </label>
                                 </div>
@@ -430,18 +430,18 @@
                             <div class="dropdown multi-select-dropdown">
                                 <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" 
                                         id="subchapterDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                    <span id="subchapterDropdownLabel">Select subchapters...</span>
+                                    <span id="subchapterDropdownLabel">{{ t('Select subchapters...') }}</span>
                                 </button>
                                 <div class="dropdown-menu w-100 p-2" id="subchapterDropdownMenu">
                                     <div class="input-group input-group-sm mb-2">
-                                        <input type="text" class="form-control" id="subchapterSearchInput" placeholder="Search subchapters...">
+                                        <input type="text" class="form-control" id="subchapterSearchInput" placeholder="{{ t('Search subchapters...') }}">
                                         <button class="btn btn-outline-secondary" type="button" onclick="clearSubchapterSearch()">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </div>
                                     <div class="d-flex gap-1 mb-2">
-                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubchapters()">All</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubchapters()">None</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllSubchapters()">{{ t('All') }}</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllSubchapters()">{{ t('None') }}</button>
                                     </div>
                                     <div id="subchapterCheckboxes" class="multi-select-checkbox-list">
                                     </div>
@@ -453,12 +453,12 @@
 
                         <!-- Level -->
                         <div class="mb-3">
-                            <label class="form-label">Level</label>
+                            <label class="form-label">{{ t('Level') }}</label>
                             <div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="checkbox" name="levels" 
                                            value="null" id="levelNull" checked>
-                                    <label class="form-check-label" for="levelNull">Untagged</label>
+                                    <label class="form-check-label" for="levelNull">{{ t('Untagged') }}</label>
                                 </div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="checkbox" name="levels" 
@@ -480,10 +480,10 @@
 
                         <!-- Question Type -->
                         <div class="mb-3">
-                            <label class="form-label">Question Type</label>
-                            <div class="btn-group w-100" role="group" aria-label="Question type selection">
+                            <label class="form-label">{{ t('Question Type') }}</label>
+                            <div class="btn-group w-100" role="group" aria-label="{{ t('Question type selection') }}">
                                 <input type="radio" class="btn-check" name="q_type" id="qTypeAll" value="all" autocomplete="off" checked>
-                                <label class="btn btn-outline-primary" for="qTypeAll">All</label>
+                                <label class="btn btn-outline-primary" for="qTypeAll">{{ t('All') }}</label>
                                 
                                 <input type="radio" class="btn-check" name="q_type" id="qTypeMC" value="MC" autocomplete="off">
                                 <label class="btn btn-outline-primary" for="qTypeMC">MC</label>
@@ -495,20 +495,20 @@
 
                         <!-- Direct QID Search -->
                         <div class="mb-3">
-                            <label class="form-label">Quick Search by QID</label>
+                            <label class="form-label">{{ t('Quick Search by QID') }}</label>
                             <div class="input-group input-group-sm">
                                 <input type="text" class="form-control" name="qid_search" id="qidSearch" 
-                                       placeholder="e.g. 2025 Q1 or MATC_DSE_2025_P2_Q1">
-                                <button type="button" class="btn btn-outline-secondary" onclick="clearQidSearch()" title="Clear">
+                                       placeholder="{{ t('e.g. 2025 Q1 or MATC_DSE_2025_P2_Q1') }}">
+                                <button type="button" class="btn btn-outline-secondary" onclick="clearQidSearch()" title="{{ t('Clear') }}">
                                     <i class="bi bi-x"></i>
                                 </button>
                             </div>
                             <div class="d-flex align-items-center justify-content-between mt-1">
-                                <small class="text-muted" id="qidSearchHint">Loose mode: casual search like <code>2025 q1</code></small>
+                                <small class="text-muted" id="qidSearchHint">{{ t('Loose mode: casual search like <code>2025 q1</code>')|safe }}</small>
                                 <div class="form-check form-switch mb-0 ms-2" style="white-space:nowrap;">
                                     <input class="form-check-input" type="checkbox" role="switch" id="qidStrictMode"
                                            name="qid_strict" onchange="updateQidSearchHint()">
-                                    <label class="form-check-label small text-muted" for="qidStrictMode" style="cursor:pointer;">Strict</label>
+                                    <label class="form-check-label small text-muted" for="qidStrictMode" style="cursor:pointer;">{{ t('Strict') }}</label>
                                 </div>
                             </div>
                         </div>
@@ -516,11 +516,11 @@
                         <div class="d-flex gap-2">
                             <div class="search-btn-wrapper" id="searchBtnWrapper">
                                 <button type="submit" class="btn btn-primary w-100" id="searchBtn">
-                                    <i class="bi bi-search"></i> Search
+                                    <i class="bi bi-search"></i> {{ t('Search') }}
                                 </button>
-                                <span class="filter-modified-badge" id="filterModifiedBadge" style="display: none;" title="Filters changed - click Search to apply">!</span>
+                                <span class="filter-modified-badge" id="filterModifiedBadge" style="display: none;" title="{{ t('Filters changed - click Search to apply') }}">!</span>
                             </div>
-                            <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="Reset filters to defaults (keeps the current subject)">
+                            <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()" title="{{ t('Reset filters to defaults (keeps the current subject)') }}">
                                 <i class="bi bi-arrow-counterclockwise"></i>
                             </button>
                         </div>
@@ -548,20 +548,20 @@
                     <!-- Sort Configuration -->
                     <div class="sort-config-panel">
                         <label class="form-label d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-sort-alpha-down"></i> Sort By</span>
+                            <span><i class="bi bi-sort-alpha-down"></i> {{ t('Sort By') }}</span>
                             <button type="button" class="btn btn-sm btn-outline-primary" onclick="addSortCriterion()">
-                                <i class="bi bi-plus"></i> Add
+                                <i class="bi bi-plus"></i> {{ t('Add') }}
                             </button>
                         </label>
-                        <small class="text-muted d-block mb-2">Drag to reorder. First criterion has highest priority.</small>
+                        <small class="text-muted d-block mb-2">{{ t('Drag to reorder. First criterion has highest priority.') }}</small>
                         <div id="sortCriteria" class="sort-criteria-list">
                             <!-- Sort criteria items will be added here dynamically -->
                         </div>
                         <!-- Manual block reordering (shown only when a grouping field is in the sort) -->
                         <div id="reorderBlocksWrap" class="mt-2" style="display:none;">
                             <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="openReorderBlocksModal()">
-                                <i class="bi bi-grip-horizontal"></i> Reorder blocks
-                                <span id="reorderBlocksActive" class="badge bg-success ms-1" style="display:none;">custom</span>
+                                <i class="bi bi-grip-horizontal"></i> {{ t('Reorder blocks') }}
+                                <span id="reorderBlocksActive" class="badge bg-success ms-1" style="display:none;">{{ t('custom') }}</span>
                             </button>
                             <small id="reorderBlocksHint" class="text-muted d-block mt-1"></small>
                         </div>
@@ -575,53 +575,53 @@
             <div class="card">
                 <div class="card-header sticky-question-header d-flex justify-content-between align-items-center flex-wrap">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> <span class="d-none d-sm-inline">Questions</span></h5>
-                        <span id="mainSelectionCounter" class="badge bg-secondary">0 selected</span>
+                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> <span class="d-none d-sm-inline">{{ t('Questions') }}</span></h5>
+                        <span id="mainSelectionCounter" class="badge bg-secondary">{{ t('0 selected') }}</span>
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <button type="button" class="btn btn-sm btn-outline-danger" 
-                                onclick="clearSelection()" title="Clear all selections">
-                            <i class="bi bi-x-circle"></i> <span class="btn-text">Clear</span>
+                                onclick="clearSelection()" title="{{ t('Clear all selections') }}">
+                            <i class="bi bi-x-circle"></i> <span class="btn-text">{{ t('Clear') }}</span>
                         </button>
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
                         <button type="button" class="btn btn-sm btn-warning" id="batchEditBtn" style="display:none"
-                                onclick="showBatchEditModal()" title="Batch edit selected questions">
-                            <i class="bi bi-pencil-square"></i> <span class="btn-text">Batch Edit</span>
+                                onclick="showBatchEditModal()" title="{{ t('Batch edit selected questions') }}">
+                            <i class="bi bi-pencil-square"></i> <span class="btn-text">{{ t('Batch Edit') }}</span>
                         </button>
-                        <a href="{{ url_for('admin.questions_page') }}?from=dashboard" class="btn btn-sm btn-outline-secondary" title="Manage questions (add, delete, edit assets)">
-                            <i class="bi bi-journal-text"></i> <span class="btn-text">Manage</span>
+                        <a href="{{ url_for('admin.questions_page') }}?from=dashboard" class="btn btn-sm btn-outline-secondary" title="{{ t('Manage questions (add, delete, edit assets)') }}">
+                            <i class="bi bi-journal-text"></i> <span class="btn-text">{{ t('Manage') }}</span>
                         </a>
                         {% endif %}
                         {% if current_user.can_generate() %}
                         <button type="button" class="btn btn-sm btn-outline-primary" id="setOpsBtn"
-                                onclick="openSetOpsModal()" title="Set operations: combine selection with saved sets via union, intersection, difference">
-                            <i class="bi bi-intersect"></i> <span class="btn-text">Set</span>
+                                onclick="openSetOpsModal()" title="{{ t('Set operations: combine selection with saved sets via union, intersection, difference') }}">
+                            <i class="bi bi-intersect"></i> <span class="btn-text">{{ t('Sets') }}</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-success" id="generateBtn" style="display:none"
                                 onclick="generateDocument()">
-                            <i class="bi bi-file-earmark-word"></i> <span class="btn-text">Generate</span>
+                            <i class="bi bi-file-earmark-word"></i> <span class="btn-text">{{ t('Generate') }}</span>
                         </button>
                         {% endif %}
                         <button type="button" class="btn btn-sm btn-info" id="viewModeBtn" 
                                 onclick="openViewerMode()">
-                            <i class="bi bi-easel"></i> <span class="btn-text">Present</span>
+                            <i class="bi bi-easel"></i> <span class="btn-text">{{ t('Present') }}</span>
                         </button>
                         <!-- View Settings Dropdown -->
                         <div class="dropdown">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
                                     id="viewSettingsBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                <i class="bi bi-eye"></i> <span class="btn-text">View</span>
+                                <i class="bi bi-eye"></i> <span class="btn-text">{{ t('View') }}</span>
                             </button>
                             <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px; max-height: 80vh; max-height: 80dvh; overflow-y: auto; overflow-x: hidden;">
                                 <!-- Show Selected Only -->
-                                <div class="dropdown-header">Display Filter</div>
+                                <div class="dropdown-header">{{ t('Display Filter') }}</div>
                                 <div class="form-check form-switch mb-2" style="padding-left: 2.5em;">
                                     <input class="form-check-input" type="checkbox" role="switch" id="showSelectedOnly" onchange="toggleShowSelectedOnly()">
-                                    <label class="form-check-label" for="showSelectedOnly">Show Selected Only</label>
+                                    <label class="form-check-label" for="showSelectedOnly">{{ t('Show Selected Only') }}</label>
                                 </div>
                                 <div class="dropdown-divider"></div>
                                 <!-- Page Size -->
-                                <div class="dropdown-header">Questions Per Page</div>
+                                <div class="dropdown-header">{{ t('Questions Per Page') }}</div>
                                 <div class="px-1 mb-2">
                                     <select class="form-select form-select-sm" id="pageSize" onchange="onPageSizeChange()">
                                         <option value="10">10</option>
@@ -631,44 +631,44 @@
                                     </select>
                                 </div>
                                 <div class="dropdown-divider"></div>
-                                <div class="dropdown-header">Show Tags</div>
+                                <div class="dropdown-header">{{ t('Show Tags') }}</div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewLevel" value="level" checked>
-                                    <label class="form-check-label" for="viewLevel">Level</label>
+                                    <label class="form-check-label" for="viewLevel">{{ t('Level') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewQType" value="qtype" checked>
-                                    <label class="form-check-label" for="viewQType">Question Type</label>
+                                    <label class="form-check-label" for="viewQType">{{ t('Question Type') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewMajorTopic" value="major-topic" checked>
-                                    <label class="form-check-label" for="viewMajorTopic">Major Topic</label>
+                                    <label class="form-check-label" for="viewMajorTopic">{{ t('Major Topic') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewMajorSubtopic" value="major-subtopic" checked>
-                                    <label class="form-check-label" for="viewMajorSubtopic">Major Subtopic</label>
+                                    <label class="form-check-label" for="viewMajorSubtopic">{{ t('Major Subtopic') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewMinorTopics" value="minor-topics" checked>
-                                    <label class="form-check-label" for="viewMinorTopics">Minor Topics</label>
+                                    <label class="form-check-label" for="viewMinorTopics">{{ t('Minor Topics') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewSubtopics" value="subtopics">
-                                    <label class="form-check-label" for="viewSubtopics">Subtopics (M2M)</label>
+                                    <label class="form-check-label" for="viewSubtopics">{{ t('Subtopics (M2M)') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewChapter" value="chapter" checked>
-                                    <label class="form-check-label" for="viewChapter">Chapter</label>
+                                    <label class="form-check-label" for="viewChapter">{{ t('Chapter') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewSubchapter" value="subchapter">
-                                    <label class="form-check-label" for="viewSubchapter">Subchapter</label>
+                                    <label class="form-check-label" for="viewSubchapter">{{ t('Subchapter') }}</label>
                                 </div>
                                 <div class="dropdown-divider"></div>
-                                <div class="dropdown-header">Version Priority</div>
+                                <div class="dropdown-header">{{ t('Version Priority') }}</div>
                                 <div class="px-2 pb-1" onclick="event.stopPropagation();">
                                     <div id="versionPriorityWidget"></div>
-                                    <small class="text-muted d-block mt-1">Drag to reorder · top wins</small>
+                                    <small class="text-muted d-block mt-1">{{ t('Drag to reorder · top wins') }}</small>
                                 </div>
                             </div>
                         </div>
@@ -679,24 +679,24 @@
                     <div id="qidsFilterBanner" class="alert alert-info py-2 px-3 d-none mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <div>
                             <i class="bi bi-funnel-fill"></i>
-                            <strong>Filtering by specific QIDs</strong>
+                            <strong>{{ t('Filtering by specific QIDs') }}</strong>
                             <span class="text-muted small ms-2" id="qidsFilterBannerCount"></span>
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearQidsFilter()">
-                            <i class="bi bi-x-lg"></i> Clear list filter
+                            <i class="bi bi-x-lg"></i> {{ t('Clear list filter') }}
                         </button>
                     </div>
 
                     <div id="loading" class="htmx-indicator text-center">
                         <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                            <span class="visually-hidden">{{ t('Loading...') }}</span>
                         </div>
                     </div>
                     <div id="questionList">
                         {% if questions %}
                             {% include 'partials/question_list.html' %}
                         {% else %}
-                            <p class="text-muted text-center">Use filters to search for questions</p>
+                            <p class="text-muted text-center">{{ t('Use filters to search for questions') }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -710,12 +710,12 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="previewModalLabel">Preview</h5>
+                <h5 class="modal-title" id="previewModalLabel">{{ t('Preview') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body text-center" id="previewModalBody">
                 <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">{{ t('Loading...') }}</span>
                 </div>
             </div>
         </div>
@@ -815,30 +815,30 @@
         <div class="modal-content">
             <div class="modal-header oqb-explain-modal-header">
                 <div class="oqb-explain-header-title">
-                    <h5 class="modal-title mb-0"><i class="bi bi-stars"></i> Explain <span id="explainQid" class="text-muted fw-normal small"></span></h5>
+                    <h5 class="modal-title mb-0"><i class="bi bi-stars"></i> {{ t('Explain') }} <span id="explainQid" class="text-muted fw-normal small"></span></h5>
                     <small class="text-muted d-block text-truncate" id="explainMeta"></small>
                     <div id="explainPreviewButtons" class="explain-preview-buttons d-flex d-none flex-wrap align-items-center mt-1">
-                        <span class="text-muted small me-1">Preview:</span>
+                        <span class="text-muted small me-1">{{ t('Preview:') }}</span>
                         <button type="button" id="explainPreviewQUEBtn" class="btn btn-sm btn-outline-secondary"
-                                title="Preview question" onclick="_explainPreviewAsset('QUE')">
+                                title="{{ t('Preview question') }}" onclick="_explainPreviewAsset('QUE')">
                             <i class="bi bi-eye"></i> QUE
                         </button>
                         <button type="button" id="explainPreviewANSBtn" class="btn btn-sm btn-outline-primary"
-                                title="Preview answer" onclick="_explainPreviewAsset('ANS')">
+                                title="{{ t('Preview answer') }}" onclick="_explainPreviewAsset('ANS')">
                             <i class="bi bi-eye"></i> ANS
                         </button>
                         <button type="button" id="explainPreviewSOLBtn" class="btn btn-sm btn-outline-success"
-                                title="Preview solution" onclick="_explainPreviewAsset('SOL')">
+                                title="{{ t('Preview solution') }}" onclick="_explainPreviewAsset('SOL')">
                             <i class="bi bi-eye"></i> SOL
                         </button>
                     </div>
                 </div>
                 <div id="explainEndpointPickerWrap" class="explain-endpoint-picker d-none">
                     <select id="explainEndpointPicker" class="form-select form-select-sm"
-                            title="Choose which LLM endpoint to use for this chat (admins only)">
+                            title="{{ t('Choose which LLM endpoint to use for this chat (admins only)') }}">
                     </select>
                 </div>
-                <button type="button" class="btn-close oqb-explain-modal-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close oqb-explain-modal-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body" id="explainModalBody">
                 <div id="explainTranscript" class="explain-transcript"></div>
@@ -849,17 +849,17 @@
                 <div class="d-flex gap-2 align-items-end">
                     <button type="button" id="explainAttachBtn" class="btn btn-outline-secondary"
                             onclick="document.getElementById('explainAttachInput').click()"
-                            title="Attach images (paste, drag-drop, or pick)">
+                            title="{{ t('Attach images (paste, drag-drop, or pick)') }}">
                         <i class="bi bi-paperclip"></i>
                     </button>
                     <input type="file" id="explainAttachInput" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden>
                     <textarea id="explainInput" class="form-control" rows="1"
-                              placeholder="Ask a question, or leave this empty and press Send for a full explanation…" style="resize:none; max-height:140px;"></textarea>
-                    <button type="button" id="explainSendBtn" class="btn btn-dark" onclick="sendExplainMessage()" title="Send">
+                              placeholder="{{ t('Ask a question, or leave this empty and press Send for a full explanation…') }}" style="resize:none; max-height:140px;"></textarea>
+                    <button type="button" id="explainSendBtn" class="btn btn-dark" onclick="sendExplainMessage()" title="{{ t('Send') }}">
                         <i class="bi bi-send"></i>
                     </button>
                 </div>
-                <small class="text-muted"><i class="bi bi-info-circle"></i> Type an optional question first, or leave the box empty and press Send for a full explanation. The source question and solution are sent to the AI. Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach up to 6 images per message.</small>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> {{ t('Type an optional question first, or leave the box empty and press Send for a full explanation. The source question and solution are sent to the AI. Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach up to 6 images per message.') }}</small>
             </div>
         </div>
     </div>
@@ -878,15 +878,14 @@
     <div class="modal-dialog modal-lg" id="batchEditDialog">
         <div class="modal-content">
             <div class="modal-header bg-warning">
-                <h5 class="modal-title" id="batchEditTitle"><i class="bi bi-pencil-square"></i> Batch Edit Questions</h5>
+                <h5 class="modal-title" id="batchEditTitle"><i class="bi bi-pencil-square"></i> {{ t('Batch Edit Questions') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div id="batchEditSetup">
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    Tick the fields to overwrite for <strong><span id="batchEditCount">0</span> selected question(s)</strong>.
-                    Only checked fields are updated. You will review each change before anything is saved.
+                    {{ t('Tick the fields to overwrite for <strong><span id="batchEditCount">0</span> selected question(s)</strong>. Only checked fields are updated. You will review each change before anything is saved.')|safe }}
                 </div>
                 
                 <form id="batchEditForm">
@@ -896,12 +895,12 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchLevelToggle" 
                                    onchange="toggleBatchField('level')">
                             <label class="form-check-label fw-bold" for="batchLevelToggle">
-                                <i class="bi bi-bar-chart"></i> Level
+                                <i class="bi bi-bar-chart"></i> {{ t('Level') }}
                             </label>
                         </div>
                         <div id="batchLevelField" class="ms-4" style="display: none;">
                             <select class="form-select form-select-sm" id="batchLevel" name="level" style="max-width: 200px;">
-                                <option value="">None</option>
+                                <option value="">{{ t('None') }}</option>
                                 <option value="1">1</option>
                                 <option value="2">2</option>
                                 <option value="3">3</option>
@@ -915,14 +914,14 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchQTypeToggle" 
                                    onchange="toggleBatchField('qtype')">
                             <label class="form-check-label fw-bold" for="batchQTypeToggle">
-                                <i class="bi bi-question-circle"></i> Question Type
+                                <i class="bi bi-question-circle"></i> {{ t('Question Type') }}
                             </label>
                         </div>
                         <div id="batchQtypeField" class="ms-4" style="display: none;">
                             <select class="form-select form-select-sm" id="batchQType" name="q_type" style="max-width: 200px;">
-                                <option value="">None</option>
-                                <option value="MC">Multiple Choice</option>
-                                <option value="CQ">Conventional Question</option>
+                                <option value="">{{ t('None') }}</option>
+                                <option value="MC">{{ t('Multiple Choice') }}</option>
+                                <option value="CQ">{{ t('Conventional Question') }}</option>
                             </select>
                         </div>
                     </div>
@@ -933,12 +932,12 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchSectionToggle" 
                                    onchange="toggleBatchField('section')">
                             <label class="form-check-label fw-bold" for="batchSectionToggle">
-                                <i class="bi bi-list-nested"></i> Section
+                                <i class="bi bi-list-nested"></i> {{ t('Section') }}
                             </label>
                         </div>
                         <div id="batchSectionField" class="ms-4" style="display: none;">
                             <input type="text" class="form-control form-control-sm" id="batchSection" name="section" 
-                                   placeholder="A, B, or leave empty" style="max-width: 200px;">
+                                   placeholder="{{ t('A, B, or leave empty') }}" style="max-width: 200px;">
                         </div>
                     </div>
                     
@@ -948,13 +947,13 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchCorrectPctToggle" 
                                    onchange="toggleBatchField('correctpct')">
                             <label class="form-check-label fw-bold" for="batchCorrectPctToggle">
-                                <i class="bi bi-check-circle"></i> Correct Percentage
+                                <i class="bi bi-check-circle"></i> {{ t('Correct Percentage') }}
                             </label>
                         </div>
                         <div id="batchCorrectpctField" class="ms-4" style="display: none;">
                             <input type="number" class="form-control form-control-sm" id="batchCorrectPct" name="correct_percentage" 
-                                   min="0" max="100" placeholder="0-100 or leave empty" style="max-width: 200px;">
-                            <small class="text-muted">Leave empty to clear</small>
+                                   min="0" max="100" placeholder="{{ t('0-100 or leave empty') }}" style="max-width: 200px;">
+                            <small class="text-muted">{{ t('Leave empty to clear') }}</small>
                         </div>
                     </div>
 
@@ -964,13 +963,13 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchMarksToggle"
                                    onchange="toggleBatchField('marks')">
                             <label class="form-check-label fw-bold" for="batchMarksToggle">
-                                <i class="bi bi-123"></i> Marks
+                                <i class="bi bi-123"></i> {{ t('Marks') }}
                             </label>
                         </div>
                         <div id="batchMarksField" class="ms-4" style="display: none;">
                             <input type="number" class="form-control form-control-sm" id="batchMarks" name="marks"
-                                   min="0" max="999" step="1" placeholder="e.g. 4, or leave empty" style="max-width: 200px;">
-                            <small class="text-muted">Leave empty to clear. Parts only; a stem's total is the sum of its parts.</small>
+                                   min="0" max="999" step="1" placeholder="{{ t('e.g. 4, or leave empty') }}" style="max-width: 200px;">
+                            <small class="text-muted">{{ t("Leave empty to clear. Parts only; a stem's total is the sum of its parts.") }}</small>
                         </div>
                     </div>
                     
@@ -980,22 +979,22 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchTopicsToggle" 
                                    onchange="toggleBatchField('topics')">
                             <label class="form-check-label fw-bold" for="batchTopicsToggle">
-                                <i class="bi bi-tags"></i> Topics & Subtopics
+                                <i class="bi bi-tags"></i> {{ t('Topics & Subtopics') }}
                             </label>
-                            <small class="text-muted d-block">Major Topic, Major Subtopic, Minor Topics, and M2M Subtopics</small>
+                            <small class="text-muted d-block">{{ t('Major Topic, Major Subtopic, Minor Topics, and M2M Subtopics') }}</small>
                         </div>
                         <div id="batchTopicsField" class="ms-4" style="display: none;">
                             <div class="row g-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">Major Topic (select 1)</label>
+                                    <label class="form-label">{{ t('Major Topic (select 1)') }}</label>
                                     <div class="dropdown searchable-single-select" id="batchMajorTopicDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchMajorTopicLabel">None</span>
+                                            <span id="batchMajorTopicLabel">{{ t('None') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchMajorTopicSearch" placeholder="Search topics...">
+                                                <input type="text" class="form-control" id="batchMajorTopicSearch" placeholder="{{ t('Search topics...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMajorTopicSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
@@ -1007,44 +1006,44 @@
                                     <input type="hidden" id="batchMajorTopic" name="major_topic_id" value="">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Major Subtopic</label>
+                                    <label class="form-label">{{ t('Major Subtopic') }}</label>
                                     <div class="dropdown searchable-single-select" id="batchMajorSubtopicDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchMajorSubtopicLabel">None</span>
+                                            <span id="batchMajorSubtopicLabel">{{ t('None') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchMajorSubtopicSearch" placeholder="Search subtopics...">
+                                                <input type="text" class="form-control" id="batchMajorSubtopicSearch" placeholder="{{ t('Search subtopics...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMajorSubtopicSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
                                             </div>
                                             <div id="batchMajorSubtopicOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
-                                                <div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic('', 'None')">None</div>
+                                                <div class="searchable-option" data-value="" onclick='selectBatchMajorSubtopic("", {{ t("None")|tojson }})'>{{ t('None') }}</div>
                                             </div>
                                         </div>
                                     </div>
                                     <input type="hidden" id="batchMajorSubtopic" name="major_subtopic_id" value="">
-                                    <small class="text-muted">Select major topic first</small>
+                                    <small class="text-muted">{{ t('Select major topic first') }}</small>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Minor Topics (multiple)</label>
+                                    <label class="form-label">{{ t('Minor Topics (multiple)') }}</label>
                                     <div class="dropdown multi-select-dropdown" id="batchMinorTopicsDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchMinorTopicsLabel">None selected</span>
+                                            <span id="batchMinorTopicsLabel">{{ t('None selected') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchMinorTopicsSearch" placeholder="Search topics...">
+                                                <input type="text" class="form-control" id="batchMinorTopicsSearch" placeholder="{{ t('Search topics...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchMinorTopicsSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
                                             </div>
                                             <div class="d-flex gap-1 mb-2">
-                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchMinorTopics()">All</button>
-                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchMinorTopics()">None</button>
+                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchMinorTopics()">{{ t('All') }}</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchMinorTopics()">{{ t('None') }}</button>
                                             </div>
                                             <div id="batchMinorTopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 150px; overflow-y: auto;">
                                             </div>
@@ -1053,29 +1052,29 @@
                                     <select id="batchMinorTopics" name="minor_topic_ids" multiple style="display:none;"></select>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Subtopics (M2M)</label>
+                                    <label class="form-label">{{ t('Subtopics (M2M)') }}</label>
                                     <div class="dropdown multi-select-dropdown" id="batchSubtopicsDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchSubtopicsLabel">None selected</span>
+                                            <span id="batchSubtopicsLabel">{{ t('None selected') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchSubtopicsSearch" placeholder="Search subtopics...">
+                                                <input type="text" class="form-control" id="batchSubtopicsSearch" placeholder="{{ t('Search subtopics...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchSubtopicsSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
                                             </div>
                                             <div class="d-flex gap-1 mb-2">
-                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchSubtopics()">All</button>
-                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchSubtopics()">None</button>
+                                                <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1" onclick="selectAllBatchSubtopics()">{{ t('All') }}</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm flex-grow-1" onclick="clearAllBatchSubtopics()">{{ t('None') }}</button>
                                             </div>
                                             <div id="batchSubtopicsCheckboxes" class="multi-select-checkbox-list" style="max-height: 150px; overflow-y: auto;">
                                             </div>
                                         </div>
                                     </div>
                                     <select id="batchSubtopics" name="subtopic_ids" multiple style="display:none;"></select>
-                                    <small class="text-muted">All shown (incl. hidden)</small>
+                                    <small class="text-muted">{{ t('All shown (incl. hidden)') }}</small>
                                 </div>
                             </div>
                         </div>
@@ -1087,22 +1086,22 @@
                             <input class="form-check-input batch-field-toggle" type="checkbox" id="batchChaptersToggle" 
                                    onchange="toggleBatchField('chapters')">
                             <label class="form-check-label fw-bold" for="batchChaptersToggle">
-                                <i class="bi bi-book"></i> Chapter & Subchapter
+                                <i class="bi bi-book"></i> {{ t('Chapter & Subchapter') }}
                             </label>
-                            <small class="text-muted d-block">Textbook chapter tagging</small>
+                            <small class="text-muted d-block">{{ t('Textbook chapter tagging') }}</small>
                         </div>
                         <div id="batchChaptersField" class="ms-4" style="display: none;">
                             <div class="row g-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">Chapter</label>
+                                    <label class="form-label">{{ t('Chapter') }}</label>
                                     <div class="dropdown searchable-single-select" id="batchChapterDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchChapterLabel">None</span>
+                                            <span id="batchChapterLabel">{{ t('None') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchChapterSearch" placeholder="Search chapters...">
+                                                <input type="text" class="form-control" id="batchChapterSearch" placeholder="{{ t('Search chapters...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchChapterSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
@@ -1114,36 +1113,35 @@
                                     <input type="hidden" id="batchChapter" name="chapter_id" value="">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Subchapter</label>
+                                    <label class="form-label">{{ t('Subchapter') }}</label>
                                     <div class="dropdown searchable-single-select" id="batchSubchapterDropdown">
                                         <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" 
                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                            <span id="batchSubchapterLabel">None</span>
+                                            <span id="batchSubchapterLabel">{{ t('None') }}</span>
                                         </button>
                                         <div class="dropdown-menu w-100 p-2">
                                             <div class="input-group input-group-sm mb-2">
-                                                <input type="text" class="form-control" id="batchSubchapterSearch" placeholder="Search subchapters...">
+                                                <input type="text" class="form-control" id="batchSubchapterSearch" placeholder="{{ t('Search subchapters...') }}">
                                                 <button class="btn btn-outline-secondary" type="button" onclick="clearBatchSubchapterSearch()">
                                                     <i class="bi bi-x"></i>
                                                 </button>
                                             </div>
                                             <div id="batchSubchapterOptions" class="searchable-options-list" style="max-height: 200px; overflow-y: auto;">
-                                                <div class="searchable-option" data-value="" onclick="selectBatchSubchapter('', 'None')">None</div>
+                                                <div class="searchable-option" data-value="" onclick='selectBatchSubchapter("", {{ t("None")|tojson }})'>{{ t('None') }}</div>
                                             </div>
                                         </div>
                                     </div>
                                     <input type="hidden" id="batchSubchapter" name="subchapter_id" value="">
-                                    <small class="text-muted">Select chapter first (all shown)</small>
+                                    <small class="text-muted">{{ t('Select chapter first (all shown)') }}</small>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </form>
                 </div>
-                <div id="batchEditPreview" class="d-none" role="region" aria-label="Batch edit preview">
+                <div id="batchEditPreview" class="d-none" role="region" aria-label="{{ t('Batch edit preview') }}">
                     <p class="text-muted small mb-2">
-                        Nothing is saved yet. Struck-out text is the current value; the value after the arrow is what will be saved.
-                        Only questions that would change are listed.
+                        {{ t('Nothing is saved yet. Struck-out text is the current value; the value after the arrow is what will be saved. Only questions that would change are listed.') }}
                     </p>
                     <div id="batchEditPreviewUpdating" class="mb-2"></div>
                     <div id="batchEditPreviewWarnings"></div>
@@ -1155,12 +1153,12 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-outline-secondary d-none" id="batchEditBackBtn" onclick="showBatchEditStep('form')">
-                    <i class="bi bi-arrow-left"></i> Back
+                    <i class="bi bi-arrow-left"></i> {{ t('Back') }}
                 </button>
                 <button type="button" class="btn btn-warning" id="batchEditPrimaryBtn" onclick="onBatchEditPrimary()">
-                    <i class="bi bi-eye"></i> Preview changes
+                    <i class="bi bi-eye"></i> {{ t('Preview changes') }}
                 </button>
             </div>
         </div>
@@ -1176,73 +1174,70 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">
-                    <i class="bi bi-intersect"></i> Set Operations
+                    <i class="bi bi-intersect"></i> {{ t('Set Operations') }}
                     <span id="setOpsSubjectBadge" class="badge bg-secondary ms-2"></span>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="text-muted small mb-3">
-                    Combine the live <strong>Selection</strong> with saved sets using
-                    <code>&cup;</code> (union), <code>&cap;</code> (intersection), and
-                    <code>\</code> (difference). Tap a set chip on the left to add it to the
-                    expression, then tap operator buttons. Use parentheses to control grouping.
+                    {{ t('Combine the live <strong>Selection</strong> with saved sets using <code>&cup;</code> (union), <code>&cap;</code> (intersection), and <code>\\</code> (difference). Tap a set chip on the left to add it to the expression, then tap operator buttons. Use parentheses to control grouping.')|safe }}
                 </p>
                 <div class="row g-3">
                     <!-- Sources panel -->
                     <div class="col-lg-4">
                         <div class="card h-100">
                             <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                                <strong><i class="bi bi-collection"></i> Available Sets</strong>
+                                <strong><i class="bi bi-collection"></i> {{ t('Available Sets') }}</strong>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        onclick="refreshAvailableSets()" title="Reload from server">
+                                        onclick="refreshAvailableSets()" title="{{ t('Reload from server') }}">
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </div>
                             <div class="card-body p-2" style="max-height: 60vh; overflow-y: auto;">
                                 <div class="mb-2">
-                                    <div class="text-muted small fw-bold px-1 mb-1">Live</div>
+                                    <div class="text-muted small fw-bold px-1 mb-1">{{ t('Live') }}</div>
                                     <div class="input-group input-group-sm mb-1">
                                         <button type="button" class="btn btn-outline-primary text-start flex-grow-1"
                                                 id="selectionChipBtn" onclick="appendChip({type:'set', src:'selection'})"
-                                                title="Click to add the live dashboard selection as a chip">
+                                                title="{{ t('Click to add the live dashboard selection as a chip') }}">
                                             <i class="bi bi-cursor"></i>
-                                            <strong>Selection</strong>
+                                            <strong>{{ t('Selection') }}</strong>
                                             <span class="badge bg-primary ms-1" id="selectionChipCount">0</span>
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary"
                                                 onclick="duplicateAsScratch('selection')"
-                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                                title="{{ t('Duplicate as a named scratch set (saved in your browser)') }}">
                                             <i class="bi bi-copy"></i>
                                         </button>
                                     </div>
                                     <div class="input-group input-group-sm mb-1">
                                         <button type="button" class="btn btn-outline-info text-start flex-grow-1"
                                                 id="filterResultChipBtn" onclick="appendChip({type:'set', src:'filter'})"
-                                                title="All questions matching the current dashboard filter (all pages)">
+                                                title="{{ t('All questions matching the current dashboard filter (all pages)') }}">
                                             <i class="bi bi-funnel"></i>
-                                            <strong>Filter Result</strong>
+                                            <strong>{{ t('Filter Result') }}</strong>
                                             <span class="badge bg-info ms-1" id="filterResultChipCount">0</span>
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary"
                                                 onclick="duplicateAsScratch('filter')"
-                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                                title="{{ t('Duplicate as a named scratch set (saved in your browser)') }}">
                                             <i class="bi bi-copy"></i>
                                         </button>
                                     </div>
                                 </div>
                                 <div class="mb-2" id="resultChipWrap" style="display:none;">
-                                    <div class="text-muted small fw-bold px-1 mb-1">Last result</div>
+                                    <div class="text-muted small fw-bold px-1 mb-1">{{ t('Last result') }}</div>
                                     <div class="input-group input-group-sm">
                                         <button type="button" class="btn btn-outline-success text-start flex-grow-1"
                                                 onclick="appendChip({type:'set', src:'result'})">
                                             <i class="bi bi-stars"></i>
-                                            <strong>Result</strong>
+                                            <strong>{{ t('Result') }}</strong>
                                             <span class="badge bg-success ms-1" id="resultChipCount">0</span>
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary"
                                                 onclick="duplicateAsScratch('result')"
-                                                title="Duplicate as a named scratch set (saved in your browser)">
+                                                title="{{ t('Duplicate as a named scratch set (saved in your browser)') }}">
                                             <i class="bi bi-copy"></i>
                                         </button>
                                     </div>
@@ -1250,24 +1245,24 @@
                                 <hr class="my-2">
                                 <div class="d-flex justify-content-between align-items-center px-1 mb-1">
                                     <div class="text-muted small fw-bold">
-                                        Scratch Sets
-                                        <span class="text-muted fw-normal" title="Saved in your browser only, not on the server">(in browser)</span>
+                                        {{ t('Scratch Sets') }}
+                                        <span class="text-muted fw-normal" title="{{ t('Saved in your browser only, not on the server') }}">{{ t('(in browser)') }}</span>
                                     </div>
                                     <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="clearScratchesBtn"
-                                            onclick="clearAllScratches()" title="Clear all scratch sets for this subject"
+                                            onclick="clearAllScratches()" title="{{ t('Clear all scratch sets for this subject') }}"
                                             style="display:none;">
-                                        <i class="bi bi-trash"></i> Clear all
+                                        <i class="bi bi-trash"></i> {{ t('Clear all') }}
                                     </button>
                                 </div>
                                 <div id="scratchSetsList" class="d-flex flex-column gap-1 mb-2">
                                     <div class="text-muted small fst-italic px-1" id="scratchSetsEmpty">
-                                        No scratch sets yet. Click <i class="bi bi-copy"></i> next to a live chip to make one.
+                                        {{ t('No scratch sets yet. Click <i class="bi bi-copy"></i> next to a live chip to make one.')|safe }}
                                     </div>
                                 </div>
                                 <hr class="my-2">
-                                <div class="text-muted small fw-bold px-1 mb-1">Saved Sets <span class="text-muted">(this subject)</span></div>
+                                <div class="text-muted small fw-bold px-1 mb-1">{{ t('Saved Sets') }} <span class="text-muted">{{ t('(this subject)') }}</span></div>
                                 <div id="savedSetsList" class="d-flex flex-column gap-1">
-                                    <div class="text-muted small px-1">Loading…</div>
+                                    <div class="text-muted small px-1">{{ t('Loading…') }}</div>
                                 </div>
                             </div>
                         </div>
@@ -1276,24 +1271,24 @@
                     <!-- Builder + Result panel -->
                     <div class="col-lg-8 d-flex flex-column gap-3">
                         <div class="card">
-                            <div class="card-header py-2"><strong><i class="bi bi-braces"></i> Expression</strong></div>
+                            <div class="card-header py-2"><strong><i class="bi bi-braces"></i> {{ t('Expression') }}</strong></div>
                             <div class="card-body">
                                 <div id="setExpressionBar" class="border rounded p-2 mb-2 d-flex flex-wrap gap-1 align-items-center"
                                      style="min-height: 3rem; background: var(--bs-light);">
                                     <span class="text-muted small fst-italic" id="setExpressionPlaceholder">
-                                        Tap a set on the left, then operator buttons below…
+                                        {{ t('Tap a set on the left, then operator buttons below…') }}
                                     </span>
                                 </div>
                                 <div class="d-flex flex-wrap gap-1 mb-2">
                                     <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
-                                            title="Union (everything in either set)"
-                                            onclick="appendChip({type:'op', op:'union'})">&cup; Union</button>
+                                            title="{{ t('Union (everything in either set)') }}"
+                                            onclick="appendChip({type:'op', op:'union'})">&cup; {{ t('Union') }}</button>
                                     <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
-                                            title="Intersection (only items in both)"
-                                            onclick="appendChip({type:'op', op:'intersect'})">&cap; Intersect</button>
+                                            title="{{ t('Intersection (only items in both)') }}"
+                                            onclick="appendChip({type:'op', op:'intersect'})">&cap; {{ t('Intersect') }}</button>
                                     <button type="button" class="btn btn-sm btn-outline-dark fw-bold"
-                                            title="Difference (left side minus right side)"
-                                            onclick="appendChip({type:'op', op:'diff'})">\ Difference</button>
+                                            title="{{ t('Difference (left side minus right side)') }}"
+                                            onclick="appendChip({type:'op', op:'diff'})">\ {{ t('Difference') }}</button>
                                     <span class="vr"></span>
                                     <button type="button" class="btn btn-sm btn-outline-secondary"
                                             onclick="appendChip({type:'paren', v:'('})">(</button>
@@ -1301,48 +1296,47 @@
                                             onclick="appendChip({type:'paren', v:')'})">)</button>
                                     <span class="vr"></span>
                                     <button type="button" class="btn btn-sm btn-outline-warning"
-                                            onclick="popLastChip()" title="Remove last chip">
+                                            onclick="popLastChip()" title="{{ t('Remove last chip') }}">
                                         <i class="bi bi-backspace"></i>
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-danger"
-                                            onclick="clearExpression()" title="Clear expression">
-                                        <i class="bi bi-x-lg"></i> Clear
+                                            onclick="clearExpression()" title="{{ t('Clear expression') }}">
+                                        <i class="bi bi-x-lg"></i> {{ t('Clear') }}
                                     </button>
                                     <span class="vr"></span>
                                     <button type="button" class="btn btn-sm btn-primary ms-auto"
                                             onclick="evaluateExpression()">
-                                        <i class="bi bi-play-fill"></i> Evaluate
+                                        <i class="bi bi-play-fill"></i> {{ t('Evaluate') }}
                                     </button>
                                 </div>
                                 <div id="setExpressionStatus" class="small text-muted">
-                                    Empty expression.
+                                    {{ t('Empty expression.') }}
                                 </div>
                             </div>
                         </div>
 
                         <div class="card">
                             <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                                <strong><i class="bi bi-stars"></i> Result</strong>
-                                <span id="setResultCount" class="badge bg-success">0 questions</span>
+                                <strong><i class="bi bi-stars"></i> {{ t('Result') }}</strong>
+                                <span id="setResultCount" class="badge bg-success">{{ t('0 questions') }}</span>
                             </div>
                             <div class="card-body">
                                 <div id="setResultEmpty" class="text-muted small">
-                                    No result yet. Build an expression and click <strong>Evaluate</strong>,
-                                    or save the current Selection directly.
+                                    {{ t('No result yet. Build an expression and click <strong>Evaluate</strong>, or save the current Selection directly.')|safe }}
                                 </div>
                                 <div id="setResultActions" class="d-none">
                                     <div class="d-flex flex-wrap gap-2">
                                         <button type="button" class="btn btn-sm btn-primary"
                                                 onclick="applyResultToSelection('replace')">
-                                            <i class="bi bi-arrow-repeat"></i> Replace Selection
+                                            <i class="bi bi-arrow-repeat"></i> {{ t('Replace Selection') }}
                                         </button>
                                         <button type="button" class="btn btn-sm btn-outline-primary"
                                                 onclick="applyResultToSelection('append')">
-                                            <i class="bi bi-plus-circle"></i> Append to Selection
+                                            <i class="bi bi-plus-circle"></i> {{ t('Append to Selection') }}
                                         </button>
                                         <button type="button" class="btn btn-sm btn-success"
                                                 onclick="showSaveSetModal('result')">
-                                            <i class="bi bi-floppy"></i> Save Result as set…
+                                            <i class="bi bi-floppy"></i> {{ t('Save Result as set…') }}
                                         </button>
                                     </div>
                                 </div>
@@ -1353,11 +1347,11 @@
                             <div class="card-body py-2">
                                 <button type="button" class="btn btn-sm btn-outline-success"
                                         onclick="showSaveSetModal('selection')"
-                                        title="Save the current dashboard Selection (no expression needed)">
-                                    <i class="bi bi-floppy"></i> Save current Selection as set…
+                                        title="{{ t('Save the current dashboard Selection (no expression needed)') }}">
+                                    <i class="bi bi-floppy"></i> {{ t('Save current Selection as set…') }}
                                 </button>
                                 <a href="{{ url_for('user.sets') }}" class="btn btn-sm btn-outline-secondary float-end">
-                                    <i class="bi bi-gear"></i> Manage saved sets
+                                    <i class="bi bi-gear"></i> {{ t('Manage saved sets') }}
                                 </a>
                             </div>
                         </div>
@@ -1365,7 +1359,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Close') }}</button>
             </div>
         </div>
     </div>
@@ -1376,25 +1370,25 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-floppy"></i> Save Question Set</h5>
+                <h5 class="modal-title"><i class="bi bi-floppy"></i> {{ t('Save Question Set') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-2">
-                    <label for="saveSetSourceLabel" class="form-label small text-muted">Saving</label>
+                    <label for="saveSetSourceLabel" class="form-label small text-muted">{{ t('Saving') }}</label>
                     <div id="saveSetSourceLabel" class="fw-bold"></div>
                 </div>
                 <div class="mb-3">
-                    <label for="saveSetName" class="form-label">Set Name</label>
-                    <input type="text" class="form-control" id="saveSetName" maxlength="200" placeholder="e.g. Topic 5 hard MC" required>
-                    <div class="form-text">Saved per subject. If a set with the same name already exists for this subject, it will be overwritten.</div>
+                    <label for="saveSetName" class="form-label">{{ t('Set Name') }}</label>
+                    <input type="text" class="form-control" id="saveSetName" maxlength="200" placeholder="{{ t('e.g. Topic 5 hard MC') }}" required>
+                    <div class="form-text">{{ t('Saved per subject. If a set with the same name already exists for this subject, it will be overwritten.') }}</div>
                 </div>
                 <div class="text-muted small" id="saveSetSubjectInfo"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" onclick="confirmSaveSet()">
-                    <i class="bi bi-floppy"></i> Save
+                    <i class="bi bi-floppy"></i> {{ t('Save') }}
                 </button>
             </div>
         </div>
@@ -1406,19 +1400,19 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-floppy"></i> Save Search Profile</h5>
+                <h5 class="modal-title"><i class="bi bi-floppy"></i> {{ t('Save Search Profile') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
-                    <label for="filterProfileName" class="form-label">Profile Name</label>
-                    <input type="text" class="form-control" id="filterProfileName" placeholder="e.g. MATC DSE MC Level 1-2" maxlength="200" required>
+                    <label for="filterProfileName" class="form-label">{{ t('Profile Name') }}</label>
+                    <input type="text" class="form-control" id="filterProfileName" placeholder="{{ t('e.g. MATC DSE MC Level 1-2') }}" maxlength="200" required>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" onclick="saveFilterProfile()">
-                    <i class="bi bi-floppy"></i> Save
+                    <i class="bi bi-floppy"></i> {{ t('Save') }}
                 </button>
             </div>
         </div>
@@ -1430,13 +1424,12 @@
     <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-grip-horizontal"></i> Reorder Blocks</h5>
+                <h5 class="modal-title"><i class="bi bi-grip-horizontal"></i> {{ t('Reorder Blocks') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="text-muted small mb-2">
-                    Drag whole blocks into the order you want. Questions inside each block keep
-                    sorting by the remaining sort fields.
+                    {{ t('Drag whole blocks into the order you want. Questions inside each block keep sorting by the remaining sort fields.') }}
                 </p>
                 <div id="reorderBlocksStatus" class="small text-muted mb-2"></div>
                 <div id="reorderBlocksList" class="reorder-blocks-list">
@@ -1445,11 +1438,11 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary me-auto" onclick="resetReorderBlocks()">
-                    <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+                    <i class="bi bi-arrow-counterclockwise"></i> {{ t('Reset to default') }}
                 </button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" id="reorderBlocksApplyBtn" onclick="applyReorderBlocks()">
-                    <i class="bi bi-check-lg"></i> Apply
+                    <i class="bi bi-check-lg"></i> {{ t('Apply') }}
                 </button>
             </div>
         </div>
@@ -1971,11 +1964,11 @@ function updateVisibleCountDisplay() {
         const onPage = countLeafCardsOnPage();
         const counter = document.getElementById('selectionCounter');
         if (counter) {
-            counter.textContent = `${selectedQuestions.size} selected (page shows ${onPage})`;
+            counter.textContent = OQB.t('{n} selected (page shows {onPage})', {n: selectedQuestions.size, onPage: onPage});
         }
         const mainCounter = document.getElementById('mainSelectionCounter');
         if (mainCounter) {
-            mainCounter.textContent = `${selectedQuestions.size} selected (page shows ${onPage})`;
+            mainCounter.textContent = OQB.t('{n} selected (page shows {onPage})', {n: selectedQuestions.size, onPage: onPage});
         }
     }
 }
@@ -2001,12 +1994,12 @@ function showFilterActiveNotice(isEnabled) {
         notice.innerHTML = `
             <div>
                 <i class="bi bi-funnel-fill"></i>
-                <strong>Showing selected questions only</strong>
-                — ${total} selected total, page shows ${onPage}.
-                <span class="text-muted small ms-2">Sidebar filters are temporarily ignored.</span>
+                <strong>${OQB.t('Showing selected questions only')}</strong>
+                — ${OQB.t('{total} selected total, page shows {onPage}.', {total: total, onPage: onPage})}
+                <span class="text-muted small ms-2">${OQB.t('Sidebar filters are temporarily ignored.')}</span>
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('showSelectedOnly').checked = false; toggleShowSelectedOnly();">
-                <i class="bi bi-x"></i> Show All
+                <i class="bi bi-x"></i> ${OQB.t('Show All')}
             </button>
         `;
         questionList.insertBefore(notice, questionList.firstChild);
@@ -2015,21 +2008,21 @@ function showFilterActiveNotice(isEnabled) {
 
 // Sort configuration
 const SORT_FIELDS = {
-    'qid': 'Question ID',
-    'qno': 'Question Number',
-    'year': 'Year',
-    'level': 'Level',
-    'topic': 'Topic',
-    'subtopic': 'Subtopic',
-    'chapter': 'Chapter',
-    'subchapter': 'Subchapter',
-    'created_time': 'Created Time',
-    'source': 'Source',
-    'section': 'Section',
-    'q_type': 'Question Type',
-    'correct_percentage': 'Correct %',
-    'marks': 'Marks (part)',
-    'total_marks': 'Marks (whole question)'
+    'qid': OQB.t('Question ID'),
+    'qno': OQB.t('Question Number'),
+    'year': OQB.t('Year'),
+    'level': OQB.t('Level'),
+    'topic': OQB.t('Topic'),
+    'subtopic': OQB.t('Subtopic'),
+    'chapter': OQB.t('Chapter'),
+    'subchapter': OQB.t('Subchapter'),
+    'created_time': OQB.t('Created Time'),
+    'source': OQB.t('Source'),
+    'section': OQB.t('Section'),
+    'q_type': OQB.t('Question Type'),
+    'correct_percentage': OQB.t('Correct %'),
+    'marks': OQB.t('Marks (part)'),
+    'total_marks': OQB.t('Marks (whole question)')
 };
 
 let sortConfig = [{ field: 'qid', direction: 'asc' }];
@@ -2079,14 +2072,14 @@ function updateReorderBlocksUI() {
     } else if (sortGroupOrder && !_arraysEqual(sortGroupOrder.fields, gfields)) {
         // Grouping fields changed → stored order is stale.
         sortGroupOrder = null;
-        if (hint) hint.textContent = 'Block order was reset because the sort fields changed.';
+        if (hint) hint.textContent = OQB.t('Block order was reset because the sort fields changed.');
     }
 
     if (wrap) wrap.style.display = gfields.length ? 'block' : 'none';
 
     const active = !!(sortGroupOrder && Array.isArray(sortGroupOrder.order) && sortGroupOrder.order.length);
     if (badge) badge.style.display = active ? 'inline-block' : 'none';
-    if (hint && active) hint.textContent = 'Custom block order active (' + sortGroupOrder.order.length + ' blocks).';
+    if (hint && active) hint.textContent = OQB.t('Custom block order active ({n} blocks).', {n: sortGroupOrder.order.length});
 
     writeSortGroupOrderInput();
 }
@@ -2121,16 +2114,16 @@ function renderSortCriteria() {
         ).join('');
 
         item.innerHTML = `
-            <span class="drag-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+            <span class="drag-handle" title="${OQB.t('Drag to reorder')}"><i class="bi bi-grip-vertical"></i></span>
             <select class="form-select form-select-sm field-select" onchange="updateSortField(${index}, this.value)">
                 ${fieldOptions}
             </select>
             <button type="button" class="btn btn-sm btn-outline-secondary direction-btn"
-                    onclick="toggleSortDirection(${index})" title="Toggle direction">
+                    onclick="toggleSortDirection(${index})" title="${OQB.t('Toggle direction')}">
                 <i class="bi bi-sort-${criterion.direction === 'asc' ? 'up' : 'down'}"></i>
             </button>
             <button type="button" class="btn btn-sm btn-link remove-btn"
-                    onclick="removeSortCriterion(${index})" title="Remove">
+                    onclick="removeSortCriterion(${index})" title="${OQB.t('Remove')}">
                 <i class="bi bi-x-lg"></i>
             </button>
         `;
@@ -2179,7 +2172,7 @@ function addSortCriterion() {
 
 function removeSortCriterion(index) {
     if (sortConfig.length <= 1) {
-        alert('At least one sort criterion is required.');
+        alert(OQB.t('At least one sort criterion is required.'));
         return;
     }
     sortConfig.splice(index, 1);
@@ -2238,7 +2231,7 @@ async function openReorderBlocksModal() {
     const listEl = document.getElementById('reorderBlocksList');
     const statusEl = document.getElementById('reorderBlocksStatus');
     if (listEl) listEl.innerHTML = '';
-    if (statusEl) statusEl.textContent = 'Loading blocks…';
+    if (statusEl) statusEl.textContent = OQB.t('Loading blocks…');
 
     const modalEl = document.getElementById('reorderBlocksModal');
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
@@ -2262,11 +2255,13 @@ async function openReorderBlocksModal() {
         renderReorderBlocks();
         if (statusEl) {
             statusEl.textContent = blocks.length
-                ? (blocks.length + ' block' + (blocks.length === 1 ? '' : 's') + ' — drag to reorder')
-                : 'No blocks match the current filter.';
+                ? (blocks.length === 1
+                    ? OQB.t('{n} block — drag to reorder', {n: blocks.length})
+                    : OQB.t('{n} blocks — drag to reorder', {n: blocks.length}))
+                : OQB.t('No blocks match the current filter.');
         }
     } catch (e) {
-        if (statusEl) statusEl.textContent = 'Failed to load blocks.';
+        if (statusEl) statusEl.textContent = OQB.t('Failed to load blocks.');
         console.error('Reorder blocks load failed:', e);
     }
 }
@@ -2282,7 +2277,7 @@ function renderReorderBlocks() {
         const labelText = reorderBlocksFields.map(f => (b.labels && b.labels[f]) || '?').join(' › ');
         const esc = _escapeHtmlAttr(labelText);
         item.innerHTML = `
-            <span class="drag-handle" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+            <span class="drag-handle" title="${OQB.t('Drag to reorder')}"><i class="bi bi-grip-vertical"></i></span>
             <span class="reorder-block-label" title="${esc}">${esc}</span>
             <span class="reorder-block-count badge bg-secondary">${b.count}</span>
         `;
@@ -2331,7 +2326,7 @@ function resetReorderBlocks() {
     sortGroupOrder = null;
     updateReorderBlocksUI();
     const hint = document.getElementById('reorderBlocksHint');
-    if (hint) hint.textContent = 'Block order reset to default.';
+    if (hint) hint.textContent = OQB.t('Block order reset to default.');
     bootstrap.Modal.getInstance(document.getElementById('reorderBlocksModal'))?.hide();
     const filterForm = document.getElementById('filterForm');
     if (filterForm) htmx.trigger(filterForm, 'submit');
@@ -2468,7 +2463,7 @@ function toggleStemWhole(btn) {
     const showWhole = group.classList.toggle('is-whole');
     btn.classList.toggle('active', showWhole);
     btn.setAttribute('aria-pressed', showWhole ? 'true' : 'false');
-    btn.title = showWhole ? 'Back to the background and parts' : 'Show the archived whole question image instead of the parts';
+    btn.title = showWhole ? OQB.t('Back to the background and parts') : OQB.t('Show the archived whole question image instead of the parts');
 }
 
 // Crops in one sheet (stem + parts, or one standalone question) come from the
@@ -2573,22 +2568,22 @@ function oqbZoomQuestion(btn) {
     ratios.forEach(([img, nw]) => { img.style.width = (nw / widest * 100).toFixed(3) + '%'; });
 
     let title = btn.dataset.zoomCaption || '';
-    if (isWhole && papers.some(p => p.closest('.qsheet-stem-row'))) title += ' · whole question archive';
+    if (isWhole && papers.some(p => p.closest('.qsheet-stem-row'))) title = OQB.t('{caption} · whole question archive', {caption: title});
 
     const overlay = document.createElement('div');
     overlay.className = 'qzoom';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', title || 'Enlarged question');
+    overlay.setAttribute('aria-label', title || OQB.t('Enlarged question'));
     overlay.innerHTML = `
         <div class="qzoom-bar">
             <span class="qzoom-title"></span>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Zoom">
-                <button type="button" class="btn btn-outline-light" data-qzoom="out" title="Zoom out (-)"><i class="bi bi-zoom-out"></i></button>
-                <button type="button" class="btn btn-outline-light" data-qzoom="fit" title="Fit to screen (0)">100%</button>
-                <button type="button" class="btn btn-outline-light" data-qzoom="in" title="Zoom in (+)"><i class="bi bi-zoom-in"></i></button>
+            <div class="btn-group btn-group-sm" role="group" aria-label="${OQB.t('Zoom')}">
+                <button type="button" class="btn btn-outline-light" data-qzoom="out" title="${OQB.t('Zoom out (-)')}"><i class="bi bi-zoom-out"></i></button>
+                <button type="button" class="btn btn-outline-light" data-qzoom="fit" title="${OQB.t('Fit to screen (0)')}">100%</button>
+                <button type="button" class="btn btn-outline-light" data-qzoom="in" title="${OQB.t('Zoom in (+)')}"><i class="bi bi-zoom-in"></i></button>
             </div>
-            <button type="button" class="btn-close btn-close-white ms-2" data-qzoom="close" title="Close (Esc)" aria-label="Close"></button>
+            <button type="button" class="btn-close btn-close-white ms-2" data-qzoom="close" title="${OQB.t('Close (Esc)')}" aria-label="${OQB.t('Close')}"></button>
         </div>
         <div class="qzoom-scroll"><div class="qzoom-page"></div></div>`;
     overlay.querySelector('.qzoom-title').textContent = title;
@@ -2777,14 +2772,14 @@ function updateSelectionCounter() {
     // Update counter in question list
     const counter = document.getElementById('selectionCounter');
     if (counter) {
-        counter.textContent = `${count} selected`;
+        counter.textContent = OQB.t('{n} selected', {n: count});
         counter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
     }
     
     // Update main counter in header
     const mainCounter = document.getElementById('mainSelectionCounter');
     if (mainCounter) {
-        mainCounter.textContent = `${count} selected`;
+        mainCounter.textContent = OQB.t('{n} selected', {n: count});
         mainCounter.className = count > 0 ? 'badge bg-success' : 'badge bg-secondary';
     }
 }
@@ -3167,8 +3162,8 @@ async function loadSubjectData(subjectId, sourceType) {
             });
     } else {
         // QB source - no years
-        document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">N/A for Question Bank</small>';
-        document.getElementById('yearDropdownLabel').textContent = 'N/A';
+        document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">' + OQB.t('N/A for Question Bank') + '</small>';
+        document.getElementById('yearDropdownLabel').textContent = OQB.t('N/A');
     }
     
     // Load sections for the subject and source
@@ -3185,8 +3180,8 @@ async function loadSubjectData(subjectId, sourceType) {
 function renderYearCheckboxes(years, selectedYears = []) {
     const yearDiv = document.getElementById('yearCheckboxes');
     if (!years || years.length === 0) {
-        yearDiv.innerHTML = '<small class="text-muted">No years available</small>';
-        document.getElementById('yearDropdownLabel').textContent = 'No years';
+        yearDiv.innerHTML = '<small class="text-muted">' + OQB.t('No years available') + '</small>';
+        document.getElementById('yearDropdownLabel').textContent = OQB.t('No years');
         return;
     }
     
@@ -3210,15 +3205,15 @@ function updateYearDropdownLabel() {
     const label = document.getElementById('yearDropdownLabel');
     
     if (totalYears === 0) {
-        label.textContent = 'No years';
+        label.textContent = OQB.t('No years');
     } else if (checkedYears.length === 0) {
-        label.innerHTML = '<span class="text-muted">Select years...</span>';
+        label.innerHTML = '<span class="text-muted">' + OQB.t('Select years...') + '</span>';
     } else if (checkedYears.length === totalYears) {
-        label.innerHTML = `All years <span class="badge bg-primary">${totalYears}</span>`;
+        label.innerHTML = OQB.t('All years <span class="badge bg-primary">{n}</span>', {n: totalYears});
     } else if (checkedYears.length <= 3) {
         label.textContent = checkedYears.join(', ');
     } else {
-        label.innerHTML = `${checkedYears.length} years <span class="badge bg-primary">${checkedYears.length}</span>`;
+        label.innerHTML = OQB.t('{n} years <span class="badge bg-primary">{n}</span>', {n: checkedYears.length});
     }
     
     saveStateToStorage();
@@ -3278,12 +3273,12 @@ function populateSectionDropdown(sections, selectedSection = 'all') {
     const sectionSelect = document.getElementById('sectionSelect');
     
     if (!sections || sections.length === 0) {
-        sectionSelect.innerHTML = '<option value="all">All (No sections available)</option>';
+        sectionSelect.innerHTML = '<option value="all">' + OQB.t('All (No sections available)') + '</option>';
         return;
     }
     
     // Build options: start with "All"
-    let optionsHtml = '<option value="all">All</option>';
+    let optionsHtml = '<option value="all">' + OQB.t('All') + '</option>';
     
     // Add each section from database
     sections.forEach(section => {
@@ -3321,9 +3316,9 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     const topicSelect = document.getElementById('topicSelect');
     
     if (!topics || topics.length === 0) {
-        topicDiv.innerHTML = '<small class="text-muted">No topics available</small>';
+        topicDiv.innerHTML = '<small class="text-muted">' + OQB.t('No topics available') + '</small>';
         topicSelect.innerHTML = '';
-        document.getElementById('topicDropdownLabel').textContent = 'No topics';
+        document.getElementById('topicDropdownLabel').textContent = OQB.t('No topics');
         return;
     }
     
@@ -3335,7 +3330,7 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
             <input class="form-check-input topic-checkbox" type="checkbox" 
                    value="${t.id}" id="topic${t.id}" onchange="onTopicChange()"
                    ${selectedTopics.includes(t.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="topic${t.id}"><span class="filter-node-name">${label}</span>${t.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden topic"></i>' : ''}</label>
+            <label class="form-check-label" for="topic${t.id}"><span class="filter-node-name">${label}</span>${t.hidden ? ' <i class="bi bi-eye-slash text-muted" title="' + OQB.t('Hidden topic') + '"></i>' : ''}</label>
         </div>`;
     }).join('');
     
@@ -3375,16 +3370,16 @@ function updateTopicDropdownLabel() {
     const label = document.getElementById('topicDropdownLabel');
     
     if (totalTopics === 0) {
-        label.textContent = 'No topics';
+        label.textContent = OQB.t('No topics');
     } else if (checkedTopics.length === 0) {
-        label.innerHTML = '<span class="text-muted">Select topics...</span>';
+        label.innerHTML = '<span class="text-muted">' + OQB.t('Select topics...') + '</span>';
     } else if (checkedTopics.length === totalTopics) {
-        label.innerHTML = `All topics <span class="badge bg-primary">${totalTopics}</span>`;
+        label.innerHTML = OQB.t('All topics <span class="badge bg-primary">{n}</span>', {n: totalTopics});
     } else if (checkedTopics.length === 1) {
         const topicName = selectedFilterLabel(checkedTopics[0]);
         label.textContent = topicName.length > 25 ? topicName.substring(0, 25) + '...' : topicName;
     } else {
-        label.innerHTML = `${checkedTopics.length} topics <span class="badge bg-primary">${checkedTopics.length}</span>`;
+        label.innerHTML = OQB.t('{n} topics <span class="badge bg-primary">{n}</span>', {n: checkedTopics.length});
     }
 }
 
@@ -3587,9 +3582,9 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
     const subtopicSelect = document.getElementById('subtopicSelect');
     
     if (!subtopics || subtopics.length === 0) {
-        subtopicDiv.innerHTML = '<small class="text-muted">No subtopics available</small>';
+        subtopicDiv.innerHTML = '<small class="text-muted">' + OQB.t('No subtopics available') + '</small>';
         subtopicSelect.innerHTML = '';
-        document.getElementById('subtopicDropdownLabel').textContent = 'No subtopics';
+        document.getElementById('subtopicDropdownLabel').textContent = OQB.t('No subtopics');
         return;
     }
     
@@ -3608,7 +3603,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
                    ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
             <label class="form-check-label" for="subtopic${s.id}">
                 <span class="filter-node-name">${label}</span>${countBadge}${typeBadges}
-                ${s.hidden ? '<i class="bi bi-eye-slash text-muted ms-1" title="Hidden subtopic"></i>' : ''}
+                ${s.hidden ? '<i class="bi bi-eye-slash text-muted ms-1" title="' + OQB.t('Hidden subtopic') + '"></i>' : ''}
             </label>
         </div>
     `}).join('');
@@ -3648,16 +3643,16 @@ function updateSubtopicDropdownLabel() {
     const label = document.getElementById('subtopicDropdownLabel');
     
     if (totalSubtopics === 0) {
-        label.textContent = 'No subtopics';
+        label.textContent = OQB.t('No subtopics');
     } else if (checkedSubtopics.length === 0) {
-        label.innerHTML = '<span class="text-muted">Select subtopics...</span>';
+        label.innerHTML = '<span class="text-muted">' + OQB.t('Select subtopics...') + '</span>';
     } else if (checkedSubtopics.length === totalSubtopics) {
-        label.innerHTML = `All subtopics <span class="badge bg-primary">${totalSubtopics}</span>`;
+        label.innerHTML = OQB.t('All subtopics <span class="badge bg-primary">{n}</span>', {n: totalSubtopics});
     } else if (checkedSubtopics.length === 1) {
         const subtopicName = selectedFilterLabel(checkedSubtopics[0]);
         label.textContent = subtopicName.length > 25 ? subtopicName.substring(0, 25) + '...' : subtopicName;
     } else {
-        label.innerHTML = `${checkedSubtopics.length} subtopics <span class="badge bg-primary">${checkedSubtopics.length}</span>`;
+        label.innerHTML = OQB.t('{n} subtopics <span class="badge bg-primary">{n}</span>', {n: checkedSubtopics.length});
     }
 }
 
@@ -3792,8 +3787,8 @@ async function loadSubtopicsForSelectedTopicsAsync() {
 // Load chapters for a subject
 function loadChapters(subjectId, selectedChapterIds = []) {
     if (!subjectId) {
-        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">Select subject first</small>';
-        document.getElementById('chapterDropdownLabel').textContent = 'Select subject first';
+        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">' + OQB.t('Select subject first') + '</small>';
+        document.getElementById('chapterDropdownLabel').textContent = OQB.t('Select subject first');
         document.getElementById('chapterSelect').innerHTML = '';
         document.getElementById('subchapterContainer').style.display = 'none';
         return;
@@ -3810,8 +3805,8 @@ function loadChapters(subjectId, selectedChapterIds = []) {
 // Async version of loadChapters (returns a Promise)
 async function loadChaptersAsync(subjectId, selectedChapterIds = []) {
     if (!subjectId) {
-        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">Select subject first</small>';
-        document.getElementById('chapterDropdownLabel').textContent = 'Select subject first';
+        document.getElementById('chapterCheckboxes').innerHTML = '<small class="text-muted">' + OQB.t('Select subject first') + '</small>';
+        document.getElementById('chapterDropdownLabel').textContent = OQB.t('Select subject first');
         document.getElementById('chapterSelect').innerHTML = '';
         document.getElementById('subchapterContainer').style.display = 'none';
         return;
@@ -3829,9 +3824,9 @@ function renderChapterCheckboxes(chapters, selectedChapters = []) {
     const chapterSelect = document.getElementById('chapterSelect');
 
     if (!chapters || chapters.length === 0) {
-        chapterDiv.innerHTML = '<small class="text-muted">No chapters available</small>';
+        chapterDiv.innerHTML = '<small class="text-muted">' + OQB.t('No chapters available') + '</small>';
         chapterSelect.innerHTML = '';
-        document.getElementById('chapterDropdownLabel').textContent = 'No chapters';
+        document.getElementById('chapterDropdownLabel').textContent = OQB.t('No chapters');
         return;
     }
 
@@ -3840,7 +3835,7 @@ function renderChapterCheckboxes(chapters, selectedChapters = []) {
             <input class="form-check-input chapter-checkbox" type="checkbox" 
                    value="${c.id}" id="chapter${c.id}" onchange="onChapterChange()"
                    ${selectedChapters.includes(c.id.toString()) ? 'checked' : ''}>
-            <label class="form-check-label" for="chapter${c.id}">${c.name}${c.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden chapter"></i>' : ''}</label>
+            <label class="form-check-label" for="chapter${c.id}">${c.name}${c.hidden ? ' <i class="bi bi-eye-slash text-muted" title="' + OQB.t('Hidden chapter') + '"></i>' : ''}</label>
         </div>
     `).join('');
 
@@ -3878,12 +3873,12 @@ function updateChapterDropdownLabel() {
     const label = document.getElementById('chapterDropdownLabel');
     
     if (checkedBoxes.length === 0) {
-        label.textContent = 'Select chapters...';
+        label.textContent = OQB.t('Select chapters...');
     } else if (checkedBoxes.length === 1) {
-        const chapterLabel = checkedBoxes[0].nextElementSibling?.textContent || '1 selected';
+        const chapterLabel = checkedBoxes[0].nextElementSibling?.textContent || OQB.t('1 selected');
         label.textContent = chapterLabel;
     } else {
-        label.textContent = `${checkedBoxes.length} chapters selected`;
+        label.textContent = OQB.t('{n} chapters selected', {n: checkedBoxes.length});
     }
 }
 
@@ -3968,9 +3963,9 @@ function renderSubchapterCheckboxes(subchapters, selectedSubchapters = []) {
     const subchapterSelect = document.getElementById('subchapterSelect');
 
     if (!subchapters || subchapters.length === 0) {
-        subchapterDiv.innerHTML = '<small class="text-muted">No subchapters available</small>';
+        subchapterDiv.innerHTML = '<small class="text-muted">' + OQB.t('No subchapters available') + '</small>';
         subchapterSelect.innerHTML = '';
-        document.getElementById('subchapterDropdownLabel').textContent = 'No subchapters';
+        document.getElementById('subchapterDropdownLabel').textContent = OQB.t('No subchapters');
         return;
     }
 
@@ -3980,7 +3975,7 @@ function renderSubchapterCheckboxes(subchapters, selectedSubchapters = []) {
                    value="${sc.id}" id="subchapter${sc.id}" onchange="onSubchapterChange()"
                    ${selectedSubchapters.includes(sc.id.toString()) ? 'checked' : ''}>
             <label class="form-check-label" for="subchapter${sc.id}">
-                ${sc.name}${sc.hidden ? ' <i class="bi bi-eye-slash text-muted" title="Hidden subchapter"></i>' : ''}
+                ${sc.name}${sc.hidden ? ' <i class="bi bi-eye-slash text-muted" title="' + OQB.t('Hidden subchapter') + '"></i>' : ''}
             </label>
         </div>
     `).join('');
@@ -4019,12 +4014,12 @@ function updateSubchapterDropdownLabel() {
     const label = document.getElementById('subchapterDropdownLabel');
     
     if (checkedBoxes.length === 0) {
-        label.textContent = 'Select subchapters...';
+        label.textContent = OQB.t('Select subchapters...');
     } else if (checkedBoxes.length === 1) {
-        const subchapterLabel = checkedBoxes[0].nextElementSibling?.textContent?.trim() || '1 selected';
+        const subchapterLabel = checkedBoxes[0].nextElementSibling?.textContent?.trim() || OQB.t('1 selected');
         label.textContent = subchapterLabel;
     } else {
-        label.textContent = `${checkedBoxes.length} subchapters selected`;
+        label.textContent = OQB.t('{n} subchapters selected', {n: checkedBoxes.length});
     }
 }
 
@@ -4359,7 +4354,7 @@ function applyQidsFilter(qids) {
     if (!input || !banner) return;
     input.value = qids.join(',');
     banner.classList.remove('d-none');
-    countEl.textContent = `${qids.length} QID${qids.length === 1 ? '' : 's'}`;
+    countEl.textContent = qids.length === 1 ? OQB.t('{n} QID', {n: qids.length}) : OQB.t('{n} QIDs', {n: qids.length});
 
     const filterForm = document.getElementById('filterForm');
     if (filterForm) htmx.trigger(filterForm, 'submit');
@@ -4466,8 +4461,8 @@ document.querySelectorAll('input[name="source_type"]').forEach(radio => {
                     updateYearDropdownLabel();
                 });
         } else {
-            document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">N/A for Question Bank</small>';
-            document.getElementById('yearDropdownLabel').textContent = 'N/A';
+            document.getElementById('yearCheckboxes').innerHTML = '<small class="text-muted">' + OQB.t('N/A for Question Bank') + '</small>';
+            document.getElementById('yearDropdownLabel').textContent = OQB.t('N/A');
         }
         
         // Load sections for the new source type
@@ -4564,7 +4559,7 @@ function previewAsset(questionId, assetType) {
     const modalBody = document.getElementById('previewModalBody');
     const modalLabel = document.getElementById('previewModalLabel');
 
-    modalLabel.textContent = `Preview ${assetType}`;
+    modalLabel.textContent = OQB.t('Preview {type}', {type: assetType});
     modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
 
     _showPreviewModal(modalEl);
@@ -4580,7 +4575,7 @@ function previewAsset(questionId, assetType) {
             }
             if (data.mode === 'image' && data.parts && data.parts.length > 0) {
                 modalBody.innerHTML = data.parts.map(p =>
-                    `<img src="${p.url}" class="preview-modal-img" alt="${assetType}" style="display:block; margin-bottom:4px; max-width:100%;">`
+                    `<img src="${p.url}" class="preview-modal-img" alt="${OQB.t('{type} preview', {type: assetType})}" style="display:block; margin-bottom:4px; max-width:100%;">`
                 ).join('');
             } else if (data.mode === 'html') {
                 const wrap = document.createElement('div');
@@ -4598,14 +4593,14 @@ function previewAsset(questionId, assetType) {
                 const canRerender = (window.OQB_IS_ADMIN && aid && qid);
                 const rerenderBtn = canRerender
                     ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                              title="Re-render thumbnail"
+                              title="${OQB.t('Re-render thumbnail')}"
                               onclick="oqbRerenderThumb(${qid}, ${aid}, this); return false;">
-                         <i class="bi bi-arrow-clockwise"></i> Re-render
+                         <i class="bi bi-arrow-clockwise"></i> ${OQB.t('Re-render')}
                        </button>`
                     : '';
                 modalBody.innerHTML = `
                     <div class="p-2 text-start" data-doc-thumb-container>
-                        <img src="${data.thumbnail_url}" alt="${assetType} preview"
+                        <img src="${data.thumbnail_url}" alt="${OQB.t('{type} preview', {type: assetType})}"
                              class="preview-modal-img oqb-doc-thumb"
                              ${aid ? `data-doc-asset-id="${aid}"` : ''}
                              ${qid ? `data-doc-question-id="${qid}"` : ''}
@@ -4613,11 +4608,11 @@ function previewAsset(questionId, assetType) {
                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                             <span class="text-muted small">
                                 <i class="bi bi-info-circle"></i>
-                                First-page preview (rendered server-side). Download for full fidelity.
+                                ${OQB.t('First-page preview (rendered server-side). Download for full fidelity.')}
                             </span>
                             <div>
                                 <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-primary">
-                                    <i class="bi bi-download"></i> Download ${fname}
+                                    <i class="bi bi-download"></i> ${OQB.t('Download {name}', {name: fname})}
                                 </a>
                                 ${rerenderBtn}
                             </div>
@@ -4632,20 +4627,20 @@ function previewAsset(questionId, assetType) {
                          data-doc-pending-filename="${data.filename || ''}"
                          data-doc-pending-downloadurl="${data.url || ''}"` : ''}>
                         <i class="bi bi-file-earmark-word display-3 text-primary"></i>
-                        <p class="mt-3 mb-2">Word document — preview rendering…</p>
+                        <p class="mt-3 mb-2">${OQB.t('Word document — preview rendering…')}</p>
                         <a href="${data.url}" target="_blank" class="btn btn-primary">
-                            <i class="bi bi-download"></i> Download ${data.filename || ''}
+                            <i class="bi bi-download"></i> ${OQB.t('Download {name}', {name: data.filename || ''})}
                         </a>
                     </div>`;
                 if (data.format === 'DOC' && data.asset_id && window.oqbPollDocThumbnails) {
                     window.oqbPollDocThumbnails(modalBody);
                 }
             } else {
-                modalBody.innerHTML = `<p class="text-muted">No preview available</p>`;
+                modalBody.innerHTML = '<p class="text-muted">' + OQB.t('No preview available') + '</p>';
             }
         })
         .catch(err => {
-            modalBody.innerHTML = `<p class="text-danger">Error loading preview</p>`;
+            modalBody.innerHTML = '<p class="text-danger">' + OQB.t('Error loading preview') + '</p>';
         });
 }
 
@@ -4731,7 +4726,7 @@ function _explainAppendBubble(role, html, opts) {
         // is delegated from #explainTranscript so it covers all bubbles.
         let imgHtml = '<div class="user-images">';
         for (const u of opts.images) {
-            imgHtml += '<img src="' + u + '" alt="attached" loading="lazy">';
+            imgHtml += '<img src="' + u + '" alt="' + OQB.t('attached image') + '" data-generic-alt="1" loading="lazy">';
         }
         imgHtml += '</div>';
         inner += imgHtml;
@@ -4757,10 +4752,10 @@ function _explainShowImageOverlay(src, caption) {
     overlay.className = 'explain-img-overlay';
     const img = document.createElement('img');
     img.src = src;
-    img.alt = caption || 'attached image';
+    img.alt = caption || OQB.t('attached image');
     img.onerror = () => {
         overlay.innerHTML = '<div class="text-white text-center p-4">'
-            + '<i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>Image could not be loaded</div>';
+            + '<i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>' + OQB.t('Image could not be loaded') + '</div>';
     };
     overlay.appendChild(img);
     if (caption) {
@@ -4822,8 +4817,8 @@ function _explainRenderStaged() {
     let html = '';
     for (let i = 0; i < staged.length; i++) {
         html += '<div class="explain-attach-thumb">'
-            + '<img src="' + staged[i] + '" alt="staged">'
-            + '<button type="button" class="remove" title="Remove" '
+            + '<img src="' + staged[i] + '" alt="' + OQB.t('staged image') + '">'
+            + '<button type="button" class="remove" title="' + OQB.t('Remove') + '" '
             +   'onclick="_explainRemoveStaged(' + i + ')">×</button>'
             + '</div>';
     }
@@ -4862,15 +4857,14 @@ function _explainStagedCount() {
 function _explainStageFiles(files) {
     if (!explainState) return;
     if (!explainState.supportsVision) {
-        _explainShowAttachMsg("The selected model can't see images. Pick a vision-capable endpoint to attach images.");
+        _explainShowAttachMsg(OQB.t("The selected model can't see images. Pick a vision-capable endpoint to attach images."));
         return;
     }
     const queue = Array.from(files || []);
     if (!queue.length) return;
     const remainingSlots = EXPLAIN_MAX_IMAGES_PER_TURN - _explainStagedCount();
     if (remainingSlots <= 0) {
-        _explainShowAttachMsg('Maximum ' + EXPLAIN_MAX_IMAGES_PER_TURN
-            + ' images per message — remove one before adding more.');
+        _explainShowAttachMsg(OQB.t('Maximum {n} images per message — remove one before adding more.', {n: EXPLAIN_MAX_IMAGES_PER_TURN}));
         return;
     }
     const accepted = queue.slice(0, remainingSlots);
@@ -4880,24 +4874,23 @@ function _explainStageFiles(files) {
     const next = () => {
         if (i >= accepted.length) {
             _explainRenderStaged();
-            if (rejected.length) _explainShowAttachMsg('Rejected: ' + rejected.join('; '));
+            if (rejected.length) _explainShowAttachMsg(OQB.t('Rejected: {list}', {list: rejected.join('; ')}));
             else if (queue.length > accepted.length) {
-                _explainShowAttachMsg('Only the first ' + accepted.length
-                    + ' image(s) were added (cap: ' + EXPLAIN_MAX_IMAGES_PER_TURN + ' per message).');
+                _explainShowAttachMsg(OQB.t('Only the first {n} image(s) were added (cap: {cap} per message).', {n: accepted.length, cap: EXPLAIN_MAX_IMAGES_PER_TURN}));
             }
             return;
         }
         const f = accepted[i++];
         if (!EXPLAIN_ALLOWED_MIME.includes(f.type)) {
-            rejected.push((f.name || 'file') + ' (unsupported type ' + (f.type || '?') + ')');
+            rejected.push(OQB.t('{name} (unsupported type {type})', {name: f.name || OQB.t('file'), type: f.type || '?'}));
             return next();
         }
         if (f.size > EXPLAIN_MAX_IMAGE_BYTES) {
-            rejected.push((f.name || 'file') + ' (too large, ' + Math.round(f.size / 1024 / 1024) + ' MB)');
+            rejected.push(OQB.t('{name} (too large, {n} MB)', {name: f.name || OQB.t('file'), n: Math.round(f.size / 1024 / 1024)}));
             return next();
         }
         if (runningBytes + f.size > EXPLAIN_MAX_TOTAL_IMAGE_BYTES) {
-            rejected.push((f.name || 'file') + ' (would exceed 32 MB total)');
+            rejected.push(OQB.t('{name} (would exceed 32 MB total)', {name: f.name || OQB.t('file')}));
             return next();
         }
         const reader = new FileReader();
@@ -4909,12 +4902,12 @@ function _explainStageFiles(files) {
                 const comma = dataUrl.indexOf(',');
                 if (comma >= 0) runningBytes += ((dataUrl.length - comma - 1) * 3) >> 2;
             } else {
-                rejected.push((f.name || 'file') + ' (could not read)');
+                rejected.push(OQB.t('{name} (could not read)', {name: f.name || OQB.t('file')}));
             }
             next();
         };
         reader.onerror = () => {
-            rejected.push((f.name || 'file') + ' (read error)');
+            rejected.push(OQB.t('{name} (read error)', {name: f.name || OQB.t('file')}));
             next();
         };
         reader.readAsDataURL(f);
@@ -4942,10 +4935,10 @@ function _explainApplyEndpoints(payload) {
     const defaultId = payload.default_id;
     for (const e of explainState.endpoints) {
         const isDefault = (e.id === defaultId);
-        const visMark = e.supports_vision ? '' : ' (text-only)';
+        const visMark = e.supports_vision ? '' : OQB.t(' (text-only)');
         html += '<option value="' + e.id + '"' + (isDefault ? ' selected' : '') + '>'
             + _explainEscape(e.name) + ' · ' + _explainEscape(e.model || '')
-            + visMark + (isDefault ? ' (default)' : '')
+            + visMark + (isDefault ? OQB.t(' (default)') : '')
             + '</option>';
     }
     sel.innerHTML = html;
@@ -4964,8 +4957,8 @@ function _explainSyncVisionFromPicker() {
     if (attachBtn) {
         attachBtn.disabled = explainState.busy || !explainState.supportsVision;
         attachBtn.title = explainState.supportsVision
-            ? 'Attach images (paste, drag-drop, or pick)'
-            : "This endpoint doesn't support images";
+            ? OQB.t('Attach images (paste, drag-drop, or pick)')
+            : OQB.t("This endpoint doesn't support images");
     }
     // If the user just switched to a non-vision model with images
     // already staged, drop them (they were only client-side). We CAN'T
@@ -4981,11 +4974,9 @@ function _explainSyncVisionFromPicker() {
         }
         const hasHistory = (explainState.turns || []).some((t) => t.images && t.images.length);
         if (hasHistory) {
-            _explainShowAttachMsg("Heads up — earlier turns include images this endpoint can't see. "
-                + "The next send will be rejected. Switch back to a vision-capable model, or "
-                + "close and re-open the modal to start fresh.");
+            _explainShowAttachMsg(OQB.t("Heads up — earlier turns include images this endpoint can't see. The next send will be rejected. Switch back to a vision-capable model, or close and re-open the modal to start fresh."));
         } else if (droppedStaged) {
-            _explainShowAttachMsg("Staged images dropped — selected endpoint can't see images.");
+            _explainShowAttachMsg(OQB.t("Staged images dropped — selected endpoint can't see images."));
         }
     }
 }
@@ -5015,7 +5006,7 @@ function openExplainModal(questionId, qid, previewSlots) {
     _explainRenderStaged();
     const input = document.getElementById('explainInput');
     input.value = '';
-    input.placeholder = 'Ask a question, or leave this empty and press Send for a full explanation…';
+    input.placeholder = OQB.t('Ask a question, or leave this empty and press Send for a full explanation…');
     input.style.height = 'auto';
     _explainSetBusy(false);
 
@@ -5107,7 +5098,7 @@ function openExplainModal(questionId, qid, previewSlots) {
                 const img = e.target.closest('.user-images img');
                 if (!img) return;
                 e.stopPropagation();
-                _explainShowImageOverlay(img.src, img.alt !== 'attached' ? img.alt : '');
+                _explainShowImageOverlay(img.src, img.dataset.genericAlt ? '' : img.alt);
             });
         }
     }
@@ -5149,7 +5140,7 @@ function _explainSend(userMessage, userImages) {
     explainState.started = true;
     const input = document.getElementById('explainInput');
     if (input) {
-        input.placeholder = 'Ask a follow-up question…';
+        input.placeholder = OQB.t('Ask a follow-up question…');
     }
     if (userMessage || (userImages && userImages.length)) {
         _explainAppendBubble('user',
@@ -5198,7 +5189,7 @@ function _explainSend(userMessage, userImages) {
                 explainState.turns.push({ role: 'assistant', content: payload.reply || '' });
                 const meta = document.getElementById('explainMeta');
                 if (meta && payload.model) {
-                    meta.textContent = payload.model + (payload.has_solution ? ' · question + solution' : ' · question only');
+                    meta.textContent = payload.model + (payload.has_solution ? OQB.t(' · question + solution') : OQB.t(' · question only'));
                 }
             },
         }
@@ -5317,7 +5308,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
         // not Markdown) — keep it readable but not parsed.
         if (liveReasoning) {
             html += '<details class="explain-reasoning"' + (liveContent ? '' : ' open') + '>'
-                + '<summary>Reasoning…</summary>'
+                + '<summary>' + OQB.t('Reasoning…') + '</summary>'
                 + '<div class="explain-streaming">' + _explainEscape(liveReasoning) + '</div>'
                 + '</details>';
         }
@@ -5347,7 +5338,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
         if (bubble && bubble.parentNode) bubble.remove();
         _explainAppendBubble('assistant',
             '<i class="bi bi-exclamation-triangle"></i> ' + _explainEscape(msg)
-            + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
+            + '<br><small class="text-muted">' + OQB.t('Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.') + '</small>',
             { error: true });
     };
 
@@ -5411,7 +5402,7 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
                     if (liveReasoning) {
                         // Keep the reasoning available as a collapsed details.
                         b.innerHTML =
-                            '<details class="explain-reasoning"><summary>Reasoning</summary>'
+                            '<details class="explain-reasoning"><summary>' + OQB.t('Reasoning') + '</summary>'
                             + '<div class="explain-streaming">' + _explainEscape(liveReasoning) + '</div>'
                             + '</details>'
                             + (payload.reply_html || _explainEscape(payload.reply || ''));
@@ -5423,20 +5414,20 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
                 } else if (payload.type === 'error') {
                     finished = true;
                     cancelScheduledRender();
-                    showError(payload.message || 'Request failed.');
+                    showError(payload.message || OQB.t('Request failed.'));
                 }
             }
         }
 
         if (!finished) {
             if (!receivedAny) {
-                showError('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.');
+                showError(OQB.t('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.'));
             } else {
                 // We got some deltas but no done event — finalise with what we have.
                 if (typingBubble && typingBubble.parentNode) typingBubble.remove();
                 const b = ensureBubble();
                 if (!b.textContent.trim()) {
-                    showError('Connection closed before the response completed.');
+                    showError(OQB.t('Connection closed before the response completed.'));
                 }
             }
         }
@@ -5450,8 +5441,8 @@ function _explainStreamRequest(url, body, typingBubble, callbacks) {
             if (bubble && bubble.parentNode) bubble.remove();
             return;
         }
-        const msg = (err && err.message) ? err.message : 'request did not complete';
-        showError('Network error contacting the AI: ' + msg);
+        const msg = (err && err.message) ? err.message : OQB.t('request did not complete');
+        showError(OQB.t('Network error contacting the AI: {error}', {error: msg}));
     });
 }
 
@@ -5496,9 +5487,9 @@ function updateQidSearchHint() {
     const hint = document.getElementById('qidSearchHint');
     if (!hint) return;
     if (strict) {
-        hint.innerHTML = 'Strict mode: use <code>*</code> as wildcard (e.g. <code>*2025*Q1</code>)';
+        hint.innerHTML = OQB.t('Strict mode: use <code>*</code> as wildcard (e.g. <code>*2025*Q1</code>)');
     } else {
-        hint.innerHTML = 'Loose mode: casual search like <code>2025 q1</code>';
+        hint.innerHTML = OQB.t('Loose mode: casual search like <code>2025 q1</code>');
     }
     saveStateToStorage();
     checkFilterModification();
@@ -5608,7 +5599,7 @@ function resetFilters() {
     }
     
     // Clear the question list
-    document.getElementById('questionList').innerHTML = '<p class="text-muted text-center">Use filters to search for questions</p>';
+    document.getElementById('questionList').innerHTML = '<p class="text-muted text-center">' + OQB.t('Use filters to search for questions') + '</p>';
     
     // Clear filter modification indicator and last searched state
     lastSearchedFilters = null;
@@ -5621,7 +5612,7 @@ function submitQuestionIds(actionUrl, target) {
     const questionIds = Array.from(selectedQuestions);
     
     if (questionIds.length === 0) {
-        alert('Please select at least one question');
+        alert(OQB.t('Please select at least one question'));
         return;
     }
     
@@ -5707,7 +5698,7 @@ function showBatchEditModal() {
     const questionIds = Array.from(selectedQuestions);
     
     if (questionIds.length === 0) {
-        alert('Please select questions first');
+        alert(OQB.t('Please select questions first'));
         return;
     }
     
@@ -5736,20 +5727,20 @@ function showBatchEditModal() {
 
     // Reset topic/subtopic dropdowns
     document.getElementById('batchMajorTopic').value = '';
-    document.getElementById('batchMajorTopicLabel').textContent = 'None';
+    document.getElementById('batchMajorTopicLabel').textContent = OQB.t('None');
     document.getElementById('batchMajorSubtopic').value = '';
-    document.getElementById('batchMajorSubtopicLabel').textContent = 'None';
-    document.getElementById('batchMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>';
-    document.getElementById('batchMinorTopicsLabel').textContent = 'None selected';
-    document.getElementById('batchSubtopicsLabel').textContent = 'None selected';
+    document.getElementById('batchMajorSubtopicLabel').textContent = OQB.t('None');
+    document.getElementById('batchMajorSubtopicOptions').innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
+    document.getElementById('batchMinorTopicsLabel').textContent = OQB.t('None selected');
+    document.getElementById('batchSubtopicsLabel').textContent = OQB.t('None selected');
     document.getElementById('batchSubtopicsCheckboxes').innerHTML = '';
 
     // Reset chapter/subchapter dropdowns
     document.getElementById('batchChapter').value = '';
-    document.getElementById('batchChapterLabel').textContent = 'None';
+    document.getElementById('batchChapterLabel').textContent = OQB.t('None');
     document.getElementById('batchSubchapter').value = '';
-    document.getElementById('batchSubchapterLabel').textContent = 'None';
-    document.getElementById('batchSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
+    document.getElementById('batchSubchapterLabel').textContent = OQB.t('None');
+    document.getElementById('batchSubchapterOptions').innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
     
     // Load chapters for batch edit
     loadBatchChapters();
@@ -5810,7 +5801,7 @@ function loadBatchTopics(subjectId) {
             
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('batchMajorTopicOptions');
-            majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorTopic(\'\', \'None\')">None</div>' +
+            majorOptionsDiv.innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorTopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>') +
                 topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${filterSearchKey(t)}" onclick="selectBatchMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
@@ -5909,12 +5900,12 @@ function updateBatchMinorTopicsLabel() {
     const label = document.getElementById('batchMinorTopicsLabel');
     
     if (checked.length === 0) {
-        label.textContent = 'None selected';
+        label.textContent = OQB.t('None selected');
     } else if (checked.length === 1) {
         const topicName = checked[0].parentElement.querySelector('label').textContent;
         label.textContent = topicName.length > 20 ? topicName.substring(0, 20) + '...' : topicName;
     } else {
-        label.innerHTML = `${checked.length} topics <span class="badge bg-primary">${checked.length}</span>`;
+        label.innerHTML = OQB.t('{n} topics <span class="badge bg-primary">{n}</span>', {n: checked.length});
     }
 }
 
@@ -5941,8 +5932,8 @@ function onBatchMajorTopicChange() {
     const majorTopicId = document.getElementById('batchMajorTopic').value;
     
     // Clear major subtopic
-    document.getElementById('batchMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>';
-    document.getElementById('batchMajorSubtopicLabel').textContent = 'None';
+    document.getElementById('batchMajorSubtopicOptions').innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
+    document.getElementById('batchMajorSubtopicLabel').textContent = OQB.t('None');
     document.getElementById('batchMajorSubtopic').value = '';
     
     if (majorTopicId) {
@@ -5951,7 +5942,7 @@ function onBatchMajorTopicChange() {
             .then(r => r.json())
             .then(subtopics => {
                 const optionsDiv = document.getElementById('batchMajorSubtopicOptions');
-                optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>' +
+                optionsDiv.innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>') +
                     subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${filterSearchKey(s)}" onclick="selectBatchMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
                 
                 // Setup search listener
@@ -6035,7 +6026,7 @@ function reloadBatchSubtopics() {
     } else {
         checkboxesDiv.innerHTML = '';
         subtopicSelect.innerHTML = '';
-        document.getElementById('batchSubtopicsLabel').textContent = 'None selected';
+        document.getElementById('batchSubtopicsLabel').textContent = OQB.t('None selected');
     }
 }
 
@@ -6050,12 +6041,12 @@ function updateBatchSubtopicsLabel() {
     const label = document.getElementById('batchSubtopicsLabel');
     
     if (checked.length === 0) {
-        label.textContent = 'None selected';
+        label.textContent = OQB.t('None selected');
     } else if (checked.length === 1) {
         const name = checked[0].parentElement.querySelector('label').textContent.trim();
         label.textContent = name.length > 20 ? name.substring(0, 20) + '...' : name;
     } else {
-        label.innerHTML = `${checked.length} subtopics <span class="badge bg-primary">${checked.length}</span>`;
+        label.innerHTML = OQB.t('{n} subtopics <span class="badge bg-primary">{n}</span>', {n: checked.length});
     }
 }
 
@@ -6102,7 +6093,7 @@ function clearAllBatchSubtopics() {
 function loadBatchChapters() {
     const subjectId = document.getElementById('subjectSelect').value;
     if (!subjectId) {
-        document.getElementById('batchChapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'None\')">None</div>';
+        document.getElementById('batchChapterOptions').innerHTML = ('<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
         return;
     }
     
@@ -6118,7 +6109,7 @@ function loadBatchChapters() {
 function renderBatchChapterOptions(chapters) {
     const optionsDiv = document.getElementById('batchChapterOptions');
     
-    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'None\')">None</div>';
+    let html = ('<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
     chapters.forEach(c => {
         html += `<div class="searchable-option" data-value="${c.id}" data-name="${filterSearchKey(c)}" onclick="selectBatchChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
             ${c.name}
@@ -6150,13 +6141,13 @@ function selectBatchChapter(chapterId, chapterName) {
     
     // Clear subchapter when chapter changes
     document.getElementById('batchSubchapter').value = '';
-    document.getElementById('batchSubchapterLabel').textContent = 'None';
+    document.getElementById('batchSubchapterLabel').textContent = OQB.t('None');
     
     // Load subchapters for new chapter
     if (chapterId) {
         loadBatchSubchapters(chapterId);
     } else {
-        document.getElementById('batchSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
+        document.getElementById('batchSubchapterOptions').innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchSubchapter(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
     }
 }
 
@@ -6196,7 +6187,7 @@ function loadBatchSubchapters(chapterId) {
 function renderBatchSubchapterOptions(subchapters) {
     const optionsDiv = document.getElementById('batchSubchapterOptions');
     
-    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
+    let html = ('<div class="searchable-option" data-value="" data-name="" onclick="selectBatchSubchapter(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>');
     subchapters.forEach(sc => {
         const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
         html += `<div class="searchable-option" data-value="${sc.id}" data-name="${filterSearchKey(sc)}" onclick="selectBatchSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
@@ -6258,17 +6249,17 @@ function showBatchEditStep(step) {
     document.getElementById('batchEditDialog').classList.toggle('modal-xl', preview);
     const title = document.getElementById('batchEditTitle');
     title.innerHTML = preview
-        ? '<i class="bi bi-eye"></i> Review batch edit'
-        : '<i class="bi bi-pencil-square"></i> Batch Edit Questions';
+        ? '<i class="bi bi-eye"></i> ' + OQB.t('Review batch edit')
+        : '<i class="bi bi-pencil-square"></i> ' + OQB.t('Batch Edit Questions');
     const btn = document.getElementById('batchEditPrimaryBtn');
     if (preview) {
         btn.innerHTML = batchEditNothingToApply
-            ? '<i class="bi bi-check2"></i> Nothing to apply'
-            : '<i class="bi bi-check2"></i> Apply changes';
+            ? '<i class="bi bi-check2"></i> ' + OQB.t('Nothing to apply')
+            : '<i class="bi bi-check2"></i> ' + OQB.t('Apply changes');
         btn.disabled = batchEditNothingToApply;
         document.getElementById('batchEditPreviewList').scrollTop = 0;
     } else {
-        btn.innerHTML = '<i class="bi bi-eye"></i> Preview changes';
+        btn.innerHTML = '<i class="bi bi-eye"></i> ' + OQB.t('Preview changes');
         btn.disabled = false;
         batchEditNothingToApply = false;
     }
@@ -6282,7 +6273,7 @@ function onBatchEditPrimary() {
 function buildBatchEditFormData() {
     const questionIds = Array.from(selectedQuestions);
     if (questionIds.length === 0) {
-        return { error: 'Please select questions first' };
+        return { error: OQB.t('Please select questions first') };
     }
 
     const updateLevel = document.getElementById('batchLevelToggle').checked;
@@ -6294,7 +6285,7 @@ function buildBatchEditFormData() {
     const updateChapters = document.getElementById('batchChaptersToggle').checked;
 
     if (!updateLevel && !updateQType && !updateSection && !updateCorrectPct && !updateMarks && !updateTopics && !updateChapters) {
-        return { error: 'Please select at least one field to update' };
+        return { error: OQB.t('Please select at least one field to update') };
     }
 
     const formData = new FormData();
@@ -6352,8 +6343,8 @@ function batchEditPreviewCard(question) {
     const viewBtn = document.createElement('button');
     viewBtn.type = 'button';
     viewBtn.className = 'btn btn-sm btn-outline-secondary py-0 px-1 ms-auto';
-    viewBtn.title = 'View question';
-    viewBtn.setAttribute('aria-label', 'View question ' + (question.qid || ''));
+    viewBtn.title = OQB.t('View question');
+    viewBtn.setAttribute('aria-label', OQB.t('View question {qid}', {qid: question.qid || ''}));
     const viewIcon = document.createElement('i');
     viewIcon.className = 'bi bi-eye';
     viewIcon.setAttribute('aria-hidden', 'true');
@@ -6376,7 +6367,7 @@ function batchEditPreviewCard(question) {
         row.appendChild(batchEditValueNode(change.before, change.before_empty, 'before'));
         const to = document.createElement('span');
         to.className = 'visually-hidden';
-        to.textContent = ' to ';
+        to.textContent = OQB.t(' to ');
         row.appendChild(to);
         const arrow = document.createElement('i');
         arrow.className = 'bi bi-arrow-right text-muted';
@@ -6463,18 +6454,18 @@ function fillBatchEditPager(container, page, pageCount, total) {
     wrap.className = 'd-flex flex-wrap align-items-center justify-content-between gap-2';
     const label = document.createElement('span');
     label.className = 'text-muted small';
-    label.textContent = start + '–' + end + ' of ' + total;
+    label.textContent = OQB.t('{start}–{end} of {total}', {start: start, end: end, total: total});
     wrap.appendChild(label);
     const nav = document.createElement('nav');
-    nav.setAttribute('aria-label', 'Changed questions pages');
+    nav.setAttribute('aria-label', OQB.t('Changed questions pages'));
     const ul = document.createElement('ul');
     ul.className = 'pagination pagination-sm mb-0 flex-wrap';
-    ul.appendChild(batchEditPagerItem('\u00ab Prev', { page: page - 1, disabled: page <= 1 }));
+    ul.appendChild(batchEditPagerItem('\u00ab ' + OQB.t('Prev'), { page: page - 1, disabled: page <= 1 }));
     batchEditPageWindow(page, pageCount).forEach(item => {
         if (item === '…') ul.appendChild(batchEditPagerItem('…', { ellipsis: true, disabled: true }));
         else ul.appendChild(batchEditPagerItem(String(item), { page: item, active: item === page }));
     });
-    ul.appendChild(batchEditPagerItem('Next \u00bb', { page: page + 1, disabled: page >= pageCount }));
+    ul.appendChild(batchEditPagerItem(OQB.t('Next') + ' \u00bb', { page: page + 1, disabled: page >= pageCount }));
     nav.appendChild(ul);
     wrap.appendChild(nav);
     container.appendChild(wrap);
@@ -6491,7 +6482,7 @@ function showBatchEditPreviewPage(page) {
     if (!questions.length) {
         const empty = document.createElement('p');
         empty.className = 'text-muted mb-0';
-        empty.textContent = 'No question would change.';
+        empty.textContent = OQB.t('No question would change.');
         list.appendChild(empty);
     } else {
         const slice = questions.slice((page - 1) * pageSize, page * pageSize);
@@ -6508,7 +6499,7 @@ function batchEditValueNode(text, empty, role) {
     const span = document.createElement('span');
     if (empty) {
         span.className = 'text-muted';
-        span.textContent = 'None';
+        span.textContent = OQB.t('None');
     } else if (role === 'before') {
         span.className = 'text-danger text-decoration-line-through';
         span.textContent = text;
@@ -6524,7 +6515,7 @@ function renderBatchEditPreview(data) {
     updating.textContent = '';
     const updatingLabel = document.createElement('span');
     updatingLabel.className = 'text-muted small me-1';
-    updatingLabel.textContent = 'Overwriting';
+    updatingLabel.textContent = OQB.t('Overwriting');
     updating.appendChild(updatingLabel);
     (data.updating || []).forEach(name => {
         const badge = document.createElement('span');
@@ -6545,13 +6536,13 @@ function renderBatchEditPreview(data) {
     const summary = document.getElementById('batchEditPreviewSummary');
     summary.className = 'alert py-2 ' + (data.changed_count ? 'alert-warning' : 'alert-secondary');
     if (!data.changed_count) {
-        let text = 'All ' + data.found + ' selected question(s) already have these values.';
-        if (data.missing) text += ' ' + data.missing + ' selected id(s) were not found.';
+        let text = OQB.t('All {found} selected question(s) already have these values.', {found: data.found});
+        if (data.missing) text += ' ' + OQB.t('{n} selected id(s) were not found.', {n: data.missing});
         summary.textContent = text;
     } else {
-        let text = data.changed_count + ' question(s) will change.';
-        if (data.unchanged_count) text += ' ' + data.unchanged_count + ' already match.';
-        if (data.missing) text += ' ' + data.missing + ' selected id(s) were not found.';
+        let text = OQB.t('{n} question(s) will change.', {n: data.changed_count});
+        if (data.unchanged_count) text += ' ' + OQB.t('{n} already match.', {n: data.unchanged_count});
+        if (data.missing) text += ' ' + OQB.t('{n} selected id(s) were not found.', {n: data.missing});
         summary.textContent = text;
     }
 
@@ -6564,7 +6555,7 @@ function renderBatchEditPreview(data) {
         const details = document.createElement('details');
         details.className = 'small text-muted';
         const summaryEl = document.createElement('summary');
-        summaryEl.textContent = data.unchanged_count + ' question(s) already have these values';
+        summaryEl.textContent = OQB.t('{n} question(s) already have these values', {n: data.unchanged_count});
         details.appendChild(summaryEl);
         const qids = document.createElement('div');
         qids.className = 'mt-1 font-monospace';
@@ -6584,7 +6575,7 @@ function previewBatchEdit() {
     }
     const btn = document.getElementById('batchEditPrimaryBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Preparing preview...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Preparing preview...');
     fetch('{{ url_for("admin.batch_update_preview") }}', {
         method: 'POST',
         body: built.formData
@@ -6592,19 +6583,19 @@ function previewBatchEdit() {
     .then(r => r.json().then(data => ({ ok: r.ok, data })))
     .then(({ ok, data }) => {
         if (!ok || !data.success) {
-            throw new Error(data.error || 'Could not build the preview');
+            throw new Error(data.error || OQB.t('Could not build the preview'));
         }
         renderBatchEditPreview(data);
         showBatchEditStep('preview');
     })
     .catch(err => {
         console.error('Error:', err);
-        alert('Could not prepare the preview: ' + err.message);
+        alert(OQB.t('Could not prepare the preview: {error}', {error: err.message}));
     })
     .finally(() => {
         if (batchEditStep !== 'preview') {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-eye"></i> Preview changes';
+            btn.innerHTML = '<i class="bi bi-eye"></i> ' + OQB.t('Preview changes');
         }
     });
 }
@@ -6612,7 +6603,7 @@ function previewBatchEdit() {
 function executeBatchEdit() {
     const built = buildBatchEditFormData();
     if (built.error) {
-        if (built.error === 'Please select questions first') {
+        if (built.error === OQB.t('Please select questions first')) {
             batchEditModal.hide();
             return;
         }
@@ -6624,7 +6615,7 @@ function executeBatchEdit() {
     const back = document.getElementById('batchEditBackBtn');
     btn.disabled = true;
     back.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Applying...');
     let applied = false;
 
     fetch('{{ url_for("admin.batch_update_questions") }}', {
@@ -6638,22 +6629,22 @@ function executeBatchEdit() {
             batchEditModal.hide();
             refreshCurrentPage();
         } else {
-            throw new Error(data.error || 'Error updating questions');
+            throw new Error(data.error || OQB.t('Error updating questions'));
         }
     })
     .catch(err => {
         console.error('Error:', err);
-        alert('Error updating questions: ' + err.message);
+        alert(OQB.t('Error updating questions: {error}', {error: err.message}));
     })
     .finally(() => {
         if (applied) return;
         back.disabled = false;
         if (batchEditStep === 'preview') {
             btn.disabled = batchEditNothingToApply;
-            btn.innerHTML = '<i class="bi bi-check2"></i> Apply changes';
+            btn.innerHTML = '<i class="bi bi-check2"></i> ' + OQB.t('Apply changes');
         } else {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-eye"></i> Preview changes';
+            btn.innerHTML = '<i class="bi bi-eye"></i> ' + OQB.t('Preview changes');
         }
     });
 }
@@ -6748,7 +6739,7 @@ function showSaveFilterModal() {
 function saveFilterProfile() {
     const name = document.getElementById('filterProfileName').value.trim();
     if (!name) {
-        alert('Please enter a profile name');
+        alert(OQB.t('Please enter a profile name'));
         return;
     }
     
@@ -6767,7 +6758,7 @@ function saveFilterProfile() {
             const alert = document.createElement('div');
             alert.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5';
             alert.style.zIndex = '9999';
-            alert.innerHTML = `<i class="bi bi-check-circle"></i> Filter saved as "<strong>${name}</strong>" <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+            alert.innerHTML = '<i class="bi bi-check-circle"></i> ' + OQB.t('Filter saved as "<strong>{name}</strong>"', {name: name}) + ' <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
             document.body.appendChild(alert);
             setTimeout(() => alert.remove(), 3000);
             // Refresh the load-profile dropdown so the new entry appears immediately
@@ -6775,10 +6766,10 @@ function saveFilterProfile() {
                 loadFilterProfilesDropdown();
             }
         } else {
-            alert(data.error || 'Error saving filter');
+            alert(data.error || OQB.t('Error saving filter'));
         }
     })
-    .catch(err => alert('Error saving filter: ' + err.message));
+    .catch(err => alert(OQB.t('Error saving filter: {error}', {error: err.message})));
 }
 
 // ============== LOAD-PROFILE DROPDOWN ==============
@@ -6794,10 +6785,10 @@ function loadFilterProfilesDropdown() {
 
             if (!Array.isArray(profiles) || profiles.length === 0) {
                 menu.innerHTML = `
-                    <li><span class="dropdown-item-text text-muted small">No saved profiles yet</span></li>
+                    <li><span class="dropdown-item-text text-muted small">${OQB.t('No saved profiles yet')}</span></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item small" href="{{ url_for('user.profiles') }}">
-                        <i class="bi bi-gear"></i> Manage profiles
+                        <i class="bi bi-gear"></i> ${OQB.t('Manage profiles')}
                     </a></li>`;
                 return;
             }
@@ -6825,7 +6816,7 @@ function loadFilterProfilesDropdown() {
                     `<li><h6 class="dropdown-header">${label}</h6></li>`);
                 items.forEach(p => {
                     const subj = p.subject ? ` <span class="badge bg-secondary">${esc(p.subject)}</span>` : '';
-                    const owner = p.username ? ` <span class="text-muted small">by ${esc(p.username)}</span>` : '';
+                    const owner = p.username ? (' <span class="text-muted small">' + OQB.t('by {name}', {name: esc(p.username)}) + '</span>') : '';
                     menu.insertAdjacentHTML('beforeend',
                         `<li><a class="dropdown-item d-flex align-items-center gap-2" href="#" data-profile-id="${p.id}">
                             ${iconHtml || ''}<span class="flex-grow-1">${esc(p.name)}${subj}${owner}</span>
@@ -6833,15 +6824,15 @@ function loadFilterProfilesDropdown() {
                 });
             };
 
-            appendSection('Starred', myStarred, '<i class="bi bi-star-fill text-warning"></i>');
-            appendSection('My profiles', myOthers, '<i class="bi bi-bookmark text-muted"></i>');
-            appendSection('Shared by admins', shared, '<i class="bi bi-share-fill text-success"></i>');
+            appendSection(OQB.t('Starred'), myStarred, '<i class="bi bi-star-fill text-warning"></i>');
+            appendSection(OQB.t('My profiles'), myOthers, '<i class="bi bi-bookmark text-muted"></i>');
+            appendSection(OQB.t('Shared by admins'), shared, '<i class="bi bi-share-fill text-success"></i>');
 
             // Always-visible footer
             menu.insertAdjacentHTML('beforeend', '<li><hr class="dropdown-divider"></li>');
             menu.insertAdjacentHTML('beforeend',
                 `<li><a class="dropdown-item small" href="{{ url_for('user.profiles') }}">
-                    <i class="bi bi-gear"></i> Manage profiles
+                    <i class="bi bi-gear"></i> ${OQB.t('Manage profiles')}
                 </a></li>`);
 
             // Wire up click handlers
@@ -6853,7 +6844,7 @@ function loadFilterProfilesDropdown() {
             });
         })
         .catch(() => {
-            menu.innerHTML = '<li><span class="dropdown-item-text text-danger small">Error loading profiles</span></li>';
+            menu.innerHTML = '<li><span class="dropdown-item-text text-danger small">' + OQB.t('Error loading profiles') + '</span></li>';
         });
 }
 
@@ -6867,7 +6858,7 @@ async function onFilterProfileSelect(id) {
             return;
         }
         if (!data.filter_data) {
-            alert('This profile is empty.');
+            alert(OQB.t('This profile is empty.'));
             return;
         }
 
@@ -6894,7 +6885,7 @@ async function onFilterProfileSelect(id) {
             }
         }, 500);
     } catch (err) {
-        alert('Error loading profile: ' + err.message);
+        alert(OQB.t('Error loading profile: {error}', {error: err.message}));
     }
 }
 
@@ -6983,7 +6974,7 @@ function getCurrentSubject() {
 function openSetOpsModal() {
     setOpsCurrentSubject = getCurrentSubject();
     if (!setOpsCurrentSubject) {
-        alert('Please pick a subject first.');
+        alert(OQB.t('Please pick a subject first.'));
         return;
     }
     // Lazy-init in case DOMContentLoaded handler was skipped/errored
@@ -7024,7 +7015,7 @@ function refreshAvailableSets() {
     const list = document.getElementById('savedSetsList');
     if (!list) return;
     const subject = setOpsCurrentSubject || getCurrentSubject();
-    list.innerHTML = '<div class="text-muted small px-1">Loading…</div>';
+    list.innerHTML = '<div class="text-muted small px-1">' + OQB.t('Loading…') + '</div>';
 
     const url = `{{ url_for('user.sets_list') }}?subject=${encodeURIComponent(subject)}`;
     fetch(url)
@@ -7034,7 +7025,7 @@ function refreshAvailableSets() {
             renderAvailableSets();
         })
         .catch(err => {
-            list.innerHTML = `<div class="text-danger small px-1">Error: ${escapeSetHtml(err.message)}</div>`;
+            list.innerHTML = '<div class="text-danger small px-1">' + OQB.t('Error: {error}', {error: escapeSetHtml(err.message)}) + '</div>';
         });
 }
 
@@ -7043,7 +7034,7 @@ function renderAvailableSets() {
     if (!list) return;
 
     if (setOpsAvailableMeta.length === 0) {
-        list.innerHTML = `<div class="text-muted small px-1 fst-italic">No saved sets for this subject yet.</div>`;
+        list.innerHTML = '<div class="text-muted small px-1 fst-italic">' + OQB.t('No saved sets for this subject yet.') + '</div>';
         return;
     }
 
@@ -7053,12 +7044,12 @@ function renderAvailableSets() {
 
     let html = '';
     const renderRow = (s) => {
-        const owner = s.username ? `<span class="text-muted small"> by ${escapeSetHtml(s.username)}</span>` : '';
-        const sharedIcon = s.is_shared ? '<i class="bi bi-share-fill text-success ms-1" title="Shared"></i>' : '';
+        const owner = s.username ? ('<span class="text-muted small"> ' + OQB.t('by {name}', {name: escapeSetHtml(s.username)}) + '</span>') : '';
+        const sharedIcon = s.is_shared ? '<i class="bi bi-share-fill text-success ms-1" title="' + OQB.t('Shared') + '"></i>' : '';
         const starIcon = s.is_starred ? '<i class="bi bi-star-fill text-warning me-1"></i>' : '';
         return `
             <button type="button" class="btn btn-sm btn-outline-secondary text-start"
-                    onclick="addSavedSetChip(${s.id})" title="Click to add as chip; ${s.question_count} questions">
+                    onclick="addSavedSetChip(${s.id})" title="${OQB.t('Click to add as chip; {n} questions', {n: s.question_count})}">
                 ${starIcon}<strong>${escapeSetHtml(s.name)}</strong>${sharedIcon}${owner}
                 <span class="badge bg-secondary float-end">${s.question_count}</span>
             </button>`;
@@ -7068,9 +7059,9 @@ function renderAvailableSets() {
         html += `<div class="text-muted small fst-italic px-1 mt-1">${label}</div>`;
         rows.forEach(s => html += renderRow(s));
     };
-    section('Starred', starred);
-    section('My sets', own);
-    section('Shared by admins', shared);
+    section(OQB.t('Starred'), starred);
+    section(OQB.t('My sets'), own);
+    section(OQB.t('Shared by admins'), shared);
     list.innerHTML = html;
 }
 
@@ -7088,7 +7079,7 @@ async function addSavedSetChip(setId) {
             };
             setOpsLoadedSets[setId] = cached;
         } catch (err) {
-            alert('Error loading set: ' + err.message);
+            alert(OQB.t('Error loading set: {error}', {error: err.message}));
             return;
         }
     }
@@ -7138,27 +7129,27 @@ function snapshotLiveSource(srcName) {
 }
 
 function defaultScratchName(srcName) {
-    if (srcName === 'selection') return 'Selection snapshot';
-    if (srcName === 'filter')    return 'Filter Result snapshot';
-    if (srcName === 'result')    return 'Result snapshot';
-    return 'Scratch';
+    if (srcName === 'selection') return OQB.t('Selection snapshot');
+    if (srcName === 'filter')    return OQB.t('Filter Result snapshot');
+    if (srcName === 'result')    return OQB.t('Result snapshot');
+    return OQB.t('Scratch');
 }
 
 function duplicateAsScratch(srcName) {
     const subject = setOpsCurrentSubject || getCurrentSubject();
-    if (!subject) { alert('Please pick a subject first.'); return; }
+    if (!subject) { alert(OQB.t('Please pick a subject first.')); return; }
     if (srcName === 'result' && !setOpsLastResult) {
-        alert('No result to duplicate yet — click Evaluate first.');
+        alert(OQB.t('No result to duplicate yet — click Evaluate first.'));
         return;
     }
     const ids = snapshotLiveSource(srcName);
-    if (ids.size === 0 && !confirm('Source is empty. Create an empty scratch set anyway?')) {
+    if (ids.size === 0 && !confirm(OQB.t('Source is empty. Create an empty scratch set anyway?'))) {
         return;
     }
-    const proposed = prompt('Name this scratch set:', defaultScratchName(srcName));
+    const proposed = prompt(OQB.t('Name this scratch set:'), defaultScratchName(srcName));
     if (proposed === null) return;
     const name = proposed.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { alert(OQB.t('Name is required.')); return; }
 
     const all = loadScratchSets();
     all.push({
@@ -7177,10 +7168,10 @@ function renameScratch(id) {
     const all = loadScratchSets();
     const idx = all.findIndex(s => s.id === id);
     if (idx < 0) return;
-    const proposed = prompt('Rename scratch set:', all[idx].name);
+    const proposed = prompt(OQB.t('Rename scratch set:'), all[idx].name);
     if (proposed === null) return;
     const name = proposed.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { alert(OQB.t('Name is required.')); return; }
     all[idx].name = name;
     saveScratchSets(all);
     refreshScratchCacheForCurrentSubject();
@@ -7191,8 +7182,7 @@ function renameScratch(id) {
 
 function deleteScratch(id) {
     const cached = getScratchById(id);
-    const label = cached ? `"${cached.name}"` : 'this scratch set';
-    if (!confirm(`Delete ${label}?`)) return;
+    if (!confirm(cached ? OQB.t('Delete "{name}"?', {name: cached.name}) : OQB.t('Delete this scratch set?'))) return;
     const all = loadScratchSets().filter(s => s.id !== id);
     saveScratchSets(all);
     refreshScratchCacheForCurrentSubject();
@@ -7206,7 +7196,7 @@ function clearAllScratches() {
     const subject = setOpsCurrentSubject || getCurrentSubject();
     refreshScratchCacheForCurrentSubject();
     if (setOpsScratchCache.length === 0) return;
-    if (!confirm(`Clear all ${setOpsScratchCache.length} scratch set(s) for ${subject}?`)) return;
+    if (!confirm(OQB.t('Clear all {n} scratch set(s) for {subject}?', {n: setOpsScratchCache.length, subject: subject}))) return;
     // Keep scratch sets for OTHER subjects intact
     const remaining = loadScratchSets().filter(s => s.subject !== subject);
     saveScratchSets(remaining);
@@ -7249,17 +7239,17 @@ function renderScratchSets() {
         wrap.innerHTML = `
             <button type="button" class="btn btn-outline-warning text-start flex-grow-1"
                     onclick="addScratchChip('${s.id}')"
-                    title="Click to add this scratch set as a chip">
+                    title="${OQB.t('Click to add this scratch set as a chip')}">
                 <i class="bi bi-clipboard"></i>
                 <strong>${escapeSetHtml(s.name)}</strong>
                 <span class="badge bg-warning text-dark ms-1">${s.ids.length}</span>
             </button>
             <button type="button" class="btn btn-outline-secondary"
-                    onclick="renameScratch('${s.id}')" title="Rename">
+                    onclick="renameScratch('${s.id}')" title="${OQB.t('Rename')}">
                 <i class="bi bi-pencil"></i>
             </button>
             <button type="button" class="btn btn-outline-danger"
-                    onclick="deleteScratch('${s.id}')" title="Delete">
+                    onclick="deleteScratch('${s.id}')" title="${OQB.t('Delete')}">
                 <i class="bi bi-x-lg"></i>
             </button>
         `;
@@ -7296,9 +7286,9 @@ function getCurrentFilterResultIds() {
 
 function chipLabel(chip) {
     if (chip.type === 'set') {
-        if (chip.src === 'selection') return `<i class="bi bi-cursor"></i> Selection (${selectedQuestions.size})`;
-        if (chip.src === 'filter')    return `<i class="bi bi-funnel"></i> Filter Result (${getCurrentFilterResultIds().size})`;
-        if (chip.src === 'result')    return `<i class="bi bi-stars"></i> Result (${setOpsLastResult ? setOpsLastResult.size : 0})`;
+        if (chip.src === 'selection') return '<i class="bi bi-cursor"></i> ' + OQB.t('Selection ({n})', {n: selectedQuestions.size});
+        if (chip.src === 'filter')    return '<i class="bi bi-funnel"></i> ' + OQB.t('Filter Result ({n})', {n: getCurrentFilterResultIds().size});
+        if (chip.src === 'result')    return '<i class="bi bi-stars"></i> ' + OQB.t('Result ({n})', {n: setOpsLastResult ? setOpsLastResult.size : 0});
         if (chip.src === 'scratch') {
             const sc = getScratchById(chip.id);
             const sz = sc ? sc.ids.length : 0;
@@ -7337,10 +7327,10 @@ function renderSetExpression() {
     if (!bar) return;
 
     if (setOpsExpression.length === 0) {
-        bar.innerHTML = `<span class="text-muted small fst-italic" id="setExpressionPlaceholder">Tap a set on the left, then operator buttons below…</span>`;
+        bar.innerHTML = '<span class="text-muted small fst-italic" id="setExpressionPlaceholder">' + OQB.t('Tap a set on the left, then operator buttons below…') + '</span>';
         if (status) {
             status.className = 'small text-muted';
-            status.textContent = 'Empty expression.';
+            status.textContent = OQB.t('Empty expression.');
         }
         return;
     }
@@ -7349,7 +7339,7 @@ function renderSetExpression() {
         html += `<span class="badge ${chipClass(chip)} d-inline-flex align-items-center gap-1" style="font-size: 0.95rem;">
                     ${chipLabel(chip)}
                     <button type="button" class="btn-close btn-close-white ms-1" style="font-size:0.55rem;"
-                            onclick="removeChipAt(${idx})" title="Remove this chip"></button>
+                            onclick="removeChipAt(${idx})" title="${OQB.t('Remove this chip')}"></button>
                  </span>`;
     });
     bar.innerHTML = html;
@@ -7357,7 +7347,7 @@ function renderSetExpression() {
     try {
         parseSetExpression(setOpsExpression);
         status.className = 'small text-success';
-        status.innerHTML = '<i class="bi bi-check-circle"></i> Valid expression. Click Evaluate to compute.';
+        status.innerHTML = '<i class="bi bi-check-circle"></i> ' + OQB.t('Valid expression. Click Evaluate to compute.');
     } catch (err) {
         status.className = 'small text-warning';
         status.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${escapeSetHtml(err.message)}`;
@@ -7380,9 +7370,9 @@ function removeChipAt(idx) {
 // that the UI shows inline.
 function parseSetExpression(tokens) {
     const ctx = { tokens, i: 0 };
-    if (tokens.length === 0) throw new Error('Expression is empty.');
+    if (tokens.length === 0) throw new Error(OQB.t('Expression is empty.'));
     const ast = parseExpr(ctx);
-    if (ctx.i < tokens.length) throw new Error('Unexpected chip after end of expression.');
+    if (ctx.i < tokens.length) throw new Error(OQB.t('Unexpected chip after end of expression.'));
     return ast;
 }
 
@@ -7390,7 +7380,7 @@ function parseExpr(ctx) {
     let left = parseTerm(ctx);
     while (ctx.i < ctx.tokens.length && ctx.tokens[ctx.i].type === 'op') {
         const opChip = ctx.tokens[ctx.i++];
-        if (ctx.i >= ctx.tokens.length) throw new Error('Operator at end of expression has nothing on its right.');
+        if (ctx.i >= ctx.tokens.length) throw new Error(OQB.t('Operator at end of expression has nothing on its right.'));
         const right = parseTerm(ctx);
         left = { kind: 'op', op: opChip.op, left, right };
     }
@@ -7398,7 +7388,7 @@ function parseExpr(ctx) {
 }
 
 function parseTerm(ctx) {
-    if (ctx.i >= ctx.tokens.length) throw new Error('Expected a set or "(" but expression ended.');
+    if (ctx.i >= ctx.tokens.length) throw new Error(OQB.t('Expected a set or "(" but expression ended.'));
     const t = ctx.tokens[ctx.i];
     if (t.type === 'set') {
         ctx.i++;
@@ -7408,14 +7398,14 @@ function parseTerm(ctx) {
         ctx.i++;
         const inner = parseExpr(ctx);
         if (ctx.i >= ctx.tokens.length || !(ctx.tokens[ctx.i].type === 'paren' && ctx.tokens[ctx.i].v === ')')) {
-            throw new Error('Missing closing ")".');
+            throw new Error(OQB.t('Missing closing ")".'));
         }
         ctx.i++;
         return inner;
     }
-    if (t.type === 'paren' && t.v === ')') throw new Error('Unexpected ")".');
-    if (t.type === 'op') throw new Error('Operator with no left-hand side.');
-    throw new Error('Unrecognised chip.');
+    if (t.type === 'paren' && t.v === ')') throw new Error(OQB.t('Unexpected ")".'));
+    if (t.type === 'op') throw new Error(OQB.t('Operator with no left-hand side.'));
+    throw new Error(OQB.t('Unrecognised chip.'));
 }
 
 function evaluateAst(node) {
@@ -7425,7 +7415,7 @@ function evaluateAst(node) {
     if (node.op === 'union')     return setUnion(a, b);
     if (node.op === 'intersect') return setIntersect(a, b);
     if (node.op === 'diff')      return setDifference(a, b);
-    throw new Error('Unknown operator: ' + node.op);
+    throw new Error(OQB.t('Unknown operator: {op}', {op: node.op}));
 }
 
 function resolveSetChip(chip) {
@@ -7449,14 +7439,14 @@ function evaluateExpression() {
     try {
         ast = parseSetExpression(setOpsExpression);
     } catch (err) {
-        alert('Cannot evaluate: ' + err.message);
+        alert(OQB.t('Cannot evaluate: {error}', {error: err.message}));
         return;
     }
     let result;
     try {
         result = evaluateAst(ast);
     } catch (err) {
-        alert('Evaluation error: ' + err.message);
+        alert(OQB.t('Evaluation error: {error}', {error: err.message}));
         return;
     }
     setOpsLastResult = result;
@@ -7473,19 +7463,19 @@ function renderSetResult() {
     if (!setOpsLastResult) {
         empty.classList.remove('d-none');
         actions.classList.add('d-none');
-        countBadge.textContent = '0 questions';
+        countBadge.textContent = OQB.t('0 questions');
         return;
     }
     empty.classList.add('d-none');
     actions.classList.remove('d-none');
-    countBadge.textContent = `${setOpsLastResult.size} question${setOpsLastResult.size === 1 ? '' : 's'}`;
+    countBadge.textContent = setOpsLastResult.size === 1 ? OQB.t('{n} question', {n: setOpsLastResult.size}) : OQB.t('{n} questions', {n: setOpsLastResult.size});
 }
 
 function applyResultToSelection(mode) {
     if (!setOpsLastResult) return;
     if (mode === 'replace') {
         if (selectedQuestions.size > 0 &&
-            !confirm(`Replace current selection (${selectedQuestions.size}) with the result (${setOpsLastResult.size})?`)) {
+            !confirm(OQB.t('Replace current selection ({from}) with the result ({to})?', {from: selectedQuestions.size, to: setOpsLastResult.size}))) {
             return;
         }
         // Order-preserve: keep result IDs in the existing selection's display order, then append rest
@@ -7512,22 +7502,22 @@ function applyResultToSelection(mode) {
 function showSaveSetModal(mode) {
     saveSetMode = mode;
     const subject = setOpsCurrentSubject || getCurrentSubject();
-    if (!subject) { alert('Please pick a subject first.'); return; }
+    if (!subject) { alert(OQB.t('Please pick a subject first.')); return; }
     if (mode === 'result' && !setOpsLastResult) {
-        alert('No result to save. Click Evaluate first.');
+        alert(OQB.t('No result to save. Click Evaluate first.'));
         return;
     }
     if (mode === 'selection' && selectedQuestions.size === 0) {
-        alert('Selection is empty.');
+        alert(OQB.t('Selection is empty.'));
         return;
     }
     const sourceLabel = document.getElementById('saveSetSourceLabel');
     if (mode === 'result') {
-        sourceLabel.innerHTML = `<i class="bi bi-stars text-success"></i> Evaluated <strong>Result</strong> (${setOpsLastResult.size} questions)`;
+        sourceLabel.innerHTML = '<i class="bi bi-stars text-success"></i> ' + OQB.t('Evaluated <strong>Result</strong> ({n} questions)', {n: setOpsLastResult.size});
     } else {
-        sourceLabel.innerHTML = `<i class="bi bi-cursor text-primary"></i> Current <strong>Selection</strong> (${selectedQuestions.size} questions)`;
+        sourceLabel.innerHTML = '<i class="bi bi-cursor text-primary"></i> ' + OQB.t('Current <strong>Selection</strong> ({n} questions)', {n: selectedQuestions.size});
     }
-    document.getElementById('saveSetSubjectInfo').textContent = `Subject: ${subject}`;
+    document.getElementById('saveSetSubjectInfo').textContent = OQB.t('Subject: {subject}', {subject: subject});
     document.getElementById('saveSetName').value = '';
     saveSetModalInstance.show();
     document.getElementById('saveSetModal').addEventListener('shown.bs.modal', function() {
@@ -7537,7 +7527,7 @@ function showSaveSetModal(mode) {
 
 function confirmSaveSet() {
     const name = document.getElementById('saveSetName').value.trim();
-    if (!name) { alert('Please enter a set name.'); return; }
+    if (!name) { alert(OQB.t('Please enter a set name.')); return; }
     const subject = setOpsCurrentSubject || getCurrentSubject();
     let ids;
     if (saveSetMode === 'result') {
@@ -7557,22 +7547,24 @@ function confirmSaveSet() {
     .then(data => {
         if (data.success) {
             saveSetModalInstance.hide();
-            const verb = data.updated ? 'Updated' : 'Saved';
             const alertEl = document.createElement('div');
             alertEl.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5';
             alertEl.style.zIndex = '9999';
-            alertEl.innerHTML = `<i class="bi bi-check-circle"></i> ${verb} set "<strong>${escapeSetHtml(name)}</strong>" (${data.question_count} questions)
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+            const savedLine = data.updated
+                ? OQB.t('Updated set "<strong>{name}</strong>" ({n} questions)', {name: escapeSetHtml(name), n: data.question_count})
+                : OQB.t('Saved set "<strong>{name}</strong>" ({n} questions)', {name: escapeSetHtml(name), n: data.question_count});
+            alertEl.innerHTML = '<i class="bi bi-check-circle"></i> ' + savedLine +
+                ' <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
             document.body.appendChild(alertEl);
             setTimeout(() => alertEl.remove(), 3000);
             // Refresh available-sets list and bust the cache for this id (so new contents show)
             if (data.id) delete setOpsLoadedSets[data.id];
             refreshAvailableSets();
         } else {
-            alert(data.error || 'Error saving set');
+            alert(data.error || OQB.t('Error saving set'));
         }
     })
-    .catch(err => alert('Error saving set: ' + err.message));
+    .catch(err => alert(OQB.t('Error saving set: {error}', {error: err.message})));
 }
 
 function escapeSetHtml(text) {

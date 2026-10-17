@@ -113,7 +113,9 @@ window.OQBBboxEditor = (function () {
         overlay.className = 'pdf-fullsize-overlay';
         const cap = document.createElement('div');
         cap.className = 'pdf-fullsize-cap';
-        cap.textContent = `${caption ? caption + ' — ' : ''}${canvas.width}×${canvas.height}px · click or press Esc to close`;
+        cap.textContent = caption
+            ? OQB.t('{caption} — {w}×{h}px · click or press Esc to close', {caption: caption, w: canvas.width, h: canvas.height})
+            : OQB.t('{w}×{h}px · click or press Esc to close', {w: canvas.width, h: canvas.height});
         overlay.appendChild(canvas);
         overlay.appendChild(cap);
         const close = () => { overlay.remove(); document.removeEventListener('keydown', onEsc); };
@@ -173,10 +175,10 @@ window.OQBBboxEditor = (function () {
         let canvasW = 520, canvasH = 420;
         let srcW = defaultW, srcH = defaultH;
         let sx = nx - srcW / 2, sy = ny - srcH / 2;
-        let caption = d.type === 'resize' ? 'Zoomed edge/handle placement'
-            : d.type === 'draw' ? 'Zoomed new box corner'
-            : d.type === 'frame' ? 'Page frame rail'
-            : 'Zoomed box position';
+        let caption = d.type === 'resize' ? OQB.t('Zoomed edge/handle placement')
+            : d.type === 'draw' ? OQB.t('Zoomed new box corner')
+            : d.type === 'frame' ? OQB.t('Page frame rail')
+            : OQB.t('Zoomed box position');
 
         if (box && (d.type === 'resize' || d.type === 'frame')) {
             const [x1, y1, x2, y2] = box;
@@ -197,7 +199,7 @@ window.OQBBboxEditor = (function () {
                 srcH = Math.min(natH, Math.max(48, srcW * canvasH / canvasW));
                 sx = bx1 - Math.max(0, (srcW - boxW) / 2);
                 sy = ny - srcH * (hasS ? 0.68 : 0.32);
-                caption = hasS ? 'Full width near bottom edge' : 'Full width near top edge';
+                caption = hasS ? OQB.t('Full width near bottom edge') : OQB.t('Full width near top edge');
             } else if (verticalEdge && !horizontalEdge) {
                 canvasW = 460; canvasH = 720;
                 srcH = Math.min(natH, Math.max(Math.min(boxH, natH * 0.5), 120));
@@ -205,8 +207,8 @@ window.OQBBboxEditor = (function () {
                 sx = nx - srcW * (hasE ? 0.68 : 0.32);
                 sy = ny - srcH / 2;
                 caption = d.type === 'frame'
-                    ? (hasE ? 'Frame right rail' : 'Frame left rail')
-                    : (hasE ? 'Full height near right edge' : 'Full height near left edge');
+                    ? (hasE ? OQB.t('Frame right rail') : OQB.t('Frame left rail'))
+                    : (hasE ? OQB.t('Full height near right edge') : OQB.t('Full height near left edge'));
             } else if (horizontalEdge && verticalEdge) {
                 canvasW = 900; canvasH = 620;
                 const aspect = canvasW / canvasH;
@@ -217,7 +219,7 @@ window.OQBBboxEditor = (function () {
                 srcH = Math.min(natH, srcH);
                 sx = bx1 - Math.max(0, (srcW - boxW) * (hasE ? 0.35 : 0.65));
                 sy = by1 - Math.max(0, (srcH - boxH) * (hasS ? 0.35 : 0.65));
-                caption = 'Wide corner context';
+                caption = OQB.t('Wide corner context');
             }
         }
 
@@ -613,7 +615,7 @@ window.OQBBboxEditor = (function () {
                     ['w', 'e'].forEach(dir => {
                         const rail = document.createElement('div');
                         rail.className = 'pdf-frame-rail rail-' + dir;
-                        rail.title = 'Drag to move the page frame rail (boxes snap to it)';
+                        rail.title = OQB.t('Drag to move the page frame rail (boxes snap to it)');
                         rail.addEventListener('pointerdown', (e) => {
                             e.stopPropagation();
                             e.preventDefault();

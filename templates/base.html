@@ -850,7 +850,7 @@
                             // DOC asset whose first-page PNG isn't on disk yet.
                             // Render the placeholder + start polling the
                             // thumbnail URL so it swaps in when ready.
-                            card.innerHTML = `<div class="text-muted small"><i class="bi bi-file-earmark-word"></i> ${data.filename || 'Word document'} <a href="${data.url}" target="_blank" class="ms-1">download</a></div>`;
+                            card.innerHTML = `<div class="text-muted small"><i class="bi bi-file-earmark-word"></i> ${data.filename || OQB.t('Word document')} <a href="${data.url}" target="_blank" class="ms-1">${OQB.t('download')}</a></div>`;
                             if (data.format === 'DOC' && data.asset_id) {
                                 card.setAttribute('data-doc-pending-id', String(data.asset_id));
                                 card.setAttribute('data-doc-pending-filename', data.filename || '');
@@ -861,11 +861,11 @@
                                 if (window.oqbPollDocThumbnails) window.oqbPollDocThumbnails(card.parentNode || card);
                             }
                         } else {
-                            card.innerHTML = '<div class="text-muted small">No preview available</div>';
+                            card.innerHTML = '<div class="text-muted small">' + OQB.t('No preview available') + '</div>';
                         }
                     })
                     .catch(() => {
-                        card.innerHTML = '<div class="text-danger small">Error loading preview</div>';
+                        card.innerHTML = '<div class="text-danger small">' + OQB.t('Error loading preview') + '</div>';
                     });
             });
         };
@@ -934,26 +934,26 @@
         window.OQB_DEFAULT_VERSION_PRIORITY = {{ OQB_DEFAULT_VERSION_PRIORITY | tojson }};
 
         function _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId) {
-            const fname = filename ? filename.replace(/[<>&"']/g, '') : 'Word document';
+            const fname = filename ? filename.replace(/[<>&"']/g, '') : OQB.t('Word document');
             const dl = downloadUrl || '#';
             const aid = assetId || '';
             const qid = questionId || '';
             const rerenderBtn = (aid && qid && window.OQB_IS_ADMIN)
                 ? '<button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" ' +
-                    'title="Re-render thumbnail" ' +
+                    'title="' + OQB.t('Re-render thumbnail') + '" ' +
                     'onclick="oqbRerenderThumb(' + qid + ',' + aid + ', this); return false;">' +
                     '<i class="bi bi-arrow-clockwise"></i></button>'
                 : '';
             return (
                 '<img src="' + thumbUrl + '" class="question-image oqb-doc-thumb" ' +
                   'style="display:block; margin-bottom:4px; max-width:100%;" ' +
-                  'alt="QUE preview" ' +
+                  'alt="' + OQB.t('Question preview') + '" ' +
                   (aid ? 'data-doc-asset-id="' + aid + '" ' : '') +
                   (qid ? 'data-doc-question-id="' + qid + '" ' : '') +
                 '>' +
                 '<div class="text-muted small">' +
                   '<i class="bi bi-file-earmark-word"></i> ' + fname + ' ' +
-                  '<a href="' + dl + '" target="_blank" class="ms-1">download .docx</a>' +
+                  '<a href="' + dl + '" target="_blank" class="ms-1">' + OQB.t('download .docx') + '</a>' +
                   rerenderBtn +
                 '</div>'
             );
@@ -1001,7 +1001,7 @@
                             triggerEl.disabled = false;
                             triggerEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
                         }
-                        alert('Re-render failed: ' + (body.error || ('HTTP ' + status)));
+                        alert(OQB.t('Re-render failed: {error}', {error: body.error || ('HTTP ' + status)}));
                         return;
                     }
                     // Reset the container to a "rendering..." placeholder
@@ -1009,7 +1009,7 @@
                     if (container) {
                         container.innerHTML =
                             '<div class="text-muted small fst-italic">' +
-                              '<i class="bi bi-hourglass-split"></i> Re-rendering preview...' +
+                              '<i class="bi bi-hourglass-split"></i> ' + OQB.t('Re-rendering preview...') +
                             '</div>';
                         container.setAttribute('data-doc-pending-id', assetId);
                         // Carrying the question id through is essential —
@@ -1031,7 +1031,7 @@
                         triggerEl.disabled = false;
                         triggerEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
                     }
-                    alert('Re-render request failed: ' + err.message);
+                    alert(OQB.t('Re-render request failed: {error}', {error: err.message}));
                 });
         };
 

@@ -5,7 +5,7 @@
         <i class="bi bi-check2-square"></i>
         <span id="aqSelectBannerText"></span>
         <button type="button" class="btn btn-sm btn-primary" id="aqSelectAllMatchingBtn" onclick="aqSelectAllMatching()"></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqClearSelection()">Clear selection</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aqClearSelection()">{{ t('Clear selection') }}</button>
     </div>
 </div>
 
@@ -15,34 +15,34 @@
             <thead class="table-light">
                 <tr>
                     <th style="width:2.2rem" class="aq-cell-check">
-                        <input type="checkbox" class="form-check-input" id="aqPageCheck" title="Select every question on this page (with its parts)"
+                        <input type="checkbox" class="form-check-input" id="aqPageCheck" title="{{ t('Select every question on this page (with its parts)') }}"
                                onchange="aqTogglePage(this.checked)">
                     </th>
-                    <th class="aq-sortable" data-sort="qid" onclick="aqSortBy('qid')">Question <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
-                    <th class="aq-sortable" data-sort="year" onclick="aqSortBy('year')">Paper <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
-                    <th class="aq-sortable" data-sort="qno" onclick="aqSortBy('qno')">Q# <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
-                    <th class="aq-sortable" data-sort="q_type" onclick="aqSortBy('q_type')">Type <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
-                    <th title="Versions that have a QUE asset">QUE versions</th>
-                    <th title="Assets on this row (all versions and types)">Assets</th>
-                    <th title="Asset proofreading status (see the Scope filter)">Proofread</th>
-                    <th>Verified</th>
-                    <th class="aq-sortable" data-sort="created_at" onclick="aqSortBy('created_at')">Created <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
-                    <th style="width:6rem" class="text-end">Actions</th>
+                    <th class="aq-sortable" data-sort="qid" onclick="aqSortBy('qid')">{{ t('Question') }} <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
+                    <th class="aq-sortable" data-sort="year" onclick="aqSortBy('year')">{{ t('Paper') }} <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
+                    <th class="aq-sortable" data-sort="qno" onclick="aqSortBy('qno')">{{ t('Q#') }} <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
+                    <th class="aq-sortable" data-sort="q_type" onclick="aqSortBy('q_type')">{{ t('Type') }} <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
+                    <th title="{{ t('Versions that have a QUE asset') }}">{{ t('QUE versions') }}</th>
+                    <th title="{{ t('Assets on this row (all versions and types)') }}">{{ t('Assets') }}</th>
+                    <th title="{{ t('Asset proofreading status (see the Scope filter)') }}">{{ t('Proofread') }}</th>
+                    <th>{{ t('Verified') }}</th>
+                    <th class="aq-sortable" data-sort="created_at" onclick="aqSortBy('created_at')">{{ t('Created') }} <i class="bi bi-arrow-down-up aq-sort-icon"></i></th>
+                    <th style="width:6rem" class="text-end">{{ t('Actions') }}</th>
                 </tr>
             </thead>
             <tbody id="aqTbody">
-                <tr><td colspan="11" class="aq-empty-state"><i class="bi bi-book"></i>Pick a subject to start.</td></tr>
+                <tr><td colspan="11" class="aq-empty-state"><i class="bi bi-book"></i>{{ t('Pick a subject to start.') }}</td></tr>
             </tbody>
         </table>
     </div>
     <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
         <div class="d-flex align-items-center gap-2">
             <small class="text-muted" id="aqPageInfo"></small>
-            <button type="button" class="btn btn-sm btn-link p-0" onclick="aqExpandAll(true)">Expand all</button>
-            <button type="button" class="btn btn-sm btn-link p-0" onclick="aqExpandAll(false)">Collapse all</button>
+            <button type="button" class="btn btn-sm btn-link p-0" onclick="aqExpandAll(true)">{{ t('Expand all') }}</button>
+            <button type="button" class="btn btn-sm btn-link p-0" onclick="aqExpandAll(false)">{{ t('Collapse all') }}</button>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <label class="small text-muted" for="aqPageSize">Questions per page</label>
+            <label class="small text-muted" for="aqPageSize">{{ t('Questions per page') }}</label>
             <select id="aqPageSize" class="form-select form-select-sm w-auto" onchange="aqSetPageSize(this.value)">
                 <option value="10">10</option>
                 <option value="20">20</option>

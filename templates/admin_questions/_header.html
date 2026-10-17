@@ -2,11 +2,11 @@
    There is deliberately no "All subjects" option. #}
 <div class="d-flex flex-wrap align-items-center justify-content-between aq-header mb-3">
     <div class="d-flex flex-wrap align-items-center gap-3">
-        <h4 class="mb-0"><i class="bi bi-journal-text"></i> Question Management</h4>
+        <h4 class="mb-0"><i class="bi bi-journal-text"></i> {{ t('Question Management') }}</h4>
         <div class="input-group input-group-sm w-auto">
-            <span class="input-group-text"><i class="bi bi-book"></i>&nbsp;Subject</span>
-            <select class="form-select aq-subject-select" id="aqSubject" aria-label="Subject">
-                <option value="" disabled selected>Choose a subject…</option>
+            <span class="input-group-text"><i class="bi bi-book"></i>&nbsp;{{ t('Subject') }}</span>
+            <select class="form-select aq-subject-select" id="aqSubject" aria-label="{{ t('Subject') }}">
+                <option value="" disabled selected>{{ t('Choose a subject…') }}</option>
                 {% for s in subjects %}
                 <option value="{{ s.id }}">{{ s.id }} — {{ tax_name(s) }}</option>
                 {% endfor %}
@@ -16,14 +16,14 @@
     </div>
     <div class="d-flex flex-wrap gap-2">
         <button class="btn btn-sm btn-success" id="aqAddBtn" onclick="showAddModal()" disabled>
-            <i class="bi bi-plus-lg"></i> Add question
+            <i class="bi bi-plus-lg"></i> {{ t('Add question') }}
         </button>
         <button class="btn btn-sm btn-outline-primary" id="aqImportAllBtn" onclick="aqOpenSmartImport(false)"
-                title="Import fixed or new image / Word / Markdown files from a server folder">
-            <i class="bi bi-folder-plus"></i> Import files
+                title="{{ t('Import fixed or new image / Word / Markdown files from a server folder') }}">
+            <i class="bi bi-folder-plus"></i> {{ t('Import files') }}
         </button>
         <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Admin') }}
         </a>
     </div>
 </div>
@@ -34,6 +34,6 @@
         <i class="bi bi-signpost-split"></i>
         <span id="aqHandoffText"></span>
         <span id="aqHandoffButtons" class="d-flex flex-wrap gap-2"></span>
-        <button type="button" class="btn btn-sm btn-link ms-auto" onclick="aqDismissHandoff()">Dismiss</button>
+        <button type="button" class="btn btn-sm btn-link ms-auto" onclick="aqDismissHandoff()">{{ t('Dismiss') }}</button>
     </div>
 </div>

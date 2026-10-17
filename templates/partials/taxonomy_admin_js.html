@@ -77,7 +77,7 @@ function oqbTaxonomyAdmin(cfg) {
         const url = parentLevel ? cfg.urls.reorderParents : cfg.urls.reorderChildren;
         const body = { [parentLevel ? cfg.parentKey : cfg.childKey]: ids };
         post(url, body).catch(err => {
-            alert('Error saving order: ' + err.message);
+            alert(OQB.t('Error saving order: {error}', {error: err.message}));
             location.reload();
         });
     }
@@ -152,7 +152,7 @@ function oqbTaxonomyAdmin(cfg) {
                 .then(data => { span.textContent = data[field] || ''; })
                 .catch(err => {
                     span.textContent = old;
-                    alert('Rename failed: ' + err.message);
+                    alert(OQB.t('Rename failed: {error}', {error: err.message}));
                 });
         };
         input.addEventListener('keydown', e => {
@@ -171,7 +171,7 @@ function oqbTaxonomyAdmin(cfg) {
         row?.querySelector('.tax-hidden-badge')?.classList.toggle('d-none', !hidden);
         const btn = row?.querySelector('button[data-act="toggle"]');
         if (btn) {
-            btn.title = hidden ? 'Unhide' : 'Hide';
+            btn.title = hidden ? OQB.t('Unhide') : OQB.t('Hide');
             btn.querySelector('i').className = 'bi bi-' + (hidden ? 'eye' : 'eye-slash');
         }
     }
@@ -179,7 +179,7 @@ function oqbTaxonomyAdmin(cfg) {
     function toggleHidden(item) {
         post(idUrl(isParent(item) ? cfg.urls.toggleParent : cfg.urls.toggleChild, item.dataset.id))
             .then(data => { setHidden(item, !!data.hidden); renumber(); })
-            .catch(err => alert('Error changing visibility: ' + err.message));
+            .catch(err => alert(OQB.t('Error changing visibility: {error}', {error: err.message})));
     }
 
     function remove(item) {
@@ -191,7 +191,7 @@ function oqbTaxonomyAdmin(cfg) {
                 refreshArrows(container);
                 renumber();
             })
-            .catch(err => alert('Delete failed: ' + err.message));
+            .catch(err => alert(OQB.t('Delete failed: {error}', {error: err.message})));
     }
 
     // ---------- numbering preview (mirrors app/utils.number_taxonomy defaults: 01 / 1.1) ----------

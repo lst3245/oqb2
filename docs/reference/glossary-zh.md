@@ -47,6 +47,19 @@ Conventions:
 | Sort / Reorder | 排序 / 重新排序 | |
 | Search Profile | 搜尋設定檔 | |
 | Question Set | 題目集 | |
+| Past paper / Source | 歷屆試題 / 來源 | `DSE` / `CE` / `AL` / `QB` stay as codes |
+| Year | 年份 | |
+| Paper (the `P1` field of a QID) | 卷別 | `Paper 1` 卷一 |
+| Question number | 題號 | sequential number 順序編號 |
+| Part (a) / shared block | 分題 (a) / 共用段落 | stem 題幹, sub-part 子分題 |
+| Split / Combine (question parts) | 分拆 / 合併 | |
+| Whole (archived whole-question image) | 原題全圖 | |
+| Thumbnail | 縮圖 | |
+| Present / Slide | 簡報 / 投影片 | |
+| Spacing / Lines / Page break | 間距 / 行 / 分頁 | answer lines 答題線 |
+| Numbering | 編號 | |
+| My Files section (folder of generated files) | 分組 | not the paper "Section" (部分) |
+| Share / Shared | 分享 / 共用 | Shared folder 共用資料夾 |
 | Generate / Generation | 生成 | |
 | Paper (exam paper) | 試卷 | |
 | Generation Preset | 生成預設 | |
@@ -72,8 +85,15 @@ Conventions:
 | Restore point | 還原點 | |
 | System Settings | 系統設定 | |
 | Endpoint (LLM) | 端點 | |
-| Prompt (AI) | 提示詞 | |
+| Prompt (AI) | 提示詞 | prompt variant 提示詞版本 |
+| Model (AI) | 模型 | |
+| Proofread / Transcribe (AI) | 校對 / 轉錄 | |
 | Database | 資料庫 | |
+| Health / Sync / Dry run | 健康檢查 / 同步 / 試行 | |
+| Permission / Role | 權限 / 角色 | View Only 僅檢視 |
+| Crop / Bounding box | 裁剪 / 框選範圍 | |
+| Redact / Highlight | 遮蓋 / 螢光標示 | |
+| Pen / Eraser / Undo / Redo | 筆 / 橡皮擦 / 復原 / 重做 | |
 
 ## Buttons and messages
 
@@ -95,3 +115,37 @@ Conventions:
 | Access denied | 拒絕存取 |
 | Both (bilingual) | 雙語 |
 | English / 中文 | English / 中文 (language names are shown in their own language) |
+| Loading… / Saving… | 載入中… / 儲存中… |
+| Refresh / Retry | 重新整理 / 重試 |
+| Copy / Copied | 複製 / 已複製 |
+| Move | 移動 |
+| Select all / Deselect all / Clear | 全選 / 取消全選 / 清除 |
+| Back / Next / Previous | 返回 / 下一個 / 上一個 (wizard steps: 上一步 / 下一步) |
+| Confirm / OK / Done | 確認 / 確定 / 完成 |
+| Yes / No / None / All | 是 / 否 / 無 / 全部 |
+| Optional / Required | 選填 / 必填 |
+| Name / Type / Size / Date / Status / Actions | 名稱 / 類型 / 大小 / 日期 / 狀態 / 操作 |
+| Details / Options / Advanced / Settings | 詳情 / 選項 / 進階 / 設定 |
+| Preview / View / Show / Hide | 預覽 / 檢視 / 顯示 / 隱藏 |
+| Enlarge / Zoom / Fit | 放大 / 縮放 / 符合大小 |
+| Image / Text / Page | 圖片 / 文字 / 頁 |
+| Something went wrong / Request failed | 發生錯誤 / 請求失敗 |
+| Network error | 網絡錯誤 |
+| Are you sure? | 確定嗎？ |
+| No results / Nothing selected | 沒有結果 / 未選取任何項目 |
+
+### One key, one Chinese string
+
+A catalogue key has no context, so every use of the same English text gets the same Chinese. These short words were settled when the Phase 2 fragments were merged; reuse them, or pick a more specific English string when the meaning differs.
+
+| English key | 中文 | Why |
+|---|---|---|
+| `Created` / `Updated` | 建立 / 更新 | Used both as date-column headers and as result-count badges |
+| `Prev` / `Next` | 上一個 / 下一個 | Pagination, viewer question navigation and Smart Import compare share the key |
+| `OK` | 通過 | Every current use is a check-status badge. A confirm button should say `Confirm` (確認) |
+| `Review` | 檢閱 | Question Management button and PDF import status |
+| `Duplicate` | 建立複本 | Endpoints and file browser |
+| `Ready` | 已就緒 | |
+| Render / Rendering… | 渲染 / 渲染中… | Not 算圖 or 繪製 (繪製 = draw a box) |
+| Batch | 批量 | Not 批次 |
+| `...` in English | `…` in Chinese | Every value uses the single ellipsis character, except inside code tokens copied verbatim (`[FIGURE: ...]`) |

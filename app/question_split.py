@@ -18,6 +18,8 @@ import uuid
 from datetime import datetime, timezone
 
 from flask import current_app
+
+from app.i18n import t as _t
 from PIL import Image
 
 from app import db, storage
@@ -95,9 +97,9 @@ def stage_question(question: Question) -> dict:
     """Copy/stitch QUE IMGs into a staging dir. Returns meta (includes token)."""
     formats = que_formats(question)
     if 'MD' in formats or 'DOC' in formats:
-        raise ValueError('Split requires an IMG question image. MD/DOC QUE cannot be cropped.')
+        raise ValueError(_t('Split requires an IMG question image. MD/DOC QUE cannot be cropped.'))
     if 'IMG' not in formats:
-        raise ValueError('This question has no IMG QUE to split.')
+        raise ValueError(_t('This question has no IMG QUE to split.'))
 
     cleanup_old()
     token = uuid.uuid4().hex
@@ -156,7 +158,7 @@ def stage_question(question: Question) -> dict:
 
     if not versions_meta:
         shutil.rmtree(dest, ignore_errors=True)
-        raise ValueError('No readable IMG QUE files were found on disk.')
+        raise ValueError(_t('No readable IMG QUE files were found on disk.'))
 
     meta = {
         'token': token,
@@ -312,9 +314,9 @@ def _clear_leaf_tags(q: Question) -> None:
 def _normalize_boxes(raw_boxes, parent_qid: str) -> list[dict]:
     parsed = parse_qid(parent_qid)
     if not parsed:
-        raise ValueError('Parent QID is invalid')
+        raise ValueError(_t('Parent QID is invalid'))
     if parsed.qno.qno_end:
-        raise ValueError('Cannot split a range stem with this tool; split a single question image.')
+        raise ValueError(_t('Cannot split a range stem with this tool; split a single question image.'))
     out = []
     seen = set()
     has_stem = False
@@ -322,7 +324,7 @@ def _normalize_boxes(raw_boxes, parent_qid: str) -> list[dict]:
         label = str(item.get('label') or '').strip().lower()
         box = item.get('box')
         if not isinstance(box, (list, tuple)) or len(box) != 4:
-            raise ValueError(f'Invalid box for label {label!r}')
+            raise ValueError(_t('Invalid box for label {label}', label=repr(label)))
         box = [float(x) for x in box]
         if label == 'stem':
             has_stem = True
@@ -330,26 +332,24 @@ def _normalize_boxes(raw_boxes, parent_qid: str) -> list[dict]:
         else:
             label = normalize_part_box_label(label) or ''
             if not label or label == 'stem' or not label.replace(BLOCK_MARK, '').isalpha():
-                raise ValueError(f'Invalid part label {item.get("label")!r}')
+                raise ValueError(_t('Invalid part label {label}', label=repr(item.get('label'))))
             new_path = (parsed.qno.part_path or '') + label
             try:
                 token = format_qno_token(parsed.qno.qno, None, new_path)
             except HierarchyError as e:
                 raise ValueError(str(e)) from e
             if not parse_qno_token(token):
-                raise ValueError(f'Invalid part label {label!r}')
+                raise ValueError(_t('Invalid part label {label}', label=repr(label)))
         if label in seen:
             if label == 'stem':
-                raise ValueError('Only one box can be "stem". Label text printed '
-                                 'between parts with the part it comes before, '
-                                 'e.g. "~c".')
-            raise ValueError(f'Duplicate label {label!r}')
+                raise ValueError(_t('Only one box can be "stem". Label text printed between parts with the part it comes before, e.g. "~c".'))
+            raise ValueError(_t('Duplicate label {label}', label=repr(label)))
         seen.add(label)
         out.append({'label': label, 'token': token, 'box': box})
     if not has_stem:
-        raise ValueError('Draw a box labelled "stem" for the shared background.')
+        raise ValueError(_t('Draw a box labelled "stem" for the shared background.'))
     if len(out) < 2:
-        raise ValueError('Draw the stem plus at least one part.')
+        raise ValueError(_t('Draw the stem plus at least one part.'))
     return out
 
 
@@ -357,7 +357,7 @@ def commit_split(question: Question, token: str, raw_boxes, *,
                  copy_tags: bool = False, versions: list | None = None) -> dict:
     meta = load_meta(token)
     if meta.get('question_id') != question.id:
-        raise ValueError('Staging token does not match this question.')
+        raise ValueError(_t('Staging token does not match this question.'))
     boxes = _normalize_boxes(raw_boxes, question.qid)
     parsed = parse_qid(question.qid)
     available = list((meta.get('versions') or {}).keys())
@@ -366,7 +366,7 @@ def commit_split(question: Question, token: str, raw_boxes, *,
     else:
         use_versions = available
     if not use_versions:
-        raise ValueError('No staged versions to crop.')
+        raise ValueError(_t('No staged versions to crop.'))
 
     source_path = current_app.config['SOURCE_PATH']
     created = []

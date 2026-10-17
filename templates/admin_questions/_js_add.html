@@ -11,7 +11,7 @@ function showAddModal() {
     const subj = document.getElementById('addSubject');
     if (AQ.subject) subj.value = AQ.subject;
     document.getElementById('addSubjectHint').textContent = AQ.subject
-        ? 'Defaults to the subject you are working in.' : '';
+        ? OQB.t('Defaults to the subject you are working in.') : '';
     goToAddStep(1);
     document.getElementById('addStep1Error').textContent = '';
     onAddSourceChange();
@@ -41,8 +41,8 @@ function updateAddQidPreview() {
     document.getElementById('addQidPreview').textContent = qid;
     const other = AQ.subject && subject !== AQ.subject;
     document.getElementById('addSubjectHint').innerHTML = other
-        ? `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Not the subject you are working in (${aqEsc(AQ.subject)}).</span>`
-        : (AQ.subject ? 'Defaults to the subject you are working in.' : '');
+        ? '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> ' + OQB.t('Not the subject you are working in ({subject}).', {subject: aqEsc(AQ.subject)}) + '</span>'
+        : (AQ.subject ? OQB.t('Defaults to the subject you are working in.') : '');
 }
 
 function goToAddStep(step) {
@@ -57,7 +57,7 @@ function goToAddStep(step) {
     });
 
     if (step === 2 && addCreatedQuestionId) {
-        document.getElementById('addStep2Qid').textContent = addCreatedQid;
+        document.getElementById('addStep2Note').innerHTML = OQB.t('Upload assets for <strong>{qid}</strong>. You can skip this and upload later.', {qid: aqEsc(addCreatedQid)});
         returnTagFormToEditModal();
         const area = document.getElementById('addAssetUploadArea');
         area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {}, 'add');
@@ -66,13 +66,13 @@ function goToAddStep(step) {
         ).join('');
         area.insertAdjacentHTML('afterbegin', `
             <div class="mb-3">
-                <label class="form-label">Upload version:</label>
+                <label class="form-label">${OQB.t('Upload version:')}</label>
                 <div class="btn-group btn-group-sm">${verBtns}</div>
             </div>`);
     }
 
     if (step === 3 && addCreatedQuestionId) {
-        document.getElementById('addStep3Qid').textContent = addCreatedQid;
+        document.getElementById('addStep3Note').innerHTML = OQB.t('Tag <strong>{qid}</strong>. You can skip this and tag later.', {qid: aqEsc(addCreatedQid)});
         borrowTagFormForAdd();
         populateTagForm({
             subject: document.getElementById('addSubject').value,
@@ -145,13 +145,13 @@ function createQuestionStep1() {
             if (data.success) {
                 addCreatedQuestionId = data.question.id;
                 addCreatedQid = data.question.qid;
-                showToast(`Question ${aqEsc(data.question.qid)} created.`);
+                showToast(OQB.t('Question {qid} created.', {qid: aqEsc(data.question.qid)}));
                 goToAddStep(2);
             } else {
-                err.textContent = data.error || 'Could not create the question.';
+                err.textContent = data.error || OQB.t('Could not create the question.');
             }
         })
-        .catch(e => { err.textContent = 'Error: ' + e.message; });
+        .catch(e => { err.textContent = OQB.t('Error: {error}', {error: e.message}); });
 }
 
 function saveAddQuestionTags() {

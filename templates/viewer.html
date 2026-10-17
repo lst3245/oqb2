@@ -948,7 +948,7 @@
     <!-- Top Toolbar -->
     <div class="viewer-toolbar">
         <div class="toolbar-left">
-            <button class="btn-toolbar btn-icon-only" onclick="toggleQuestionDrawer()" title="Question List (L)">
+            <button class="btn-toolbar btn-icon-only" onclick="toggleQuestionDrawer()" title="{{ t('Question List (L)') }}">
                 <i class="bi bi-list"></i>
             </button>
             <span class="qid-display" id="currentQid">-</span>
@@ -956,37 +956,37 @@
         
         <div class="toolbar-center">
             <div class="question-nav">
-                <button class="nav-btn" onclick="prevQuestion()" id="prevBtn" title="Previous (←)">
+                <button class="nav-btn" onclick="prevQuestion()" id="prevBtn" title="{{ t('Previous (←)') }}">
                     <i class="bi bi-chevron-left"></i>
                 </button>
                 <span class="current-q">
                     <span id="currentIndex">1</span> / <span id="totalQuestions">{{ questions|length }}</span>
                 </span>
-                <button class="nav-btn" onclick="nextQuestion()" id="nextBtn" title="Next (→)">
+                <button class="nav-btn" onclick="nextQuestion()" id="nextBtn" title="{{ t('Next (→)') }}">
                     <i class="bi bi-chevron-right"></i>
                 </button>
             </div>
         </div>
         
         <div class="toolbar-right">
-            <button class="btn-toolbar active" onclick="toggleShowQue()" id="btnShowQue" title="Toggle Question (Q)">
+            <button class="btn-toolbar active" onclick="toggleShowQue()" id="btnShowQue" title="{{ t('Toggle Question (Q)') }}">
                 <i class="bi bi-file-text"></i>
                 <span class="btn-text">QUE</span>
             </button>
-            <button class="btn-toolbar active" onclick="toggleShowAns()" id="btnShowAns" title="Toggle Solution (S)">
+            <button class="btn-toolbar active" onclick="toggleShowAns()" id="btnShowAns" title="{{ t('Toggle Solution (S)') }}">
                 <i class="bi bi-check-circle"></i>
                 <span class="btn-text">SOL</span>
             </button>
-            <button class="btn-toolbar btn-icon-only" onclick="toggleSettings()" title="Settings (G)">
+            <button class="btn-toolbar btn-icon-only" onclick="toggleSettings()" title="{{ t('Settings (G)') }}">
                 <i class="bi bi-gear"></i>
             </button>
-            <button class="btn-toolbar btn-icon-only" onclick="toggleFullscreen()" title="Fullscreen (F)">
+            <button class="btn-toolbar btn-icon-only" onclick="toggleFullscreen()" title="{{ t('Fullscreen (F)') }}">
                 <i class="bi bi-fullscreen"></i>
             </button>
-            <button class="btn-toolbar btn-icon-only" onclick="showShortcuts()" title="Keyboard Shortcuts (?)">
+            <button class="btn-toolbar btn-icon-only" onclick="showShortcuts()" title="{{ t('Keyboard Shortcuts (?)') }}">
                 <i class="bi bi-keyboard"></i>
             </button>
-            <button class="btn-toolbar btn-icon-only" onclick="closeViewer()" title="Exit Viewer (Esc)">
+            <button class="btn-toolbar btn-icon-only" onclick="closeViewer()" title="{{ t('Exit Viewer (Esc)') }}">
                 <i class="bi bi-x-lg"></i>
             </button>
         </div>
@@ -995,20 +995,20 @@
     <!-- Mobile Navigation Bar (visible only on mobile) -->
     <div class="mobile-nav" id="mobileNav">
         <button class="mobile-nav-btn" onclick="prevQuestion()" id="prevBtnMobile">
-            <i class="bi bi-chevron-left"></i> Prev
+            <i class="bi bi-chevron-left"></i> {{ t('Prev') }}
         </button>
         <span class="mobile-nav-counter">
             <span id="currentIndexMobile">1</span> / <span id="totalQuestionsMobile">{{ questions|length }}</span>
         </span>
         <button class="mobile-nav-btn" onclick="nextQuestion()" id="nextBtnMobile">
-            Next <i class="bi bi-chevron-right"></i>
+            {{ t('Next') }} <i class="bi bi-chevron-right"></i>
         </button>
     </div>
     
     <!-- Question List Drawer -->
     <div class="question-drawer" id="questionDrawer">
         <div class="drawer-header">
-            <h3><i class="bi bi-list-ol me-2"></i>Questions</h3>
+            <h3><i class="bi bi-list-ol me-2"></i>{{ t('Questions') }}</h3>
             <button class="btn btn-sm btn-outline-secondary" onclick="toggleQuestionDrawer()">
                 <i class="bi bi-x"></i>
             </button>
@@ -1037,22 +1037,22 @@
     <!-- Settings Panel -->
     <div class="settings-panel" id="settingsPanel">
         <div class="settings-header">
-            <h3><i class="bi bi-gear me-2"></i>Settings</h3>
+            <h3><i class="bi bi-gear me-2"></i>{{ t('Settings') }}</h3>
             <button class="btn btn-sm btn-outline-secondary" onclick="toggleSettings()">
                 <i class="bi bi-x"></i>
             </button>
         </div>
         
         <div class="settings-section">
-            <h4>Display</h4>
+            <h4>{{ t('Display') }}</h4>
             <div class="setting-item">
-                <span class="setting-label">Show Question</span>
+                <span class="setting-label">{{ t('Show Question') }}</span>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="settingShowQue" checked onchange="updateShowQue(this.checked)">
                 </div>
             </div>
             <div class="setting-item">
-                <span class="setting-label">Show Solution/Answer</span>
+                <span class="setting-label">{{ t('Show Solution/Answer') }}</span>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="settingShowAns" checked onchange="updateShowAns(this.checked)">
                 </div>
@@ -1060,50 +1060,50 @@
         </div>
         
         <div class="settings-section">
-            <h4>Layout</h4>
+            <h4>{{ t('Layout') }}</h4>
             <div class="btn-group btn-group-setting w-100" role="group">
                 <input type="radio" class="btn-check" name="layoutMode" id="layoutSideBySide" checked onchange="setLayout('side-by-side')">
                 <label class="btn btn-outline-primary" for="layoutSideBySide">
-                    <i class="bi bi-layout-split"></i> Side by Side
+                    <i class="bi bi-layout-split"></i> {{ t('Side by Side') }}
                 </label>
                 <input type="radio" class="btn-check" name="layoutMode" id="layoutSequential" onchange="setLayout('sequential')">
                 <label class="btn btn-outline-primary" for="layoutSequential">
-                    <i class="bi bi-list"></i> Sequential
+                    <i class="bi bi-list"></i> {{ t('Sequential') }}
                 </label>
             </div>
         </div>
         
         <div class="settings-section">
-            <h4>Solution Preference</h4>
+            <h4>{{ t('Solution Preference') }}</h4>
             <div class="btn-group btn-group-setting w-100" role="group">
                 <input type="radio" class="btn-check" name="ansPref" id="prefSol" checked onchange="setAnswerPreference('SOL')">
-                <label class="btn btn-outline-primary" for="prefSol">SOL First</label>
+                <label class="btn btn-outline-primary" for="prefSol">{{ t('SOL First') }}</label>
                 <input type="radio" class="btn-check" name="ansPref" id="prefAns" onchange="setAnswerPreference('ANS')">
-                <label class="btn btn-outline-primary" for="prefAns">ANS First</label>
+                <label class="btn btn-outline-primary" for="prefAns">{{ t('ANS First') }}</label>
             </div>
             <small class="text-muted d-block mt-2">
-                Falls back to the other type if preferred is not available.
+                {{ t('Falls back to the other type if preferred is not available.') }}
             </small>
         </div>
         
         <div class="settings-section">
-            <h4>Version Priority</h4>
+            <h4>{{ t('Version Priority') }}</h4>
             <div id="versionPriorityWidget"></div>
             <input type="hidden" id="versionPriorityInput"
                    value="{{ OQB_DEFAULT_VERSION_PRIORITY | join(',') }}">
-            <small class="text-muted d-block mt-2">Drag to reorder · top wins</small>
+            <small class="text-muted d-block mt-2">{{ t('Drag to reorder · top wins') }}</small>
         </div>
         
         <div class="settings-section">
-            <h4>Text Content</h4>
+            <h4>{{ t('Text Content') }}</h4>
             <div class="setting-item">
-                <span class="setting-label">Show Answer Text</span>
+                <span class="setting-label">{{ t('Show Answer Text') }}</span>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="settingShowAnswerText" onchange="updateShowAnswerText(this.checked)">
                 </div>
             </div>
             <div class="setting-item">
-                <span class="setting-label">Show Comment</span>
+                <span class="setting-label">{{ t('Show Comment') }}</span>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="settingShowComment" onchange="updateShowComment(this.checked)">
                 </div>
@@ -1118,19 +1118,19 @@
             <div class="panel-header">
                 <span class="panel-title">
                     <i class="bi bi-file-text"></i>
-                    Question
+                    {{ t('Question') }}
                 </span>
                 <div class="panel-controls">
                     <button class="markup-panel-btn whole-panel-btn" id="queWholeBtn" onclick="toggleWholeView()"
-                            title="Show the archived whole question image (unsplit original) instead of background + part"
+                            title="{{ t('Show the archived whole question image (unsplit original) instead of background + part') }}"
                             aria-pressed="false">
-                        <i class="bi bi-archive"></i><span class="d-none d-md-inline ms-1">Whole</span>
+                        <i class="bi bi-archive"></i><span class="d-none d-md-inline ms-1">{{ t('Whole') }}</span>
                     </button>
-                    <button class="markup-panel-btn" id="queMarkupBtn" onclick="openMarkupForPanel('que')" title="Open question image in Markup">
+                    <button class="markup-panel-btn" id="queMarkupBtn" onclick="openMarkupForPanel('que')" title="{{ t('Open question image in Markup') }}">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                     <div class="zoom-control">
-                        <button onclick="zoomQue(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
+                        <button onclick="zoomQue(-20)" title="{{ t('Zoom Out (−20%)') }}"><i class="bi bi-dash-lg"></i></button>
                         <div class="zoom-dropdown">
                             <button class="zoom-value-btn" id="queZoomValue" onclick="toggleZoomMenu('que')">100%</button>
                             <div class="zoom-menu" id="queZoomMenu">
@@ -1143,8 +1143,8 @@
                                 <button class="zoom-menu-item" onclick="setZoomQue(250)">250%</button>
                             </div>
                         </div>
-                        <button onclick="zoomQue(20)" title="Zoom In (+20%)"><i class="bi bi-plus-lg"></i></button>
-                        <button onclick="resetZoomQue()" title="Reset to 100%"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        <button onclick="zoomQue(20)" title="{{ t('Zoom In (+20%)') }}"><i class="bi bi-plus-lg"></i></button>
+                        <button onclick="resetZoomQue()" title="{{ t('Reset to 100%') }}"><i class="bi bi-arrow-counterclockwise"></i></button>
                     </div>
                 </div>
             </div>
@@ -1152,20 +1152,20 @@
                 <div id="stemPanel" class="d-none px-3 pt-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="stemToggle"
                             onclick="document.getElementById('stemContainer').classList.toggle('d-none')">
-                        Shared background
+                        {{ t('Shared background') }}
                     </button>
                     <div id="stemContainer" class="asset-container mb-2"></div>
                 </div>
                 <div id="wholePanel" class="d-none px-3 pt-2">
-                    <div class="text-muted small mb-2"><i class="bi bi-archive"></i> Whole question archive — unsplit original kept for reference. Papers and slides use the background + parts.</div>
+                    <div class="text-muted small mb-2"><i class="bi bi-archive"></i> {{ t('Whole question archive — unsplit original kept for reference. Papers and slides use the background + parts.') }}</div>
                     <div id="wholeContainer" class="asset-container mb-2"></div>
                 </div>
                 <div class="asset-container" id="queContainer">
                     <div class="loading-spinner">
                         <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                            <span class="visually-hidden">{{ t('Loading...') }}</span>
                         </div>
-                        <span>Loading question...</span>
+                        <span>{{ t('Loading question...') }}</span>
                     </div>
                 </div>
             </div>
@@ -1179,14 +1179,14 @@
             <div class="panel-header">
                 <span class="panel-title" id="ansPanelTitle">
                     <i class="bi bi-check-circle"></i>
-                    Solution
+                    {{ t('Solution') }}
                 </span>
                 <div class="panel-controls">
-                    <button class="markup-panel-btn" id="ansMarkupBtn" onclick="openMarkupForPanel('ans')" title="Open solution image in Markup">
+                    <button class="markup-panel-btn" id="ansMarkupBtn" onclick="openMarkupForPanel('ans')" title="{{ t('Open solution image in Markup') }}">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                     <div class="zoom-control">
-                        <button onclick="zoomAns(-20)" title="Zoom Out (−20%)"><i class="bi bi-dash-lg"></i></button>
+                        <button onclick="zoomAns(-20)" title="{{ t('Zoom Out (−20%)') }}"><i class="bi bi-dash-lg"></i></button>
                         <div class="zoom-dropdown">
                             <button class="zoom-value-btn" id="ansZoomValue" onclick="toggleZoomMenu('ans')">100%</button>
                             <div class="zoom-menu" id="ansZoomMenu">
@@ -1199,8 +1199,8 @@
                                 <button class="zoom-menu-item" onclick="setZoomAns(250)">250%</button>
                             </div>
                         </div>
-                        <button onclick="zoomAns(20)" title="Zoom In (+20%)"><i class="bi bi-plus-lg"></i></button>
-                        <button onclick="resetZoomAns()" title="Reset to 100%"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        <button onclick="zoomAns(20)" title="{{ t('Zoom In (+20%)') }}"><i class="bi bi-plus-lg"></i></button>
+                        <button onclick="resetZoomAns()" title="{{ t('Reset to 100%') }}"><i class="bi bi-arrow-counterclockwise"></i></button>
                     </div>
                 </div>
             </div>
@@ -1208,19 +1208,19 @@
                 <div class="asset-container" id="ansContainer">
                     <div class="loading-spinner">
                         <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                            <span class="visually-hidden">{{ t('Loading...') }}</span>
                         </div>
-                        <span>Loading solution...</span>
+                        <span>{{ t('Loading solution...') }}</span>
                     </div>
                 </div>
                 <!-- Answer Text container (shown via toggle) -->
                 <div id="answerTextContainer" class="text-content-card" style="display: none;">
-                    <div class="text-content-header"><i class="bi bi-card-text me-1"></i> Answer Text</div>
+                    <div class="text-content-header"><i class="bi bi-card-text me-1"></i> {{ t('Answer Text') }}</div>
                     <div class="text-content-body" id="answerTextContent"></div>
                 </div>
                 <!-- Comment container (shown via toggle) -->
                 <div id="commentContainer" class="text-content-card" style="display: none;">
-                    <div class="text-content-header"><i class="bi bi-chat-text me-1"></i> Comment</div>
+                    <div class="text-content-header"><i class="bi bi-chat-text me-1"></i> {{ t('Comment') }}</div>
                     <div class="text-content-body" id="commentContent"></div>
                 </div>
             </div>
@@ -1228,7 +1228,7 @@
     </div>
     
     <!-- Theater Mode Exit Button -->
-    <button class="theater-exit-btn" id="theaterExitBtn" onclick="exitTheaterMode()" title="Exit Theater Mode">
+    <button class="theater-exit-btn" id="theaterExitBtn" onclick="exitTheaterMode()" title="{{ t('Exit Theater Mode') }}">
         <i class="bi bi-x-lg"></i>
     </button>
     
@@ -1238,57 +1238,57 @@
     <!-- Keyboard Shortcuts Overlay -->
     <div class="shortcuts-overlay" id="shortcutsOverlay" onclick="hideShortcuts()">
         <div class="shortcuts-content" onclick="event.stopPropagation()">
-            <h3><i class="bi bi-keyboard me-2"></i>Keyboard Shortcuts</h3>
+            <h3><i class="bi bi-keyboard me-2"></i>{{ t('Keyboard Shortcuts') }}</h3>
             <div class="shortcut-row">
-                <span>Previous question</span>
-                <span class="shortcut-key">← or P</span>
+                <span>{{ t('Previous question') }}</span>
+                <span class="shortcut-key">{{ t('← or P') }}</span>
             </div>
             <div class="shortcut-row">
-                <span>Next question</span>
-                <span class="shortcut-key">→ or N</span>
+                <span>{{ t('Next question') }}</span>
+                <span class="shortcut-key">{{ t('→ or N') }}</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle question</span>
+                <span>{{ t('Toggle question') }}</span>
                 <span class="shortcut-key">Q</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle solution</span>
-                <span class="shortcut-key">S or A</span>
+                <span>{{ t('Toggle solution') }}</span>
+                <span class="shortcut-key">{{ t('S or A') }}</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle answer text</span>
+                <span>{{ t('Toggle answer text') }}</span>
                 <span class="shortcut-key">T</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle comment</span>
+                <span>{{ t('Toggle comment') }}</span>
                 <span class="shortcut-key">C</span>
             </div>
             <div class="shortcut-row">
-                <span>Fullscreen / Theater mode</span>
+                <span>{{ t('Fullscreen / Theater mode') }}</span>
                 <span class="shortcut-key">F</span>
             </div>
             <div class="shortcut-row">
-                <span>Zoom in/out</span>
-                <span class="shortcut-key">Ctrl + Scroll</span>
+                <span>{{ t('Zoom in/out') }}</span>
+                <span class="shortcut-key">{{ t('Ctrl + Scroll') }}</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle question list</span>
+                <span>{{ t('Toggle question list') }}</span>
                 <span class="shortcut-key">L</span>
             </div>
             <div class="shortcut-row">
-                <span>Toggle settings</span>
+                <span>{{ t('Toggle settings') }}</span>
                 <span class="shortcut-key">G</span>
             </div>
             <div class="shortcut-row">
-                <span>Show shortcuts</span>
+                <span>{{ t('Show shortcuts') }}</span>
                 <span class="shortcut-key">?</span>
             </div>
             <div class="shortcut-row">
-                <span>Close / Exit</span>
+                <span>{{ t('Close / Exit') }}</span>
                 <span class="shortcut-key">Esc</span>
             </div>
             <div class="text-center mt-3">
-                <button class="btn btn-primary btn-sm" onclick="hideShortcuts()">Close</button>
+                <button class="btn btn-primary btn-sm" onclick="hideShortcuts()">{{ t('Close') }}</button>
             </div>
         </div>
     </div>
@@ -1479,8 +1479,8 @@
             const on = Boolean(rootId) && wholeViewOn;
             btn.classList.toggle('active', on);
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            btn.title = on ? 'Back to background + part'
-                : 'Show the archived whole question image (unsplit original) instead of background + part';
+            btn.title = on ? OQB.t('Back to background + part')
+                : OQB.t('Show the archived whole question image (unsplit original) instead of background + part');
             panel.classList.toggle('d-none', !on);
             if (queContainer) queContainer.classList.toggle('d-none', on);
             if (stemPanel) {
@@ -1491,7 +1491,7 @@
             if (!on) return;
             if (wholeLoadedFor === rootId) { applyZoom('QUE'); return; }
             wholeLoadedFor = rootId;
-            container.innerHTML = '<div class="text-muted small">Loading…</div>';
+            container.innerHTML = '<div class="text-muted small">' + OQB.t('Loading…') + '</div>';
             fetch(`/generate/api/viewer_asset/${rootId}/WHOLE?version_priority=${encodeURIComponent(preferredLanguage)}`)
                 .then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
                 .then(data => {
@@ -1499,14 +1499,14 @@
                     if (data.format === 'IMG') {
                         const parts = data.parts || [data];
                         container.innerHTML = parts.map(p =>
-                            `<img src="${p.url}" alt="whole question" onload="applyZoom('QUE')" style="display:block;">`
+                            `<img src="${p.url}" alt="${OQB.t('whole question')}" onload="applyZoom('QUE')" style="display:block;">`
                         ).join('');
                     } else {
-                        container.innerHTML = '<div class="text-muted small">Archive is not an image.</div>';
+                        container.innerHTML = '<div class="text-muted small">' + OQB.t('Archive is not an image.') + '</div>';
                     }
                 })
                 .catch(() => {
-                    if (wholeLoadedFor === rootId) container.innerHTML = '<div class="text-muted small">No archive image found.</div>';
+                    if (wholeLoadedFor === rootId) container.innerHTML = '<div class="text-muted small">' + OQB.t('No archive image found.') + '</div>';
                 });
         }
 
@@ -1576,7 +1576,11 @@
             const toggle = document.getElementById('stemToggle');
             if (toggle) {
                 const nEarlier = ctx.filter(c => c.kind === 'earlier').length;
-                toggle.textContent = 'Shared background' + (nEarlier ? ` + ${nEarlier} earlier part${nEarlier === 1 ? '' : 's'}` : '');
+                toggle.textContent = nEarlier === 1
+                    ? OQB.t('Shared background + {n} earlier part', {n: nEarlier})
+                    : (nEarlier
+                        ? OQB.t('Shared background + {n} earlier parts', {n: nEarlier})
+                        : OQB.t('Shared background'));
             }
             container.innerHTML = '';
             const blocks = ctx.map(c => {
@@ -1584,9 +1588,12 @@
                 block.className = 'stem-context-block';
                 const cap = document.createElement('div');
                 cap.className = 'text-muted small mb-1';
-                cap.textContent = (c.kind === 'earlier' ? 'Earlier part ' : 'Shared background ') + (c.label || '') + (c.qid ? ` · ${c.qid}` : '');
+                const extra = (c.label || '') + (c.qid ? ' · ' + c.qid : '');
+                cap.textContent = c.kind === 'earlier'
+                    ? OQB.t('Earlier part {label}', {label: extra})
+                    : OQB.t('Shared background {label}', {label: extra});
                 const body = document.createElement('div');
-                body.innerHTML = '<div class="text-muted small">Loading…</div>';
+                body.innerHTML = '<div class="text-muted small">' + OQB.t('Loading…') + '</div>';
                 block.appendChild(cap);
                 block.appendChild(body);
                 container.appendChild(block);
@@ -1600,7 +1607,7 @@
                     if (data.format === 'IMG') {
                         const parts = data.parts || [data];
                         body.innerHTML = parts.map(p =>
-                            `<img src="${p.url}" alt="stem" onload="applyZoom('QUE')" style="display:block;">`
+                            `<img src="${p.url}" alt="${OQB.t('stem')}" onload="applyZoom('QUE')" style="display:block;">`
                         ).join('');
                     } else if (data.format === 'MD' && data.html) {
                         const wrap = document.createElement('div');
@@ -1610,12 +1617,12 @@
                         if (window.oqbRenderMarkdownInto) window.oqbRenderMarkdownInto(wrap, data.html || '');
                         else wrap.innerHTML = data.html || '';
                     } else if (data.format === 'DOC' && data.thumbnail_url) {
-                        body.innerHTML = `<img src="${data.thumbnail_url}" alt="stem" style="display:block;">`;
+                        body.innerHTML = `<img src="${data.thumbnail_url}" alt="${OQB.t('stem')}" style="display:block;">`;
                     } else {
-                        body.innerHTML = '<div class="text-muted small">No preview.</div>';
+                        body.innerHTML = '<div class="text-muted small">' + OQB.t('No preview.') + '</div>';
                     }
                 } catch (e) {
-                    body.innerHTML = '<div class="text-muted small">Not available.</div>';
+                    body.innerHTML = '<div class="text-muted small">' + OQB.t('Not available.') + '</div>';
                 }
             }));
         }
@@ -1627,9 +1634,9 @@
             container.innerHTML = `
                 <div class="loading-spinner">
                     <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
+                        <span class="visually-hidden">${OQB.t('Loading...')}</span>
                     </div>
-                    <span>Loading ${type.toLowerCase()}...</span>
+                    <span>${OQB.t('Loading {type}...', {type: type.toLowerCase()})}</span>
                 </div>
             `;
             
@@ -1638,7 +1645,7 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.error || 'Asset not found');
+                    throw new Error(errorData.error || OQB.t('Asset not found'));
                 }
                 
                 const data = await response.json();
@@ -1668,7 +1675,7 @@
                              onload="applyZoom('${type}')" style="display:block;">
                         <div class="text-center mt-2">
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-download"></i> Download original .docx
+                                <i class="bi bi-download"></i> ${OQB.t('Download original .docx')}
                             </a>
                         </div>
                     `;
@@ -1682,9 +1689,9 @@
                              data-doc-pending-filename="${filename}"
                              data-doc-pending-downloadurl="${data.url || ''}">
                             <i class="bi bi-file-earmark-word"></i>
-                            <span>Word document — preview rendering…</span>
+                            <span>${OQB.t('Word document — preview rendering…')}</span>
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
-                                <i class="bi bi-download"></i> Download original .docx
+                                <i class="bi bi-download"></i> ${OQB.t('Download original .docx')}
                             </a>
                         </div>
                     `;
@@ -1693,9 +1700,9 @@
                     container.innerHTML = `
                         <div class="empty-state">
                             <i class="bi bi-file-earmark-word"></i>
-                            <span>Word document format</span>
+                            <span>${OQB.t('Word document format')}</span>
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
-                                <i class="bi bi-download"></i> Download
+                                <i class="bi bi-download"></i> ${OQB.t('Download')}
                             </a>
                         </div>
                     `;
@@ -1705,14 +1712,14 @@
                 if (type === 'ANS' || type === 'SOL') {
                     document.getElementById('ansPanelTitle').innerHTML = `
                         <i class="bi bi-check-circle"></i>
-                        ${data.type === 'SOL' ? 'Solution' : 'Answer'}
+                        ${data.type === 'SOL' ? OQB.t('Solution') : OQB.t('Answer')}
                     `;
                 }
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <i class="bi bi-exclamation-triangle text-warning"></i>
-                        <span>${type} not available</span>
+                        <span>${OQB.t('{type} not available', {type: type})}</span>
                     </div>
                 `;
             }
@@ -1727,9 +1734,9 @@
             container.innerHTML = `
                 <div class="loading-spinner">
                     <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
+                        <span class="visually-hidden">${OQB.t('Loading...')}</span>
                     </div>
-                    <span>Loading solution...</span>
+                    <span>${OQB.t('Loading solution...')}</span>
                 </div>
             `;
             
@@ -1767,7 +1774,7 @@
                              onload="applyZoom('ANS')" style="display:block;">
                         <div class="text-center mt-2">
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-download"></i> Download original .docx
+                                <i class="bi bi-download"></i> ${OQB.t('Download original .docx')}
                             </a>
                         </div>
                     `;
@@ -1779,9 +1786,9 @@
                              data-doc-pending-filename="${filename}"
                              data-doc-pending-downloadurl="${data.url || ''}">
                             <i class="bi bi-file-earmark-word"></i>
-                            <span>Word document — preview rendering…</span>
+                            <span>${OQB.t('Word document — preview rendering…')}</span>
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
-                                <i class="bi bi-download"></i> Download original .docx
+                                <i class="bi bi-download"></i> ${OQB.t('Download original .docx')}
                             </a>
                         </div>
                     `;
@@ -1790,9 +1797,9 @@
                     container.innerHTML = `
                         <div class="empty-state">
                             <i class="bi bi-file-earmark-word"></i>
-                            <span>Word document format</span>
+                            <span>${OQB.t('Word document format')}</span>
                             <a href="${data.url}" target="_blank" class="btn btn-outline-primary btn-sm mt-2">
-                                <i class="bi bi-download"></i> Download
+                                <i class="bi bi-download"></i> ${OQB.t('Download')}
                             </a>
                         </div>
                     `;
@@ -1801,13 +1808,13 @@
                 // Update panel title
                 document.getElementById('ansPanelTitle').innerHTML = `
                     <i class="bi bi-check-circle"></i>
-                    ${data.type === 'SOL' ? 'Solution' : 'Answer'}
+                    ${data.type === 'SOL' ? OQB.t('Solution') : OQB.t('Answer')}
                 `;
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <i class="bi bi-exclamation-triangle text-warning"></i>
-                        <span>Solution/Answer not available</span>
+                        <span>${OQB.t('Solution/Answer not available')}</span>
                     </div>
                 `;
             }

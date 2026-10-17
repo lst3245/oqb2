@@ -1,24 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Subjects - Question Bank{% endblock %}
+{% block title %}{{ t('Manage Subjects - Question Bank') }}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-mortarboard"></i> Manage Subjects</h2>
+        <h2 class="mb-0"><i class="bi bi-mortarboard"></i> {{ t('Manage Subjects') }}</h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
         </a>
     </div>
     <p class="text-muted mt-1">
         <i class="bi bi-info-circle"></i>
-        The subject ID is embedded in question IDs and the source folder layout, so it
-        cannot be changed after creation — only the display name can be edited.
+        {{ t('The subject ID is embedded in question IDs and the source folder layout, so it cannot be changed after creation — only the display name can be edited.') }}
     </p>
     <hr>
 
     <button class="btn btn-success btn-sm mb-3" onclick="showAddSubjectModal()">
-        <i class="bi bi-plus-circle"></i> Add Subject
+        <i class="bi bi-plus-circle"></i> {{ t('Add Subject') }}
     </button>
 
     <div class="card">
@@ -26,14 +25,14 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th style="width: 12%;">ID</th>
-                        <th>Name</th>
-                        <th>Chinese name</th>
-                        <th class="text-center" style="width: 14%;">Split default</th>
-                        <th class="text-end" style="width: 12%;">Questions</th>
-                        <th class="text-end" style="width: 10%;">Topics</th>
-                        <th class="text-end" style="width: 10%;">Chapters</th>
-                        <th class="text-end" style="width: 18%;">Actions</th>
+                        <th style="width: 12%;">{{ t('ID') }}</th>
+                        <th>{{ t('Name') }}</th>
+                        <th>{{ t('Chinese name') }}</th>
+                        <th class="text-center" style="width: 14%;">{{ t('Split default') }}</th>
+                        <th class="text-end" style="width: 12%;">{{ t('Questions') }}</th>
+                        <th class="text-end" style="width: 10%;">{{ t('Topics') }}</th>
+                        <th class="text-end" style="width: 10%;">{{ t('Chapters') }}</th>
+                        <th class="text-end" style="width: 18%;">{{ t('Actions') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -42,18 +41,18 @@
                         <td><span class="badge bg-primary">{{ data.subject.id }}</span></td>
                         <td class="subject-name">{{ data.subject.name }}</td>
                         <td class="subject-name-zh">{{ data.subject.name_zh or '' }}</td>
-                        <td class="text-center">{{ 'Yes' if data.subject.split_parts_default else 'No' }}</td>
+                        <td class="text-center">{{ t('Yes') if data.subject.split_parts_default else t('No') }}</td>
                         <td class="text-end">{{ data.question_count }}</td>
                         <td class="text-end">{{ data.topic_count }}</td>
                         <td class="text-end">{{ data.chapter_count }}</td>
                         <td class="text-end">
                             <button class="btn btn-sm btn-outline-primary"
                                     onclick="showEditSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}', {{ 1 if data.subject.split_parts_default else 0 }})">
-                                <i class="bi bi-pencil"></i> Rename
+                                <i class="bi bi-pencil"></i> {{ t('Rename') }}
                             </button>
                             <button class="btn btn-sm btn-outline-danger"
                                     onclick="showDeleteSubjectModal('{{ data.subject.id }}', '{{ data.subject.name | e }}')">
-                                <i class="bi bi-trash"></i> Delete
+                                <i class="bi bi-trash"></i> {{ t('Delete') }}
                             </button>
                         </td>
                     </tr>
@@ -63,7 +62,7 @@
         </div>
         {% if not subjects_data %}
         <div class="card-body">
-            <p class="text-muted mb-0">No subjects yet. Add one above!</p>
+            <p class="text-muted mb-0">{{ t('No subjects yet. Add one above!') }}</p>
         </div>
         {% endif %}
     </div>
@@ -74,40 +73,40 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add Subject</h5>
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> {{ t('Add Subject') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="addSubjectForm" onsubmit="return false;">
                     <div class="mb-3">
-                        <label class="form-label">Subject ID</label>
+                        <label class="form-label">{{ t('Subject ID') }}</label>
                         <input type="text" class="form-control text-uppercase" id="addSubjectId"
                                maxlength="10" autocomplete="off" required>
-                        <small class="text-muted">1-10 uppercase letters/digits (e.g. <code>MATC</code>). Cannot be changed later.</small>
+                        <small class="text-muted">{{ t('1-10 uppercase letters/digits (e.g. <code>MATC</code>). Cannot be changed later.')|safe }}</small>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Name</label>
+                        <label class="form-label">{{ t('Name') }}</label>
                         <input type="text" class="form-control" id="addSubjectName"
-                               placeholder="e.g. Mathematics Compulsory Part" required>
+                               placeholder="{{ t('e.g. Mathematics Compulsory Part') }}" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Chinese name <span class="text-muted">(optional)</span></label>
+                        <label class="form-label">{{ t('Chinese name') }} <span class="text-muted">{{ t('(optional)') }}</span></label>
                         <input type="text" class="form-control" id="addSubjectNameZh" maxlength="100"
                                placeholder="例如：數學必修部分">
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="addSplitPartsDefault">
                         <label class="form-check-label" for="addSplitPartsDefault">
-                            Split questions into parts by default (PDF import)
+                            {{ t('Split questions into parts by default (PDF import)') }}
                         </label>
-                        <div class="form-text">Seeds the PDF-import checkbox later. The wizard does not read this yet.</div>
+                        <div class="form-text">{{ t('Seeds the PDF-import checkbox later. The wizard does not read this yet.') }}</div>
                     </div>
                     <div class="alert alert-danger d-none" id="addSubjectError"></div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" onclick="saveNewSubject()">Create</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-success" onclick="saveNewSubject()">{{ t('Create') }}</button>
             </div>
         </div>
     </div>
@@ -118,36 +117,36 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-pencil"></i> Rename Subject</h5>
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> {{ t('Rename Subject') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="editSubjectForm" onsubmit="return false;">
                     <input type="hidden" id="editSubjectId">
                     <div class="mb-3">
-                        <label class="form-label">Subject ID</label>
+                        <label class="form-label">{{ t('Subject ID') }}</label>
                         <input type="text" class="form-control" id="editSubjectIdDisplay" readonly>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Name</label>
+                        <label class="form-label">{{ t('Name') }}</label>
                         <input type="text" class="form-control" id="editSubjectName" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Chinese name <span class="text-muted">(optional)</span></label>
+                        <label class="form-label">{{ t('Chinese name') }} <span class="text-muted">{{ t('(optional)') }}</span></label>
                         <input type="text" class="form-control" id="editSubjectNameZh" maxlength="100">
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="editSplitPartsDefault">
                         <label class="form-check-label" for="editSplitPartsDefault">
-                            Split questions into parts by default (PDF import)
+                            {{ t('Split questions into parts by default (PDF import)') }}
                         </label>
                     </div>
                     <div class="alert alert-danger d-none" id="editSubjectError"></div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveEditSubject()">Save</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" onclick="saveEditSubject()">{{ t('Save') }}</button>
             </div>
         </div>
     </div>
@@ -158,43 +157,37 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle"></i> Delete Subject</h5>
+                <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle"></i> {{ t('Delete Subject') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="deleteSubjectId">
 
                 <div id="deleteSubjectLoading" class="text-muted">
-                    <span class="spinner-border spinner-border-sm"></span> Checking usage…
+                    <span class="spinner-border spinner-border-sm"></span> {{ t('Checking usage…') }}
                 </div>
 
                 <div id="deleteSubjectBlocked" class="d-none">
-                    <div class="alert alert-danger mb-0">
-                        <i class="bi bi-x-octagon"></i>
-                        <strong>Cannot delete <span class="delete-subject-label"></span>.</strong>
-                        It still has <strong><span id="deleteSubjectQCount"></span></strong> question(s).
-                        Remove all questions in this subject first.
-                    </div>
+                    <div class="alert alert-danger mb-0" id="deleteSubjectBlockedBody"></div>
                 </div>
 
                 <div id="deleteSubjectConfirm" class="d-none">
-                    <p>You are about to permanently delete
-                        <strong><span class="delete-subject-label"></span></strong>.</p>
+                    <p id="deleteSubjectConfirmLead"></p>
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i>
-                        This will also delete the following associated data:
+                        <span id="deleteSubjectConfirmIntro"></span>
                         <ul class="mb-0 mt-2">
-                            <li><strong><span id="deleteSubjectTopics"></span></strong> topic(s) and their subtopics</li>
-                            <li><strong><span id="deleteSubjectChapters"></span></strong> chapter(s) and their subchapters</li>
-                            <li><strong><span id="deleteSubjectFilters"></span></strong> saved filter / search profile(s)</li>
-                            <li><strong><span id="deleteSubjectSets"></span></strong> saved question set(s)</li>
-                            <li><strong><span id="deleteSubjectPerms"></span></strong> user permission grant(s)</li>
+                            <li id="deleteSubjectTopicsLine"></li>
+                            <li id="deleteSubjectChaptersLine"></li>
+                            <li id="deleteSubjectFiltersLine"></li>
+                            <li id="deleteSubjectSetsLine"></li>
+                            <li id="deleteSubjectPermsLine"></li>
                         </ul>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="deleteSubjectAck">
                         <label class="form-check-label" for="deleteSubjectAck">
-                            I understand this cannot be undone.
+                            {{ t('I understand this cannot be undone.') }}
                         </label>
                     </div>
                 </div>
@@ -202,10 +195,10 @@
                 <div class="alert alert-danger d-none mt-2" id="deleteSubjectError"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-danger" id="deleteSubjectBtn" disabled
                         onclick="confirmDeleteSubject()">
-                    <i class="bi bi-trash"></i> Delete Subject
+                    <i class="bi bi-trash"></i> {{ t('Delete Subject') }}
                 </button>
             </div>
         </div>
@@ -240,6 +233,12 @@ function hideError(elId) {
     document.getElementById(elId).classList.add('d-none');
 }
 
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
 // ============== Add ==============
 
 function showAddSubjectModal() {
@@ -257,7 +256,7 @@ function saveNewSubject() {
     hideError('addSubjectError');
 
     if (!id || !name) {
-        showError('addSubjectError', 'Subject ID and name are required.');
+        showError('addSubjectError', OQB.t('Subject ID and name are required.'));
         return;
     }
 
@@ -273,13 +272,13 @@ function saveNewSubject() {
         .then(r => r.json().then(data => ({ ok: r.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                showError('addSubjectError', data.error || 'Failed to create subject.');
+                showError('addSubjectError', data.error || OQB.t('Failed to create subject.'));
                 return;
             }
             addSubjectModal.hide();
             location.reload();
         })
-        .catch(() => showError('addSubjectError', 'Network error.'));
+        .catch(() => showError('addSubjectError', OQB.t('Network error.')));
 }
 
 // ============== Rename ==============
@@ -301,7 +300,7 @@ function saveEditSubject() {
     hideError('editSubjectError');
 
     if (!name) {
-        showError('editSubjectError', 'Name is required.');
+        showError('editSubjectError', OQB.t('Name is required.'));
         return;
     }
 
@@ -316,20 +315,20 @@ function saveEditSubject() {
         .then(r => r.json().then(data => ({ ok: r.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                showError('editSubjectError', data.error || 'Failed to rename subject.');
+                showError('editSubjectError', data.error || OQB.t('Failed to rename subject.'));
                 return;
             }
             editSubjectModal.hide();
             location.reload();
         })
-        .catch(() => showError('editSubjectError', 'Network error.'));
+        .catch(() => showError('editSubjectError', OQB.t('Network error.')));
 }
 
 // ============== Delete ==============
 
 function showDeleteSubjectModal(id, name) {
     document.getElementById('deleteSubjectId').value = id;
-    document.querySelectorAll('.delete-subject-label').forEach(el => el.textContent = `${name} (${id})`);
+    const label = name + ' (' + id + ')';
 
     // Reset modal state.
     document.getElementById('deleteSubjectLoading').classList.remove('d-none');
@@ -346,22 +345,33 @@ function showDeleteSubjectModal(id, name) {
         .then(r => r.json())
         .then(usage => {
             document.getElementById('deleteSubjectLoading').classList.add('d-none');
+            const safeLabel = escHtml(label);
             if (usage.questions > 0) {
-                document.getElementById('deleteSubjectQCount').textContent = usage.questions;
+                document.getElementById('deleteSubjectBlockedBody').innerHTML =
+                    '<i class="bi bi-x-octagon"></i> ' + OQB.t('<strong>Cannot delete {label}.</strong> It still has <strong>{n}</strong> question(s). Remove all questions in this subject first.', {label: safeLabel, n: usage.questions});
                 document.getElementById('deleteSubjectBlocked').classList.remove('d-none');
                 return;
             }
-            document.getElementById('deleteSubjectTopics').textContent = usage.topics;
-            document.getElementById('deleteSubjectChapters').textContent = usage.chapters;
-            document.getElementById('deleteSubjectFilters').textContent = usage.saved_filters;
-            document.getElementById('deleteSubjectSets').textContent = usage.question_sets;
-            document.getElementById('deleteSubjectPerms').textContent = usage.permissions;
+            document.getElementById('deleteSubjectConfirmLead').innerHTML =
+                OQB.t('You are about to permanently delete <strong>{label}</strong>.', {label: safeLabel});
+            document.getElementById('deleteSubjectConfirmIntro').textContent =
+                OQB.t('This will also delete the following associated data:');
+            document.getElementById('deleteSubjectTopicsLine').innerHTML =
+                OQB.t('<strong>{n}</strong> topic(s) and their subtopics', {n: usage.topics});
+            document.getElementById('deleteSubjectChaptersLine').innerHTML =
+                OQB.t('<strong>{n}</strong> chapter(s) and their subchapters', {n: usage.chapters});
+            document.getElementById('deleteSubjectFiltersLine').innerHTML =
+                OQB.t('<strong>{n}</strong> saved filter / search profile(s)', {n: usage.saved_filters});
+            document.getElementById('deleteSubjectSetsLine').innerHTML =
+                OQB.t('<strong>{n}</strong> saved question set(s)', {n: usage.question_sets});
+            document.getElementById('deleteSubjectPermsLine').innerHTML =
+                OQB.t('<strong>{n}</strong> user permission grant(s)', {n: usage.permissions});
             document.getElementById('deleteSubjectConfirm').classList.remove('d-none');
             document.getElementById('deleteSubjectBtn').classList.remove('d-none');
         })
         .catch(() => {
             document.getElementById('deleteSubjectLoading').classList.add('d-none');
-            showError('deleteSubjectError', 'Failed to load usage info.');
+            showError('deleteSubjectError', OQB.t('Failed to load usage info.'));
         });
 }
 
@@ -377,7 +387,7 @@ function confirmDeleteSubject() {
         .then(r => r.json().then(data => ({ ok: r.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                showError('deleteSubjectError', data.error || 'Failed to delete subject.');
+                showError('deleteSubjectError', data.error || OQB.t('Failed to delete subject.'));
                 btn.disabled = false;
                 return;
             }
@@ -385,7 +395,7 @@ function confirmDeleteSubject() {
             location.reload();
         })
         .catch(() => {
-            showError('deleteSubjectError', 'Network error.');
+            showError('deleteSubjectError', OQB.t('Network error.'));
             btn.disabled = false;
         });
 }

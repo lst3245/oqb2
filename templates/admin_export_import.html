@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Export / Import - Question Bank{% endblock %}
+{% block title %}{{ t('Export / Import - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -25,18 +25,18 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-arrow-left-right"></i> Export / Import</h2>
+        <h2 class="mb-0"><i class="bi bi-arrow-left-right"></i> {{ t('Export / Import') }}</h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
         </a>
     </div>
-    <p class="text-muted mt-1">Export and import question tags, topics/subtopics, and chapters/subchapters as CSV files. Useful for transferring data between different instances of the system.</p>
+    <p class="text-muted mt-1">{{ t('Export and import question tags, topics/subtopics, and chapters/subchapters as CSV files. Useful for transferring data between different instances of the system.') }}</p>
     <hr>
 
     <!-- Subject Selector -->
     <div class="row mb-4" id="subjectSelectRow">
         <div class="col-md-4">
-            <label for="subjectSelect" class="form-label fw-bold">Subject</label>
+            <label for="subjectSelect" class="form-label fw-bold">{{ t('Subject') }}</label>
             <select id="subjectSelect" class="form-select">
                 {% for subject in subjects %}
                 <option value="{{ subject.id }}">{{ tax_name(subject) }} ({{ subject.id }})</option>
@@ -48,21 +48,17 @@
     <!-- ==================== Section 1: Question Tags ==================== -->
     <div class="card export-import-card">
         <div class="card-header bg-primary text-white">
-            <i class="bi bi-tag"></i> Question Tags
+            <i class="bi bi-tag"></i> {{ t('Question Tags') }}
         </div>
         <div class="card-body">
-            <p class="text-muted mb-3">Export/import the tagging data for each question (topics, subtopics, chapters, metadata). Uses nominal question IDs (e.g. <code>MATC_DSE_2012_P2_Q1</code>) and actual names instead of database IDs, so the file is portable across system instances.</p>
+            <p class="text-muted mb-3">{{ t('Export/import the tagging data for each question (topics, subtopics, chapters, metadata). Uses nominal question IDs (e.g. <code>MATC_DSE_2012_P2_Q1</code>) and actual names instead of database IDs, so the file is portable across system instances.')|safe }}</p>
 
             <div class="row">
                 <!-- Export -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <h6><i class="bi bi-download"></i> {{ t('Export') }}</h6>
                     <p class="csv-format-info text-muted">
-                        CSV columns: <code>qid</code>, <code>subject</code>, <code>major_topic</code>, <code>major_subtopic</code>,
-                        <code>minor_topics</code> (;-separated), <code>subtopics</code> (;-separated),
-                        <code>chapter</code>, <code>subchapter</code>, <code>section</code>, <code>level</code>,
-                        <code>q_type</code>, <code>correct_percentage</code>, <code>marks</code> (parts only), <code>description</code>,
-                        <code>answer</code>, <code>comment</code>
+                        {{ t('CSV columns: <code>qid</code>, <code>subject</code>, <code>major_topic</code>, <code>major_subtopic</code>, <code>minor_topics</code> (;-separated), <code>subtopics</code> (;-separated), <code>chapter</code>, <code>subchapter</code>, <code>section</code>, <code>level</code>, <code>q_type</code>, <code>correct_percentage</code>, <code>marks</code> (parts only), <code>description</code>, <code>answer</code>, <code>comment</code>')|safe }}
                     </p>
 
                     <!-- Dashboard-selections toggle -->
@@ -70,24 +66,24 @@
                         <input class="form-check-input" type="checkbox" id="exportSelectedOnly"
                                onchange="updateExportSelectionUI()">
                         <label class="form-check-label" for="exportSelectedOnly">
-                            Dashboard selections only
+                            {{ t('Dashboard selections only') }}
                             <span id="dashSelBadge" class="badge bg-primary ms-1">0</span>
                         </label>
                     </div>
                     <div id="exportSelectedWarning" class="alert alert-warning py-1 small mb-2 d-none">
-                        <i class="bi bi-exclamation-triangle"></i> No questions are currently selected in the Dashboard.
+                        <i class="bi bi-exclamation-triangle"></i> {{ t('No questions are currently selected in the Dashboard.') }}
                     </div>
 
                     <button class="btn btn-primary" onclick="exportCSV('question-tags')">
-                        <i class="bi bi-download"></i> Export Question Tags
+                        <i class="bi bi-download"></i> {{ t('Export Question Tags') }}
                     </button>
                 </div>
 
                 <!-- Import -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <h6><i class="bi bi-upload"></i> {{ t('Import') }}</h6>
                     <p class="csv-format-info text-muted">
-                        Upload a CSV in the same format. Questions are looked up by <code>qid</code>; topics/subtopics/chapters are matched by name — the English name, the Chinese name or both together. Questions or names not found in the database are skipped with warnings.
+                        {{ t('Upload a CSV in the same format. Questions are looked up by <code>qid</code>; topics/subtopics/chapters are matched by name — the English name, the Chinese name or both together. Questions or names not found in the database are skipped with warnings.')|safe }}
                     </p>
                     <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form" id="importQuestionTagsForm">
                         <div class="mb-2">
@@ -97,36 +93,36 @@
                         <!-- Field selection (shown after file is chosen) -->
                         <div id="importFieldSelection" style="display:none;">
                             <div class="d-flex align-items-center mb-2">
-                                <span class="fw-bold small me-2">Fields to import:</span>
-                                <button type="button" class="btn btn-link btn-sm p-0 me-2" onclick="toggleAllImportFields(true)">All</button>
-                                <button type="button" class="btn btn-link btn-sm p-0" onclick="toggleAllImportFields(false)">None</button>
+                                <span class="fw-bold small me-2">{{ t('Fields to import:') }}</span>
+                                <button type="button" class="btn btn-link btn-sm p-0 me-2" onclick="toggleAllImportFields(true)">{{ t('All') }}</button>
+                                <button type="button" class="btn btn-link btn-sm p-0" onclick="toggleAllImportFields(false)">{{ t('None') }}</button>
                             </div>
                             <div class="row g-1 mb-2 small" id="importFieldCheckboxes">
-                                <div class="col-12 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">TOPIC TAGGING</span></div>
+                                <div class="col-12 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">{{ t('TOPIC TAGGING') }}</span></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="major_topic" checked><span class="form-check-label">major_topic</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="major_subtopic" checked><span class="form-check-label">major_subtopic</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="minor_topics" checked><span class="form-check-label">minor_topics</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="subtopics" checked><span class="form-check-label">subtopics</span></label></div>
 
-                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">CHAPTER TAGGING</span></div>
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">{{ t('CHAPTER TAGGING') }}</span></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="chapter" checked><span class="form-check-label">chapter</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="subchapter" checked><span class="form-check-label">subchapter</span></label></div>
 
-                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">METADATA</span></div>
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">{{ t('METADATA') }}</span></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="section" checked><span class="form-check-label">section</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="level" checked><span class="form-check-label">level</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="q_type" checked><span class="form-check-label">q_type</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="correct_percentage" checked><span class="form-check-label">correct_pct</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="marks" checked><span class="form-check-label">marks</span></label></div>
 
-                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">CONTENT</span></div>
+                                <div class="col-12 mt-1 mb-1"><span class="text-muted fw-bold" style="font-size:0.75rem;">{{ t('CONTENT') }}</span></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="description" checked><span class="form-check-label">description</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="answer" checked><span class="form-check-label">answer</span></label></div>
                                 <div class="col-6"><label class="form-check form-check-inline mb-0"><input class="form-check-input import-field-cb" type="checkbox" name="import_fields" value="comment" checked><span class="form-check-label">comment</span></label></div>
                             </div>
                             <div id="importFieldCsvNote" class="text-muted small mb-2" style="display:none;"></div>
                             <button class="btn btn-outline-primary btn-sm" type="submit">
-                                <i class="bi bi-upload"></i> Import Selected Fields
+                                <i class="bi bi-upload"></i> {{ t('Import Selected Fields') }}
                             </button>
                         </div>
                     </form>
@@ -138,36 +134,34 @@
     <!-- ==================== Section 2: Topics / Subtopics ==================== -->
     <div class="card export-import-card">
         <div class="card-header bg-success text-white">
-            <i class="bi bi-tags"></i> Topics & Subtopics
+            <i class="bi bi-tags"></i> {{ t('Topics & Subtopics') }}
         </div>
         <div class="card-body">
-            <p class="text-muted mb-3">Export/import the topic and subtopic hierarchy for a subject. Each row is either a topic (with blank subtopic columns) or a subtopic under a topic.</p>
+            <p class="text-muted mb-3">{{ t('Export/import the topic and subtopic hierarchy for a subject. Each row is either a topic (with blank subtopic columns) or a subtopic under a topic.') }}</p>
 
             <div class="row">
                 <!-- Export -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <h6><i class="bi bi-download"></i> {{ t('Export') }}</h6>
                     <p class="csv-format-info text-muted">
-                        CSV columns: <code>subject_id</code>, <code>topic_name</code>, <code>topic_name_zh</code>, <code>topic_hidden</code>,
-                        <code>subtopic_name</code>, <code>subtopic_name_zh</code>, <code>subtopic_hidden</code>.
-                        Row order determines sort order. The file opens in Excel with Chinese intact (UTF-8 with BOM).
+                        {{ t('CSV columns: <code>subject_id</code>, <code>topic_name</code>, <code>topic_name_zh</code>, <code>topic_hidden</code>, <code>subtopic_name</code>, <code>subtopic_name_zh</code>, <code>subtopic_hidden</code>. Row order determines sort order. The file opens in Excel with Chinese intact (UTF-8 with BOM).')|safe }}
                     </p>
                     <button class="btn btn-success" onclick="exportCSV('topics')">
-                        <i class="bi bi-download"></i> Export Topics
+                        <i class="bi bi-download"></i> {{ t('Export Topics') }}
                     </button>
                 </div>
 
                 <!-- Import -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <h6><i class="bi bi-upload"></i> {{ t('Import') }}</h6>
                     <p class="csv-format-info text-muted">
-                        Upload a CSV with the same format. Existing topics/subtopics are matched by name (English or Chinese); new ones are created automatically. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one (or a missing column) leaves it unchanged. English names are never renamed by an import.
+                        {{ t('Upload a CSV with the same format. Existing topics/subtopics are matched by name (English or Chinese); new ones are created automatically. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one (or a missing column) leaves it unchanged. English names are never renamed by an import.')|safe }}
                     </p>
                     <form action="{{ url_for('admin.import_topics') }}" method="post" enctype="multipart/form-data" class="import-form">
                         <div class="input-group">
                             <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
                             <button class="btn btn-outline-success btn-sm" type="submit">
-                                <i class="bi bi-upload"></i> Import
+                                <i class="bi bi-upload"></i> {{ t('Import') }}
                             </button>
                         </div>
                     </form>
@@ -179,36 +173,34 @@
     <!-- ==================== Section 3: Chapters / Subchapters ==================== -->
     <div class="card export-import-card">
         <div class="card-header bg-info text-white">
-            <i class="bi bi-book"></i> Chapters & Subchapters
+            <i class="bi bi-book"></i> {{ t('Chapters & Subchapters') }}
         </div>
         <div class="card-body">
-            <p class="text-muted mb-3">Export/import the chapter and subchapter hierarchy for a subject. Same structure as topics: each row is a chapter or a subchapter under a chapter.</p>
+            <p class="text-muted mb-3">{{ t('Export/import the chapter and subchapter hierarchy for a subject. Same structure as topics: each row is a chapter or a subchapter under a chapter.') }}</p>
 
             <div class="row">
                 <!-- Export -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-download"></i> Export</h6>
+                    <h6><i class="bi bi-download"></i> {{ t('Export') }}</h6>
                     <p class="csv-format-info text-muted">
-                        CSV columns: <code>subject_id</code>, <code>chapter_name</code>, <code>chapter_name_zh</code>, <code>chapter_hidden</code>,
-                        <code>subchapter_name</code>, <code>subchapter_name_zh</code>, <code>subchapter_hidden</code>.
-                        Row order determines sort order. The file opens in Excel with Chinese intact (UTF-8 with BOM).
+                        {{ t('CSV columns: <code>subject_id</code>, <code>chapter_name</code>, <code>chapter_name_zh</code>, <code>chapter_hidden</code>, <code>subchapter_name</code>, <code>subchapter_name_zh</code>, <code>subchapter_hidden</code>. Row order determines sort order. The file opens in Excel with Chinese intact (UTF-8 with BOM).')|safe }}
                     </p>
                     <button class="btn btn-info text-white" onclick="exportCSV('chapters')">
-                        <i class="bi bi-download"></i> Export Chapters
+                        <i class="bi bi-download"></i> {{ t('Export Chapters') }}
                     </button>
                 </div>
 
                 <!-- Import -->
                 <div class="col-md-6 mb-3">
-                    <h6><i class="bi bi-upload"></i> Import</h6>
+                    <h6><i class="bi bi-upload"></i> {{ t('Import') }}</h6>
                     <p class="csv-format-info text-muted">
-                        Upload a CSV with the same format. Existing chapters/subchapters are matched by name (English or Chinese); new ones are created. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one leaves it unchanged.
+                        {{ t('Upload a CSV with the same format. Existing chapters/subchapters are matched by name (English or Chinese); new ones are created. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one leaves it unchanged.')|safe }}
                     </p>
                     <form action="{{ url_for('admin.import_chapters') }}" method="post" enctype="multipart/form-data" class="import-form">
                         <div class="input-group">
                             <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
                             <button class="btn btn-outline-info btn-sm" type="submit">
-                                <i class="bi bi-upload"></i> Import
+                                <i class="bi bi-upload"></i> {{ t('Import') }}
                             </button>
                         </div>
                     </form>
@@ -258,7 +250,7 @@ function exportCSV(type) {
         if (toggle && toggle.checked) {
             const dashIds = getDashboardSelectedIds();
             if (dashIds.length === 0) {
-                alert('No questions are currently selected in the Dashboard. Go to the Dashboard and select questions first.');
+                alert(OQB.t('No questions are currently selected in the Dashboard. Go to the Dashboard and select questions first.'));
                 return;
             }
             // Pass IDs as URL param; for very large selections use localStorage token fallback
@@ -279,7 +271,7 @@ function exportCSV(type) {
     }
 
     if (!subjectId) {
-        alert('Please select a subject first.');
+        alert(OQB.t('Please select a subject first.'));
         return;
     }
     const urls = {
@@ -326,7 +318,7 @@ function onQuestionTagsFileSelected(input) {
         });
 
         if (missing.length > 0) {
-            note.textContent = 'Fields not in CSV (disabled): ' + missing.join(', ');
+            note.textContent = OQB.t('Fields not in CSV (disabled): {fields}', {fields: missing.join(', ')});
             note.style.display = 'block';
         } else {
             note.style.display = 'none';

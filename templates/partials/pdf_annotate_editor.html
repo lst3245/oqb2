@@ -34,74 +34,74 @@
     <div class="modal-dialog modal-fullscreen">
         <div class="modal-content">
             <div class="modal-header py-2 d-flex align-items-center gap-2 flex-wrap">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="aePrevBtn" title="Previous page (←)"><i class="bi bi-chevron-left"></i></button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="aeNextBtn" title="Next page (→)"><i class="bi bi-chevron-right"></i></button>
-                <h5 class="modal-title mb-0" id="aeTitle"><i class="bi bi-pen"></i> Mark up</h5>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="aePrevBtn" title="{{ t('Previous page (←)') }}"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="aeNextBtn" title="{{ t('Next page (→)') }}"><i class="bi bi-chevron-right"></i></button>
+                <h5 class="modal-title mb-0" id="aeTitle"><i class="bi bi-pen"></i> {{ t('Mark up') }}</h5>
                 <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-secondary" id="aeUndoBtn" disabled title="Undo (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i></button>
-                    <button type="button" class="btn btn-outline-secondary" id="aeRedoBtn" disabled title="Redo (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeUndoBtn" disabled title="{{ t('Undo (Ctrl+Z)') }}"><i class="bi bi-arrow-counterclockwise"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeRedoBtn" disabled title="{{ t('Redo (Ctrl+Y)') }}"><i class="bi bi-arrow-clockwise"></i></button>
                 </div>
                 <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-secondary" id="aeZoomOutBtn" title="Zoom out (-)"><i class="bi bi-zoom-out"></i></button>
-                    <button type="button" class="btn btn-outline-secondary" id="aeZoomFitBtn" title="Fit page (0)"><span class="small" id="aeZoomVal">100%</span></button>
-                    <button type="button" class="btn btn-outline-secondary" id="aeZoomInBtn" title="Zoom in (+)"><i class="bi bi-zoom-in"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomOutBtn" title="{{ t('Zoom out (-)') }}"><i class="bi bi-zoom-out"></i></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomFitBtn" title="{{ t('Fit page (0)') }}"><span class="small" id="aeZoomVal">100%</span></button>
+                    <button type="button" class="btn btn-outline-secondary" id="aeZoomInBtn" title="{{ t('Zoom in (+)') }}"><i class="bi bi-zoom-in"></i></button>
                 </div>
                 <div class="btn-group btn-group-sm" role="group" id="aeResToggle">
-                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="Fast preview">Quick</button>
-                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="Full export resolution">Full res</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="thumb" title="{{ t('Fast preview') }}">{{ t('Quick') }}</button>
+                    <button type="button" class="btn btn-outline-secondary" data-res="full" title="{{ t('Full export resolution') }}">{{ t('Full res') }}</button>
                 </div>
                 <span class="badge bg-warning text-dark" id="aePendingBadge" style="display:none;"></span>
-                <button type="button" class="btn btn-sm btn-primary ms-auto" data-bs-dismiss="modal"><i class="bi bi-check-lg"></i> Done</button>
+                <button type="button" class="btn btn-sm btn-primary ms-auto" data-bs-dismiss="modal"><i class="bi bi-check-lg"></i> {{ t('Done') }}</button>
             </div>
             <div class="bg-body border-bottom p-2 d-flex flex-wrap align-items-center gap-2">
                 <div class="btn-group btn-group-sm" role="group" id="aeTools">
-                    <button class="btn btn-outline-secondary" data-tool="select" type="button" title="Select / move / resize (V)"><i class="bi bi-cursor"></i></button>
-                    <button class="btn btn-outline-secondary" data-tool="redact" type="button" title="Redact box — censors content (R)"><i class="bi bi-square-fill"></i> Redact</button>
-                    <button class="btn btn-outline-secondary" data-tool="erase" type="button" title="Remove box — erases content, leaves white page (E)"><i class="bi bi-eraser"></i> Remove</button>
-                    <button class="btn btn-outline-secondary" data-tool="highlight" type="button" title="Highlight box (H)"><i class="bi bi-highlighter"></i> Highlight</button>
-                    <button class="btn btn-outline-secondary" data-tool="text" type="button" title="Add / edit text — click the page and type (T)"><i class="bi bi-fonts"></i> Text</button>
-                    <button class="btn btn-outline-secondary" data-tool="pen" type="button" title="Freehand pen / signature (P)"><i class="bi bi-pencil"></i> Pen</button>
+                    <button class="btn btn-outline-secondary" data-tool="select" type="button" title="{{ t('Select / move / resize (V)') }}"><i class="bi bi-cursor"></i></button>
+                    <button class="btn btn-outline-secondary" data-tool="redact" type="button" title="{{ t('Redact box — censors content (R)') }}"><i class="bi bi-square-fill"></i> {{ t('Redact') }}</button>
+                    <button class="btn btn-outline-secondary" data-tool="erase" type="button" title="{{ t('Remove box — erases content, leaves white page (E)') }}"><i class="bi bi-eraser"></i> {{ t('Remove') }}</button>
+                    <button class="btn btn-outline-secondary" data-tool="highlight" type="button" title="{{ t('Highlight box (H)') }}"><i class="bi bi-highlighter"></i> {{ t('Highlight') }}</button>
+                    <button class="btn btn-outline-secondary" data-tool="text" type="button" title="{{ t('Add / edit text — click the page and type (T)') }}"><i class="bi bi-fonts"></i> {{ t('Text') }}</button>
+                    <button class="btn btn-outline-secondary" data-tool="pen" type="button" title="{{ t('Freehand pen / signature (P)') }}"><i class="bi bi-pencil"></i> {{ t('Pen') }}</button>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary" id="aeImageBtn" type="button" title="Insert an image (stamp, signature, logo)"><i class="bi bi-image"></i> Image</button>
+                <button class="btn btn-sm btn-outline-secondary" id="aeImageBtn" type="button" title="{{ t('Insert an image (stamp, signature, logo)') }}"><i class="bi bi-image"></i> {{ t('Image') }}</button>
                 <input type="file" id="aeImageFile" accept="image/*" hidden>
                 <div class="vr"></div>
                 <span class="d-inline-flex align-items-center gap-1" id="aeColors"></span>
-                <input type="color" class="form-control form-control-color form-control-sm" id="aeCustomColor" value="#000000" title="Custom colour">
+                <input type="color" class="form-control form-control-color form-control-sm" id="aeCustomColor" value="#000000" title="{{ t('Custom colour') }}">
                 <div class="vr"></div>
                 <div class="d-flex align-items-center gap-1" id="aeTextWrap" style="display:none;">
-                    <select class="form-select form-select-sm" id="aeFont" style="width:auto;" title="Typeface">
+                    <select class="form-select form-select-sm" id="aeFont" style="width:auto;" title="{{ t('Typeface') }}">
                         <option value="sans">Helvetica</option>
                         <option value="serif">Times</option>
                         <option value="mono">Courier</option>
                     </select>
-                    <input type="number" class="form-control form-control-sm" id="aeFontSize" min="4" max="200" step="1" value="21" style="width:4.6em;" title="Font size (pt)">
+                    <input type="number" class="form-control form-control-sm" id="aeFontSize" min="4" max="200" step="1" value="21" style="width:4.6em;" title="{{ t('Font size (pt)') }}">
                 </div>
-                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeOpacityWrap" title="Highlight opacity">
+                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeOpacityWrap" title="{{ t('Highlight opacity') }}">
                     <i class="bi bi-transparency"></i>
                     <input type="range" class="form-range" id="aeOpacity" min="10" max="100" step="5" value="40">
                     <span class="small" id="aeOpacityVal">40%</span>
                 </div>
-                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeWidthWrap" title="Pen width">
+                <div class="d-flex align-items-center gap-1 ae-range-wrap" id="aeWidthWrap" title="{{ t('Pen width') }}">
                     <i class="bi bi-border-width"></i>
                     <input type="range" class="form-range" id="aeWidth" min="1" max="30" step="1" value="6">
                 </div>
                 <div class="vr"></div>
-                <button class="btn btn-sm btn-outline-danger" id="aeDeleteBtn" type="button" disabled title="Delete selected (Del)"><i class="bi bi-trash"></i></button>
-                <button class="btn btn-sm btn-outline-danger" id="aeClearBtn" type="button" title="Remove every mark on this page"><i class="bi bi-x-circle"></i> Clear page</button>
+                <button class="btn btn-sm btn-outline-danger" id="aeDeleteBtn" type="button" disabled title="{{ t('Delete selected (Del)') }}"><i class="bi bi-trash"></i></button>
+                <button class="btn btn-sm btn-outline-danger" id="aeClearBtn" type="button" title="{{ t('Remove every mark on this page') }}"><i class="bi bi-x-circle"></i> {{ t('Clear page') }}</button>
                 <div class="btn-group btn-group-sm" role="group">
-                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Copy marks to other pages">
-                        <i class="bi bi-back"></i> Copy to…
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="{{ t('Copy marks to other pages') }}">
+                        <i class="bi bi-back"></i> {{ t('Copy to…') }}
                     </button>
                     <ul class="dropdown-menu">
-                        <li><h6 class="dropdown-header">Copies the selected mark (or all marks on this page)</h6></li>
-                        <li><a class="dropdown-item" href="#" data-copyto="all"><i class="bi bi-files"></i> All pages</a></li>
-                        <li><a class="dropdown-item" href="#" data-copyto="selected"><i class="bi bi-check2-square"></i> Selected pages</a></li>
+                        <li><h6 class="dropdown-header">{{ t('Copies the selected mark (or all marks on this page)') }}</h6></li>
+                        <li><a class="dropdown-item" href="#" data-copyto="all"><i class="bi bi-files"></i> {{ t('All pages') }}</a></li>
+                        <li><a class="dropdown-item" href="#" data-copyto="selected"><i class="bi bi-check2-square"></i> {{ t('Selected pages') }}</a></li>
                     </ul>
                 </div>
                 <div class="btn-group btn-group-sm ms-auto" role="group" id="aePendingActions" style="display:none;">
-                    <button class="btn btn-outline-success" id="aeAcceptPageBtn" type="button" title="Accept the pending (search-result) marks on this page"><i class="bi bi-check2"></i> Accept page</button>
-                    <button class="btn btn-outline-success" id="aeAcceptAllBtn" type="button" title="Accept pending marks on every page"><i class="bi bi-check2-all"></i> Accept all</button>
-                    <button class="btn btn-outline-danger" id="aeDiscardAllBtn" type="button" title="Delete the pending marks on every page"><i class="bi bi-x-lg"></i> Discard all</button>
+                    <button class="btn btn-outline-success" id="aeAcceptPageBtn" type="button" title="{{ t('Accept the pending (search-result) marks on this page') }}"><i class="bi bi-check2"></i> {{ t('Accept page') }}</button>
+                    <button class="btn btn-outline-success" id="aeAcceptAllBtn" type="button" title="{{ t('Accept pending marks on every page') }}"><i class="bi bi-check2-all"></i> {{ t('Accept all') }}</button>
+                    <button class="btn btn-outline-danger" id="aeDiscardAllBtn" type="button" title="{{ t('Delete the pending marks on every page') }}"><i class="bi bi-x-lg"></i> {{ t('Discard all') }}</button>
                 </div>
             </div>
             <div class="modal-body p-0 position-relative" id="aeWrap">
@@ -165,7 +165,7 @@ const inkFrac = () => aeInkWidthPx / Math.max(1, aeImgH * aeScale);
 function aePtr() { return aeStage ? aeStage.getRelativePointerPosition() : null; }
 
 window.openAnnotEditor = function (pageId) {
-    if (typeof Konva === 'undefined') { log('Mark up editor failed to load (Konva missing).', 'error'); return; }
+    if (typeof Konva === 'undefined') { log(OQB.t('Mark up editor failed to load (Konva missing).'), 'error'); return; }
     if (!pageById(pageId)) return;
     aePre = snapshotPages();
     aeDirty = new Set();
@@ -248,7 +248,7 @@ function aeInit() {
     document.getElementById('aeClearBtn').addEventListener('click', () => {
         aeCloseTextEditor(true);
         if (!aeAnnots.length) return;
-        if (!confirm('Remove every mark on this page?')) return;
+        if (!confirm(OQB.t('Remove every mark on this page?'))) return;
         aeSnap();
         aeAnnots = [];
         aePageDirty = true;
@@ -386,7 +386,7 @@ function aeLoadPage(pageId) {
 
     const idx = pages.indexOf(p);
     document.getElementById('aeTitle').innerHTML =
-        `<i class="bi bi-pen"></i> Mark up — page #${idx + 1} of ${pages.length}`;
+        '<i class="bi bi-pen"></i> ' + OQB.t('Mark up — page #{n} of {total}', {n: idx + 1, total: pages.length});
     document.getElementById('aePrevBtn').disabled = idx <= 0;
     document.getElementById('aeNextBtn').disabled = idx >= pages.length - 1;
     aeSyncResToggle();
@@ -395,7 +395,7 @@ function aeLoadPage(pageId) {
     const url = (previewRes === 'full' ? fullResUrl(p) : thumbUrl(p, PREVIEW_W)) + '&annots=0';
     const im = new Image();
     im.onload = () => { if (aeShown && aePageId === pageId) aeBuildStage(im); };
-    im.onerror = () => log('Failed to load the page image.', 'error');
+    im.onerror = () => log(OQB.t('Failed to load the page image.'), 'error');
     im.src = url;
 }
 
@@ -529,7 +529,7 @@ function aeUpdatePendingUI() {
              : (p.annots || []).filter(a => a.pending).length), 0);
     const badge = document.getElementById('aePendingBadge');
     badge.style.display = pendAll ? '' : 'none';
-    badge.textContent = `${pendAll} pending`;
+    badge.textContent = OQB.t('{n} pending', {n: pendAll});
     document.getElementById('aePendingActions').style.display = pendAll ? '' : 'none';
 }
 
@@ -622,7 +622,7 @@ function aeInsertImageFile(file) {
     img.onload = () => {
         URL.revokeObjectURL(url);
         let w = img.naturalWidth, h = img.naturalHeight;
-        if (!w || !h) { log('Could not read that image.', 'error'); return; }
+        if (!w || !h) { log(OQB.t('Could not read that image.'), 'error'); return; }
         const k = Math.min(1, AE_STAMP_MAX_PX / Math.max(w, h));
         const cw = Math.max(1, Math.round(w * k));
         const ch = Math.max(1, Math.round(h * k));
@@ -634,7 +634,7 @@ function aeInsertImageFile(file) {
         const data = isPng ? cv.toDataURL('image/png')
                            : cv.toDataURL('image/jpeg', 0.85);
         if (data.length > 4 * 1024 * 1024) {
-            log('Image too large after encoding — use a smaller image.', 'error');
+            log(OQB.t('Image too large after encoding — use a smaller image.'), 'error');
             return;
         }
         // Place centred in the visible viewport at ~40% of the page width.
@@ -655,7 +655,7 @@ function aeInsertImageFile(file) {
             n => n.getAttr && n.getAttr('annotId') === a.id);
         if (node) aeSelect(node);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); log('Could not read that image.', 'error'); };
+    img.onerror = () => { URL.revokeObjectURL(url); log(OQB.t('Could not read that image.'), 'error'); };
     img.src = url;
 }
 
@@ -1155,12 +1155,12 @@ function aeCopyTo(scope) {
     const sel = aeSelectedNode();
     const selAnnot = sel ? aeAnnotForNode(sel) : null;
     const src = selAnnot ? [selAnnot] : aeAnnots;
-    if (!src.length) { log('Nothing to copy — draw a mark first.', 'error'); return; }
+    if (!src.length) { log(OQB.t('Nothing to copy — draw a mark first.'), 'error'); return; }
     const targets = pages.filter(p => p.id !== aePageId
         && (scope === 'all' || selected.has(p.id)));
     if (!targets.length) {
         log(scope === 'selected'
-            ? 'No other selected pages to copy to.' : 'No other pages.', 'error');
+            ? OQB.t('No other selected pages to copy to.') : OQB.t('No other pages.'), 'error');
         return;
     }
     targets.forEach(p => {
@@ -1173,7 +1173,7 @@ function aeCopyTo(scope) {
         });
         aeDirty.add(p.id);
     });
-    log(`Copied ${src.length} mark(s) to ${targets.length} page(s).`, 'success');
+    log(OQB.t('Copied {n} mark(s) to {pages} page(s).', {n: src.length, pages: targets.length}), 'success');
 }
 
 // ---------- keyboard ----------

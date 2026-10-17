@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Smart Import - Question Bank{% endblock %}
+{% block title %}{{ t('Smart Import - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -42,64 +42,62 @@
 {% block content %}
 <div class="container-fluid mt-4 px-4">
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-magic"></i> Smart Import</h2>
+        <h2 class="mb-0"><i class="bi bi-magic"></i> {{ t('Smart Import') }}</h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
         </a>
     </div>
     <p class="text-muted mt-1">
-        Import question files into the database. <strong>Library scan</strong> imports canonically-named files
-        already under the source folder. <strong>Folder import</strong> matches any folder (even a messy dump of
-        IMG/DOC/MD files) onto existing questions and asset slots, with review before applying.
+        {{ t('Import question files into the database. <strong>Library scan</strong> imports canonically-named files already under the source folder. <strong>Folder import</strong> matches any folder (even a messy dump of IMG/DOC/MD files) onto existing questions and asset slots, with review before applying.')|safe }}
     </p>
 
     <!-- Mode switch -->
-    <div class="btn-group mb-3" role="group" aria-label="Import mode">
+    <div class="btn-group mb-3" role="group" aria-label="{{ t('Import mode') }}">
         <input type="radio" class="btn-check" name="importMode" id="modeLibrary" autocomplete="off" checked>
-        <label class="btn btn-outline-primary" for="modeLibrary"><i class="bi bi-folder-symlink"></i> Library scan</label>
+        <label class="btn btn-outline-primary" for="modeLibrary"><i class="bi bi-folder-symlink"></i> {{ t('Library scan') }}</label>
         <input type="radio" class="btn-check" name="importMode" id="modeFolder" autocomplete="off">
-        <label class="btn btn-outline-primary" for="modeFolder"><i class="bi bi-folder-plus"></i> Folder import</label>
+        <label class="btn btn-outline-primary" for="modeFolder"><i class="bi bi-folder-plus"></i> {{ t('Folder import') }}</label>
     </div>
 
     <!-- ============================ LIBRARY SCAN ============================ -->
     <div id="librarySection">
         <div class="row mb-3 align-items-end">
             <div class="col-md-4">
-                <label for="subjectSelect" class="form-label fw-bold">Subject</label>
+                <label for="subjectSelect" class="form-label fw-bold">{{ t('Subject') }}</label>
                 <select id="subjectSelect" class="form-select" onchange="libUpdateButtons()">
-                    <option value="">-- Select Subject --</option>
+                    <option value="">{{ t('-- Select Subject --') }}</option>
                     {% for subject in subjects %}
                     <option value="{{ subject.id }}">{{ tax_name(subject) }} ({{ subject.id }})</option>
                     {% endfor %}
                 </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label fw-bold">Source Path</label>
+                <label class="form-label fw-bold">{{ t('Source Path') }}</label>
                 <input type="text" class="form-control" value="{{ source_path }}" readonly disabled>
             </div>
             <div class="col-md-4 d-flex gap-2">
                 <button id="btnPreview" class="btn btn-outline-primary" onclick="loadPreview()" disabled>
-                    <i class="bi bi-search"></i> Preview
+                    <i class="bi bi-search"></i> {{ t('Preview') }}
                 </button>
                 <button id="btnStart" class="btn btn-success" onclick="startIngestion()" disabled>
-                    <i class="bi bi-play-fill"></i> Start Ingestion
+                    <i class="bi bi-play-fill"></i> {{ t('Start Ingestion') }}
                 </button>
                 <button id="btnStop" class="btn btn-danger d-none" onclick="stopIngestion()">
-                    <i class="bi bi-stop-fill"></i> Stop
+                    <i class="bi bi-stop-fill"></i> {{ t('Stop') }}
                 </button>
             </div>
         </div>
 
         <div id="previewPanel" class="card mb-3 d-none">
             <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-folder2-open"></i> Source Folder Preview</span>
+                <span><i class="bi bi-folder2-open"></i> {{ t('Source Folder Preview') }}</span>
                 <span id="previewSummary" class="text-muted small"></span>
             </div>
             <div class="card-body p-0" style="max-height: 280px; overflow-y: auto;">
                 <table class="table table-sm table-striped mb-0 preview-table">
                     <thead class="table-light sticky-top">
-                        <tr><th>Folder</th><th class="text-center">Total Files</th>
-                            <th class="text-center">Parseable</th><th class="text-center">Skipped</th></tr>
+                        <tr><th>{{ t('Folder') }}</th><th class="text-center">{{ t('Total Files') }}</th>
+                            <th class="text-center">{{ t('Parseable') }}</th><th class="text-center">{{ t('Skipped') }}</th></tr>
                     </thead>
                     <tbody id="previewBody"></tbody>
                 </table>
@@ -112,7 +110,7 @@
 
         <div id="progressSection" class="mb-3 d-none">
             <div class="d-flex justify-content-between mb-1">
-                <small id="progressLabel" class="text-muted">Processing...</small>
+                <small id="progressLabel" class="text-muted">{{ t('Processing...') }}</small>
                 <small id="progressCount" class="text-muted">0 / 0</small>
             </div>
             <div class="progress" style="height: 22px;">
@@ -123,21 +121,21 @@
 
         <div class="card">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-terminal"></i> Ingestion Log</span>
+                <span><i class="bi bi-terminal"></i> {{ t('Ingestion Log') }}</span>
                 <div>
-                    <span id="logStatus" class="badge bg-secondary">Idle</span>
-                    <button class="btn btn-sm btn-outline-light ms-2" onclick="clearLog()" title="Clear log">
+                    <span id="logStatus" class="badge bg-secondary">{{ t('Idle') }}</span>
+                    <button class="btn btn-sm btn-outline-light ms-2" onclick="clearLog()" title="{{ t('Clear log') }}">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
             </div>
-            <div id="logConsole" class="log-console">Welcome to the Smart Import console.
-Select a subject and click "Start Ingestion" to begin a library scan.
+            <div id="logConsole" class="log-console">{{ t('Welcome to the Smart Import console.') }}
+{{ t('Select a subject and click "Start Ingestion" to begin a library scan.') }}
 </div>
         </div>
 
         <div id="summaryPanel" class="card mt-3 d-none">
-            <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> Ingestion Summary</div>
+            <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> {{ t('Ingestion Summary') }}</div>
             <div class="card-body"><div class="row text-center" id="summaryStats"></div></div>
         </div>
     </div>
@@ -145,37 +143,35 @@ Select a subject and click "Start Ingestion" to begin a library scan.
     <!-- ============================ FOLDER IMPORT ============================ -->
     <div id="folderSection" class="d-none">
         <div id="scopeBanner" class="alert alert-info d-none">
-            <i class="bi bi-funnel"></i> Matching is restricted to
-            <strong id="scopeCount">0</strong> selected question(s) from Question Management.
-            New questions will not be created in this scope.
+            <i class="bi bi-funnel"></i> <span id="scopeBannerText"></span>
         </div>
 
         <!-- Step 1: Source + profile -->
         <div class="card mb-3">
-            <div class="card-header bg-light"><i class="bi bi-1-circle"></i> Source folder &amp; profile</div>
+            <div class="card-header bg-light"><i class="bi bi-1-circle"></i> {{ t('Source folder & profile') }}</div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Source folder(s)</label>
+                        <label class="form-label fw-bold">{{ t('Source folder(s)') }}</label>
                         <div class="input-group">
                             <input type="text" id="folderDisplay" class="form-control" readonly
-                                   placeholder="No folders selected" value="">
-                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()" title="Pick one or more folders already on the server">
-                                <i class="bi bi-hdd-network"></i> Server...
+                                   placeholder="{{ t('No folders selected') }}" value="">
+                            <button class="btn btn-outline-primary" type="button" onclick="pickFolder()" title="{{ t('Pick one or more folders already on the server') }}">
+                                <i class="bi bi-hdd-network"></i> {{ t('Server...') }}
                             </button>
-                            <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('folderUpload').click()" title="Upload a folder from this computer">
-                                <i class="bi bi-upload"></i> Upload...
+                            <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('folderUpload').click()" title="{{ t('Upload a folder from this computer') }}">
+                                <i class="bi bi-upload"></i> {{ t('Upload...') }}
                             </button>
                         </div>
                         <input type="file" id="folderUpload" webkitdirectory directory multiple class="d-none" onchange="uploadFolder(this)">
-                        <div id="folderDropZone" class="si-drop-zone mt-2" title="Drag a folder here to upload from this computer">
+                        <div id="folderDropZone" class="si-drop-zone mt-2" title="{{ t('Drag a folder here to upload from this computer') }}">
                             <i class="bi bi-cloud-arrow-up"></i>
-                            <span>Drag &amp; drop a folder here to upload</span>
+                            <span>{{ t('Drag & drop a folder here to upload') }}</span>
                         </div>
                         <small id="uploadStatus" class="text-muted d-block mt-1"></small>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label fw-bold">Subject</label>
+                        <label class="form-label fw-bold">{{ t('Subject') }}</label>
                         <select id="fiSubject" class="form-select">
                             {% for subject in subjects %}
                             <option value="{{ subject.id }}">{{ tax_name(subject) }} ({{ subject.id }})</option>
@@ -183,7 +179,7 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                         </select>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label fw-bold">Source</label>
+                        <label class="form-label fw-bold">{{ t('Source') }}</label>
                         <select id="fiSource" class="form-select" onchange="fiToggleDetail()">
                             <option value="DSE">DSE</option>
                             <option value="CE">CE</option>
@@ -194,15 +190,15 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                 </div>
                 <div class="row g-3 align-items-end mt-1">
                     <div class="col-md-3" id="fiDetailWrap" style="display:none">
-                        <label class="form-label fw-bold">QB Detail</label>
-                        <input type="text" id="fiDetail" class="form-control" placeholder="e.g. MATHSMART2024">
+                        <label class="form-label fw-bold">{{ t('QB Detail') }}</label>
+                        <input type="text" id="fiDetail" class="form-control" placeholder="{{ t('e.g. MATHSMART2024') }}">
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label fw-bold">Default version</label>
+                        <label class="form-label fw-bold">{{ t('Default version') }}</label>
                         <select id="fiVersion" class="form-select"></select>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label fw-bold">Default type</label>
+                        <label class="form-label fw-bold">{{ t('Default type') }}</label>
                         <select id="fiType" class="form-select">
                             <option value="QUE">QUE</option>
                             <option value="ANS">ANS</option>
@@ -212,15 +208,15 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                     <div class="col-md-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="fiOverwrite" checked>
-                            <label class="form-check-label" for="fiOverwrite">Overwrite existing slot</label>
+                            <label class="form-check-label" for="fiOverwrite">{{ t('Overwrite existing slot') }}</label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="fiBackup">
-                            <label class="form-check-label" for="fiBackup">Back up replaced files</label>
+                            <label class="form-check-label" for="fiBackup">{{ t('Back up replaced files') }}</label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="fiCreateMissing">
-                            <label class="form-check-label" for="fiCreateMissing">Create missing questions</label>
+                            <label class="form-check-label" for="fiCreateMissing">{{ t('Create missing questions') }}</label>
                         </div>
                     </div>
                 </div>
@@ -229,14 +225,14 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                 <hr>
                 <div class="row g-2 align-items-end">
                     <div class="col-md-4">
-                        <label class="form-label small fw-bold"><i class="bi bi-robot"></i> AI assist (optional)</label>
+                        <label class="form-label small fw-bold"><i class="bi bi-robot"></i> {{ t('AI assist (optional)') }}</label>
                         <select id="fiEndpoint" class="form-select form-select-sm">
-                            <option value="">Default endpoint</option>
+                            <option value="">{{ t('Default endpoint') }}</option>
                         </select>
                     </div>
                     <div class="col-md-3">
                         <button class="btn btn-sm btn-outline-info" type="button" onclick="analyzeWithAI()">
-                            <i class="bi bi-stars"></i> Analyze with AI
+                            <i class="bi bi-stars"></i> {{ t('Analyze with AI') }}
                         </button>
                     </div>
                     <div class="col-md-5">
@@ -247,7 +243,7 @@ Select a subject and click "Start Ingestion" to begin a library scan.
 
                 <div class="mt-3">
                     <button class="btn btn-primary" type="button" id="btnAnalyze" onclick="analyzeFolder()" disabled>
-                        <i class="bi bi-search"></i> Analyze folder
+                        <i class="bi bi-search"></i> {{ t('Analyze folder') }}
                     </button>
                 </div>
             </div>
@@ -256,40 +252,40 @@ Select a subject and click "Start Ingestion" to begin a library scan.
         <!-- Step 2: Review -->
         <div class="card mb-3 d-none" id="reviewCard">
             <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <span><i class="bi bi-2-circle"></i> Review matches</span>
+                <span><i class="bi bi-2-circle"></i> {{ t('Review matches') }}</span>
                 <div id="statBadges" class="d-flex gap-1 flex-wrap small"></div>
             </div>
             <div class="card-body">
                 <div class="d-flex gap-2 align-items-center mb-2 flex-wrap">
                     <select id="fiFilter" class="form-select form-select-sm" style="width:auto" onchange="renderProposals()">
-                        <option value="all">Show all</option>
-                        <option value="actionable">Matched (overwrite/add)</option>
-                        <option value="overwrite">Overwrite only</option>
-                        <option value="add">Add only</option>
-                        <option value="unmatched">Unmatched</option>
-                        <option value="ambiguous">Ambiguous</option>
-                        <option value="skip">Skipped</option>
+                        <option value="all">{{ t('Show all') }}</option>
+                        <option value="actionable">{{ t('Matched (overwrite/add)') }}</option>
+                        <option value="overwrite">{{ t('Overwrite only') }}</option>
+                        <option value="add">{{ t('Add only') }}</option>
+                        <option value="unmatched">{{ t('Unmatched') }}</option>
+                        <option value="ambiguous">{{ t('Ambiguous') }}</option>
+                        <option value="skip">{{ t('Skipped') }}</option>
                     </select>
                     <button class="btn btn-sm btn-outline-success" onclick="acceptAllMatched()">
-                        <i class="bi bi-check2-all"></i> Accept all matched
+                        <i class="bi bi-check2-all"></i> {{ t('Accept all matched') }}
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="acceptNone()">
-                        <i class="bi bi-x-lg"></i> Clear accepts
+                        <i class="bi bi-x-lg"></i> {{ t('Clear accepts') }}
                     </button>
-                    <span class="ms-auto text-muted small"><span id="acceptCount">0</span> accepted</span>
+                    <span class="ms-auto text-muted small"><span id="acceptCount">0</span> {{ t('accepted') }}</span>
                 </div>
                 <div class="table-responsive" style="max-height: 480px; overflow-y:auto;">
                     <table class="table table-sm table-hover proposal-table mb-0">
                         <thead class="table-light sticky-top">
                             <tr>
                                 <th style="width:34px;"><input type="checkbox" id="acceptAllChk" onclick="toggleAcceptAll(this)"></th>
-                                <th>Status</th>
+                                <th>{{ t('Status') }}</th>
                                 <th>QID</th>
-                                <th>Slot</th>
-                                <th>Old</th>
-                                <th>New</th>
-                                <th>Match</th>
-                                <th>Note</th>
+                                <th>{{ t('Slot') }}</th>
+                                <th>{{ t('Old') }}</th>
+                                <th>{{ t('New') }}</th>
+                                <th>{{ t('Match') }}</th>
+                                <th>{{ t('Note') }}</th>
                             </tr>
                         </thead>
                         <tbody id="proposalBody"></tbody>
@@ -297,7 +293,7 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                 </div>
                 <div class="mt-3">
                     <button class="btn btn-success" id="btnApply" onclick="applyImport()" disabled>
-                        <i class="bi bi-cloud-upload"></i> Apply <span id="applyCount">0</span> file(s)
+                        <i class="bi bi-cloud-upload"></i> {{ t('Apply') }} <span id="applyCount">0</span> {{ t('file(s)') }}
                     </button>
                 </div>
             </div>
@@ -306,13 +302,13 @@ Select a subject and click "Start Ingestion" to begin a library scan.
         <!-- Step 3: Apply log -->
         <div class="card d-none" id="applyCard">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-3-circle"></i> Apply log</span>
-                <span id="applyStatus" class="badge bg-secondary">Idle</span>
+                <span><i class="bi bi-3-circle"></i> {{ t('Apply log') }}</span>
+                <span id="applyStatus" class="badge bg-secondary">{{ t('Idle') }}</span>
             </div>
             <div class="card-body">
                 <div id="applyProgressSection" class="mb-3 d-none">
                     <div class="d-flex justify-content-between mb-1">
-                        <small class="text-muted">Applying...</small>
+                        <small class="text-muted">{{ t('Applying...') }}</small>
                         <small id="applyProgressCount" class="text-muted">0 / 0</small>
                     </div>
                     <div class="progress" style="height: 20px;">
@@ -340,22 +336,22 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                     <div class="ms-auto d-flex align-items-center gap-2">
                         <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" id="cmpAccept" onchange="cmpToggleAccept(this.checked)">
-                            <label class="form-check-label" for="cmpAccept">Accept</label>
+                            <label class="form-check-label" for="cmpAccept">{{ t('Accept') }}</label>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(-1)" title="Previous (Left arrow)"><i class="bi bi-chevron-left"></i> Prev</button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(1)" title="Next (Right arrow)">Next <i class="bi bi-chevron-right"></i></button>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(-1)" title="{{ t('Previous (Left arrow)') }}"><i class="bi bi-chevron-left"></i> {{ t('Prev') }}</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="compareNav(1)" title="{{ t('Next (Right arrow)') }}">{{ t('Next') }} <i class="bi bi-chevron-right"></i></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
                     </div>
                 </div>
                 <div class="modal-body bg-body-tertiary">
                     <div class="row g-2 h-100">
                         <div class="col-6 d-flex flex-column">
-                            <div class="fw-bold mb-1"><i class="bi bi-clock-history"></i> Existing (current)</div>
+                            <div class="fw-bold mb-1"><i class="bi bi-clock-history"></i> {{ t('Existing (current)') }}</div>
                             <div id="cmpIssue" class="alert alert-danger py-2 px-2 small d-none" style="white-space:pre-wrap;"></div>
                             <div id="cmpOld" class="flex-grow-1 overflow-auto text-center border rounded bg-white p-2"></div>
                         </div>
                         <div class="col-6 d-flex flex-column">
-                            <div class="fw-bold mb-1"><i class="bi bi-stars"></i> New (incoming)</div>
+                            <div class="fw-bold mb-1"><i class="bi bi-stars"></i> {{ t('New (incoming)') }}</div>
                             <div id="cmpNewMeta" class="small text-muted mb-1"></div>
                             <div id="cmpNew" class="flex-grow-1 overflow-auto text-center border rounded bg-white p-2"></div>
                         </div>
@@ -426,7 +422,7 @@ function loadPreview() {
     if (!subjectId) return;
     previewPanel.classList.add('d-none');
     previewError.classList.add('d-none');
-    appendLog(`Loading preview for subject: ${subjectId}...`, 'info');
+    appendLog(OQB.t('Loading preview for subject: {subject}...', {subject: subjectId}), 'info');
     fetch(`{{ url_for('admin.ingestion_preview') }}?subject_id=${encodeURIComponent(subjectId)}`)
         .then(r => r.json())
         .then(data => {
@@ -434,48 +430,48 @@ function loadPreview() {
                 previewError.classList.remove('d-none');
                 document.getElementById('previewErrorMsg').textContent =
                     data.error + (data.subject_path ? ` (${data.subject_path})` : '');
-                appendLog(`Preview: ${data.error}`, 'warning');
+                appendLog(OQB.t('Preview: {error}', {error: data.error}), 'warning');
                 return;
             }
             const tbody = document.getElementById('previewBody');
             tbody.innerHTML = '';
             data.folders.forEach(f => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${f.path || '(root)'}</td>
+                tr.innerHTML = `<td>${f.path || OQB.t('(root)')}</td>
                     <td class="text-center">${f.total}</td>
                     <td class="text-center"><span class="badge bg-success">${f.parseable}</span></td>
                     <td class="text-center">${f.skipped > 0 ? '<span class="badge bg-warning text-dark">' + f.skipped + '</span>' : '<span class="text-muted">0</span>'}</td>`;
                 tbody.appendChild(tr);
             });
             document.getElementById('previewSummary').textContent =
-                `Total: ${data.total_files} files | Parseable: ${data.parseable_files} | Will skip: ${data.skipped_files}`;
+                OQB.t('Total: {total} files | Parseable: {parseable} | Will skip: {skipped}', {total: data.total_files, parseable: data.parseable_files, skipped: data.skipped_files});
             previewPanel.classList.remove('d-none');
-            appendLog(`Preview loaded: ${data.total_files} files found, ${data.parseable_files} parseable`, 'success');
+            appendLog(OQB.t('Preview loaded: {total} files found, {parseable} parseable', {total: data.total_files, parseable: data.parseable_files}), 'success');
         })
         .catch(err => {
             previewError.classList.remove('d-none');
-            document.getElementById('previewErrorMsg').textContent = 'Failed to load preview: ' + err.message;
-            appendLog('Preview failed: ' + err.message, 'error');
+            document.getElementById('previewErrorMsg').textContent = OQB.t('Failed to load preview: {error}', {error: err.message});
+            appendLog(OQB.t('Preview failed: {error}', {error: err.message}), 'error');
         });
 }
 
 function startIngestion() {
     const subjectId = subjectSelect.value;
     if (!subjectId || isRunning) return;
-    if (!confirm(`Start library scan for subject "${subjectId}"?\n\nThis scans the source folder and imports/updates canonically-named files.`)) return;
+    if (!confirm(OQB.t('Start library scan for subject "{subject}"?\n\nThis scans the source folder and imports/updates canonically-named files.', {subject: subjectId}))) return;
     isRunning = true;
     btnStart.classList.add('d-none');
     btnStop.classList.remove('d-none');
     subjectSelect.disabled = true;
     btnPreview.disabled = true;
-    logStatus.textContent = 'Running';
+    logStatus.textContent = OQB.t('Running');
     logStatus.className = 'badge bg-success';
     summaryPanel.classList.add('d-none');
     progressSection.classList.remove('d-none');
     progressBar.style.width = '0%';
     progressBar.textContent = '0%';
     progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
-    appendLog(`Starting library scan for subject: ${subjectId}`, 'info');
+    appendLog(OQB.t('Starting library scan for subject: {subject}', {subject: subjectId}), 'info');
     const url = `{{ url_for('admin.ingestion_start') }}?subject_id=${encodeURIComponent(subjectId)}`;
     eventSource = new EventSource(url);
     eventSource.onmessage = function(e) {
@@ -489,10 +485,10 @@ function startIngestion() {
                 progressCount.textContent = `${event.current} / ${event.total}`;
             }
             if (event.type === 'done') finishIngestion(event);
-        } catch (err) { appendLog('Error parsing event: ' + err.message, 'error'); }
+        } catch (err) { appendLog(OQB.t('Error parsing event: {error}', {error: err.message}), 'error'); }
     };
     eventSource.onerror = function() {
-        if (isRunning) { appendLog('Connection closed.', 'info'); finishIngestion(null); }
+        if (isRunning) { appendLog(OQB.t('Connection closed.'), 'info'); finishIngestion(null); }
     };
 }
 
@@ -504,18 +500,18 @@ function finishIngestion(event) {
     subjectSelect.disabled = false;
     btnPreview.disabled = false;
     btnStart.disabled = !subjectSelect.value;
-    logStatus.textContent = 'Complete';
+    logStatus.textContent = OQB.t('Complete');
     logStatus.className = 'badge bg-primary';
     progressBar.classList.remove('progress-bar-animated');
     if (event && event.stats) {
         const s = event.stats;
         document.getElementById('summaryStats').innerHTML = `
-            <div class="col"><div class="fs-3 fw-bold text-success">${s.processed}</div><small class="text-muted">Processed</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-primary">${s.new_questions}</div><small class="text-muted">New Questions</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-info">${s.new_assets}</div><small class="text-muted">New Assets</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-secondary">${s.updated_assets}</div><small class="text-muted">Updated Assets</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">Skipped</small></div>
-            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">Errors</small></div>`;
+            <div class="col"><div class="fs-3 fw-bold text-success">${s.processed}</div><small class="text-muted">${OQB.t('Processed')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-primary">${s.new_questions}</div><small class="text-muted">${OQB.t('New Questions')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-info">${s.new_assets}</div><small class="text-muted">${OQB.t('New Assets')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-secondary">${s.updated_assets}</div><small class="text-muted">${OQB.t('Updated Assets')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">${OQB.t('Skipped')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">${OQB.t('Errors')}</small></div>`;
         summaryPanel.classList.remove('d-none');
         progressBar.classList.add(s.errors > 0 ? 'bg-warning' : 'bg-success');
     }
@@ -523,9 +519,9 @@ function finishIngestion(event) {
 
 function stopIngestion() {
     if (eventSource) { eventSource.close(); eventSource = null; }
-    appendLog('Library scan stopped by user.', 'warning');
+    appendLog(OQB.t('Library scan stopped by user.'), 'warning');
     finishIngestion(null);
-    logStatus.textContent = 'Stopped';
+    logStatus.textContent = OQB.t('Stopped');
     logStatus.className = 'badge bg-warning text-dark';
 }
 
@@ -561,7 +557,7 @@ function initFolderControls() {
     document.getElementById('fiVersion').innerHTML = fiVersionOptions('EN');
     if (scopeQids.length) {
         document.getElementById('scopeBanner').classList.remove('d-none');
-        document.getElementById('scopeCount').textContent = scopeQids.length;
+        document.getElementById('scopeBannerText').textContent = OQB.t('Matching is restricted to {n} selected question(s) from Question Management. New questions will not be created in this scope.', {n: scopeQids.length});
         const cm = document.getElementById('fiCreateMissing');
         cm.checked = false; cm.disabled = true;
     }
@@ -577,7 +573,7 @@ function pickFolder() {
     OQBFileSelector.open({
         mode: 'folder',
         multiple: true,
-        title: 'Choose folders to import',
+        title: OQB.t('Choose folders to import'),
         onPick: function(selection) {
             const selections = Array.isArray(selection) ? selection : [selection];
             if (!selections.length) return;
@@ -594,7 +590,7 @@ function pickFolder() {
             selectedPath = selectedSources[0].rel_path || '';
             selectedFolderName = selectedSources.length === 1
                 ? folderSelectionLabel(selectedSources[0])
-                : `${selectedSources.length} folders: ` + selectedSources.map(folderSelectionLabel).join('; ');
+                : OQB.t('{n} folders: {list}', {n: selectedSources.length, list: selectedSources.map(folderSelectionLabel).join('; ')});
             document.getElementById('folderDisplay').value = selectedFolderName;
             document.getElementById('uploadStatus').textContent = '';
             document.getElementById('btnAnalyze').disabled = false;
@@ -603,7 +599,7 @@ function pickFolder() {
 }
 
 function folderSelectionLabel(sel) {
-    return (sel.root_label || sel.root_id || '') + ' / ' + (sel.rel_path || '(root)');
+    return (sel.root_label || sel.root_id || '') + ' / ' + (sel.rel_path || OQB.t('(root)'));
 }
 
 function uploadFolder(input) {
@@ -619,8 +615,8 @@ function uploadFolder(input) {
 function uploadFolderEntries(entries) {
     entries = (entries || []).filter(e => e && e.file);
     const status = document.getElementById('uploadStatus');
-    if (!entries.length) { status.textContent = 'No files found in the dropped item.'; return; }
-    status.textContent = `Uploading ${entries.length} file(s)...`;
+    if (!entries.length) { status.textContent = OQB.t('No files found in the dropped item.'); return; }
+    status.textContent = OQB.t('Uploading {n} file(s)...', {n: entries.length});
     document.getElementById('btnAnalyze').disabled = true;
     const fd = new FormData();
     entries.forEach(e => {
@@ -630,18 +626,18 @@ function uploadFolderEntries(entries) {
     fetch(`{{ url_for('admin.smart_import_upload') }}`, {method: 'POST', body: fd})
         .then(r => r.json())
         .then(data => {
-            if (data.error) { status.textContent = 'Upload failed: ' + data.error; return; }
+            if (data.error) { status.textContent = OQB.t('Upload failed: {error}', {error: data.error}); return; }
             sourceMode = 'upload';
             uploadToken = data.upload_token;
             selectedRoot = null;
             selectedPath = '';
             selectedSources = [];
-            selectedFolderName = (data.folder_name || 'uploaded folder');
-            document.getElementById('folderDisplay').value = 'Uploaded: ' + selectedFolderName;
-            status.textContent = `Uploaded ${data.count} file(s).`;
+            selectedFolderName = (data.folder_name || OQB.t('uploaded folder'));
+            document.getElementById('folderDisplay').value = OQB.t('Uploaded: {name}', {name: selectedFolderName});
+            status.textContent = OQB.t('Uploaded {n} file(s).', {n: data.count});
             document.getElementById('btnAnalyze').disabled = false;
         })
-        .catch(err => { status.textContent = 'Upload error: ' + err.message; });
+        .catch(err => { status.textContent = OQB.t('Upload error: {error}', {error: err.message}); });
 }
 
 // Recursively walk a dropped DataTransfer entry, collecting {file, relPath}.
@@ -688,7 +684,7 @@ function siTraverseEntry(entry, prefix) {
                 const ent = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
                 if (ent) roots.push(ent);
             }
-            document.getElementById('uploadStatus').textContent = 'Reading folder...';
+            document.getElementById('uploadStatus').textContent = OQB.t('Reading folder...');
             Promise.all(roots.map(r => siTraverseEntry(r, '')))
                 .then(arrs => uploadFolderEntries([].concat(...arrs)));
         } else if (e.dataTransfer.files && e.dataTransfer.files.length) {
@@ -728,10 +724,10 @@ function loadEndpoints() {
 }
 
 function analyzeFolder() {
-    if (!sourceReady()) { alert('Choose or upload a folder first.'); return; }
+    if (!sourceReady()) { alert(OQB.t('Choose or upload a folder first.')); return; }
     const btn = document.getElementById('btnAnalyze');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Analyzing...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Analyzing...');
     const body = Object.assign(buildSourceBody(), {
         profile: buildProfile(),
         qids: scopeQids.length ? scopeQids : null,
@@ -740,22 +736,22 @@ function analyzeFolder() {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
     }).then(r => r.json()).then(data => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-search"></i> Analyze folder';
+        btn.innerHTML = '<i class="bi bi-search"></i> ' + OQB.t('Analyze folder');
         if (data.error) { alert(data.error); return; }
         proposals = data.proposals || [];
         document.getElementById('reviewCard').classList.remove('d-none');
         renderProposals();
     }).catch(err => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-search"></i> Analyze folder';
-        alert('Analyze failed: ' + err.message);
+        btn.innerHTML = '<i class="bi bi-search"></i> ' + OQB.t('Analyze folder');
+        alert(OQB.t('Analyze failed: {error}', {error: err.message}));
     });
 }
 
 function analyzeWithAI() {
-    if (!sourceReady()) { alert('Choose or upload a folder first.'); return; }
+    if (!sourceReady()) { alert(OQB.t('Choose or upload a folder first.')); return; }
     const notes = document.getElementById('aiNotes');
-    notes.textContent = 'Asking the model to infer the folder structure...';
+    notes.textContent = OQB.t('Asking the model to infer the folder structure...');
     const body = Object.assign(buildSourceBody(), {
         profile: buildProfile(),
         endpoint_id: document.getElementById('fiEndpoint').value || null,
@@ -772,19 +768,19 @@ function analyzeWithAI() {
         if (rule.asset_type) document.getElementById('fiType').value = rule.asset_type;
         if (rule.detail) document.getElementById('fiDetail').value = rule.detail;
         fiToggleDetail();
-        notes.textContent = (rule.notes ? rule.notes + ' ' : '') + `(via ${data.endpoint || 'AI'})`;
+        notes.textContent = (rule.notes ? rule.notes + ' ' : '') + OQB.t('(via {name})', {name: data.endpoint || 'AI'});
         proposals = data.proposals || [];
         document.getElementById('reviewCard').classList.remove('d-none');
         renderProposals();
-    }).catch(err => { notes.textContent = ''; alert('AI analyze failed: ' + err.message); });
+    }).catch(err => { notes.textContent = ''; alert(OQB.t('AI analyze failed: {error}', {error: err.message})); });
 }
 
 const STATUS_BADGE = {
-    overwrite: '<span class="badge bg-warning text-dark">Overwrite</span>',
-    add: '<span class="badge bg-success">Add</span>',
-    unmatched: '<span class="badge bg-secondary">Unmatched</span>',
-    ambiguous: '<span class="badge bg-danger">Ambiguous</span>',
-    skip: '<span class="badge bg-light text-muted border">Skip</span>',
+    overwrite: '<span class="badge bg-warning text-dark">' + OQB.t('Overwrite') + '</span>',
+    add: '<span class="badge bg-success">' + OQB.t('Add') + '</span>',
+    unmatched: '<span class="badge bg-secondary">' + OQB.t('Unmatched') + '</span>',
+    ambiguous: '<span class="badge bg-danger">' + OQB.t('Ambiguous') + '</span>',
+    skip: '<span class="badge bg-light text-muted border">' + OQB.t('Skip') + '</span>',
 };
 
 function newPreviewUrl(p) {
@@ -815,6 +811,14 @@ function filteredProposals() {
     });
 }
 
+function confLabel(c) {
+    const map = {high: OQB.t('high'), medium: OQB.t('medium'), low: OQB.t('low'), none: OQB.t('none')};
+    return map[c] || c || '';
+}
+function methodLabel(m) {
+    const map = {strict: OQB.t('strict'), heuristic: OQB.t('heuristic')};
+    return map[m] || m || '';
+}
 function renderProposals() {
     const tbody = document.getElementById('proposalBody');
     tbody.innerHTML = '';
@@ -823,8 +827,8 @@ function renderProposals() {
         if (p.status === 'skip') tr.className = 'row-skip';
         const disabled = p.status === 'skip' ? 'disabled' : '';
         const oldHtml = (p.existing && p.existing.length)
-            ? p.existing.map(e => thumbCell(e.file_format, oldAssetUrl(e.file_path), 'old')).join(' ')
-            : '<span class="text-muted">none</span>';
+            ? p.existing.map(e => thumbCell(e.file_format, oldAssetUrl(e.file_path), OQB.t('old'))).join(' ')
+            : '<span class="text-muted">' + OQB.t('none') + '</span>';
         const newHtml = thumbCell(p.format, newPreviewUrl(p), p.filename);
         tr.innerHTML = `
             <td><input type="checkbox" ${p.accept ? 'checked' : ''} ${disabled}
@@ -845,10 +849,10 @@ function renderProposals() {
             </td>
             <td>${oldHtml}</td>
             <td>${newHtml}<div class="small text-muted text-truncate" style="max-width:140px">${p.filename}</div>
-                <button class="btn btn-sm btn-outline-primary mt-1 py-0 px-1" onclick="openCompare(${p.id})" title="Compare full screen (old vs new)">
-                    <i class="bi bi-arrows-fullscreen"></i> Compare
+                <button class="btn btn-sm btn-outline-primary mt-1 py-0 px-1" onclick="openCompare(${p.id})" title="${OQB.t('Compare full screen (old vs new)')}">
+                    <i class="bi bi-arrows-fullscreen"></i> ${OQB.t('Compare')}
                 </button></td>
-            <td><span class="conf-${p.confidence}">${p.confidence}</span><br><small class="text-muted">${p.method || ''}</small></td>
+            <td><span class="conf-${p.confidence}">${confLabel(p.confidence)}</span><br><small class="text-muted">${methodLabel(p.method)}</small></td>
             <td><small>${p.note || ''}</small></td>`;
         tbody.appendChild(tr);
     });
@@ -860,12 +864,12 @@ function renderStatBadges() {
     const counts = {total: proposals.length, overwrite: 0, add: 0, unmatched: 0, ambiguous: 0, skip: 0};
     proposals.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
     document.getElementById('statBadges').innerHTML =
-        `<span class="badge bg-dark">Total ${counts.total}</span>
-         <span class="badge bg-warning text-dark">Overwrite ${counts.overwrite}</span>
-         <span class="badge bg-success">Add ${counts.add}</span>
-         <span class="badge bg-secondary">Unmatched ${counts.unmatched}</span>
-         <span class="badge bg-danger">Ambiguous ${counts.ambiguous}</span>
-         <span class="badge bg-light text-muted border">Skip ${counts.skip}</span>`;
+        `<span class="badge bg-dark">${OQB.t('Total {n}', {n: counts.total})}</span>
+         <span class="badge bg-warning text-dark">${OQB.t('Overwrite {n}', {n: counts.overwrite})}</span>
+         <span class="badge bg-success">${OQB.t('Add {n}', {n: counts.add})}</span>
+         <span class="badge bg-secondary">${OQB.t('Unmatched {n}', {n: counts.unmatched})}</span>
+         <span class="badge bg-danger">${OQB.t('Ambiguous {n}', {n: counts.ambiguous})}</span>
+         <span class="badge bg-light text-muted border">${OQB.t('Skip {n}', {n: counts.skip})}</span>`;
 }
 
 function findProposal(id) { return proposals.find(p => p.id === id); }
@@ -928,42 +932,42 @@ function appendApplyLog(message, type) {
 function applyImport() {
     const items = proposals.filter(p => p.accept && p.status !== 'skip');
     if (!items.length) return;
-    if (!confirm(`Apply ${items.length} file(s)? This will write into the source folder and overwrite the selected slots.`)) return;
+    if (!confirm(OQB.t('Apply {n} file(s)? This will write into the source folder and overwrite the selected slots.', {n: items.length}))) return;
     const btn = document.getElementById('btnApply');
     btn.disabled = true;
     document.getElementById('applyCard').classList.remove('d-none');
     applyConsole.innerHTML = '';
-    applyStatus.textContent = 'Preparing';
+    applyStatus.textContent = OQB.t('Preparing');
     applyStatus.className = 'badge bg-info text-dark';
-    appendApplyLog(`Preparing ${items.length} file(s)...`, 'info');
+    appendApplyLog(OQB.t('Preparing {n} file(s)...', {n: items.length}), 'info');
 
     fetch(`{{ url_for('admin.smart_import_prepare') }}`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(Object.assign(buildSourceBody(), {items: items, profile: buildProfile()}))
     }).then(r => r.json()).then(data => {
         if (data.error) {
-            appendApplyLog('Prepare failed: ' + data.error, 'error');
-            applyStatus.textContent = 'Failed';
+            appendApplyLog(OQB.t('Prepare failed: {error}', {error: data.error}), 'error');
+            applyStatus.textContent = OQB.t('Failed');
             applyStatus.className = 'badge bg-danger';
             btn.disabled = false;
             return;
         }
-        (data.skipped || []).forEach(s => appendApplyLog(`Dropped ${s.src_rel}: ${s.reason}`, 'skip'));
+        (data.skipped || []).forEach(s => appendApplyLog(OQB.t('Dropped {src}: {reason}', {src: s.src_rel, reason: s.reason}), 'skip'));
         runApply(data.token, data.count);
     }).catch(err => {
-        appendApplyLog('Prepare error: ' + err.message, 'error');
+        appendApplyLog(OQB.t('Prepare error: {error}', {error: err.message}), 'error');
         btn.disabled = false;
     });
 }
 
 function runApply(token, count) {
-    applyStatus.textContent = 'Applying';
+    applyStatus.textContent = OQB.t('Applying');
     applyStatus.className = 'badge bg-success';
     applyProgressSection.classList.remove('d-none');
     applyProgressBar.style.width = '0%';
     applyProgressBar.textContent = '0%';
     applyProgressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
-    appendApplyLog(`Applying ${count} file(s)...`, 'info');
+    appendApplyLog(OQB.t('Applying {n} file(s)...', {n: count}), 'info');
     applyEventSource = new EventSource(`{{ url_for('admin.smart_import_apply') }}?token=${encodeURIComponent(token)}`);
     applyEventSource.onmessage = function(e) {
         try {
@@ -976,11 +980,11 @@ function runApply(token, count) {
                 applyProgressCount.textContent = `${event.current} / ${event.total}`;
             }
             if (event.type === 'done') finishApply(event);
-        } catch (err) { appendApplyLog('Error parsing event: ' + err.message, 'error'); }
+        } catch (err) { appendApplyLog(OQB.t('Error parsing event: {error}', {error: err.message}), 'error'); }
     };
     applyEventSource.onerror = function() {
         if (applyEventSource) {
-            appendApplyLog('Connection closed.', 'info');
+            appendApplyLog(OQB.t('Connection closed.'), 'info');
             finishApply(null);
         }
     };
@@ -989,7 +993,7 @@ function runApply(token, count) {
 function finishApply(event) {
     if (applyEventSource) { applyEventSource.close(); applyEventSource = null; }
     applyProgressBar.classList.remove('progress-bar-animated');
-    applyStatus.textContent = 'Complete';
+    applyStatus.textContent = OQB.t('Complete');
     applyStatus.className = 'badge bg-primary';
     document.getElementById('btnApply').disabled = false;
     if (event && event.stats && event.stats.errors > 0) {
@@ -1012,7 +1016,7 @@ function bigFileHtml(format, url, label) {
     const icon = format === 'DOC' ? 'bi-file-earmark-word' : 'bi-file-earmark-text';
     return `<div class="p-4"><i class="bi ${icon}" style="font-size:3rem"></i>
         <div class="mt-2">${label}</div>
-        <a href="${url}" target="_blank" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-box-arrow-up-right"></i> Open</a></div>`;
+        <a href="${url}" target="_blank" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-box-arrow-up-right"></i> ${OQB.t('Open')}</a></div>`;
 }
 
 function openCompare(id) {
@@ -1029,7 +1033,7 @@ function openCompare(id) {
 function renderCompare() {
     const p = compareList[compareIdx];
     if (!p) return;
-    document.getElementById('cmpQid').textContent = p.qid || '(no QID)';
+    document.getElementById('cmpQid').textContent = p.qid || OQB.t('(no QID)');
     document.getElementById('cmpSlot').textContent = `${p.asset_type}/${p.version}/${p.format}`;
     document.getElementById('cmpStatusBadge').innerHTML = STATUS_BADGE[p.status] || p.status;
     document.getElementById('cmpPos').textContent = `${compareIdx + 1} / ${compareList.length}`;
@@ -1042,7 +1046,7 @@ function renderCompare() {
     const issueEl = document.getElementById('cmpIssue');
     const issues = (p.existing || []).map(e => e.issue_text).filter(Boolean);
     if (issues.length) {
-        issueEl.textContent = 'Reported issue(s):\n' + issues.join('\n');
+        issueEl.textContent = OQB.t('Reported issue(s):') + '\n' + issues.join('\n');
         issueEl.classList.remove('d-none');
     } else {
         issueEl.classList.add('d-none');
@@ -1051,10 +1055,10 @@ function renderCompare() {
     const oldEl = document.getElementById('cmpOld');
     if (p.existing && p.existing.length) {
         oldEl.innerHTML = p.existing.map(e => e.file_format === 'IMG'
-            ? bigImgHtml(oldAssetUrl(e.file_path), 'old')
+            ? bigImgHtml(oldAssetUrl(e.file_path), OQB.t('old'))
             : bigFileHtml(e.file_format, oldAssetUrl(e.file_path), e.file_path.split('/').pop())).join('<hr>');
     } else {
-        oldEl.innerHTML = '<div class="text-muted p-4">No existing asset in this slot.</div>';
+        oldEl.innerHTML = '<div class="text-muted p-4">' + OQB.t('No existing asset in this slot.') + '</div>';
     }
 
     document.getElementById('cmpNewMeta').textContent = p.filename + '  ·  ' + (p.note || '');

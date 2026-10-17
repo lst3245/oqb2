@@ -31,7 +31,7 @@ from sqlalchemy import func
 from app import db
 from app import ai_prompts
 from app import subject_snapshot
-from app.i18n import bilingual
+from app.i18n import bilingual, t as _t
 from app.models import (Question, Topic, Subtopic, Chapter, Subchapter,
                         SubjectPromptNote, TagCorrection)
 
@@ -73,17 +73,17 @@ def save_note(subject_id, mode, content, examples_limit, user_id=None,
     layer)."""
     mode = (mode or 'append').strip().lower()
     if mode not in NOTE_MODES:
-        raise ValueError(f'mode must be one of {", ".join(NOTE_MODES)}')
+        raise ValueError(_t('mode must be one of {modes}', modes=', '.join(NOTE_MODES)))
     content = (content or '').strip('\ufeff').strip()
     if len(content) > MAX_NOTE_CHARS:
-        raise ValueError(f'instructions exceed {MAX_NOTE_CHARS} characters')
+        raise ValueError(_t('instructions exceed {n} characters', n=MAX_NOTE_CHARS))
     try:
         examples_limit = int(examples_limit or 0)
     except (TypeError, ValueError):
-        raise ValueError('examples_limit must be an integer')
+        raise ValueError(_t('examples_limit must be an integer'))
     examples_limit = max(0, min(MAX_EXAMPLES_LIMIT, examples_limit))
     if mode == 'replace' and not content:
-        raise ValueError('replace mode needs a non-empty system prompt body')
+        raise ValueError(_t('replace mode needs a non-empty system prompt body'))
 
     row = get_note(subject_id, feature)
     if not content and examples_limit == 0:
@@ -163,13 +163,13 @@ def set_description(subject_id, kind, node_id, description):
     node belongs to ``subject_id``. Returns the cleaned description."""
     model = _KIND_MODEL.get((kind or '').lower())
     if model is None:
-        raise ValueError('kind must be topic | subtopic | chapter | subchapter')
+        raise ValueError(_t('kind must be topic | subtopic | chapter | subchapter'))
     node = model.query.get(int(node_id))
     if node is None or _node_subject(kind, node) != subject_id:
-        raise LookupError('node not found in this subject')
+        raise LookupError(_t('node not found in this subject'))
     desc = ' '.join((description or '').split())
     if len(desc) > MAX_DESCRIPTION_CHARS:
-        raise ValueError(f'description exceeds {MAX_DESCRIPTION_CHARS} characters')
+        raise ValueError(_t('description exceeds {n} characters', n=MAX_DESCRIPTION_CHARS))
     subject_snapshot.capture(subject_id, 'taxonomy-hint')
     node.description = desc or None
     db.session.commit()

@@ -16,7 +16,7 @@ from app.hierarchy import (
     is_block, part_position_label, whole_marks,
 )
 from app import md_render
-from app.i18n import display_name
+from app.i18n import display_name, t as _t
 from app.storage import safe_join
 import os
 import re
@@ -347,7 +347,7 @@ def filter_questions():
     
     # Check subject access permission
     if subject and not current_user.has_subject_access(subject):
-        return jsonify({'error': 'Access denied to this subject'}), 403
+        return jsonify({'error': _t('Access denied to this subject')}), 403
     source_type = request.args.get('source_type') or request.form.get('source_type')
     years = request.args.getlist('years') or request.form.getlist('years')
     section = request.args.get('section') or request.form.get('section')
@@ -622,7 +622,7 @@ def get_sort_groups():
     # Subject access check (mirrors filter_questions)
     subject = request.form.get('subject') or request.args.get('subject')
     if subject and not current_user.has_subject_access(subject):
-        return jsonify({'error': 'Access denied to this subject'}), 403
+        return jsonify({'error': _t('Access denied to this subject')}), 403
 
     # Build normalized filter params (same shape _build_filtered_query expects)
     qids_raw = request.form.get('qids') or request.args.get('qids')
@@ -944,7 +944,7 @@ def get_asset_preview(asset_id):
     _require_asset_subject(asset)
     full_path = _source_file(asset.file_path)
     if full_path is None:
-        return "File not found", 404
+        return _t('File not found'), 404
     
     return send_file(full_path)
 
@@ -963,7 +963,7 @@ def get_question_asset(question_id, asset_type):
     ).all()
     
     if not assets:
-        return jsonify({'error': 'Asset not found'}), 404
+        return jsonify({'error': _t('Asset not found')}), 404
     
     # Pick the best version group (version of first result after ordering)
     best_ver = assets[0].version
@@ -1055,7 +1055,7 @@ def get_question_preview(question_id, asset_type):
     Plus `{error: ...}` with 404 when no matching asset exists.
     """
     if asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': 'Invalid asset_type'}), 400
+        return jsonify({'error': _t('Invalid asset_type')}), 400
 
     question = Question.query.get_or_404(question_id)
     _require_question_subject(question)
@@ -1073,7 +1073,7 @@ def get_question_preview(question_id, asset_type):
         question_id, asset_type, version_priority, force_format=force_format
     )
     if not selected:
-        return jsonify({'error': 'Asset not found'}), 404
+        return jsonify({'error': _t('Asset not found')}), 404
 
     if file_format == 'IMG':
         return jsonify({
@@ -1222,7 +1222,7 @@ def explain_endpoints(question_id):
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin and not current_user.has_subject_access(question.subject):
-        return jsonify({'error': 'You do not have access to this question.'}), 403
+        return jsonify({'error': _t('You do not have access to this question.')}), 403
 
     default_cfg = _default_explain_endpoint()
     default_id = default_cfg.id if default_cfg else None
@@ -1283,11 +1283,11 @@ def explain_question(question_id):
     """
     # Permission / prep work happens here, in request context.
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
-        return jsonify({'error': 'AI features are disabled.'}), 400
+        return jsonify({'error': _t('AI features are disabled.')}), 400
 
     question = Question.query.get_or_404(question_id)
     if not current_user.is_super_admin and not current_user.has_subject_access(question.subject):
-        return jsonify({'error': 'You do not have access to this question.'}), 403
+        return jsonify({'error': _t('You do not have access to this question.')}), 403
 
     data = request.get_json(silent=True) or {}
 
@@ -1311,8 +1311,7 @@ def explain_question(question_id):
     if cfg is None:
         cfg = _default_explain_endpoint()
     if not cfg:
-        return jsonify({'error': 'No vision-capable LLM endpoint is configured. '
-                                 'Ask an administrator to add one under Admin → LLM Endpoints.'}), 400
+        return jsonify({'error': _t('No vision-capable LLM endpoint is configured. Ask an administrator to add one under Admin → LLM Endpoints.')}), 400
 
     from app import ai_prompts, llm_client
 
@@ -1347,9 +1346,7 @@ def explain_question(question_id):
         if raw_images:
             if not cfg.supports_vision:
                 return jsonify({
-                    'error': "The selected LLM endpoint can't see images. Pick a "
-                             "vision-capable model from the dropdown, or remove "
-                             "the attached images.",
+                    'error': _t("The selected LLM endpoint can't see images. Pick a vision-capable model from the dropdown, or remove the attached images."),
                 }), 400
             for du in raw_images[:EXPLAIN_MAX_IMAGES_PER_TURN]:
                 if not isinstance(du, str):
@@ -1358,14 +1355,13 @@ def explain_question(question_id):
                     b64, mime = llm_client.prepare_image_from_data_url(du, image_max_dim)
                 except (ValueError, OSError) as e:
                     return jsonify({
-                        'error': f'Could not decode an attached image: {e}',
+                        'error': _t('Could not decode an attached image: {error}', error=e),
                     }), 400
                 image_blocks.append((b64, mime))
                 total_image_bytes += (len(b64) * 3) // 4
                 if total_image_bytes > EXPLAIN_MAX_IMAGES_TOTAL_BYTES:
                     return jsonify({
-                        'error': 'Total attached-image size exceeds the 32 MB limit. '
-                                 'Drop a few images and try again.',
+                        'error': _t('Total attached-image size exceeds the 32 MB limit. Drop a few images and try again.'),
                     }), 413
         if not text.strip() and not image_blocks:
             continue
@@ -1404,7 +1400,7 @@ def explain_question(question_id):
             part_ctx.append((label, dq_imgs, dq_text, ds_imgs, ds_text))
 
     if not (que_imgs or que_text or part_ctx):
-        return jsonify({'error': 'This question has no image or Markdown to explain.'}), 400
+        return jsonify({'error': _t('This question has no image or Markdown to explain.')}), 400
 
     from app.ai_tools import load_ancestor_que_images
     anc_imgs = load_ancestor_que_images(

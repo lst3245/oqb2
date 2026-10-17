@@ -1,7 +1,12 @@
 <div class="bp-op d-none" data-op="aiSolveGen">
+    {% set sg_labels = {
+        'ANS': t('ANS Markdown asset'),
+        'SOL': t('SOL Markdown asset'),
+        'ANS_TEXT': t('ANS text (database)')
+    } %}
     <div class="row g-3">
         <div class="col-sm-4">
-            <div class="bp-section-title">Target versions</div>
+            <div class="bp-section-title">{{ t('Target versions') }}</div>
             {% for v in OQB_VERSIONS %}
             <div class="form-check">
                 <input class="form-check-input op-solvegen-version" type="checkbox" value="{{ v }}" id="opSolveGenVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
@@ -10,25 +15,25 @@
             {% endfor %}
         </div>
         <div class="col-sm-4">
-            <div class="bp-section-title">Generate</div>
-            {% for val, label, on in [('ANS', 'ANS Markdown asset', true), ('SOL', 'SOL Markdown asset', true), ('ANS_TEXT', 'ANS text (database)', false)] %}
+            <div class="bp-section-title">{{ t('Generate') }}</div>
+            {% for val, on in [('ANS', true), ('SOL', true), ('ANS_TEXT', false)] %}
             <div class="form-check">
                 <input class="form-check-input op-solvegen-target" type="checkbox" value="{{ val }}" id="opSolveGenTarget_{{ val }}"{% if on %} checked{% endif %}>
-                <label class="form-check-label" for="opSolveGenTarget_{{ val }}">{{ label }}</label>
+                <label class="form-check-label" for="opSolveGenTarget_{{ val }}">{{ sg_labels[val] }}</label>
             </div>
             {% endfor %}
         </div>
         <div class="col-sm-4">
-            <div class="bp-section-title">Options</div>
+            <div class="bp-section-title">{{ t('Options') }}</div>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="opSolveGenOfficial">
-                <label class="form-check-label" for="opSolveGenOfficial">Also send ENO/CHO SOL when available</label>
+                <label class="form-check-label" for="opSolveGenOfficial">{{ t('Also send ENO/CHO SOL when available') }}</label>
             </div>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="opSolveGenOverwrite">
-                <label class="form-check-label" for="opSolveGenOverwrite">Overwrite existing target MD / ANS text</label>
+                <label class="form-check-label" for="opSolveGenOverwrite">{{ t('Overwrite existing target MD / ANS text') }}</label>
             </div>
         </div>
     </div>
-    <div class="form-text">The model solves the question itself (Generate Markdown only transcribes). ANS text is generated once per question from the first version with QUE content.</div>
+    <div class="form-text">{{ t('The model solves the question itself (Generate Markdown only transcribes). ANS text is generated once per question from the first version with QUE content.') }}</div>
 </div>

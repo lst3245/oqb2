@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if asset %}Edit {% else %}New {% endif %}Markdown — {{ question.qid }}
+    {% if asset %}{{ t('Edit Markdown — {qid}', qid=question.qid) }}{% else %}{{ t('New Markdown — {qid}', qid=question.qid) }}{% endif %}
 {% endblock %}
 
 {% block extra_css %}
@@ -40,10 +40,10 @@
 
     <div class="editor-header">
         <a href="{{ url_for('admin.questions_page') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back
+            <i class="bi bi-arrow-left"></i> {{ t('Back') }}
         </a>
         <h1>
-            {% if asset %}Edit Markdown{% else %}New Markdown{% endif %}
+            {% if asset %}{{ t('Edit Markdown') }}{% else %}{{ t('New Markdown') }}{% endif %}
             <small class="text-muted">— {{ question.qid }}</small>
         </h1>
         <div class="meta">
@@ -52,7 +52,7 @@
                 <span class="badge bg-info">{{ asset.version }}</span>
                 <code class="ms-2">{{ asset.file_path }}</code>
             {% else %}
-                <span class="badge bg-success">CREATE</span>
+                <span class="badge bg-success">{{ t('CREATE') }}</span>
                 <span class="badge bg-secondary">{{ create_asset_type }}</span>
                 <span class="badge bg-info">{{ create_version }}</span>
             {% endif %}
@@ -60,10 +60,10 @@
         <div class="ms-auto d-flex gap-2">
             <button type="button" class="btn btn-sm btn-outline-secondary" id="mdReloadBtn"
                     {% if not asset %}style="display:none"{% endif %}>
-                <i class="bi bi-arrow-clockwise"></i> Reload from disk
+                <i class="bi bi-arrow-clockwise"></i> {{ t('Reload from disk') }}
             </button>
             <button type="button" class="btn btn-sm btn-primary" id="mdSaveBtn">
-                <i class="bi bi-save"></i> Save
+                <i class="bi bi-save"></i> {{ t('Save') }}
             </button>
         </div>
     </div>
@@ -71,7 +71,7 @@
     <textarea id="mdEditorTextarea"></textarea>
 
     <div class="status-bar">
-        <span id="mdStatusText" class="text-muted">Loading editor...</span>
+        <span id="mdStatusText" class="text-muted">{{ t('Loading editor...') }}</span>
     </div>
 </div>
 {% endblock %}
@@ -111,12 +111,12 @@
     function markDirty() {
         if (dirty) return;
         dirty = true;
-        setStatus('Unsaved changes', 'dirty');
+        setStatus(OQB.t('Unsaved changes'), 'dirty');
     }
 
     function markClean(message) {
         dirty = false;
-        setStatus(message || 'Saved', 'saved');
+        setStatus(message || OQB.t('Saved'), 'saved');
     }
 
     function initEditor(initialContent) {
@@ -132,27 +132,27 @@
     function loadFromServer() {
         if (isCreate) {
             initEditor('');
-            setStatus('New file. Start typing.', null);
+            setStatus(OQB.t('New file. Start typing.'), null);
             return;
         }
-        setStatus('Loading...', null);
+        setStatus(OQB.t('Loading...'), null);
         fetch(`/admin/questions/${qid}/assets/${assetId}/md/content`)
             .then(r => r.json().then(data => ({status: r.status, data: data})))
             .then(({status, data}) => {
                 if (status !== 200) {
-                    setStatus('Error: ' + (data.error || 'load failed'), 'error');
+                    setStatus(OQB.t('Error: {error}', {error: data.error || OQB.t('load failed')}), 'error');
                     return;
                 }
                 lastMtime = mtimeFromApi(data.mtime_ns);
                 if (editor) {
                     editor.setValue(data.content);
-                    markClean('Reloaded');
+                    markClean(OQB.t('Reloaded'));
                 } else {
                     initEditor(data.content);
-                    setStatus('Loaded.', null);
+                    setStatus(OQB.t('Loaded.'), null);
                 }
             })
-            .catch(err => setStatus('Error: ' + err.message, 'error'));
+            .catch(err => setStatus(OQB.t('Error: {error}', {error: err.message}), 'error'));
     }
 
     function doSave(force) {
@@ -160,10 +160,10 @@
         const content = editor.getValue();
         const sizeBytes = editor.getBytes();
         if (sizeBytes > mdMax) {
-            setStatus(`Content too large (${sizeBytes} > ${mdMax} bytes)`, 'error');
+            setStatus(OQB.t('Content too large ({size} > {max} bytes)', {size: sizeBytes, max: mdMax}), 'error');
             return;
         }
-        setStatus('Saving...', null);
+        setStatus(OQB.t('Saving...'), null);
         saveBtn.disabled = true;
 
         let url, body;
@@ -192,34 +192,34 @@
             .then(({status, data}) => {
                 saveBtn.disabled = false;
                 if (status === 409 && !isCreate) {
-                    if (confirm('File changed on disk since you opened it. Overwrite with your changes?')) {
+                    if (confirm(OQB.t('File changed on disk since you opened it. Overwrite with your changes?'))) {
                         doSave(true);
                     } else {
-                        setStatus('Save cancelled (file changed on disk)', 'error');
+                        setStatus(OQB.t('Save cancelled (file changed on disk)'), 'error');
                     }
                     return;
                 }
                 if (status === 201 || (status === 200 && data.success)) {
                     lastMtime = mtimeFromApi(data.mtime_ns);
-                    markClean('Saved ' + new Date().toLocaleTimeString());
+                    markClean(OQB.t('Saved {time}', {time: new Date().toLocaleTimeString()}));
                     if (isCreate && data.asset_id) {
                         // Redirect to edit mode for the freshly created asset so
                         // subsequent saves use the optimistic-mtime flow.
                         window.location.href = `/admin/questions/${qid}/assets/${data.asset_id}/md/edit`;
                     }
                 } else {
-                    setStatus('Error: ' + (data.error || 'save failed'), 'error');
+                    setStatus(OQB.t('Error: {error}', {error: data.error || OQB.t('save failed')}), 'error');
                 }
             })
             .catch(err => {
                 saveBtn.disabled = false;
-                setStatus('Error: ' + err.message, 'error');
+                setStatus(OQB.t('Error: {error}', {error: err.message}), 'error');
             });
     }
 
     saveBtn.addEventListener('click', () => doSave(false));
     if (reloadBtn) reloadBtn.addEventListener('click', () => {
-        if (dirty && !confirm('Discard unsaved changes and reload from disk?')) return;
+        if (dirty && !confirm(OQB.t('Discard unsaved changes and reload from disk?'))) return;
         loadFromServer();
     });
 

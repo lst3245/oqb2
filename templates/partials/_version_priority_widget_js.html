@@ -32,6 +32,14 @@
                 ? document.getElementById(opts.hiddenInput) : opts.hiddenInput;
             if (!container) return null;
             const labels = window.OQB_VERSION_LABELS || {};
+            function versionLabel(v) {
+                if (v === 'EN') return OQB.t('English');
+                if (v === 'CH') return OQB.t('Chinese');
+                if (v === 'BI') return OQB.t('Bilingual');
+                if (v === 'ENO') return OQB.t('English (Official)');
+                if (v === 'CHO') return OQB.t('Chinese (Official)');
+                return labels[v] || v;
+            }
             let order = window.oqbNormalizeVersionPriority(
                 opts.initial || (hidden && hidden.value ? hidden.value : null)
             );
@@ -59,12 +67,12 @@
                     item.innerHTML =
                         '<i class="bi bi-grip-vertical text-muted"></i>' +
                         '<span class="text-muted oqb-vp-num">' + (i + 1) + '.</span>' +
-                        '<span class="flex-grow-1 text-start">' + (labels[v] || v) +
+                        '<span class="flex-grow-1 text-start">' + versionLabel(v) +
                           ' <span class="text-muted small">(' + v + ')</span></span>';
                     const up = document.createElement('button');
                     up.type = 'button';
                     up.className = 'btn btn-sm p-0 ' + (i === 0 ? 'text-muted' : 'text-primary');
-                    up.title = 'Move up';
+                    up.title = OQB.t('Move up');
                     up.style.lineHeight = '1';
                     if (i === 0) up.disabled = true;
                     up.innerHTML = '<i class="bi bi-caret-up-fill"></i>';
@@ -72,7 +80,7 @@
                     const down = document.createElement('button');
                     down.type = 'button';
                     down.className = 'btn btn-sm p-0 ' + (i === order.length - 1 ? 'text-muted' : 'text-primary');
-                    down.title = 'Move down';
+                    down.title = OQB.t('Move down');
                     down.style.lineHeight = '1';
                     if (i === order.length - 1) down.disabled = true;
                     down.innerHTML = '<i class="bi bi-caret-down-fill"></i>';

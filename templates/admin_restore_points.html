@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Restore Points{% if subject %} — {{ subject.id }}{% endif %} - Question Bank{% endblock %}
+{% block title %}{% if subject %}{{ t('Restore Points — {subject} - Question Bank', subject=subject.id) }}{% else %}{{ t('Restore Points - Question Bank') }}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
-        <h2 class="mb-0"><i class="bi bi-clock-history"></i> Restore Points
+        <h2 class="mb-0"><i class="bi bi-clock-history"></i> {{ t('Restore Points') }}
             {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ tax_name(subject) }}</small>{% endif %}
         </h2>
         <div class="d-flex align-items-center gap-2">
@@ -14,58 +14,67 @@
             {% endwith %}
             {% if subject %}
             <a href="{{ url_for('admin.topics', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-tags"></i> Topics
+                <i class="bi bi-tags"></i> {{ t('Topics') }}
             </a>
             <a href="{{ url_for('admin.chapters', subject_id=subject.id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-book"></i> Chapters
+                <i class="bi bi-book"></i> {{ t('Chapters') }}
             </a>
             {% endif %}
             <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-arrow-left"></i> Back to Admin
+                <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
             </a>
         </div>
     </div>
     <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
-        A restore point is saved automatically just before every change to this subject's topic list,
-        chapter list, or question tags. The newest {{ keep_per_subject }} are kept, plus the first
-        point of each day for the last 30 days. Pin a point to keep it beyond that, until you unpin it.
+        {{ t("A restore point is saved automatically just before every change to this subject's topic list, chapter list, or question tags. The newest {n} are kept, plus the first point of each day for the last 30 days. Pin a point to keep it beyond that, until you unpin it.", n=keep_per_subject) }}
     </p>
     <hr>
 
     {% if not subject %}
-    <p class="text-muted">No subjects you administer.</p>
+    <p class="text-muted">{{ t('No subjects you administer.') }}</p>
     {% else %}
     <div class="alert alert-light border small">
-        <div><strong>A restore puts back</strong> this subject's topics, subtopics, chapters and subchapters
-            (names, order, hidden flag, tagging hints) and every question's major / minor topics, subtopics,
-            chapter, subchapter, level, type, section and correct %.</div>
-        <div><strong>It does not touch</strong> answers, comments, question descriptions, verified / checked flags,
-            files, or any other subject. Questions deleted since the point are not brought back; questions added
-            since keep their current tags.</div>
-        <div>Restoring first saves the current state as a new point, so a restore can itself be undone.</div>
+        <div>{{ t("<strong>A restore puts back</strong> this subject's topics, subtopics, chapters and subchapters (names, order, hidden flag, tagging hints) and every question's major / minor topics, subtopics, chapter, subchapter, level, type, section and correct %.")|safe }}</div>
+        <div>{{ t('<strong>It does not touch</strong> answers, comments, question descriptions, verified / checked flags, files, or any other subject. Questions deleted since the point are not brought back; questions added since keep their current tags.')|safe }}</div>
+        <div>{{ t('Restoring first saves the current state as a new point, so a restore can itself be undone.') }}</div>
     </div>
 
     <div class="card mb-3">
         <div class="card-body d-flex flex-wrap align-items-center gap-2">
-            <label for="snapshotNote" class="form-label mb-0 fw-semibold">Take a snapshot now</label>
+            <label for="snapshotNote" class="form-label mb-0 fw-semibold">{{ t('Take a snapshot now') }}</label>
             <input type="text" id="snapshotNote" class="form-control form-control-sm" style="max-width: 420px"
-                   maxlength="{{ max_note_chars }}" placeholder="Optional note, e.g. before reorganising topic 7">
+                   maxlength="{{ max_note_chars }}" placeholder="{{ t('Optional note, e.g. before reorganising topic 7') }}">
             <button class="btn btn-primary btn-sm" id="snapshotBtn" onclick="takeSnapshot()">
-                <i class="bi bi-camera"></i> Take snapshot
+                <i class="bi bi-camera"></i> {{ t('Take snapshot') }}
             </button>
         </div>
     </div>
 
     {% if points %}
+    {% set rp_actions = {
+        'Baseline (server start)': t('Baseline (server start)'),
+        'Manual snapshot': t('Manual snapshot'),
+        'Topic list edit': t('Topic list edit'),
+        'Chapter list edit': t('Chapter list edit'),
+        'Tagging hint edit': t('Tagging hint edit'),
+        'Question tags save': t('Question tags save'),
+        'Bulk edit': t('Bulk edit'),
+        'Question tags CSV import': t('Question tags CSV import'),
+        'Topics CSV import': t('Topics CSV import'),
+        'Chapters CSV import': t('Chapters CSV import'),
+        'Auto Tag run': t('Auto Tag run'),
+        'PDF import (marks)': t('PDF import (marks)'),
+        'Before restore': t('Before restore'),
+    } %}
     <div class="table-responsive">
         <table class="table table-sm table-hover align-middle">
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Saved</th>
-                    <th>Taken before</th>
-                    <th>By</th>
-                    <th>Note</th>
+                    <th>{{ t('Saved') }}</th>
+                    <th>{{ t('Taken before') }}</th>
+                    <th>{{ t('By') }}</th>
+                    <th>{{ t('Note') }}</th>
                     <th></th>
                 </tr>
             </thead>
@@ -74,20 +83,20 @@
                 <tr>
                     <td class="text-muted">{{ p.id }}</td>
                     <td class="text-nowrap" data-utc="{{ p.created_at }}">{{ p.created_at }}</td>
-                    <td>{{ p.action_label }}</td>
+                    <td>{{ rp_actions.get(p.action_label, p.action_label) }}</td>
                     <td>{{ p.username or '—' }}</td>
                     <td class="small">{{ p.note or '' }}</td>
                     <td class="text-end text-nowrap">
                         <button type="button"
                                 class="btn btn-sm {{ 'btn-warning' if p.pinned else 'btn-outline-secondary' }}"
                                 data-pinned="{{ 1 if p.pinned else 0 }}"
-                                title="{{ 'Pinned — kept until you unpin it' if p.pinned else 'Pin so this point is never pruned' }}"
+                                title="{{ t('Pinned — kept until you unpin it') if p.pinned else t('Pin so this point is never pruned') }}"
                                 onclick="togglePin(this, {{ p.id }})">
                             <i class="bi {{ 'bi-pin-angle-fill' if p.pinned else 'bi-pin-angle' }}"></i>
-                            {{ 'Unpin' if p.pinned else 'Pin' }}
+                            {{ t('Unpin') if p.pinned else t('Pin') }}
                         </button>
                         <button class="btn btn-outline-primary btn-sm" onclick="openPreview({{ p.id }})">
-                            <i class="bi bi-eye"></i> Preview / restore
+                            <i class="bi bi-eye"></i> {{ t('Preview / restore') }}
                         </button>
                     </td>
                 </tr>
@@ -96,8 +105,7 @@
         </table>
     </div>
     {% else %}
-    <p class="text-muted">No restore points for {{ subject.id }} yet. One is saved automatically before the next
-        topic, chapter, or tag change — or take one now.</p>
+    <p class="text-muted">{{ t('No restore points for {subject} yet. One is saved automatically before the next topic, chapter, or tag change — or take one now.', subject=subject.id) }}</p>
     {% endif %}
     {% endif %}
 </div>
@@ -106,14 +114,14 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="previewTitle">Restore point</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title" id="previewTitle">{{ t('Restore point') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body" id="previewBody"></div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Close') }}</button>
                 <button type="button" class="btn btn-danger" id="restoreBtn" disabled onclick="doRestore()">
-                    <i class="bi bi-arrow-counterclockwise"></i> Restore this point
+                    <i class="bi bi-arrow-counterclockwise"></i> {{ t('Restore this point') }}
                 </button>
             </div>
         </div>
@@ -156,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function togglePin(btn, pointId) {
     const want = btn.dataset.pinned !== '1';
-    if (!want && !confirm('Unpin this point?\n\nIf it is outside the newest points and the daily anchors, it will be removed.')) return;
+    if (!want && !confirm(OQB.t('Unpin this point?\n\nIf it is outside the newest points and the daily anchors, it will be removed.'))) return;
     btn.disabled = true;
     fetch(rpUrl(RP_PIN_URL, pointId), {
         method: 'POST',
@@ -165,7 +173,7 @@ function togglePin(btn, pointId) {
     })
     .then(r => r.json())
     .then(data => {
-        if (!data.success) throw new Error(data.error || 'Could not update the pin');
+        if (!data.success) throw new Error(data.error || OQB.t('Could not update the pin'));
         if (data.deleted) alert(data.message);
         location.reload();
     })
@@ -182,7 +190,7 @@ function takeSnapshot() {
     })
     .then(r => r.json())
     .then(data => {
-        if (!data.success) throw new Error(data.error || 'Snapshot failed');
+        if (!data.success) throw new Error(data.error || OQB.t('Snapshot failed'));
         location.reload();
     })
     .catch(err => { alert(err.message); btn.disabled = false; });
@@ -190,59 +198,101 @@ function takeSnapshot() {
 
 function rpList(title, items, cls) {
     if (!items || !items.length) return '';
-    return `<div class="${cls || ''}"><span class="fw-semibold">${rpEsc(title)}:</span> ${items.map(rpEsc).join(', ')}</div>`;
+    return `<div class="${cls || ''}"><span class="fw-semibold">${title}</span> ${items.map(rpEsc).join(', ')}</div>`;
+}
+
+function rpKind(label, lower) {
+    if (label === 'Topic') return lower ? OQB.t('topic') : OQB.t('Topic');
+    if (label === 'Subtopic') return lower ? OQB.t('subtopic') : OQB.t('Subtopic');
+    if (label === 'Chapter') return lower ? OQB.t('chapter') : OQB.t('Chapter');
+    if (label === 'Subchapter') return lower ? OQB.t('subchapter') : OQB.t('Subchapter');
+    return lower ? String(label).toLowerCase() : label;
+}
+
+function rpField(label) {
+    if (label === 'Major topic') return OQB.t('Major topic');
+    if (label === 'Major subtopic') return OQB.t('Major subtopic');
+    if (label === 'Chapter') return OQB.t('Chapter');
+    if (label === 'Subchapter') return OQB.t('Subchapter');
+    if (label === 'Level') return OQB.t('Level');
+    if (label === 'Type') return OQB.t('Type');
+    if (label === 'Section') return OQB.t('Section');
+    if (label === 'Correct %') return OQB.t('Correct %');
+    if (label === 'Marks') return OQB.t('Marks');
+    if (label === 'Minor topics') return OQB.t('Minor topics');
+    if (label === 'Subtopics') return OQB.t('Subtopics');
+    return label;
+}
+
+function rpAction(label) {
+    if (label === 'Baseline (server start)') return OQB.t('Baseline (server start)');
+    if (label === 'Manual snapshot') return OQB.t('Manual snapshot');
+    if (label === 'Topic list edit') return OQB.t('Topic list edit');
+    if (label === 'Chapter list edit') return OQB.t('Chapter list edit');
+    if (label === 'Tagging hint edit') return OQB.t('Tagging hint edit');
+    if (label === 'Question tags save') return OQB.t('Question tags save');
+    if (label === 'Bulk edit') return OQB.t('Bulk edit');
+    if (label === 'Question tags CSV import') return OQB.t('Question tags CSV import');
+    if (label === 'Topics CSV import') return OQB.t('Topics CSV import');
+    if (label === 'Chapters CSV import') return OQB.t('Chapters CSV import');
+    if (label === 'Auto Tag run') return OQB.t('Auto Tag run');
+    if (label === 'PDF import (marks)') return OQB.t('PDF import (marks)');
+    if (label === 'Before restore') return OQB.t('Before restore');
+    return label || '';
 }
 
 function rpRenderPreview(point, p) {
     const parts = [];
-    parts.push(`<p class="mb-2"><strong>#${point.id}</strong> · ${rpEsc(window.oqbFormatLocalTime(point.created_at))}
-        · taken before: ${rpEsc(point.action_label)}${point.note ? ' · ' + rpEsc(point.note) : ''}</p>`);
+    const when = rpEsc(window.oqbFormatLocalTime(point.created_at));
+    const before = rpEsc(rpAction(point.action_label));
+    const note = point.note ? ' · ' + rpEsc(point.note) : '';
+    parts.push(`<p class="mb-2"><strong>#${point.id}</strong> · ${when} · ${OQB.t('taken before: {action}', {action: before})}${note}</p>`);
     if (p.conflicts.length) {
-        parts.push(`<div class="alert alert-danger"><strong>This point cannot be restored:</strong><ul class="mb-0">${
+        parts.push(`<div class="alert alert-danger"><strong>${OQB.t('This point cannot be restored:')}</strong><ul class="mb-0">${
             p.conflicts.map(c => `<li>${rpEsc(c)}</li>`).join('')}</ul></div>`);
     }
     if (!p.has_changes) {
-        parts.push('<div class="alert alert-success mb-0">The subject already matches this point. Nothing to restore.</div>');
+        parts.push('<div class="alert alert-success mb-0">' + OQB.t('The subject already matches this point. Nothing to restore.') + '</div>');
         return parts.join('');
     }
 
-    parts.push('<h6>Topic &amp; chapter lists</h6>');
+    parts.push('<h6>' + OQB.t('Topic & chapter lists') + '</h6>');
     const tax = [];
     for (const kind of ['topics', 'subtopics', 'chapters', 'subchapters']) {
         const t = p.taxonomy[kind];
         const lines = [
-            rpList(`${t.label}s put back`, t.recreate, 'text-success'),
-            rpList(`${t.label}s renamed back`, t.rename.map(r => `${r.from} → ${r.to}`)),
-            t.other_updates ? `<div>${t.other_updates} ${rpEsc(t.label.toLowerCase())}(s): order / hidden / hint / parent reset</div>` : '',
-            rpList(`${t.label}s removed (added since, unused)`, t.delete, 'text-danger'),
-            rpList(`${t.label}s kept (added since, still used)`, t.keep_newer, 'text-muted'),
+            rpList(OQB.t('{kind}s put back:', {kind: rpKind(t.label)}), t.recreate, 'text-success'),
+            rpList(OQB.t('{kind}s renamed back:', {kind: rpKind(t.label)}), t.rename.map(r => `${r.from} → ${r.to}`)),
+            t.other_updates ? `<div>${OQB.t('{n} {kind}(s): order / hidden / hint / parent reset', {n: t.other_updates, kind: rpKind(t.label, true)})}</div>` : '',
+            rpList(OQB.t('{kind}s removed (added since, unused):', {kind: rpKind(t.label)}), t.delete, 'text-danger'),
+            rpList(OQB.t('{kind}s kept (added since, still used):', {kind: rpKind(t.label)}), t.keep_newer, 'text-muted'),
         ].filter(Boolean);
         if (lines.length) tax.push(...lines);
     }
-    parts.push(tax.length ? `<div class="small mb-3">${tax.join('')}</div>` : '<p class="small text-muted">No changes.</p>');
+    parts.push(tax.length ? `<div class="small mb-3">${tax.join('')}</div>` : '<p class="small text-muted">' + OQB.t('No changes.') + '</p>');
 
-    parts.push('<h6>Question tags</h6>');
-    parts.push(`<p class="small mb-1"><strong>${p.questions_changed}</strong> of ${p.questions_now} question(s) will be re-tagged.`
-        + (p.questions_deleted_since ? ` ${p.questions_deleted_since} question(s) in the point were deleted since and are skipped.` : '')
-        + (p.questions_added_since ? ` ${p.questions_added_since} question(s) added since keep their tags.` : '')
-        + (p.dropped_refs ? ` ${p.dropped_refs} tag reference(s) point at rows that no longer exist and will be cleared.` : '')
-        + '</p>');
+    parts.push('<h6>' + OQB.t('Question tags') + '</h6>');
+    let qmsg = OQB.t('<strong>{changed}</strong> of {now} question(s) will be re-tagged.', {changed: p.questions_changed, now: p.questions_now});
+    if (p.questions_deleted_since) qmsg += ' ' + OQB.t('{n} question(s) in the point were deleted since and are skipped.', {n: p.questions_deleted_since});
+    if (p.questions_added_since) qmsg += ' ' + OQB.t('{n} question(s) added since keep their tags.', {n: p.questions_added_since});
+    if (p.dropped_refs) qmsg += ' ' + OQB.t('{n} tag reference(s) point at rows that no longer exist and will be cleared.', {n: p.dropped_refs});
+    parts.push(`<p class="small mb-1">${qmsg}</p>`);
     if (p.field_counts.length) {
-        parts.push(`<p class="small">${p.field_counts.map(f => `${rpEsc(f.field)}: ${f.count}`).join(' · ')}</p>`);
+        parts.push(`<p class="small">${p.field_counts.map(f => `${rpEsc(rpField(f.field))}: ${f.count}`).join(' · ')}</p>`);
     }
     if (p.samples.length) {
         const rows = [];
         for (const s of p.samples) {
             s.changes.forEach((c, i) => {
                 rows.push(`<tr>${i === 0 ? `<td rowspan="${s.changes.length}" class="text-nowrap">${rpEsc(s.qid)}</td>` : ''}
-                    <td>${rpEsc(c.field)}</td><td class="text-danger">${rpEsc(c.from)}</td><td class="text-success">${rpEsc(c.to)}</td></tr>`);
+                    <td>${rpEsc(rpField(c.field))}</td><td class="text-danger">${rpEsc(c.from)}</td><td class="text-success">${rpEsc(c.to)}</td></tr>`);
             });
         }
         parts.push(`<div class="table-responsive"><table class="table table-sm small align-middle">
-            <thead><tr><th>Question</th><th>Field</th><th>Now</th><th>After restore</th></tr></thead>
+            <thead><tr><th>${OQB.t('Question')}</th><th>${OQB.t('Field')}</th><th>${OQB.t('Now')}</th><th>${OQB.t('After restore')}</th></tr></thead>
             <tbody>${rows.join('')}</tbody></table></div>`);
         if (p.samples_truncated) {
-            parts.push(`<p class="small text-muted">…and ${p.samples_truncated} more question(s).</p>`);
+            parts.push(`<p class="small text-muted">${OQB.t('…and {n} more question(s).', {n: p.samples_truncated})}</p>`);
         }
     }
     return parts.join('');
@@ -252,14 +302,14 @@ function openPreview(pointId) {
     rpPointId = pointId;
     const body = document.getElementById('previewBody');
     const btn = document.getElementById('restoreBtn');
-    document.getElementById('previewTitle').textContent = `Restore point #${pointId}`;
-    body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border"></div><div>Comparing with the current state…</div></div>';
+    document.getElementById('previewTitle').textContent = OQB.t('Restore point #{id}', {id: pointId});
+    body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border"></div><div>' + OQB.t('Comparing with the current state…') + '</div></div>';
     btn.disabled = true;
     rpModal.show();
     fetch(rpUrl(RP_PREVIEW_URL, pointId))
         .then(r => r.json())
         .then(data => {
-            if (!data.success) throw new Error(data.error || 'Preview failed');
+            if (!data.success) throw new Error(data.error || OQB.t('Preview failed'));
             body.innerHTML = rpRenderPreview(data.point, data.preview);
             btn.disabled = !data.preview.has_changes || data.preview.conflicts.length > 0;
         })
@@ -269,14 +319,14 @@ function openPreview(pointId) {
 function doRestore() {
     if (rpPointId == null) return;
     const subject = typeof RP_SUBJECT_ID !== 'undefined' ? RP_SUBJECT_ID : '';
-    if (!confirm(`Restore ${subject} to point #${rpPointId}?\n\nThe current state is saved as a new point first, so you can undo this.`)) return;
+    if (!confirm(OQB.t('Restore {subject} to point #{id}?\n\nThe current state is saved as a new point first, so you can undo this.', {subject: subject, id: rpPointId}))) return;
     const btn = document.getElementById('restoreBtn');
     const body = document.getElementById('previewBody');
     btn.disabled = true;
     fetch(rpUrl(RP_RESTORE_URL, rpPointId), { method: 'POST' })
         .then(r => r.json())
         .then(data => {
-            if (!data.success) throw new Error(data.error || 'Restore failed');
+            if (!data.success) throw new Error(data.error || OQB.t('Restore failed'));
             rpRestored = true;
             body.innerHTML = `<div class="alert alert-success mb-0">${rpEsc(data.message)}</div>`;
         })

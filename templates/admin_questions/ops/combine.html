@@ -1,12 +1,12 @@
 <div class="bp-op d-none" data-op="combine">
-    <div class="small mb-2">Every selected <strong>stem</strong> is combined; a selected part under a selected ancestor is skipped. Roots with a whole-question archive are restored from it; others fold the part images onto the stem. The part rows are deleted.</div>
+    <div class="small mb-2">{{ t('Every selected <strong>stem</strong> is combined; a selected part under a selected ancestor is skipped. Roots with a whole-question archive are restored from it; others fold the part images onto the stem. The part rows are deleted.')|safe }}</div>
     <div class="form-check">
         <input class="form-check-input" type="checkbox" id="opCombineStitch">
-        <label class="form-check-label" for="opCombineStitch">Stitch reconstructed images into one (ignored when restoring an archive)</label>
+        <label class="form-check-label" for="opCombineStitch">{{ t('Stitch reconstructed images into one (ignored when restoring an archive)') }}</label>
     </div>
     <div class="form-check">
         <input class="form-check-input" type="checkbox" id="opCombineSaveWhole" checked>
-        <label class="form-check-label" for="opCombineSaveWhole">Save a whole-question archive when reconstructing a root that has none</label>
+        <label class="form-check-label" for="opCombineSaveWhole">{{ t('Save a whole-question archive when reconstructing a root that has none') }}</label>
     </div>
-    <div class="form-text">For one question with a preview of what is kept, use Edit → Details → Combine.</div>
+    <div class="form-text">{{ t('For one question with a preview of what is kept, use Edit → Details → Combine.') }}</div>
 </div>

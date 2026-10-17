@@ -20,6 +20,7 @@ from flask_login import login_required, current_user
 from app import db
 from app import subject_snapshot as svc
 from app.admin import _resolve_taxonomy_subject
+from app.i18n import t as _t
 from app.models import Subject, SubjectRestorePoint
 from app.utils import admin_required, subject_admin_required
 
@@ -30,9 +31,9 @@ def _point_for_admin(point_id):
     """Return ``(point, None)`` or ``(None, (response, status))``."""
     point = db.session.get(SubjectRestorePoint, point_id)
     if point is None:
-        return None, (jsonify({'success': False, 'error': 'Restore point not found.'}), 404)
+        return None, (jsonify({'success': False, 'error': _t('Restore point not found.')}), 404)
     if not current_user.is_subject_admin(point.subject_id):
-        return None, (jsonify({'success': False, 'error': 'Access denied for this subject.'}), 403)
+        return None, (jsonify({'success': False, 'error': _t('Access denied for this subject.')}), 403)
     return point, None
 
 
@@ -62,7 +63,7 @@ def capture(subject_id):
     """Manual snapshot. Body JSON ``{note?}``."""
     subject = db.session.get(Subject, subject_id)
     if subject is None:
-        return jsonify({'success': False, 'error': 'Subject not found.'}), 404
+        return jsonify({'success': False, 'error': _t('Subject not found.')}), 404
     body = request.get_json(silent=True) or {}
     try:
         point = svc.capture(subject.id, 'manual', note=body.get('note'))
@@ -70,7 +71,7 @@ def capture(subject_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception('Manual restore point failed')
-        return jsonify({'success': False, 'error': f'Could not save the restore point: {e}'}), 500
+        return jsonify({'success': False, 'error': _t('Could not save the restore point: {error}', error=e)}), 500
     return jsonify({'success': True, 'point': svc.point_meta(point, current_user.username)})
 
 
@@ -90,28 +91,28 @@ def pin(point_id):
     if not isinstance(body.get('pinned'), bool):
         return jsonify({
             'success': False,
-            'error': 'Send {"pinned": true} or {"pinned": false}.',
+            'error': _t('Send {"pinned": true} or {"pinned": false}.'),
         }), 400
     try:
         result = svc.set_pinned(point, body['pinned'])
         if result is None:
             db.session.rollback()
-            return jsonify({'success': False, 'error': 'Restore point not found.'}), 404
+            return jsonify({'success': False, 'error': _t('Restore point not found.')}), 404
         pinned, deleted = result
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception('Pin restore point %s failed', point_id)
-        return jsonify({'success': False, 'error': f'Could not update the pin: {e}'}), 500
+        return jsonify({'success': False, 'error': _t('Could not update the pin: {error}', error=e)}), 500
     if deleted:
-        message = (
-            'Unpinned and removed: it was outside the newest '
-            f'{svc.KEEP_PER_SUBJECT} points and the daily anchors.'
+        message = _t(
+            'Unpinned and removed: it was outside the newest {n} points and the daily anchors.',
+            n=svc.KEEP_PER_SUBJECT,
         )
     elif pinned:
-        message = 'Pinned. This point is kept until you unpin it.'
+        message = _t('Pinned. This point is kept until you unpin it.')
     else:
-        message = 'Unpinned. It stays while it is inside the automatic retention.'
+        message = _t('Unpinned. It stays while it is inside the automatic retention.')
     return jsonify({
         'success': True,
         'pinned': pinned,
@@ -152,13 +153,14 @@ def restore(point_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception('Restore point %s failed', point_id)
-        return jsonify({'success': False, 'error': f'Restore failed, nothing was changed: {e}'}), 500
+        return jsonify({'success': False, 'error': _t('Restore failed, nothing was changed: {error}', error=e)}), 500
     s = result['summary']
     return jsonify({
         'success': True,
-        'message': (f'Restored {s["subject_id"]} to point #{point_id}: '
-                    f'{s["questions_changed"]} question(s) re-tagged. '
-                    f'The previous state was saved as point #{result["before_point_id"]}.'),
+        'message': _t(
+            'Restored {subject} to point #{point}: {n} question(s) re-tagged. The previous state was saved as point #{before}.',
+            subject=s['subject_id'], point=point_id, n=s['questions_changed'],
+            before=result['before_point_id']),
         'before_point_id': result['before_point_id'],
         'summary': s,
     })

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}PDF Batch Import - Question Bank{% endblock %}
+{% block title %}{{ t('PDF Batch Import - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -109,74 +109,74 @@
     <!-- Sticky job strip: what is running now + the latest log line (fed by setStatus / showProgress / updateProgress / appendLog). -->
     <div id="jobStrip" class="job-strip d-none" role="status" aria-live="polite">
         <div class="d-flex align-items-center gap-2">
-            <span id="jobStripBadge" class="badge bg-secondary">Idle</span>
+            <span id="jobStripBadge" class="badge bg-secondary">{{ t('Idle') }}</span>
             <span id="jobStripLabel" class="fw-semibold text-truncate"></span>
             <span id="jobStripCount" class="text-muted small text-nowrap ms-auto"></span>
-            <button type="button" id="jobStripStop" class="btn btn-outline-danger btn-sm py-0 d-none" title="Stop the running job">
-                <i class="bi bi-stop-fill"></i> Stop
+            <button type="button" id="jobStripStop" class="btn btn-outline-danger btn-sm py-0 d-none" title="{{ t('Stop the running job') }}">
+                <i class="bi bi-stop-fill"></i> {{ t('Stop') }}
             </button>
-            <button type="button" id="jobStripLog" class="btn btn-link btn-sm p-0 text-nowrap" title="Jump to the full log">Log</button>
+            <button type="button" id="jobStripLog" class="btn btn-link btn-sm p-0 text-nowrap" title="{{ t('Jump to the full log') }}">{{ t('Log') }}</button>
         </div>
         <div id="jobStripMsg" class="job-strip-msg small text-truncate"></div>
         <div class="progress job-strip-bar"><div id="jobStripBar" class="progress-bar" style="width: 0%;"></div></div>
     </div>
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-filetype-pdf"></i> PDF Batch Import</h2>
+        <h2 class="mb-0"><i class="bi bi-filetype-pdf"></i> {{ t('PDF Batch Import') }}</h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
         </a>
     </div>
-    <p class="text-muted mt-1">Load your PDF(s), define bounding boxes (manually or with a vision model), then import crops as image assets. Exam import requires admin access to the paper&rsquo;s subject.</p>
+    <p class="text-muted mt-1">{{ t('Load your PDF(s), define bounding boxes (manually or with a vision model), then import crops as image assets. Exam import requires admin access to the paper’s subject.') }}</p>
     <hr>
 
     {% if not ai_enabled %}
-    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> AI Tools are disabled. Enable them in <a href="{{ url_for('admin.settings_page') }}">System Settings</a> to use LLM detection.</div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> {{ t('AI Tools are disabled. Enable them in <a href="{url}">System Settings</a> to use LLM detection.', url=url_for('admin.settings_page'))|safe }}</div>
     {% elif not endpoints %}
-    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> No vision-capable LLM endpoint is configured. You can still load PDFs and draw boxes manually; add an endpoint under <a href="{{ url_for('admin.llm_endpoints_page') }}">Admin &rarr; LLM Endpoints</a> to run detection.</div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> {{ t('No vision-capable LLM endpoint is configured. You can still load PDFs and draw boxes manually; add an endpoint under <a href="{url}">Admin → LLM Endpoints</a> to run detection.', url=url_for('admin.llm_endpoints_page'))|safe }}</div>
     {% endif %}
 
     <!-- ===== Step 1: Setup ===== -->
     <div class="card mb-3" id="setupCard">
-        <div class="card-header bg-light"><i class="bi bi-1-circle"></i> Setup</div>
+        <div class="card-header bg-light"><i class="bi bi-1-circle"></i> {{ t('Setup') }}</div>
         <div class="card-body">
             <div class="mb-3">
-                <span class="fw-bold me-2">Task:</span>
+                <span class="fw-bold me-2">{{ t('Task:') }}</span>
                 <div class="btn-group" role="group">
                     <input type="radio" class="btn-check" name="task" id="taskExam" value="exam" checked>
-                    <label class="btn btn-outline-primary btn-sm" for="taskExam"><i class="bi bi-mortarboard"></i> Exam paper (questions / solutions)</label>
+                    <label class="btn btn-outline-primary btn-sm" for="taskExam"><i class="bi bi-mortarboard"></i> {{ t('Exam paper (questions / solutions)') }}</label>
                     <input type="radio" class="btn-check" name="task" id="taskGeneric" value="generic">
-                    <label class="btn btn-outline-primary btn-sm" for="taskGeneric"><i class="bi bi-grid-3x3-gap"></i> Generic extraction</label>
+                    <label class="btn btn-outline-primary btn-sm" for="taskGeneric"><i class="bi bi-grid-3x3-gap"></i> {{ t('Generic extraction') }}</label>
                 </div>
-                <div class="form-text" id="taskHint">Detect each exam question / solution and import them as image assets.</div>
+                <div class="form-text" id="taskHint">{{ t('Detect each exam question / solution and import them as image assets.') }}</div>
             </div>
             <div class="row g-3">
                 <div class="col-md-4 exam-only" id="paperCol">
-                    <label for="paperInput" class="form-label fw-bold">Paper name</label>
+                    <label for="paperInput" class="form-label fw-bold">{{ t('Paper name') }}</label>
                     <input type="text" id="paperInput" class="form-control" placeholder="MATC_DSE_2012_P1" autocomplete="off">
-                    <div class="form-text">Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages. <span id="paperGuessHint" class="text-info d-none"><span class="spinner-border spinner-border-sm"></span> Guessing from PDF…</span></div>
+                    <div class="form-text">{{ t('Format: SUBJECT_SOURCE_YEAR_PAPER. Question numbers are read from the pages.') }} <span id="paperGuessHint" class="text-info d-none"><span class="spinner-border spinner-border-sm"></span> {{ t('Guessing from PDF…') }}</span></div>
                 </div>
                 <div class="col-md-4" id="quePdfCol">
-                    <label for="quePdf" class="form-label fw-bold"><span id="quePdfLabel">Question PDF</span> <span class="text-muted fw-normal">(optional)</span></label>
+                    <label for="quePdf" class="form-label fw-bold"><span id="quePdfLabel">{{ t('Question PDF') }}</span> <span class="text-muted fw-normal">{{ t('(optional)') }}</span></label>
                     <input type="file" id="quePdf" class="form-control" accept="application/pdf,.pdf">
                     {% if pdf_source_available %}
                     <div class="form-text">
-                        <a href="#" onclick="openServerPicker('que'); return false;"><i class="bi bi-hdd"></i> or pick from server</a>
+                        <a href="#" onclick="openServerPicker('que'); return false;"><i class="bi bi-hdd"></i> {{ t('or pick from server') }}</a>
                         <span id="queServerPick" class="d-none ms-1">
                             <span class="badge bg-info text-dark"><i class="bi bi-filetype-pdf"></i> <span id="queServerName"></span></span>
-                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('que'); return false;" title="Clear"><i class="bi bi-x-circle"></i></a>
+                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('que'); return false;" title="{{ t('Clear') }}"><i class="bi bi-x-circle"></i></a>
                         </span>
                     </div>
                     {% endif %}
                 </div>
                 <div class="col-md-4 exam-only" id="solCol">
-                    <label for="solPdf" class="form-label fw-bold">Solution PDF <span class="text-muted fw-normal">(optional)</span></label>
+                    <label for="solPdf" class="form-label fw-bold">{{ t('Solution PDF') }} <span class="text-muted fw-normal">{{ t('(optional)') }}</span></label>
                     <input type="file" id="solPdf" class="form-control" accept="application/pdf,.pdf">
                     {% if pdf_source_available %}
                     <div class="form-text">
-                        <a href="#" onclick="openServerPicker('sol'); return false;"><i class="bi bi-hdd"></i> or pick from server</a>
+                        <a href="#" onclick="openServerPicker('sol'); return false;"><i class="bi bi-hdd"></i> {{ t('or pick from server') }}</a>
                         <span id="solServerPick" class="d-none ms-1">
                             <span class="badge bg-info text-dark"><i class="bi bi-filetype-pdf"></i> <span id="solServerName"></span></span>
-                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('sol'); return false;" title="Clear"><i class="bi bi-x-circle"></i></a>
+                            <a href="#" class="text-danger ms-1" onclick="clearServerPick('sol'); return false;" title="{{ t('Clear') }}"><i class="bi bi-x-circle"></i></a>
                         </span>
                     </div>
                     {% endif %}
@@ -184,65 +184,65 @@
                 <div class="col-12">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="deskewChk" {% if deskew_default %}checked{% endif %}>
-                        <label class="form-check-label" for="deskewChk" title="Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).">
-                            <i class="bi bi-rulers"></i> Auto-deskew scans
+                        <label class="form-check-label" for="deskewChk" title="{{ t('Straighten skewed / rotated scanned pages before detecting and cropping (uses NumPy).') }}">
+                            <i class="bi bi-rulers"></i> {{ t('Auto-deskew scans') }}
                         </label>
                     </div>
                     <details class="mt-2 mb-1">
-                        <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-tools"></i> Pre-process scans (rotate / A3 split / image)</summary>
+                        <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-tools"></i> {{ t('Pre-process scans (rotate / A3 split / image)') }}</summary>
                         <div class="ps-1 pt-2">
                             <div class="row g-2">
                                 <div class="col-6">
-                                    <label class="form-label small mb-0">Rotate first</label>
+                                    <label class="form-label small mb-0">{{ t('Rotate first') }}</label>
                                     <select id="ppRotate" class="form-select form-select-sm">
-                                        <option value="0">None</option>
-                                        <option value="90">90° CW</option>
+                                        <option value="0">{{ t('None') }}</option>
+                                        <option value="90">{{ t('90° CW') }}</option>
                                         <option value="180">180°</option>
                                         <option value="270">270°</option>
                                     </select>
                                 </div>
                                 <div class="col-6">
-                                    <label class="form-label small mb-0">A3 split</label>
+                                    <label class="form-label small mb-0">{{ t('A3 split') }}</label>
                                     <select id="ppSplit" class="form-select form-select-sm">
-                                        <option value="none">None</option>
-                                        <option value="simple">Middle (L,R)</option>
-                                        <option value="mode1">Mode 1 (folded)</option>
-                                        <option value="mode2">Mode 2 (booklet)</option>
+                                        <option value="none">{{ t('None') }}</option>
+                                        <option value="simple">{{ t('Middle (L,R)') }}</option>
+                                        <option value="mode1">{{ t('Mode 1 (folded)') }}</option>
+                                        <option value="mode2">{{ t('Mode 2 (booklet)') }}</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="row g-2 mt-1" id="ppMode1PagesWrap" style="display:none;">
                                 <div class="col-12">
-                                    <label class="form-label small mb-0">Mode 1 pages per student</label>
+                                    <label class="form-label small mb-0">{{ t('Mode 1 pages per student') }}</label>
                                     <input type="number" id="ppMode1PagesPerStudent" class="form-control form-control-sm"
                                            value="4" min="1" max="200" step="1">
-                                    <div class="form-text">Drops padding pages in each folded copy, e.g. 7 keeps pages 1-7 and skips page 8.</div>
+                                    <div class="form-text">{{ t('Drops padding pages in each folded copy, e.g. 7 keeps pages 1-7 and skips page 8.') }}</div>
                                 </div>
                             </div>
                             <div class="row g-2 mt-1">
                                 <div class="col-4">
-                                    <label class="form-label small mb-0">Bright.</label>
+                                    <label class="form-label small mb-0">{{ t('Bright.') }}</label>
                                     <input type="number" id="ppBrightness" class="form-control form-control-sm" value="1.0" min="0.4" max="1.8" step="0.05">
                                 </div>
                                 <div class="col-4">
-                                    <label class="form-label small mb-0">Contrast</label>
+                                    <label class="form-label small mb-0">{{ t('Contrast') }}</label>
                                     <input type="number" id="ppContrast" class="form-control form-control-sm" value="1.0" min="0.4" max="1.8" step="0.05">
                                 </div>
                                 <div class="col-4">
-                                    <label class="form-label small mb-0">Sharpen</label>
+                                    <label class="form-label small mb-0">{{ t('Sharpen') }}</label>
                                     <input type="number" id="ppSharpen" class="form-control form-control-sm" value="1.0" min="0" max="3" step="0.1">
                                 </div>
                             </div>
                             <div class="form-check mt-1">
                                 <input class="form-check-input" type="checkbox" id="ppGray">
-                                <label class="form-check-label small" for="ppGray">Grayscale</label>
+                                <label class="form-check-label small" for="ppGray">{{ t('Grayscale') }}</label>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="ppBw">
-                                <label class="form-check-label small" for="ppBw">Black &amp; white (threshold <span id="ppBwVal">160</span>)</label>
+                                <label class="form-check-label small" for="ppBw">{{ t('Black & white (threshold <span id="ppBwVal">160</span>)')|safe }}</label>
                             </div>
                             <input type="range" class="form-range" id="ppBwThreshold" min="60" max="230" step="5" value="160">
-                            <div class="form-text">Shared with the Toolbox PDF Tool. Defaults leave pages unchanged.</div>
+                            <div class="form-text">{{ t('Shared with the Toolbox PDF Tool. Defaults leave pages unchanged.') }}</div>
                         </div>
                     </details>
                 </div>
@@ -250,14 +250,14 @@
 
             <div class="row g-2 mt-3 align-items-end">
                 <div class="col-md-6">
-                    <label for="pageRangeInput" class="form-label fw-bold">Pages <span class="text-muted fw-normal">(optional)</span></label>
-                    <input type="text" id="pageRangeInput" class="form-control" placeholder="All pages" autocomplete="off">
-                    <div class="form-text">Source PDF page numbers (1-based), e.g. <code>1-8</code> or <code>3,5,12-14</code>. Leave blank to load every page. Applied before A3 split.</div>
+                    <label for="pageRangeInput" class="form-label fw-bold">{{ t('Pages') }} <span class="text-muted fw-normal">{{ t('(optional)') }}</span></label>
+                    <input type="text" id="pageRangeInput" class="form-control" placeholder="{{ t('All pages') }}" autocomplete="off">
+                    <div class="form-text">{{ t('Source PDF page numbers (1-based), e.g. <code>1-8</code> or <code>3,5,12-14</code>. Leave blank to load every page. Applied before A3 split.')|safe }}</div>
                 </div>
             </div>
             <div class="mt-3 d-flex gap-2">
                 <button id="btnLoadPdf" class="btn btn-warning">
-                    <i class="bi bi-file-earmark-arrow-up"></i> Load PDF
+                    <i class="bi bi-file-earmark-arrow-up"></i> {{ t('Load PDF') }}
                 </button>
             </div>
         </div>
@@ -266,7 +266,7 @@
     <!-- ===== Progress + Log ===== -->
     <div id="progressSection" class="mb-2 d-none">
         <div class="d-flex justify-content-between mb-1">
-            <small id="progressLabel" class="text-muted">Working...</small>
+            <small id="progressLabel" class="text-muted">{{ t('Working...') }}</small>
             <small id="progressCount" class="text-muted">0 / 0</small>
         </div>
         <div class="progress" style="height: 20px;">
@@ -277,25 +277,22 @@
 
     <div class="card mb-3">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-terminal"></i> Log</span>
-            <span id="logStatus" class="badge bg-secondary">Idle</span>
+            <span><i class="bi bi-terminal"></i> {{ t('Log') }}</span>
+            <span id="logStatus" class="badge bg-secondary">{{ t('Idle') }}</span>
         </div>
-        <div id="logConsole" class="log-console">Welcome to PDF Batch Import.
-Step 1: choose your task, PDF(s) and optional page range, then click "Load PDF".
-Step 2: click "Detect questions" (and "Detect parts" for structured papers), or draw boxes yourself.
-</div>
+        <div id="logConsole" class="log-console">{{ t('Welcome to PDF Batch Import.\nStep 1: choose your task, PDF(s) and optional page range, then click "Load PDF".\nStep 2: click "Detect questions" (and "Detect parts" for structured papers), or draw boxes yourself.\n') }}</div>
     </div>
 
     <!-- ===== Step 2: Bounding boxes ===== -->
     <div class="card mb-3 d-none" id="bboxCard">
         <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <span><i class="bi bi-2-circle"></i> Defining bounding boxes</span>
+            <span><i class="bi bi-2-circle"></i> {{ t('Defining bounding boxes') }}</span>
             <span id="reviewSummary" class="text-muted small"></span>
         </div>
         <div class="card-body">
             <div class="row g-3 mb-2" id="detectControls">
                 <div class="col-md-5">
-                    <label for="endpointSelect" class="form-label fw-bold">LLM endpoint (vision)</label>
+                    <label for="endpointSelect" class="form-label fw-bold">{{ t('LLM endpoint (vision)') }}</label>
                     <select id="endpointSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
                         {% for e in endpoints %}
                         <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }} ({{ e.model_name }})</option>
@@ -303,74 +300,74 @@ Step 2: click "Detect questions" (and "Detect parts" for structured papers), or 
                     </select>
                     <div class="form-check mt-2 d-none" id="pdfParallelWrap">
                         <input class="form-check-input" type="checkbox" id="pdfParallelChk" checked>
-                        <label class="form-check-label" for="pdfParallelChk" title="Detect multiple pages at once. Available for cloud endpoints that allow concurrent requests.">
-                            <i class="bi bi-lightning-charge"></i> Run in parallel <span id="pdfParallelHint" class="text-muted"></span>
+                        <label class="form-check-label" for="pdfParallelChk" title="{{ t('Detect multiple pages at once. Available for cloud endpoints that allow concurrent requests.') }}">
+                            <i class="bi bi-lightning-charge"></i> {{ t('Run in parallel') }} <span id="pdfParallelHint" class="text-muted"></span>
                         </label>
                     </div>
                 </div>
                 <div class="col-md-4">
-                    <label for="cropWidthSel" class="form-label fw-bold">Crop width</label>
-                    <select id="cropWidthSel" class="form-select" title="How the left and right edges of every box are decided.">
-                        <option value="auto" {% if width_mode_default == 'auto' %}selected{% endif %}>Auto: printed frame, else uniform width</option>
-                        <option value="uniform" {% if width_mode_default == 'uniform' %}selected{% endif %}>Uniform width per side (ignore frame)</option>
-                        <option value="model" {% if width_mode_default == 'model' %}selected{% endif %}>Model's own boxes</option>
+                    <label for="cropWidthSel" class="form-label fw-bold">{{ t('Crop width') }}</label>
+                    <select id="cropWidthSel" class="form-select" title="{{ t('How the left and right edges of every box are decided.') }}">
+                        <option value="auto" {% if width_mode_default == 'auto' %}selected{% endif %}>{{ t('Auto: printed frame, else uniform width') }}</option>
+                        <option value="uniform" {% if width_mode_default == 'uniform' %}selected{% endif %}>{{ t('Uniform width per side (ignore frame)') }}</option>
+                        <option value="model" {% if width_mode_default == 'model' %}selected{% endif %}>{{ t("Model's own boxes") }}</option>
                     </select>
-                    <div class="form-text" id="cropWidthHint">Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.</div>
+                    <div class="form-text" id="cropWidthHint">{{ t("Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.") }}</div>
                 </div>
                 <div class="col-md-3 exam-only d-flex flex-column">
-                    <span class="form-label fw-bold">Parts</span>
+                    <span class="form-label fw-bold">{{ t('Parts') }}</span>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="splitPartsChk">
-                        <label class="form-check-label" for="splitPartsChk" title="After finding each numbered question, run a second pass that cuts the shared background (stem) and lettered parts (a)(b)(c).">
-                            <i class="bi bi-scissors"></i> Split questions into parts
+                        <label class="form-check-label" for="splitPartsChk" title="{{ t('After finding each numbered question, run a second pass that cuts the shared background (stem) and lettered parts (a)(b)(c).') }}">
+                            <i class="bi bi-scissors"></i> {{ t('Split questions into parts') }}
                         </label>
                     </div>
-                    <div class="form-text">For structured papers: grey stem + amber lettered parts. Leave off for one-box-per-number papers (MC). Starts from the subject's default.</div>
+                    <div class="form-text">{{ t("For structured papers: grey stem + amber lettered parts. Leave off for one-box-per-number papers (MC). Starts from the subject's default.") }}</div>
                 </div>
                 <div class="col-12 d-none" id="instructionCol">
-                    <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">What to extract</label>
-                    <textarea id="instructionInput" class="form-control" rows="2" placeholder="e.g. Extract every data table with its title. / Extract each chart and its caption."></textarea>
-                    <div class="form-text" id="instructionHint">Describe the regions you want detected. No exam-question context is sent to the model.</div>
+                    <label for="instructionInput" class="form-label fw-bold" id="instructionLabel">{{ t('What to extract') }}</label>
+                    <textarea id="instructionInput" class="form-control" rows="2" placeholder="{{ t('e.g. Extract every data table with its title. / Extract each chart and its caption.') }}"></textarea>
+                    <div class="form-text" id="instructionHint">{{ t('Describe the regions you want detected. No exam-question context is sent to the model.') }}</div>
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
-                <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %} title="Find every numbered question on every page (one model call per page). With Split questions into parts ticked, the part split runs straight after.">
-                    <i class="bi bi-robot"></i> <span id="btnRunDetectLabel">Detect questions</span>
+                <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %} title="{{ t('Find every numbered question on every page (one model call per page). With Split questions into parts ticked, the part split runs straight after.') }}">
+                    <i class="bi bi-robot"></i> <span id="btnRunDetectLabel">{{ t('Detect questions') }}</span>
                 </button>
-                <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled title="Split the whole-question boxes into a stem and lettered parts (one model call per question page).">
-                    <i class="bi bi-scissors"></i> Detect parts
+                <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled title="{{ t('Split the whole-question boxes into a stem and lettered parts (one model call per question page).') }}">
+                    <i class="bi bi-scissors"></i> {{ t('Detect parts') }}
                 </button>
-                <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> Stop</button>
-                <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> Start over</button>
-                <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> Discard</button>
+                <button id="btnStop" class="btn btn-danger d-none"><i class="bi bi-stop-fill"></i> {{ t('Stop') }}</button>
+                <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> {{ t('Start over') }}</button>
+                <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> {{ t('Discard') }}</button>
                 {% if not ai_enabled or not endpoints %}
-                <span class="text-muted small" id="detectDisabledHint">Load a PDF first, or configure a vision endpoint to run detection.</span>
+                <span class="text-muted small" id="detectDisabledHint">{{ t('Load a PDF first, or configure a vision endpoint to run detection.') }}</span>
                 {% endif %}
             </div>
             <div id="frameStatus" class="small text-muted mb-2 d-none"></div>
             <details class="mb-2" id="advancedDetect">
-                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-sliders"></i> Advanced: detection method, custom prompt, debug</summary>
+                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-sliders"></i> {{ t('Advanced: detection method, custom prompt, debug') }}</summary>
                 <div class="row g-3 pt-2">
                     <div class="col-md-6">
-                        <label for="methodSelect" class="form-label fw-bold small mb-1">Detection method</label>
+                        <label for="methodSelect" class="form-label fw-bold small mb-1">{{ t('Detection method') }}</label>
                         <select id="methodSelect" class="form-select form-select-sm" {% if not endpoints %}disabled{% endif %}>
-                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only (model draws boxes)</option>
-                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>LLM assisted &mdash; refine boxes</option>
-                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>LLM assisted &mdash; segment</option>
+                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only (model draws boxes)') }}</option>
+                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>{{ t('LLM assisted — refine boxes') }}</option>
+                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>{{ t('LLM assisted — segment') }}</option>
                         </select>
-                        <div class="form-text"><strong>Refine</strong>: model boxes snapped to the printed content by computer vision. <strong>Segment</strong>: the model only marks where each question starts; computer vision derives the boxes (single column only). Both need NumPy; each page can be re-run with another method.</div>
+                        <div class="form-text">{{ t('<strong>Refine</strong>: model boxes snapped to the printed content by computer vision. <strong>Segment</strong>: the model only marks where each question starts; computer vision derives the boxes (single column only). Both need NumPy; each page can be re-run with another method.')|safe }}</div>
                     </div>
                     <div class="col-md-6">
                         <div class="form-check exam-only">
                             <input class="form-check-input" type="checkbox" id="customPromptChk">
-                            <label class="form-check-label" for="customPromptChk" title="Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…">
-                                <i class="bi bi-pencil-square"></i> Custom detection prompt (no exam context)
+                            <label class="form-check-label" for="customPromptChk" title="{{ t('Use a context-free prompt (you describe what a question looks like) instead of the built-in DSE prompt — for textbooks or non-standard formats. Questions are auto-numbered 1, 2, 3…') }}">
+                                <i class="bi bi-pencil-square"></i> {{ t('Custom detection prompt (no exam context)') }}
                             </label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="debugChk">
-                            <label class="form-check-label" for="debugChk" title="Log the model's raw JSON reply for each page so you can check the bounding-box coordinates.">
-                                <i class="bi bi-bug"></i> Debug: show raw model output
+                            <label class="form-check-label" for="debugChk" title="{{ t('Log the model\'s raw JSON reply for each page so you can check the bounding-box coordinates.') }}">
+                                <i class="bi bi-bug"></i> {{ t('Debug: show raw model output') }}
                             </label>
                         </div>
                         <div class="form-text" id="coordOrderHint"></div>
@@ -378,65 +375,59 @@ Step 2: click "Detect questions" (and "Detect parts" for structured papers), or 
                 </div>
             </details>
             <div class="border rounded px-2 py-2 mb-2 d-flex flex-wrap align-items-center gap-2 exam-only" id="agentStrip">
-                <button id="btnRunAgent" class="btn btn-sm btn-outline-success" disabled title="Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.">
-                    <i class="bi bi-stars"></i> Run AI agent
+                <button id="btnRunAgent" class="btn btn-sm btn-outline-success" disabled title="{{ t('Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.') }}">
+                    <i class="bi bi-stars"></i> {{ t('Run AI agent') }}
                 </button>
-                <span class="badge text-bg-warning">Experimental</span>
-                <span class="small text-muted flex-grow-1" style="min-width: 16rem;">Full auto: reads the whole paper, locates and splits every question, checks its own boxes and lists what needs a look. Uses more model calls and replaces the boxes in this session.</span>
+                <span class="badge text-bg-warning">{{ t('Experimental') }}</span>
+                <span class="small text-muted flex-grow-1" style="min-width: 16rem;">{{ t('Full auto: reads the whole paper, locates and splits every question, checks its own boxes and lists what needs a look. Uses more model calls and replaces the boxes in this session.') }}</span>
             </div>
             <details class="mb-3">
-                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-question-circle"></i> How to edit boxes</summary>
+                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-question-circle"></i> {{ t('How to edit boxes') }}</summary>
                 <ul class="text-muted small mb-0 pt-1">
-                    <li><strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, select it and press <kbd>Delete</kbd> to remove it. After clicking a box, the <strong>arrow keys</strong> nudge it (<kbd>Shift</kbd> = 10&times; faster); hold <kbd>H</kbd> while dragging to hide the magnifier. <strong>Click a crop preview</strong> to enlarge it.</li>
-                    <li><strong>Add box ▾</strong> on a page: <em>Add question</em> takes the next number and shifts later questions up where they would clash; <em>Add part</em> takes the next letter of the question it is drawn in (the first part trims the question box down to its stem); <em>Add stem</em> adds the shared background of the question above.</li>
-                    <li>Deleting the last box of a question shifts later question numbers down. Typing a Q# and moving / resizing never renumber anything. <strong>Renumber from here</strong> on a page makes that page and every later page sequential (parts follow their question).</li>
-                    <li>Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. Roles come from the labels: typing 4d and 4di makes 4d a nested stem. The + button on a row adds the next part beneath it.</li>
-                    <li>Per question: <strong>Re-split</strong> / <strong>Unsplit</strong>. Per page: <strong>Re-run</strong> (choose method / endpoint from its menu), <strong>Re-split page</strong>, <strong>Frame</strong>.</li>
-                    <li>
-                        <span class="badge" style="background:#d63384;">QUE</span>
-                        <span class="badge bg-primary">SOL</span>
-                        <span class="badge" style="background:#6c757d;">stem</span>
-                        <span class="badge" style="background:#fd7e14;">part</span>
-                        &mdash; then use Step 3 to import.
-                    </li>
+                    <li>{{ t('<strong>Drag</strong> a box to move it, drag its <strong>handles</strong> to resize, select it and press <kbd>Delete</kbd> to remove it. After clicking a box, the <strong>arrow keys</strong> nudge it (<kbd>Shift</kbd> = 10× faster); hold <kbd>H</kbd> while dragging to hide the magnifier. <strong>Click a crop preview</strong> to enlarge it.')|safe }}</li>
+                    <li>{{ t('<strong>Add box ▾</strong> on a page: <em>Add question</em> takes the next number and shifts later questions up where they would clash; <em>Add part</em> takes the next letter of the question it is drawn in (the first part trims the question box down to its stem); <em>Add stem</em> adds the shared background of the question above.')|safe }}</li>
+                    <li>{{ t('Deleting the last box of a question shifts later question numbers down. Typing a Q# and moving / resizing never renumber anything. <strong>Renumber from here</strong> on a page makes that page and every later page sequential (parts follow their question).')|safe }}</li>
+                    <li>{{ t('Q# can be <code>3</code>, a part <code>3a</code>, or a shared range <code>23-24</code>. Roles come from the labels: typing 4d and 4di makes 4d a nested stem. The + button on a row adds the next part beneath it.')|safe }}</li>
+                    <li>{{ t('Per question: <strong>Re-split</strong> / <strong>Unsplit</strong>. Per page: <strong>Re-run</strong> (choose method / endpoint from its menu), <strong>Re-split page</strong>, <strong>Frame</strong>.')|safe }}</li>
+                    <li>{{ t('<span class="badge" style="background:#d63384;">QUE</span> <span class="badge bg-primary">SOL</span> <span class="badge" style="background:#6c757d;">stem</span> <span class="badge" style="background:#fd7e14;">part</span> — then use Step 3 to import.')|safe }}</li>
                 </ul>
             </details>
             <div id="agentStage" class="alert alert-light border d-none py-2 small" role="status">
-                <i class="bi bi-stars text-success"></i> <strong>AI agent:</strong>
-                <span class="agent-step" data-stage="outline">1 Outline</span> ›
-                <span class="agent-step" data-stage="locate">2 Locate</span> ›
-                <span class="agent-step" data-stage="segment">3 Split parts</span> ›
-                <span class="agent-step" data-stage="verify">4 Verify</span>
+                <i class="bi bi-stars text-success"></i> <strong>{{ t('AI agent:') }}</strong>
+                <span class="agent-step" data-stage="outline">{{ t('1 Outline') }}</span> ›
+                <span class="agent-step" data-stage="locate">{{ t('2 Locate') }}</span> ›
+                <span class="agent-step" data-stage="segment">{{ t('3 Split parts') }}</span> ›
+                <span class="agent-step" data-stage="verify">{{ t('4 Verify') }}</span>
                 <span id="agentStageMsg" class="text-muted ms-2"></span>
             </div>
             <div id="attentionPanel" class="card border-warning mb-3 d-none">
                 <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <span><i class="bi bi-exclamation-triangle-fill text-warning"></i> <strong>Needs attention</strong>
+                    <span><i class="bi bi-exclamation-triangle-fill text-warning"></i> <strong>{{ t('Needs attention') }}</strong>
                         <span id="attentionCounts" class="ms-2 small text-muted"></span></span>
                     <span class="d-flex gap-2 align-items-center">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionOutlineBtn" title="Show the paper outline the agent worked from">
-                            <i class="bi bi-list-nested"></i> Outline
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionOutlineBtn" title="{{ t('Show the paper outline the agent worked from') }}">
+                            <i class="bi bi-list-nested"></i> {{ t('Outline') }}
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionClearBtn" title="Hide the list (does not change any box)">
-                            <i class="bi bi-x-lg"></i> Dismiss all
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="attentionClearBtn" title="{{ t('Hide the list (does not change any box)') }}">
+                            <i class="bi bi-x-lg"></i> {{ t('Dismiss all') }}
                         </button>
                     </span>
                 </div>
                 <div class="card-body py-2">
-                    <div class="small text-muted mb-2">The agent handled everything else. Click an entry to jump to the box; fix the Q# or box, or draw / delete as needed, then dismiss it. Red entries mean a question or part that was expected but not found.</div>
+                    <div class="small text-muted mb-2">{{ t('The agent handled everything else. Click an entry to jump to the box; fix the Q# or box, or draw / delete as needed, then dismiss it. Red entries mean a question or part that was expected but not found.') }}</div>
                     <ul id="attentionList" class="list-unstyled mb-0"></ul>
                     <pre id="attentionOutline" class="small bg-light border rounded p-2 mt-2 mb-0 d-none" style="max-height: 16rem; overflow:auto;"></pre>
                 </div>
             </div>
             <div id="orderWarning" class="alert alert-danger d-none border-2 fw-semibold" role="alert">
-                <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> <span id="orderWarningTitle">Check the question numbers</span></h5>
+                <h5 class="alert-heading mb-2"><i class="bi bi-exclamation-triangle-fill"></i> <span id="orderWarningTitle">{{ t('Check the question numbers') }}</span></h5>
                 <div id="orderWarningBody" class="small fw-normal"></div>
-                <div class="small fw-normal mt-2 text-muted">As you read down each side, numbers should go up one at a time (a question that spans pages repeats its number). A <strong>drop</strong> usually means a multi-page question got mis-linked or a box was mis-numbered &mdash; fix the Q# or renumber. A <strong>gap</strong> usually means a page failed or a question was missed &mdash; re-run that page or draw the box with Add box. A <strong>repeat</strong> on one page is imported as one joined image.</div>
+                <div class="small fw-normal mt-2 text-muted">{{ t('As you read down each side, numbers should go up one at a time (a question that spans pages repeats its number). A <strong>drop</strong> usually means a multi-page question got mis-linked or a box was mis-numbered — fix the Q# or renumber. A <strong>gap</strong> usually means a page failed or a question was missed — re-run that page or draw the box with Add box. A <strong>repeat</strong> on one page is imported as one joined image.')|safe }}</div>
             </div>
             <div id="marksWarning" class="alert alert-warning d-none small py-2" role="alert">
-                <i class="bi bi-calculator"></i> <strong>Check the marks:</strong>
+                <i class="bi bi-calculator"></i> <strong>{{ t('Check the marks:') }}</strong>
                 <span id="marksWarningBody"></span>
-                <div class="text-muted mt-1">The number on a question or stem row is the printed total; on a part row it is that part's marks. Only part (or unsplit question) marks are saved.</div>
+                <div class="text-muted mt-1">{{ t("The number on a question or stem row is the printed total; on a part row it is that part's marks. Only part (or unsplit question) marks are saved.") }}</div>
             </div>
             <div id="reviewBody"></div>
         </div>
@@ -444,45 +435,45 @@ Step 2: click "Detect questions" (and "Detect parts" for structured papers), or 
 
     <!-- ===== Step 3: Import ===== -->
     <div class="card mb-3 d-none" id="importCard">
-        <div class="card-header bg-light"><i class="bi bi-3-circle"></i> Import to question bank</div>
+        <div class="card-header bg-light"><i class="bi bi-3-circle"></i> {{ t('Import to question bank') }}</div>
         <div class="card-body">
             <div class="row g-3 exam-only" id="importExamOpts">
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Versions</label>
+                    <label class="form-label fw-bold">{{ t('Versions') }}</label>
                     <div class="row g-2">
                         <div class="col-6">
-                            <select id="queVersionSelect" class="form-select form-select-sm" title="Version for QUESTION images">
+                            <select id="queVersionSelect" class="form-select form-select-sm" title="{{ t('Version for QUESTION images') }}">
                                 {% for v in versions %}
-                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>QUE → {{ v }}</option>
+                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>{{ t('QUE → {version}', version=v) }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="col-6">
-                            <select id="solVersionSelect" class="form-select form-select-sm" title="Version for SOLUTION images">
+                            <select id="solVersionSelect" class="form-select form-select-sm" title="{{ t('Version for SOLUTION images') }}">
                                 {% for v in versions %}
-                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>SOL → {{ v }}</option>
+                                <option value="{{ v }}" {% if v == 'ENO' %}selected{% endif %}>{{ t('SOL → {version}', version=v) }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                     </div>
-                    <div class="form-text">Question and solution images can use different versions.</div>
+                    <div class="form-text">{{ t('Question and solution images can use different versions.') }}</div>
                 </div>
                 <div class="col-md-6 d-flex flex-column justify-content-center">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="overwriteChk">
-                        <label class="form-check-label" for="overwriteChk">Overwrite existing images</label>
+                        <label class="form-check-label" for="overwriteChk">{{ t('Overwrite existing images') }}</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="trimWhiteChk" {% if trim_white_default %}checked{% endif %}>
-                        <label class="form-check-label" for="trimWhiteChk" title="When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose margins are removed. When OFF, the crop respects your selected box exactly (only the crop safety margin is applied), keeping any margin you deliberately leave.">
-                            <i class="bi bi-crop"></i> Trim whitespace on import
+                        <label class="form-check-label" for="trimWhiteChk" title="{{ t('When ON, each imported crop is tightened to its non-white content — trailing blank answer space and loose margins are removed. When OFF, the crop respects your selected box exactly (only the crop safety margin is applied), keeping any margin you deliberately leave.') }}">
+                            <i class="bi bi-crop"></i> {{ t('Trim whitespace on import') }}
                         </label>
                     </div>
                 </div>
             </div>
             <div class="d-flex gap-2 mt-2">
-                <button id="btnCommit" class="btn btn-success exam-only"><i class="bi bi-check2-circle"></i> Import to database</button>
-                <button id="btnZip" class="btn btn-success d-none generic-only"><i class="bi bi-file-earmark-zip"></i> Download all as ZIP</button>
+                <button id="btnCommit" class="btn btn-success exam-only"><i class="bi bi-check2-circle"></i> {{ t('Import to database') }}</button>
+                <button id="btnZip" class="btn btn-success d-none generic-only"><i class="bi bi-file-earmark-zip"></i> {{ t('Download all as ZIP') }}</button>
             </div>
         </div>
     </div>
@@ -492,7 +483,7 @@ Step 2: click "Detect questions" (and "Detect parts" for structured papers), or 
 
     <!-- ===== Summary ===== -->
     <div id="summaryPanel" class="card mt-3 d-none">
-        <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> Import Summary</div>
+        <div class="card-header bg-success text-white"><i class="bi bi-check-circle"></i> {{ t('Import Summary') }}</div>
         <div class="card-body">
             <div class="row text-center" id="summaryStats"></div>
         </div>
@@ -510,7 +501,7 @@ const FRAME_INSET = {{ frame_inset_frac|tojson }};   // fraction of page width i
 const GLOBAL_COORD_ORDER = {{ coord_order_default|tojson }};   // PDF_IMPORT_COORD_ORDER
 const WIDTH_MODE_DEFAULT = {{ width_mode_default|tojson }};    // PDF_IMPORT_WIDTH_MODE_DEFAULT
 const { clamp01, applyBoxStyle, drawPreview, showCropPreview } = OQBBboxEditor;
-const METHOD_LABELS = { llm: 'LLM only', refine: 'Assisted: refine', segment: 'Assisted: segment' };
+const METHOD_LABELS = { llm: OQB.t('LLM only'), refine: OQB.t('Assisted: refine'), segment: OQB.t('Assisted: segment') };
 
 // ----- DOM refs -----
 const paperInput = document.getElementById('paperInput');
@@ -529,7 +520,7 @@ function updateParallelUI() {
     const cloud = !!(ep && ep.kind === 'cloud' && (ep.max_concurrency || 1) > 1);
     pdfParallelWrap.classList.toggle('d-none', !cloud);
     if (cloud) document.getElementById('pdfParallelHint').textContent =
-        `(up to ${ep.max_concurrency} pages at once)`;
+        OQB.t('(up to {n} pages at once)', {n: ep.max_concurrency});
 }
 const quePdf = document.getElementById('quePdf');
 const solPdf = document.getElementById('solPdf');
@@ -586,19 +577,19 @@ function updateInstructionVisibility() {
     const show = generic || (currentTask() === 'exam' && customPromptChk.checked);
     document.getElementById('instructionCol').classList.toggle('d-none', !show);
     document.getElementById('instructionLabel').textContent =
-        generic ? 'What to extract' : 'What does a question look like?';
+        generic ? OQB.t('What to extract') : OQB.t('What does a question look like?');
     document.getElementById('instructionHint').textContent = generic
-        ? 'Describe the regions you want detected. No exam-question context is sent to the model.'
-        : 'Describe what one question looks like so the model can find them (no DSE context is sent). Questions are auto-numbered 1, 2, 3… in reading order.';
+        ? OQB.t('Describe the regions you want detected. No exam-question context is sent to the model.')
+        : OQB.t('Describe what one question looks like so the model can find them (no DSE context is sent). Questions are auto-numbered 1, 2, 3… in reading order.');
 }
 function applyTaskUI() {
     const generic = currentTask() === 'generic';
     document.querySelectorAll('.exam-only').forEach(el => el.classList.toggle('d-none', generic));
     document.querySelectorAll('.generic-only').forEach(el => el.classList.toggle('d-none', !generic));
-    document.getElementById('quePdfLabel').textContent = generic ? 'PDF' : 'Question PDF';
+    document.getElementById('quePdfLabel').textContent = generic ? OQB.t('PDF') : OQB.t('Question PDF');
     document.getElementById('taskHint').textContent = generic
-        ? 'Detect arbitrary regions you describe and download them as a ZIP (nothing is imported to the database).'
-        : 'Detect each exam question / solution and import them as image assets.';
+        ? OQB.t('Detect arbitrary regions you describe and download them as a ZIP (nothing is imported to the database).')
+        : OQB.t('Detect each exam question / solution and import them as image assets.');
     // The "segment" method is exam-specific; hide it for generic.
     const segOpt = methodSelect.querySelector('option[value="segment"]');
     if (segOpt) {
@@ -625,11 +616,11 @@ customPromptChk.addEventListener('change', updateInstructionVisibility);
 // Crop width is review-time: switching conforms existing boxes to the new
 // policy (frame rails, then the shared uniform width); "model" leaves the
 // current geometry alone and makes boxes independent again.
-const CROP_WIDTH_HINTS = {
-    auto: 'Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box\'s width.',
-    uniform: 'Every box on a side gets the widest box\'s width, keeping its own left edge. Printed frames are ignored.',
-    model: 'Boxes keep the left / right edges the model drew.',
-};
+function cropWidthHintText(mode) {
+    if (mode === 'uniform') return OQB.t("Every box on a side gets the widest box's width, keeping its own left edge. Printed frames are ignored.");
+    if (mode === 'model') return OQB.t("Boxes keep the left / right edges the model drew.");
+    return OQB.t("Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.");
+}
 cropWidthSel.addEventListener('change', () => {
     if (!uniformActive()) uniformWidth = { que: null, sol: null };
     ['que', 'sol'].forEach(applyWidthPolicy);
@@ -637,7 +628,7 @@ cropWidthSel.addEventListener('change', () => {
     updateCropWidthUI();
 });
 function updateCropWidthUI() {
-    document.getElementById('cropWidthHint').textContent = CROP_WIDTH_HINTS[cropWidthMode()] || '';
+    document.getElementById('cropWidthHint').textContent = cropWidthHintText(cropWidthMode());
     updateFrameStatus();
 }
 // One line under the buttons saying which width rule each side will use.
@@ -650,18 +641,19 @@ function updateFrameStatus() {
     ['que', 'sol'].forEach(kind => {
         const pages = (staging[kind] && staging[kind].pages) || [];
         if (!pages.length) return;
-        const side = isGeneric() ? 'Pages' : kind.toUpperCase();
+        const side = isGeneric() ? OQB.t('Pages') : kind.toUpperCase();
         const framed = pages.filter(p => p.frame && p.frame.box).length;
+        const total = pages.length;
         if (mode === 'model') {
-            parts.push(`${side}: boxes keep the model's own widths.`);
+            parts.push(OQB.t("{side}: boxes keep the model's own widths.", {side}));
         } else if (mode === 'uniform' || !frameSnapActive()) {
-            parts.push(`${side}: every box shares the widest box's width.`);
-        } else if (framed === pages.length) {
-            parts.push(`${side}: printed frame on ${framed}/${pages.length} pages — crops use the frame.`);
+            parts.push(OQB.t("{side}: every box shares the widest box's width.", {side}));
+        } else if (framed === total) {
+            parts.push(OQB.t('{side}: printed frame on {framed}/{total} pages — crops use the frame.', {side, framed, total}));
         } else if (framed) {
-            parts.push(`${side}: printed frame on ${framed}/${pages.length} pages — those use the frame, the rest share the widest box's width.`);
+            parts.push(OQB.t("{side}: printed frame on {framed}/{total} pages — those use the frame, the rest share the widest box's width.", {side, framed, total}));
         } else {
-            parts.push(`${side}: no printed frame — boxes share the widest box's width (use Frame on a page to add one).`);
+            parts.push(OQB.t("{side}: no printed frame — boxes share the widest box's width (use Frame on a page to add one).", {side}));
         }
     });
     el.innerHTML = parts.length ? '<i class="bi bi-arrows"></i> ' + parts.map(escapeHtml).join(' ') : '';
@@ -671,8 +663,8 @@ function updateFrameStatus() {
 function refreshDetectLabel() {
     const lbl = document.getElementById('btnRunDetectLabel');
     if (!lbl) return;
-    lbl.textContent = isGeneric() ? 'Detect regions'
-        : (splitPartsChk && splitPartsChk.checked ? 'Detect questions + parts' : 'Detect questions');
+    lbl.textContent = isGeneric() ? OQB.t('Detect regions')
+        : (splitPartsChk && splitPartsChk.checked ? OQB.t('Detect questions + parts') : OQB.t('Detect questions'));
 }
 function updateCoordOrderHint() {
     const el = document.getElementById('coordOrderHint');
@@ -680,8 +672,9 @@ function updateCoordOrderHint() {
     const ep = ENDPOINTS.find(e => String(e.id) === String(endpointSelect.value));
     if (!ep) { el.textContent = ''; return; }
     const order = ep.box_coord_order || GLOBAL_COORD_ORDER;
-    const src = ep.box_coord_order ? 'set on this endpoint' : 'system default';
-    el.textContent = `Box axis order: ${order} (${src}). Gemini / Gemma / PaliGemma models need yxyx — set it under LLM Endpoints.`;
+    el.textContent = ep.box_coord_order
+        ? OQB.t('Box axis order: {order} (set on this endpoint). Gemini / Gemma / PaliGemma models need yxyx — set it under LLM Endpoints.', {order})
+        : OQB.t('Box axis order: {order} (system default). Gemini / Gemma / PaliGemma models need yxyx — set it under LLM Endpoints.', {order});
 }
 endpointSelect.addEventListener('change', () => { updateParallelUI(); updateCoordOrderHint(); });
 updateParallelUI();
@@ -806,17 +799,17 @@ function refreshCardFrameUI(card) {
     if (badge) {
         badge.classList.toggle('d-none', !fr);
         if (fr) {
-            badge.textContent = fr.source === 'manual' ? 'frame (manual)'
-                : fr.source === 'inferred' ? 'frame (inferred)' : 'frame';
-            badge.title = 'Printed page frame (dashed green). Drag its rails to correct it; boxes snap to it while Crop width is Auto.';
+            badge.textContent = fr.source === 'manual' ? OQB.t('frame (manual)')
+                : fr.source === 'inferred' ? OQB.t('frame (inferred)') : OQB.t('frame');
+            badge.title = OQB.t('Printed page frame (dashed green). Drag its rails to correct it; boxes snap to it while Crop width is Auto.');
         }
     }
     const btnNoFrame = card.querySelector('.btn-frame-toggle');
     if (btnNoFrame) {
-        btnNoFrame.innerHTML = fr ? '<i class="bi bi-layout-sidebar-inset"></i> No frame'
-                                  : '<i class="bi bi-layout-sidebar-inset"></i> Add frame';
-        btnNoFrame.title = fr ? 'Treat this page as having no printed frame (boxes keep their own widths)'
-                              : 'Add a page frame guide to this page (then drag its rails)';
+        btnNoFrame.innerHTML = fr ? '<i class="bi bi-layout-sidebar-inset"></i> ' + OQB.t('No frame')
+                                  : '<i class="bi bi-layout-sidebar-inset"></i> ' + OQB.t('Add frame');
+        btnNoFrame.title = fr ? OQB.t('Treat this page as having no printed frame (boxes keep their own widths)')
+                              : OQB.t('Add a page frame guide to this page (then drag its rails)');
     }
 }
 async function saveFrame(kind, page, box) {
@@ -830,7 +823,7 @@ async function saveFrame(kind, page, box) {
         if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
         if (p) p.frame = data.frame || null;
     } catch (err) {
-        appendLog('Could not save the page frame: ' + err.message, 'error');
+        appendLog(OQB.t('Could not save the page frame: {error}', {error: err.message}), 'error');
         if (p && box) p.frame = { box, source: 'manual' };
     }
     const card = cardFor(kind, page);
@@ -974,7 +967,7 @@ function openServerPicker(target) {
     OQBFileSelector.open({
         mode: 'file',
         extensions: ['.pdf'],
-        title: 'Pick a PDF (' + (target === 'que' ? 'Question' : 'Solution') + ')',
+        title: OQB.t('Pick a PDF ({side})', {side: target === 'que' ? OQB.t('Question') : OQB.t('Solution')}),
         onPick: function (sel) { pickServerPdf(target, sel); },
     });
 }
@@ -1015,9 +1008,9 @@ function maybeGuessPaper(src) {
         .then(data => {
             if (data.paper && !paperInput.value.trim()) {
                 paperInput.value = data.paper;
-                appendLog(`Auto-filled paper name from PDF: ${data.paper}`, 'success');
+                appendLog(OQB.t('Auto-filled paper name from PDF: {paper}', {paper: data.paper}), 'success');
             } else if (!data.paper) {
-                appendLog('Could not auto-detect the paper name — please type it.', 'info');
+                appendLog(OQB.t('Could not auto-detect the paper name — please type it.'), 'info');
             }
         })
         .catch(() => { /* non-fatal — user types it manually */ })
@@ -1066,7 +1059,7 @@ function syncStripTop() {
     jobStrip.style.top = (nav ? nav.offsetHeight : 0) + 'px';
 }
 function stripStart(label, indeterminate) {
-    stripJobName = String(label || 'Working').replace(/(\.\.\.|…)$/, '');
+    stripJobName = String(label || OQB.t('Working')).replace(/(\.\.\.|…)$/, '');
     stripEnded = false;
     jobStrip.classList.remove('d-none');
     syncStripTop();
@@ -1079,7 +1072,7 @@ function stripEnd(state) {
     if (!stripJobName) return;
     stripEnded = true;
     jobStripBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
-    jobStripLabel.textContent = `${stripJobName} — ${state || 'finished'}`;
+    jobStripLabel.textContent = stripJobName + ' — ' + stripStateLabel(state || 'finished');
 }
 function setProgressLabel(text) {
     progressLabel.textContent = text;
@@ -1096,14 +1089,35 @@ function logRaw(kind, idx, raw) {
     // console so the raw bounding-box numbers are visible.
     const span = document.createElement('span');
     span.className = 'log-job';
-    span.textContent = `    └ raw ${kind.toUpperCase()} p${idx + 1}: ${(raw || '(empty)').trim()}\n`;
+    span.textContent = `    └ raw ${kind.toUpperCase()} p${idx + 1}: ${(raw || OQB.t('(empty)')).trim()}\n`;
     logConsole.appendChild(span);
     logConsole.scrollTop = logConsole.scrollHeight;
 }
+function statusLabel(text) {
+    if (text === 'Idle') return OQB.t('Idle');
+    if (text === 'Stopped') return OQB.t('Stopped');
+    if (text === 'Error') return OQB.t('Error');
+    if (text === 'AI agent') return OQB.t('AI agent');
+    if (text === 'Review') return OQB.t('Review');
+    if (text === 'Uploading') return OQB.t('Uploading');
+    if (text === 'Ready') return OQB.t('Ready');
+    if (text === 'Detecting') return OQB.t('Detecting');
+    if (text === 'Splitting parts') return OQB.t('Splitting parts');
+    if (text === 'Re-running') return OQB.t('Re-running');
+    if (text === 'Importing') return OQB.t('Importing');
+    if (text === 'Done') return OQB.t('Done');
+    return text;
+}
+function stripStateLabel(state) {
+    if (state === 'stopped') return OQB.t('stopped');
+    if (state === 'failed') return OQB.t('failed');
+    return OQB.t('finished');
+}
 function setStatus(text, cls) {
-    logStatus.textContent = text;
+    const shown = statusLabel(text);
+    logStatus.textContent = shown;
     logStatus.className = 'badge ' + cls;
-    jobStripBadge.textContent = text;
+    jobStripBadge.textContent = shown;
     jobStripBadge.className = 'badge ' + cls;
     if (text === 'Stopped') stripEnd('stopped');
     else if (text === 'Error') stripEnd('failed');
@@ -1120,7 +1134,7 @@ function updateProgress(ev) {
 }
 function showProgress(label) {
     progressSection.classList.remove('d-none');
-    progressLabel.textContent = label || 'Working...';
+    progressLabel.textContent = label || OQB.t('Working...');
     progressBar.style.width = '0%';
     progressBar.textContent = '0%';
     progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
@@ -1132,14 +1146,14 @@ function showProgress(label) {
 btnLoadPdf.addEventListener('click', loadPdf);
 btnRunDetect.addEventListener('click', runDetect);
 if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDetect({
-    busyBtn: btnSplitDetect, busyLabel: 'Splitting…',
+    busyBtn: btnSplitDetect, busyLabel: OQB.t('Splitting…'),
 }));
 if (splitPartsChk) {
     splitPartsChk.addEventListener('change', () => {
         refreshSplitDetectBtn();
         refreshDetectLabel();
         if (shouldAutoSplit() && staging && !running && planRegionCount() > 0) {
-            startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: 'Splitting…' });
+            startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: OQB.t('Splitting…') });
         }
     });
 }
@@ -1198,26 +1212,26 @@ async function startAgent(opts) {
     opts = opts || {};
     if (!staging || isGeneric()) return;
     if (!AI_ENABLED || !HAS_ENDPOINTS) {
-        alert('Configure a vision-capable LLM endpoint to run the AI agent.');
+        alert(OQB.t('Configure a vision-capable LLM endpoint to run the AI agent.'));
         return;
     }
     if (!opts.attach && opts.confirm && planRegionCount() > 0
-        && !confirm('The AI agent starts from scratch and replaces every box currently in this session. Continue?')) {
+        && !confirm(OQB.t('The AI agent starts from scratch and replaces every box currently in this session. Continue?'))) {
         return;
     }
     if (!opts.attach) {
         attentionItems = [];
         agentOutline = null;
         renderAttention();
-        appendLog('AI agent started: outline → locate → split parts → verify.', 'info');
-        setAgentStage('outline', 'reading the whole paper');
+        appendLog(OQB.t('AI agent started: outline → locate → split parts → verify.'), 'info');
+        setAgentStage('outline', OQB.t('reading the whole paper'));
         window._agentReconnects = 0;
     } else {
-        appendLog('Rejoined AI agent stream (the run kept going on the server).', 'info');
+        appendLog(OQB.t('Rejoined AI agent stream (the run kept going on the server).'), 'info');
     }
     setRunning(true, 'detect');
     setStatus('AI agent', 'bg-success');
-    showProgress('AI agent: reading the paper...');
+    showProgress(OQB.t('AI agent: reading the paper...'));
 
     let url = `${IMPORT_BASE}/agent?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
@@ -1231,11 +1245,16 @@ async function startAgent(opts) {
         let ev;
         try { ev = JSON.parse(e.data); } catch { return; }
         if (ev.type === 'heartbeat') return;
-        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8) + (ev.attached ? ' (rejoined)' : ''), 'job'); return; }
+        if (ev.type === 'job') {
+            currentJobId = ev.job_id;
+            const id = ev.job_id.slice(0, 8);
+            appendLog(ev.attached ? OQB.t('Job {id} (rejoined)', {id}) : OQB.t('Job {id}', {id}), 'job');
+            return;
+        }
         if (ev.stage && ev.stage !== 'done') {
             setAgentStage(ev.stage, ev.message || '');
-            const labels = { outline: 'AI agent: outlining the paper', locate: 'AI agent: locating questions',
-                             segment: 'AI agent: splitting parts', verify: 'AI agent: verifying boxes' };
+            const labels = { outline: OQB.t('AI agent: outlining the paper'), locate: OQB.t('AI agent: locating questions'),
+                             segment: OQB.t('AI agent: splitting parts'), verify: OQB.t('AI agent: verifying boxes') };
             if (labels[ev.stage]) setProgressLabel(labels[ev.stage]);
         }
         if (ev.message) appendLog(ev.message, ev.type === 'attention' ? 'warning' : ev.type);
@@ -1248,7 +1267,7 @@ async function startAgent(opts) {
             agentOutline = ev.outline || null;
             renderAttention();
             progressBar.classList.remove('progress-bar-animated');
-            setAgentStage('done', `finished — ${ev.calls || 0} model call(s)`);
+            setAgentStage('done', OQB.t('finished — {n} model call(s)', {n: ev.calls || 0}));
             setRunning(false);
             setStatus('Review', 'bg-primary');
             if (attentionItems.length) {
@@ -1261,12 +1280,12 @@ async function startAgent(opts) {
         const n = (window._agentReconnects || 0);
         if (!opts.attach && n < 2) {
             window._agentReconnects = n + 1;
-            appendLog('Stream dropped — rejoining; the agent is still running on the server.', 'warning');
+            appendLog(OQB.t('Stream dropped — rejoining; the agent is still running on the server.'), 'warning');
             closeStream();
             startAgent({ attach: true, confirm: false });
             return;
         }
-        appendLog('AI agent connection closed. The run may still finish — refresh or click Run AI agent to rejoin.', 'warning');
+        appendLog(OQB.t('AI agent connection closed. The run may still finish — refresh or click Run AI agent to rejoin.'), 'warning');
         closeStream();
         progressBar.classList.remove('progress-bar-animated');
         setRunning(false);
@@ -1305,7 +1324,7 @@ function renderAttention() {
     attentionPanel.classList.remove('d-none');
     const counts = { error: 0, warn: 0, info: 0 };
     attentionItems.forEach(a => { counts[a.severity] = (counts[a.severity] || 0) + 1; });
-    attentionCounts.textContent = `${counts.error} to fix, ${counts.warn} to check, ${counts.info} note(s)`;
+    attentionCounts.textContent = OQB.t('{errors} to fix, {warns} to check, {notes} note(s)', {errors: counts.error, warns: counts.warn, notes: counts.info});
     const order = { error: 0, warn: 1, info: 2 };
     const sorted = attentionItems.slice().sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
     document.querySelectorAll('.box-row.attention-error, .box-row.attention-warn')
@@ -1315,13 +1334,19 @@ function renderAttention() {
         li.className = 'd-flex align-items-start gap-2 py-1 border-bottom';
         const badge = a.severity === 'error' ? 'bg-danger' : a.severity === 'warn' ? 'bg-warning text-dark' : 'bg-secondary';
         const where = [a.kind ? a.kind.toUpperCase() : null, a.label ? 'Q' + a.label : null,
-                       a.page != null ? 'page ' + (a.page + 1) : null].filter(Boolean).join(' · ');
+                       a.page != null ? OQB.t('page {n}', {n: a.page + 1}) : null].filter(Boolean).join(' · ');
         const targets = itemsForAttention(a);
         targets.forEach(it => document.getElementById('row-' + it._uid)
             ?.classList.add(a.severity === 'error' ? 'attention-error' : 'attention-warn'));
-        li.innerHTML = `<span class="badge ${badge}">${a.severity === 'error' ? 'fix' : a.severity === 'warn' ? 'check' : 'note'}</span>
-            <span class="flex-grow-1"><span class="fw-semibold">${where || a.stage}</span> — ${escapeHtml(a.reason)}</span>
-            <button type="button" class="btn btn-sm btn-outline-secondary" title="Remove this entry">
+        const sevLabel = a.severity === 'error' ? OQB.t('fix') : a.severity === 'warn' ? OQB.t('check') : OQB.t('note');
+        const stageLabel = a.stage === 'outline' ? OQB.t('Outline')
+            : a.stage === 'locate' ? OQB.t('Locate')
+            : a.stage === 'segment' ? OQB.t('Split parts')
+            : a.stage === 'verify' ? OQB.t('Verify')
+            : (a.stage || '');
+        li.innerHTML = `<span class="badge ${badge}">${sevLabel}</span>
+            <span class="flex-grow-1"><span class="fw-semibold">${escapeHtml(where || stageLabel)}</span> — ${escapeHtml(a.reason)}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="${OQB.t('Remove this entry')}">
                 <i class="bi bi-check2"></i>
             </button>`;
         li.querySelector('.flex-grow-1').style.cursor = (targets.length || a.page != null) ? 'pointer' : 'default';
@@ -1356,21 +1381,28 @@ function escapeHtml(s) {
 }
 
 function outlineText(outline) {
-    if (!outline) return 'No outline available.';
+    if (!outline) return OQB.t('No outline available.');
     const lines = [];
     ['que', 'sol'].forEach(k => {
         const o = outline[k];
         if (!o) return;
-        lines.push((k === 'que' ? 'QUESTION PAPER' : 'MARKING SCHEME')
-            + (o.paper && (o.paper.year || o.paper.paper) ? `  (${[o.paper.year, o.paper.paper, o.paper.section].filter(Boolean).join(' ')})` : ''));
-        (o.pages || []).forEach(p => { if (p.kind !== 'question') lines.push(`  page ${p.page}: ${p.kind}`); });
+        const head = k === 'que' ? OQB.t('QUESTION PAPER') : OQB.t('MARKING SCHEME');
+        const paperBits = o.paper && (o.paper.year || o.paper.paper)
+            ? [o.paper.year, o.paper.paper, o.paper.section].filter(Boolean).join(' ') : '';
+        lines.push(paperBits ? OQB.t('{head}  ({paper})', {head, paper: paperBits}) : head);
+        (o.pages || []).forEach(p => {
+            if (p.kind !== 'question') lines.push(OQB.t('  page {n}: {kind}', {n: p.page, kind: p.kind}));
+        });
         (o.questions || []).forEach(q => {
-            const parts = (q.parts || []).length ? '  parts: ' + q.parts.join(', ') : '  (no lettered parts)';
-            const deps = (q.depends_prev || []).length ? `  depends: ${q.depends_prev.join(', ')}` : '';
-            lines.push(`  Q${q.label}  pages ${(q.pages || []).join(', ')}${parts}${deps}`);
+            const parts = (q.parts || []).length
+                ? OQB.t('  parts: {list}', {list: q.parts.join(', ')})
+                : OQB.t('  (no lettered parts)');
+            const deps = (q.depends_prev || []).length
+                ? OQB.t('  depends: {list}', {list: q.depends_prev.join(', ')}) : '';
+            lines.push(OQB.t('  Q{label}  pages {pages}', {label: q.label, pages: (q.pages || []).join(', ')}) + parts + deps);
         });
     });
-    return lines.join('\n') || 'No outline available.';
+    return lines.join('\n') || OQB.t('No outline available.');
 }
 
 function detectUrlExtras() {
@@ -1388,9 +1420,9 @@ function detectUrlExtras() {
 function validateDetectOptions() {
     const instruction = instructionInput.value.trim();
     if (isGeneric()) {
-        if (!instruction) { alert('Describe what to extract before running detection.'); return false; }
+        if (!instruction) { alert(OQB.t('Describe what to extract before running detection.')); return false; }
     } else if (customPromptChk.checked && !instruction) {
-        alert('Describe what a question looks like for the custom prompt.'); return false;
+        alert(OQB.t('Describe what a question looks like for the custom prompt.')); return false;
     }
     return true;
 }
@@ -1479,13 +1511,13 @@ async function loadPdf() {
     const hasQue = quePdf.files.length || serverPdf.que;
     const hasSol = solPdf.files.length || serverPdf.sol;
 
-    if (!generic && !paper) { alert('Enter a paper name, e.g. MATC_DSE_2012_P1'); return; }
+    if (!generic && !paper) { alert(OQB.t('Enter a paper name, e.g. MATC_DSE_2012_P1')); return; }
     if (!hasQue && !hasSol) {
-        alert('Choose or pick a question PDF and/or a solution PDF.'); return;
+        alert(OQB.t('Choose or pick a question PDF and/or a solution PDF.')); return;
     }
 
     if (staging) {
-        if (!confirm('Loading again will discard the current session and any boxes you drew. Continue?')) return;
+        if (!confirm(OQB.t('Loading again will discard the current session and any boxes you drew. Continue?'))) return;
         await fetch(`${IMPORT_BASE}/discard`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: staging.token })
@@ -1500,9 +1532,9 @@ async function loadPdf() {
 
     setRunning(true, 'stage');
     setStatus('Uploading', 'bg-info');
-    stripStart('Loading PDF', true);
-    appendLog(generic ? 'Uploading PDF for generic extraction...'
-                      : `Uploading PDF(s) for ${paper}...`, 'info');
+    stripStart(OQB.t('Loading PDF'), true);
+    appendLog(generic ? OQB.t('Uploading PDF for generic extraction...')
+                      : OQB.t('Uploading PDF(s) for {paper}...', {paper}), 'info');
 
     const fd = new FormData();
     fd.append('mode', generic ? 'generic' : 'exam');
@@ -1538,7 +1570,7 @@ async function loadPdf() {
         data = await r.json();
         if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
     } catch (err) {
-        appendLog('Upload failed: ' + err.message, 'error');
+        appendLog(OQB.t('Upload failed: {error}', {error: err.message}), 'error');
         setStatus('Error', 'bg-danger');
         setRunning(false);
         return;
@@ -1555,18 +1587,22 @@ async function loadPdf() {
     refreshDetectLabel();
     const qn = (data.que && data.que.pages || []).length;
     const sn = (data.sol && data.sol.pages || []).length;
-    const rangeNote = data.page_range ? ' (pages ' + data.page_range + ')' : '';
-    const deskewNote = data.deskew ? ', deskewed' : '';
+    const rangeNote = data.page_range ? OQB.t(' (pages {pages})', {pages: data.page_range}) : '';
     if (isGeneric()) {
-        appendLog(`Loaded: ${qn} page(s)${deskewNote}${rangeNote}. Draw boxes or click Detect regions.`, 'success');
+        appendLog(data.deskew
+            ? OQB.t('Loaded: {n} page(s), deskewed{range}. Draw boxes or click Detect regions.', {n: qn, range: rangeNote})
+            : OQB.t('Loaded: {n} page(s){range}. Draw boxes or click Detect regions.', {n: qn, range: rangeNote}), 'success');
     } else {
-        appendLog(`Loaded: ${qn} question page(s), ${sn} solution page(s)${deskewNote}${rangeNote}. Click ${document.getElementById('btnRunDetectLabel').textContent}, or draw boxes yourself.`, 'success');
+        const action = document.getElementById('btnRunDetectLabel').textContent;
+        appendLog(data.deskew
+            ? OQB.t('Loaded: {qn} question page(s), {sn} solution page(s), deskewed{range}. Click {action}, or draw boxes yourself.', {qn, sn, range: rangeNote, action})
+            : OQB.t('Loaded: {qn} question page(s), {sn} solution page(s){range}. Click {action}, or draw boxes yourself.', {qn, sn, range: rangeNote, action}), 'success');
     }
     const framed = ['que', 'sol'].reduce((n, k) => n + ((data[k] && data[k].pages || []).filter(p => p.frame).length), 0);
     if (framed) {
-        appendLog(`Printed page frame found on ${framed} page(s) (dashed green guide).`, 'info');
+        appendLog(OQB.t('Printed page frame found on {n} page(s) (dashed green guide).', {n: framed}), 'info');
     } else if (!isGeneric()) {
-        appendLog('No printed page frame detected on these pages (use "Frame" on a page card to add one by hand).', 'info');
+        appendLog(OQB.t('No printed page frame detected on these pages (use "Frame" on a page card to add one by hand).'), 'info');
     }
 
     setRunning(false);
@@ -1579,9 +1615,9 @@ async function loadPdf() {
 }
 
 function runDetect() {
-    if (!staging) { alert('Load a PDF first.'); return; }
+    if (!staging) { alert(OQB.t('Load a PDF first.')); return; }
     if (!AI_ENABLED || !HAS_ENDPOINTS) {
-        alert('Configure a vision-capable LLM endpoint to run detection.');
+        alert(OQB.t('Configure a vision-capable LLM endpoint to run detection.'));
         return;
     }
     if (!validateDetectOptions()) return;
@@ -1593,8 +1629,8 @@ function runDetect() {
 function startDetect() {
     setRunning(true, 'detect');
     setStatus('Detecting', 'bg-success');
-    showProgress('Detecting regions...');
-    appendLog('Starting detection (one page at a time)...', 'info');
+    showProgress(OQB.t('Detecting regions...'));
+    appendLog(OQB.t('Starting detection (one page at a time)...'), 'info');
 
     renderReview({ pending: true });
     updateImportActions();
@@ -1612,7 +1648,7 @@ function startDetect() {
         let ev;
         try { ev = JSON.parse(e.data); } catch { return; }
 
-        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8), 'job'); return; }
+        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog(OQB.t('Job {id}', {id: ev.job_id.slice(0, 8)}), 'job'); return; }
         if (ev.message) appendLog(ev.message, ev.type);
         updateProgress(ev);
 
@@ -1635,7 +1671,7 @@ function startDetect() {
                 rawByPage[kind][idx] = ev.page.raw;
                 logRaw(kind, idx, ev.page.raw);
             }
-            setPageFailed(cardFor(kind, idx), ev.page.failed ? (ev.page.error || 'detection failed') : null);
+            setPageFailed(cardFor(kind, idx), ev.page.failed ? (ev.page.error || OQB.t('detection failed')) : null);
             fillPageCard(kind, idx);
             applyWidthPolicy(kind);
         }
@@ -1646,7 +1682,7 @@ function startDetect() {
         }
     };
     eventSource.onerror = () => {
-        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishDetect({ autoSplit: true }); }
+        if (running) { appendLog(OQB.t('Connection closed.'), 'warning'); closeStream(); finishDetect({ autoSplit: true }); }
     };
 }
 
@@ -1662,10 +1698,10 @@ function finishDetect(opts) {
     ['que', 'sol'].forEach(applyWidthPolicy);
     updateReviewSummary();
     if (planRegionCount() === 0) {
-        appendLog('No regions detected — draw boxes manually or re-run detection.', 'warning');
+        appendLog(OQB.t('No regions detected — draw boxes manually or re-run detection.'), 'warning');
     }
     if (opts.autoSplit && shouldAutoSplit() && planRegionCount() > 0) {
-        startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: 'Splitting…' });
+        startSplitDetect({ busyBtn: btnSplitDetect, busyLabel: OQB.t('Splitting…') });
         return;
     }
     setRunning(false);
@@ -1981,27 +2017,27 @@ async function startSplitDetect(opts) {
     opts = opts || {};
     if (!staging || isGeneric()) return;
     if (!AI_ENABLED || !HAS_ENDPOINTS) {
-        alert('Configure a vision-capable LLM endpoint to detect parts.');
+        alert(OQB.t('Configure a vision-capable LLM endpoint to detect parts.'));
         return;
     }
     if (planRegionCount() === 0) {
-        alert('Run question detection or draw boxes first.');
+        alert(OQB.t('Run question detection or draw boxes first.'));
         return;
     }
     // Spinner first — savePlanToServer can take a second and used to look like
     // the click did nothing. setRunning also greys every other page-card action.
-    lockPageJobs(opts.busyBtn, opts.busyLabel || 'Splitting…');
+    lockPageJobs(opts.busyBtn, opts.busyLabel || OQB.t('Splitting…'));
     setRunning(true, 'detect');
     setStatus('Splitting parts', 'bg-success');
-    showProgress('Splitting questions into parts...');
+    showProgress(OQB.t('Splitting questions into parts...'));
     try {
         await savePlanToServer();
     } catch (err) {
-        appendLog('Could not save plan before part split: ' + err.message, 'error');
+        appendLog(OQB.t('Could not save plan before part split: {error}', {error: err.message}), 'error');
         setRunning(false);
         return;
     }
-    appendLog('Pass 2: detecting stem and lettered parts...', 'info');
+    appendLog(OQB.t('Pass 2: detecting stem and lettered parts...'), 'info');
 
     let url = `${IMPORT_BASE}/split-detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
@@ -2014,7 +2050,7 @@ async function startSplitDetect(opts) {
     eventSource.onmessage = (e) => {
         let ev;
         try { ev = JSON.parse(e.data); } catch { return; }
-        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog('Job ' + ev.job_id.slice(0, 8), 'job'); return; }
+        if (ev.type === 'job') { currentJobId = ev.job_id; appendLog(OQB.t('Job {id}', {id: ev.job_id.slice(0, 8)}), 'job'); return; }
         if (ev.message) appendLog(ev.message, ev.type);
         updateProgress(ev);
         if (ev.type === 'done') {
@@ -2028,7 +2064,7 @@ async function startSplitDetect(opts) {
     };
     eventSource.onerror = () => {
         if (running) {
-            appendLog('Part-split connection closed.', 'warning');
+            appendLog(OQB.t('Part-split connection closed.'), 'warning');
             closeStream();
             progressBar.classList.remove('progress-bar-animated');
             setRunning(false);
@@ -2057,17 +2093,24 @@ function resplitPage(kind, pageIndex) {
         if (L && !roots.includes(L)) roots.push(L);
     });
     if (!roots.length) {
-        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: no question boxes to split.`, 'warning');
+        appendLog(OQB.t('{side} page {page}: no question boxes to split.', {side: kind.toUpperCase(), page: pageIndex + 1}), 'warning');
         return;
     }
     const spanning = roots.filter(L => plan[kind].some(it => it.page !== pageIndex && rootLabelOf(it) === L));
-    appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-splitting Q${roots.join(', Q')}`
-        + (spanning.length ? ` (Q${spanning.join(', Q')} continue${spanning.length === 1 ? 's' : ''} on other pages and are re-split across all of them).` : '.'), 'info');
+    const side = kind.toUpperCase();
+    const page = pageIndex + 1;
+    const list = roots.join(', Q');
+    const span = spanning.join(', Q');
+    appendLog(spanning.length === 0
+        ? OQB.t('{side} page {page}: re-splitting Q{list}.', {side, page, list})
+        : (spanning.length === 1
+            ? OQB.t('{side} page {page}: re-splitting Q{list} (Q{span} continues on other pages and is re-split across all of them).', {side, page, list, span})
+            : OQB.t('{side} page {page}: re-splitting Q{list} (Q{span} continue on other pages and are re-split across all of them).', {side, page, list, span})), 'info');
     const card = cardFor(kind, pageIndex);
     startSplitDetect({
         kind, labels: roots.join(','),
         busyBtn: card && card.querySelector('.btn-resplit-page'),
-        busyLabel: 'Re-splitting…',
+        busyLabel: OQB.t('Re-splitting…'),
     });
 }
 
@@ -2156,8 +2199,8 @@ function renderReview(opts) {
         if (!info || !info.pages || !info.pages.length) return;
         const header = document.createElement('div');
         header.className = 'd-flex justify-content-between align-items-center mt-2 mb-2 flex-wrap gap-2';
-        const title = generic ? 'Pages' : (kind === 'que' ? 'Question pages' : 'Solution pages');
-        const dlLabel = 'Download Processed PDF';
+        const title = generic ? OQB.t('Pages') : (kind === 'que' ? OQB.t('Question pages') : OQB.t('Solution pages'));
+        const dlLabel = OQB.t('Download Processed PDF');
         header.innerHTML = `<h6 class="fw-bold mb-0">${title}</h6>
             <a class="btn btn-sm btn-outline-secondary" href="${IMPORT_BASE}/processed/${staging.token}/${kind}.pdf">
                 <i class="bi bi-file-earmark-arrow-down"></i> ${dlLabel}</a>`;
@@ -2183,58 +2226,60 @@ function buildPageCard(kind, pageIndex, pending) {
     card.className = 'card page-card';
     card.dataset.kind = kind;
     card.dataset.page = pageIndex;
-    const headLabel = isGeneric() ? `Page ${pageIndex + 1}` : `${kind.toUpperCase()} — page ${pageIndex + 1}`;
+    const headLabel = isGeneric()
+        ? OQB.t('Page {n}', {n: pageIndex + 1})
+        : OQB.t('{side} — page {n}', {side: kind.toUpperCase(), n: pageIndex + 1});
     card.innerHTML = `
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span><i class="bi bi-file-earmark-image"></i> ${headLabel}
                 <span class="page-status badge bg-secondary ms-1 d-none"></span></span>
             <div class="d-flex align-items-center gap-1 flex-wrap">
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-success btn-add" title="Draw a new question box on this page"><i class="bi bi-plus-square"></i> Add box</button>
-                    ${isGeneric() ? '' : `<button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split btn-add-menu" data-bs-toggle="dropdown" aria-expanded="false" title="Add a question, part or stem"><span class="visually-hidden">Add menu</span></button>
+                    <button class="btn btn-outline-success btn-add" title="${OQB.t('Draw a new question box on this page')}"><i class="bi bi-plus-square"></i> ${OQB.t('Add box')}</button>
+                    ${isGeneric() ? '' : `<button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split btn-add-menu" data-bs-toggle="dropdown" aria-expanded="false" title="${OQB.t('Add a question, part or stem')}"><span class="visually-hidden">${OQB.t('Add menu')}</span></button>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="#" data-add-role="question"><i class="bi bi-plus-square"></i> Add question <span class="text-muted small">(next number)</span></a></li>
-                        <li><a class="dropdown-item" href="#" data-add-role="part"><i class="bi bi-diagram-2"></i> Add part <span class="text-muted small">(next letter of the question it is in)</span></a></li>
-                        <li><a class="dropdown-item" href="#" data-add-role="stem"><i class="bi bi-card-heading"></i> Add stem <span class="text-muted small">(shared background)</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-add-role="question"><i class="bi bi-plus-square"></i> ${OQB.t('Add question')} <span class="text-muted small">${OQB.t('(next number)')}</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-add-role="part"><i class="bi bi-diagram-2"></i> ${OQB.t('Add part')} <span class="text-muted small">${OQB.t('(next letter of the question it is in)')}</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-add-role="stem"><i class="bi bi-card-heading"></i> ${OQB.t('Add stem')} <span class="text-muted small">${OQB.t('(shared background)')}</span></a></li>
                     </ul>`}
                 </div>
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary btn-rerun" title="Re-detect the numbered questions on this page only"><i class="bi bi-arrow-repeat"></i> Re-run</button>
-                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split btn-rerun-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Method and endpoint for this page's re-run"><span class="visually-hidden">Re-run options</span></button>
+                    <button class="btn btn-outline-secondary btn-rerun" title="${OQB.t('Re-detect the numbered questions on this page only')}"><i class="bi bi-arrow-repeat"></i> ${OQB.t('Re-run')}</button>
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split btn-rerun-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="${OQB.t("Method and endpoint for this page's re-run")}"><span class="visually-hidden">${OQB.t('Re-run options')}</span></button>
                     <div class="dropdown-menu p-2" style="min-width: 15rem;">
-                        <label class="form-label small mb-1">Method</label>
-                        <select class="form-select form-select-sm page-method mb-2" title="Detection method for this page">
+                        <label class="form-label small mb-1">${OQB.t('Method')}</label>
+                        <select class="form-select form-select-sm page-method mb-2" title="${OQB.t('Detection method for this page')}">
                             ${methodOptionsHtml(staging.method || DEFAULT_METHOD)}
                         </select>
-                        <label class="form-label small mb-1">Endpoint</label>
-                        <select class="form-select form-select-sm page-endpoint" title="LLM endpoint for this page">
+                        <label class="form-label small mb-1">${OQB.t('Endpoint')}</label>
+                        <select class="form-select form-select-sm page-endpoint" title="${OQB.t('LLM endpoint for this page')}">
                             ${endpointOptionsHtml(endpointSelect.value)}
                         </select>
                     </div>
                 </div>
                 ${isGeneric() ? '' : `<div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary btn-resplit-page" title="Re-run the stem / lettered-part split for every question on this page. A question that continues on another page is re-split as a whole, across all its pages, so the link is kept."><i class="bi bi-scissors"></i> Re-split page</button>
-                    <button class="btn btn-outline-primary btn-renumber" title="Make the question numbers on this page and every later page sequential, continuing from the last question before this page. A question continuing from the previous page keeps its number; parts follow their question."><i class="bi bi-sort-numeric-down"></i> Renumber from here</button>
+                    <button class="btn btn-outline-primary btn-resplit-page" title="${OQB.t('Re-run the stem / lettered-part split for every question on this page. A question that continues on another page is re-split as a whole, across all its pages, so the link is kept.')}"><i class="bi bi-scissors"></i> ${OQB.t('Re-split page')}</button>
+                    <button class="btn btn-outline-primary btn-renumber" title="${OQB.t('Make the question numbers on this page and every later page sequential, continuing from the last question before this page. A question continuing from the previous page keeps its number; parts follow their question.')}"><i class="bi bi-sort-numeric-down"></i> ${OQB.t('Renumber from here')}</button>
                 </div>`}
-                <button class="btn btn-sm btn-outline-secondary btn-frame-toggle" title="Page frame"><i class="bi bi-layout-sidebar-inset"></i> Frame</button>
+                <button class="btn btn-sm btn-outline-secondary btn-frame-toggle" title="${OQB.t('Page frame')}"><i class="bi bi-layout-sidebar-inset"></i> ${OQB.t('Frame')}</button>
             </div>
         </div>
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-lg-7">
                     <div class="pdf-page-wrap">
-                        <img class="pdf-page-img" src="${pageImgUrl(staging.token, kind, pageIndex)}" alt="page ${pageIndex + 1}">
+                        <img class="pdf-page-img" src="${pageImgUrl(staging.token, kind, pageIndex)}" alt="${OQB.t('page {n}', {n: pageIndex + 1})}">
                         <div class="pdf-overlay"></div>
                     </div>
                     <div class="mt-1"><span class="badge bg-success-subtle text-success-emphasis border frame-badge d-none"></span></div>
                 </div>
                 <div class="col-lg-5">
                     <div class="pdf-box-list"></div>
-                    <div class="text-muted small box-empty d-none">No regions on this page.</div>
+                    <div class="text-muted small box-empty d-none">${OQB.t('No regions on this page.')}</div>
                 </div>
             </div>
             <details class="pdf-raw mt-2 d-none">
-                <summary class="small text-muted"><i class="bi bi-bug"></i> Raw model output</summary>
+                <summary class="small text-muted"><i class="bi bi-bug"></i> ${OQB.t('Raw model output')}</summary>
                 <pre class="pdf-raw-content small mt-1 mb-0" style="white-space:pre-wrap;word-break:break-all;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;padding:.5rem;max-height:200px;overflow:auto;"></pre>
             </details>
         </div>`;
@@ -2274,7 +2319,7 @@ function buildPageCard(kind, pageIndex, pending) {
             endJoinedDrag(it);
         },
         onCreate: box => finishDraw(card, kind, pageIndex, box),
-        onTooSmall: () => appendLog('New box too small — ignored. Drag a larger rectangle.', 'warning'),
+        onTooSmall: () => appendLog(OQB.t('New box too small — ignored. Drag a larger rectangle.'), 'warning'),
         onAddModeChange: on => setAddButton(card, on),
         frameEditable: true,
         onFrameChange: fb => saveFrame(kind, pageIndex, fb),
@@ -2293,7 +2338,7 @@ function buildPageCard(kind, pageIndex, pending) {
     // Debug: show the verbatim model reply captured during detection.
     const raw = rawByPage[kind] && rawByPage[kind][pageIndex];
     if (raw !== undefined) {
-        card.querySelector('.pdf-raw-content').textContent = raw || '(empty)';
+        card.querySelector('.pdf-raw-content').textContent = raw || OQB.t('(empty)');
         card.querySelector('.pdf-raw').classList.remove('d-none');
     }
     return card;
@@ -2309,8 +2354,8 @@ function setPageFailed(card, error) {
     const empty = card.querySelector('.box-empty');
     if (empty) {
         empty.textContent = error
-            ? `Detection failed on this page (${error}). Click Re-run to try again, or draw the boxes with Add box.`
-            : 'No regions on this page.';
+            ? OQB.t('Detection failed on this page ({error}). Click Re-run to try again, or draw the boxes with Add box.', {error})
+            : OQB.t('No regions on this page.');
         empty.classList.toggle('text-danger', !!error);
         empty.classList.toggle('text-muted', !error);
     }
@@ -2323,18 +2368,18 @@ function setPageStatus(card, state) {
     badge.removeAttribute('title');
     if (state === 'pending') {
         badge.classList.add('bg-secondary');
-        badge.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> detecting…';
+        badge.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> ' + OQB.t('detecting…');
     } else if (state === 'done') {
         const n = card.querySelectorAll('.box-row').length;
         if (card.dataset.failed && !n) {
             badge.classList.add('bg-danger');
-            badge.textContent = 'detection failed — Re-run';
+            badge.textContent = OQB.t('detection failed — Re-run');
             badge.title = card.dataset.failed;
             return;
         }
         badge.classList.add(n ? 'bg-success' : 'bg-warning');
         if (!n) badge.classList.add('text-dark');
-        badge.textContent = n ? `${n} region(s)` : 'no regions';
+        badge.textContent = n ? OQB.t('{n} region(s)', {n}) : OQB.t('no regions');
     } else {
         badge.classList.add('d-none');
     }
@@ -2354,7 +2399,7 @@ function fillPageCard(kind, pageIndex) {
     setPageStatus(card, 'done');
     const raw = rawByPage[kind] && rawByPage[kind][pageIndex];
     if (raw !== undefined) {
-        card.querySelector('.pdf-raw-content').textContent = raw || '(empty)';
+        card.querySelector('.pdf-raw-content').textContent = raw || OQB.t('(empty)');
         card.querySelector('.pdf-raw').classList.remove('d-none');
     }
     updateReviewSummary();
@@ -2373,25 +2418,26 @@ function styleRoleChip(chip, role, item) {
     const block = item && parseLabel(examLabel(item));
     if (role === 'stem' && block && block.isBlock) {
         chip.style.background = '#6f42c1';
-        chip.textContent = 'shared';
+        chip.textContent = OQB.t('shared');
         const anchor = block.path.slice(block.path.indexOf('~') + 1);
         const end = effectiveBlockEnd('~' + anchor, item.block_end);
-        chip.title = 'Shared text printed before part (' + anchor + ') — '
-            + (!end ? 'that part and every later part at its level use it'
-                : (end === anchor ? 'only (' + anchor + ') uses it'
-                    : '(' + anchor + ') to (' + end + ') use it'));
+        chip.title = !end
+            ? OQB.t('Shared text printed before part ({part}) — that part and every later part at its level use it', {part: anchor})
+            : (end === anchor
+                ? OQB.t('Shared text printed before part ({part}) — only ({part}) uses it', {part: anchor})
+                : OQB.t('Shared text printed before part ({part}) — ({part}) to ({end}) use it', {part: anchor, end}));
     } else if (role === 'stem') {
         chip.style.background = '#6c757d';
-        chip.textContent = 'stem';
-        chip.title = 'Shared background for this question';
+        chip.textContent = OQB.t('stem');
+        chip.title = OQB.t('Shared background for this question');
     } else if (role === 'part') {
         chip.style.background = '#fd7e14';
-        chip.textContent = 'part';
-        chip.title = 'Lettered part — imported as its own question';
+        chip.textContent = OQB.t('part');
+        chip.title = OQB.t('Lettered part — imported as its own question');
     } else {
         chip.className = 'badge role-chip text-bg-light border';
         chip.textContent = 'Q';
-        chip.title = 'Whole numbered question';
+        chip.title = OQB.t('Whole numbered question');
     }
 }
 // QUE row marks: a part's (or unsplit question's) own marks, which commit
@@ -2408,11 +2454,11 @@ function buildMarksInput(item) {
     inp.max = '999';
     inp.className = 'form-control form-control-sm d-inline-block marks-input';
     inp.style.width = '64px';
-    inp.placeholder = 'marks';
+    inp.placeholder = OQB.t('marks');
     inp.value = Number.isInteger(item.marks) ? item.marks : '';
     inp.title = item.role === 'stem'
-        ? 'Printed total for the whole question (checked against the parts; not saved)'
-        : 'Marks for this part / question (saved on import)';
+        ? OQB.t('Printed total for the whole question (checked against the parts; not saved)')
+        : OQB.t('Marks for this part / question (saved on import)');
     inp.addEventListener('click', (e) => e.stopPropagation());
     inp.addEventListener('change', () => {
         const n = parseInt(inp.value, 10);
@@ -2453,8 +2499,8 @@ function updateMarksWarning() {
     const issues = isGeneric() ? [] : marksIssues(plan.que);
     box.classList.toggle('d-none', !issues.length);
     document.getElementById('marksWarningBody').innerHTML = issues.slice(0, 12).map(is =>
-        `Q${is.qno}: parts add up to ${is.sum} but the total is ${is.total}.`).join(' ')
-        + (issues.length > 12 ? ` …and ${issues.length - 12} more.` : '');
+        OQB.t('Q{qno}: parts add up to {sum} but the total is {total}.', {qno: is.qno, sum: is.sum, total: is.total})).join(' ')
+        + (issues.length > 12 ? OQB.t(' …and {n} more.', {n: issues.length - 12}) : '');
 }
 function buildSplitActions(kind, item) {
     const actions = document.createElement('div');
@@ -2466,15 +2512,15 @@ function buildSplitActions(kind, item) {
         const reBtn = document.createElement('button');
         reBtn.type = 'button';
         reBtn.className = 'btn btn-sm btn-outline-primary';
-        reBtn.title = 'Re-run part detection on this question';
-        reBtn.innerHTML = '<i class="bi bi-scissors"></i> Re-split';
+        reBtn.title = OQB.t('Re-run part detection on this question');
+        reBtn.innerHTML = '<i class="bi bi-scissors"></i> ' + OQB.t('Re-split');
         reBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             // A stem / whole-question box re-splits itself: for a nested stem
             // (4d) the server only replaces 4d and its descendants.
             startSplitDetect({
                 kind, labels: examLabel(item) || parentLabelOf(kind, item),
-                busyBtn: reBtn, busyLabel: 'Re-splitting…',
+                busyBtn: reBtn, busyLabel: OQB.t('Re-splitting…'),
             });
         });
         actions.appendChild(reBtn);
@@ -2484,8 +2530,8 @@ function buildSplitActions(kind, item) {
         depBtn.type = 'button';
         depBtn.className = 'btn btn-sm ' + (item.depends_prev ? 'btn-warning' : 'btn-outline-secondary');
         depBtn.title = item.depends_prev
-            ? 'Uses earlier parts: viewing or generating this part alone also includes the earlier parts. Click to clear.'
-            : 'Mark this part as depending on earlier parts ("using your answer in (a)"). Viewing or generating it alone will then include the earlier parts.';
+            ? OQB.t('Uses earlier parts: viewing or generating this part alone also includes the earlier parts. Click to clear.')
+            : OQB.t('Mark this part as depending on earlier parts ("using your answer in (a)"). Viewing or generating it alone will then include the earlier parts.');
         depBtn.innerHTML = '<i class="bi bi-link-45deg"></i>';
         depBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2497,12 +2543,12 @@ function buildSplitActions(kind, item) {
     if (kind === 'que' && parsedItem && parsedItem.isBlock) {
         const sel = document.createElement('select');
         sel.className = 'form-select form-select-sm d-inline-block w-auto block-end-select';
-        sel.title = 'Last part that uses this shared text. Later parts print without it.';
+        sel.title = OQB.t('Last part that uses this shared text. Later parts print without it.');
         const choices = blockEndChoices(examLabel(item), plan.que.map(it => examLabel(it)));
         const cur = normalizeBlockEnd(item.block_end);
         if (cur && choices.indexOf(cur) < 0) choices.push(cur);
-        sel.innerHTML = '<option value="">Ends: next block / end</option>'
-            + choices.map(s => `<option value="${s}">Ends after (${s})</option>`).join('');
+        sel.innerHTML = '<option value="">' + OQB.t('Ends: next block / end') + '</option>'
+            + choices.map(s => `<option value="${s}">${OQB.t('Ends after ({part})', {part: s})}</option>`).join('');
         sel.value = cur || '';
         sel.addEventListener('click', (e) => e.stopPropagation());
         sel.addEventListener('change', (e) => {
@@ -2516,8 +2562,8 @@ function buildSplitActions(kind, item) {
         const unBtn = document.createElement('button');
         unBtn.type = 'button';
         unBtn.className = 'btn btn-sm btn-outline-secondary';
-        unBtn.title = 'Merge parts back into one question box';
-        unBtn.textContent = 'Unsplit';
+        unBtn.title = OQB.t('Merge parts back into one question box');
+        unBtn.textContent = OQB.t('Unsplit');
         unBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             unsplitParent(kind, parentLabelOf(kind, item));
@@ -2541,10 +2587,10 @@ function buildContToggle(kind, item) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-sm ' + (on ? 'btn-secondary' : 'btn-outline-secondary');
-    btn.innerHTML = '<i class="bi bi-arrow-return-right"></i> Cont.';
+    btn.innerHTML = '<i class="bi bi-arrow-return-right"></i> ' + OQB.t('Cont.');
     btn.title = on
-        ? `Continues Q${examLabel(prev)} from page ${prev.page + 1}; Renumber gives it that number. Click if it is a new question.`
-        : `A new question. Click if it continues Q${examLabel(prev)} from page ${prev.page + 1} (Renumber will then give it that number).`;
+        ? OQB.t('Continues Q{label} from page {page}; Renumber gives it that number. Click if it is a new question.', {label: examLabel(prev), page: prev.page + 1})
+        : OQB.t('A new question. Click if it continues Q{label} from page {page} (Renumber will then give it that number).', {label: examLabel(prev), page: prev.page + 1});
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
         item.cont = !on;
@@ -2552,8 +2598,8 @@ function buildContToggle(kind, item) {
         refreshNumbersUI(kind);
         updateOrderWarning();
         appendLog(item.cont
-            ? `Page ${item.page + 1}: Q${examLabel(item)} marked as continuing Q${examLabel(prev)} from page ${prev.page + 1}. Use Renumber from here to update the numbers.`
-            : `Page ${item.page + 1}: Q${examLabel(item)} marked as a new question. Use Renumber from here to update the numbers.`, 'info');
+            ? OQB.t('Page {page}: Q{label} marked as continuing Q{prev} from page {prevPage}. Use Renumber from here to update the numbers.', {page: item.page + 1, label: examLabel(item), prev: examLabel(prev), prevPage: prev.page + 1})
+            : OQB.t('Page {page}: Q{label} marked as a new question. Use Renumber from here to update the numbers.', {page: item.page + 1, label: examLabel(item)}), 'info');
     });
     return btn;
 }
@@ -2572,8 +2618,8 @@ function buildRowAddMenu(kind, item) {
     if (!opt) {
         // Not `disabled`: unlockPageJobs re-enables every .split-actions button.
         const why = examLabel(item)
-            ? 'A shared range (or a question split from one) has no stem or parts to add. For a new question use Add box ▾ on the page.'
-            : 'Type a question number first, then add its stem or parts here.';
+            ? OQB.t('A shared range (or a question split from one) has no stem or parts to add. For a new question use Add box ▾ on the page.')
+            : OQB.t('Type a question number first, then add its stem or parts here.');
         btn.classList.remove('dropdown-toggle');
         btn.classList.add('opacity-50');
         btn.title = why;
@@ -2582,11 +2628,11 @@ function buildRowAddMenu(kind, item) {
     }
     btn.setAttribute('data-bs-toggle', 'dropdown');
     btn.setAttribute('aria-expanded', 'false');
-    btn.title = `Add a stem or part to Q${opt.root} — same width, so you only adjust its top and bottom`;
+    btn.title = OQB.t('Add a stem or part to Q{q} — same width, so you only adjust its top and bottom', {q: opt.root});
     const menu = document.createElement('ul');
     menu.className = 'dropdown-menu dropdown-menu-end small';
     const li = () => { const el = document.createElement('li'); menu.appendChild(el); return el; };
-    li().innerHTML = `<h6 class="dropdown-header">Add to Q${escapeHtml(opt.root)} — same width</h6>`;
+    li().innerHTML = `<h6 class="dropdown-header">${OQB.t('Add to Q{q} — same width', {q: escapeHtml(opt.root)})}</h6>`;
     const entry = (icon, text, hint, what, disabled) => {
         const a = document.createElement('a');
         a.href = '#';
@@ -2595,12 +2641,12 @@ function buildRowAddMenu(kind, item) {
         a.addEventListener('click', e => { e.preventDefault(); if (!disabled) addToQuestion(kind, item, what); });
         li().appendChild(a);
     };
-    entry('bi-card-heading', 'Stem', opt.stem ? 'already added' : 'top of the question', 'stem', !!opt.stem);
-    entry('bi-plus-square', opt.part ? `Part Q${opt.part}` : 'Part', opt.part ? 'bottom of the question' : 'no letters left', 'part', !opt.part);
-    if (opt.pair) entry('bi-layout-split', `Parts Q${opt.root}a + Q${opt.root}b`, 'no stem; splits the box in half', 'pair', false);
-    if (opt.sub) entry('bi-diagram-2', `Sub-part Q${opt.sub}`, opt.subInside ? 'lower half of this part' : 'below this part', 'sub', false);
+    entry('bi-card-heading', OQB.t('Stem'), opt.stem ? OQB.t('already added') : OQB.t('top of the question'), 'stem', !!opt.stem);
+    entry('bi-plus-square', opt.part ? OQB.t('Part Q{label}', {label: opt.part}) : OQB.t('Part'), opt.part ? OQB.t('bottom of the question') : OQB.t('no letters left'), 'part', !opt.part);
+    if (opt.pair) entry('bi-layout-split', OQB.t('Parts Q{a} + Q{b}', {a: opt.root + 'a', b: opt.root + 'b'}), OQB.t('no stem; splits the box in half'), 'pair', false);
+    if (opt.sub) entry('bi-diagram-2', OQB.t('Sub-part Q{label}', {label: opt.sub}), opt.subInside ? OQB.t('lower half of this part') : OQB.t('below this part'), 'sub', false);
     if (!opt.split) {
-        li().innerHTML = `<span class="dropdown-item-text text-muted small">Stem or Part turns Q${escapeHtml(opt.root)} into a stem + part (a). Unsplit puts it back.</span>`;
+        li().innerHTML = `<span class="dropdown-item-text text-muted small">${OQB.t('Stem or Part turns Q{q} into a stem + part (a). Unsplit puts it back.', {q: escapeHtml(opt.root)})}</span>`;
     }
     wrap.appendChild(menu);
     return wrap;
@@ -2695,7 +2741,7 @@ function addToQuestion(kind, item, what) {
     let neighbour, label, limit = null, relabel = null;
     if (what === 'stem') {
         if (opt.stem) {
-            appendLog(`Q${root} already has a stem box — resize that box instead.`, 'warning');
+            appendLog(OQB.t('Q{q} already has a stem box — resize that box instead.', {q: root}), 'warning');
             selectItem(kind, opt.stem);
             return null;
         }
@@ -2749,7 +2795,9 @@ function addToQuestion(kind, item, what) {
         const later = plan[kind].filter(it => it.page > page && examLabel(it) === root);
         if (tailLabel !== root && later.length) {
             later.forEach(it => applyExamLabel(it, tailLabel));
-            carried = ` Its box${later.length > 1 ? 'es' : ''} on later pages now continue${later.length > 1 ? '' : 's'} Q${tailLabel}.`;
+            carried = later.length > 1
+                ? OQB.t(' Its boxes on later pages now continue Q{label}.', {label: tailLabel})
+                : OQB.t(' Its box on later pages now continues Q{label}.', {label: tailLabel});
         }
     }
 
@@ -2765,16 +2813,25 @@ function addToQuestion(kind, item, what) {
     selectItem(kind, newItem);
 
     const nLab = examLabel(neighbour);
-    let msg;
-    if (what === 'stem') msg = `Added the stem of Q${root}` + (relabel ? ` — the rest is now Q${relabel}.` : '.');
-    else if (what === 'pair') msg = `Split Q${root} into Q${root}a + Q${root}b (no stem).`;
-    else if (what === 'sub' && opt.subInside) msg = `Added Q${label}; the top of Q${nLab} stays as its lead-in.`;
-    else msg = `Added Q${label}` + (!opt.split && what === 'part' ? `; the top of Q${root} is now its stem.` : '.');
-    msg += slot.cut != null
-        ? ` Drag the line between Q${what === 'stem' ? label : nLab} and Q${what === 'stem' ? nLab : label} to the right place — both boxes follow.`
-        : ` It fills the empty strip ${what === 'stem' ? 'above' : 'below'} Q${nLab}; adjust its ${what === 'stem' ? 'top' : 'bottom'} edge if needed.`;
-    if (!opt.split) msg += ` Unsplit puts Q${root} back as one box.`;
-    appendLog(msg + carried, 'info');
+    const bits = [];
+    if (what === 'stem' && relabel) bits.push(OQB.t('Added the stem of Q{q} — the rest is now Q{rest}.', {q: root, rest: relabel}));
+    else if (what === 'stem') bits.push(OQB.t('Added the stem of Q{q}.', {q: root}));
+    else if (what === 'pair') bits.push(OQB.t('Split Q{q} into Q{a} + Q{b} (no stem).', {q: root, a: root + 'a', b: root + 'b'}));
+    else if (what === 'sub' && opt.subInside) bits.push(OQB.t('Added Q{label}; the top of Q{lead} stays as its lead-in.', {label, lead: nLab}));
+    else if (!opt.split && what === 'part') bits.push(OQB.t('Added Q{label}; the top of Q{q} is now its stem.', {label, q: root}));
+    else bits.push(OQB.t('Added Q{label}.', {label}));
+    if (slot.cut != null) {
+        const upper = what === 'stem' ? label : nLab;
+        const lower = what === 'stem' ? nLab : label;
+        bits.push(OQB.t('Drag the line between Q{a} and Q{b} to the right place — both boxes follow.', {a: upper, b: lower}));
+    } else if (what === 'stem') {
+        bits.push(OQB.t('It fills the empty strip above Q{q}; adjust its top edge if needed.', {q: nLab}));
+    } else {
+        bits.push(OQB.t('It fills the empty strip below Q{q}; adjust its bottom edge if needed.', {q: nLab}));
+    }
+    if (!opt.split) bits.push(OQB.t('Unsplit puts Q{q} back as one box.', {q: root}));
+    if (carried) bits.push(carried.trim());
+    appendLog(bits.join(' '), 'info');
     return newItem;
 }
 function addBoxDom(card, kind, item) {
@@ -2791,20 +2848,20 @@ function addBoxDom(card, kind, item) {
     row.className = 'box-row';
     row.id = 'row-' + item._uid;
     const canvas = document.createElement('canvas');
-    canvas.title = 'Click to enlarge this crop';
-    canvas.addEventListener('click', () => showCropPreview(img, item.box, `${kind.toUpperCase()} ${boxLabelText(item)}`));
+    canvas.title = OQB.t('Click to enlarge this crop');
+    canvas.addEventListener('click', () => showCropPreview(img, item.box, kind.toUpperCase() + ' ' + boxLabelText(item)));
     const qInput = document.createElement('input');
     if (generic) {
         qInput.type = 'text';
         qInput.className = 'form-control form-control-sm label-input';
         qInput.value = (item.label ?? '');
-        qInput.placeholder = 'label (filename)';
+        qInput.placeholder = OQB.t('label (filename)');
     } else {
         qInput.type = 'text';
         qInput.className = 'form-control form-control-sm qno-input';
         qInput.value = examLabel(item);
         qInput.placeholder = '3 / 3a / 23-24';
-        qInput.title = 'Question number: 3, 3a, 23-24, or 3~c for shared text printed before part (c)';
+        qInput.title = OQB.t('Question number: 3, 3a, 23-24, or 3~c for shared text printed before part (c)');
     }
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-outline-danger';
@@ -2812,7 +2869,7 @@ function addBoxDom(card, kind, item) {
 
     const qLabel = document.createElement('span');
     qLabel.className = 'small text-muted';
-    qLabel.textContent = generic ? 'Name' : 'Q';
+    qLabel.textContent = generic ? OQB.t('Name') : 'Q';
 
     row.appendChild(canvas);
     row.appendChild(qLabel);
@@ -2935,41 +2992,43 @@ function nextTopLetter(kind, root) {
 function labelDrawnChild(card, kind, item, role) {
     const tgt = (role === 'stem' && stemTargetBelow(kind, item)) || targetRootFor(kind, item);
     if (!tgt) {
-        appendLog(`Add ${role}: there is no question above this box — added as a new question instead.`, 'warning');
+        appendLog(role === 'stem'
+            ? OQB.t('Add stem: there is no question above this box — added as a new question instead.')
+            : OQB.t('Add part: there is no question above this box — added as a new question instead.'), 'warning');
         return false;
     }
     const root = tgt.root;
     if (/-/.test(root) && role === 'part') {
-        appendLog(`Add part: Q${root} is a shared range and cannot have lettered parts — added as a new question instead.`, 'warning');
+        appendLog(OQB.t('Add part: Q{q} is a shared range and cannot have lettered parts — added as a new question instead.', {q: root}), 'warning');
         return false;
     }
     if (role === 'stem') {
         const blk = blockLabelForDrawnStem(kind, item, root);
         if (blk) {
             if (plan[kind].some(it => examLabel(it) === blk)) {
-                appendLog(`Q${blk} already exists — resize that box instead.`, 'warning');
+                appendLog(OQB.t('Q{q} already exists — resize that box instead.', {q: blk}), 'warning');
                 return null;
             }
             applyExamLabel(item, blk);
             copySourceFromSibling(kind, item, root);
-            appendLog(`Added Q${blk}: shared text printed before part (${blk.slice(blk.indexOf('~') + 1)}).`, 'info');
+            appendLog(OQB.t('Added Q{q}: shared text printed before part ({part}).', {q: blk, part: blk.slice(blk.indexOf('~') + 1)}), 'info');
             return true;
         }
         const existing = plan[kind].find(it => it.page === item.page && examLabel(it) === root);
         if (existing) {
-            appendLog(`Q${root} already has a box labelled ${root} on this page (its stem or whole question) — resize that box instead.`, 'warning');
+            appendLog(OQB.t('Q{q} already has a box labelled {q} on this page (its stem or whole question) — resize that box instead.', {q: root}), 'warning');
             selectItem(kind, existing);
             return null;
         }
         applyExamLabel(item, root);
         copySourceFromSibling(kind, item, root);
-        appendLog(`Added the stem of Q${root}.`, 'info');
+        appendLog(OQB.t('Added the stem of Q{q}.', {q: root}), 'info');
         return true;
     }
     const hadParts = plan[kind].some(it => rootOf(it) === root && parseLabel(examLabel(it))?.path);
     const letter = nextTopLetter(kind, root);
     if (!letter) {
-        appendLog(`Add part: Q${root} already uses every letter — type the label by hand.`, 'warning');
+        appendLog(OQB.t('Add part: Q{q} already uses every letter — type the label by hand.', {q: root}), 'warning');
         applyExamLabel(item, root);
         return true;
     }
@@ -2989,13 +3048,13 @@ function labelDrawnChild(card, kind, item, role) {
         if (stripH >= 0.01) {
             whole.box = [whole.box[0], whole.box[1], whole.box[2], item.box[1]];
             restyleItem(whole);
-            appendLog(`Added Q${root}${letter}; Q${root} is now its stem (trimmed to the part's top).`, 'info');
+            appendLog(OQB.t('Added Q{label}; Q{q} is now its stem (trimmed to the part\'s top).', {label: root + letter, q: root}), 'info');
         } else {
-            appendLog(`Added Q${root}${letter}. The part starts at the top of Q${root}, so Q${root} was not trimmed — resize or delete it.`, 'warning');
+            appendLog(OQB.t('Added Q{label}. The part starts at the top of Q{q}, so Q{q} was not trimmed — resize or delete it.', {label: root + letter, q: root}), 'warning');
         }
     } else {
         copySourceFromSibling(kind, item, root);
-        appendLog(`Added Q${root}${letter}.`, 'info');
+        appendLog(OQB.t('Added Q{label}.', {label: root + letter}), 'info');
     }
     return true;
 }
@@ -3025,19 +3084,21 @@ function copySourceFromSibling(kind, item, root) {
 }
 
 function boxLabelText(item) {
-    if (isGeneric()) return item.label || 'region';
+    if (isGeneric()) return item.label || OQB.t('region');
     const lab = examLabel(item);
     const parsed = parseLabel(lab);
     if (parsed && parsed.isBlock) {
         const t = parsed.path.indexOf('~');
         const anchor = parsed.path.slice(t + 1);
         const end = effectiveBlockEnd('~' + anchor, item.block_end);
-        const scope = !end ? '' : (end === anchor ? ', (' + anchor + ') only' : ', up to (' + end + ')');
-        return 'Q' + parsed.qno + parsed.path.slice(0, t) + ' before (' + anchor + ')' + scope;
+        const prefix = String(parsed.qno) + parsed.path.slice(0, t);
+        if (!end) return OQB.t('Q{prefix} before ({anchor})', {prefix, anchor});
+        if (end === anchor) return OQB.t('Q{prefix} before ({anchor}), ({anchor}) only', {prefix, anchor});
+        return OQB.t('Q{prefix} before ({anchor}), up to ({end})', {prefix, anchor, end});
     }
-    if (item.role === 'stem') return 'Q' + (lab || '?') + ' stem';
+    if (item.role === 'stem') return OQB.t('Q{label} stem', {label: lab || '?'});
     if (item.role === 'part' || isPartItem(item)) return 'Q' + (lab || '?');
-    return lab ? ('Q' + lab) : 'Q?';
+    return lab ? ('Q' + lab) : OQB.t('Q?');
 }
 
 // ----- Auto-renumber (whole questions) -----
@@ -3205,7 +3266,7 @@ function renumberFromPage(kind, pageIndex) {
     const order = readingOrder(kind).filter(it => rootOf(it));
     const before = order.filter(it => it.page < pageIndex);
     const from = order.filter(it => it.page >= pageIndex);
-    if (!from.length) { appendLog(`Renumber: no numbered boxes from page ${pageIndex + 1} on.`, 'warning'); return; }
+    if (!from.length) { appendLog(OQB.t('Renumber: no numbered boxes from page {page} on.', {page: pageIndex + 1}), 'warning'); return; }
     const runs = [];
     const repeats = [];
     from.forEach(it => {
@@ -3254,13 +3315,20 @@ function renumberFromPage(kind, pageIndex) {
     });
     refreshNumbersUI(kind);
     updateReviewSummary();
-    const side = kind === 'que' ? 'questions' : 'solutions';
+    const page = pageIndex + 1;
     appendLog(changed
-        ? `Renumbered ${side} from page ${pageIndex + 1}${first ? ` (Q${first} … Q${lastNew})` : ''}: ${changed} question(s) changed.`
-        : `Renumber from page ${pageIndex + 1}: ${side} were already consecutive.`, changed ? 'success' : 'info');
+        ? (first
+            ? (kind === 'que'
+                ? OQB.t('Renumbered questions from page {page} (Q{first} … Q{last}): {n} question(s) changed.', {page, first, last: lastNew, n: changed})
+                : OQB.t('Renumbered solutions from page {page} (Q{first} … Q{last}): {n} question(s) changed.', {page, first, last: lastNew, n: changed}))
+            : (kind === 'que'
+                ? OQB.t('Renumbered questions from page {page}: {n} question(s) changed.', {page, n: changed})
+                : OQB.t('Renumbered solutions from page {page}: {n} question(s) changed.', {page, n: changed})))
+        : (kind === 'que'
+            ? OQB.t('Renumber from page {page}: questions were already consecutive.', {page})
+            : OQB.t('Renumber from page {page}: solutions were already consecutive.', {page})), changed ? 'success' : 'info');
     repeats.forEach(it => appendLog(
-        `Renumber: the box at the top of page ${it.page + 1} repeated the number before it, so it is now Q${examLabel(it)}. `
-        + 'If it continues that question, press Cont. on its row and renumber again.', 'warning'));
+        OQB.t('Renumber: the box at the top of page {page} repeated the number before it, so it is now Q{label}. If it continues that question, press Cont. on its row and renumber again.', {page: it.page + 1, label: examLabel(it)}), 'warning'));
 }
 // Assign 1..N to every box in reading order (used by custom-prompt exam runs,
 // where the model returns no printed numbers — the numbers are ours).
@@ -3310,7 +3378,7 @@ function refreshNumbersUI(kind) {
     });
 }
 
-const ADD_ROLE_LABELS = { question: 'question', part: 'part', stem: 'stem' };
+const ADD_ROLE_LABELS = { question: OQB.t('question'), part: OQB.t('part'), stem: OQB.t('stem') };
 function startAddMode(card, role) {
     card._addRole = ADD_ROLE_LABELS[role] ? role : 'question';
     card._ed.setAddMode(true);
@@ -3321,9 +3389,9 @@ function setAddButton(card, on) {
     if (!btn) return;
     btn.classList.toggle('btn-success', on);
     btn.classList.toggle('btn-outline-success', !on);
-    const what = isGeneric() ? 'region' : ADD_ROLE_LABELS[card._addRole || 'question'];
-    btn.innerHTML = on ? `<i class="bi bi-x-lg"></i> Cancel (draw a ${what})`
-                       : '<i class="bi bi-plus-square"></i> Add box';
+    const what = isGeneric() ? OQB.t('region') : ADD_ROLE_LABELS[card._addRole || 'question'];
+    btn.innerHTML = on ? '<i class="bi bi-x-lg"></i> ' + OQB.t('Cancel (draw a {what})', {what})
+                       : '<i class="bi bi-plus-square"></i> ' + OQB.t('Add box');
 }
 
 function toggleEmpty(card) {
@@ -3332,8 +3400,8 @@ function toggleEmpty(card) {
 }
 function updateReviewSummary() {
     reviewSummary.textContent = isGeneric()
-        ? `${plan.que.length} region(s)`
-        : `${plan.que.length} question region(s), ${plan.sol.length} solution region(s)`;
+        ? OQB.t('{n} region(s)', {n: plan.que.length})
+        : OQB.t('{qn} question region(s), {sn} solution region(s)', {qn: plan.que.length, sn: plan.sol.length});
     updateOrderWarning();
     updateMarksWarning();
     refreshSplitDetectBtn();
@@ -3402,9 +3470,9 @@ function updateOrderWarning() {
     const btn = (cls, kind, page, icon, text) =>
         ` <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-1 ${cls}" data-kind="${kind}" data-page="${page}"><i class="bi ${icon}"></i> ${text}</button>`;
     ['que', 'sol'].forEach(kind => {
-        const side = kind === 'que' ? 'Questions' : 'Solutions';
+        const side = kind === 'que' ? OQB.t('Questions') : OQB.t('Solutions');
         const head = `<strong>${side}:</strong> `;
-        const where = it => `Q${escapeHtml(examLabel(it))} (page ${it.page + 1})`;
+        const where = it => OQB.t('Q{label} (page {page})', {label: escapeHtml(examLabel(it)), page: it.page + 1});
         const issues = numberingIssues(plan[kind] || []);
         const shown = { drop: 0, gap: 0, repeat: 0 };
         const pageSpan = is => [Math.min(is.prev.page, is.item.page), Math.max(is.prev.page, is.item.page)];
@@ -3420,39 +3488,49 @@ function updateOrderWarning() {
             types.add(is.type);
             if (shown[is.type]++ >= NUMBERING_MAX_PER_TYPE) return;
             if (is.type === 'drop') {
-                let msg = `${head}${where(is.item)} appears after ${where(is.prev)}.`;
+                let msg = head + OQB.t('{item} appears after {prev}.', {item: where(is.item), prev: where(is.prev)});
                 if (!offered) {
                     const pg = is.prev.page;
-                    msg += ` <button type="button" class="btn btn-sm btn-outline-danger py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${pg}"><i class="bi bi-sort-numeric-down"></i> Renumber ${kind === 'que' ? 'questions' : 'solutions'} from page ${pg + 1}</button>`;
+                    const renumber = kind === 'que'
+                        ? OQB.t('Renumber questions from page {page}', {page: pg + 1})
+                        : OQB.t('Renumber solutions from page {page}', {page: pg + 1});
+                    msg += ` <button type="button" class="btn btn-sm btn-outline-danger py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${pg}"><i class="bi bi-sort-numeric-down"></i> ${renumber}</button>`;
                     offered = true;
                 }
                 rows.push(['bi-arrow-down-right', msg]);
             } else if (is.type === 'gap') {
                 const [lo, hi] = pageSpan(is);
-                const missing = is.from === is.to ? `Q${is.from} is` : `Q${is.from}–Q${is.to} are`;
-                let msg = `${head}${missing} missing between ${where(is.prev)} and ${where(is.item)}.`;
+                let msg = head + (is.from === is.to
+                    ? OQB.t('Q{n} is missing between {prev} and {item}.', {n: is.from, prev: where(is.prev), item: where(is.item)})
+                    : OQB.t('Q{from}–Q{to} are missing between {prev} and {item}.', {from: is.from, to: is.to, prev: where(is.prev), item: where(is.item)}));
                 const empty = [];
                 for (let p = lo; p <= hi; p++) {
                     if (!(plan[kind] || []).some(it => it.page === p) && cardFor(kind, p)) empty.push(p);
                 }
                 empty.forEach(p => {
                     const failed = cardFor(kind, p).dataset.failed;
-                    msg += ` Page ${p + 1} has no boxes${failed ? ` (detection failed: ${escapeHtml(failed)})` : ''}.`
-                        + btn('btn-order-rerun', kind, p, 'bi-arrow-repeat', `Re-run page ${p + 1}`);
+                    msg += ' ' + (failed
+                        ? OQB.t('Page {page} has no boxes (detection failed: {error}).', {page: p + 1, error: escapeHtml(failed)})
+                        : OQB.t('Page {page} has no boxes.', {page: p + 1}))
+                        + btn('btn-order-rerun', kind, p, 'bi-arrow-repeat', OQB.t('Re-run page {page}', {page: p + 1}));
                 });
-                if (!empty.length) msg += btn('btn-order-goto', kind, is.prev.page, 'bi-eye', `Go to page ${is.prev.page + 1}`);
+                if (!empty.length) msg += btn('btn-order-goto', kind, is.prev.page, 'bi-eye', OQB.t('Go to page {page}', {page: is.prev.page + 1}));
                 rows.push(['bi-dash-circle', msg]);
             } else if (is.cross) {
-                rows.push(['bi-files', `${head}${where(is.item)} repeats ${where(is.prev)} at the top of the next page. If it continues that question, press <strong>Cont.</strong> on its row; if it is a new question, renumber.`
-                    + ` <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${is.item.page}"><i class="bi bi-sort-numeric-down"></i> Renumber from page ${is.item.page + 1}</button>`]);
+                rows.push(['bi-files', head + OQB.t('{item} repeats {prev} at the top of the next page. If it continues that question, press <strong>Cont.</strong> on its row; if it is a new question, renumber.', {item: where(is.item), prev: where(is.prev)})
+                    + ` <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-1 btn-order-renumber" data-kind="${kind}" data-page="${is.item.page}"><i class="bi bi-sort-numeric-down"></i> ${OQB.t('Renumber from page {page}', {page: is.item.page + 1})}</button>`]);
             } else {
-                rows.push(['bi-files', `${head}Q${escapeHtml(examLabel(is.item))} has ${is.count} boxes on page ${is.item.page + 1} — they will be imported as one joined image. If one is a different question, fix its Q#.`
-                    + btn('btn-order-goto', kind, is.item.page, 'bi-eye', `Go to page ${is.item.page + 1}`)]);
+                rows.push(['bi-files', head + OQB.t('Q{label} has {n} boxes on page {page} — they will be imported as one joined image. If one is a different question, fix its Q#.', {label: escapeHtml(examLabel(is.item)), n: is.count, page: is.item.page + 1})
+                    + btn('btn-order-goto', kind, is.item.page, 'bi-eye', OQB.t('Go to page {page}', {page: is.item.page + 1}))]);
             }
         });
-        Object.keys(shown).forEach(t => {
-            const extra = shown[t] - NUMBERING_MAX_PER_TYPE;
-            if (extra > 0) rows.push(['bi-three-dots', `${head}${extra} more ${t === 'drop' ? 'out-of-order number' : t}(s).`]);
+        Object.keys(shown).forEach(kindName => {
+            const extra = shown[kindName] - NUMBERING_MAX_PER_TYPE;
+            if (extra <= 0) return;
+            const more = kindName === 'drop' ? OQB.t('{n} more out-of-order number(s).', {n: extra})
+                : kindName === 'gap' ? OQB.t('{n} more gap(s).', {n: extra})
+                : OQB.t('{n} more repeat(s).', {n: extra});
+            rows.push(['bi-three-dots', head + more]);
         });
     });
     if (!rows.length) { orderWarning.classList.add('d-none'); return; }
@@ -3460,9 +3538,9 @@ function updateOrderWarning() {
     orderWarning.classList.toggle('alert-danger', drop);
     orderWarning.classList.toggle('alert-warning', !drop);
     if (orderWarningTitle) {
-        orderWarningTitle.textContent = drop ? 'Question numbers look out of order'
-            : types.has('gap') ? 'Some question numbers are missing'
-            : 'Some question numbers are boxed twice';
+        orderWarningTitle.textContent = drop ? OQB.t('Question numbers look out of order')
+            : types.has('gap') ? OQB.t('Some question numbers are missing')
+            : OQB.t('Some question numbers are boxed twice');
     }
     orderWarningBody.innerHTML = rows.map(([icon, m]) => `<div class="mb-1"><i class="bi ${icon}"></i> ${m}</div>`).join('');
     orderWarning.classList.remove('d-none');
@@ -3484,10 +3562,10 @@ async function rerunPage(card, kind, pageIndex) {
     const btn = card.querySelector('.btn-rerun');
     const pageMethod = (card.querySelector('.page-method') || {}).value || (staging.method || DEFAULT_METHOD);
     const pageEndpoint = (card.querySelector('.page-endpoint') || {}).value || endpointSelect.value;
-    lockPageJobs(btn, 'Re-running…');
+    lockPageJobs(btn, OQB.t('Re-running…'));
     setPageStatus(card, 'pending');
     setStatus('Re-running', 'bg-success');
-    stripStart(`Re-running ${kind.toUpperCase()} page ${pageIndex + 1}`, true);
+    stripStart(OQB.t('Re-running {side} page {page}', {side: kind.toUpperCase(), page: pageIndex + 1}), true);
     let stripState = 'finished';
     try {
         const body = { token: staging.token, kind, index: pageIndex,
@@ -3533,16 +3611,16 @@ async function rerunPage(card, kind, pageIndex) {
         // uniform width for frameless pages — non-lossy, boxes were pushed natural.
         applyWidthPolicy(kind);
         updateReviewSummary();
-        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-detected ${(data.boxes || []).length} region(s) [${METHOD_LABELS[pageMethod] || pageMethod}].`, 'success');
+        appendLog(OQB.t('{side} page {page}: re-detected {n} region(s) [{method}].', {side: kind.toUpperCase(), page: pageIndex + 1, n: (data.boxes || []).length, method: METHOD_LABELS[pageMethod] || pageMethod}), 'success');
         if (data.raw !== undefined) {
             rawByPage[kind][pageIndex] = data.raw;
             logRaw(kind, pageIndex, data.raw);
             const rawEl = card.querySelector('.pdf-raw-content');
-            if (rawEl) rawEl.textContent = data.raw || '(empty)';
+            if (rawEl) rawEl.textContent = data.raw || OQB.t('(empty)');
             card.querySelector('.pdf-raw')?.classList.remove('d-none');
         }
     } catch (err) {
-        appendLog(`${kind.toUpperCase()} page ${pageIndex + 1}: re-run failed (${err.message}).`, 'error');
+        appendLog(OQB.t('{side} page {page}: re-run failed ({error}).', {side: kind.toUpperCase(), page: pageIndex + 1, error: err.message}), 'error');
         if (!card.querySelectorAll('.box-row').length) setPageFailed(card, err.message);
         setPageStatus(card, 'done');
         updateOrderWarning();
@@ -3558,14 +3636,14 @@ async function rerunPage(card, kind, pageIndex) {
 async function startCommit() {
     if (!staging) return;
     if (planRegionCount() === 0) {
-        alert('No regions to import. Run detection or draw boxes first.');
+        alert(OQB.t('No regions to import. Run detection or draw boxes first.'));
         return;
     }
     const paperNow = paperInput.value.trim();
     const queVersionNow = queVersionSelect.value;
     const solVersionNow = solVersionSelect.value;
     if (!isGeneric() && !paperNow) {
-        alert('Enter a paper name before importing.');
+        alert(OQB.t('Enter a paper name before importing.'));
         paperInput.focus();
         return;
     }
@@ -3578,7 +3656,7 @@ async function startCommit() {
         }
     };
     const missing = [...plan.que, ...plan.sol].filter(it => !examLabel(it) && it.qno == null).length;
-    if (missing > 0 && !confirm(`${missing} region(s) have no question number and will be skipped. Continue?`)) return;
+    if (missing > 0 && !confirm(OQB.t('{n} region(s) have no question number and will be skipped. Continue?', {n: missing}))) return;
     try {
         const r = await fetch(`${IMPORT_BASE}/plan`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3587,15 +3665,15 @@ async function startCommit() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     } catch (err) {
-        appendLog('Could not save plan: ' + err.message, 'error');
+        appendLog(OQB.t('Could not save plan: {error}', {error: err.message}), 'error');
         return;
     }
 
     setRunning(true, 'import');
     setStatus('Importing', 'bg-success');
-    showProgress('Importing question images...');
+    showProgress(OQB.t('Importing question images...'));
     summaryPanel.classList.add('d-none');
-    appendLog('Cropping and saving images...', 'info');
+    appendLog(OQB.t('Cropping and saving images...'), 'info');
     progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     const url = `${IMPORT_BASE}/commit?token=${encodeURIComponent(staging.token)}`
@@ -3615,7 +3693,7 @@ async function startCommit() {
         if (ev.type === 'done') { closeStream(); finishCommit(ev); }
     };
     eventSource.onerror = () => {
-        if (running) { appendLog('Connection closed.', 'warning'); closeStream(); finishCommit(null); }
+        if (running) { appendLog(OQB.t('Connection closed.'), 'warning'); closeStream(); finishCommit(null); }
     };
 }
 
@@ -3627,10 +3705,10 @@ function finishCommit(ev) {
     if (ev && ev.stats) {
         const s = ev.stats;
         document.getElementById('summaryStats').innerHTML = `
-            <div class="col"><div class="fs-3 fw-bold text-success">${s.assets_written}</div><small class="text-muted">Images saved</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-primary">${s.questions_created}</div><small class="text-muted">New questions</small></div>
-            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">Skipped</small></div>
-            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">Errors</small></div>`;
+            <div class="col"><div class="fs-3 fw-bold text-success">${s.assets_written}</div><small class="text-muted">${OQB.t('Images saved')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-primary">${s.questions_created}</div><small class="text-muted">${OQB.t('New questions')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold text-warning">${s.skipped}</div><small class="text-muted">${OQB.t('Skipped')}</small></div>
+            <div class="col"><div class="fs-3 fw-bold ${s.errors > 0 ? 'text-danger' : 'text-success'}">${s.errors}</div><small class="text-muted">${OQB.t('Errors')}</small></div>`;
         summaryPanel.classList.remove('d-none');
         progressBar.classList.add(s.errors > 0 ? 'bg-warning' : 'bg-success');
     }
@@ -3640,19 +3718,19 @@ function finishCommit(ev) {
 async function downloadZip() {
     if (!staging) return;
     if (planRegionCount() === 0) {
-        alert('No regions to export. Run detection or draw boxes first.');
+        alert(OQB.t('No regions to export. Run detection or draw boxes first.'));
         return;
     }
     const items = plan.que
         .filter(it => it.box)
         .sort((a, b) => (a.page * 2 + a.box[1]) - (b.page * 2 + b.box[1]))
         .map(it => ({ page: it.page, label: it.label, box: it.box }));
-    if (!items.length) { alert('No regions to export. Detect or draw some boxes first.'); return; }
+    if (!items.length) { alert(OQB.t('No regions to export. Detect or draw some boxes first.')); return; }
 
     btnZip.disabled = true;
     const orig = btnZip.innerHTML;
-    btnZip.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Building ZIP…';
-    appendLog(`Building ZIP of ${items.length} region(s)…`, 'info');
+    btnZip.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Building ZIP…');
+    appendLog(OQB.t('Building ZIP of {n} region(s)…', {n: items.length}), 'info');
     try {
         const r = await fetch(`${IMPORT_BASE}/export-zip`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3671,10 +3749,10 @@ async function downloadZip() {
         a.download = (m && m[1]) || 'extraction.zip';
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-        appendLog(`ZIP downloaded (${items.length} image(s)).`, 'success');
+        appendLog(OQB.t('ZIP downloaded ({n} image(s)).', {n: items.length}), 'success');
     } catch (err) {
-        appendLog('ZIP export failed: ' + err.message, 'error');
-        alert('ZIP export failed: ' + err.message);
+        appendLog(OQB.t('ZIP export failed: {error}', {error: err.message}), 'error');
+        alert(OQB.t('ZIP export failed: {error}', {error: err.message}));
     } finally {
         btnZip.disabled = false;
         btnZip.innerHTML = orig;
@@ -3691,7 +3769,7 @@ function stopRun() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ job_id: currentJobId })
         }).catch(() => {});
-        appendLog('Stop requested — finishing current item...', 'warning');
+        appendLog(OQB.t('Stop requested — finishing current item...'), 'warning');
     } else {
         closeStream();
         setRunning(false);
@@ -3725,15 +3803,15 @@ function resetAll() {
     if (agentStage) agentStage.classList.add('d-none');
     setRunning(false);
     setStatus('Idle', 'bg-secondary');
-    appendLog('Ready — Step 1: load a PDF.', 'info');
+    appendLog(OQB.t('Ready — Step 1: load a PDF.'), 'info');
 }
 function discardRun() {
     if (!staging) { resetAll(); return; }
-    if (!confirm('Discard the uploaded PDFs and detected regions? Nothing will be saved to the database.')) return;
+    if (!confirm(OQB.t('Discard the uploaded PDFs and detected regions? Nothing will be saved to the database.'))) return;
     fetch(`${IMPORT_BASE}/discard`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: staging.token })
-    }).catch(() => {}).finally(() => { appendLog('Discarded staging data.', 'warning'); resetAll(); });
+    }).catch(() => {}).finally(() => { appendLog(OQB.t('Discarded staging data.'), 'warning'); resetAll(); });
 }
 
 document.addEventListener('keydown', (e) => {

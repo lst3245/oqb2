@@ -17,6 +17,8 @@ import os
 from typing import Any, Iterable
 
 from flask import current_app
+
+from app.i18n import t as _t
 from PIL import Image
 
 from app import db
@@ -70,15 +72,13 @@ def choose_mode(stem, *, has_whole: bool) -> str:
     """``'restore'`` or ``'reconstruct'``. Raises CombineError if refused."""
     if getattr(stem, 'qno_end', None):
         raise CombineError(
-            'Cannot combine a range stem (for example Q23-24). '
-            'Delete or detach the MC items individually.',
+            _t('Cannot combine a range stem (for example Q23-24). Delete or detach the MC items individually.'),
             status=409)
     if is_block(stem):
         raise CombineError(
-            'A shared intro block cannot be combined on its own: combine the '
-            'question (or part) above it, or delete the block to dissolve it.')
+            _t('A shared intro block cannot be combined on its own: combine the question (or part) above it, or delete the block to dissolve it.'))
     if not is_stem(stem):
-        raise CombineError('This question has no parts to combine.')
+        raise CombineError(_t('This question has no parts to combine.'))
     if is_root_question(stem) and has_whole:
         return 'restore'
     return 'reconstruct'
@@ -274,7 +274,7 @@ def combine_parts(question: Question, *, stitch: bool = False,
     descendant_qids = [n.qid for n in desc_nodes]
     descendant_ids = [n.id for n in desc_nodes]
     if not descendant_qids:
-        raise CombineError('This question has no parts to combine.')
+        raise CombineError(_t('This question has no parts to combine.'))
 
     wrote = {}
     if mode == 'restore':

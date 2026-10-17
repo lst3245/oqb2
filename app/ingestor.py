@@ -10,6 +10,7 @@ from natsort import natsorted
 from app import db
 from app.models import Question, QuestionAsset, Subject
 from sqlalchemy import or_
+from app.i18n import t as _t
 from app.hierarchy import (
     BLOCK_MARK, QNO_TOKEN_PATTERN, parse_qno_token, ensure_question, HierarchyError,
 )
@@ -485,7 +486,7 @@ def preview_source_directory(source_path):
     Returns dict with folder structure and file counts.
     """
     if not os.path.exists(source_path):
-        return {'error': f'Source path does not exist: {source_path}', 'folders': [], 'total_files': 0}
+        return {'error': _t('Source path does not exist: {path}', path=source_path), 'folders': [], 'total_files': 0}
     
     folders = []
     total_files = 0
@@ -847,6 +848,8 @@ def get_database_stats(source_path=None):
         subject_stats.append({
             'id': subj.id,
             'name': subj.name,
+            'name_en': subj.name,
+            'name_zh': subj.name_zh or '',
             'questions': q_count,
             'assets': a_count
         })

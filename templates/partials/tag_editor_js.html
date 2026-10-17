@@ -25,7 +25,7 @@ function loadTopicsForEditForm(subjectId) {
             
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('editMajorTopicOptions');
-            majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorTopic(\'\', \'None\')">None</div>' +
+            majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorTopic(\'\', \'\')">' + OQB.t('None') + '</div>' +
                 topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${OQB.taxSearchKey(t)}" onclick="selectEditMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
@@ -85,7 +85,7 @@ function clearEditMajorTopicSearch() {
 
 function selectEditMajorTopic(value, name) {
     document.getElementById('editMajorTopic').value = value;
-    document.getElementById('editMajorTopicLabel').textContent = name;
+    document.getElementById('editMajorTopicLabel').textContent = value ? name : OQB.t('None');
     
     const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editMajorTopicDropdown .dropdown-toggle'));
     if (dropdown) dropdown.hide();
@@ -99,8 +99,8 @@ function onMajorTopicChange() {
     const majorTopicId = document.getElementById('editMajorTopic').value;
     
     // Clear major subtopic
-    document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>';
-    document.getElementById('editMajorSubtopicLabel').textContent = 'None';
+    document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorSubtopic(\'\', \'\')">' + OQB.t('None') + '</div>';
+    document.getElementById('editMajorSubtopicLabel').textContent = OQB.t('None');
     document.getElementById('editMajorSubtopic').value = '';
     
     if (majorTopicId) {
@@ -122,7 +122,7 @@ function reloadEditSubtopics() {
         loadSubtopicsSearchable(allTopicIds, currentlySelected);
     } else {
         document.getElementById('editSubtopicsCheckboxes').innerHTML = '';
-        document.getElementById('editSubtopicsLabel').textContent = 'None selected';
+        document.getElementById('editSubtopicsLabel').textContent = OQB.t('None selected');
     }
 }
 
@@ -137,7 +137,7 @@ function loadMajorSubtopicsSearchable(topicId, selectedSubtopicId) {
             window.editMajorSubtopicsList = subtopics;
             
             const optionsDiv = document.getElementById('editMajorSubtopicOptions');
-            optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>' +
+            optionsDiv.innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorSubtopic(\'\', \'\')">' + OQB.t('None') + '</div>' +
                 subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${OQB.taxSearchKey(s)}" onclick="selectEditMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
             
             if (selectedSubtopicId) {
@@ -158,7 +158,7 @@ function loadMajorSubtopicsSearchable(topicId, selectedSubtopicId) {
 
 function selectEditMajorSubtopic(value, name) {
     document.getElementById('editMajorSubtopic').value = value;
-    document.getElementById('editMajorSubtopicLabel').textContent = name;
+    document.getElementById('editMajorSubtopicLabel').textContent = value ? name : OQB.t('None');
     
     const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('#editMajorSubtopicDropdown .dropdown-toggle'));
     if (dropdown) dropdown.hide();
@@ -196,12 +196,12 @@ function updateEditMinorTopicsLabel() {
     const label = document.getElementById('editMinorTopicsLabel');
     
     if (checked.length === 0) {
-        label.textContent = 'None selected';
+        label.textContent = OQB.t('None selected');
     } else if (checked.length === 1) {
         const topicName = checked[0].parentElement.querySelector('label').textContent;
         label.textContent = topicName.length > 30 ? topicName.substring(0, 30) + '...' : topicName;
     } else {
-        label.innerHTML = `${checked.length} topics <span class="badge bg-primary">${checked.length}</span>`;
+        label.innerHTML = OQB.t('{n} topics <span class="badge bg-primary">{n}</span>', {n: checked.length});
     }
 }
 
@@ -289,12 +289,12 @@ function updateEditSubtopicsLabel() {
     const label = document.getElementById('editSubtopicsLabel');
     
     if (checked.length === 0) {
-        label.textContent = 'None selected';
+        label.textContent = OQB.t('None selected');
     } else if (checked.length === 1) {
         const name = checked[0].parentElement.querySelector('label').textContent.trim();
         label.textContent = name.length > 30 ? name.substring(0, 30) + '...' : name;
     } else {
-        label.innerHTML = `${checked.length} subtopics <span class="badge bg-primary">${checked.length}</span>`;
+        label.innerHTML = OQB.t('{n} subtopics <span class="badge bg-primary">{n}</span>', {n: checked.length});
     }
 }
 
@@ -339,8 +339,8 @@ function clearAllEditSubtopics() {
 
 function loadEditChapters(subjectId, selectedChapterId, selectedSubchapterId) {
     if (!subjectId) {
-        document.getElementById('editChapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'None\')">None</div>';
-        document.getElementById('editChapterLabel').textContent = 'None';
+        document.getElementById('editChapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'\')">' + OQB.t('None') + '</div>';
+        document.getElementById('editChapterLabel').textContent = OQB.t('None');
         document.getElementById('editChapter').value = '';
         return;
     }
@@ -354,8 +354,8 @@ function loadEditChapters(subjectId, selectedChapterId, selectedSubchapterId) {
             if (selectedChapterId) {
                 loadEditSubchapters(selectedChapterId, selectedSubchapterId);
             } else {
-                document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
-                document.getElementById('editSubchapterLabel').textContent = 'None';
+                document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditSubchapter(\'\', \'\')">' + OQB.t('None') + '</div>';
+                document.getElementById('editSubchapterLabel').textContent = OQB.t('None');
                 document.getElementById('editSubchapter').value = '';
             }
         });
@@ -364,7 +364,7 @@ function loadEditChapters(subjectId, selectedChapterId, selectedSubchapterId) {
 function renderEditChapterOptions(chapters, selectedChapterId) {
     const optionsDiv = document.getElementById('editChapterOptions');
     
-    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'None\')">None</div>';
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'\')">' + OQB.t('None') + '</div>';
     chapters.forEach(c => {
         const isSelected = c.id == selectedChapterId;
         html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${c.id}" data-name="${OQB.taxSearchKey(c)}" onclick="selectEditChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
@@ -377,9 +377,9 @@ function renderEditChapterOptions(chapters, selectedChapterId) {
     
     if (selectedChapterId) {
         const chapter = chapters.find(c => c.id == selectedChapterId);
-        document.getElementById('editChapterLabel').textContent = chapter ? chapter.name : 'None';
+        document.getElementById('editChapterLabel').textContent = chapter ? chapter.name : OQB.t('None');
     } else {
-        document.getElementById('editChapterLabel').textContent = 'None';
+        document.getElementById('editChapterLabel').textContent = OQB.t('None');
     }
     
     const searchInput = document.getElementById('editChapterSearch');
@@ -391,7 +391,7 @@ function renderEditChapterOptions(chapters, selectedChapterId) {
 
 function selectEditChapter(chapterId, chapterName) {
     document.getElementById('editChapter').value = chapterId;
-    document.getElementById('editChapterLabel').textContent = chapterName;
+    document.getElementById('editChapterLabel').textContent = chapterId ? chapterName : OQB.t('None');
     
     document.querySelectorAll('#editChapterOptions .searchable-option').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.value === chapterId);
@@ -401,12 +401,12 @@ function selectEditChapter(chapterId, chapterName) {
     if (dropdown) dropdown.hide();
     
     document.getElementById('editSubchapter').value = '';
-    document.getElementById('editSubchapterLabel').textContent = 'None';
+    document.getElementById('editSubchapterLabel').textContent = OQB.t('None');
     
     if (chapterId) {
         loadEditSubchapters(chapterId, null);
     } else {
-        document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
+        document.getElementById('editSubchapterOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditSubchapter(\'\', \'\')">' + OQB.t('None') + '</div>';
     }
 }
 
@@ -443,7 +443,7 @@ function loadEditSubchapters(chapterId, selectedSubchapterId) {
 function renderEditSubchapterOptions(subchapters, selectedSubchapterId) {
     const optionsDiv = document.getElementById('editSubchapterOptions');
     
-    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditSubchapter(\'\', \'None\')">None</div>';
+    let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditSubchapter(\'\', \'\')">' + OQB.t('None') + '</div>';
     subchapters.forEach(sc => {
         const isSelected = sc.id == selectedSubchapterId;
         const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
@@ -457,9 +457,9 @@ function renderEditSubchapterOptions(subchapters, selectedSubchapterId) {
     
     if (selectedSubchapterId) {
         const subchapter = subchapters.find(sc => sc.id == selectedSubchapterId);
-        document.getElementById('editSubchapterLabel').textContent = subchapter ? subchapter.name : 'None';
+        document.getElementById('editSubchapterLabel').textContent = subchapter ? subchapter.name : OQB.t('None');
     } else {
-        document.getElementById('editSubchapterLabel').textContent = 'None';
+        document.getElementById('editSubchapterLabel').textContent = OQB.t('None');
     }
     
     const searchInput = document.getElementById('editSubchapterSearch');
@@ -471,7 +471,7 @@ function renderEditSubchapterOptions(subchapters, selectedSubchapterId) {
 
 function selectEditSubchapter(subchapterId, subchapterName) {
     document.getElementById('editSubchapter').value = subchapterId;
-    document.getElementById('editSubchapterLabel').textContent = subchapterName;
+    document.getElementById('editSubchapterLabel').textContent = subchapterId ? subchapterName : OQB.t('None');
     
     document.querySelectorAll('#editSubchapterOptions .searchable-option').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.value === subchapterId);
@@ -517,14 +517,14 @@ function populateTagForm(questionData) {
         if (isStem && questionData.tag_union) {
             const u = questionData.tag_union;
             const bits = [];
-            if (u.topics && u.topics.length) bits.push('Topics: ' + u.topics.join(', '));
-            if (u.subtopics && u.subtopics.length) bits.push('Subtopics: ' + u.subtopics.join(', '));
-            if (u.chapters && u.chapters.length) bits.push('Chapters: ' + u.chapters.join(', '));
-            if (u.levels && u.levels.length) bits.push('Levels: ' + u.levels.join(', '));
-            if (u.q_types && u.q_types.length) bits.push('Types: ' + u.q_types.join(', '));
+            if (u.topics && u.topics.length) bits.push(OQB.t('Topics: {list}', {list: u.topics.join(', ')}));
+            if (u.subtopics && u.subtopics.length) bits.push(OQB.t('Subtopics: {list}', {list: u.subtopics.join(', ')}));
+            if (u.chapters && u.chapters.length) bits.push(OQB.t('Chapters: {list}', {list: u.chapters.join(', ')}));
+            if (u.levels && u.levels.length) bits.push(OQB.t('Levels: {list}', {list: u.levels.join(', ')}));
+            if (u.q_types && u.q_types.length) bits.push(OQB.t('Types: {list}', {list: u.q_types.join(', ')}));
             stemNote.querySelector('.union-text').textContent = bits.length
-                ? ('Inherited from parts — ' + bits.join('. '))
-                : 'Tags live on parts; this stem inherits the union at filter time.';
+                ? OQB.t('Inherited from parts — {summary}', {summary: bits.join('. ')})
+                : OQB.t('Tags live on parts; this stem inherits the union at filter time.');
         }
     }
     tagFields.forEach(id => {
@@ -544,17 +544,24 @@ function populateTagForm(questionData) {
     const marksEl = document.getElementById('editMarks');
     if (marksEl) {
         marksEl.value = (!isStem && questionData.marks !== null && questionData.marks !== undefined) ? questionData.marks : '';
-        marksEl.placeholder = isStem ? 'on parts' : 'e.g. 4';
+        marksEl.placeholder = isStem ? OQB.t('on parts') : OQB.t('e.g. 4');
     }
     const marksTotal = document.getElementById('editMarksTotal');
     if (marksTotal) {
         const wm = questionData.whole_marks || null;
         let text = '';
         if (wm && wm.total !== null && wm.total !== undefined) {
-            text = (isStem ? 'Total ' : 'Whole question: ') + wm.total + ' marks'
-                + (wm.complete ? '' : ' (some parts have no marks)');
+            if (wm.complete) {
+                text = isStem
+                    ? OQB.t('Total {n} marks', {n: wm.total})
+                    : OQB.t('Whole question: {n} marks', {n: wm.total});
+            } else {
+                text = isStem
+                    ? OQB.t('Total {n} marks (some parts have no marks)', {n: wm.total})
+                    : OQB.t('Whole question: {n} marks (some parts have no marks)', {n: wm.total});
+            }
         } else if (isStem) {
-            text = 'No marks on parts yet';
+            text = OQB.t('No marks on parts yet');
         }
         marksTotal.textContent = text;
         marksTotal.classList.toggle('d-none', !text || (!isStem && wm && wm.total === questionData.marks));
@@ -587,17 +594,17 @@ function populateTagForm(questionData) {
 
         if (majorTopicId && window.editTopicsList) {
             const topic = window.editTopicsList.find(t => t.id == majorTopicId);
-            document.getElementById('editMajorTopicLabel').textContent = topic ? topic.name : 'None';
+            document.getElementById('editMajorTopicLabel').textContent = topic ? topic.name : OQB.t('None');
         } else {
-            document.getElementById('editMajorTopicLabel').textContent = 'None';
+            document.getElementById('editMajorTopicLabel').textContent = OQB.t('None');
         }
 
         // Major subtopic
         if (questionData.major_topic_id) {
             loadMajorSubtopicsSearchable(questionData.major_topic_id, questionData.major_subtopic_id);
         } else {
-            document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>';
-            document.getElementById('editMajorSubtopicLabel').textContent = 'None';
+            document.getElementById('editMajorSubtopicOptions').innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorSubtopic(\'\', \'\')">' + OQB.t('None') + '</div>';
+            document.getElementById('editMajorSubtopicLabel').textContent = OQB.t('None');
             document.getElementById('editMajorSubtopic').value = '';
         }
 
@@ -614,7 +621,7 @@ function populateTagForm(questionData) {
             loadSubtopicsSearchable(allTopicIds, questionData.subtopic_ids || []);
         } else {
             document.getElementById('editSubtopicsCheckboxes').innerHTML = '';
-            document.getElementById('editSubtopicsLabel').textContent = 'None selected';
+            document.getElementById('editSubtopicsLabel').textContent = OQB.t('None selected');
         }
     }, 500);
 }

@@ -6,7 +6,7 @@
 // matching rows of the subject (server /api/ids).
 
 function aqReload() {
-    if (!AQ.subject) { aqRenderEmpty('<i class="bi bi-book"></i>Pick a subject to start.'); return Promise.resolve(); }
+    if (!AQ.subject) { aqRenderEmpty('<i class="bi bi-book"></i>' + OQB.t('Pick a subject to start.')); return Promise.resolve(); }
     const seq = ++AQ.seq;
     const tbody = document.getElementById('aqTbody');
     if (!AQ.data || AQ.data.subject !== AQ.subject) {
@@ -26,7 +26,7 @@ function aqReload() {
         })
         .catch(err => {
             if (seq !== AQ.seq) return;
-            aqRenderEmpty(`<i class="bi bi-exclamation-triangle text-danger"></i>Could not load questions: ${aqEsc(err.message)}`);
+            aqRenderEmpty('<i class="bi bi-exclamation-triangle text-danger"></i>' + OQB.t('Could not load questions: {error}', {error: aqEsc(err.message)}));
         })
         .finally(() => tbody.classList.remove('opacity-50'));
 }
@@ -82,7 +82,7 @@ function aqWholeIndicator(n) {
     if (!n.has_whole) return '';
     const ids = (n.whole_asset_ids || []).join(',');
     return ` <button type="button" class="btn btn-sm btn-link p-0 align-baseline text-secondary"
-        title="Whole-question archive kept (${(n.whole_asset_ids || []).length} image(s)). Click to preview; manage in Edit → Assets."
+        title="${OQB.t('Whole-question archive kept ({n} image(s)). Click to preview; manage in Edit → Assets.', {n: (n.whole_asset_ids || []).length})}"
         onclick="event.stopPropagation(); aqPreviewWhole('${ids}')"><i class="bi bi-archive"></i></button>`;
 }
 
@@ -95,16 +95,16 @@ function aqPreviewWhole(idCsv) {
 
 function aqCheckIndicator(cs) {
     cs = cs || { status: 'none', total: 0 };
-    if (cs.status === 'issues') return `<span class="badge bg-danger" title="${cs.issues || 0} asset(s) flagged with issues"><i class="bi bi-exclamation-triangle-fill"></i> Issues</span>`;
-    if (cs.status === 'ok') return `<span class="badge bg-success" title="All ${cs.total || 0} asset(s) checked OK"><i class="bi bi-check-circle-fill"></i> OK</span>`;
-    if (cs.status === 'unchecked') return `<span class="badge bg-warning text-dark" title="${cs.unchecked || 0} of ${cs.total || 0} asset(s) not checked yet"><i class="bi bi-hourglass-split"></i> ${cs.unchecked || 0} unchecked</span>`;
-    return '<span class="text-muted" title="No assets in the status scope">—</span>';
+    if (cs.status === 'issues') return `<span class="badge bg-danger" title="${OQB.t('{n} asset(s) flagged with issues', {n: cs.issues || 0})}"><i class="bi bi-exclamation-triangle-fill"></i> ${OQB.t('Issues')}</span>`;
+    if (cs.status === 'ok') return `<span class="badge bg-success" title="${OQB.t('All {n} asset(s) checked OK', {n: cs.total || 0})}"><i class="bi bi-check-circle-fill"></i> ${OQB.t('OK')}</span>`;
+    if (cs.status === 'unchecked') return `<span class="badge bg-warning text-dark" title="${OQB.t('{unchecked} of {total} asset(s) not checked yet', {unchecked: cs.unchecked || 0, total: cs.total || 0})}"><i class="bi bi-hourglass-split"></i> ${OQB.t('{n} unchecked', {n: cs.unchecked || 0})}</span>`;
+    return '<span class="text-muted" title="' + OQB.t('No assets in the status scope') + '">—</span>';
 }
 
 function aqVerifiedIndicator(v) {
     return v
-        ? '<span class="badge bg-success" title="Question verified"><i class="bi bi-patch-check-fill"></i></span>'
-        : '<span class="text-muted" title="Not verified">—</span>';
+        ? '<span class="badge bg-success" title="' + OQB.t('Question verified') + '"><i class="bi bi-patch-check-fill"></i></span>'
+        : '<span class="text-muted" title="' + OQB.t('Not verified') + '">—</span>';
 }
 
 function aqPaperText(n) {
@@ -122,14 +122,14 @@ function aqRowHtml(node, hidden, dimUnmatched) {
     const open = aqIsOpen(node);
     const caret = hasKids
         ? `<button type="button" class="aq-caret${open ? ' aq-open' : ''}" onclick="aqToggleOpen(${node.id})"
-               title="${open ? 'Hide' : 'Show'} ${node.children.length} part(s)"><i class="bi bi-chevron-right"></i></button>`
+               title="${open ? OQB.t('Hide {n} part(s)', {n: node.children.length}) : OQB.t('Show {n} part(s)', {n: node.children.length})}"><i class="bi bi-chevron-right"></i></button>`
         : '<span class="aq-caret d-inline-block"></span>';
-    const blockIcon = node.is_block ? '<i class="bi bi-layers text-secondary" title="Shared text printed before the parts it covers"></i> ' : '';
+    const blockIcon = node.is_block ? '<i class="bi bi-layers text-secondary" title="' + OQB.t('Shared text printed before the parts it covers') + '"></i> ' : '';
     const label = node.is_block && typeof blockScopeText === 'function'
         ? blockScopeText(node.part, node.block_end) : node.label;
-    const kids = hasKids && !open ? ` <span class="badge rounded-pill bg-light text-secondary border">${node.subtree_ids.length - 1} parts</span>` : '';
+    const kids = hasKids && !open ? ` <span class="badge rounded-pill bg-light text-secondary border">${OQB.t('{n} parts', {n: node.subtree_ids.length - 1})}</span>` : '';
     const hiddenHits = hasKids && !open && aqDescendantMatches(node) > 0 && dimUnmatched
-        ? `<span class="aq-match-dot" title="${aqDescendantMatches(node)} part(s) inside match the filters"></span>` : '';
+        ? `<span class="aq-match-dot" title="${OQB.t('{n} part(s) inside match the filters', {n: aqDescendantMatches(node)})}"></span>` : '';
     const vers = (node.que_versions || []).map(v => `<span class="badge bg-primary-subtle text-primary-emphasis aq-ver">${v}</span>`).join('')
         || '<span class="text-muted">—</span>';
     const cls = ['aq-row', root ? 'aq-row-root' : 'aq-row-child'];
@@ -137,12 +137,12 @@ function aqRowHtml(node, hidden, dimUnmatched) {
     if (dimUnmatched && !node.matched) cls.push('aq-dim');
     if (AQ.selected.has(node.id)) cls.push('aq-selected');
     const splitItem = !hasKids
-        ? `<li><a class="dropdown-item" href="/admin/questions/${node.id}/split"><i class="bi bi-scissors"></i> Split into parts</a></li>` : '';
+        ? `<li><a class="dropdown-item" href="/admin/questions/${node.id}/split"><i class="bi bi-scissors"></i> ${OQB.t('Split into parts')}</a></li>` : '';
     const combineItem = hasKids
-        ? `<li><a class="dropdown-item" href="#" onclick="aqRowOp('combine', ${node.id}); return false;"><i class="bi bi-intersect"></i> Combine parts…</a></li>` : '';
+        ? `<li><a class="dropdown-item" href="#" onclick="aqRowOp('combine', ${node.id}); return false;"><i class="bi bi-intersect"></i> ${OQB.t('Combine parts…')}</a></li>` : '';
     return `<tr class="${cls.join(' ')}" data-id="${node.id}" data-qid="${aqEsc(node.qid)}">
         <td class="aq-cell-check"><input type="checkbox" class="form-check-input aq-check" data-id="${node.id}"
-            onchange="aqToggleNode(${node.id}, this.checked)" title="${hasKids ? 'Select with its parts' : 'Select'}"></td>
+            onchange="aqToggleNode(${node.id}, this.checked)" title="${hasKids ? OQB.t('Select with its parts') : OQB.t('Select')}"></td>
         <td>
             <span class="aq-indent" style="width:${node.depth * 1.4}rem"></span>${caret}
             <span class="aq-label">${blockIcon}${aqEsc(label)}</span>${kids}${hiddenHits}
@@ -157,15 +157,15 @@ function aqRowHtml(node, hidden, dimUnmatched) {
         <td>${aqVerifiedIndicator(node.verified)}</td>
         <td><small class="text-muted">${window.oqbFormatLocalTime ? window.oqbFormatLocalTime(node.created_at) : aqEsc(node.created_at)}</small></td>
         <td class="text-end text-nowrap">
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditModal(${node.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditModal(${node.id})" title="${OQB.t('Edit')}"><i class="bi bi-pencil"></i></button>
             <div class="dropdown d-inline-block">
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="More"><i class="bi bi-three-dots-vertical"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="${OQB.t('More')}"><i class="bi bi-three-dots-vertical"></i></button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="${AQ.cfg.urls.dashboard}?qids=${encodeURIComponent(node.qid)}" target="_blank"><i class="bi bi-grid"></i> Open in dashboard</a></li>
-                    <li><a class="dropdown-item" href="#" onclick="aqOpenSmartImportFor(['${aqEsc(node.qid)}']); return false;"><i class="bi bi-folder-plus"></i> Import files…</a></li>
+                    <li><a class="dropdown-item" href="${AQ.cfg.urls.dashboard}?qids=${encodeURIComponent(node.qid)}" target="_blank"><i class="bi bi-grid"></i> ${OQB.t('Open in dashboard')}</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="aqOpenSmartImportFor(['${aqEsc(node.qid)}']); return false;"><i class="bi bi-folder-plus"></i> ${OQB.t('Import files…')}</a></li>
                     ${splitItem}${combineItem}
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" href="#" onclick="aqRowOp('deleteQuestions', ${node.id}); return false;"><i class="bi bi-trash"></i> Delete…</a></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="aqRowOp('deleteQuestions', ${node.id}); return false;"><i class="bi bi-trash"></i> ${OQB.t('Delete…')}</a></li>
                 </ul>
             </div>
         </td>
@@ -181,12 +181,12 @@ function aqRender() {
     if (!d.items.length) {
         const filtered = aqFiltersActive();
         tbody.innerHTML = `<tr><td colspan="11" class="aq-empty-state"><i class="bi bi-inbox"></i>
-            ${filtered ? `No questions in ${name} match these filters.
-                <div class="mt-2"><button class="btn btn-sm btn-outline-secondary" onclick="aqResetFilters()">Reset filters</button></div>`
-                : `${name} has no questions yet.`}</td></tr>`;
+            ${filtered ? OQB.t('No questions in {name} match these filters.', {name: name}) +
+                '<div class="mt-2"><button class="btn btn-sm btn-outline-secondary" onclick="aqResetFilters()">' + OQB.t('Reset filters') + '</button></div>'
+                : OQB.t('{name} has no questions yet.', {name: name})}</td></tr>`;
         document.getElementById('aqPageInfo').textContent = '';
         document.getElementById('aqPagination').innerHTML = '';
-        document.getElementById('aqResultSummary').textContent = filtered ? `0 of ${d.subject_rows} rows in ${AQ.subject}` : '';
+        document.getElementById('aqResultSummary').textContent = filtered ? OQB.t('0 of {n} rows in {subject}', {n: d.subject_rows, subject: AQ.subject}) : '';
         aqUpdateSelectionUI();
         return;
     }
@@ -202,10 +202,10 @@ function aqRender() {
 
     const start = (d.page - 1) * d.page_size + 1;
     const end = Math.min(d.page * d.page_size, d.total_roots);
-    document.getElementById('aqPageInfo').textContent = `Questions ${start}–${end} of ${d.total_roots}`;
+    document.getElementById('aqPageInfo').textContent = OQB.t('Questions {start}–{end} of {total}', {start: start, end: end, total: d.total_roots});
     document.getElementById('aqResultSummary').textContent = dim
-        ? `${d.total_matched} matching row(s) in ${d.total_roots} question(s) · ${AQ.subject} has ${d.subject_rows} rows`
-        : `${d.total_roots} questions · ${d.total_rows} rows in ${AQ.subject}`;
+        ? OQB.t('{matched} matching row(s) in {questions} question(s) · {subject} has {rows} rows', {matched: d.total_matched, questions: d.total_roots, subject: AQ.subject, rows: d.subject_rows})
+        : OQB.t('{questions} questions · {rows} rows in {subject}', {questions: d.total_roots, rows: d.total_rows, subject: AQ.subject});
     aqRenderPagination(d);
     aqRefreshChecks();
     aqUpdateSelectionUI();
@@ -309,7 +309,7 @@ function aqSelectAllMatching() {
             aqRefreshChecks();
             aqUpdateSelectionUI();
         })
-        .catch(err => showToast('Could not select all matching rows: ' + aqEsc(err.message), 'danger'))
+        .catch(err => showToast(OQB.t('Could not select all matching rows: {error}', {error: aqEsc(err.message)}), 'danger'))
         .finally(() => { btn.disabled = false; });
 }
 
@@ -317,12 +317,11 @@ function aqUpdateSelectionUI() {
     const n = AQ.selected.size;
     const bar = document.getElementById('aqActionBar');
     bar.classList.toggle('d-none', n === 0);
-    document.getElementById('aqSelCount').textContent = n;
-    document.getElementById('aqSelSubject').textContent = AQ.subject;
+    document.getElementById('aqSelSummary').innerHTML = OQB.t('<strong>{n}</strong> selected in <strong>{subject}</strong>', {n: n, subject: aqEsc(AQ.subject)});
     let roots = 0, offPage = 0;
     AQ.selected.forEach((v, id) => { if (v.root) roots++; if (!AQ.nodes.has(id)) offPage++; });
-    const parts = [`${roots} question(s)`, `${n - roots} part / stem row(s)`];
-    if (offPage) parts.push(`${offPage} not on this page`);
+    const parts = [OQB.t('{n} question(s)', {n: roots}), OQB.t('{n} part / stem row(s)', {n: n - roots})];
+    if (offPage) parts.push(OQB.t('{n} not on this page', {n: offPage}));
     document.getElementById('aqSelBreakdown').textContent = '· ' + parts.join(' · ');
     const split = document.getElementById('aqSplitItem');
     if (split) split.classList.toggle('disabled', n !== 1);
@@ -333,12 +332,12 @@ function aqUpdateSelectionUI() {
     const text = document.getElementById('aqSelectBannerText');
     const sig = aqFilterSignature();
     if (AQ.allMatching && AQ.allMatching.signature === sig) {
-        text.innerHTML = `All <strong>${AQ.allMatching.total}</strong> matching rows in <strong>${aqEsc(AQ.subject)}</strong> are selected.`;
+        text.innerHTML = OQB.t('All <strong>{n}</strong> matching rows in <strong>{subject}</strong> are selected.', {n: AQ.allMatching.total, subject: aqEsc(AQ.subject)});
         btn.classList.add('d-none');
         banner.classList.remove('d-none');
     } else if (d && aqPageState() === 'all' && d.total_pages > 1) {
-        text.innerHTML = `All ${d.items.length} questions on this page are selected, with their parts.`;
-        btn.textContent = `Select all ${d.total_matched} matching rows in ${AQ.subject}`;
+        text.innerHTML = OQB.t('All {n} questions on this page are selected, with their parts.', {n: d.items.length});
+        btn.textContent = OQB.t('Select all {n} matching rows in {subject}', {n: d.total_matched, subject: AQ.subject});
         btn.classList.remove('d-none');
         banner.classList.remove('d-none');
     } else {
@@ -356,13 +355,13 @@ function aqOpenSmartImportFor(qids) {
 function aqOpenSmartImport(selectionOnly) {
     if (!selectionOnly) { aqOpenSmartImportFor([]); return; }
     const qids = Array.from(AQ.selected.values()).map(v => v.qid).filter(Boolean);
-    if (!qids.length) { showToast('Select questions first.', 'info'); return; }
+    if (!qids.length) { showToast(OQB.t('Select questions first.'), 'info'); return; }
     aqOpenSmartImportFor(qids);
 }
 
 function aqOpenSplit() {
     if (AQ.selected.size !== 1) {
-        showToast('Split works on one standalone question at a time. Select exactly one row, or use its ⋮ menu.', 'warning');
+        showToast(OQB.t('Split works on one standalone question at a time. Select exactly one row, or use its ⋮ menu.'), 'warning');
         return;
     }
     window.location.href = `/admin/questions/${Array.from(AQ.selected.keys())[0]}/split`;

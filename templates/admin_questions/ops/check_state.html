@@ -1,23 +1,23 @@
 <div class="bp-op d-none" data-op="checkState">
     <div class="row g-3">
         <div class="col-sm-6">
-            <div class="bp-section-title">Versions</div>
+            <div class="bp-section-title">{{ t('Versions') }}</div>
             <div class="d-flex flex-wrap gap-2">
                 {% for v in OQB_VERSIONS %}
                 <div class="form-check">
                     <input class="form-check-input op-cs-version" type="checkbox" value="{{ v }}" id="opCsVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
-                    <label class="form-check-label" for="opCsVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</label>
+                    <label class="form-check-label" for="opCsVer_{{ v }}" title="{{ t(OQB_VERSION_LABELS[v]) }}">{{ v }}</label>
                 </div>
                 {% endfor %}
             </div>
         </div>
         <div class="col-sm-6">
-            <div class="bp-section-title">Asset types</div>
+            <div class="bp-section-title">{{ t('Asset types') }}</div>
             <div class="d-flex flex-wrap gap-2">
-                {% for t in ['QUE', 'ANS', 'SOL'] %}
+                {% for code in ['QUE', 'ANS', 'SOL'] %}
                 <div class="form-check">
-                    <input class="form-check-input op-cs-atype" type="checkbox" value="{{ t }}" id="opCsType_{{ t }}"{% if t == 'QUE' %} checked{% endif %}>
-                    <label class="form-check-label" for="opCsType_{{ t }}">{{ t }}</label>
+                    <input class="form-check-input op-cs-atype" type="checkbox" value="{{ code }}" id="opCsType_{{ code }}"{% if code == 'QUE' %} checked{% endif %}>
+                    <label class="form-check-label" for="opCsType_{{ code }}">{{ code }}</label>
                 </div>
                 {% endfor %}
             </div>
@@ -25,30 +25,30 @@
     </div>
     <div class="row g-3 mt-1">
         <div class="col-sm-6">
-            <div class="bp-section-title">New state</div>
+            <div class="bp-section-title">{{ t('New state') }}</div>
             <select class="form-select form-select-sm" id="opCsState" onchange="opCsStateChanged()">
-                <option value="ok">Checked — OK</option>
-                <option value="issues">Has issue(s)</option>
-                <option value="error">Check error</option>
-                <option value="clear">Clear (back to unchecked)</option>
+                <option value="ok">{{ t('Checked — OK') }}</option>
+                <option value="issues">{{ t('Has issue(s)') }}</option>
+                <option value="error">{{ t('Check error') }}</option>
+                <option value="clear">{{ t('Clear (back to unchecked)') }}</option>
             </select>
         </div>
         <div class="col-sm-6 d-none" id="opCsSeverityWrap">
-            <div class="bp-section-title">Severity</div>
+            <div class="bp-section-title">{{ t('Severity') }}</div>
             <select class="form-select form-select-sm" id="opCsSeverity">
-                <option value="minor">Minor</option>
-                <option value="major">Major</option>
-                <option value="critical">Critical</option>
+                <option value="minor">{{ t('Minor') }}</option>
+                <option value="major">{{ t('Major') }}</option>
+                <option value="critical">{{ t('Critical') }}</option>
             </select>
         </div>
     </div>
     <div class="mt-2 d-none" id="opCsNoteWrap">
-        <div class="bp-section-title">Note (optional)</div>
-        <input type="text" class="form-control form-control-sm" id="opCsNote" placeholder="Short description of the issue">
+        <div class="bp-section-title">{{ t('Note (optional)') }}</div>
+        <input type="text" class="form-control form-control-sm" id="opCsNote" placeholder="{{ t('Short description of the issue') }}">
     </div>
     <div class="form-check form-switch mt-3">
         <input class="form-check-input" type="checkbox" id="opCsOverwrite">
-        <label class="form-check-label" for="opCsOverwrite">Overwrite slots that already have a state</label>
+        <label class="form-check-label" for="opCsOverwrite">{{ t('Overwrite slots that already have a state') }}</label>
     </div>
-    <div class="form-text">Slots without assets are skipped. "Clear" always applies.</div>
+    <div class="form-text">{{ t('Slots without assets are skipped. "Clear" always applies.') }}</div>
 </div>

@@ -24,6 +24,7 @@ from flask import current_app
 from werkzeug.utils import secure_filename
 
 from app import storage
+from app.i18n import t as _t
 
 
 class FileServiceError(Exception):
@@ -200,7 +201,7 @@ class RootRegistry:
         roots = []
         # Personal home (always read-write; created on demand).
         home = storage.user_home(self.user)
-        roots.append(Root(ROOT_USER, 'My Files', home,
+        roots.append(Root(ROOT_USER, _t('My Files'), home,
                           can_write=True, removable=False))
 
         # Per-subject shared folders, gated by role.
@@ -225,7 +226,7 @@ class RootRegistry:
                     continue
                 label = subj_names.get(sid, sid)
                 roots.append(Root(_SHARED_PREFIX + sid,
-                                  f'Shared · {label}', path,
+                                  _t('Shared · {name}', name=label), path,
                                   can_write=can_write, removable=False))
         return roots
 
@@ -272,7 +273,7 @@ def _resolve(base_dir: str, rel_path: str) -> str:
     rel = (rel_path or '').strip('/').strip('\\')
     full = storage.safe_join(base_dir, rel) if rel else os.path.abspath(base_dir)
     if not full:
-        raise FileServiceError(400, 'Invalid path')
+        raise FileServiceError(400, _t('Invalid path'))
     return full
 
 
@@ -285,20 +286,20 @@ def normalize_browser_rel_path(rel_path) -> str:
     if rel_path is None:
         return ''
     if not isinstance(rel_path, str):
-        raise FileServiceError(400, 'Invalid path')
+        raise FileServiceError(400, _t('Invalid path'))
     rel = rel_path.replace('\\', '/').strip().strip('/')
     if len(rel) > _LOCATION_PATH_MAX:
-        raise FileServiceError(400, 'Invalid path')
+        raise FileServiceError(400, _t('Invalid path'))
     parts = []
     for part in rel.split('/'):
         if part in ('', '.'):
             continue
         if part == '..' or '\x00' in part or ':' in part:
-            raise FileServiceError(400, 'Invalid path')
+            raise FileServiceError(400, _t('Invalid path'))
         parts.append(part)
     out = '/'.join(parts)
     if len(out) > _LOCATION_PATH_MAX:
-        raise FileServiceError(400, 'Invalid path')
+        raise FileServiceError(400, _t('Invalid path'))
     return out
 
 
@@ -431,17 +432,17 @@ def store_remembered_location(user, scope: str, root_id, rel_path) -> tuple:
     :class:`FileServiceError`.
     """
     if not isinstance(root_id, str) or not root_id.strip():
-        raise FileServiceError(400, 'Invalid root')
+        raise FileServiceError(400, _t('Invalid root'))
     rel = normalize_browser_rel_path(rel_path or '')
     reg = RootRegistry(user, scope=scope)
     scope = reg.scope
     root = lookup_root(reg.list(), root_id.strip())
     if root is None:
-        raise FileServiceError(400, 'Invalid root')
+        raise FileServiceError(400, _t('Invalid root'))
     try:
         _resolve(root.path, rel)
     except FileServiceError:
-        raise FileServiceError(400, 'Invalid path')
+        raise FileServiceError(400, _t('Invalid path'))
     path = longest_existing_dir(root.path, rel)
     new_entry = {'root': root.id, 'path': path}
     old = parse_location_blob(getattr(user, 'file_browser_location', None))
@@ -454,7 +455,7 @@ def store_remembered_location(user, scope: str, root_id, rel_path) -> tuple:
 
 def _require_write(can_write: bool):
     if not can_write:
-        raise FileServiceError(403, 'This location is read-only.')
+        raise FileServiceError(403, _t('This location is read-only.'))
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +467,7 @@ def list_dir(base_dir: str, rel_path: str) -> dict:
     base_dir = os.path.abspath(base_dir)
     full = _resolve(base_dir, rel_path)
     if not os.path.isdir(full):
-        raise FileServiceError(404, 'Directory not found or access denied')
+        raise FileServiceError(404, _t('Directory not found or access denied'))
 
     rel = os.path.relpath(full, base_dir).replace('\\', '/')
     if rel == '.':
@@ -499,10 +500,10 @@ def get_download_path(base_dir: str, rel_path: str) -> str:
     """Validated absolute path of a file to download (raises if not a file)."""
     rel = (rel_path or '').strip('/').strip('\\')
     if not rel:
-        raise FileServiceError(400, 'No file specified')
+        raise FileServiceError(400, _t('No file specified'))
     full = _resolve(base_dir, rel)
     if not os.path.isfile(full):
-        raise FileServiceError(404, 'File not found or access denied')
+        raise FileServiceError(404, _t('File not found or access denied'))
     return full
 
 
@@ -518,14 +519,14 @@ def save_uploads(base_dir: str, rel_path: str, files, can_write: bool,
     _require_write(can_write)
     target_dir = _resolve(base_dir, rel_path)
     if not os.path.isdir(target_dir):
-        raise FileServiceError(404, 'Target directory not found or access denied')
+        raise FileServiceError(404, _t('Target directory not found or access denied'))
 
     files = list(files or [])
     rel_paths = list(rel_paths or [])
     pairs = [(f, rel_paths[i] if i < len(rel_paths) else '')
              for i, f in enumerate(files) if getattr(f, 'filename', '')]
     if not pairs:
-        raise FileServiceError(400, 'No files provided')
+        raise FileServiceError(400, _t('No files provided'))
 
     uploaded, errors = [], []
     for f, sub in pairs:
@@ -535,11 +536,11 @@ def save_uploads(base_dir: str, rel_path: str, files, can_write: bool,
                      if p not in ('', '.', '..')]
             parts = [p for p in parts if p]
             if not parts:
-                errors.append(f'Invalid path: {sub}')
+                errors.append(_t('Invalid path: {path}', path=sub))
                 continue
             dest = storage.safe_join(target_dir, *parts)
             if not dest:
-                errors.append(f'Invalid path: {sub}')
+                errors.append(_t('Invalid path: {path}', path=sub))
                 continue
             label = '/'.join(parts)
             try:
@@ -550,7 +551,7 @@ def save_uploads(base_dir: str, rel_path: str, files, can_write: bool,
         else:
             filename = secure_filename(f.filename)
             if not filename:
-                errors.append(f'Invalid filename: {f.filename}')
+                errors.append(_t('Invalid filename: {name}', name=f.filename))
                 continue
             dest = os.path.join(target_dir, filename)
             label = filename
@@ -559,10 +560,13 @@ def save_uploads(base_dir: str, rel_path: str, files, can_write: bool,
             uploaded.append(label)
         except Exception as e:  # pragma: no cover - disk errors
             errors.append(f'{label}: {e}')
+    if errors:
+        message = _t('Uploaded {n} file(s), {e} error(s)', n=len(uploaded), e=len(errors))
+    else:
+        message = _t('Uploaded {n} file(s)', n=len(uploaded))
     return {
         'success': True, 'uploaded': uploaded, 'errors': errors,
-        'message': f'Uploaded {len(uploaded)} file(s)'
-                   + (f', {len(errors)} error(s)' if errors else ''),
+        'message': message,
     }
 
 
@@ -571,20 +575,20 @@ def rename(base_dir: str, rel_path: str, new_name: str, can_write: bool) -> dict
     rel = (rel_path or '').strip('/').strip('\\')
     new_name = (new_name or '').strip()
     if not rel or not new_name:
-        raise FileServiceError(400, 'Path and new name are required')
+        raise FileServiceError(400, _t('Path and new name are required'))
     if '/' in new_name or '\\' in new_name:
-        raise FileServiceError(400, 'New name cannot contain path separators')
+        raise FileServiceError(400, _t('New name cannot contain path separators'))
 
     full = _resolve(base_dir, rel)
     if not os.path.exists(full):
-        raise FileServiceError(404, 'File or directory not found')
+        raise FileServiceError(404, _t('File or directory not found'))
 
     parent = os.path.dirname(full)
     new_full = storage.safe_join(parent, new_name)
     if not new_full:
-        raise FileServiceError(403, 'Access denied')
+        raise FileServiceError(403, _t('Access denied'))
     if os.path.exists(new_full):
-        raise FileServiceError(409, f'A file or directory named "{new_name}" already exists')
+        raise FileServiceError(409, _t('A file or directory named "{name}" already exists', name=new_name))
     try:
         os.rename(full, new_full)
     except OSError as e:
@@ -597,20 +601,20 @@ def delete(base_dir: str, rel_paths, can_write: bool) -> dict:
     base_dir = os.path.abspath(base_dir)
     rel_paths = rel_paths or []
     if not rel_paths:
-        raise FileServiceError(400, 'No paths specified')
+        raise FileServiceError(400, _t('No paths specified'))
 
     deleted, errors = [], []
     for rel_path in rel_paths:
         rel = (rel_path or '').strip('/').strip('\\')
         if not rel:
-            errors.append('Cannot delete root directory')
+            errors.append(_t('Cannot delete root directory'))
             continue
         full = storage.safe_join(base_dir, rel)
         if not full or not os.path.exists(full):
-            errors.append(f'{rel_path}: not found')
+            errors.append(_t('{path}: not found', path=rel_path))
             continue
         if os.path.normcase(os.path.abspath(full)) == os.path.normcase(base_dir):
-            errors.append(f'{rel_path}: cannot delete the root')
+            errors.append(_t('{path}: cannot delete the root', path=rel_path))
             continue
         try:
             if os.path.isdir(full):
@@ -620,10 +624,13 @@ def delete(base_dir: str, rel_paths, can_write: bool) -> dict:
             deleted.append(rel_path)
         except OSError as e:
             errors.append(f'{rel_path}: {e}')
+    if errors:
+        message = _t('Deleted {n} item(s), {e} error(s)', n=len(deleted), e=len(errors))
+    else:
+        message = _t('Deleted {n} item(s)', n=len(deleted))
     return {
         'success': True, 'deleted': deleted, 'errors': errors,
-        'message': f'Deleted {len(deleted)} item(s)'
-                   + (f', {len(errors)} error(s)' if errors else ''),
+        'message': message,
     }
 
 
@@ -631,19 +638,19 @@ def mkdir(base_dir: str, parent_path: str, name: str, can_write: bool) -> dict:
     _require_write(can_write)
     name = (name or '').strip()
     if not name:
-        raise FileServiceError(400, 'Directory name is required')
+        raise FileServiceError(400, _t('Directory name is required'))
     if '/' in name or '\\' in name:
-        raise FileServiceError(400, 'Directory name cannot contain path separators')
+        raise FileServiceError(400, _t('Directory name cannot contain path separators'))
 
     parent_dir = _resolve(base_dir, parent_path)
     if not os.path.isdir(parent_dir):
-        raise FileServiceError(404, 'Parent directory not found')
+        raise FileServiceError(404, _t('Parent directory not found'))
 
     new_dir = storage.safe_join(parent_dir, name)
     if not new_dir:
-        raise FileServiceError(403, 'Access denied')
+        raise FileServiceError(403, _t('Access denied'))
     if os.path.exists(new_dir):
-        raise FileServiceError(409, f'"{name}" already exists')
+        raise FileServiceError(409, _t('"{name}" already exists', name=name))
     try:
         os.makedirs(new_dir)
     except OSError as e:
@@ -672,27 +679,27 @@ def copy(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
     _require_write(can_write)
     sources = sources or []
     if not sources:
-        raise FileServiceError(400, 'No sources specified')
+        raise FileServiceError(400, _t('No sources specified'))
 
     dest_full = _resolve(base_dir, dest_dir)
     if not os.path.isdir(dest_full):
-        raise FileServiceError(404, 'Destination directory not found or access denied')
+        raise FileServiceError(404, _t('Destination directory not found or access denied'))
 
     copied, errors = [], []
     for rel_path in sources:
         rel = (rel_path or '').strip('/').strip('\\')
         if not rel:
-            errors.append('Cannot copy root directory')
+            errors.append(_t('Cannot copy root directory'))
             continue
         src_full = storage.safe_join(base_dir, rel)
         if not src_full or not os.path.exists(src_full):
-            errors.append(f'{rel_path}: not found')
+            errors.append(_t('{path}: not found', path=rel_path))
             continue
         if os.path.isdir(src_full):
             src_abs = os.path.normcase(os.path.abspath(src_full))
             dest_abs = os.path.normcase(os.path.abspath(dest_full))
             if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
-                errors.append(f'{rel_path}: cannot copy a folder into itself')
+                errors.append(_t('{path}: cannot copy a folder into itself', path=rel_path))
                 continue
         dest_name = _unique_copy_name(dest_full, os.path.basename(src_full))
         dest_item = os.path.join(dest_full, dest_name)
@@ -704,10 +711,13 @@ def copy(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
             copied.append({'original': rel_path, 'new_name': dest_name})
         except OSError as e:
             errors.append(f'{rel_path}: {e}')
+    if errors:
+        message = _t('Copied {n} item(s), {e} error(s)', n=len(copied), e=len(errors))
+    else:
+        message = _t('Copied {n} item(s)', n=len(copied))
     return {
         'success': True, 'copied': copied, 'errors': errors,
-        'message': f'Copied {len(copied)} item(s)'
-                   + (f', {len(errors)} error(s)' if errors else ''),
+        'message': message,
     }
 
 
@@ -716,32 +726,32 @@ def move(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
     _require_write(can_write)
     sources = sources or []
     if not sources:
-        raise FileServiceError(400, 'No sources specified')
+        raise FileServiceError(400, _t('No sources specified'))
 
     dest_full = _resolve(base_dir, dest_dir)
     if not os.path.isdir(dest_full):
-        raise FileServiceError(404, 'Destination directory not found or access denied')
+        raise FileServiceError(404, _t('Destination directory not found or access denied'))
     dest_abs = os.path.normcase(os.path.abspath(dest_full))
 
     moved, errors = [], []
     for rel_path in sources:
         rel = (rel_path or '').strip('/').strip('\\')
         if not rel:
-            errors.append('Cannot move root directory')
+            errors.append(_t('Cannot move root directory'))
             continue
         src_full = storage.safe_join(base_dir, rel)
         if not src_full or not os.path.exists(src_full):
-            errors.append(f'{rel_path}: not found')
+            errors.append(_t('{path}: not found', path=rel_path))
             continue
         src_abs = os.path.normcase(os.path.abspath(src_full))
         # Can't move a folder into itself or its own subtree.
         if os.path.isdir(src_full) and (
                 dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep)):
-            errors.append(f'{rel_path}: cannot move a folder into itself')
+            errors.append(_t('{path}: cannot move a folder into itself', path=rel_path))
             continue
         # Already in the destination folder — nothing to do.
         if os.path.normcase(os.path.dirname(src_abs)) == dest_abs:
-            errors.append(f'{rel_path}: already in this folder')
+            errors.append(_t('{path}: already in this folder', path=rel_path))
             continue
         dest_name = _unique_copy_name(dest_full, os.path.basename(src_full))
         dest_item = os.path.join(dest_full, dest_name)
@@ -750,8 +760,11 @@ def move(base_dir: str, sources, dest_dir: str, can_write: bool) -> dict:
             moved.append({'original': rel_path, 'new_name': dest_name})
         except OSError as e:
             errors.append(f'{rel_path}: {e}')
+    if errors:
+        message = _t('Moved {n} item(s), {e} error(s)', n=len(moved), e=len(errors))
+    else:
+        message = _t('Moved {n} item(s)', n=len(moved))
     return {
         'success': True, 'moved': moved, 'errors': errors,
-        'message': f'Moved {len(moved)} item(s)'
-                   + (f', {len(errors)} error(s)' if errors else ''),
+        'message': message,
     }

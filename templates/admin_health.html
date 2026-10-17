@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Database Health - Question Bank{% endblock %}
+{% block title %}{{ t('Database Health - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -76,29 +76,29 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <h2 class="mb-0"><i class="bi bi-heart-pulse"></i> Database Health <span class="badge bg-danger">Super Admin</span></h2>
+        <h2 class="mb-0"><i class="bi bi-heart-pulse"></i> {{ t('Database Health') }} <span class="badge bg-danger">{{ t('Super Admin') }}</span></h2>
         <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back to Admin
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
         </a>
     </div>
-    <p class="text-muted mt-1">Database statistics, orphaned record detection, and anomaly checks. Source path: <code>{{ source_path }}</code></p>
+    <p class="text-muted mt-1">{{ t('Database statistics, orphaned record detection, and anomaly checks. Source path: <code>{path}</code>', path=source_path|e)|safe }}</p>
     <hr>
 
     <!-- Stats Section -->
     <div class="card mb-4">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-bar-chart"></i> Database Statistics</span>
+            <span><i class="bi bi-bar-chart"></i> {{ t('Database Statistics') }}</span>
             <button class="btn btn-sm btn-light" onclick="loadStats()" id="btnRefreshStats">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
+                <i class="bi bi-arrow-clockwise"></i> {{ t('Refresh') }}
             </button>
         </div>
         <div class="card-body">
             <!-- Loading spinner -->
             <div id="statsLoading" class="text-center py-4">
                 <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">{{ t('Loading...') }}</span>
                 </div>
-                <p class="text-muted mt-2">Loading statistics...</p>
+                <p class="text-muted mt-2">{{ t('Loading statistics...') }}</p>
             </div>
 
             <!-- Stats content (hidden until loaded) -->
@@ -108,14 +108,14 @@
                 </div>
 
                 <!-- Per-subject breakdown -->
-                <h6 class="mt-3"><i class="bi bi-list-ul"></i> Per-Subject Breakdown</h6>
+                <h6 class="mt-3"><i class="bi bi-list-ul"></i> {{ t('Per-Subject Breakdown') }}</h6>
                 <div class="table-responsive">
                     <table class="table table-sm table-hover subject-table">
                         <thead class="table-light">
                             <tr>
-                                <th>Subject</th>
-                                <th class="text-center">Questions</th>
-                                <th class="text-center">Assets</th>
+                                <th>{{ t('Subject') }}</th>
+                                <th class="text-center">{{ t('Questions') }}</th>
+                                <th class="text-center">{{ t('Assets') }}</th>
                             </tr>
                         </thead>
                         <tbody id="subjectStatsBody">
@@ -129,10 +129,10 @@
     <!-- Anomaly Detection -->
     <div class="card mb-4">
         <div class="card-header bg-warning text-dark">
-            <i class="bi bi-exclamation-triangle"></i> Anomaly Detection
+            <i class="bi bi-exclamation-triangle"></i> {{ t('Anomaly Detection') }}
         </div>
         <div class="card-body" id="anomalyContent">
-            <p class="text-muted mb-0" id="anomalyLoading">Statistics must be loaded first.</p>
+            <p class="text-muted mb-0" id="anomalyLoading">{{ t('Statistics must be loaded first.') }}</p>
             <div id="anomalyResults" class="d-none">
             </div>
         </div>
@@ -141,16 +141,16 @@
     <!-- Untracked Files (Reverse Orphans) -->
     <div class="card mb-4">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-file-earmark-plus"></i> Untracked Files on Disk</span>
+            <span><i class="bi bi-file-earmark-plus"></i> {{ t('Untracked Files on Disk') }}</span>
             <button id="btnScanUntracked" class="btn btn-sm btn-light" onclick="scanUntracked()">
-                <i class="bi bi-search"></i> Scan
+                <i class="bi bi-search"></i> {{ t('Scan') }}
             </button>
         </div>
         <div class="card-body">
-            <p class="text-muted mb-2">Find parseable question files on disk that have no matching database record (reverse orphan check). These files can be ingested.</p>
+            <p class="text-muted mb-2">{{ t('Find parseable question files on disk that have no matching database record (reverse orphan check). These files can be ingested.') }}</p>
             <div id="untrackedLoading" class="d-none text-center py-3">
                 <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-                <span class="ms-2 text-muted">Scanning filesystem...</span>
+                <span class="ms-2 text-muted">{{ t('Scanning filesystem...') }}</span>
             </div>
             <div id="untrackedResults" class="d-none"></div>
         </div>
@@ -159,30 +159,28 @@
     <!-- Sync / Orphan Check -->
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-arrow-repeat"></i> Orphaned Records Sync</span>
+            <span><i class="bi bi-arrow-repeat"></i> {{ t('Orphaned Records Sync') }}</span>
             <div>
                 <button id="btnSyncDryRun" class="btn btn-sm btn-outline-light" onclick="runSync('dry_run')">
-                    <i class="bi bi-search"></i> Scan (Dry Run)
+                    <i class="bi bi-search"></i> {{ t('Scan (Dry Run)') }}
                 </button>
                 <button id="btnSyncDelete" class="btn btn-sm btn-danger ms-1" onclick="runSync('delete')">
-                    <i class="bi bi-trash"></i> Clean Up
+                    <i class="bi bi-trash"></i> {{ t('Clean Up') }}
                 </button>
                 <button id="btnSyncStop" class="btn btn-sm btn-warning ms-1 d-none" onclick="stopSync()">
-                    <i class="bi bi-stop-fill"></i> Stop
+                    <i class="bi bi-stop-fill"></i> {{ t('Stop') }}
                 </button>
             </div>
         </div>
         <div class="card-body p-0">
-            <div id="syncLog" class="log-console">Sync console ready.
-Click "Scan (Dry Run)" to check for orphaned records without making changes.
-Click "Clean Up" to actually remove orphaned records.
+            <div id="syncLog" class="log-console">{{ t('Sync console ready.\nClick "Scan (Dry Run)" to check for orphaned records without making changes.\nClick "Clean Up" to actually remove orphaned records.') }}
 </div>
         </div>
         <!-- Sync Progress -->
         <div id="syncProgressSection" class="card-footer d-none">
             <div class="d-flex justify-content-between mb-1">
-                <small id="syncProgressLabel" class="text-muted">Checking...</small>
-                <small id="syncStatus" class="badge bg-secondary">Idle</small>
+                <small id="syncProgressLabel" class="text-muted">{{ t('Checking...') }}</small>
+                <small id="syncStatus" class="badge bg-secondary">{{ t('Idle') }}</small>
             </div>
             <div class="progress" style="height: 8px;">
                 <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
@@ -198,33 +196,30 @@ Click "Clean Up" to actually remove orphaned records.
     <!-- DOC Thumbnail Backfill -->
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-image"></i> DOC Asset Thumbnails</span>
+            <span><i class="bi bi-image"></i> {{ t('DOC Asset Thumbnails') }}</span>
             <div>
                 <button id="btnThumbBackfill" class="btn btn-sm btn-outline-light" onclick="runThumbBackfill(false)">
-                    <i class="bi bi-play"></i> Backfill Missing
+                    <i class="bi bi-play"></i> {{ t('Backfill Missing') }}
                 </button>
                 <button id="btnThumbForce" class="btn btn-sm btn-warning ms-1" onclick="runThumbBackfill(true)">
-                    <i class="bi bi-arrow-clockwise"></i> Force Re-render All
+                    <i class="bi bi-arrow-clockwise"></i> {{ t('Force Re-render All') }}
                 </button>
                 <button id="btnThumbClear" class="btn btn-sm btn-danger ms-1" onclick="clearAllThumbs()">
-                    <i class="bi bi-trash"></i> Delete All
+                    <i class="bi bi-trash"></i> {{ t('Delete All') }}
                 </button>
                 <button id="btnThumbStop" class="btn btn-sm btn-danger ms-1 d-none" onclick="stopThumbBackfill()">
-                    <i class="bi bi-stop-fill"></i> Stop
+                    <i class="bi bi-stop-fill"></i> {{ t('Stop') }}
                 </button>
             </div>
         </div>
         <div class="card-body p-0">
-            <div id="thumbLog" class="log-console">DOC thumbnail backfill console ready.
-Click "Backfill Missing" to render PNG thumbnails for any DOC asset that doesn't have one yet (slow — uses Microsoft Word on the server).
-Click "Force Re-render All" to wipe and regenerate every DOC thumbnail (e.g. after changing DOC_THUMBNAIL_WIDTH).
-Click "Delete All" to remove every cached PNG from disk. The lazy render path will recreate them on demand.
+            <div id="thumbLog" class="log-console">{{ t('DOC thumbnail backfill console ready.\nClick "Backfill Missing" to render PNG thumbnails for any DOC asset that doesn\'t have one yet (slow — uses Microsoft Word on the server).\nClick "Force Re-render All" to wipe and regenerate every DOC thumbnail (e.g. after changing DOC_THUMBNAIL_WIDTH).\nClick "Delete All" to remove every cached PNG from disk. The lazy render path will recreate them on demand.') }}
 </div>
         </div>
         <div id="thumbProgressSection" class="card-footer d-none">
             <div class="d-flex justify-content-between mb-1">
-                <small id="thumbProgressLabel" class="text-muted">Rendering...</small>
-                <small id="thumbStatus" class="badge bg-secondary">Idle</small>
+                <small id="thumbProgressLabel" class="text-muted">{{ t('Rendering...') }}</small>
+                <small id="thumbStatus" class="badge bg-secondary">{{ t('Idle') }}</small>
             </div>
             <div class="progress" style="height: 8px;">
                 <div id="thumbProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
@@ -242,22 +237,22 @@ Click "Delete All" to remove every cached PNG from disk. The lazy render path wi
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="anomalyModalLabel">Question Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title" id="anomalyModalLabel">{{ t('Question Details') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body" id="anomalyModalBody">
             </div>
             <div class="modal-footer flex-wrap gap-1">
                 <span id="anomalyModalCount" class="text-muted me-auto small"></span>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="anomalyViewDashboardBtn"
-                        onclick="openAnomalyInDashboard()" title="Open these questions in the dashboard (new tab)">
-                    <i class="bi bi-grid-3x3-gap"></i> View in Dashboard
+                        onclick="openAnomalyInDashboard()" title="{{ t('Open these questions in the dashboard (new tab)') }}">
+                    <i class="bi bi-grid-3x3-gap"></i> {{ t('View in Dashboard') }}
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="anomalyViewAdminBtn"
-                        onclick="openAnomalyInAdmin()" title="Open these questions in Question Management (new tab)">
-                    <i class="bi bi-journal-text"></i> View in Question Management
+                        onclick="openAnomalyInAdmin()" title="{{ t('Open these questions in Question Management (new tab)') }}">
+                    <i class="bi bi-journal-text"></i> {{ t('View in Question Management') }}
                 </button>
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">{{ t('Close') }}</button>
             </div>
         </div>
     </div>
@@ -280,7 +275,7 @@ function loadStats() {
     loading.classList.remove('d-none');
     content.classList.add('d-none');
     anomalyResults.classList.add('d-none');
-    anomalyLoading.textContent = 'Loading...';
+    anomalyLoading.textContent = OQB.t('Loading...');
     anomalyLoading.classList.remove('d-none');
 
     fetch('{{ url_for("admin.health_stats") }}')
@@ -295,7 +290,7 @@ function loadStats() {
             renderAnomalies(data);
         })
         .catch(err => {
-            loading.innerHTML = `<div class="alert alert-danger">Failed to load stats: ${err.message}</div>`;
+            loading.innerHTML = '<div class="alert alert-danger">' + OQB.t('Failed to load stats: {error}', {error: err.message}) + '</div>';
         });
 }
 
@@ -306,31 +301,31 @@ function renderStats(data) {
         <div class="col">
             <div class="stat-card">
                 <div class="stat-value text-primary">${data.total_questions}</div>
-                <div class="stat-label">Total Questions</div>
+                <div class="stat-label">${OQB.t('Total Questions')}</div>
             </div>
         </div>
         <div class="col">
             <div class="stat-card">
                 <div class="stat-value text-info">${data.total_assets}</div>
-                <div class="stat-label">Total Assets</div>
+                <div class="stat-label">${OQB.t('Total Assets')}</div>
             </div>
         </div>
         <div class="col">
             <div class="stat-card">
                 <div class="stat-value text-secondary">${data.total_subjects}</div>
-                <div class="stat-label">Subjects</div>
+                <div class="stat-label">${OQB.t('Subjects')}</div>
             </div>
         </div>
         <div class="col">
             <div class="stat-card">
                 <div class="stat-value ${data.untagged_questions > 0 ? 'text-warning' : 'text-success'}">${data.untagged_questions}</div>
-                <div class="stat-label">Untagged (No Topic)</div>
+                <div class="stat-label">${OQB.t('Untagged (No Topic)')}</div>
             </div>
         </div>
         <div class="col">
             <div class="stat-card">
                 <div class="stat-value ${data.questions_no_assets > 0 ? 'text-danger' : 'text-success'}">${data.questions_no_assets}</div>
-                <div class="stat-label">Questions No Assets</div>
+                <div class="stat-label">${OQB.t('Questions No Assets')}</div>
             </div>
         </div>
     `;
@@ -342,14 +337,14 @@ function renderStats(data) {
         data.subjects.forEach(s => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${s.id}</strong> - ${s.name}</td>
+                <td><strong>${s.id}</strong> - ${OQB.taxName(s)}</td>
                 <td class="text-center">${s.questions}</td>
                 <td class="text-center">${s.assets}</td>
             `;
             tbody.appendChild(tr);
         });
     } else {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No subjects found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">' + OQB.t('No subjects found') + '</td></tr>';
     }
 }
 
@@ -402,7 +397,7 @@ function renderAnomalies(data) {
         if (rawQids === undefined) rawQids = qidList;
         if (rawQids) anomalyDataQids[listKey] = uniqueKeepOrder(rawQids);
         const viewBtn = qidList && qidList.length > 0
-            ? `<button class="btn btn-sm btn-outline-secondary" onclick="showAnomalyDetail('${listKey}', '${label}', ${count})"><i class="bi bi-list-ul"></i> View</button>`
+            ? `<button class="btn btn-sm btn-outline-secondary" onclick="showAnomalyDetail('${listKey}', '${label}', ${count})"><i class="bi bi-list-ul"></i> ${OQB.t('View')}</button>`
             : '';
         rows += `
             <div class="anomaly-row">
@@ -428,64 +423,64 @@ function renderAnomalies(data) {
             <div class="anomaly-row">
                 <div class="anomaly-label">
                     <i class="bi bi-exclamation-circle text-danger"></i>
-                    <strong class="text-danger">Duplicate Question IDs</strong>
-                    <div class="text-muted small">Same QID appears multiple times in the database.</div>
+                    <strong class="text-danger">${OQB.t('Duplicate Question IDs')}</strong>
+                    <div class="text-muted small">${OQB.t('Same QID appears multiple times in the database.')}</div>
                 </div>
                 <div class="anomaly-count text-danger">${data.duplicate_qids.length}</div>
-                <button class="btn btn-sm btn-outline-danger" onclick="showAnomalyDetail('duplicate_qids', 'Duplicate Question IDs', ${data.duplicate_qids.length})"><i class="bi bi-list-ul"></i> View</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="showAnomalyDetail('duplicate_qids', '${OQB.t('Duplicate Question IDs')}', ${data.duplicate_qids.length})"><i class="bi bi-list-ul"></i> ${OQB.t('View')}</button>
             </div>
         `;
     }
 
     // Duplicate assets (same identity tuple)
-    addRow('bi-files', 'Duplicate Assets', data.duplicate_assets || 0, 'text-danger',
+    addRow('bi-files', OQB.t('Duplicate Assets'), data.duplicate_assets || 0, 'text-danger',
         'dup_assets', data.duplicate_assets_list,
-        'Same (question, type, language, format, part) appears more than once in the database.',
+        OQB.t('Same (question, type, language, format, part) appears more than once in the database.'),
         (data.duplicate_assets_list || []).map(extractQidPrefix));
 
     // File-path mismatches
-    addRow('bi-signpost-split', 'Asset Path Mismatches', data.path_mismatches || 0, 'text-warning',
+    addRow('bi-signpost-split', OQB.t('Asset Path Mismatches'), data.path_mismatches || 0, 'text-warning',
         'path_mismatches', data.path_mismatches_list,
-        'Stored file_path does not match the expected path derived from the question ID.',
+        OQB.t('Stored file_path does not match the expected path derived from the question ID.'),
         (data.path_mismatches_list || []).map(extractQidPrefix));
 
-    addRow('bi-file-earmark-x', 'Questions With No Assets (stale)', data.questions_no_assets, 'text-warning',
+    addRow('bi-file-earmark-x', OQB.t('Questions With No Assets (stale)'), data.questions_no_assets, 'text-warning',
         'no_assets', data.questions_no_assets_list,
-        'Questions older than 24 hours that have no associated asset files.');
+        OQB.t('Questions older than 24 hours that have no associated asset files.'));
 
     if (data.questions_no_assets_recent > 0) {
-        addRow('bi-clock-history', 'Questions With No Assets (recent)', data.questions_no_assets_recent, 'text-info',
+        addRow('bi-clock-history', OQB.t('Questions With No Assets (recent)'), data.questions_no_assets_recent, 'text-info',
             'no_assets_recent', data.questions_no_assets_recent_list,
-            'Recently created questions (< 24h) with no assets yet — may be mid-upload.');
+            OQB.t('Recently created questions (< 24h) with no assets yet — may be mid-upload.'));
     }
 
-    addRow('bi-tag', 'Untagged Questions (No Major Topic)', data.untagged_questions, 'text-info',
-        'untagged', data.untagged_questions_list, 'Leaves not yet assigned a major topic (stems excluded).');
+    addRow('bi-tag', OQB.t('Untagged Questions (No Major Topic)'), data.untagged_questions, 'text-info',
+        'untagged', data.untagged_questions_list, OQB.t('Leaves not yet assigned a major topic (stems excluded).'));
 
-    addRow('bi-tag', 'Questions Without Major Subtopic', data.questions_no_subtopic, 'text-info',
-        'no_subtopic', data.questions_no_subtopic_list, 'Questions that have no major subtopic assigned.');
+    addRow('bi-tag', OQB.t('Questions Without Major Subtopic'), data.questions_no_subtopic, 'text-info',
+        'no_subtopic', data.questions_no_subtopic_list, OQB.t('Questions that have no major subtopic assigned.'));
 
-    addRow('bi-question-circle', 'Questions Without Type', data.questions_no_type, 'text-secondary',
-        'no_type', data.questions_no_type_list, 'Leaves where q_type (MC/CQ) has not been set (stems excluded).');
+    addRow('bi-question-circle', OQB.t('Questions Without Type'), data.questions_no_type, 'text-secondary',
+        'no_type', data.questions_no_type_list, OQB.t('Leaves where q_type (MC/CQ) has not been set (stems excluded).'));
 
-    addRow('bi-speedometer2', 'Questions Without Level', data.questions_no_level, 'text-secondary',
-        'no_level', data.questions_no_level_list, 'Leaves where difficulty level has not been set (stems excluded).');
+    addRow('bi-speedometer2', OQB.t('Questions Without Level'), data.questions_no_level, 'text-secondary',
+        'no_level', data.questions_no_level_list, OQB.t('Leaves where difficulty level has not been set (stems excluded).'));
 
-    addRow('bi-diagram-3', 'Stems with their own tags', data.stems_with_tags || 0, 'text-warning',
+    addRow('bi-diagram-3', OQB.t('Stems with their own tags'), data.stems_with_tags || 0, 'text-warning',
         'stems_with_tags', data.stems_with_tags_list,
-        'A stem (has children or a qno range) still has topic/chapter tags; tags should live on parts.');
-    addRow('bi-image', 'Parts with no QUE (root also has none)', data.parts_missing_que || 0, 'text-warning',
+        OQB.t('A stem (has children or a qno range) still has topic/chapter tags; tags should live on parts.'));
+    addRow('bi-image', OQB.t('Parts with no QUE (root also has none)'), data.parts_missing_que || 0, 'text-warning',
         'parts_missing_que', data.parts_missing_que_list,
-        'A child part has no question image and neither does its root stem.');
-    addRow('bi-collection', 'Range stems with no children', data.empty_range_stems || 0, 'text-info',
+        OQB.t('A child part has no question image and neither does its root stem.'));
+    addRow('bi-collection', OQB.t('Range stems with no children'), data.empty_range_stems || 0, 'text-info',
         'empty_range_stems', data.empty_range_stems_list,
-        'A Q23-24 preamble exists but no Q23/Q24 children are attached.');
+        OQB.t('A Q23-24 preamble exists but no Q23/Q24 children are attached.'));
 
     if (totalIssues === 0) {
-        anomalyResults.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> No anomalies detected. Database looks healthy!</div>';
+        anomalyResults.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> ' + OQB.t('No anomalies detected. Database looks healthy!') + '</div>';
     } else {
         anomalyResults.innerHTML = `
-            <div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> Found ${totalIssues} potential issue(s). Click "View" for details.</div>
+            <div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> ${OQB.t('Found {n} potential issue(s). Click "View" for details.', {n: totalIssues})}</div>
             <div class="card"><div class="card-body p-0">${rows}</div></div>
         `;
     }
@@ -509,10 +504,10 @@ function showAnomalyDetail(key, title, totalCount) {
 
     modalLabel.textContent = title;
     const countLabel = list.length < totalCount
-        ? `Showing ${list.length} of ${totalCount}`
-        : `${list.length} item(s)`;
+        ? OQB.t('Showing {shown} of {total}', {shown: list.length, total: totalCount})
+        : OQB.t('{n} item(s)', {n: list.length});
     const qidLabel = qids.length && qids.length !== list.length
-        ? ` · ${qids.length} unique QID(s)`
+        ? OQB.t(' · {n} unique QID(s)', {n: qids.length})
         : '';
     modalCount.textContent = countLabel + qidLabel;
 
@@ -521,14 +516,14 @@ function showAnomalyDetail(key, title, totalCount) {
     dashBtn.disabled = !hasQids;
     adminBtn.disabled = !hasQids;
     dashBtn.title = hasQids
-        ? `Open these ${qids.length} question(s) in the dashboard (new tab)`
-        : 'No QIDs available for this anomaly';
+        ? OQB.t('Open these {n} question(s) in the dashboard (new tab)', {n: qids.length})
+        : OQB.t('No QIDs available for this anomaly');
     adminBtn.title = hasQids
-        ? `Open these ${qids.length} question(s) in Question Management (new tab)`
-        : 'No QIDs available for this anomaly';
+        ? OQB.t('Open these {n} question(s) in Question Management (new tab)', {n: qids.length})
+        : OQB.t('No QIDs available for this anomaly');
 
     if (list.length === 0) {
-        modalBody.innerHTML = '<p class="text-muted">No items to display.</p>';
+        modalBody.innerHTML = '<p class="text-muted">' + OQB.t('No items to display.') + '</p>';
     } else {
         const items = list.map(qid => `<div class="qid-item"><code>${escapeHtml(String(qid))}</code></div>`).join('');
         modalBody.innerHTML = `<div class="qid-list">${items}</div>`;
@@ -557,7 +552,7 @@ function _openQidsTarget(baseUrl) {
         try {
             localStorage.setItem(token, joined);
         } catch (e) {
-            alert('Too many QIDs to forward and localStorage is unavailable.');
+            alert(OQB.t('Too many QIDs to forward and localStorage is unavailable.'));
             return;
         }
         url = baseUrl + '?qids_token=' + encodeURIComponent(token);
@@ -595,7 +590,7 @@ function runSync(mode) {
     if (isSyncRunning) return;
 
     if (mode === 'delete') {
-        if (!confirm('WARNING: This will permanently delete orphaned records from the database.\n\nAre you sure you want to proceed?')) {
+        if (!confirm(OQB.t('WARNING: This will permanently delete orphaned records from the database.\n\nAre you sure you want to proceed?'))) {
             return;
         }
     }
@@ -612,15 +607,14 @@ function runSync(mode) {
     btnDryRun.disabled = true;
     btnDelete.disabled = true;
     btnStop.classList.remove('d-none');
-    statusEl.textContent = mode === 'delete' ? 'Deleting...' : 'Scanning...';
+    statusEl.textContent = mode === 'delete' ? OQB.t('Deleting...') : OQB.t('Scanning...');
     statusEl.className = 'badge bg-success';
     progressSection.classList.remove('d-none');
     progressBar.style.width = '0%';
     progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
     summaryEl.classList.add('d-none');
 
-    const modeLabel = mode === 'delete' ? 'DELETE' : 'DRY RUN';
-    appendSyncLog(`Starting sync (${modeLabel})...`, 'info');
+    appendSyncLog(mode === 'delete' ? OQB.t('Starting sync (DELETE)...') : OQB.t('Starting sync (DRY RUN)...'), 'info');
 
     const url = `{{ url_for('admin.health_sync') }}?mode=${encodeURIComponent(mode)}`;
     syncEventSource = new EventSource(url);
@@ -642,13 +636,13 @@ function runSync(mode) {
                 finishSync(event);
             }
         } catch (err) {
-            appendSyncLog('Error parsing event: ' + err.message, 'error');
+            appendSyncLog(OQB.t('Error parsing event: {error}', {error: err.message}), 'error');
         }
     };
 
     syncEventSource.onerror = function() {
         if (isSyncRunning) {
-            appendSyncLog('Connection closed.', 'info');
+            appendSyncLog(OQB.t('Connection closed.'), 'info');
             finishSync(null);
         }
     };
@@ -671,7 +665,7 @@ function finishSync(event) {
     btnDryRun.disabled = false;
     btnDelete.disabled = false;
     btnStop.classList.add('d-none');
-    statusEl.textContent = 'Complete';
+    statusEl.textContent = OQB.t('Complete');
     statusEl.className = 'badge bg-primary';
     progressBar.classList.remove('progress-bar-animated');
 
@@ -681,31 +675,31 @@ function finishSync(event) {
         document.getElementById('syncSummaryStats').innerHTML = `
             <div class="col">
                 <div class="fs-4 fw-bold text-warning">${s.orphaned_assets}</div>
-                <small class="text-muted">Orphaned Assets</small>
+                <small class="text-muted">${OQB.t('Orphaned Assets')}</small>
             </div>
             <div class="col">
                 <div class="fs-4 fw-bold text-warning">${s.orphaned_questions}</div>
-                <small class="text-muted">Orphaned Questions</small>
+                <small class="text-muted">${OQB.t('Orphaned Questions')}</small>
             </div>
             ${s.skipped_grace ? `
             <div class="col">
                 <div class="fs-4 fw-bold text-info">${s.skipped_grace}</div>
-                <small class="text-muted">Skipped (Grace Period)</small>
+                <small class="text-muted">${OQB.t('Skipped (Grace Period)')}</small>
             </div>
             ` : ''}
             ${!isDryRun ? `
             <div class="col">
                 <div class="fs-4 fw-bold text-danger">${s.deleted_assets}</div>
-                <small class="text-muted">Deleted Assets</small>
+                <small class="text-muted">${OQB.t('Deleted Assets')}</small>
             </div>
             <div class="col">
                 <div class="fs-4 fw-bold text-danger">${s.deleted_questions}</div>
-                <small class="text-muted">Deleted Questions</small>
+                <small class="text-muted">${OQB.t('Deleted Questions')}</small>
             </div>
             ` : `
             <div class="col">
-                <div class="fs-6 fw-bold text-info">DRY RUN</div>
-                <small class="text-muted">No changes made</small>
+                <div class="fs-6 fw-bold text-info">${OQB.t('DRY RUN')}</div>
+                <small class="text-muted">${OQB.t('No changes made')}</small>
             </div>
             `}
         `;
@@ -718,9 +712,9 @@ function stopSync() {
         syncEventSource.close();
         syncEventSource = null;
     }
-    appendSyncLog('Sync stopped by user.', 'warning');
+    appendSyncLog(OQB.t('Sync stopped by user.'), 'warning');
     finishSync(null);
-    document.getElementById('syncStatus').textContent = 'Stopped';
+    document.getElementById('syncStatus').textContent = OQB.t('Stopped');
     document.getElementById('syncStatus').className = 'badge bg-warning text-dark';
 }
 
@@ -741,7 +735,7 @@ function appendThumbLog(message, type) {
 
 function runThumbBackfill(force) {
     if (isThumbRunning) return;
-    if (force && !confirm('This will re-render EVERY DOC thumbnail, even ones already on disk. Slow (Word runs once per file). Continue?')) {
+    if (force && !confirm(OQB.t('This will re-render EVERY DOC thumbnail, even ones already on disk. Slow (Word runs once per file). Continue?'))) {
         return;
     }
 
@@ -757,14 +751,14 @@ function runThumbBackfill(force) {
     btn.disabled = true;
     btnForce.disabled = true;
     btnStop.classList.remove('d-none');
-    statusEl.textContent = force ? 'Re-rendering...' : 'Rendering...';
+    statusEl.textContent = force ? OQB.t('Re-rendering...') : OQB.t('Rendering...');
     statusEl.className = 'badge bg-success';
     progressSection.classList.remove('d-none');
     progressBar.style.width = '0%';
     progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
     summaryEl.classList.add('d-none');
 
-    appendThumbLog(force ? 'Starting forced re-render of all DOC thumbnails...' : 'Starting DOC thumbnail backfill...', 'info');
+    appendThumbLog(force ? OQB.t('Starting forced re-render of all DOC thumbnails...') : OQB.t('Starting DOC thumbnail backfill...'), 'info');
 
     const url = `{{ url_for('admin.doc_thumbnail_backfill') }}?force=${force ? '1' : '0'}`;
     thumbEventSource = new EventSource(url);
@@ -785,13 +779,13 @@ function runThumbBackfill(force) {
                 finishThumbBackfill(event);
             }
         } catch (err) {
-            appendThumbLog('Error parsing event: ' + err.message, 'error');
+            appendThumbLog(OQB.t('Error parsing event: {error}', {error: err.message}), 'error');
         }
     };
 
     thumbEventSource.onerror = function() {
         if (isThumbRunning) {
-            appendThumbLog('Connection closed.', 'info');
+            appendThumbLog(OQB.t('Connection closed.'), 'info');
             finishThumbBackfill(null);
         }
     };
@@ -814,7 +808,7 @@ function finishThumbBackfill(event) {
     btn.disabled = false;
     btnForce.disabled = false;
     btnStop.classList.add('d-none');
-    statusEl.textContent = 'Complete';
+    statusEl.textContent = OQB.t('Complete');
     statusEl.className = 'badge bg-primary';
     progressBar.classList.remove('progress-bar-animated');
 
@@ -823,19 +817,19 @@ function finishThumbBackfill(event) {
         document.getElementById('thumbSummaryStats').innerHTML = `
             <div class="col">
                 <div class="fs-4 fw-bold text-success">${s.rendered}</div>
-                <small class="text-muted">Rendered</small>
+                <small class="text-muted">${OQB.t('Rendered')}</small>
             </div>
             <div class="col">
                 <div class="fs-4 fw-bold text-secondary">${s.skipped_existing}</div>
-                <small class="text-muted">Already cached</small>
+                <small class="text-muted">${OQB.t('Already cached')}</small>
             </div>
             <div class="col">
                 <div class="fs-4 fw-bold text-secondary">${s.skipped_img}</div>
-                <small class="text-muted">IMG eclipsed</small>
+                <small class="text-muted">${OQB.t('IMG eclipsed')}</small>
             </div>
             <div class="col">
                 <div class="fs-4 fw-bold text-danger">${s.failed}</div>
-                <small class="text-muted">Failed</small>
+                <small class="text-muted">${OQB.t('Failed')}</small>
             </div>
         `;
         summaryEl.classList.remove('d-none');
@@ -847,26 +841,26 @@ function stopThumbBackfill() {
         thumbEventSource.close();
         thumbEventSource = null;
     }
-    appendThumbLog('Backfill stopped by user.', 'warning');
+    appendThumbLog(OQB.t('Backfill stopped by user.'), 'warning');
     finishThumbBackfill(null);
-    document.getElementById('thumbStatus').textContent = 'Stopped';
+    document.getElementById('thumbStatus').textContent = OQB.t('Stopped');
     document.getElementById('thumbStatus').className = 'badge bg-warning text-dark';
 }
 
 function clearAllThumbs() {
     if (isThumbRunning) {
-        alert('A backfill is in progress. Stop it first.');
+        alert(OQB.t('A backfill is in progress. Stop it first.'));
         return;
     }
-    if (!confirm('Delete EVERY cached DOC thumbnail from disk? Cards will fall back to the download stub until each thumbnail is lazily re-rendered the next time someone views the question.')) {
+    if (!confirm(OQB.t('Delete EVERY cached DOC thumbnail from disk? Cards will fall back to the download stub until each thumbnail is lazily re-rendered the next time someone views the question.'))) {
         return;
     }
 
     const btn = document.getElementById('btnThumbClear');
     const original = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
-    appendThumbLog('Deleting all cached DOC thumbnails...', 'info');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Deleting...');
+    appendThumbLog(OQB.t('Deleting all cached DOC thumbnails...'), 'info');
 
     fetch('{{ url_for("admin.doc_thumbnail_clear") }}', {
         method: 'POST',
@@ -875,15 +869,15 @@ function clearAllThumbs() {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                appendThumbLog(data.message || `Deleted ${data.deleted} thumbnail(s).`, 'success');
+                appendThumbLog(data.message || OQB.t('Deleted {n} thumbnail(s).', {n: data.deleted}), 'success');
                 if (data.errors && data.errors.length) {
-                    data.errors.forEach(e => appendThumbLog('Error: ' + e, 'error'));
+                    data.errors.forEach(e => appendThumbLog(OQB.t('Error: {error}', {error: e}), 'error'));
                 }
             } else {
-                appendThumbLog('Failed: ' + (data.error || 'unknown error'), 'error');
+                appendThumbLog(OQB.t('Failed: {error}', {error: data.error || OQB.t('unknown error')}), 'error');
             }
         })
-        .catch(err => appendThumbLog('Request failed: ' + err.message, 'error'))
+        .catch(err => appendThumbLog(OQB.t('Request failed: {error}', {error: err.message}), 'error'))
         .finally(() => {
             btn.disabled = false;
             btn.innerHTML = original;
@@ -912,7 +906,7 @@ function scanUntracked() {
             results.classList.remove('d-none');
 
             if (data.count === 0) {
-                results.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> All parseable files on disk are tracked in the database.</div>';
+                results.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> ' + OQB.t('All parseable files on disk are tracked in the database.') + '</div>';
                 return;
             }
 
@@ -924,9 +918,9 @@ function scanUntracked() {
             });
 
             const qids = Object.keys(grouped).sort();
-            let html = `<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle"></i> Found <strong>${data.count}</strong> untracked file(s) on disk. Run ingestion to import them.</div>`;
+            let html = '<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle"></i> ' + OQB.t('Found <strong>{n}</strong> untracked file(s) on disk. Run ingestion to import them.', {n: data.count}) + '</div>';
             html += '<div style="max-height:250px;overflow-y:auto;">';
-            html += '<table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>QID</th><th>Files</th></tr></thead><tbody>';
+            html += '<table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>QID</th><th>' + OQB.t('Files') + '</th></tr></thead><tbody>';
             qids.forEach(qid => {
                 const files = grouped[qid];
                 html += `<tr><td><code>${escapeHtml(qid)}</code></td><td><small>${files.map(f => escapeHtml(f)).join(', ')}</small></td></tr>`;
@@ -938,7 +932,7 @@ function scanUntracked() {
             loading.classList.add('d-none');
             btn.disabled = false;
             results.classList.remove('d-none');
-            results.innerHTML = `<div class="alert alert-danger mb-0">Error: ${err.message}</div>`;
+            results.innerHTML = '<div class="alert alert-danger mb-0">' + OQB.t('Error: {error}', {error: err.message}) + '</div>';
         });
 }
 

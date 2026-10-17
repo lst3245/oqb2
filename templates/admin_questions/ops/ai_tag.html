@@ -1,7 +1,19 @@
 <div class="bp-op d-none" data-op="aiTag">
+    {% set tag_field_labels = {
+        'q_type': t('Question type'),
+        'level': t('Level'),
+        'section': t('Section'),
+        'major_topic': t('Major topic'),
+        'major_subtopic': t('Major subtopic'),
+        'minor_topics': t('Minor topics'),
+        'subtopics': t('Minor subtopics'),
+        'chapter': t('Chapter'),
+        'subchapter': t('Subchapter'),
+        'marks': t('Marks')
+    } %}
     <div class="row g-3">
         <div class="col-sm-5">
-            <div class="bp-section-title">Send versions</div>
+            <div class="bp-section-title">{{ t('Send versions') }}</div>
             <div class="d-flex flex-wrap gap-2">
                 {% for v in OQB_VERSIONS %}
                 <div class="form-check">
@@ -10,19 +22,19 @@
                 </div>
                 {% endfor %}
             </div>
-            <div class="form-text">QUE + SOL; the first available format per type (IMG, then MD, then DOC) is sent.</div>
+            <div class="form-text">{{ t('QUE + SOL; the first available format per type (IMG, then MD, then DOC) is sent.') }}</div>
         </div>
         <div class="col-sm-7">
-            <div class="bp-section-title">Tags to write</div>
+            <div class="bp-section-title">{{ t('Tags to write') }}</div>
             <div class="row g-1">
-                {% for val, label, on in [('q_type', 'Question type', true), ('level', 'Level', false), ('section', 'Section', false),
-                                          ('major_topic', 'Major topic', true), ('major_subtopic', 'Major subtopic', true),
-                                          ('minor_topics', 'Minor topics', false), ('subtopics', 'Minor subtopics', false),
-                                          ('chapter', 'Chapter', true), ('subchapter', 'Subchapter', false), ('marks', 'Marks', false)] %}
+                {% for val, on in [('q_type', true), ('level', false), ('section', false),
+                                   ('major_topic', true), ('major_subtopic', true),
+                                   ('minor_topics', false), ('subtopics', false),
+                                   ('chapter', true), ('subchapter', false), ('marks', false)] %}
                 <div class="col-6">
                     <div class="form-check">
                         <input class="form-check-input op-tag-field" type="checkbox" value="{{ val }}" id="opTagField_{{ val }}"{% if on %} checked{% endif %}>
-                        <label class="form-check-label" for="opTagField_{{ val }}">{{ label }}</label>
+                        <label class="form-check-label" for="opTagField_{{ val }}">{{ tag_field_labels[val] }}</label>
                     </div>
                 </div>
                 {% endfor %}
@@ -31,9 +43,9 @@
     </div>
     <div class="form-check form-switch mt-3">
         <input class="form-check-input" type="checkbox" id="opTagOverwrite">
-        <label class="form-check-label" for="opTagOverwrite">Overwrite fields that already have a value</label>
+        <label class="form-check-label" for="opTagOverwrite">{{ t('Overwrite fields that already have a value') }}</label>
     </div>
     <div class="alert alert-warning py-2 small mt-2 mb-0">
-        <i class="bi bi-exclamation-triangle"></i> Writes tags straight to the database with no per-question review. A restore point is saved first (Admin → Restore Points). Use <em>Auto Tag</em> in the Edit window to review one question.
+        <i class="bi bi-exclamation-triangle"></i> {{ t('Writes tags straight to the database with no per-question review. A restore point is saved first (Admin → Restore Points). Use <em>Auto Tag</em> in the Edit window to review one question.')|safe }}
     </div>
 </div>

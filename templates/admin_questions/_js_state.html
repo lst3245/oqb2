@@ -11,8 +11,8 @@ const AQ_FORMATS = ['IMG', 'MD', 'DOC'];
 const AQ_PAGE_SIZES = [10, 20, 50, 100, 200];
 const AQ_SORTS = ['qid', 'qno', 'year', 'q_type', 'created_at'];
 const AQ_STRUCTURE_LABELS = {
-    with_parts: 'Questions with parts', standalone: 'Standalone questions',
-    leaves: 'Printable parts only', roots: 'Top-level rows only'
+    with_parts: OQB.t('Questions with parts'), standalone: OQB.t('Standalone questions'),
+    leaves: OQB.t('Printable parts only'), roots: OQB.t('Top-level rows only')
 };
 
 function aqDefaultFilters() {
@@ -85,8 +85,7 @@ function aqSubjectChanged(newSid, opts) {
     if (!newSid) return false;
     if (newSid === AQ.subject && !opts.reload) { sel.value = newSid; return true; }
     if (AQ.selected.size && newSid !== AQ.subject && !opts.force) {
-        const ok = confirm(`Clear the ${AQ.selected.size} selected row(s) in ${AQ.subject}?\n\n`
-            + 'A selection never carries over to another subject.');
+        const ok = confirm(OQB.t('Clear the {n} selected row(s) in {subject}?\n\nA selection never carries over to another subject.', {n: AQ.selected.size, subject: AQ.subject}));
         if (!ok) { sel.value = AQ.subject || ''; return false; }
     }
     if (newSid !== AQ.subject) {
@@ -121,7 +120,7 @@ function aqLoadFacets() {
             AQ.facets = d;
             const fill = (id, values) => {
                 const el = document.getElementById(id);
-                el.innerHTML = '<option value="">Any</option>'
+                el.innerHTML = '<option value="">' + OQB.t('Any') + '</option>'
                     + (values || []).map(v => `<option value="${aqEsc(v)}">${aqEsc(v)}</option>`).join('');
             };
             fill('aqSource', d.sources);
@@ -130,9 +129,9 @@ function aqLoadFacets() {
                 ? d.years.map(y => `<div class="form-check">
                         <input class="form-check-input aq-year" type="checkbox" value="${y}" id="aqYear_${y}" onchange="aqToggleYear(${y}, this.checked)">
                         <label class="form-check-label" for="aqYear_${y}">${y}</label></div>`).join('')
-                : '<div class="small text-muted px-1">No years in this subject</div>';
+                : '<div class="small text-muted px-1">' + OQB.t('No years in this subject') + '</div>';
             document.getElementById('aqSubjectMeta').textContent =
-                `${d.total_roots} questions · ${d.total_rows} rows`;
+                OQB.t('{questions} questions · {rows} rows', {questions: d.total_roots, rows: d.total_rows});
         })
         .catch(() => { document.getElementById('aqSubjectMeta').textContent = ''; });
 }
@@ -166,8 +165,8 @@ function aqSyncFilterUI() {
     document.getElementById('aqHasWhole').checked = !!f.has_whole;
     document.querySelectorAll('.aq-year').forEach(cb => { cb.checked = f.years.includes(parseInt(cb.value, 10)); });
     const yb = document.getElementById('aqYearsBtn');
-    yb.textContent = !f.years.length ? 'Any'
-        : (f.years.length <= 2 ? f.years.slice().sort().join(', ') : `${f.years.length} years`);
+    yb.textContent = !f.years.length ? OQB.t('Any')
+        : (f.years.length <= 2 ? f.years.slice().sort().join(', ') : OQB.t('{n} years', {n: f.years.length}));
     document.querySelectorAll('.aq-scope-version').forEach(cb => { cb.checked = f.scope.versions.includes(cb.value); });
     document.querySelectorAll('.aq-scope-atype').forEach(cb => { cb.checked = f.scope.atypes.includes(cb.value); });
     document.querySelectorAll('.aq-scope-format').forEach(cb => { cb.checked = f.scope.formats.includes(cb.value); });
@@ -230,22 +229,24 @@ function aqRenderChips() {
     const chips = [];
     const chip = (label, onclick, pinned) =>
         `<span class="aq-chip${pinned ? ' aq-chip-pinned' : ''}">${label}
-            <button type="button" class="btn-close" aria-label="Remove" onclick="${onclick}"></button></span>`;
+            <button type="button" class="btn-close" aria-label="${OQB.t('Remove')}" onclick="${onclick}"></button></span>`;
     if (AQ.pinned) {
         chips.push(chip(`<i class="bi bi-pin-angle"></i> ${aqEsc(AQ.pinned.label)} (${AQ.pinned.values.length})`, 'aqClearPinned()', true));
     }
-    if (f.q) chips.push(chip(`QID: <code>${aqEsc(f.q)}</code>`, "aqSetFilter('q', '')"));
-    if (f.source) chips.push(chip(`Source: ${aqEsc(f.source)}`, "aqSetFilter('source', '')"));
-    if (f.years.length) chips.push(chip(`Years: ${f.years.slice().sort().join(', ')}`, "aqSetFilter('years', [])"));
-    if (f.paper) chips.push(chip(`Paper: ${aqEsc(f.paper)}`, "aqSetFilter('paper', '')"));
-    if (f.q_type) chips.push(chip(`Type: ${aqEsc(f.q_type)}`, "aqSetFilter('q_type', '')"));
+    if (f.q) chips.push(chip(OQB.t('QID: <code>{q}</code>', {q: aqEsc(f.q)}), "aqSetFilter('q', '')"));
+    if (f.source) chips.push(chip(OQB.t('Source: {source}', {source: aqEsc(f.source)}), "aqSetFilter('source', '')"));
+    if (f.years.length) chips.push(chip(OQB.t('Years: {years}', {years: f.years.slice().sort().join(', ')}), "aqSetFilter('years', [])"));
+    if (f.paper) chips.push(chip(OQB.t('Paper: {paper}', {paper: aqEsc(f.paper)}), "aqSetFilter('paper', '')"));
+    if (f.q_type) chips.push(chip(OQB.t('Type: {type}', {type: aqEsc(f.q_type)}), "aqSetFilter('q_type', '')"));
     if (f.tree_scope && f.tree_scope !== 'all') chips.push(chip(AQ_STRUCTURE_LABELS[f.tree_scope] || f.tree_scope, "aqSetFilter('tree_scope', 'all')"));
-    if (f.verified !== '') chips.push(chip(f.verified === '1' ? 'Verified' : 'Not verified', "aqSetFilter('verified', '')"));
+    if (f.verified !== '') chips.push(chip(f.verified === '1' ? OQB.t('Verified') : OQB.t('Not verified'), "aqSetFilter('verified', '')"));
     if (f.check_status) {
-        const lbl = { issues: 'Has issues', ok: 'All checked OK', unchecked: 'Has unchecked' }[f.check_status];
-        chips.push(chip(`Proofread: ${lbl}${aqScopeIsDefault(f.scope) ? '' : ' (custom scope)'}`, "aqSetFilter('check_status', '')"));
+        const lbl = { issues: OQB.t('Has issues'), ok: OQB.t('All checked OK'), unchecked: OQB.t('Has unchecked') }[f.check_status];
+        chips.push(chip(aqScopeIsDefault(f.scope)
+            ? OQB.t('Proofread: {status}', {status: lbl})
+            : OQB.t('Proofread: {status} (custom scope)', {status: lbl}), "aqSetFilter('check_status', '')"));
     }
-    if (f.has_whole) chips.push(chip('<i class="bi bi-archive"></i> Has archive', "aqSetFilter('has_whole', false)"));
+    if (f.has_whole) chips.push(chip('<i class="bi bi-archive"></i> ' + OQB.t('Has archive'), "aqSetFilter('has_whole', false)"));
     document.getElementById('aqChips').innerHTML = chips.join('');
 }
 
@@ -314,22 +315,22 @@ function aqHandoff(kind, values, label) {
     return aqPost(AQ.cfg.urls.subjectsOf, body).then(d => {
         const subs = Object.entries(d.subjects || {});
         const lost = (d.missing || 0) + (d.inaccessible || 0);
-        if (lost) showToast(`${lost} linked question(s) no longer exist or are in a subject you do not manage.`, 'warning');
+        if (lost) showToast(OQB.t('{n} linked question(s) no longer exist or are in a subject you do not manage.', {n: lost}), 'warning');
         if (!subs.length) {
-            showToast(`None of the ${values.length} linked question(s) are in a subject you manage.`, 'warning');
+            showToast(OQB.t('None of the {n} linked question(s) are in a subject you manage.', {n: values.length}), 'warning');
             return false;
         }
         const pin = { kind, values, label };
         if (subs.length === 1) { aqApplyHandoff(subs[0][0], pin); return true; }
         AQ._pendingPin = pin;
         document.getElementById('aqHandoffText').innerHTML =
-            `<strong>${aqEsc(label)}</strong> spans ${subs.length} subjects. Bulk actions work on one subject at a time — pick one:`;
+            OQB.t('<strong>{label}</strong> spans {n} subjects. Bulk actions work on one subject at a time — pick one:', {label: aqEsc(label), n: subs.length});
         document.getElementById('aqHandoffButtons').innerHTML = subs.map(([sid, n]) =>
             `<button type="button" class="btn btn-sm btn-warning" onclick="aqApplyHandoff('${aqEsc(sid)}')">${aqEsc(sid)} <span class="badge bg-light text-dark">${n}</span></button>`
         ).join('');
         document.getElementById('aqHandoff').classList.remove('d-none');
         return 'choose';
-    }).catch(err => { showToast('Could not resolve the linked questions: ' + err.message, 'danger'); return false; });
+    }).catch(err => { showToast(OQB.t('Could not resolve the linked questions: {error}', {error: err.message}), 'danger'); return false; });
 }
 
 function aqApplyHandoff(sid, pin) {
@@ -351,15 +352,15 @@ function aqApplyHandoff(sid, pin) {
 function aqUseDashboardSelection(quiet) {
     const ids = aqDashboardIds();
     if (!ids.length) {
-        if (!quiet) showToast('Nothing is selected on the dashboard.', 'info');
+        if (!quiet) showToast(OQB.t('Nothing is selected on the dashboard.'), 'info');
         return Promise.resolve(false);
     }
-    return aqHandoff('selected_ids', ids.map(Number).filter(n => !isNaN(n)), 'Dashboard selection');
+    return aqHandoff('selected_ids', ids.map(Number).filter(n => !isNaN(n)), OQB.t('Dashboard selection'));
 }
 
 function aqShowSelectedOnly() {
     if (!AQ.selected.size) return;
-    AQ.pinned = { kind: 'selected_ids', values: Array.from(AQ.selected.keys()), label: 'Selected rows' };
+    AQ.pinned = { kind: 'selected_ids', values: Array.from(AQ.selected.keys()), label: OQB.t('Selected rows') };
     AQ.page = 1;
     aqFiltersChanged();
 }
@@ -405,8 +406,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!start && (AQ.cfg.subjects || []).length === 1) start = AQ.cfg.subjects[0].id;
 
     let handoff = Promise.resolve(false);
-    if (qids) handoff = aqHandoff('qids', qids.split(',').map(s => s.trim()).filter(Boolean), 'Linked QIDs');
-    else if (ids) handoff = aqHandoff('selected_ids', ids.split(',').map(Number).filter(n => !isNaN(n)), 'Linked questions');
+    if (qids) handoff = aqHandoff('qids', qids.split(',').map(s => s.trim()).filter(Boolean), OQB.t('Linked QIDs'));
+    else if (ids) handoff = aqHandoff('selected_ids', ids.split(',').map(Number).filter(n => !isNaN(n)), OQB.t('Linked questions'));
     else if (fromDashboard) handoff = aqUseDashboardSelection(true);
     handoff.then(res => {
         if (res === true) return;

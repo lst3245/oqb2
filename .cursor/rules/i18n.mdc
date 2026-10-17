@@ -13,7 +13,12 @@ UI language (`oqb_lang` cookie, en | zh) and taxonomy display (`oqb_tax_lang`, e
 - **One plain string literal per call**, variable parts as `{placeholder}` params. No concatenated fragments, no template literals, no adjacent literals inside `_t(...)` — the coverage test only sees single literals, and word order differs in Chinese.
 - Add the key (exact English text) to `app/translations/zh_Hant.json` in the same edit, in HK Traditional Chinese using `docs/reference/glossary-zh.md`. Keep every placeholder. Changing the English text orphans the old key — update both.
 - Strings that only arrive at runtime (server `message` shown by `showToast`, `validate_username` errors) need a catalogue key too; `showToast` already calls `OQB.t`.
-- Stay English: logs, SSE progress lines, AI prompts, `flash(str(e))`, CSV headers, version codes, QIDs.
+- Registry text shown via a variable — settings `group/label/help`, prompt `group/label/description`, `VERSION_LABELS`, `GROUP_NONE_LABELS` — must be catalogue keys (`test_dynamic_keys_are_translated`). Extend that test when a new registry feeds `t(var)`.
+- Keys have no context: one English string = one Chinese string everywhere. Reuse the settled words in the glossary ("One key, one Chinese string"); if the meaning differs, use a different English string.
+- Keep JS state and server values English; translate only at display (`statusLabel()` in `admin_pdf_import.html`, label maps in `admin_restore_points.html`). Never compare against displayed text.
+- Never name a Jinja loop / `set` variable `t` — it shadows `t()` for the rest of the block (`admin_topics.html` uses `qtype`).
+- Route JSON `error` / `message` / `flash` use `_t`; service / thread code returns English and the route translates at the edge (`subject_ai.py` maps `ai_tools` errors).
+- Stay English: logs, SSE progress lines (incl. ingestion / sync / smart import / AI batch streams), AI prompts and model replies, `flash(str(e))`, CSV headers, version codes, QIDs.
 - A standalone page that does not extend `base.html` must load `/i18n/zh.js` (UI zh only) and `static/js/i18n.js` in `<head>` itself, like `viewer.html` / `markup.html`.
 
 ## Taxonomy names (`name` = English, `name_zh` optional)
@@ -29,4 +34,4 @@ UI language (`oqb_lang` cookie, en | zh) and taxonomy display (`oqb_tax_lang`, e
 - Section keys are ids (`_get_section_key`). OQB styles carry the East Asian font (`_EAST_ASIAN_FONT`).
 
 ## Checks
-`python -m unittest tests.test_i18n tests.test_generator_labels tests.test_subject_snapshot` (pure, no DB).
+`python -m unittest tests.test_i18n tests.test_generator_labels tests.test_subject_snapshot tests.test_generate_template_ux` (pure, no DB). Template tests assert the wrapped source (`{{ t('Answer lines') }}`), not rendered English.

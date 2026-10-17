@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}My Files - Question Bank{% endblock %}
+{% block title %}{{ t('My Files - Question Bank') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -164,16 +164,16 @@
 {% block content %}
 <div class="container-xl mt-4">
     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-        <h2 class="mb-0"><i class="bi bi-folder2-open"></i> My Generated Files</h2>
+        <h2 class="mb-0"><i class="bi bi-folder2-open"></i> {{ t('My Generated Files') }}</h2>
         <div class="d-flex align-items-center gap-2">
             {% if current_user.is_super_admin %}
-            <div class="form-check form-switch mb-0 me-2" title="Show every user's sections and files">
+            <div class="form-check form-switch mb-0 me-2" title="{{ t('Show every user\'s sections and files') }}">
                 <input class="form-check-input" type="checkbox" id="showAllToggle" onchange="reloadAll()">
-                <label class="form-check-label small" for="showAllToggle">Show all users</label>
+                <label class="form-check-label small" for="showAllToggle">{{ t('Show all users') }}</label>
             </div>
             {% endif %}
-            <button class="btn btn-sm btn-outline-secondary" onclick="reloadAll()" title="Refresh">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
+            <button class="btn btn-sm btn-outline-secondary" onclick="reloadAll()" title="{{ t('Refresh') }}">
+                <i class="bi bi-arrow-clockwise"></i> {{ t('Refresh') }}
             </button>
         </div>
     </div>
@@ -183,49 +183,49 @@
             <div class="input-group input-group-sm search-bar">
                 <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input type="text" id="searchInput" class="form-control"
-                       placeholder="Filter files by name…" oninput="onSearch()">
+                       placeholder="{{ t('Filter files by name…') }}" oninput="onSearch()">
                 <button class="btn btn-outline-secondary" type="button"
-                        onclick="clearSearch()" title="Clear filter">
+                        onclick="clearSearch()" title="{{ t('Clear filter') }}">
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
             <div class="toolbar-spacer"></div>
             <button class="btn btn-sm btn-primary" onclick="openCreateSectionPrompt()">
-                <i class="bi bi-folder-plus"></i> New section
+                <i class="bi bi-folder-plus"></i> {{ t('New section') }}
             </button>
         </div>
     </div>
 
     <!-- Sticky bulk action bar -->
     <div id="bulkBar" class="bulk-bar align-items-center gap-2">
-        <span id="selectedCount" class="text-muted small fw-semibold">0 selected</span>
-        <button class="btn btn-sm btn-success" onclick="bulkDownloadZip()" title="Download as ZIP">
-            <i class="bi bi-file-zip"></i> Download ZIP
+        <span id="selectedCount" class="text-muted small fw-semibold">{{ t('{n} selected', n=0) }}</span>
+        <button class="btn btn-sm btn-success" onclick="bulkDownloadZip()" title="{{ t('Download as ZIP') }}">
+            <i class="bi bi-file-zip"></i> {{ t('Download ZIP') }}
         </button>
         <div class="dropdown">
             <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
                     data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="bi bi-folder-symlink"></i> Move to
+                <i class="bi bi-folder-symlink"></i> {{ t('Move to') }}
             </button>
             <ul id="bulkMoveMenu" class="dropdown-menu">
-                <li><span class="dropdown-item text-muted small">Loading…</span></li>
+                <li><span class="dropdown-item text-muted small">{{ t('Loading…') }}</span></li>
             </ul>
         </div>
         {% if current_user.is_super_admin %}
         <button class="btn btn-sm btn-outline-info" onclick="openShareModalForSelection()">
-            <i class="bi bi-share"></i> Share to users…
+            <i class="bi bi-share"></i> {{ t('Share to users…') }}
         </button>
         {% endif %}
         <button class="btn btn-sm btn-outline-danger" onclick="bulkDelete()">
-            <i class="bi bi-trash"></i> Delete
+            <i class="bi bi-trash"></i> {{ t('Delete') }}
         </button>
-        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">Clear</button>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">{{ t('Clear') }}</button>
     </div>
 
     <div id="sectionsContainer">
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading sections…</p>
+            <p class="mt-2 text-muted">{{ t('Loading sections…') }}</p>
         </div>
     </div>
 </div>
@@ -236,24 +236,24 @@
     <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-share"></i> Share with users</h5>
+                <h5 class="modal-title"><i class="bi bi-share"></i> {{ t('Share with users') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="text-muted small" id="shareModalTarget">…</p>
                 <div class="input-group input-group-sm mb-2">
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
-                    <input type="text" id="shareUserSearch" class="form-control" placeholder="Filter users…" oninput="filterShareUsers()">
+                    <input type="text" id="shareUserSearch" class="form-control" placeholder="{{ t('Filter users…') }}" oninput="filterShareUsers()">
                 </div>
                 <div id="shareUserList" class="border rounded p-2" style="max-height: 320px; overflow-y: auto;">
-                    <div class="text-center text-muted small py-3">Loading users…</div>
+                    <div class="text-center text-muted small py-3">{{ t('Loading users…') }}</div>
                 </div>
-                <div class="form-text mt-2">Selected users see the file/section as read-only rows in their My Files.</div>
+                <div class="form-text mt-2">{{ t('Selected users see the file/section as read-only rows in their My Files.') }}</div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" onclick="saveShareModal()" id="shareSaveBtn">
-                    <i class="bi bi-check2"></i> Save shares
+                    <i class="bi bi-check2"></i> {{ t('Save shares') }}
                 </button>
             </div>
         </div>
@@ -335,18 +335,16 @@ function loadSections() {
         })
         .catch(err => {
             document.getElementById('sectionsContainer').innerHTML =
-                `<div class="alert alert-danger">Failed to load sections: ${escapeHtml(err.message)}</div>`;
+                '<div class="alert alert-danger">' + OQB.t('Failed to load sections: {error}', {error: escapeHtml(err.message)}) + '</div>';
         });
 }
 
 function renderSections(sections) {
     const container = document.getElementById('sectionsContainer');
     if (sections.length === 0) {
-        container.innerHTML = `
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No sections yet. Generate some files from the
-                <a href="{{ url_for('dashboard.index') }}">Dashboard</a> first.
-            </div>`;
+        container.innerHTML = '<div class="alert alert-info"><i class="bi bi-info-circle"></i> ' +
+            OQB.t('No sections yet. Generate some files from the <a href="{url}">Dashboard</a> first.', {url: {{ url_for('dashboard.index')|tojson }}}) +
+            '</div>';
         return;
     }
 
@@ -368,7 +366,7 @@ function renderSectionCard(s) {
     if (isShared) classList.push('is-shared');
 
     const sortDropdown = isShared ? '' : `
-        <select class="form-select form-select-sm" onchange="onSortChange(${s.id}, this.value)" title="Sort">
+        <select class="form-select form-select-sm" onchange="onSortChange(${s.id}, this.value)" title="${OQB.t('Sort')}">
             ${renderSortOption('created_at', 'desc', s)}
             ${renderSortOption('created_at', 'asc', s)}
             ${renderSortOption('name', 'asc', s)}
@@ -378,49 +376,49 @@ function renderSectionCard(s) {
             ${renderSortOption('manual', 'asc', s)}
         </select>`;
     const pageSizeDropdown = `
-        <select class="form-select form-select-sm" onchange="onPageSizeChange(${s.id}, this.value)" title="Per page">
+        <select class="form-select form-select-sm" onchange="onPageSizeChange(${s.id}, this.value)" title="${OQB.t('Per page')}">
             ${[5,10,25,50,100].map(n => `
-                <option value="${n}" ${s.page_size === n ? 'selected' : ''}>${n} / page</option>
+                <option value="${n}" ${s.page_size === n ? 'selected' : ''}>${OQB.t('{n} / page', {n: n})}</option>
             `).join('')}
         </select>`;
 
     const headerActions = isShared ? '' : `
         <div class="dropdown">
-            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-expanded="false" title="Section actions">
+            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-expanded="false" title="${OQB.t('Section actions')}">
                 <i class="bi bi-three-dots-vertical"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 ${isDefault ? '' : `
                     <li><a class="dropdown-item" href="#" onclick="enableSectionRename(${s.id}); return false;">
-                        <i class="bi bi-pencil"></i> Rename
+                        <i class="bi bi-pencil"></i> ${OQB.t('Rename')}
                     </a></li>`}
                 ${IS_SUPER_ADMIN && !isDefault ? `
                     <li><a class="dropdown-item" href="#" onclick="openShareModalForSection(${s.id}); return false;">
-                        <i class="bi bi-share"></i> Share section…
+                        <i class="bi bi-share"></i> ${OQB.t('Share section…')}
                     </a></li>` : ''}
                 ${isDefault ? '' : `
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item text-danger" href="#" onclick="deleteSection(${s.id}); return false;">
-                        <i class="bi bi-trash"></i> Delete section
+                        <i class="bi bi-trash"></i> ${OQB.t('Delete section')}
                     </a></li>`}
             </ul>
         </div>`;
 
     const sharedBadge = isShared
-        ? `<span class="badge bg-info text-dark ms-2"><i class="bi bi-share"></i> Shared with me</span>`
-        : (isDefault ? `<span class="badge bg-secondary ms-2">Latest</span>` : '');
+        ? `<span class="badge bg-info text-dark ms-2"><i class="bi bi-share"></i> ${OQB.t('Shared with me')}</span>`
+        : (isDefault ? `<span class="badge bg-secondary ms-2">${OQB.t('Latest')}</span>` : '');
 
     // "Show all users" view: tag every section that isn't the current
     // user's own with a small owner pill so the admin can see whose
     // folder they're looking at.
     const ownerPill = s.owner_username
-        ? `<span class="owner-pill" title="Owner">@${escapeHtml(s.owner_username)}</span>`
+        ? `<span class="owner-pill" title="${OQB.t('Owner')}">@${escapeHtml(s.owner_username)}</span>`
         : '';
 
     return `
     <div class="card section-card ${classList.join(' ')}" data-section-id="${s.id}">
         <div class="card-header">
-            <span class="section-drag-handle" title="Drag to reorder section">
+            <span class="section-drag-handle" title="${OQB.t('Drag to reorder section')}">
                 <i class="bi bi-grip-vertical"></i>
             </span>
             <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button"
@@ -431,12 +429,10 @@ function renderSectionCard(s) {
             </button>
             <span class="section-name" id="${sectionKey}-name"
                   ondblclick="${isShared || isDefault ? '' : `enableSectionRename(${s.id})`}"
-                  title="${isShared || isDefault ? '' : 'Double-click to rename'}">${escapeHtml(s.name)}</span>
+                  title="${isShared || isDefault ? '' : OQB.t('Double-click to rename')}">${isDefault ? OQB.t('Latest') : escapeHtml(s.name)}</span>
             ${ownerPill}
             ${sharedBadge}
-            <span class="badge bg-light text-dark file-count-badge ms-1" id="${sectionKey}-count">
-                <span data-count>${s.file_count}</span> files
-            </span>
+            <span class="badge bg-light text-dark file-count-badge ms-1" id="${sectionKey}-count">${OQB.t('{n} files', {n: s.file_count})}</span>
             <div class="section-controls">
                 ${sortDropdown}
                 ${pageSizeDropdown}
@@ -451,17 +447,17 @@ function renderSectionCard(s) {
                             <th style="width:2rem"></th>
                             <th style="width:2.5rem"><input type="checkbox" class="form-check-input section-select-all"
                                 onchange="toggleAllInSection(${s.id}, this.checked)"></th>
-                            <th>Name</th>
-                            <th>Status</th>
-                            <th>Questions</th>
-                            <th>Created</th>
-                            ${isShared ? '<th>Shared by</th>' : ''}
-                            <th class="text-end">Actions</th>
+                            <th>${OQB.t('Name')}</th>
+                            <th>${OQB.t('Status')}</th>
+                            <th>${OQB.t('Questions')}</th>
+                            <th>${OQB.t('Created')}</th>
+                            ${isShared ? '<th>' + OQB.t('Shared by') + '</th>' : ''}
+                            <th class="text-end">${OQB.t('Actions')}</th>
                         </tr>
                     </thead>
                     <tbody class="section-files-tbody" data-section-id="${s.id}" id="${sectionKey}-tbody">
                         <tr><td colspan="${isShared ? 8 : 7}" class="text-center text-muted py-3">
-                            <span class="spinner-border spinner-border-sm"></span> Loading…
+                            <span class="spinner-border spinner-border-sm"></span> ${OQB.t('Loading…')}
                         </td></tr>
                     </tbody>
                 </table>
@@ -476,13 +472,13 @@ function renderSectionCard(s) {
 
 function renderSortOption(field, dir, s) {
     const labels = {
-        'created_at|desc': 'Created (newest)',
-        'created_at|asc':  'Created (oldest)',
-        'name|asc':        'Name (A→Z)',
-        'name|desc':       'Name (Z→A)',
-        'completed_at|desc': 'Completed (newest)',
-        'question_count|desc': 'Question count',
-        'manual|asc':      'Manual order',
+        'created_at|desc': OQB.t('Created (newest)'),
+        'created_at|asc':  OQB.t('Created (oldest)'),
+        'name|asc':        OQB.t('Name (A→Z)'),
+        'name|desc':       OQB.t('Name (Z→A)'),
+        'completed_at|desc': OQB.t('Completed (newest)'),
+        'question_count|desc': OQB.t('Question count'),
+        'manual|asc':      OQB.t('Manual order'),
     };
     const key = `${field}|${dir}`;
     const sel = (s.sort_field === field && s.sort_direction === dir) ? 'selected' : '';
@@ -537,11 +533,11 @@ function renderSectionRows(sectionId) {
     if (state.files.length === 0) {
         let emptyMsg;
         if (currentSearch) {
-            emptyMsg = `No files match "${escapeHtml(currentSearch)}" in this section.`;
+            emptyMsg = OQB.t('No files match "{q}" in this section.', {q: escapeHtml(currentSearch)});
         } else if (isShared) {
-            emptyMsg = 'No files have been shared with you yet.';
+            emptyMsg = OQB.t('No files have been shared with you yet.');
         } else {
-            emptyMsg = 'No files in this section yet. Drag files here or use Move to…';
+            emptyMsg = OQB.t('No files in this section yet. Drag files here or use Move to…');
         }
         tbody.innerHTML = `
             <tr class="empty-row"><td colspan="${isShared ? 8 : 7}" class="section-empty">
@@ -558,25 +554,25 @@ function renderFileRow(f, isSharedView) {
     let statusClass = '';
     switch (f.status) {
         case 'pending':
-            statusBadge = '<span class="badge bg-warning text-dark status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Pending</span>';
+            statusBadge = '<span class="badge bg-warning text-dark status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> ' + OQB.t('Pending') + '</span>';
             statusClass = 'status-generating';
             break;
         case 'generating':
-            statusBadge = '<span class="badge bg-info status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Generating</span>';
+            statusBadge = '<span class="badge bg-info status-badge status-generating"><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> ' + OQB.t('Generating') + '</span>';
             statusClass = 'status-generating';
             break;
         case 'completed':
-            statusBadge = '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> Ready</span>';
+            statusBadge = '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> ' + OQB.t('Ready') + '</span>';
             break;
         case 'failed':
-            statusBadge = `<span class="badge bg-danger status-badge" title="${escapeHtml(f.error_message || '')}"><i class="bi bi-x-circle"></i> Failed</span>`;
+            statusBadge = `<span class="badge bg-danger status-badge" title="${escapeHtml(f.error_message || '')}"><i class="bi bi-x-circle"></i> ${OQB.t('Failed')}</span>`;
             break;
     }
 
     const downloadBaseUrl = `{{ url_for('generator.download_file', file_id=0) }}`.replace('/0', `/${f.id}`);
     const downloadBtn = f.status === 'completed'
-        ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="Download"><i class="bi bi-download"></i></a>`
-        : `<button class="btn btn-sm btn-success" disabled title="Not ready"><i class="bi bi-download"></i></button>`;
+        ? `<a href="${downloadBaseUrl}" class="btn btn-sm btn-success" title="${OQB.t('Download')}"><i class="bi bi-download"></i></a>`
+        : `<button class="btn btn-sm btn-success" disabled title="${OQB.t('Not ready')}"><i class="bi bi-download"></i></button>`;
 
     // PDF button — separate from the main Download. Lazily builds the
     // sibling PDF (or PDF-zip) via /generate/pdf/<id> on first click and
@@ -587,28 +583,28 @@ function renderFileRow(f, isSharedView) {
     let pdfBtn = '';
     if (f.status === 'completed' && f.pdf_supported) {
         if (f.pdf_available) {
-            pdfBtn = `<a href="${pdfBaseUrl}" class="btn btn-sm btn-danger" title="Download PDF"><i class="bi bi-file-earmark-pdf"></i></a>`;
+            pdfBtn = `<a href="${pdfBaseUrl}" class="btn btn-sm btn-danger" title="${OQB.t('Download PDF')}"><i class="bi bi-file-earmark-pdf"></i></a>`;
         } else {
-            pdfBtn = `<button class="btn btn-sm btn-outline-danger" onclick="buildAndDownloadPdf(${f.id}, this)" title="Build PDF and download"><i class="bi bi-file-earmark-pdf"></i></button>`;
+            pdfBtn = `<button class="btn btn-sm btn-outline-danger" onclick="buildAndDownloadPdf(${f.id}, this)" title="${OQB.t('Build PDF and download')}"><i class="bi bi-file-earmark-pdf"></i></button>`;
         }
     } else if (f.status === 'completed' && !f.pdf_supported) {
         // e.g. the row already IS a PDF — no extra button needed.
         pdfBtn = '';
     } else {
-        pdfBtn = `<button class="btn btn-sm btn-outline-danger" disabled title="Not ready"><i class="bi bi-file-earmark-pdf"></i></button>`;
+        pdfBtn = `<button class="btn btn-sm btn-outline-danger" disabled title="${OQB.t('Not ready')}"><i class="bi bi-file-earmark-pdf"></i></button>`;
     }
 
     const ownerActions = f.is_read_only ? '' : `
         ${f.has_generation_options
-            ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="Regenerate with same options"><i class="bi bi-arrow-repeat"></i></a>`
+            ? `<a href="{{ url_for('generator.index') }}?regen_file_id=${f.id}" class="btn btn-sm btn-outline-info" title="${OQB.t('Regenerate with same options')}"><i class="bi bi-arrow-repeat"></i></a>`
             : ''}
         ${f.has_filter
-            ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="Reuse filter"><i class="bi bi-funnel"></i></a>`
+            ? `<a href="{{ url_for('dashboard.index') }}?filter_data_id=${f.id}" class="btn btn-sm btn-outline-primary" title="${OQB.t('Reuse filter')}"><i class="bi bi-funnel"></i></a>`
             : ''}
         ${IS_SUPER_ADMIN
-            ? `<button class="btn btn-sm btn-outline-info" onclick="openShareModalForFile(${f.id})" title="Share with users"><i class="bi bi-share"></i></button>`
+            ? `<button class="btn btn-sm btn-outline-info" onclick="openShareModalForFile(${f.id})" title="${OQB.t('Share with users')}"><i class="bi bi-share"></i></button>`
             : ''}
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="Delete"><i class="bi bi-trash"></i></button>`;
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${f.id})" title="${OQB.t('Delete')}"><i class="bi bi-trash"></i></button>`;
 
     const extLabel = (f.file_ext || '').toLowerCase();
     const extColour = (
@@ -622,11 +618,11 @@ function renderFileRow(f, isSharedView) {
 
     const fp = (f.format_priority_top || 'IMG').toUpperCase();
     const fpMeta = {
-        'IMG': {icon: 'bi-image', colour: 'text-success', label: 'Image-priority'},
-        'MD':  {icon: 'bi-markdown', colour: 'text-info', label: 'Markdown-priority'},
-        'DOC': {icon: 'bi-file-earmark-word', colour: 'text-primary', label: 'Word-document-priority'},
+        'IMG': {icon: 'bi-image', colour: 'text-success', label: OQB.t('Image-priority')},
+        'MD':  {icon: 'bi-markdown', colour: 'text-info', label: OQB.t('Markdown-priority')},
+        'DOC': {icon: 'bi-file-earmark-word', colour: 'text-primary', label: OQB.t('Word-document-priority')},
     }[fp] || {icon: 'bi-question', colour: 'text-muted', label: fp};
-    const fpIcon = `<i class="bi ${fpMeta.icon} ${fpMeta.colour} ms-2" title="${fpMeta.label} (priority: ${escapeHtml(fp)})"></i>`;
+    const fpIcon = `<i class="bi ${fpMeta.icon} ${fpMeta.colour} ms-2" title="${OQB.t('{label} (priority: {code})', {label: fpMeta.label, code: escapeHtml(fp)})}"></i>`;
 
     const sizeStr = (f.size_bytes != null) ? humanFileSize(f.size_bytes) : '';
     const sizeBadge = sizeStr ? `<span class="text-muted small ms-2">${sizeStr}</span>` : '';
@@ -646,7 +642,7 @@ function renderFileRow(f, isSharedView) {
             <td><input type="checkbox" class="form-check-input row-check" value="${f.id}" onchange="updateBulkBar()"></td>
             <td>
                 <span class="file-name-display" id="file-name-${f.id}" ${renameAttr}
-                      title="${f.is_read_only ? '' : 'Double-click to rename'}"
+                      title="${f.is_read_only ? '' : OQB.t('Double-click to rename')}"
                       data-name="${escapeHtmlAttr(f.display_name)}">${escapeHtml(f.display_name)}</span>
                 ${extBadge}
                 ${fpIcon}
@@ -680,7 +676,7 @@ function renderSectionPagination(sectionId) {
 
     const start = (state.page - 1) * state.page_size + 1;
     const end = Math.min(state.total, state.page * state.page_size);
-    info.textContent = `${start}–${end} of ${state.total}`;
+    info.textContent = OQB.t('{start}–{end} of {total}', {start: start, end: end, total: state.total});
 
     if (state.pages <= 1) {
         buttons.innerHTML = '';
@@ -706,8 +702,8 @@ function renderSectionPagination(sectionId) {
 }
 
 function updateSectionCount(sectionId, total) {
-    const el = document.querySelector(`#section-${sectionId}-count [data-count]`);
-    if (el) el.textContent = total;
+    const el = document.getElementById(`section-${sectionId}-count`);
+    if (el) el.textContent = OQB.t('{n} files', {n: total});
 }
 
 function refreshGeneratingSections() {
@@ -734,7 +730,7 @@ function reloadAll() {
 // ---------------------------------------------------------------------------
 
 function openCreateSectionPrompt() {
-    const name = (prompt('New section name:') || '').trim();
+    const name = (prompt(OQB.t('New section name:')) || '').trim();
     if (!name) return;
     fetch(`{{ url_for('user.sections_create') }}`, {
         method: 'POST',
@@ -743,8 +739,8 @@ function openCreateSectionPrompt() {
     })
     .then(r => r.json().then(d => ({ok: r.ok, body: d})))
     .then(({ok, body}) => {
-        if (!ok) return showToast(body.error || 'Could not create section', 'danger');
-        showToast('Section created', 'success');
+        if (!ok) return showToast(body.error || OQB.t('Could not create section'), 'danger');
+        showToast(OQB.t('Section created'), 'success');
         reloadAll();
     })
     .catch(err => showToast(err.message, 'danger'));
@@ -767,8 +763,8 @@ function enableSectionRename(sectionId) {
             body: JSON.stringify({name: newName}),
         }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
           .then(({ok, body}) => {
-              if (!ok) { showToast(body.error || 'Rename failed', 'danger'); el.textContent = original; }
-              else showToast('Renamed', 'success');
+              if (!ok) { showToast(body.error || OQB.t('Rename failed'), 'danger'); el.textContent = original; }
+              else showToast(OQB.t('Renamed'), 'success');
           });
     };
     el.onblur = commit;
@@ -779,13 +775,13 @@ function enableSectionRename(sectionId) {
 }
 
 function deleteSection(sectionId) {
-    if (!confirm('Delete this section? Its files will be moved back to the Latest section.')) return;
+    if (!confirm(OQB.t('Delete this section? Its files will be moved back to the Latest section.'))) return;
     fetch(`{{ url_for('user.sections_delete', section_id=0) }}`.replace('/0', `/${sectionId}`), {
         method: 'DELETE',
     }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
-          if (!ok) return showToast(body.error || 'Delete failed', 'danger');
-          showToast('Section deleted', 'success');
+          if (!ok) return showToast(body.error || OQB.t('Delete failed'), 'danger');
+          showToast(OQB.t('Section deleted'), 'success');
           reloadAll();
       });
 }
@@ -798,7 +794,7 @@ function onSortChange(sectionId, value) {
         body: JSON.stringify({sort_field: field, sort_direction: direction}),
     }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
-          if (!ok) return showToast(body.error || 'Sort change failed', 'danger');
+          if (!ok) return showToast(body.error || OQB.t('Sort change failed'), 'danger');
           loadSection(sectionId, 1);
       });
 }
@@ -819,7 +815,7 @@ function onPageSizeChange(sectionId, value) {
         body: JSON.stringify({page_size: ps}),
     }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
-          if (!ok) return showToast(body.error || 'Page size update failed', 'danger');
+          if (!ok) return showToast(body.error || OQB.t('Page size update failed'), 'danger');
           loadSection(sectionId, 1);
       });
 }
@@ -889,8 +885,8 @@ function initSectionFileSortable(sectionId, isShared) {
                 body: JSON.stringify({section_id: sectionId, ids}),
             }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
               .then(({ok, body}) => {
-                  if (!ok) { showToast(body.error || 'Reorder failed', 'danger'); return; }
-                  showToast('Order saved', 'success');
+                  if (!ok) { showToast(body.error || OQB.t('Reorder failed'), 'danger'); return; }
+                  showToast(OQB.t('Order saved'), 'success');
                   // Refresh section so sort dropdown reflects "manual"
                   loadSection(sectionId, 1).then(loadSections);
               });
@@ -946,13 +942,13 @@ function moveFileToSection(fileId, targetSectionId, sourceSectionId) {
     }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
           if (!ok) {
-              showToast(body.error || 'Move failed', 'danger');
+              showToast(body.error || OQB.t('Move failed'), 'danger');
               // Revert by reloading both sections
               loadSection(parseInt(sourceSectionId), 1);
               loadSection(targetSectionId, 1);
               return;
           }
-          showToast('Moved', 'success');
+          showToast(OQB.t('Moved'), 'success');
           // Refresh both source + target so counts and pagination stay accurate
           loadSection(parseInt(sourceSectionId), 1);
           loadSection(targetSectionId, 1);
@@ -968,8 +964,8 @@ function bulkMoveSelected(sectionId) {
         body: JSON.stringify({ids, section_id: sectionId}),
     }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
-          if (!ok) return showToast(body.error || 'Move failed', 'danger');
-          showToast(`Moved ${body.moved} file(s)`, 'success');
+          if (!ok) return showToast(body.error || OQB.t('Move failed'), 'danger');
+          showToast(OQB.t('Moved {n} file(s)', {n: body.moved}), 'success');
           clearSelection();
           loadSections();  // refresh all (counts changed everywhere)
       });
@@ -1000,8 +996,8 @@ function enableFileRename(fileId) {
             body: JSON.stringify({display_name: newName}),
         }).then(r => r.json().then(d => ({ok: r.ok, body: d})))
           .then(({ok, body}) => {
-              if (!ok) { showToast(body.error || 'Rename failed', 'danger'); el.textContent = original; }
-              else { showToast('Renamed', 'success'); el.dataset.name = newName; }
+              if (!ok) { showToast(body.error || OQB.t('Rename failed'), 'danger'); el.textContent = original; }
+              else { showToast(OQB.t('Renamed'), 'success'); el.dataset.name = newName; }
           });
     };
     el.onblur = commit;
@@ -1012,26 +1008,26 @@ function enableFileRename(fileId) {
 }
 
 function deleteFile(id) {
-    if (!confirm('Delete this generated file? This cannot be undone.')) return;
+    if (!confirm(OQB.t('Delete this generated file? This cannot be undone.'))) return;
     fetch(`{{ url_for('user.files_delete', file_id=0) }}`.replace('/0', `/${id}`), {
         method: 'DELETE'
     })
     .then(r => r.json().then(d => ({ok: r.ok, body: d})))
     .then(({ok, body}) => {
-        if (!ok) return showToast(body.error || 'Delete failed', 'danger');
+        if (!ok) return showToast(body.error || OQB.t('Delete failed'), 'danger');
         // Refresh the containing section
         const tr = document.querySelector(`tr[data-file-id="${id}"]`);
         const sectionId = tr ? parseInt(tr.closest('tbody').dataset.sectionId) : null;
         if (sectionId != null) loadSection(sectionId, sectionState.get(sectionId)?.page || 1);
         else reloadAll();
-        showToast('Deleted', 'success');
+        showToast(OQB.t('Deleted'), 'success');
     });
 }
 
 function bulkDelete() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected file(s)? This cannot be undone.`)) return;
+    if (!confirm(OQB.t('Delete {n} selected file(s)? This cannot be undone.', {n: ids.length}))) return;
     fetch(`{{ url_for('user.files_bulk_delete') }}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1039,8 +1035,8 @@ function bulkDelete() {
     })
     .then(r => r.json().then(d => ({ok: r.ok, body: d})))
     .then(({ok, body}) => {
-        if (!ok) return showToast(body.error || 'Delete failed', 'danger');
-        showToast(`Deleted ${body.deleted} file(s)`, 'success');
+        if (!ok) return showToast(body.error || OQB.t('Delete failed'), 'danger');
+        showToast(OQB.t('Deleted {n} file(s)', {n: body.deleted}), 'success');
         clearSelection();
         loadSections();
     });
@@ -1049,7 +1045,7 @@ function bulkDelete() {
 function bulkDownloadZip() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    showToast(`Building ZIP for ${ids.length} file(s)…`, 'info');
+    showToast(OQB.t('Building ZIP for {n} file(s)…', {n: ids.length}), 'info');
     fetch(`{{ url_for('user.files_bulk_download') }}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1057,7 +1053,7 @@ function bulkDownloadZip() {
     })
     .then(async r => {
         if (!r.ok) {
-            let msg = 'Download failed';
+            let msg = OQB.t('Download failed');
             try { const j = await r.json(); msg = j.error || msg; } catch (_) {}
             throw new Error(msg);
         }
@@ -1069,7 +1065,7 @@ function bulkDownloadZip() {
         document.body.appendChild(a);
         a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-        showToast('ZIP downloaded', 'success');
+        showToast(OQB.t('ZIP downloaded'), 'success');
     })
     .catch(err => showToast(err.message, 'danger'));
 }
@@ -1108,7 +1104,7 @@ function updateBulkBar() {
     const countEl = document.getElementById('selectedCount');
     if (checked.length > 0) {
         bar.classList.add('show');
-        countEl.textContent = `${checked.length} selected`;
+        countEl.textContent = OQB.t('{n} selected', {n: checked.length});
     } else {
         bar.classList.remove('show');
     }
@@ -1129,12 +1125,12 @@ function renderBulkMoveMenu() {
     const ul = document.getElementById('bulkMoveMenu');
     if (!ul) return;
     if (movableSections.length === 0) {
-        ul.innerHTML = '<li><span class="dropdown-item text-muted small">No sections available</span></li>';
+        ul.innerHTML = '<li><span class="dropdown-item text-muted small">' + OQB.t('No sections available') + '</span></li>';
         return;
     }
     ul.innerHTML = movableSections.map(s => `
         <li><a class="dropdown-item" href="#" onclick="bulkMoveSelected(${s.id}); return false;">
-            ${escapeHtml(s.name)}${s.is_default ? ' (Latest)' : ''}
+            ${s.is_default ? OQB.t('Latest') : escapeHtml(s.name)}${s.is_default ? OQB.t(' (Latest)') : ''}
         </a></li>
     `).join('');
 }
@@ -1154,16 +1150,16 @@ function openShareModalForFile(fileId, displayName) {
     if (!displayName) {
         const tr = document.querySelector(`tr[data-file-id="${fileId}"]`);
         const nameEl = tr?.querySelector('.file-name-display');
-        displayName = nameEl?.dataset?.name || nameEl?.textContent || `file ${fileId}`;
+        displayName = nameEl?.dataset?.name || nameEl?.textContent || OQB.t('file {id}', {id: fileId});
     }
-    shareModalContext = {kind: 'file', id: fileId, label: `file "${displayName}"`};
+    shareModalContext = {kind: 'file', id: fileId, name: displayName};
     openShareModalCommon();
 }
 
 function openShareModalForSection(sectionId) {
     if (!IS_SUPER_ADMIN) return;
-    const name = document.getElementById(`section-${sectionId}-name`)?.textContent || `section ${sectionId}`;
-    shareModalContext = {kind: 'section', id: sectionId, label: `section "${name}"`};
+    const name = document.getElementById(`section-${sectionId}-name`)?.textContent || OQB.t('section {id}', {id: sectionId});
+    shareModalContext = {kind: 'section', id: sectionId, name: name};
     openShareModalCommon();
 }
 
@@ -1173,17 +1169,23 @@ function openShareModalForSelection() {
     if (ids.length === 0) return;
     if (ids.length === 1) {
         const tr = document.querySelector(`tr[data-file-id="${ids[0]}"]`);
-        const name = tr?.querySelector('.file-name-display')?.textContent || `file ${ids[0]}`;
+        const name = tr?.querySelector('.file-name-display')?.textContent || OQB.t('file {id}', {id: ids[0]});
         return openShareModalForFile(ids[0], name);
     }
-    shareModalContext = {kind: 'bulk', ids, label: `${ids.length} selected files`};
+    shareModalContext = {kind: 'bulk', ids: ids};
     openShareModalCommon();
 }
 
 function openShareModalCommon() {
-    document.getElementById('shareModalTarget').textContent = `Share ${shareModalContext.label} with…`;
+    const ctx0 = shareModalContext;
+    const targetText = ctx0.kind === 'section'
+        ? OQB.t('Share section "{name}" with…', {name: ctx0.name})
+        : (ctx0.kind === 'bulk'
+            ? OQB.t('Share {n} selected files with…', {n: ctx0.ids.length})
+            : OQB.t('Share file "{name}" with…', {name: ctx0.name}));
+    document.getElementById('shareModalTarget').textContent = targetText;
     const list = document.getElementById('shareUserList');
-    list.innerHTML = '<div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm"></span> Loading…</div>';
+    list.innerHTML = '<div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Loading…') + '</div>';
     const modal = new bootstrap.Modal(document.getElementById('shareModal'));
     modal.show();
 
@@ -1207,7 +1209,7 @@ function openShareModalCommon() {
             renderShareUserList();
         })
         .catch(err => {
-            list.innerHTML = `<div class="text-danger small">Failed to load users: ${escapeHtml(err.message)}</div>`;
+            list.innerHTML = '<div class="text-danger small">' + OQB.t('Failed to load users: {error}', {error: escapeHtml(err.message)}) + '</div>';
         });
 }
 
@@ -1216,7 +1218,7 @@ function renderShareUserList() {
     const filter = (document.getElementById('shareUserSearch')?.value || '').toLowerCase();
     const users = shareUsers.filter(u => u.username.toLowerCase().includes(filter));
     if (users.length === 0) {
-        list.innerHTML = '<div class="text-muted small py-2">No users match.</div>';
+        list.innerHTML = '<div class="text-muted small py-2">' + OQB.t('No users match.') + '</div>';
         return;
     }
     list.innerHTML = users.map(u => `
@@ -1225,7 +1227,7 @@ function renderShareUserList() {
                    value="${u.id}" ${shareInitialSelection.has(u.id) ? 'checked' : ''}>
             <label class="form-check-label" for="share-user-${u.id}">
                 ${escapeHtml(u.username)}
-                ${u.is_super_admin ? '<span class="badge bg-warning text-dark ms-1">admin</span>' : ''}
+                ${u.is_super_admin ? '<span class="badge bg-warning text-dark ms-1">' + OQB.t('admin') + '</span>' : ''}
             </label>
         </div>
     `).join('');
@@ -1253,9 +1255,9 @@ function saveShareModal() {
         .then(results => {
             const failed = results.filter(r => !r.ok);
             if (failed.length > 0) {
-                showToast(`Saved with ${failed.length} error(s)`, 'warning');
+                showToast(OQB.t('Saved with {n} error(s)', {n: failed.length}), 'warning');
             } else {
-                showToast('Shares updated', 'success');
+                showToast(OQB.t('Shares updated'), 'success');
             }
             bootstrap.Modal.getInstance(document.getElementById('shareModal')).hide();
             clearSelection();
@@ -1345,14 +1347,14 @@ function buildAndDownloadPdf(fileId, btnEl) {
     const originalHtml = btnEl.innerHTML;
     btnEl.disabled = true;
     btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    btnEl.title = 'Building PDF…';
+    btnEl.title = OQB.t('Building PDF…');
 
     const url = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
     fetch(url, { credentials: 'same-origin' })
         .then(async resp => {
             if (!resp.ok) {
                 // Try to surface server-side JSON error message
-                let msg = `PDF build failed (HTTP ${resp.status})`;
+                let msg = OQB.t('PDF build failed (HTTP {status})', {status: resp.status});
                 try {
                     const ct = resp.headers.get('content-type') || '';
                     if (ct.includes('application/json')) {
@@ -1378,7 +1380,7 @@ function buildAndDownloadPdf(fileId, btnEl) {
             a.click();
             a.remove();
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-            showToast('PDF ready — download started.', 'success');
+            showToast(OQB.t('PDF ready — download started.'), 'success');
             // Refresh the section so the button flips to the cached-link
             // variant for subsequent clicks.
             const tr = document.querySelector(`tr[data-file-id="${fileId}"]`);
@@ -1389,13 +1391,13 @@ function buildAndDownloadPdf(fileId, btnEl) {
             }
         })
         .catch(err => {
-            showToast(err.message || 'PDF build failed', 'danger');
+            showToast(err.message || OQB.t('PDF build failed'), 'danger');
         })
         .finally(() => {
             btnEl.disabled = false;
             btnEl.dataset.busy = '0';
             btnEl.innerHTML = originalHtml;
-            btnEl.title = 'Build PDF and download';
+            btnEl.title = OQB.t('Build PDF and download');
         });
 }
 

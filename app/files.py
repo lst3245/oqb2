@@ -20,6 +20,7 @@ from flask import (Blueprint, render_template, request, jsonify, send_file,
 from flask_login import login_required, current_user
 
 from app import db, files_service
+from app.i18n import t as _t
 from app.files_service import RootRegistry, FileServiceError, ROOT_USER
 
 
@@ -79,8 +80,7 @@ def _err(e: FileServiceError):
 
 
 def _generated_readonly_response():
-    return jsonify({'error': 'The generated/ folder is managed in My Files and '
-                             'is read-only here.'}), 403
+    return jsonify({'error': _t('The generated/ folder is managed in My Files and is read-only here.')}), 403
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def _location_payload(loc):
 @login_required
 def api_roots():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     from app.files_service import allowed_drive
     scope = _request_scope()
     reg = RootRegistry(current_user, scope=scope)
@@ -147,7 +147,7 @@ def api_location():
     admin scope is only ``/admin/files``.
     """
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     scope = _request_scope()
     if request.method == 'GET':
         return jsonify(_location_payload(
@@ -169,10 +169,10 @@ def api_location():
 @login_required
 def api_list():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     files_service.ensure_root_dir(root)
     try:
         return jsonify(files_service.list_dir(root.path, request.args.get('path', '')))
@@ -184,10 +184,10 @@ def api_list():
 @login_required
 def api_download():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     try:
         full = files_service.get_download_path(root.path, request.args.get('path', ''))
     except FileServiceError as e:
@@ -199,10 +199,10 @@ def api_download():
 @login_required
 def api_upload():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     rel_path = request.form.get('path', '')
     if _is_generated_path(root, rel_path):
         return _generated_readonly_response()
@@ -218,10 +218,10 @@ def api_upload():
 @login_required
 def api_rename():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     data = request.get_json(silent=True) or {}
     if _is_generated_path(root, data.get('path', '')):
         return _generated_readonly_response()
@@ -236,10 +236,10 @@ def api_rename():
 @login_required
 def api_delete():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     data = request.get_json(silent=True) or {}
     paths = data.get('paths', []) or []
     if any(_is_generated_path(root, p) for p in paths):
@@ -254,10 +254,10 @@ def api_delete():
 @login_required
 def api_mkdir():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     data = request.get_json(silent=True) or {}
     if _is_generated_path(root, data.get('path', '')):
         return _generated_readonly_response()
@@ -272,10 +272,10 @@ def api_mkdir():
 @login_required
 def api_copy():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     data = request.get_json(silent=True) or {}
     if _is_generated_path(root, data.get('dest_dir', '')):
         return _generated_readonly_response()
@@ -290,10 +290,10 @@ def api_copy():
 @login_required
 def api_move():
     if not _can_use_browser(current_user):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     root = _request_root()
     if root is None:
-        return jsonify({'error': 'Invalid root'}), 400
+        return jsonify({'error': _t('Invalid root')}), 400
     data = request.get_json(silent=True) or {}
     sources = data.get('sources', []) or []
     dest_dir = data.get('dest_dir', '')
@@ -315,22 +315,22 @@ def api_move():
 @login_required
 def api_roots_add():
     if not getattr(current_user, 'is_super_admin', False):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     from app.files_service import allowed_drive, path_on_allowed_drive
     data = request.get_json(silent=True) or {}
     raw = (data.get('path') or '').strip().strip('"')
     if not raw:
-        return jsonify({'error': 'Path is required'}), 400
+        return jsonify({'error': _t('Path is required')}), 400
     abs_path = os.path.abspath(raw)
     if not path_on_allowed_drive(abs_path):
-        return jsonify({'error': f'Root must be on the {allowed_drive()} drive.'}), 400
+        return jsonify({'error': _t('Root must be on the {drive} drive.', drive=allowed_drive())}), 400
     if not os.path.isdir(abs_path):
-        return jsonify({'error': 'Path does not exist or is not a directory.'}), 400
+        return jsonify({'error': _t('Path does not exist or is not a directory.')}), 400
 
     existing = {os.path.normcase(r.path)
                 for r in RootRegistry(current_user, scope='admin').list()}
     if os.path.normcase(abs_path) in existing:
-        return jsonify({'error': 'That root is already registered.'}), 409
+        return jsonify({'error': _t('That root is already registered.')}), 409
 
     roots = files_service._load_extra_roots()
     roots.append(abs_path)
@@ -343,18 +343,18 @@ def api_roots_add():
 @login_required
 def api_roots_remove():
     if not getattr(current_user, 'is_super_admin', False):
-        return jsonify({'error': 'Access denied'}), 403
+        return jsonify({'error': _t('Access denied')}), 403
     data = request.get_json(silent=True) or {}
     root_id = (data.get('id') or '').strip()
     if not root_id:
-        return jsonify({'error': 'Root id is required'}), 400
+        return jsonify({'error': _t('Root id is required')}), 400
     if not root_id.startswith('extra:'):
-        return jsonify({'error': 'Only added roots can be removed.'}), 400
+        return jsonify({'error': _t('Only added roots can be removed.')}), 400
     target = os.path.normcase(root_id[len('extra:'):])
     roots = files_service._load_extra_roots()
     kept = [p for p in roots if os.path.normcase(p) != target]
     if len(kept) == len(roots):
-        return jsonify({'error': 'Root not found.'}), 404
+        return jsonify({'error': _t('Root not found.')}), 404
     files_service._save_extra_roots(kept)
     return jsonify({'success': True,
                     'roots': RootRegistry(current_user, scope='admin').list_dicts()})

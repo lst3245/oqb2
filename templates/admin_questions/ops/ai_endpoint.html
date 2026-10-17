@@ -1,12 +1,12 @@
 {# Shared LLM endpoint picker, shown for every AI operation. #}
 <div class="d-none mb-2" id="opAiEndpointWrap">
-    <div class="bp-section-title">LLM endpoint</div>
+    <div class="bp-section-title">{{ t('LLM endpoint') }}</div>
     <select class="form-select form-select-sm" id="opAiEndpoint" onchange="opAiParallelUI()">
-        <option value="">Loading…</option>
+        <option value="">{{ t('Loading…') }}</option>
     </select>
     <div class="form-check mt-2 d-none" id="opAiParallelWrap">
         <input class="form-check-input" type="checkbox" id="opAiParallel" checked>
-        <label class="form-check-label" for="opAiParallel"><i class="bi bi-lightning-charge"></i> Run in parallel <span class="text-muted" id="opAiParallelHint"></span></label>
+        <label class="form-check-label" for="opAiParallel"><i class="bi bi-lightning-charge"></i> {{ t('Run in parallel') }} <span class="text-muted" id="opAiParallelHint"></span></label>
     </div>
-    <div class="form-text">A vision-capable endpoint is required. Endpoints are managed by a super-admin.</div>
+    <div class="form-text">{{ t('A vision-capable endpoint is required. Endpoints are managed by a super-admin.') }}</div>
 </div>

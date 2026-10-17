@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#ffffff">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Markup">
+    <meta name="apple-mobile-web-app-title" content="{{ t('Markup') }}">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='markup/icon.svg') }}">
     <title>{{ t('Markup - OQB') }}</title>
@@ -574,71 +574,71 @@
     <div id="stageWrap"></div>
 
     <div class="topbar">
-        <div class="tool-strip" aria-label="Markup tools">
-            <button class="tool-btn" data-tool="hand" title="Pan"><i class="bi bi-hand-index-thumb"></i></button>
-            <button class="tool-btn active" data-tool="pen" title="Pen"><i class="bi bi-pencil"></i></button>
-            <button class="tool-btn" data-tool="highlighter" title="Highlighter"><i class="bi bi-highlighter"></i></button>
-            <button class="tool-btn" data-tool="eraser" title="Eraser"><i class="bi bi-eraser"></i></button>
-            <button class="tool-btn" data-tool="lasso" title="Lasso">
+        <div class="tool-strip" aria-label="{{ t('Markup tools') }}">
+            <button class="tool-btn" data-tool="hand" title="{{ t('Pan') }}"><i class="bi bi-hand-index-thumb"></i></button>
+            <button class="tool-btn active" data-tool="pen" title="{{ t('Pen') }}"><i class="bi bi-pencil"></i></button>
+            <button class="tool-btn" data-tool="highlighter" title="{{ t('Highlighter') }}"><i class="bi bi-highlighter"></i></button>
+            <button class="tool-btn" data-tool="eraser" title="{{ t('Eraser') }}"><i class="bi bi-eraser"></i></button>
+            <button class="tool-btn" data-tool="lasso" title="{{ t('Lasso') }}">
                 <svg class="tool-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                     <path d="M10.4 2.8c2.1.3 3.7 2.3 3.2 4.5-.4 1.8-2 3.1-3.8 3.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                     <path d="M9.7 10.5C7.7 10.8 5.5 9.7 4.4 7.9 3.2 6 3.5 3.4 5.5 2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                     <path d="M9.7 10.5 13 14.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                 </svg>
             </button>
-            <button class="tool-btn" data-tool="text" title="Text"><i class="bi bi-fonts"></i></button>
+            <button class="tool-btn" data-tool="text" title="{{ t('Text') }}"><i class="bi bi-fonts"></i></button>
             <span class="separator"></span>
-            <button class="tool-btn" data-tool="line" title="Straight line"><i class="bi bi-slash-lg"></i></button>
-            <button class="tool-btn" data-tool="rect" title="Rectangle"><i class="bi bi-square"></i></button>
-            <button class="tool-btn" data-tool="ellipse" title="Ellipse"><i class="bi bi-circle"></i></button>
+            <button class="tool-btn" data-tool="line" title="{{ t('Straight line') }}"><i class="bi bi-slash-lg"></i></button>
+            <button class="tool-btn" data-tool="rect" title="{{ t('Rectangle') }}"><i class="bi bi-square"></i></button>
+            <button class="tool-btn" data-tool="ellipse" title="{{ t('Ellipse') }}"><i class="bi bi-circle"></i></button>
             <span class="separator"></span>
-            <button class="tool-btn active" id="lockSizeBtn" title="Lock pen size in exported result"><i class="bi bi-rulers"></i></button>
-            <button class="tool-btn active" id="snapBtn" title="Snap held strokes to shapes"><i class="bi bi-magic"></i></button>
-            <button class="tool-btn" id="deleteSelBtn" title="Delete selected"><i class="bi bi-trash3"></i></button>
+            <button class="tool-btn active" id="lockSizeBtn" title="{{ t('Lock pen size in exported result') }}"><i class="bi bi-rulers"></i></button>
+            <button class="tool-btn active" id="snapBtn" title="{{ t('Snap held strokes to shapes') }}"><i class="bi bi-magic"></i></button>
+            <button class="tool-btn" id="deleteSelBtn" title="{{ t('Delete selected') }}"><i class="bi bi-trash3"></i></button>
         </div>
-        <div class="panel" aria-label="Actions">
-            <button class="round-btn" id="undoBtn" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
-            <button class="round-btn" id="redoBtn" title="Redo"><i class="bi bi-arrow-clockwise"></i></button>
-            <button class="round-btn" id="importBtn" title="Import image"><i class="bi bi-image"></i></button>
-            <button class="round-btn" id="fitBtn" title="Fit content"><i class="bi bi-arrows-fullscreen"></i></button>
-            <button class="round-btn active" id="exportBtn" title="Export or share"><i class="bi bi-share"></i></button>
-            <button class="round-btn danger" id="clearBtn" title="Clear"><i class="bi bi-x-circle"></i></button>
+        <div class="panel" aria-label="{{ t('Actions') }}">
+            <button class="round-btn" id="undoBtn" title="{{ t('Undo') }}"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button class="round-btn" id="redoBtn" title="{{ t('Redo') }}"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="round-btn" id="importBtn" title="{{ t('Import image') }}"><i class="bi bi-image"></i></button>
+            <button class="round-btn" id="fitBtn" title="{{ t('Fit content') }}"><i class="bi bi-arrows-fullscreen"></i></button>
+            <button class="round-btn active" id="exportBtn" title="{{ t('Export or share') }}"><i class="bi bi-share"></i></button>
+            <button class="round-btn danger" id="clearBtn" title="{{ t('Clear') }}"><i class="bi bi-x-circle"></i></button>
         </div>
     </div>
 
     <div class="settings-panel">
         <div class="size-card">
             <label for="brushSize">
-                <span>Size</span>
+                <span>{{ t('Size') }}</span>
                 <strong><span id="brushSizeValue">8</span> px</strong>
             </label>
             <input id="brushSize" type="range" min="1" max="160" value="8">
             <div class="toggle-line">
-                <span id="modeText">Pen</span>
+                <span id="modeText">{{ t('Pen') }}</span>
                 <span id="zoomText">100%</span>
             </div>
-            <div class="color-row" aria-label="Colors">
-                <button class="color-btn active" data-color-index="0" data-color="#111827" style="--c:#111827" title="Black"></button>
-                <button class="color-btn" data-color-index="1" data-color="#dc2626" style="--c:#dc2626" title="Red"></button>
-                <button class="color-btn" data-color-index="2" data-color="#2563eb" style="--c:#2563eb" title="Blue"></button>
-                <button class="color-btn" data-color-index="3" data-color="#16a34a" style="--c:#16a34a" title="Green"></button>
-                <button class="color-btn" data-color-index="4" data-color="#f59e0b" style="--c:#f59e0b" title="Amber"></button>
-                <button class="color-btn" data-color-index="5" data-color="#e879f9" style="--c:#e879f9" title="Pink"></button>
-                <input id="customColor" type="color" value="#111827" title="Custom color">
+            <div class="color-row" aria-label="{{ t('Colors') }}">
+                <button class="color-btn active" data-color-index="0" data-color="#111827" style="--c:#111827" title="{{ t('Black') }}"></button>
+                <button class="color-btn" data-color-index="1" data-color="#dc2626" style="--c:#dc2626" title="{{ t('Red') }}"></button>
+                <button class="color-btn" data-color-index="2" data-color="#2563eb" style="--c:#2563eb" title="{{ t('Blue') }}"></button>
+                <button class="color-btn" data-color-index="3" data-color="#16a34a" style="--c:#16a34a" title="{{ t('Green') }}"></button>
+                <button class="color-btn" data-color-index="4" data-color="#f59e0b" style="--c:#f59e0b" title="{{ t('Amber') }}"></button>
+                <button class="color-btn" data-color-index="5" data-color="#e879f9" style="--c:#e879f9" title="{{ t('Pink') }}"></button>
+                <input id="customColor" type="color" value="#111827" title="{{ t('Custom color') }}">
             </div>
         </div>
         <div class="status-card">
-            <div><strong>Touch</strong>: 1 finger draws, 2 fingers pan/zoom</div>
-            <div><strong>Import</strong>: share, upload, paste, or Present mode</div>
-            <div id="autosaveText">Autosave ready</div>
+            <div>{{ t('<strong>Touch</strong>: 1 finger draws, 2 fingers pan/zoom')|safe }}</div>
+            <div>{{ t('<strong>Import</strong>: share, upload, paste, or Present mode')|safe }}</div>
+            <div id="autosaveText">{{ t('Autosave ready') }}</div>
         </div>
     </div>
 
     <div class="restore-card" id="restoreCard">
-        <p>A previous Markup drawing was autosaved on this device.</p>
+        <p>{{ t('A previous Markup drawing was autosaved on this device.') }}</p>
         <div class="restore-actions">
-            <button class="small-btn" id="discardRestoreBtn">Start new</button>
-            <button class="small-btn primary" id="restoreBtn">Restore</button>
+            <button class="small-btn" id="discardRestoreBtn">{{ t('Start new') }}</button>
+            <button class="small-btn primary" id="restoreBtn">{{ t('Restore') }}</button>
         </div>
     </div>
 
@@ -646,73 +646,73 @@
     <div class="size-preview" id="sizePreview"></div>
     <div class="toast-line" id="toastLine"></div>
 
-    <button class="install-info-btn hidden" id="installInfoBtn" type="button" title="Install app &amp; share tips" aria-label="Install app instructions">
+    <button class="install-info-btn hidden" id="installInfoBtn" type="button" title="{{ t('Install app & share tips') }}" aria-label="{{ t('Install app instructions') }}">
         <i class="bi bi-info-circle"></i>
     </button>
 
     <div class="install-help-backdrop hidden" id="installHelpBackdrop" aria-hidden="true">
         <div class="install-help-sheet" role="dialog" aria-modal="true" aria-labelledby="installHelpTitle">
-            <h2 id="installHelpTitle">Install Markup as an app</h2>
-            <p class="help-lead" id="installHelpLead">Install once for a full-screen drawing experience. After installation you can open images faster — especially on Android.</p>
+            <h2 id="installHelpTitle">{{ t('Install Markup as an app') }}</h2>
+            <p class="help-lead" id="installHelpLead">{{ t('Install once for a full-screen drawing experience. After installation you can open images faster — especially on Android.') }}</p>
 
             <div class="help-platform" id="helpAndroid">
-                <h3><i class="bi bi-android2"></i> Android (Chrome)</h3>
+                <h3><i class="bi bi-android2"></i> {{ t('Android (Chrome)') }}</h3>
                 <ol>
-                    <li>Open this page in <strong>Chrome</strong>.</li>
-                    <li>Tap the browser menu (<strong>⋮</strong>) → <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
-                    <li>Launch <strong>Markup</strong> from your home screen.</li>
-                    <li>To annotate a photo: open it in Gallery/Photos → <strong>Share</strong> → choose <strong>Markup</strong>.</li>
+                    <li>{{ t('Open this page in <strong>Chrome</strong>.')|safe }}</li>
+                    <li>{{ t('Tap the browser menu (<strong>⋮</strong>) → <strong>Install app</strong> or <strong>Add to Home screen</strong>.')|safe }}</li>
+                    <li>{{ t('Launch <strong>Markup</strong> from your home screen.')|safe }}</li>
+                    <li>{{ t('To annotate a photo: open it in Gallery/Photos → <strong>Share</strong> → choose <strong>Markup</strong>.')|safe }}</li>
                 </ol>
             </div>
 
             <div class="help-platform" id="helpIos">
-                <h3><i class="bi bi-apple"></i> iPhone / iPad (Safari)</h3>
+                <h3><i class="bi bi-apple"></i> {{ t('iPhone / iPad (Safari)') }}</h3>
                 <ol>
-                    <li>Open this page in <strong>Safari</strong> (required for install).</li>
-                    <li>Tap <strong>Share</strong> (<i class="bi bi-box-arrow-up"></i>) → <strong>Add to Home Screen</strong> → <strong>Add</strong>.</li>
-                    <li>Launch <strong>Markup</strong> from your home screen.</li>
-                    <li>To bring in an image: use the <strong>Share shortcut</strong> (below), <strong>Import</strong>, or paste inside Markup.</li>
+                    <li>{{ t('Open this page in <strong>Safari</strong> (required for install).')|safe }}</li>
+                    <li>{{ t('Tap <strong>Share</strong> (<i class="bi bi-box-arrow-up"></i>) → <strong>Add to Home Screen</strong> → <strong>Add</strong>.')|safe }}</li>
+                    <li>{{ t('Launch <strong>Markup</strong> from your home screen.')|safe }}</li>
+                    <li>{{ t('To bring in an image: use the <strong>Share shortcut</strong> (below), <strong>Import</strong>, or paste inside Markup.')|safe }}</li>
                 </ol>
-                <p class="help-note"><strong>iOS note:</strong> Native Share → Markup with an image only works on Android. On iOS, use <strong>Import → Paste from clipboard</strong> or the optional Share shortcut below.</p>
+                <p class="help-note">{{ t('<strong>iOS note:</strong> Native Share → Markup with an image only works on Android. On iOS, use <strong>Import → Paste from clipboard</strong> or the optional Share shortcut below.')|safe }}</p>
             </div>
 
             <div class="help-platform" id="helpIosShortcut">
-                <h3><i class="bi bi-share"></i> Share images via Shortcut (like PairDrop)</h3>
-                <p class="help-note" style="margin-top:0"><strong>iOS 15+:</strong> Apple blocks unsigned shortcut files (“Shortcut Cannot Be Opened”). Build manually below, or use <strong>Import → Paste from clipboard</strong> after copying a photo.</p>
-                <p><strong>Recommended:</strong> copy a photo, open Markup, tap <strong>Import</strong>, then <strong>Paste from clipboard</strong>.</p>
-                <p><strong>Optional Share shortcut</strong> (Photos → Share → Markup): create in the Shortcuts app:</p>
+                <h3><i class="bi bi-share"></i> {{ t('Share images via Shortcut (like PairDrop)') }}</h3>
+                <p class="help-note" style="margin-top:0">{{ t('<strong>iOS 15+:</strong> Apple blocks unsigned shortcut files (“Shortcut Cannot Be Opened”). Build manually below, or use <strong>Import → Paste from clipboard</strong> after copying a photo.')|safe }}</p>
+                <p>{{ t('<strong>Recommended:</strong> copy a photo, open Markup, tap <strong>Import</strong>, then <strong>Paste from clipboard</strong>.')|safe }}</p>
+                <p>{{ t('<strong>Optional Share shortcut</strong> (Photos → Share → Markup): create in the Shortcuts app:')|safe }}</p>
                 <ol class="help-manual-steps">
-                    <li><strong>Convert Image</strong> → JPEG</li>
-                    <li><strong>Base64 Encode</strong></li>
-                    <li><strong>Copy to Clipboard</strong></li>
-                    <li><strong>URL</strong> → <code id="iosShortcutPasteUrl"></code></li>
-                    <li><strong>Open URLs</strong></li>
-                    <li>Shortcut settings → enable <strong>Share Sheet</strong> → accept <strong>Images</strong></li>
+                    <li>{{ t('<strong>Convert Image</strong> → JPEG')|safe }}</li>
+                    <li>{{ t('<strong>Base64 Encode</strong>')|safe }}</li>
+                    <li>{{ t('<strong>Copy to Clipboard</strong>')|safe }}</li>
+                    <li>{{ t('<strong>URL</strong> → <code id="iosShortcutPasteUrl"></code>')|safe }}</li>
+                    <li>{{ t('<strong>Open URLs</strong>')|safe }}</li>
+                    <li>{{ t('Shortcut settings → enable <strong>Share Sheet</strong> → accept <strong>Images</strong>')|safe }}</li>
                 </ol>
                 <a class="help-link-btn" id="iosShortcutImportLink" href="#">
-                    <i class="bi bi-box-arrow-up-right"></i> Try “Add to Shortcuts” link
+                    <i class="bi bi-box-arrow-up-right"></i> {{ t('Try “Add to Shortcuts” link') }}
                 </a>
                 <a class="help-download-btn secondary" id="iosShortcutDownload" href="{{ ios_shortcut_download_url }}">
-                    <i class="bi bi-download"></i> Download unsigned shortcut
+                    <i class="bi bi-download"></i> {{ t('Download unsigned shortcut') }}
                 </a>
-                <p class="help-note">The download is for Mac signing (<code>shortcuts sign</code>) or the import link above. PairDrop publishes via RoutineHub because Apple signs those copies.</p>
+                <p class="help-note">{{ t('The download is for Mac signing (<code>shortcuts sign</code>) or the import link above. PairDrop publishes via RoutineHub because Apple signs those copies.')|safe }}</p>
             </div>
 
-            <button class="install-help-close" id="installHelpClose" type="button">Got it</button>
+            <button class="install-help-close" id="installHelpClose" type="button">{{ t('Got it') }}</button>
         </div>
     </div>
 
     <div class="import-backdrop hidden" id="importBackdrop" aria-hidden="true">
         <div class="import-sheet" role="dialog" aria-modal="true" aria-labelledby="importSheetTitle">
-            <h2 id="importSheetTitle">Import image</h2>
-            <p id="importSheetLead">Choose a photo/file, paste from the clipboard, or tap the box below and paste.</p>
+            <h2 id="importSheetTitle">{{ t('Import image') }}</h2>
+            <p id="importSheetLead">{{ t('Choose a photo/file, paste from the clipboard, or tap the box below and paste.') }}</p>
             <div class="import-actions">
-                <button class="import-action-btn secondary" id="importChooseBtn" type="button">Choose photo / file</button>
-                <button class="import-action-btn" id="importPasteBtn" type="button">Paste from clipboard</button>
+                <button class="import-action-btn secondary" id="importChooseBtn" type="button">{{ t('Choose photo / file') }}</button>
+                <button class="import-action-btn" id="importPasteBtn" type="button">{{ t('Paste from clipboard') }}</button>
             </div>
-            <div class="import-paste-zone" id="importPasteZone" tabindex="0">Tap here, then paste (long-press → Paste on iOS)</div>
-            <textarea class="import-paste-fallback hidden" id="importPasteFallback" placeholder="Or paste base64 image text here (from a Share shortcut)"></textarea>
-            <button class="import-action-btn secondary" id="importCloseBtn" type="button" style="margin-top:10px">Cancel</button>
+            <div class="import-paste-zone" id="importPasteZone" tabindex="0">{{ t('Tap here, then paste (long-press → Paste on iOS)') }}</div>
+            <textarea class="import-paste-fallback hidden" id="importPasteFallback" placeholder="{{ t('Or paste base64 image text here (from a Share shortcut)') }}"></textarea>
+            <button class="import-action-btn secondary" id="importCloseBtn" type="button" style="margin-top:10px">{{ t('Cancel') }}</button>
         </div>
     </div>
 
@@ -916,17 +916,31 @@
             applyTransformerUiScale();
         }
 
+        function colorLabel(name) {
+            return {
+                Black: OQB.t('Black'),
+                Red: OQB.t('Red'),
+                Blue: OQB.t('Blue'),
+                Green: OQB.t('Green'),
+                Amber: OQB.t('Amber'),
+                Pink: OQB.t('Pink'),
+                Yellow: OQB.t('Yellow'),
+                Orange: OQB.t('Orange'),
+                Lime: OQB.t('Lime')
+            }[name] || name;
+        }
+
         function toolLabel(tool) {
             return {
-                hand: 'Pan',
-                pen: 'Pen',
-                highlighter: 'Highlighter',
-                eraser: 'Eraser',
-                lasso: 'Lasso',
-                text: 'Text',
-                line: 'Line',
-                rect: 'Rectangle',
-                ellipse: 'Ellipse'
+                hand: OQB.t('Pan'),
+                pen: OQB.t('Pen'),
+                highlighter: OQB.t('Highlighter'),
+                eraser: OQB.t('Eraser'),
+                lasso: OQB.t('Lasso'),
+                text: OQB.t('Text'),
+                line: OQB.t('Line'),
+                rect: OQB.t('Rectangle'),
+                ellipse: OQB.t('Ellipse')
             }[tool] || tool;
         }
 
@@ -946,7 +960,7 @@
             document.querySelectorAll('[data-color-index]').forEach(btn => {
                 const entry = palette[Number(btn.dataset.colorIndex)] || palette[0];
                 btn.dataset.color = entry[0];
-                btn.title = entry[1];
+                btn.title = colorLabel(entry[1]);
                 btn.style.setProperty('--c', entry[0]);
                 btn.classList.toggle('active', entry[0].toLowerCase() === activeSettings().color.toLowerCase());
             });
@@ -1000,11 +1014,11 @@
             document.getElementById('helpIosShortcut').classList.toggle('active', platform === 'ios');
             const lead = document.getElementById('installHelpLead');
             if (platform === 'ios') {
-                lead.textContent = 'Install Markup to your home screen. To annotate a photo: copy it, open Markup, tap Import → Paste from clipboard. Optionally build the Share shortcut below.';
+                lead.textContent = OQB.t('Install Markup to your home screen. To annotate a photo: copy it, open Markup, tap Import → Paste from clipboard. Optionally build the Share shortcut below.');
             } else if (platform === 'android') {
-                lead.textContent = 'Install Markup once, then open photos from the system Share menu straight into the canvas.';
+                lead.textContent = OQB.t('Install Markup once, then open photos from the system Share menu straight into the canvas.');
             } else {
-                lead.textContent = 'On mobile, install Markup for a full-screen app. Android can receive shared images; on iOS use Import → Paste from clipboard.';
+                lead.textContent = OQB.t('On mobile, install Markup for a full-screen app. Android can receive shared images; on iOS use Import → Paste from clipboard.');
             }
             backdrop.classList.remove('hidden');
             backdrop.setAttribute('aria-hidden', 'false');
@@ -1041,7 +1055,7 @@
 
         function scheduleAutosave() {
             clearTimeout(autosaveTimer);
-            autosaveText.textContent = 'Autosave pending...';
+            autosaveText.textContent = OQB.t('Autosave pending...');
             autosaveTimer = setTimeout(() => { saveScene().catch(() => {}); }, 400);
         }
 
@@ -1065,12 +1079,12 @@
                     draw: drawLayer.getChildren().map(serializeNode)
                 };
                 await idb.set(AUTOSAVE_KEY, scene);
-                autosaveText.textContent = 'Autosaved';
+                autosaveText.textContent = OQB.t('Autosaved');
             })();
             try {
                 await saveInFlight;
             } catch (_) {
-                autosaveText.textContent = 'Autosave failed';
+                autosaveText.textContent = OQB.t('Autosave failed');
             } finally {
                 saveInFlight = null;
             }
@@ -1100,7 +1114,7 @@
 
         async function clearAutosave() {
             if (idb) await idb.del(AUTOSAVE_KEY);
-            autosaveText.textContent = 'Autosave cleared';
+            autosaveText.textContent = OQB.t('Autosave cleared');
         }
 
         function pushOp(op) {
@@ -1366,7 +1380,7 @@
                     wireNode(snapped);
                     drawLayer.add(snapped);
                     drawing.node = snapped;
-                    showToast('Snapped to shape');
+                    showToast(OQB.t('Snapped to shape'));
                 }
             }
             if (drawing.points.length < 2) {
@@ -1643,7 +1657,7 @@
                     ...bgLayer.getChildren().filter(node => node.attrs.markupType === 'image')
                 ].filter(node => nodeIntersectsPolygon(node, polygon));
                 setSelected(found);
-                if (!found.length) showToast('No strokes inside selection');
+                if (!found.length) showToast(OQB.t('No strokes inside selection'));
             }
             interaction = null;
             uiLayer.batchDraw();
@@ -1956,7 +1970,11 @@
                 const src = await fileToDataUrl(file);
                 await loadBackgroundImage(src);
             }
-            if (images.length) showToast(`Imported ${images.length} image${images.length === 1 ? '' : 's'}`);
+            if (images.length) {
+                showToast(images.length === 1
+                    ? OQB.t('Imported 1 image')
+                    : OQB.t('Imported {n} images', {n: images.length}));
+            }
         }
 
         async function loadSharedImage() {
@@ -1968,7 +1986,7 @@
             await cache.delete(SHARE_KEY);
             const src = await fileToDataUrl(new File([blob], 'shared-image', { type: blob.type || 'image/png' }));
             await loadBackgroundImage(src);
-            showToast('Shared image loaded');
+            showToast(OQB.t('Shared image loaded'));
             return true;
         }
 
@@ -1999,7 +2017,7 @@
         async function importSharedImageBlob(blob) {
             const src = await fileToDataUrl(new File([blob], 'shared-image', { type: blob.type || 'image/jpeg' }));
             await loadBackgroundImage(src);
-            showToast('Shared image imported');
+            showToast(OQB.t('Shared image imported'));
         }
 
         function closeImportSheet() {
@@ -2015,12 +2033,12 @@
             const pasteBtn = document.getElementById('importPasteBtn');
             const fallback = document.getElementById('importPasteFallback');
             pasteBtn.disabled = false;
-            pasteBtn.textContent = 'Paste from clipboard';
+            pasteBtn.textContent = OQB.t('Paste from clipboard');
             fallback.classList.add('hidden');
             fallback.value = '';
             lead.textContent = fromShare
-                ? 'Your Share shortcut copied the image. Tap Paste from clipboard, or tap the box below and paste.'
-                : 'Choose a photo/file, paste from the clipboard, or tap the box below and paste.';
+                ? OQB.t('Your Share shortcut copied the image. Tap Paste from clipboard, or tap the box below and paste.')
+                : OQB.t('Choose a photo/file, paste from the clipboard, or tap the box below and paste.');
             if (!navigator.clipboard?.read && !navigator.clipboard?.readText) {
                 fallback.classList.remove('hidden');
             }
@@ -2059,15 +2077,15 @@
         async function pasteFromClipboard() {
             const pasteBtn = document.getElementById('importPasteBtn');
             pasteBtn.disabled = true;
-            pasteBtn.textContent = 'Processing…';
+            pasteBtn.textContent = OQB.t('Processing…');
             try {
                 const blob = await readClipboardAsImageBlob();
                 await processImportBlob(blob);
             } catch (err) {
                 pasteBtn.disabled = false;
-                pasteBtn.textContent = 'Paste from clipboard';
+                pasteBtn.textContent = OQB.t('Paste from clipboard');
                 document.getElementById('importPasteFallback').classList.remove('hidden');
-                showToast('Paste failed. Tap the box below and paste manually.');
+                showToast(OQB.t('Paste failed. Tap the box below and paste manually.'));
                 throw err;
             }
         }
@@ -2080,7 +2098,7 @@
         async function handleIosShareImport(mode, hash = '') {
             if (mode === 'hash') {
                 if (!hash) {
-                    showToast('No shared image found in link');
+                    showToast(OQB.t('No shared image found in link'));
                     return true;
                 }
                 try {
@@ -2117,7 +2135,7 @@
             if (imgUrl) {
                 const src = new URL(imgUrl, location.href);
                 if (src.origin !== location.origin) {
-                    showToast('Only same-origin images can be imported safely');
+                    showToast(OQB.t('Only same-origin images can be imported safely'));
                 } else {
                     await loadBackgroundImage(src.href);
                     loaded = true;
@@ -2137,7 +2155,7 @@
                     redoStack.length = 0;
                     await restoreScene(scene);
                     updateStatus();
-                    showToast('Restored previous drawing');
+                    showToast(OQB.t('Restored previous drawing'));
                     resolve(true);
                 };
                 document.getElementById('discardRestoreBtn').onclick = async () => {
@@ -2201,16 +2219,16 @@
             });
             stage.batchDraw();
             updateStatus();
-            showToast('Fit to content');
+            showToast(OQB.t('Fit to content'));
         }
 
         async function exportMarkup() {
             const box = contentBounds();
             if (!box) {
-                showToast('Nothing to export yet');
+                showToast(OQB.t('Nothing to export yet'));
                 return;
             }
-            showToast('Preparing PNG...');
+            showToast(OQB.t('Preparing PNG...'));
 
             const pad = 40;
             const region = {
@@ -2255,8 +2273,8 @@
                 console.error('Markup export failed', err);
                 const tainted = err && (err.name === 'SecurityError' || /tainted|insecure/i.test(err.message || ''));
                 showToast(tainted
-                    ? 'Export blocked: image is cross-origin. Re-import via Upload.'
-                    : `Export failed: ${err && err.message ? err.message : err}`);
+                    ? OQB.t('Export blocked: image is cross-origin. Re-import via Upload.')
+                    : OQB.t('Export failed: {error}', {error: err && err.message ? err.message : err}));
                 return;
             } finally {
                 whiteBg.destroy();
@@ -2271,8 +2289,8 @@
                 const file = new File([blob], `markup_${new Date().toISOString().replace(/[:.]/g, '-')}.png`, { type: 'image/png' });
                 if (navigator.canShare?.({ files: [file] })) {
                     try {
-                        await navigator.share({ files: [file], title: 'Markup' });
-                        showToast('Shared PNG');
+                        await navigator.share({ files: [file], title: OQB.t('Markup') });
+                        showToast(OQB.t('Shared PNG'));
                     } catch (err) {
                         if (err?.name !== 'AbortError') downloadBlob(blob, file.name);
                     }
@@ -2281,7 +2299,7 @@
                 }
             } catch (err) {
                 console.error('Markup export delivery failed', err);
-                showToast(`Export failed: ${err && err.message ? err.message : err}`);
+                showToast(OQB.t('Export failed: {error}', {error: err && err.message ? err.message : err}));
             }
         }
 
@@ -2292,11 +2310,11 @@
             a.download = filename;
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 2000);
-            showToast('Downloaded PNG');
+            showToast(OQB.t('Downloaded PNG'));
         }
 
         function clearCanvas() {
-            if (!confirm('Clear this Markup canvas?')) return;
+            if (!confirm(OQB.t('Clear this Markup canvas?'))) return;
             setSelected([]);
             bgLayer.destroyChildren();
             drawLayer.destroyChildren();
@@ -2637,7 +2655,7 @@
                 const params = new URLSearchParams(location.search);
                 if (params.get('ios-share')) {
                     await maybeLoadIncomingImage();
-                    showToast('Markup ready');
+                    showToast(OQB.t('Markup ready'));
                     return;
                 }
                 const savedScene = await readAutosave();
@@ -2648,10 +2666,10 @@
                 } else {
                     await maybeLoadIncomingImage();
                 }
-                showToast('Markup ready');
+                showToast(OQB.t('Markup ready'));
             } catch (err) {
                 console.error('Markup init failed', err);
-                showToast('Markup started with limited recovery');
+                showToast(OQB.t('Markup started with limited recovery'));
             }
         }
 

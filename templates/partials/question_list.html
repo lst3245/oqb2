@@ -10,19 +10,19 @@
                 <input class="form-check-input" type="checkbox" id="selectAll" 
                        onchange="toggleSelectAll(this, true)">
                 <label class="form-check-label" for="selectAll">
-                    <strong>Select All ({{ total }} question{{ 's' if total != 1 else '' }}{% if total_parts is defined and total_parts != total %}, {{ total_parts }} parts{% endif %})</strong>
+                    <strong>{% if total_parts is defined and total_parts != total %}{% if total != 1 %}{{ t('Select All ({n} questions, {p} parts)', n=total, p=total_parts) }}{% else %}{{ t('Select All ({n} question, {p} parts)', n=total, p=total_parts) }}{% endif %}{% elif total != 1 %}{{ t('Select All ({n} questions)', n=total) }}{% else %}{{ t('Select All ({n} question)', n=total) }}{% endif %}</strong>
                 </label>
             </div>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="selectPage" 
                        onchange="toggleSelectAll(this, false)">
                 <label class="form-check-label" for="selectPage">
-                    <strong>Select This Page Only</strong>
+                    <strong>{{ t('Select This Page Only') }}</strong>
                 </label>
             </div>
         </div>
         <div>
-            <span class="text-muted" title="Whole questions; a split question counts once">{{ total }} question{{ 's' if total != 1 else '' }}{% if total_parts is defined and total_parts != total %} · {{ total_parts }} parts{% endif %}</span>
+            <span class="text-muted" title="{{ t('Whole questions; a split question counts once') }}">{% if total_parts is defined and total_parts != total %}{% if total != 1 %}{{ t('{n} questions · {p} parts', n=total, p=total_parts) }}{% else %}{{ t('{n} question · {p} parts', n=total, p=total_parts) }}{% endif %}{% elif total != 1 %}{{ t('{n} questions', n=total) }}{% else %}{{ t('{n} question', n=total) }}{% endif %}</span>
         </div>
     </div>
 
@@ -46,20 +46,20 @@
     {% macro tag_badges(question) %}
         <span class="tag-level">
         {% if question.level %}
-        <span class="badge bg-secondary">Level {{ question.level }}</span>
+        <span class="badge bg-secondary">{{ t('Level {n}', n=question.level) }}</span>
         {% else %}
-        <span class="badge bg-secondary text-muted">Level -</span>
+        <span class="badge bg-secondary text-muted">{{ t('Level -') }}</span>
         {% endif %}
         </span>
         <span class="tag-qtype">
         {% if question.q_type %}
         <span class="badge bg-info">{{ question.q_type }}</span>
         {% else %}
-        <span class="badge bg-info text-muted">Type -</span>
+        <span class="badge bg-info text-muted">{{ t('Type -') }}</span>
         {% endif %}
         </span>
         {% if question.marks is number %}
-        <span class="tag-marks"><span class="badge bg-light text-dark border" title="{{ question.marks }} mark{{ 's' if question.marks != 1 else '' }}">{{ question.marks }}m</span></span>
+        <span class="tag-marks"><span class="badge bg-light text-dark border" title="{{ t('{n} mark', n=question.marks) if question.marks == 1 else t('{n} marks', n=question.marks) }}">{{ t('{n}m', n=question.marks) }}</span></span>
         {% endif %}
         <span class="tag-major-topic"><span class="badge bg-primary">{{ question.major_topic }}</span></span>
         {% if question.major_subtopic %}
@@ -93,29 +93,30 @@
             <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
                  class="question-image"
                  style="display:block; margin-bottom:2px;"
-                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22200%22 height=%22100%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22%3ENo Preview%3C/text%3E%3C/svg%3E'">
+                 data-fallback-label="{{ t('No Preview') }}"
+                 onerror="this.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; width=&quot;200&quot; height=&quot;100&quot;><rect fill=&quot;#ddd&quot; width=&quot;200&quot; height=&quot;100&quot;/><text x=&quot;50%&quot; y=&quot;50%&quot; dominant-baseline=&quot;middle&quot; text-anchor=&quot;middle&quot; fill=&quot;#999&quot;>'+this.dataset.fallbackLabel+'</text></svg>')">
             {% endfor %}
         {% elif question.preview_mode == 'html' %}
             <div class="md-preview-card" data-preview-q="{{ question.id }}" data-preview-type="QUE"
                  data-preview-version="{{ question.preview_version or 'EN' }}">
-                <div class="text-muted small fst-italic">Rendering markdown...</div>
+                <div class="text-muted small fst-italic">{{ t('Rendering markdown...') }}</div>
             </div>
         {% elif question.preview_mode == 'thumbnail' and question.preview_doc_asset_id %}
             <div data-doc-thumb-container>
                 <img src="{{ url_for('dashboard.doc_thumbnail', asset_id=question.preview_doc_asset_id) }}"
                      class="question-image oqb-doc-thumb"
                      style="display:block; margin-bottom:4px; max-width:100%;"
-                     alt="QUE preview"
+                     alt="{{ t('QUE preview') }}"
                      data-doc-asset-id="{{ question.preview_doc_asset_id }}"
                      data-doc-question-id="{{ question.id }}"
                      onerror="this.style.display='none'">
                 <div class="text-muted small">
-                    <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or 'Word document' }}
+                    <i class="bi bi-file-earmark-word"></i> {{ question.preview_doc_filename or t('Word document') }}
                     <a href="{{ url_for('dashboard.serve_file', filepath=question.preview_doc_file_path) }}"
-                       target="_blank" class="ms-1">download .docx</a>
+                       target="_blank" class="ms-1">{{ t('download .docx') }}</a>
                     {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
                     <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline"
-                            title="Re-render thumbnail"
+                            title="{{ t('Re-render thumbnail') }}"
                             onclick="oqbRerenderThumb({{ question.id }}, {{ question.preview_doc_asset_id }}, this); return false;">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
@@ -132,18 +133,18 @@
                  {% endif %}>
                 <i class="bi bi-file-earmark-word fs-4 text-primary"></i>
                 <div class="flex-grow-1 small">
-                    Word document — preview rendering…
+                    {{ t('Word document — preview rendering…') }}
                     <button type="button"
                             class="btn btn-sm btn-outline-primary ms-2"
                             onclick="previewAsset({{ question.id }}, 'QUE')">
-                        <i class="bi bi-eye"></i> Open
+                        <i class="bi bi-eye"></i> {{ t('Open') }}
                     </button>
                 </div>
             </div>
         {% elif question.has_que %}
-            <span class="text-muted small">Preview available</span>
+            <span class="text-muted small">{{ t('Preview available') }}</span>
         {% else %}
-            <div class="alert alert-warning py-1 px-2 mb-0 small">No preview available</div>
+            <div class="alert alert-warning py-1 px-2 mb-0 small">{{ t('No preview available') }}</div>
         {% endif %}
     {% endmacro %}
 
@@ -151,51 +152,51 @@
        (hidden on phones, .qact-label); part rails pass labels=false and rely
        on the tooltip. #}
     {% macro action_buttons(question, labels=true) %}
-        <div class="qsheet-actions" role="group" aria-label="Actions for {{ question.qid }}">
+        <div class="qsheet-actions" role="group" aria-label="{{ t('Actions for {qid}', qid=question.qid) }}">
             {% if question.has_ans %}
-            <button type="button" class="btn btn-sm btn-outline-primary" title="View Answer"
-                    onclick="previewAsset({{ question.id }}, 'ANS')"><i class="bi bi-eye"></i>{% if labels %}<span class="qact-label"> Answer</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" title="{{ t('View Answer') }}"
+                    onclick="previewAsset({{ question.id }}, 'ANS')"><i class="bi bi-eye"></i>{% if labels %}<span class="qact-label"> {{ t('Answer') }}</span>{% endif %}</button>
             {% endif %}
             {% if question.has_sol %}
-            <button type="button" class="btn btn-sm btn-outline-success" title="View Solution"
-                    onclick="previewAsset({{ question.id }}, 'SOL')"><i class="bi bi-journal-check"></i>{% if labels %}<span class="qact-label"> Solution</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-success" title="{{ t('View Solution') }}"
+                    onclick="previewAsset({{ question.id }}, 'SOL')"><i class="bi bi-journal-check"></i>{% if labels %}<span class="qact-label"> {{ t('Solution') }}</span>{% endif %}</button>
             {% endif %}
             {% if question.has_answer_text %}
-            <button type="button" class="btn btn-sm btn-outline-info" title="View Answer Text"
-                    data-text-title="Answer Text" data-text-content="{{ question.answer | e }}"
-                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-card-text"></i>{% if labels %}<span class="qact-label"> Ans Text</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-info" title="{{ t('View Answer Text') }}"
+                    data-text-title="{{ t('Answer Text') }}" data-text-content="{{ question.answer | e }}"
+                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-card-text"></i>{% if labels %}<span class="qact-label"> {{ t('Ans Text') }}</span>{% endif %}</button>
             {% endif %}
             {% if question.has_comment %}
-            <button type="button" class="btn btn-sm btn-outline-secondary" title="Comment"
-                    data-text-title="Comment" data-text-content="{{ question.comment | e }}"
-                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-chat-text"></i>{% if labels %}<span class="qact-label"> Comment</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="{{ t('Comment') }}"
+                    data-text-title="{{ t('Comment') }}" data-text-content="{{ question.comment | e }}"
+                    onclick="previewText(this.dataset.textTitle, this.dataset.textContent)"><i class="bi bi-chat-text"></i>{% if labels %}<span class="qact-label"> {{ t('Comment') }}</span>{% endif %}</button>
             {% endif %}
             {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
-            <button type="button" class="btn btn-sm btn-outline-dark" title="Explain with AI"
-                    onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'><i class="bi bi-stars"></i>{% if labels %}<span class="qact-label"> Explain</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" title="{{ t('Explain with AI') }}"
+                    onclick='openExplainModal({{ question.id }}, {{ question.qid|tojson }}, {{ {"QUE": question.has_que, "ANS": question.has_ans, "SOL": question.has_sol}|tojson }})'><i class="bi bi-stars"></i>{% if labels %}<span class="qact-label"> {{ t('Explain') }}</span>{% endif %}</button>
             {% endif %}
             {% if question.subject in admin_subjects %}
-            <button type="button" class="btn btn-sm btn-outline-warning" title="Edit"
-                    onclick="openEditModal({{ question.id }})"><i class="bi bi-pencil"></i>{% if labels %}<span class="qact-label"> Edit</span>{% endif %}</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" title="{{ t('Edit') }}"
+                    onclick="openEditModal({{ question.id }})"><i class="bi bi-pencil"></i>{% if labels %}<span class="qact-label"> {{ t('Edit') }}</span>{% endif %}</button>
             {% endif %}
         </div>
     {% endmacro %}
 
-    {% macro source_line(q) %}{{ q.source }}{% if q.year %} {{ q.year }}{% endif %}{% if q.paper %} {{ q.paper }}{% endif %}{% if q.section %} Sec {{ q.section }}{% endif %}{% endmacro %}
+    {% macro source_line(q) %}{{ q.source }}{% if q.year %} {{ q.year }}{% endif %}{% if q.paper %} {{ q.paper }}{% endif %}{% if q.section %} {{ t('Sec {section}', section=q.section) }}{% endif %}{% endmacro %}
 
     {% macro rail_notes(question) %}
         {% if question.description %}
         <div class="qsheet-note"><i class="bi bi-info-circle"></i> {{ question.description }}</div>
         {% endif %}
         {% if question.correct_percentage is not none %}
-        <div class="qsheet-note text-success"><i class="bi bi-check-circle"></i> {{ question.correct_percentage }}% correct</div>
+        <div class="qsheet-note text-success"><i class="bi bi-check-circle"></i> {{ t('{n}% correct', n=question.correct_percentage) }}</div>
         {% endif %}
     {% endmacro %}
 
     {# Enlarge button in the paper's right gutter (never covers the crop). #}
     {% macro zoom_button(caption) %}
-        <button type="button" class="btn btn-sm btn-light qsheet-zoom" title="Enlarge"
-                aria-label="Enlarge {{ caption }}" data-zoom-caption="{{ caption }}"
+        <button type="button" class="btn btn-sm btn-light qsheet-zoom" title="{{ t('Enlarge') }}"
+                aria-label="{{ t('Enlarge {caption}', caption=caption) }}" data-zoom-caption="{{ caption }}"
                 onclick="event.stopPropagation(); oqbZoomQuestion(this);"><i class="bi bi-arrows-angle-expand"></i></button>
     {% endmacro %}
 
@@ -210,10 +211,14 @@
                    onchange="updateSelection(this)">
             <h6 class="qsheet-qid">{{ question.qid }}</h6>
             {% if question.part_label or question.part %}
-            <span class="badge bg-light text-dark border">part ({{ question.part_label or question.part }}) of {{ question.stem_qid or 'the whole question' }}</span>
+            {% if question.stem_qid %}
+            <span class="badge bg-light text-dark border">{{ t('part ({part}) of {stem}', part=question.part_label or question.part, stem=question.stem_qid) }}</span>
+            {% else %}
+            <span class="badge bg-light text-dark border">{{ t('part ({part}) of the whole question', part=question.part_label or question.part) }}</span>
+            {% endif %}
             {% endif %}
             {% if question.needs_prev_parts %}
-            <span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background">uses earlier parts</span>
+            <span class="badge bg-warning-subtle text-dark border" title="{{ t('Viewing or generating this part alone also includes its earlier parts as background') }}">{{ t('uses earlier parts') }}</span>
             {% endif %}
             <small class="text-muted">{{ source_line(question) }}</small>
             {{ action_buttons(question) }}
@@ -223,7 +228,7 @@
                 {% if bg %}
                 {# Only reached when a part is listed outside its group (Show
                    Selected Only / qids jump): background above the part, same scale. #}
-                <div class="qsheet-caption">Shared background ({{ question.stem_qid }})</div>
+                <div class="qsheet-caption">{{ t('Shared background ({qid})', qid=question.stem_qid) }}</div>
                 {{ que_preview(bg) }}
                 <div class="qsheet-cut"></div>
                 {% endif %}
@@ -253,12 +258,12 @@
             <div class="qsheet-rail-head">
                 <input class="form-check-input question-checkbox" type="checkbox"
                        name="question_checkbox" value="{{ question.id }}"
-                       onchange="updateSelection(this)" title="Select this part only">
+                       onchange="updateSelection(this)" title="{{ t('Select this part only') }}">
                 {% if label %}<span class="part-label" title="{{ question.qid }}">{{ label }}</span>{% endif %}
                 {{ action_buttons(question, false) }}
             </div>
             {% if question.needs_prev_parts %}
-            <div class="mb-1"><span class="badge bg-warning-subtle text-dark border" title="Viewing or generating this part alone also includes its earlier parts as background"><i class="bi bi-link-45deg"></i> uses earlier parts</span></div>
+            <div class="mb-1"><span class="badge bg-warning-subtle text-dark border" title="{{ t('Viewing or generating this part alone also includes its earlier parts as background') }}"><i class="bi bi-link-45deg"></i> {{ t('uses earlier parts') }}</span></div>
             {% endif %}
             <div class="qsheet-tags">{{ tag_badges(question) }}</div>
             {{ rail_notes(question) }}
@@ -272,7 +277,7 @@
     {% macro substem_row(sub) %}
     {% set crumb = (sub.breadcrumb|last) if sub.breadcrumb else none %}
     {% if crumb and crumb.kind == 'block' %}
-    {% set label = 'Shared · ' ~ crumb.label %}
+    {% set label = t('Shared · {name}', name=crumb.label) %}
     {% else %}
     {% set label = crumb.label if crumb else (('(' ~ sub.part ~ ')') if sub.part else '') %}
     {% endif %}
@@ -284,7 +289,7 @@
             {{ que_preview(sub) }}
             {% if sub.preview_mode in ('image', 'html', 'thumbnail') %}{{ zoom_button(sub.qid) }}{% endif %}
             {% else %}
-            <span class="text-muted small fst-italic">No shared text for {{ label or 'this part' }}; the sub-parts stand alone.</span>
+            <span class="text-muted small fst-italic">{% if label %}{{ t('No shared text for {label}; the sub-parts stand alone.', label=label) }}{% else %}{{ t('No shared text for this part; the sub-parts stand alone.') }}{% endif %}</span>
             {% endif %}
         </div>
         <div class="qsheet-rail">
@@ -292,23 +297,23 @@
                 <input class="form-check-input stem-checkbox" type="checkbox"
                        name="stem_checkbox" value="{{ sub.id }}"
                        onchange="updateSelection(this)"
-                       title="Select / deselect all sub-parts of {{ label }}">
+                       title="{{ t('Select / deselect all sub-parts of {label}', label=label) }}">
                 {% if label %}<span class="part-label" title="{{ sub.qid }}">{{ label }}</span>{% endif %}
                 <div class="qsheet-actions">
                     {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
-                    <button type="button" class="btn btn-sm btn-outline-dark" title="Explain {{ label }} with all its sub-parts"
+                    <button type="button" class="btn btn-sm btn-outline-dark" title="{{ t('Explain {label} with all its sub-parts', label=label) }}"
                             onclick='openExplainModal({{ sub.id }}, {{ sub.qid|tojson }}, {{ {"QUE": sub.has_que, "ANS": sub.has_ans, "SOL": sub.has_sol}|tojson }})'><i class="bi bi-stars"></i></button>
                     {% endif %}
                     {% if sub.subject in admin_subjects %}
-                    <button type="button" class="btn btn-sm btn-outline-warning" title="Edit"
+                    <button type="button" class="btn btn-sm btn-outline-warning" title="{{ t('Edit') }}"
                             onclick="openEditModal({{ sub.id }})"><i class="bi bi-pencil"></i></button>
                     {% endif %}
                 </div>
             </div>
             {% if crumb and crumb.kind == 'block' %}
-            <div class="qsheet-note">Printed between parts · used by the {{ sub.child_count }} part{{ 's' if sub.child_count != 1 else '' }} below it</div>
+            <div class="qsheet-note">{% if sub.child_count != 1 %}{{ t('Printed between parts · used by the {n} parts below it', n=sub.child_count) }}{% else %}{{ t('Printed between parts · used by the {n} part below it', n=sub.child_count) }}{% endif %}</div>
             {% else %}
-            <div class="qsheet-note">Shared intro · {{ sub.child_count }} sub-part{{ 's' if sub.child_count != 1 else '' }}</div>
+            <div class="qsheet-note">{% if sub.child_count != 1 %}{{ t('Shared intro · {n} sub-parts', n=sub.child_count) }}{% else %}{{ t('Shared intro · {n} sub-part', n=sub.child_count) }}{% endif %}</div>
             {% endif %}
         </div>
     </div>
@@ -329,36 +334,36 @@
             <input class="form-check-input stem-checkbox" type="checkbox"
                    name="stem_checkbox" value="{{ stem.id }}"
                    onchange="updateSelection(this)"
-                   title="{% if stem.qno_end %}Select / deselect every question that shares this data{% else %}Select / deselect every part of this question{% endif %}">
+                   title="{% if stem.qno_end %}{{ t('Select / deselect every question that shares this data') }}{% else %}{{ t('Select / deselect every part of this question') }}{% endif %}">
             <button type="button" class="btn btn-sm btn-link text-muted p-0 stem-collapse-btn"
                     onclick="event.stopPropagation(); toggleStemGroup(this);"
-                    title="Show or hide parts" aria-expanded="true"><i class="bi bi-chevron-down"></i></button>
+                    title="{{ t('Show or hide parts') }}" aria-expanded="true"><i class="bi bi-chevron-down"></i></button>
             <h6 class="qsheet-qid">{{ stem.qid }}</h6>
             {% if stem.qno_end %}
-            <span class="badge bg-secondary">{{ stem.child_count }} question{{ 's' if stem.child_count != 1 else '' }} share this data</span>
+            <span class="badge bg-secondary">{% if stem.child_count != 1 %}{{ t('{n} questions share this data', n=stem.child_count) }}{% else %}{{ t('{n} question shares this data', n=stem.child_count) }}{% endif %}</span>
             {% else %}
-            <span class="badge bg-secondary">{{ stem.child_count }} part{{ 's' if stem.child_count != 1 else '' }}</span>
+            <span class="badge bg-secondary">{% if stem.child_count != 1 %}{{ t('{n} parts', n=stem.child_count) }}{% else %}{{ t('{n} part', n=stem.child_count) }}{% endif %}</span>
             {% if stem.whole_marks is number %}
-            <span class="badge bg-light text-dark border" title="Sum of the parts' marks">{{ stem.whole_marks }} marks</span>
+            <span class="badge bg-light text-dark border" title="{{ t("Sum of the parts' marks") }}">{{ t('{n} marks', n=stem.whole_marks) }}</span>
             {% endif %}
             {% endif %}
             <small class="text-muted">{{ source_line(stem) }}</small>
             <div class="qsheet-actions">
-                <button type="button" class="btn btn-sm btn-outline-secondary" title="Enlarge the whole question (background and every part)"
-                        aria-label="Enlarge {{ stem.qid }}" data-zoom-scope="sheet" data-zoom-caption="{{ stem.qid }}"
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="{{ t('Enlarge the whole question (background and every part)') }}"
+                        aria-label="{{ t('Enlarge {caption}', caption=stem.qid) }}" data-zoom-scope="sheet" data-zoom-caption="{{ stem.qid }}"
                         onclick="event.stopPropagation(); oqbZoomQuestion(this);"><i class="bi bi-arrows-fullscreen"></i></button>
                 {% if stem.has_whole %}
-                <button type="button" class="btn btn-sm btn-outline-secondary btn-whole-toggle" title="Show the archived whole question image instead of the parts"
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-whole-toggle" title="{{ t('Show the archived whole question image instead of the parts') }}"
                         aria-pressed="false"
-                        onclick="event.stopPropagation(); toggleStemWhole(this);"><i class="bi bi-archive"></i><span class="qact-label"> Whole</span></button>
+                        onclick="event.stopPropagation(); toggleStemWhole(this);"><i class="bi bi-archive"></i><span class="qact-label"> {{ t('Whole') }}</span></button>
                 {% endif %}
                 {% if config.get('AI_TOOLS_ENABLED', True) and current_user.is_authenticated %}
-                <button type="button" class="btn btn-sm btn-outline-dark" title="Explain the whole question (background + every part)"
-                        onclick='openExplainModal({{ stem.id }}, {{ stem.qid|tojson }}, {{ {"QUE": stem.has_que, "ANS": stem.has_ans, "SOL": stem.has_sol}|tojson }})'><i class="bi bi-stars"></i><span class="qact-label"> Explain</span></button>
+                <button type="button" class="btn btn-sm btn-outline-dark" title="{{ t('Explain the whole question (background + every part)') }}"
+                        onclick='openExplainModal({{ stem.id }}, {{ stem.qid|tojson }}, {{ {"QUE": stem.has_que, "ANS": stem.has_ans, "SOL": stem.has_sol}|tojson }})'><i class="bi bi-stars"></i><span class="qact-label"> {{ t('Explain') }}</span></button>
                 {% endif %}
                 {% if stem.subject in admin_subjects %}
-                <button type="button" class="btn btn-sm btn-outline-warning" title="Edit whole question"
-                        onclick="openEditModal({{ stem.id }})"><i class="bi bi-pencil"></i><span class="qact-label"> Edit</span></button>
+                <button type="button" class="btn btn-sm btn-outline-warning" title="{{ t('Edit whole question') }}"
+                        onclick="openEditModal({{ stem.id }})"><i class="bi bi-pencil"></i><span class="qact-label"> {{ t('Edit') }}</span></button>
                 {% endif %}
             </div>
         </div>
@@ -374,7 +379,7 @@
                 <div class="stem-whole-preview">
                     {% for asset_id in stem.whole_asset_ids %}
                     <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
-                         class="question-image" alt="Whole question archive"
+                         class="question-image" alt="{{ t('Whole question archive') }}"
                          style="display:block; margin-bottom:2px;" loading="lazy">
                     {% endfor %}
                 </div>
@@ -383,7 +388,7 @@
             </div>
             <div class="qsheet-rail">
                 {% if stem.has_whole %}
-                <div class="qsheet-note qsheet-whole-note"><i class="bi bi-archive"></i> Whole question archive: the unsplit original, for reference. Papers and Present always use the background and parts.</div>
+                <div class="qsheet-note qsheet-whole-note"><i class="bi bi-archive"></i> {{ t('Whole question archive: the unsplit original, for reference. Papers and Present always use the background and parts.') }}</div>
                 {% endif %}
             </div>
         </div>
@@ -417,10 +422,10 @@
                    hx-get="{{ url_for('dashboard.filter_questions', page=page - 1) }}"
                    hx-target="#questionList"
                    hx-include="#filterForm"
-                   onclick="updatePaginationSortConfig(this, event)">&laquo; Prev</a>
+                   onclick="updatePaginationSortConfig(this, event)">&laquo; {{ t('Prev') }}</a>
             </li>
             {% else %}
-            <li class="page-item disabled"><span class="page-link">&laquo; Prev</span></li>
+            <li class="page-item disabled"><span class="page-link">&laquo; {{ t('Prev') }}</span></li>
             {% endif %}
             
             {% set max_pages_shown = 7 %}
@@ -510,10 +515,10 @@
                    hx-get="{{ url_for('dashboard.filter_questions', page=page + 1) }}"
                    hx-target="#questionList"
                    hx-include="#filterForm"
-                   onclick="updatePaginationSortConfig(this, event)">Next &raquo;</a>
+                   onclick="updatePaginationSortConfig(this, event)">{{ t('Next') }} &raquo;</a>
             </li>
             {% else %}
-            <li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>
+            <li class="page-item disabled"><span class="page-link">{{ t('Next') }} &raquo;</span></li>
             {% endif %}
         </ul>
     </nav>
@@ -534,6 +539,6 @@
 
 {% else %}
     <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> No questions found. Try adjusting your filters.
+        <i class="bi bi-info-circle"></i> {{ t('No questions found. Try adjusting your filters.') }}
     </div>
 {% endif %}

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Split {{ question.qid }} into parts{% endblock %}
+{% block title %}{{ t('Split {qid} into parts', qid=question.qid) }}{% endblock %}
 
 {% block extra_css %}
 {# Box overlay / handles / magnifier / crop preview: shared OQBBboxEditor styles. #}
@@ -19,20 +19,16 @@
 <div class="container-fluid mt-3 px-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <h4 class="mb-0"><i class="bi bi-scissors"></i> Split into parts</h4>
-            <div class="text-muted">{{ question.qid }} — mark the <strong>shared background</strong> as <code>stem</code>, then each lettered part (<code>a</code>, <code>b</code>, <code>ci</code>, …)</div>
+            <h4 class="mb-0"><i class="bi bi-scissors"></i> {{ t('Split into parts') }}</h4>
+            <div class="text-muted">{{ t('{qid} — mark the <strong>shared background</strong> as <code>stem</code>, then each lettered part (<code>a</code>, <code>b</code>, <code>ci</code>, …)', qid=question.qid)|safe }}</div>
         </div>
         <a href="{{ url_for('admin.questions_page') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Question Management
+            <i class="bi bi-arrow-left"></i> {{ t('Question Management') }}
         </a>
     </div>
 
     <div class="alert alert-info py-2 small">
-        This question becomes the <strong>shared background</strong> (stem). Each lettered box becomes its own question
-        (for example <code>{{ question.qid }}a</code>) so you can tag and print parts separately.
-        Draw boxes by hand, or use <strong>Auto-detect parts</strong> then adjust.
-        Auto-detect stitches every image of this question into one picture (if there is more than one), then runs the same <strong>Detect parts</strong> pass as PDF import. Tick <em>full exam page</em> only when that picture still contains other questions or a large margin.
-        The stem keeps answer/solution images. Tick the box below to copy this question’s tags onto every part (the stem is then cleared).
+        {{ t('This question becomes the <strong>shared background</strong> (stem). Each lettered box becomes its own question (for example <code>{qid}a</code>) so you can tag and print parts separately. Draw boxes by hand, or use <strong>Auto-detect parts</strong> then adjust. Auto-detect stitches every image of this question into one picture (if there is more than one), then runs the same <strong>Detect parts</strong> pass as PDF import. Tick <em>full exam page</em> only when that picture still contains other questions or a large margin. The stem keeps answer/solution images. Tick the box below to copy this question’s tags onto every part (the stem is then cleared).', qid=question.qid)|safe }}
     </div>
 
     <div class="row g-3">
@@ -40,46 +36,46 @@
             <div class="card">
                 <div class="card-header py-2">
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="small fw-bold">Preview version</span>
+                        <span class="small fw-bold">{{ t('Preview version') }}</span>
                         <select id="splitVersion" class="form-select form-select-sm" style="max-width: 8rem;">
                             {% for v in versions %}
                             <option value="{{ v }}">{{ v }}</option>
                             {% endfor %}
                         </select>
-                        <span class="text-muted small me-auto">Same boxes are applied to every version on commit.</span>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="addBoxBtn" title="Then drag a rectangle on the image">
-                            <i class="bi bi-plus-square"></i> Add box
+                        <span class="text-muted small me-auto">{{ t('Same boxes are applied to every version on commit.') }}</span>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="addBoxBtn" title="{{ t('Then drag a rectangle on the image') }}">
+                            <i class="bi bi-plus-square"></i> {{ t('Add box') }}
                         </button>
                         {% if ai_enabled and endpoints %}
-                        <select id="splitEndpoint" class="form-select form-select-sm" style="max-width: 16rem;" title="Vision endpoint for Auto-detect">
+                        <select id="splitEndpoint" class="form-select form-select-sm" style="max-width: 16rem;" title="{{ t('Vision endpoint for Auto-detect') }}">
                             {% for e in endpoints %}
                             <option value="{{ e.id }}" {% if default_endpoint_id and e.id == default_endpoint_id %}selected{% endif %}>{{ e.name }}</option>
                             {% endfor %}
                         </select>
-                        <select id="splitMethod" class="form-select form-select-sm d-none" style="max-width: 14rem;" title="Pass-1 detection method (only used when the image is a full exam page)">
-                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>LLM only</option>
-                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>LLM + refine</option>
-                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>LLM + segment</option>
+                        <select id="splitMethod" class="form-select form-select-sm d-none" style="max-width: 14rem;" title="{{ t('Pass-1 detection method (only used when the image is a full exam page)') }}">
+                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only') }}</option>
+                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>{{ t('LLM + refine') }}</option>
+                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>{{ t('LLM + segment') }}</option>
                         </select>
                         <button type="button" class="btn btn-sm btn-primary" id="autoDetectBtn" onclick="autoDetect()">
-                            <i class="bi bi-robot"></i> Auto-detect parts
+                            <i class="bi bi-robot"></i> {{ t('Auto-detect parts') }}
                         </button>
                         <button type="button" class="btn btn-sm btn-danger d-none" id="stopDetectBtn" onclick="stopDetect()">
-                            <i class="bi bi-stop-fill"></i> Stop
+                            <i class="bi bi-stop-fill"></i> {{ t('Stop') }}
                         </button>
                         {% else %}
-                        <span class="text-muted small">Configure a vision LLM endpoint to auto-detect boxes.</span>
+                        <span class="text-muted small">{{ t('Configure a vision LLM endpoint to auto-detect boxes.') }}</span>
                         {% endif %}
                     </div>
                     <div class="small text-muted mt-2">
-                        <span class="box-swatch" style="background:#6c757d;"></span>stem = shared background
-                        <span class="box-swatch ms-3" style="background:#fd7e14;"></span>part = lettered region
-                        <span class="box-swatch ms-3" style="background:#0d6efd;"></span>selected
+                        <span class="box-swatch" style="background:#6c757d;"></span>{{ t('stem = shared background') }}
+                        <span class="box-swatch ms-3" style="background:#fd7e14;"></span>{{ t('part = lettered region') }}
+                        <span class="box-swatch ms-3" style="background:#0d6efd;"></span>{{ t('selected') }}
                     </div>
                     {% if ai_enabled and endpoints %}
                     <div class="form-check mt-2 mb-0">
                         <input class="form-check-input" type="checkbox" id="findParentChk">
-                        <label class="form-check-label small" for="findParentChk">Image is a full exam page (find the question first, then split parts)</label>
+                        <label class="form-check-label small" for="findParentChk">{{ t('Image is a full exam page (find the question first, then split parts)') }}</label>
                     </div>
                     {% endif %}
                 </div>
@@ -93,26 +89,26 @@
         </div>
         <div class="col-lg-3">
             <div class="card mb-3">
-                <div class="card-header py-2"><strong>Boxes</strong></div>
+                <div class="card-header py-2"><strong>{{ t('Boxes') }}</strong></div>
                 <div class="card-body p-2">
                     <div id="boxList" class="box-list list-group list-group-flush small mb-2"></div>
                     <div class="input-group input-group-sm mb-2">
-                        <span class="input-group-text">Label</span>
-                        <input type="text" class="form-control" id="boxLabel" placeholder="stem / a / b / ci / ~c">
-                        <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">Set</button>
+                        <span class="input-group-text">{{ t('Label') }}</span>
+                        <input type="text" class="form-control" id="boxLabel" placeholder="{{ t('stem / a / b / ci / ~c') }}">
+                        <button type="button" class="btn btn-outline-secondary" onclick="applyLabel()">{{ t('Set') }}</button>
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">Delete selected box</button>
-                    <div class="form-text"><strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge; hold H to hide it), click a thumbnail to preview the crop. After clicking a box, the arrow keys nudge it (Shift = 10&times;). Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, … Text printed <em>between</em> parts that the later parts use (a new table or scenario before (c)) is <code>~c</code>: a shared intro before (c).</div>
+                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="deleteSelected()">{{ t('Delete selected box') }}</button>
+                    <div class="form-text">{{ t('<strong>Add box</strong> then drag a rectangle on the image. Drag a box to move it, drag its handles to resize (a magnifier shows the edge; hold H to hide it), click a thumbnail to preview the crop. After clicking a box, the arrow keys nudge it (Shift = 10&times;). Press Delete to remove the selected box. Label the shared background <code>stem</code> and parts <code>a</code>, <code>b</code>, <code>ci</code>, … Text printed <em>between</em> parts that the later parts use (a new table or scenario before (c)) is <code>~c</code>: a shared intro before (c).')|safe }}</div>
                 </div>
             </div>
             <div class="card">
                 <div class="card-body">
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="copyTags" checked>
-                        <label class="form-check-label" for="copyTags">Copy this question’s tags onto every part, then clear tags on the shared background</label>
+                        <label class="form-check-label" for="copyTags">{{ t('Copy this question’s tags onto every part, then clear tags on the shared background') }}</label>
                     </div>
                     <button type="button" class="btn btn-primary w-100" id="commitBtn" onclick="commitSplit()">
-                        <i class="bi bi-check-lg"></i> Commit split
+                        <i class="bi bi-check-lg"></i> {{ t('Commit split') }}
                     </button>
                     <div id="splitStatus" class="small mt-2"></div>
                 </div>
@@ -161,11 +157,16 @@ img.addEventListener('load', renderList);
 function isShared(label) { return (label || '') === 'stem' || (label || '').indexOf('~') >= 0; }
 function boxCaption(b) {
     const lab = b.label || '';
-    if (lab === 'stem') return 'Shared background (stem)';
-    const t = lab.indexOf('~');
-    if (t >= 0) return 'Shared intro before (' + lab.slice(t + 1) + ')' + (t ? ' in (' + lab.slice(0, t) + ')' : '');
-    if (lab) return 'Part (' + lab + ')';
-    return '(unlabelled)';
+    if (lab === 'stem') return OQB.t('Shared background (stem)');
+    const tilde = lab.indexOf('~');
+    if (tilde >= 0) {
+        const after = lab.slice(tilde + 1);
+        const before = lab.slice(0, tilde);
+        if (before) return OQB.t('Shared intro before ({part}) in ({parent})', {part: after, parent: before});
+        return OQB.t('Shared intro before ({part})', {part: after});
+    }
+    if (lab) return OQB.t('Part ({label})', {label: lab});
+    return OQB.t('(unlabelled)');
 }
 
 const ed = OQBBboxEditor.mount({
@@ -183,11 +184,13 @@ const ed = OQBBboxEditor.mount({
         labelInput.value = label;
         return item;                       // editor renders + selects it (→ onSelect)
     },
-    onTooSmall: () => { document.getElementById('splitStatus').textContent = 'New box too small — ignored. Drag a larger rectangle.'; },
+    onTooSmall: () => { document.getElementById('splitStatus').textContent = OQB.t('New box too small — ignored. Drag a larger rectangle.'); },
     onAddModeChange: on => {
         addBoxBtn.classList.toggle('btn-success', on);
         addBoxBtn.classList.toggle('btn-outline-success', !on);
-        addBoxBtn.innerHTML = on ? '<i class="bi bi-x-square"></i> Cancel add' : '<i class="bi bi-plus-square"></i> Add box';
+        addBoxBtn.innerHTML = on
+            ? '<i class="bi bi-x-square"></i> ' + OQB.t('Cancel add')
+            : '<i class="bi bi-plus-square"></i> ' + OQB.t('Add box');
     },
 });
 addBoxBtn.addEventListener('click', () => ed.setAddMode(!ed.isAdding()));
@@ -205,14 +208,14 @@ function renderList() {
     const el = document.getElementById('boxList');
     el.innerHTML = '';
     if (!boxes.length) {
-        el.innerHTML = '<div class="text-muted px-2">No boxes yet — auto-detect or draw them</div>';
+        el.innerHTML = '<div class="text-muted px-2">' + OQB.t('No boxes yet — auto-detect or draw them') + '</div>';
         return;
     }
     boxes.forEach(b => {
         const row = document.createElement('div');
         row.className = 'list-group-item list-group-item-action box-row px-2' + (b === selected ? ' active' : '');
         const thumb = document.createElement('canvas');
-        thumb.title = 'Click to preview the crop at full size';
+        thumb.title = OQB.t('Click to preview the crop at full size');
         drawPreview(thumb, img, b.box, 64);
         thumb.addEventListener('click', (e) => { e.stopPropagation(); showCropPreview(img, b.box, boxCaption(b)); });
         const cap = document.createElement('span');
@@ -266,13 +269,13 @@ function autoDetect() {
     const ep = document.getElementById('splitEndpoint');
     const methodEl = document.getElementById('splitMethod');
     const fp = document.getElementById('findParentChk');
-    if (!AI_ENABLED) { status.textContent = 'AI tools are disabled.'; return; }
-    if (boxes.length && !confirm('Replace the boxes you already drew with the model’s detection?')) return;
+    if (!AI_ENABLED) { status.textContent = OQB.t('AI tools are disabled.'); return; }
+    if (boxes.length && !confirm(OQB.t('Replace the boxes you already drew with the model’s detection?'))) return;
     closeDetect();
     detectJobId = null;
     detectFinished = false;
     setDetectRunning(true);
-    status.textContent = 'Connecting…';
+    status.textContent = OQB.t('Connecting…');
     const params = new URLSearchParams({
         token: TOKEN,
         version: currentVersion(),
@@ -293,21 +296,21 @@ function autoDetect() {
         detectJobId = null;
         const found = ev.boxes || [];
         if (!found.length) {
-            status.textContent = ev.message || 'No lettered parts found — draw a stem box and part boxes by hand.';
+            status.textContent = ev.message || OQB.t('No lettered parts found — draw a stem box and part boxes by hand.');
             return;
         }
         setBoxes(found.map(b => ({
             label: b.label,
             box: b.box.map(Number),
         })));
-        status.textContent = ev.message || 'Detection finished.';
+        status.textContent = ev.message || OQB.t('Detection finished.');
     };
     detectSource.onerror = () => {
         closeDetect();
         setDetectRunning(false);
         detectJobId = null;
         if (!detectFinished) {
-            status.textContent = 'Detection connection dropped. Try again.';
+            status.textContent = OQB.t('Detection connection dropped. Try again.');
         }
     };
 }
@@ -344,7 +347,7 @@ function stopDetect() {
         }).catch(() => {});
     }
     const status = document.getElementById('splitStatus');
-    if (status) status.textContent = 'Stopping…';
+    if (status) status.textContent = OQB.t('Stopping…');
 }
 
 function syncFindParentUi() {
@@ -363,7 +366,7 @@ function commitSplit() {
         boxes: boxes.map(b => ({ label: b.label, box: b.box.slice() })),
     };
     document.getElementById('commitBtn').disabled = true;
-    status.textContent = 'Saving…';
+    status.textContent = OQB.t('Saving…');
     fetch(`/admin/questions/${QUESTION_ID}/split/commit`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -373,11 +376,11 @@ function commitSplit() {
         const text = await r.text();
         let d;
         try { d = JSON.parse(text); }
-        catch { throw new Error(r.ok ? 'Unexpected response from server.' : `Server error (${r.status}). Reload and try again.`); }
+        catch { throw new Error(r.ok ? OQB.t('Unexpected response from server.') : OQB.t('Server error ({status}). Reload and try again.', {status: r.status})); }
         return {ok: r.ok, d};
     })
     .then(({ok, d}) => {
-        if (!ok) throw new Error(d.error || 'Commit failed');
+        if (!ok) throw new Error(d.error || OQB.t('Commit failed'));
         window.location.href = '{{ url_for("admin.questions_page") }}';
     })
     .catch(err => {

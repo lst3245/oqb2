@@ -21,6 +21,7 @@ Spec and the full key table: `docs/core/06-system-settings.md`. Decision: ADR-00
 2. `Config.KEY = os.getenv('KEY', default)` in `app/config.py` with the neighbours' coercion (bool via the `in ('1','true','yes','on')` idiom).
 3. Commented line in `.env.example` under the right group, marked `[tunable]`.
 4. Row in the table in `docs/core/06-system-settings.md`. The UI renders automatically (`choices_fn` → `<select>`).
+5. `label`, `help` (and a new `group`) as keys in `app/translations/zh_Hant.json` — the page shows them via `OQB.t`; `tests.test_i18n` fails on a missing key.
 
 ## Gotchas
 - Blank `*_DEFAULT_LLM` means "first enabled vision endpoint by sort order"; `SMART_IMPORT_DEFAULT_LLM` is text-only (`vision_only=False`).

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}LLM Endpoints - Admin{% endblock %}
+{% block title %}{{ t('LLM Endpoints - Admin') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -41,32 +41,29 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2><i class="bi bi-robot"></i> LLM Endpoints</h2>
+        <h2><i class="bi bi-robot"></i> {{ t('LLM Endpoints') }}</h2>
         <div>
             <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-chat-square-text"></i> AI Prompts
+                <i class="bi bi-chat-square-text"></i> {{ t('AI Prompts') }}
             </a>
             <a href="{{ url_for('admin.settings_page') }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-sliders"></i> System Settings
+                <i class="bi bi-sliders"></i> {{ t('System Settings') }}
             </a>
             <button class="btn btn-sm btn-success" onclick="openEndpointModal()">
-                <i class="bi bi-plus-lg"></i> Add Endpoint
+                <i class="bi bi-plus-lg"></i> {{ t('Add Endpoint') }}
             </button>
         </div>
     </div>
 
     <div class="alert alert-info">
         <i class="bi bi-info-circle"></i>
-        These OpenAI-compatible endpoints power the <strong>AI Tools</strong> feature (image proofreading and Markdown generation) on the Question Management page.
-        Local servers (Ollama, LM Studio, vLLM) and cloud providers (OpenAI, OpenRouter, Poe) all work; point <code>base_url</code> at the API root (e.g. <code>https://api.openai.com/v1</code>, <code>https://openrouter.ai/api/v1</code>, <code>https://api.poe.com/v1</code>). Use <strong>Chat Completions</strong> for most endpoints; choose <strong>Responses</strong> for Poe reasoning models. OpenRouter GPT-5.5 supports reasoning via Chat Completions.
-        API keys are stored <strong>encrypted</strong>; leave the key blank to fall back to the <code>LLM_API_KEY</code> in <code>.env</code>.
-        Image operations require a <strong>vision-capable</strong> model.
+        {{ t('These OpenAI-compatible endpoints power the <strong>AI Tools</strong> feature (image proofreading and Markdown generation) on the Question Management page. Local servers (Ollama, LM Studio, vLLM) and cloud providers (OpenAI, OpenRouter, Poe) all work; point <code>base_url</code> at the API root (e.g. <code>https://api.openai.com/v1</code>, <code>https://openrouter.ai/api/v1</code>, <code>https://api.poe.com/v1</code>). Use <strong>Chat Completions</strong> for most endpoints; choose <strong>Responses</strong> for Poe reasoning models. OpenRouter GPT-5.5 supports reasoning via Chat Completions. API keys are stored <strong>encrypted</strong>; leave the key blank to fall back to the <code>LLM_API_KEY</code> in <code>.env</code>. Image operations require a <strong>vision-capable</strong> model.')|safe }}
     </div>
 
     <div id="endpointsContainer">
         <div class="text-center py-5">
             <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-3 text-muted">Loading endpoints...</p>
+            <p class="mt-3 text-muted">{{ t('Loading endpoints...') }}</p>
         </div>
     </div>
 </div>
@@ -76,158 +73,158 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="endpointModalTitle">Add Endpoint</h5>
+                <h5 class="modal-title" id="endpointModalTitle">{{ t('Add Endpoint') }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="epId">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label">Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="epName" placeholder="e.g. Local Qwen-VL">
+                        <label class="form-label">{{ t('Name') }} <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="epName" placeholder="{{ t('e.g. Local Qwen-VL') }}">
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Model name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="epModel" placeholder="e.g. gpt-4o or qwen2.5-vl">
+                        <label class="form-label">{{ t('Model name') }} <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="epModel" placeholder="{{ t('e.g. gpt-4o or qwen2.5-vl') }}">
                     </div>
                     <div class="col-12">
-                        <label class="form-label">Base URL <span class="text-danger">*</span></label>
+                        <label class="form-label">{{ t('Base URL') }} <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="epBaseUrl" placeholder="https://api.openai.com/v1">
-                        <div class="form-text">API root that exposes <code>/chat/completions</code>. Do not include the <code>/chat/completions</code> suffix.</div>
+                        <div class="form-text">{{ t('API root that exposes <code>/chat/completions</code>. Do not include the <code>/chat/completions</code> suffix.')|safe }}</div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">API key</label>
+                        <label class="form-label">{{ t('API key') }}</label>
                         <input type="password" class="form-control" id="epApiKey" autocomplete="new-password"
-                               placeholder="(leave blank to use .env LLM_API_KEY)">
+                               placeholder="{{ t('(leave blank to use .env LLM_API_KEY)') }}">
                         <div class="form-text" id="epKeyState"></div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">.env fallback variable</label>
+                        <label class="form-label">{{ t('.env fallback variable') }}</label>
                         <input type="text" class="form-control" id="epApiKeyEnv" placeholder="LLM_API_KEY">
-                        <div class="form-text">Name of the environment variable to read when no key is stored.</div>
+                        <div class="form-text">{{ t('Name of the environment variable to read when no key is stored.') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Provider</label>
+                        <label class="form-label">{{ t('Provider') }}</label>
                         <input type="text" class="form-control" id="epProvider" value="openai">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Max output tokens</label>
+                        <label class="form-label">{{ t('Max output tokens') }}</label>
                         <input type="number" class="form-control" id="epMaxTokens" value="4096" min="1">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Temperature</label>
+                        <label class="form-label">{{ t('Temperature') }}</label>
                         <input type="number" class="form-control" id="epTemperature" value="0" step="0.1" min="0" max="2">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Timeout (seconds)</label>
+                        <label class="form-label">{{ t('Timeout (seconds)') }}</label>
                         <input type="number" class="form-control" id="epTimeout" value="120" min="5">
-                        <div class="form-text">Reasoning models often need 300+ s.</div>
+                        <div class="form-text">{{ t('Reasoning models often need 300+ s.') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Sort order</label>
+                        <label class="form-label">{{ t('Sort order') }}</label>
                         <input type="number" class="form-control" id="epSortOrder" value="0">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Kind</label>
+                        <label class="form-label">{{ t('Kind') }}</label>
                         <select class="form-select" id="epKind" onchange="onKindChange()">
-                            <option value="local">Local (sequential)</option>
-                            <option value="cloud">Cloud (allows parallel)</option>
+                            <option value="local">{{ t('Local (sequential)') }}</option>
+                            <option value="cloud">{{ t('Cloud (allows parallel)') }}</option>
                         </select>
-                        <div class="form-text">Only cloud endpoints can run batch ops in parallel.</div>
+                        <div class="form-text">{{ t('Only cloud endpoints can run batch ops in parallel.') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Max concurrency</label>
+                        <label class="form-label">{{ t('Max concurrency') }}</label>
                         <input type="number" class="form-control" id="epMaxConcurrency" value="1" min="1" max="32">
-                        <div class="form-text">1 = sequential. Cloud APIs typically tolerate 4&ndash;8 concurrent requests.</div>
+                        <div class="form-text">{{ t('1 = sequential. Cloud APIs typically tolerate 4&ndash;8 concurrent requests.') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Service tier — single</label>
+                        <label class="form-label">{{ t('Service tier — single') }}</label>
                         <select class="form-select" id="epServiceTier">
-                            <option value="">Provider default (don't send)</option>
-                            <option value="flex">flex — cheaper, slower</option>
-                            <option value="priority">priority — faster, pricier</option>
-                            <option value="auto">auto</option>
-                            <option value="default">default</option>
+                            <option value="">{{ t("Provider default (don't send)") }}</option>
+                            <option value="flex">{{ t('flex — cheaper, slower') }}</option>
+                            <option value="priority">{{ t('priority — faster, pricier') }}</option>
+                            <option value="auto">{{ t('auto') }}</option>
+                            <option value="default">{{ t('default') }}</option>
                         </select>
-                        <div class="form-text">Single / interactive calls (Explain, Quick check, per-slot ops).</div>
+                        <div class="form-text">{{ t('Single / interactive calls (Explain, Quick check, per-slot ops).') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Service tier — batch</label>
+                        <label class="form-label">{{ t('Service tier — batch') }}</label>
                         <select class="form-select" id="epServiceTierBatch">
-                            <option value="">Provider default (don't send)</option>
-                            <option value="flex">flex — cheaper, slower</option>
-                            <option value="priority">priority — faster, pricier</option>
-                            <option value="auto">auto</option>
-                            <option value="default">default</option>
+                            <option value="">{{ t("Provider default (don't send)") }}</option>
+                            <option value="flex">{{ t('flex — cheaper, slower') }}</option>
+                            <option value="priority">{{ t('priority — faster, pricier') }}</option>
+                            <option value="auto">{{ t('auto') }}</option>
+                            <option value="default">{{ t('default') }}</option>
                         </select>
-                        <div class="form-text">Batch ops (Check / Gen-MD / Auto-tag / PDF detect). <code>flex</code> trades latency for a lower price. <a href="https://openrouter.ai/docs/guides/features/service-tiers" target="_blank" rel="noopener">Docs</a></div>
+                        <div class="form-text">{{ t('Batch ops (Check / Gen-MD / Auto-tag / PDF detect). <code>flex</code> trades latency for a lower price. <a href="https://openrouter.ai/docs/guides/features/service-tiers" target="_blank" rel="noopener">Docs</a>')|safe }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">API protocol</label>
+                        <label class="form-label">{{ t('API protocol') }}</label>
                         <select class="form-select" id="epApiProtocol">
-                            <option value="chat">Chat Completions</option>
-                            <option value="responses">Responses API</option>
+                            <option value="chat">{{ t('Chat Completions') }}</option>
+                            <option value="responses">{{ t('Responses API') }}</option>
                         </select>
-                        <div class="form-text">Poe reasoning: Responses. OpenRouter GPT-5.5: Chat Completions.</div>
+                        <div class="form-text">{{ t('Poe reasoning: Responses. OpenRouter GPT-5.5: Chat Completions.') }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Box axis order</label>
+                        <label class="form-label">{{ t('Box axis order') }}</label>
                         <select class="form-select" id="epBoxCoordOrder">
-                            <option value="">Use system default</option>
-                            <option value="xyxy">x-first [x1, y1, x2, y2]</option>
-                            <option value="yxyx">y-first [y1, x1, y2, x2] (Gemini)</option>
+                            <option value="">{{ t('Use system default') }}</option>
+                            <option value="xyxy">{{ t('x-first [x1, y1, x2, y2]') }}</option>
+                            <option value="yxyx">{{ t('y-first [y1, x1, y2, x2] (Gemini)') }}</option>
                         </select>
-                        <div class="form-text">How this model writes bounding boxes (PDF import, PDF tool scan, figure crops). Default: the <code>PDF_IMPORT_COORD_ORDER</code> setting.</div>
+                        <div class="form-text">{{ t('How this model writes bounding boxes (PDF import, PDF tool scan, figure crops). Default: the <code>PDF_IMPORT_COORD_ORDER</code> setting.')|safe }}</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Reasoning effort</label>
+                        <label class="form-label">{{ t('Reasoning effort') }}</label>
                         <select class="form-select" id="epReasoningEffort">
-                            <option value="">Use system default</option>
-                            <option value="off">Off (never send)</option>
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="high">High</option>
+                            <option value="">{{ t('Use system default') }}</option>
+                            <option value="off">{{ t('Off (never send)') }}</option>
+                            <option value="low">{{ t('Low') }}</option>
+                            <option value="medium">{{ t('Medium') }}</option>
+                            <option value="high">{{ t('High') }}</option>
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Reasoning summary</label>
+                        <label class="form-label">{{ t('Reasoning summary') }}</label>
                         <select class="form-select" id="epReasoningSummary">
-                            <option value="">Use system default</option>
-                            <option value="auto">Auto (Responses API)</option>
-                            <option value="none">None</option>
+                            <option value="">{{ t('Use system default') }}</option>
+                            <option value="auto">{{ t('Auto (Responses API)') }}</option>
+                            <option value="none">{{ t('None') }}</option>
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Reasoning max tokens</label>
-                        <input type="number" class="form-control" id="epReasoningMaxTokens" min="0" placeholder="(omit)">
-                        <div class="form-text">Optional cap on thinking tokens. 0 = omit.</div>
+                        <label class="form-label">{{ t('Reasoning max tokens') }}</label>
+                        <input type="number" class="form-control" id="epReasoningMaxTokens" min="0" placeholder="{{ t('(omit)') }}">
+                        <div class="form-text">{{ t('Optional cap on thinking tokens. 0 = omit.') }}</div>
                     </div>
                     <div class="col-12">
-                        <label class="form-label">Advanced request JSON <span class="text-muted fw-normal">(optional)</span></label>
+                        <label class="form-label">{{ t('Advanced request JSON') }} <span class="text-muted fw-normal">{{ t('(optional)') }}</span></label>
                         <textarea class="form-control font-monospace" id="epRequestExtraJson" rows="3"
                                   placeholder='{"reasoning_effort": "high"}'></textarea>
-                        <div class="form-text">Provider-specific fields merged into the request body (JSON object). Poe Chat Completions may need keys here because top-level <code>reasoning_effort</code> is ignored.</div>
+                        <div class="form-text">{{ t('Provider-specific fields merged into the request body (JSON object). Poe Chat Completions may need keys here because top-level <code>reasoning_effort</code> is ignored.')|safe }}</div>
                     </div>
                     <div class="col-md-4 d-flex align-items-end gap-3">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="epVision" checked>
-                            <label class="form-check-label" for="epVision">Vision</label>
+                            <label class="form-check-label" for="epVision">{{ t('Vision') }}</label>
                         </div>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="epEnabled" checked>
-                            <label class="form-check-label" for="epEnabled">Enabled</label>
+                            <label class="form-check-label" for="epEnabled">{{ t('Enabled') }}</label>
                         </div>
                     </div>
                 </div>
                 <div id="epClearKeyWrap" class="form-check mt-3 d-none">
                     <input class="form-check-input" type="checkbox" id="epClearKey">
-                    <label class="form-check-label" for="epClearKey">Remove the stored key (fall back to .env)</label>
+                    <label class="form-check-label" for="epClearKey">{{ t('Remove the stored key (fall back to .env)') }}</label>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" id="epSaveBtn" onclick="saveEndpoint()">
-                    <i class="bi bi-floppy"></i> Save
+                    <i class="bi bi-floppy"></i> {{ t('Save') }}
                 </button>
             </div>
         </div>
@@ -242,14 +239,14 @@
                 <div class="me-auto">
                     <h5 class="modal-title mb-0">
                         <i class="bi bi-chat-dots"></i>
-                        Direct chat <span id="chatEndpointName" class="text-muted fw-normal small"></span>
+                        {{ t('Direct chat') }} <span id="chatEndpointName" class="text-muted fw-normal small"></span>
                     </h5>
-                    <small class="text-muted" id="chatMeta">No system prompt — messages are sent verbatim to the model.</small>
+                    <small class="text-muted" id="chatMeta">{{ t('No system prompt — messages are sent verbatim to the model.') }}</small>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="chatClearBtn" onclick="clearChat()" title="Reset conversation">
-                    <i class="bi bi-arrow-counterclockwise"></i> Reset
+                <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="chatClearBtn" onclick="clearChat()" title="{{ t('Reset conversation') }}">
+                    <i class="bi bi-arrow-counterclockwise"></i> {{ t('Reset') }}
                 </button>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body">
                 <div id="chatTranscript" class="chat-transcript"></div>
@@ -260,17 +257,17 @@
                 <div class="d-flex gap-2 align-items-end">
                     <button type="button" id="chatAttachBtn" class="btn btn-outline-secondary"
                             onclick="document.getElementById('chatAttachInput').click()"
-                            title="Attach images (paste, drag-drop, or pick)">
+                            title="{{ t('Attach images (paste, drag-drop, or pick)') }}">
                         <i class="bi bi-paperclip"></i>
                     </button>
                     <input type="file" id="chatAttachInput" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden>
                     <textarea id="chatInput" class="form-control" rows="1"
-                              placeholder="Type a message…" style="resize:none; max-height:160px;"></textarea>
-                    <button type="button" id="chatSendBtn" class="btn btn-dark" onclick="sendChatMessage()" title="Send">
+                              placeholder="{{ t('Type a message…') }}" style="resize:none; max-height:160px;"></textarea>
+                    <button type="button" id="chatSendBtn" class="btn btn-dark" onclick="sendChatMessage()" title="{{ t('Send') }}">
                         <i class="bi bi-send"></i>
                     </button>
                 </div>
-                <small class="text-muted"><i class="bi bi-info-circle"></i> Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach images for vision-capable endpoints. Conversations are not saved.</small>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> {{ t('Press Enter to send, Shift+Enter for a new line. Paste, drag, or attach images for vision-capable endpoints. Conversations are not saved.') }}</small>
             </div>
         </div>
     </div>
@@ -296,46 +293,46 @@ function loadEndpoints() {
         })
         .catch(err => {
             document.getElementById('endpointsContainer').innerHTML =
-                `<div class="alert alert-danger">Failed to load: ${escapeHtml(err.message)}</div>`;
+                '<div class="alert alert-danger">' + OQB.t('Failed to load: {error}', {error: escapeHtml(err.message)}) + '</div>';
         });
 }
 
 function renderEndpoints() {
     const c = document.getElementById('endpointsContainer');
     if (endpoints.length === 0) {
-        c.innerHTML = `<div class="alert alert-warning">No endpoints configured yet. Click <strong>Add Endpoint</strong> to create one.</div>`;
+        c.innerHTML = '<div class="alert alert-warning">' + OQB.t('No endpoints configured yet. Click <strong>Add Endpoint</strong> to create one.') + '</div>';
         return;
     }
     c.innerHTML = endpoints.map(ep => {
         const keyBadge = ep.has_stored_key
-            ? '<span class="badge bg-success key-badge">stored key</span>'
+            ? '<span class="badge bg-success key-badge">' + OQB.t('stored key') + '</span>'
             : (ep.key_resolves
-                ? '<span class="badge bg-secondary key-badge">.env key</span>'
-                : '<span class="badge bg-warning text-dark key-badge">no key</span>');
+                ? '<span class="badge bg-secondary key-badge">' + OQB.t('.env key') + '</span>'
+                : '<span class="badge bg-warning text-dark key-badge">' + OQB.t('no key') + '</span>');
         const visionBadge = ep.supports_vision
-            ? '<span class="badge bg-info text-dark">vision</span>'
-            : '<span class="badge bg-light text-dark border">text-only</span>';
+            ? '<span class="badge bg-info text-dark">' + OQB.t('vision') + '</span>'
+            : '<span class="badge bg-light text-dark border">' + OQB.t('text-only') + '</span>';
         const enabledBadge = ep.enabled
-            ? '<span class="badge bg-success">enabled</span>'
-            : '<span class="badge bg-secondary">disabled</span>';
+            ? '<span class="badge bg-success">' + OQB.t('enabled') + '</span>'
+            : '<span class="badge bg-secondary">' + OQB.t('disabled') + '</span>';
         const kindBadge = (ep.kind === 'cloud')
-            ? `<span class="badge bg-primary" title="Batch ops may run up to ${ep.max_concurrency} requests in parallel">cloud &times;${ep.max_concurrency}</span>`
-            : '<span class="badge bg-dark">local</span>';
+            ? `<span class="badge bg-primary" title="${OQB.t('Batch ops may run up to {n} requests in parallel', {n: ep.max_concurrency})}">${OQB.t('cloud')} &times;${ep.max_concurrency}</span>`
+            : '<span class="badge bg-dark">' + OQB.t('local') + '</span>';
         const tierBadge = (ep.service_tier || ep.service_tier_batch)
-            ? `<span class="badge bg-info text-dark" title="service_tier — single vs batch ops">tier: ${escapeHtml(ep.service_tier || '—')} / ${escapeHtml(ep.service_tier_batch || '—')}</span>`
+            ? `<span class="badge bg-info text-dark" title="${OQB.t('service_tier — single vs batch ops')}">${OQB.t('tier:')}  ${escapeHtml(ep.service_tier || '—')} / ${escapeHtml(ep.service_tier_batch || '—')}</span>`
             : '';
         const protoBadge = (ep.api_protocol === 'responses')
-            ? '<span class="badge bg-warning text-dark">responses</span>'
+            ? '<span class="badge bg-warning text-dark">' + OQB.t('responses') + '</span>'
             : '';
         const orderBadge = ep.box_coord_order
-            ? `<span class="badge bg-light text-dark border" title="Bounding-box axis order">boxes: ${escapeHtml(ep.box_coord_order)}</span>`
+            ? `<span class="badge bg-light text-dark border" title="${OQB.t('Bounding-box axis order')}">${OQB.t('boxes:')}  ${escapeHtml(ep.box_coord_order)}</span>`
             : '';
         const re = ep.reasoning_effort || '';
         const reasoningBadge = re
-            ? `<span class="badge bg-secondary">reasoning: ${escapeHtml(re)}</span>`
-            : '<span class="badge bg-light text-dark border">reasoning: inherit</span>';
+            ? `<span class="badge bg-secondary">${OQB.t('reasoning: {effort}', {effort: escapeHtml(re)})}</span>`
+            : '<span class="badge bg-light text-dark border">' + OQB.t('reasoning: inherit') + '</span>';
         const extraBadge = ep.has_request_extra
-            ? '<span class="badge bg-light text-dark border">extra JSON</span>'
+            ? '<span class="badge bg-light text-dark border">' + OQB.t('extra JSON') + '</span>'
             : '';
         return `
         <div class="card mb-2 endpoint-card">
@@ -346,17 +343,17 @@ function renderEndpoints() {
                         ${enabledBadge} ${visionBadge} ${kindBadge} ${protoBadge} ${orderBadge} ${reasoningBadge} ${extraBadge} ${tierBadge} ${keyBadge}
                         <div class="meta mt-1">
                             <code>${escapeHtml(ep.model_name)}</code> @ <code>${escapeHtml(ep.base_url)}</code>
-                            &middot; provider: ${escapeHtml(ep.provider)}
-                            &middot; max_tokens: ${ep.max_output_tokens}
-                            &middot; temp: ${ep.temperature}
-                            &middot; timeout: ${ep.timeout_seconds}s
+                            &middot; ${OQB.t('provider: {name}', {name: escapeHtml(ep.provider)})}
+                            &middot; ${OQB.t('max_tokens: {n}', {n: ep.max_output_tokens})}
+                            &middot; ${OQB.t('temp: {n}', {n: ep.temperature})}
+                            &middot; ${OQB.t('timeout: {n}s', {n: ep.timeout_seconds})}
                         </div>
                     </div>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-info" onclick="testEndpoint(${ep.id}, this)" title="Test connectivity"><i class="bi bi-plug"></i> Test</button>
-                        <button class="btn btn-outline-success" onclick="openChatModal(${ep.id})" title="Direct chat (no system prompt)" ${ep.enabled ? '' : 'disabled'}><i class="bi bi-chat-dots"></i> Chat</button>
-                        <button class="btn btn-outline-primary" onclick="openEndpointModal(${ep.id})"><i class="bi bi-pencil"></i> Edit</button>
-                        <button class="btn btn-outline-secondary" onclick="duplicateEndpoint(${ep.id}, this)" title="Duplicate"><i class="bi bi-copy"></i></button>
+                        <button class="btn btn-outline-info" onclick="testEndpoint(${ep.id}, this)" title="${OQB.t('Test connectivity')}"><i class="bi bi-plug"></i> ${OQB.t('Test')}</button>
+                        <button class="btn btn-outline-success" onclick="openChatModal(${ep.id})" title="${OQB.t('Direct chat (no system prompt)')}" ${ep.enabled ? '' : 'disabled'}><i class="bi bi-chat-dots"></i> ${OQB.t('Chat')}</button>
+                        <button class="btn btn-outline-primary" onclick="openEndpointModal(${ep.id})"><i class="bi bi-pencil"></i> ${OQB.t('Edit')}</button>
+                        <button class="btn btn-outline-secondary" onclick="duplicateEndpoint(${ep.id}, this)" title="${OQB.t('Duplicate')}"><i class="bi bi-copy"></i></button>
                         <button class="btn btn-outline-danger" onclick="deleteEndpoint(${ep.id})"><i class="bi bi-trash"></i></button>
                     </div>
                 </div>
@@ -368,7 +365,7 @@ function renderEndpoints() {
 
 function openEndpointModal(id) {
     const ep = id ? endpoints.find(e => e.id === id) : null;
-    document.getElementById('endpointModalTitle').textContent = ep ? 'Edit Endpoint' : 'Add Endpoint';
+    document.getElementById('endpointModalTitle').textContent = ep ? OQB.t('Edit Endpoint') : OQB.t('Add Endpoint');
     document.getElementById('epId').value = ep ? ep.id : '';
     document.getElementById('epName').value = ep ? ep.name : '';
     document.getElementById('epModel').value = ep ? ep.model_name : '';
@@ -399,10 +396,10 @@ function openEndpointModal(id) {
     document.getElementById('epClearKey').checked = false;
     if (ep && ep.has_stored_key) {
         clearWrap.classList.remove('d-none');
-        keyState.textContent = 'A key is stored. Leave blank to keep it; type to replace it.';
+        keyState.textContent = OQB.t('A key is stored. Leave blank to keep it; type to replace it.');
     } else {
         clearWrap.classList.add('d-none');
-        keyState.textContent = ep ? 'No stored key (using .env fallback).' : '';
+        keyState.textContent = ep ? OQB.t('No stored key (using .env fallback).') : '';
     }
     epModal.show();
 }
@@ -446,7 +443,7 @@ function saveEndpoint() {
         clear_key: document.getElementById('epClearKey').checked,
     };
     if (!payload.name || !payload.base_url || !payload.model_name) {
-        showToast('Name, base URL and model name are required.', 'warning');
+        showToast(OQB.t('Name, base URL and model name are required.'), 'warning');
         return;
     }
     const btn = document.getElementById('epSaveBtn');
@@ -458,18 +455,18 @@ function saveEndpoint() {
     })
         .then(r => r.json().then(d => ({ok: r.ok, d})))
         .then(({ok, d}) => {
-            if (!ok || d.error) { showToast(d.error || 'Save failed', 'danger'); return; }
+            if (!ok || d.error) { showToast(d.error || OQB.t('Save failed'), 'danger'); return; }
             epModal.hide();
             loadEndpoints();
-            showToast('Endpoint saved.', 'success');
+            showToast(OQB.t('Endpoint saved.'), 'success');
         })
-        .catch(err => showToast('Network error: ' + err.message, 'danger'))
+        .catch(err => showToast(OQB.t('Network error: {error}', {error: err.message}), 'danger'))
         .finally(() => { btn.disabled = false; });
 }
 
 function deleteEndpoint(id) {
     const ep = endpoints.find(e => e.id === id);
-    if (!confirm(`Delete endpoint "${ep ? ep.name : id}"?`)) return;
+    if (!confirm(OQB.t('Delete endpoint "{name}"?', {name: ep ? ep.name : id}))) return;
     fetch(`{{ url_for("admin.llm_endpoints_delete", cid=0) }}`.replace('/0/', `/${id}/`), {
         method: 'POST',
         headers: {'X-Requested-With': 'XMLHttpRequest'},
@@ -478,9 +475,9 @@ function deleteEndpoint(id) {
         .then(d => {
             if (d.error) { showToast(d.error, 'danger'); return; }
             loadEndpoints();
-            showToast('Endpoint deleted.', 'success');
+            showToast(OQB.t('Endpoint deleted.'), 'success');
         })
-        .catch(err => showToast('Network error: ' + err.message, 'danger'));
+        .catch(err => showToast(OQB.t('Network error: {error}', {error: err.message}), 'danger'));
 }
 
 function duplicateEndpoint(id, btn) {
@@ -493,11 +490,11 @@ function duplicateEndpoint(id, btn) {
     })
         .then(r => r.json().then(d => ({ok: r.ok, d})))
         .then(({ok, d}) => {
-            if (!ok || d.error) { showToast(d.error || 'Duplicate failed', 'danger'); return; }
+            if (!ok || d.error) { showToast(d.error || OQB.t('Duplicate failed'), 'danger'); return; }
             loadEndpoints();
-            showToast(`Duplicated as "${d.endpoint.name}".`, 'success');
+            showToast(OQB.t('Duplicated as "{name}".', {name: d.endpoint.name}), 'success');
         })
-        .catch(err => showToast('Network error: ' + err.message, 'danger'))
+        .catch(err => showToast(OQB.t('Network error: {error}', {error: err.message}), 'danger'))
         .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
 }
 
@@ -506,7 +503,7 @@ function testEndpoint(id, btn) {
     const orig = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    out.innerHTML = '<span class="text-muted">Testing…</span>';
+    out.innerHTML = '<span class="text-muted">' + OQB.t('Testing…') + '</span>';
     fetch(`{{ url_for("admin.llm_endpoints_test", cid=0) }}`.replace('/0/', `/${id}/`), {
         method: 'POST',
         headers: {'X-Requested-With': 'XMLHttpRequest'},
@@ -514,7 +511,7 @@ function testEndpoint(id, btn) {
         .then(r => r.json())
         .then(d => {
             out.innerHTML = d.success
-                ? `<span class="text-success"><i class="bi bi-check-circle"></i> OK: ${escapeHtml(d.message)}</span>`
+                ? '<span class="text-success"><i class="bi bi-check-circle"></i> ' + OQB.t('OK: {message}', {message: escapeHtml(d.message)}) + '</span>'
                 : `<span class="text-danger"><i class="bi bi-x-circle"></i> ${escapeHtml(d.message)}</span>`;
         })
         .catch(err => { out.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`; })
@@ -557,7 +554,7 @@ function _chatAppendBubble(role, html, opts) {
     if (opts.images && opts.images.length) {
         let imgHtml = '<div class="user-images">';
         for (const u of opts.images) {
-            imgHtml += '<img src="' + u + '" alt="attached" loading="lazy">';
+            imgHtml += '<img src="' + u + '" alt="' + OQB.t('attached') + '" loading="lazy">';
         }
         imgHtml += '</div>';
         inner += imgHtml;
@@ -610,8 +607,8 @@ function _chatRenderStaged() {
     let html = '';
     for (let i = 0; i < staged.length; i++) {
         html += '<div class="chat-attach-thumb">'
-            + '<img src="' + staged[i] + '" alt="staged">'
-            + '<button type="button" class="remove" title="Remove" '
+            + '<img src="' + staged[i] + '" alt="' + OQB.t('staged') + '">'
+            + '<button type="button" class="remove" title="' + OQB.t('Remove') + '" '
             +   'onclick="_chatRemoveStaged(' + i + ')">×</button>'
             + '</div>';
     }
@@ -645,15 +642,14 @@ function _chatStagedCount() {
 function _chatStageFiles(files) {
     if (!chatState) return;
     if (!chatState.supportsVision) {
-        _chatShowAttachMsg("This endpoint is marked text-only. Enable Vision on the endpoint to attach images.");
+        _chatShowAttachMsg(OQB.t('This endpoint is marked text-only. Enable Vision on the endpoint to attach images.'));
         return;
     }
     const queue = Array.from(files || []);
     if (!queue.length) return;
     const remainingSlots = CHAT_MAX_IMAGES_PER_TURN - _chatStagedCount();
     if (remainingSlots <= 0) {
-        _chatShowAttachMsg('Maximum ' + CHAT_MAX_IMAGES_PER_TURN
-            + ' images per message — remove one before adding more.');
+        _chatShowAttachMsg(OQB.t('Maximum {n} images per message — remove one before adding more.', {n: CHAT_MAX_IMAGES_PER_TURN}));
         return;
     }
     const accepted = queue.slice(0, remainingSlots);
@@ -663,24 +659,23 @@ function _chatStageFiles(files) {
     const next = () => {
         if (i >= accepted.length) {
             _chatRenderStaged();
-            if (rejected.length) _chatShowAttachMsg('Rejected: ' + rejected.join('; '));
+            if (rejected.length) _chatShowAttachMsg(OQB.t('Rejected: {details}', {details: rejected.join('; ')}));
             else if (queue.length > accepted.length) {
-                _chatShowAttachMsg('Only the first ' + accepted.length
-                    + ' image(s) were added (cap: ' + CHAT_MAX_IMAGES_PER_TURN + ' per message).');
+                _chatShowAttachMsg(OQB.t('Only the first {n} image(s) were added (cap: {cap} per message).', {n: accepted.length, cap: CHAT_MAX_IMAGES_PER_TURN}));
             }
             return;
         }
         const f = accepted[i++];
         if (!CHAT_ALLOWED_MIME.includes(f.type)) {
-            rejected.push((f.name || 'file') + ' (unsupported type ' + (f.type || '?') + ')');
+            rejected.push(OQB.t('{name} (unsupported type {type})', {name: f.name || OQB.t('file'), type: f.type || '?'}));
             return next();
         }
         if (f.size > CHAT_MAX_IMAGE_BYTES) {
-            rejected.push((f.name || 'file') + ' (too large, ' + Math.round(f.size / 1024 / 1024) + ' MB)');
+            rejected.push(OQB.t('{name} (too large, {size} MB)', {name: f.name || OQB.t('file'), size: Math.round(f.size / 1024 / 1024)}));
             return next();
         }
         if (runningBytes + f.size > CHAT_MAX_TOTAL_IMAGE_BYTES) {
-            rejected.push((f.name || 'file') + ' (would exceed 32 MB total)');
+            rejected.push(OQB.t('{name} (would exceed 32 MB total)', {name: f.name || OQB.t('file')}));
             return next();
         }
         const reader = new FileReader();
@@ -691,12 +686,12 @@ function _chatStageFiles(files) {
                 const comma = dataUrl.indexOf(',');
                 if (comma >= 0) runningBytes += ((dataUrl.length - comma - 1) * 3) >> 2;
             } else {
-                rejected.push((f.name || 'file') + ' (could not read)');
+                rejected.push(OQB.t('{name} (could not read)', {name: f.name || OQB.t('file')}));
             }
             next();
         };
         reader.onerror = () => {
-            rejected.push((f.name || 'file') + ' (read error)');
+            rejected.push(OQB.t('{name} (read error)', {name: f.name || OQB.t('file')}));
             next();
         };
         reader.readAsDataURL(f);
@@ -709,10 +704,10 @@ function _chatShowImageOverlay(src, caption) {
     overlay.className = 'chat-img-overlay';
     const img = document.createElement('img');
     img.src = src;
-    img.alt = caption || 'attached image';
+    img.alt = caption || OQB.t('attached image');
     img.onerror = () => {
         overlay.innerHTML = '<div class="text-white text-center p-4">'
-            + '<i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>Image could not be loaded</div>';
+            + '<i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>' + OQB.t('Image could not be loaded') + '</div>';
     };
     overlay.appendChild(img);
     if (caption) {
@@ -735,8 +730,8 @@ function _chatShowImageOverlay(src, caption) {
 
 function openChatModal(id) {
     const ep = endpoints.find(e => e.id === id);
-    if (!ep) { showToast('Endpoint not found.', 'danger'); return; }
-    if (!ep.enabled) { showToast('Endpoint is disabled.', 'warning'); return; }
+    if (!ep) { showToast(OQB.t('Endpoint not found.'), 'danger'); return; }
+    if (!ep.enabled) { showToast(OQB.t('Endpoint is disabled.'), 'warning'); return; }
 
     chatState = {
         endpointId: id,
@@ -751,8 +746,8 @@ function openChatModal(id) {
     document.getElementById('chatEndpointName').textContent =
         '· ' + ep.name + ' (' + ep.model_name + ')';
     document.getElementById('chatMeta').textContent = ep.supports_vision
-        ? 'No system prompt — text and attached images are sent verbatim to the model.'
-        : 'No system prompt — this endpoint is marked text-only, so image attachment is disabled.';
+        ? OQB.t('No system prompt — text and attached images are sent verbatim to the model.')
+        : OQB.t('No system prompt — this endpoint is marked text-only, so image attachment is disabled.');
     document.getElementById('chatTranscript').innerHTML = '';
     _chatShowAttachMsg('');
     _chatRenderStaged();
@@ -857,7 +852,7 @@ function sendChatMessage() {
     const stagedCount = (chatState.staged || []).length;
     if (!text && !stagedCount) return;
     if (stagedCount && !chatState.supportsVision) {
-        _chatShowAttachMsg("This endpoint is marked text-only. Remove the staged images or enable Vision.");
+        _chatShowAttachMsg(OQB.t('This endpoint is marked text-only. Remove the staged images or enable Vision.'));
         return;
     }
     input.value = '';
@@ -925,7 +920,7 @@ function sendChatMessage() {
         let html = '';
         if (liveReasoning) {
             html += '<details class="chat-reasoning"' + (liveContent ? '' : ' open') + '>'
-                + '<summary>Reasoning…</summary>'
+                + '<summary>' + OQB.t('Reasoning…') + '</summary>'
                 + '<div class="chat-streaming">' + escapeHtml(liveReasoning) + '</div>'
                 + '</details>';
         }
@@ -952,7 +947,7 @@ function sendChatMessage() {
         if (bubble && bubble.parentNode) bubble.remove();
         _chatAppendBubble('assistant',
             '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(msg)
-            + '<br><small class="text-muted">Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.</small>',
+            + '<br><small class="text-muted">' + OQB.t('Reasoning models can take several minutes — bump <code>LLM_CHAT_TIMEOUT_SECONDS</code> in System Settings or the endpoint\'s own timeout.') + '</small>',
             { error: true });
     };
 
@@ -963,14 +958,18 @@ function sendChatMessage() {
     }).then(async (r) => {
         if (!r.ok || !r.body) {
             const text = await r.text().catch(() => '');
-            let detail = `HTTP ${r.status}`;
+            let detail = OQB.t('HTTP {status}', {status: r.status});
             try {
                 const j = JSON.parse(text);
                 if (j && j.error) detail = j.error;
             } catch (e) {
                 if (text) {
                     const snippet = text.replace(/\s+/g, ' ').slice(0, 300);
-                    detail = `HTTP ${r.status} (${r.headers.get('content-type') || 'unknown'}): ${snippet}`;
+                    detail = OQB.t('HTTP {status} ({type}): {snippet}', {
+                        status: r.status,
+                        type: r.headers.get('content-type') || OQB.t('unknown'),
+                        snippet: snippet,
+                    });
                 }
             }
             throw new Error(detail);
@@ -1011,7 +1010,7 @@ function sendChatMessage() {
                     const b = ensureBubble();
                     if (liveReasoning) {
                         b.innerHTML =
-                            '<details class="chat-reasoning"><summary>Reasoning</summary>'
+                            '<details class="chat-reasoning"><summary>' + OQB.t('Reasoning') + '</summary>'
                             + '<div class="chat-streaming">' + escapeHtml(liveReasoning) + '</div>'
                             + '</details>'
                             + (payload.reply_html || escapeHtml(payload.reply || ''));
@@ -1023,26 +1022,26 @@ function sendChatMessage() {
                 } else if (payload.type === 'error') {
                     finished = true;
                     cancelScheduledRender();
-                    showError(payload.message || 'Request failed.');
+                    showError(payload.message || OQB.t('Request failed.'));
                 }
             }
         }
 
         if (!finished) {
             if (!receivedAny) {
-                showError('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.');
+                showError(OQB.t('Connection closed before any response was received. The reverse proxy may have a hard cap on response duration.'));
             } else {
                 if (typing && typing.parentNode) typing.remove();
                 const b = ensureBubble();
                 if (!b.textContent.trim()) {
-                    showError('Connection closed before the response completed.');
+                    showError(OQB.t('Connection closed before the response completed.'));
                 }
             }
         }
     }).catch((err) => {
         cancelScheduledRender();
-        const msg = (err && err.message) ? err.message : 'request did not complete';
-        showError('Network error: ' + msg);
+        const msg = (err && err.message) ? err.message : OQB.t('request did not complete');
+        showError(OQB.t('Network error: {error}', {error: msg}));
     }).finally(() => {
         _chatSetBusy(false);
         input.focus();

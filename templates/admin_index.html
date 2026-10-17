@@ -1,23 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}Admin Panel - Question Bank{% endblock %}
+{% block title %}{{ t('Admin Panel - Question Bank') }}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <h2><i class="bi bi-gear"></i> Admin Panel</h2>
+    <h2><i class="bi bi-gear"></i> {{ t('Admin Panel') }}</h2>
     <hr>
 
     <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
-        <i class="bi bi-collection"></i> Content Management
+        <i class="bi bi-collection"></i> {{ t('Content Management') }}
     </h6>
     <div class="row g-3">
         <div class="col-md-4">
             <div class="card h-100 border-primary">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-journal-text"></i> Question Management</h5>
-                    <p class="card-text">Add, edit, delete questions. Manage assets, rename QIDs, and batch operations.</p>
+                    <h5 class="card-title"><i class="bi bi-journal-text"></i> {{ t('Question Management') }}</h5>
+                    <p class="card-text">{{ t('Add, edit, delete questions. Manage assets, rename QIDs, and batch operations.') }}</p>
                     <a href="{{ url_for('admin.questions_page') }}" class="btn btn-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Manage Questions
+                        <i class="bi bi-arrow-right"></i> {{ t('Manage Questions') }}
                     </a>
                 </div>
             </div>
@@ -25,10 +25,10 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-tags"></i> Manage Topics</h5>
-                    <p class="card-text">Add, edit, or remove topics and subtopics for each subject.</p>
+                    <h5 class="card-title"><i class="bi bi-tags"></i> {{ t('Manage Topics') }}</h5>
+                    <p class="card-text">{{ t('Add, edit, or remove topics and subtopics for each subject.') }}</p>
                     <a href="{{ url_for('admin.topics') }}" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Topics
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Topics') }}
                     </a>
                 </div>
             </div>
@@ -36,10 +36,10 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-book"></i> Manage Chapters</h5>
-                    <p class="card-text">Add, edit, or remove chapters and subchapters for organizing questions by textbook structure.</p>
+                    <h5 class="card-title"><i class="bi bi-book"></i> {{ t('Manage Chapters') }}</h5>
+                    <p class="card-text">{{ t('Add, edit, or remove chapters and subchapters for organizing questions by textbook structure.') }}</p>
                     <a href="{{ url_for('admin.chapters') }}" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Chapters
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Chapters') }}
                     </a>
                 </div>
             </div>
@@ -47,10 +47,10 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-magic"></i> AI Tagging Tuning</h5>
-                    <p class="card-text">Per subject: write tagging instructions and taxonomy hints for the Auto Tag model, preview the exact prompt, evaluate it against already-tagged questions, and review teacher corrections.</p>
+                    <h5 class="card-title"><i class="bi bi-magic"></i> {{ t('AI Tagging Tuning') }}</h5>
+                    <p class="card-text">{{ t('Per subject: write tagging instructions and taxonomy hints for the Auto Tag model, preview the exact prompt, evaluate it against already-tagged questions, and review teacher corrections.') }}</p>
                     <a href="{{ url_for('subject_ai.index') }}" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Tune Auto Tag
+                        <i class="bi bi-arrow-right"></i> {{ t('Tune Auto Tag') }}
                     </a>
                 </div>
             </div>
@@ -58,10 +58,10 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-clock-history"></i> Restore Points</h5>
-                    <p class="card-text">Per subject: undo a bad tag or topic/chapter edit. A point is saved automatically before every such change; preview the difference and restore, or take a manual snapshot.</p>
+                    <h5 class="card-title"><i class="bi bi-clock-history"></i> {{ t('Restore Points') }}</h5>
+                    <p class="card-text">{{ t('Per subject: undo a bad tag or topic/chapter edit. A point is saved automatically before every such change; preview the difference and restore, or take a manual snapshot.') }}</p>
                     <a href="{{ url_for('restore_points.page') }}" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Restore Points
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Restore Points') }}
                     </a>
                 </div>
             </div>
@@ -69,16 +69,16 @@
     </div>
 
     <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
-        <i class="bi bi-tools"></i> Operations
+        <i class="bi bi-tools"></i> {{ t('Operations') }}
     </h6>
     <div class="row g-3">
         <div class="col-md-4">
             <div class="card h-100 border-success">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-magic"></i> Smart Import</h5>
-                    <p class="card-text">Import question files: scan the source library, or match any folder of IMG/DOC/MD files onto questions with review.</p>
+                    <h5 class="card-title"><i class="bi bi-magic"></i> {{ t('Smart Import') }}</h5>
+                    <p class="card-text">{{ t('Import question files: scan the source library, or match any folder of IMG/DOC/MD files onto questions with review.') }}</p>
                     <a href="{{ url_for('admin.smart_import_page') }}" class="btn btn-success btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Smart Import
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Smart Import') }}
                     </a>
                 </div>
             </div>
@@ -86,10 +86,10 @@
         <div class="col-md-4">
             <div class="card h-100 border-warning">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-filetype-pdf"></i> PDF Batch Import</h5>
-                    <p class="card-text">Upload question/solution PDFs and use a vision LLM to detect, crop, and save each question as an image asset.</p>
+                    <h5 class="card-title"><i class="bi bi-filetype-pdf"></i> {{ t('PDF Batch Import') }}</h5>
+                    <p class="card-text">{{ t('Upload question/solution PDFs and use a vision LLM to detect, crop, and save each question as an image asset.') }}</p>
                     <a href="{{ url_for('admin.pdf_import_page') }}" class="btn btn-warning btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to PDF Import
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to PDF Import') }}
                     </a>
                 </div>
             </div>
@@ -97,10 +97,10 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-arrow-left-right"></i> Export / Import</h5>
-                    <p class="card-text">Export and import question tags, topics/subtopics, and chapters/subchapters as portable CSV files.</p>
+                    <h5 class="card-title"><i class="bi bi-arrow-left-right"></i> {{ t('Export / Import') }}</h5>
+                    <p class="card-text">{{ t('Export and import question tags, topics/subtopics, and chapters/subchapters as portable CSV files.') }}</p>
                     <a href="{{ url_for('admin.export_import') }}" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Export / Import
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Export / Import') }}
                     </a>
                 </div>
             </div>
@@ -108,10 +108,10 @@
         <div class="col-md-4">
             <div class="card h-100 border-info">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-tools"></i> Toolbox</h5>
-                    <p class="card-text">Self-service utilities. The PDF Tool splits A3 booklets, deskews, rotates, adjusts brightness/B&W, and reassembles or merges PDFs.</p>
+                    <h5 class="card-title"><i class="bi bi-tools"></i> {{ t('Toolbox') }}</h5>
+                    <p class="card-text">{{ t('Self-service utilities. The PDF Tool splits A3 booklets, deskews, rotates, adjusts brightness/B&W, and reassembles or merges PDFs.') }}</p>
                     <a href="{{ url_for('toolbox.index') }}" class="btn btn-info btn-sm">
-                        <i class="bi bi-arrow-right"></i> Go to Toolbox
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Toolbox') }}
                     </a>
                 </div>
             </div>
@@ -120,16 +120,16 @@
 
     {% if current_user.is_super_admin %}
     <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">
-        <i class="bi bi-shield-lock"></i> Super Admin
+        <i class="bi bi-shield-lock"></i> {{ t('Super Admin') }}
     </h6>
     <div class="row g-3">
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-mortarboard"></i> Manage Subjects</h5>
-                    <p class="card-text">Create, rename, and remove subjects. Deletion is blocked while questions exist.</p>
+                    <h5 class="card-title"><i class="bi bi-mortarboard"></i> {{ t('Manage Subjects') }}</h5>
+                    <p class="card-text">{{ t('Create, rename, and remove subjects. Deletion is blocked while questions exist.') }}</p>
                     <a href="{{ url_for('admin.subjects') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> Manage Subjects
+                        <i class="bi bi-arrow-right"></i> {{ t('Manage Subjects') }}
                     </a>
                 </div>
             </div>
@@ -137,10 +137,10 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-heart-pulse"></i> Database Health</h5>
-                    <p class="card-text">Check DB statistics, detect anomalies, and clean up orphaned records.</p>
+                    <h5 class="card-title"><i class="bi bi-heart-pulse"></i> {{ t('Database Health') }}</h5>
+                    <p class="card-text">{{ t('Check DB statistics, detect anomalies, and clean up orphaned records.') }}</p>
                     <a href="{{ url_for('admin.health') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> Database Health
+                        <i class="bi bi-arrow-right"></i> {{ t('Database Health') }}
                     </a>
                 </div>
             </div>
@@ -148,10 +148,10 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-people"></i> Manage Users</h5>
-                    <p class="card-text">Create and manage user accounts, set permissions for each subject.</p>
+                    <h5 class="card-title"><i class="bi bi-people"></i> {{ t('Manage Users') }}</h5>
+                    <p class="card-text">{{ t('Create and manage user accounts, set permissions for each subject.') }}</p>
                     <a href="{{ url_for('admin.users') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> Manage Users
+                        <i class="bi bi-arrow-right"></i> {{ t('Manage Users') }}
                     </a>
                 </div>
             </div>
@@ -159,10 +159,10 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-folder2-open"></i> File Browser</h5>
-                    <p class="card-text">Browse, upload, download, rename, and delete files in the source directory.</p>
+                    <h5 class="card-title"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</h5>
+                    <p class="card-text">{{ t('Browse, upload, download, rename, and delete files in the source directory.') }}</p>
                     <a href="{{ url_for('admin.files') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> File Browser
+                        <i class="bi bi-arrow-right"></i> {{ t('File Browser') }}
                     </a>
                 </div>
             </div>
@@ -170,10 +170,10 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-sliders"></i> System Settings</h5>
-                    <p class="card-text">Tune runtime preferences — thumbnail width, Word COM timeouts, dashboard page size, and more. Changes apply immediately.</p>
+                    <h5 class="card-title"><i class="bi bi-sliders"></i> {{ t('System Settings') }}</h5>
+                    <p class="card-text">{{ t('Tune runtime preferences — thumbnail width, Word COM timeouts, dashboard page size, and more. Changes apply immediately.') }}</p>
                     <a href="{{ url_for('admin.settings_page') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> System Settings
+                        <i class="bi bi-arrow-right"></i> {{ t('System Settings') }}
                     </a>
                 </div>
             </div>
@@ -181,10 +181,10 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-chat-square-text"></i> AI Prompts</h5>
-                    <p class="card-text">View and edit the system / user-turn prompts powering every AI feature (proofreading, MD generation, Explain tutor, figure detection, PDF import).</p>
+                    <h5 class="card-title"><i class="bi bi-chat-square-text"></i> {{ t('AI Prompts') }}</h5>
+                    <p class="card-text">{{ t('View and edit the system / user-turn prompts powering every AI feature (proofreading, MD generation, Explain tutor, figure detection, PDF import).') }}</p>
                     <a href="{{ url_for('admin.prompts_page') }}" class="btn btn-danger btn-sm">
-                        <i class="bi bi-arrow-right"></i> AI Prompts
+                        <i class="bi bi-arrow-right"></i> {{ t('AI Prompts') }}
                     </a>
                 </div>
             </div>

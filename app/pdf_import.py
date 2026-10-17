@@ -42,6 +42,7 @@ from datetime import datetime
 from flask import current_app
 
 from app import db, pdf_tools
+from app.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,7 @@ def parse_paper_prefix(prefix: str):
     prefix = (prefix or '').strip().upper()
     m = PREFIX_PATTERN.match(prefix)
     if not m:
-        return None, ('Invalid paper name. Expected SUBJECT_SOURCE_YEAR_PAPER '
-                      '(e.g. MATC_DSE_2012_P1).')
+        return None, _t('Invalid paper name. Expected SUBJECT_SOURCE_YEAR_PAPER (e.g. MATC_DSE_2012_P1).')
     d = m.groupdict()
     return {
         'subject': d['subj'],
@@ -189,14 +189,14 @@ def token_dir(token: str) -> str:
     """Absolute path to one staging dir; validates the token shape to keep
     the value safe for filesystem joins (no traversal)."""
     if not _TOKEN_RE.match(token or ''):
-        raise ValueError('invalid staging token')
+        raise ValueError(_t('invalid staging token'))
     return os.path.join(staging_root(), token)
 
 
 def page_png_path(token: str, kind: str, index: int) -> str:
     """Absolute path to a staged page PNG (kind = ``que`` | ``sol``)."""
     if kind not in ('que', 'sol'):
-        raise ValueError('invalid kind')
+        raise ValueError(_t('invalid kind'))
     return os.path.join(token_dir(token), kind, f'page_{int(index) + 1:04d}.png')
 
 
@@ -463,7 +463,7 @@ def parse_page_range(spec, page_count: int) -> list[int] | None:
     except (TypeError, ValueError):
         n = 0
     if n <= 0:
-        raise ValueError('This PDF has no pages.')
+        raise ValueError(_t('This PDF has no pages.'))
     keep: set[int] = set()
     for part in text.replace(';', ',').split(','):
         token = part.strip()
@@ -474,7 +474,7 @@ def parse_page_range(spec, page_count: int) -> list[int] | None:
             try:
                 start, end = int(left.strip()), int(right.strip())
             except ValueError as e:
-                raise ValueError(f'Invalid page range {token!r}.') from e
+                raise ValueError(_t('Invalid page range {spec}.', spec=repr(token))) from e
             if start > end:
                 start, end = end, start
             for p in range(start, end + 1):
@@ -484,12 +484,13 @@ def parse_page_range(spec, page_count: int) -> list[int] | None:
             try:
                 p = int(token)
             except ValueError as e:
-                raise ValueError(f'Invalid page number {token!r}.') from e
+                raise ValueError(_t('Invalid page number {spec}.', spec=repr(token))) from e
             if 1 <= p <= n:
                 keep.add(p - 1)
     if not keep:
-        raise ValueError(
-            f'Page range {text!r} does not match any of this PDF’s {n} page(s).')
+        raise ValueError(_t(
+            'Page range {spec} does not match any of this PDF’s {n} page(s).',
+            spec=repr(text), n=n))
     return sorted(keep)
 
 
@@ -558,9 +559,9 @@ def rasterize_pdf(pdf_path: str, out_dir: str, width_px: int,
         allow = set(keep)
         frags = [f for f in frags if int(f['page']) in allow]
         if not frags:
-            raise ValueError(
-                f'Page range {page_range!r} left no pages to rasterise '
-                f'(PDF has {page_count} page(s)).')
+            raise ValueError(_t(
+                'Page range {spec} left no pages to rasterise (PDF has {n} page(s)).',
+                spec=repr(page_range), n=page_count))
 
     tasks = [{'out_index': out_index, 'page': int(frag['page']),
               'ops': pdf_tools.build_op_chain(pre_rotate, frag['ops'], filt)}
@@ -801,18 +802,18 @@ def set_manual_frame(token: str, kind: str, index: int, box) -> dict:
     ``[x1,y1,x2,y2]``, or ``None`` to mark the page frameless). Returns the
     stored entry."""
     if kind not in ('que', 'sol'):
-        raise ValueError('invalid kind')
+        raise ValueError(_t('invalid kind'))
     meta = ensure_frames(token, load_meta(token))
     side = meta.get(kind) or {}
     frames = side.get('frames') or []
     if not (0 <= int(index) < len(frames)):
-        raise ValueError('page index out of range')
+        raise ValueError(_t('page index out of range'))
     if box is None:
         entry = None
     else:
         x1, y1, x2, y2 = [min(1.0, max(0.0, float(v))) for v in box]
         if x2 - x1 < 0.2:
-            raise ValueError('frame too narrow')
+            raise ValueError(_t('frame too narrow'))
         entry = {'box': [round(v, 4) for v in (x1, min(y1, y2), x2, max(y1, y2))],
                  'source': 'manual'}
     frames[int(index)] = entry
@@ -1180,7 +1181,7 @@ def export_zip_bytes(token: str, kind: str, items, pad_frac: float = 0.0,
             zf.writestr(fname, img_buf.getvalue())
             count += 1
     if count == 0:
-        raise ValueError('no regions to export')
+        raise ValueError(_t('no regions to export'))
     return buf.getvalue()
 
 

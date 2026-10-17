@@ -17,10 +17,10 @@ function aqOpenOp(opKey, opts) {
     opts = opts || {};
     const def = AQ_OPS[opKey];
     if (!def) return;
-    if (BP && BP.running) { bpPanel().show(); showToast('A bulk action is still running.', 'warning'); return; }
-    if (!AQ.subject) { showToast('Pick a subject first.', 'info'); return; }
+    if (BP && BP.running) { bpPanel().show(); showToast(OQB.t('A bulk action is still running.'), 'warning'); return; }
+    if (!AQ.subject) { showToast(OQB.t('Pick a subject first.'), 'info'); return; }
     const targets = opts.targets || new Map(AQ.selected);
-    if (!targets.size) { showToast('Select questions first.', 'info'); return; }
+    if (!targets.size) { showToast(OQB.t('Select questions first.'), 'info'); return; }
     BP = {
         opKey, def, targets, label: opts.label || '', subject: AQ.subject,
         params: null, preview: null, blocked: false, stage: 'configure',
@@ -28,8 +28,9 @@ function aqOpenOp(opKey, opts) {
         log: [], failedQids: new Set(), stats: {}, done: false,
     };
     document.getElementById('bpTitle').innerHTML = `<i class="bi ${def.icon}"></i> ${aqEsc(def.title)}`;
-    document.getElementById('bpSubtitle').innerHTML =
-        `<strong>${targets.size}</strong> row(s) in <strong>${aqEsc(AQ.subject)}</strong>${opts.label ? ' · ' + aqEsc(opts.label) : ''}`;
+    document.getElementById('bpSubtitle').innerHTML = opts.label
+        ? OQB.t('<strong>{n}</strong> row(s) in <strong>{subject}</strong> · {label}', {n: targets.size, subject: aqEsc(AQ.subject), label: aqEsc(opts.label)})
+        : OQB.t('<strong>{n}</strong> row(s) in <strong>{subject}</strong>', {n: targets.size, subject: aqEsc(AQ.subject)});
     document.getElementById('bpOpIntro').innerHTML = def.intro || '';
     document.querySelectorAll('#aqBulkPanel .bp-op').forEach(el => el.classList.toggle('d-none', el.dataset.op !== opKey));
     const aiWrap = document.getElementById('opAiEndpointWrap');
@@ -64,7 +65,7 @@ function bpUpdateFooter() {
     show('bpStopBtn', s === 'run' && running && BP.def.transport === 'sse');
     document.getElementById('bpCloseBtn').disabled = running;
     document.getElementById('bpCloseX').disabled = running;
-    document.getElementById('bpCloseBtn').textContent = s === 'run' && !running ? 'Done' : 'Cancel';
+    document.getElementById('bpCloseBtn').textContent = s === 'run' && !running ? OQB.t('Done') : OQB.t('Cancel');
     const run = document.getElementById('bpRunBtn');
     const typed = BP.def.danger && BP.params && BP.def.danger(BP.params) === 'typed';
     run.className = 'btn btn-sm ' + (typed || BP.def.destructive ? 'btn-danger' : 'btn-primary') + (s === 'review' ? '' : ' d-none');
@@ -83,7 +84,7 @@ function bpClose() {
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('aqBulkPanel').addEventListener('hide.bs.offcanvas', e => {
-        if (BP && BP.running) { e.preventDefault(); showToast('Stop the action or wait for it to finish first.', 'warning'); }
+        if (BP && BP.running) { e.preventDefault(); showToast(OQB.t('Stop the action or wait for it to finish first.'), 'warning'); }
     });
 });
 
@@ -110,11 +111,11 @@ function bpToReview() {
     let roots = 0;
     BP.targets.forEach(v => { if (v.root) roots++; });
     document.getElementById('bpAffectedList').innerHTML =
-        `<div class="text-muted mb-1">${roots} question(s), ${ids.length - roots} part / stem row(s) in ${aqEsc(BP.subject)}</div>`
+        '<div class="text-muted mb-1">' + OQB.t('{questions} question(s), {parts} part / stem row(s) in {subject}', {questions: roots, parts: ids.length - roots, subject: aqEsc(BP.subject)}) + '</div>'
         + qids.slice(0, 50).map(q => `<div><code class="text-reset">${aqEsc(q)}</code></div>`).join('')
-        + (qids.length > 50 ? `<div class="text-muted">… and ${qids.length - 50} more</div>` : '');
+        + (qids.length > 50 ? '<div class="text-muted">' + OQB.t('… and {n} more', {n: qids.length - 50}) + '</div>' : '');
     document.getElementById('bpWarnings').innerHTML = '';
-    document.getElementById('bpPreview').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking the selection…';
+    document.getElementById('bpPreview').innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Checking the selection…');
     bpRenderConfirm();
     bpShowStage('review');
 
@@ -124,17 +125,17 @@ function bpToReview() {
             if (!BP || BP.opKey !== opKey || BP.stage !== 'review') return null;
             const subs = Object.keys(pre.subjects || {});
             const problems = [];
-            if (pre.missing) problems.push(`${pre.missing} selected row(s) no longer exist (deleted elsewhere?).`);
-            if (pre.inaccessible) problems.push(`${pre.inaccessible} selected row(s) are in a subject you cannot manage.`);
-            if (subs.some(s => s !== BP.subject)) problems.push(`Some rows are outside ${BP.subject} (${subs.filter(s => s !== BP.subject).join(', ')}).`);
+            if (pre.missing) problems.push(OQB.t('{n} selected row(s) no longer exist (deleted elsewhere?).', {n: pre.missing}));
+            if (pre.inaccessible) problems.push(OQB.t('{n} selected row(s) are in a subject you cannot manage.', {n: pre.inaccessible}));
+            if (subs.some(s => s !== BP.subject)) problems.push(OQB.t('Some rows are outside {subject} ({others}).', {subject: BP.subject, others: subs.filter(s => s !== BP.subject).join(', ')}));
             if (problems.length) {
-                document.getElementById('bpWarnings').innerHTML = `<div class="alert alert-danger py-2 small mb-0">
-                    ${problems.map(aqEsc).join('<br>')}<br>Clear the selection and select again.</div>`;
+                document.getElementById('bpWarnings').innerHTML = '<div class="alert alert-danger py-2 small mb-0">'
+                    + problems.map(aqEsc).join('<br>') + '<br>' + OQB.t('Clear the selection and select again.') + '</div>';
                 document.getElementById('bpPreview').innerHTML = '';
                 return null;
             }
             if (!BP.def.preview) { document.getElementById('bpPreview').innerHTML = ''; BP.blocked = false; return null; }
-            document.getElementById('bpPreview').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Dry run on the server…';
+            document.getElementById('bpPreview').innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Dry run on the server…');
             return BP.def.preview(ids, BP.params).then(res => {
                 if (!BP || BP.opKey !== opKey || BP.stage !== 'review') return;
                 BP.preview = res;
@@ -143,7 +144,7 @@ function bpToReview() {
             });
         })
         .catch(err => {
-            document.getElementById('bpPreview').innerHTML = `<span class="text-danger">Could not check the selection: ${aqEsc(err.message)}</span>`;
+            document.getElementById('bpPreview').innerHTML = '<span class="text-danger">' + OQB.t('Could not check the selection: {error}', {error: aqEsc(err.message)}) + '</span>';
         })
         .finally(() => { if (BP && BP.stage === 'review') { bpRenderConfirm(); bpUpdateFooter(); } });
 }
@@ -161,19 +162,19 @@ function bpRenderConfirm() {
     if (level === 'typed') {
         box.innerHTML = `<div class="bp-danger-box">
             <div class="small mb-2"><i class="bi bi-exclamation-octagon-fill text-danger"></i>
-                ${aqEsc(BP.def.dangerText || 'This cannot be undone from this page.')}</div>
-            <label class="form-label small mb-1" for="bpTypedConfirm">Type the subject code <strong>${aqEsc(BP.subject)}</strong> to confirm</label>
+                ${aqEsc(BP.def.dangerText || OQB.t('This cannot be undone from this page.'))}</div>
+            <label class="form-label small mb-1" for="bpTypedConfirm">${OQB.t('Type the subject code <strong>{subject}</strong> to confirm', {subject: aqEsc(BP.subject)})}</label>
             <input type="text" class="form-control form-control-sm" id="bpTypedConfirm" autocomplete="off" oninput="bpRefreshRunEnabled()">
         </div>`;
     } else if (level === 'tick') {
         box.innerHTML = `<div class="form-check">
             <input class="form-check-input" type="checkbox" id="bpTickConfirm" onchange="bpRefreshRunEnabled()">
-            <label class="form-check-label small" for="bpTickConfirm">I have reviewed the ${n} rows above and want to change all of them.</label>
+            <label class="form-check-label small" for="bpTickConfirm">${OQB.t('I have reviewed the {n} rows above and want to change all of them.', {n: n})}</label>
         </div>`;
     } else {
         box.innerHTML = '';
     }
-    const label = BP.def.runLabel ? BP.def.runLabel(BP.params, n, BP.preview) : `Run on ${n} row(s)`;
+    const label = BP.def.runLabel ? BP.def.runLabel(BP.params, n, BP.preview) : OQB.t('Run on {n} row(s)', {n: n});
     document.getElementById('bpRunLabel').textContent = label;
 }
 
@@ -229,18 +230,18 @@ function bpProgress(pct, label) {
 
 function bpRun() {
     if (!bpConfirmOk() || BP.running) return;
-    if (BP.subject !== AQ.subject) { showToast('The subject changed; close this panel and start again.', 'danger'); return; }
+    if (BP.subject !== AQ.subject) { showToast(OQB.t('The subject changed; close this panel and start again.'), 'danger'); return; }
     BP.running = true;
     BP.done = false;
     document.getElementById('bpLog').innerHTML = '';
     document.getElementById('bpResult').classList.add('d-none');
     document.getElementById('bpSelectFailedBtn').classList.add('d-none');
     document.getElementById('bpProgressBar').className = 'progress-bar progress-bar-striped progress-bar-animated';
-    bpProgress(0, 'Starting…');
-    bpSetStatus('Running', 'bg-success');
+    bpProgress(0, OQB.t('Starting…'));
+    bpSetStatus(OQB.t('Running'), 'bg-success');
     bpShowStage('run');
     const ids = Array.from(BP.targets.keys());
-    bpLog(`${BP.def.title}: ${ids.length} row(s) in ${BP.subject}`, 'info');
+    bpLog(OQB.t('{title}: {n} row(s) in {subject}', {title: BP.def.title, n: ids.length, subject: BP.subject}), 'info');
     const job = BP.def.transport === 'sse' ? bpRunSse(ids) : bpRunFetch(ids);
     job.then(res => bpFinish(res)).catch(err => bpFinish({ ok: false, message: err.message }));
 }
@@ -251,7 +252,7 @@ function bpRunFetch(ids) {
     const init = req.json
         ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req.json) }
         : { method: 'POST', body: req.form };
-    bpProgress(30, 'Working…');
+    bpProgress(30, OQB.t('Working…'));
     return fetch(req.url, init)
         .then(r => r.json().catch(() => ({ success: false, error: 'HTTP ' + r.status })))
         .then(d => {
@@ -281,13 +282,15 @@ function bpRunSse(ids) {
         es.onmessage = e => {
             gotEvent = true;
             let ev;
-            try { ev = JSON.parse(e.data); } catch (err) { bpLog('Unreadable event: ' + err.message, 'error'); return; }
+            try { ev = JSON.parse(e.data); } catch (err) { bpLog(OQB.t('Unreadable event: {error}', {error: err.message}), 'error'); return; }
             if (ev.type === 'job') { BP.jobId = ev.job_id; return; }
             bpLog(ev.message, ev.type, ev.raw);
             if (ev.type === 'error') bpNoteFailure(ev);
             if (typeof ev.current === 'number' && ev.total > 0) {
                 const pct = ((idx + ev.current / ev.total) / chunks.length) * 100;
-                bpProgress(pct, (chunks.length > 1 ? `Batch ${idx + 1}/${chunks.length} · ` : '') + `${ev.current} / ${ev.total}`);
+                bpProgress(pct, chunks.length > 1
+                    ? OQB.t('Batch {batch}/{batches} · {current} / {total}', {batch: idx + 1, batches: chunks.length, current: ev.current, total: ev.total})
+                    : OQB.t('{current} / {total}', {current: ev.current, total: ev.total}));
             }
             if (ev.type === 'done') {
                 keys.forEach(([k]) => {
@@ -299,8 +302,8 @@ function bpRunSse(ids) {
         };
         es.onerror = () => {
             if (finished) return;
-            bpLog(gotEvent ? 'Connection closed before the server finished.'
-                : 'The server refused the request or dropped the connection (check the selection is still in one subject).', 'error');
+            bpLog(gotEvent ? OQB.t('Connection closed before the server finished.')
+                : OQB.t('The server refused the request or dropped the connection (check the selection is still in one subject).'), 'error');
             res.ok = false;
             res.interrupted = true;
             end(false);
@@ -323,9 +326,9 @@ function bpStop() {
     if (!BP || !BP.running) return;
     BP.stopRequested = true;
     document.getElementById('bpStopBtn').disabled = true;
-    bpSetStatus('Stopping', 'bg-warning text-dark');
+    bpSetStatus(OQB.t('Stopping'), 'bg-warning text-dark');
     if (BP.def.ai && BP.jobId) {
-        bpLog('Stop requested — the server finishes the current item, then stops.', 'warning');
+        bpLog(OQB.t('Stop requested — the server finishes the current item, then stops.'), 'warning');
         fetch(AQ.cfg.urls.aiCancel, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: BP.jobId }),
         }).catch(() => {});
@@ -334,7 +337,7 @@ function bpStop() {
     if (BP.es) {
         BP.es.close();
         BP.es = null;
-        bpLog('Stopped. The server may still finish the item it was working on.', 'warning');
+        bpLog(OQB.t('Stopped. The server may still finish the item it was working on.'), 'warning');
         bpFinish({ ok: false, interrupted: true, stats: (BP.def.stats || []).map(([k, l, c]) => [l, BP.stats[k] || 0, c]) });
     }
 }
@@ -346,9 +349,9 @@ function bpFinish(res) {
     document.getElementById('bpStopBtn').disabled = false;
     document.getElementById('bpProgressBar').classList.remove('progress-bar-animated');
     const stopped = BP.stopRequested || res.interrupted;
-    if (res.ok && !stopped) { bpProgress(100, 'Finished'); bpSetStatus('Complete', 'bg-primary'); }
-    else if (stopped) bpSetStatus(BP.stopRequested ? 'Stopped' : 'Interrupted', 'bg-warning text-dark');
-    else bpSetStatus('Failed', 'bg-danger');
+    if (res.ok && !stopped) { bpProgress(100, OQB.t('Finished')); bpSetStatus(OQB.t('Complete'), 'bg-primary'); }
+    else if (stopped) bpSetStatus(BP.stopRequested ? OQB.t('Stopped') : OQB.t('Interrupted'), 'bg-warning text-dark');
+    else bpSetStatus(OQB.t('Failed'), 'bg-danger');
     if (!res.ok && res.message && BP.def.transport !== 'sse') showToast(aqEsc(res.message), 'danger');
 
     const stats = res.stats || Object.entries(BP.stats).map(([l, n]) => [l, n, 'secondary']);
@@ -357,7 +360,7 @@ function bpFinish(res) {
     document.getElementById('bpResult').classList.remove('d-none');
     const failBtn = document.getElementById('bpSelectFailedBtn');
     failBtn.classList.toggle('d-none', !BP.failedQids.size);
-    failBtn.innerHTML = `<i class="bi bi-funnel"></i> Select the ${BP.failedQids.size} failed row(s) only`;
+    failBtn.innerHTML = '<i class="bi bi-funnel"></i> ' + OQB.t('Select the {n} failed row(s) only', {n: BP.failedQids.size});
 
     if (res.deletedIds && res.deletedIds.length) {
         res.deletedIds.forEach(id => AQ.selected.delete(Number(id)));
@@ -376,13 +379,13 @@ function bpSelectFailed() {
     AQ.allMatching = null;
     aqRefreshChecks();
     aqUpdateSelectionUI();
-    showToast(`Selected ${keep.size} failed row(s).`, 'info');
+    showToast(OQB.t('Selected {n} failed row(s).', {n: keep.size}), 'info');
     bpPanel().hide();
 }
 
 function bpCopyLog() {
     const text = (BP && BP.log || []).join('\n');
-    const done = () => showToast('Log copied.', 'success');
+    const done = () => showToast(OQB.t('Log copied.'), 'success');
     if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text).then(done).catch(() => bpCopyFallback(text, done));
     } else {
@@ -397,7 +400,7 @@ function bpCopyFallback(text, done) {
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { showToast('Copy failed; select the log by hand.', 'warning'); }
+    try { document.execCommand('copy'); done(); } catch (e) { showToast(OQB.t('Copy failed; select the log by hand.'), 'warning'); }
     ta.remove();
 }
 </script>
