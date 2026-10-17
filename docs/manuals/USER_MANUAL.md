@@ -117,6 +117,10 @@ You control the exact pattern. Use `*` as a wildcard.
 Example: `MATC_DSE_2024*` finds all 2024 MATC DSE questions.  
 Example: `*P2_Q5*` finds all Paper 2 Question 5 entries.
 
+Typing `*` also works in loose mode (it switches to the strict pattern), so `*-*` lists every range question such as `Q16-17`.
+
+Searching for a question that is split into parts finds its parts. This includes range questions: `Q16-17` finds the shared stem's questions `Q16` and `Q17`.
+
 When QID search is active, other filters are ignored.
 
 ### Question Cards

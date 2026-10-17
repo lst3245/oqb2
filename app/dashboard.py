@@ -17,6 +17,7 @@ from app.hierarchy import (
     is_block, part_position_label, whole_marks, question_unit_id,
 )
 from app import md_render
+from app.question_scope import dashboard_qid_pattern
 from app.i18n import display_name, t as _t
 from app.tax_numbers import numbered_name, subject_numbers
 from app.storage import safe_join
@@ -36,6 +37,23 @@ def normalize_sections(raw):
     if isinstance(raw, str):
         raw = [raw]
     return [s for s in raw if s is not None and str(s).strip() and s != 'all']
+
+
+def _descendants_of_matching_stems(qid_pattern):
+    """Ids of every row under a stem whose QID matches ``qid_pattern``.
+
+    The dashboard lists leaves only, and some children do not repeat their
+    parent's QID: the range stem ``Q16-17`` holds ``Q16`` / ``Q17``. Without
+    this, searching a range (or a shared block ``Q7~c``) finds nothing."""
+    frontier = {i for (i,) in db.session.query(Question.id).filter(
+        Question.qid.ilike(qid_pattern), Question.id.in_(stem_id_query()))}
+    found = set()
+    while frontier:
+        kids = {i for (i,) in db.session.query(Question.id).filter(
+            Question.parent_id.in_(frontier))} - found
+        found |= kids
+        frontier = kids
+    return found
 
 
 def _build_filtered_query(params):
@@ -86,19 +104,12 @@ def _build_filtered_query(params):
         years = sections = topics = subtopics = chapters = subchapters = levels = []
     # Direct QID search - if provided, search by QID directly
     elif qid_search and qid_search.strip():
-        if qid_strict:
-            qid_pattern = qid_search.strip()
-            if '*' in qid_pattern or '%' in qid_pattern:
-                qid_pattern = qid_pattern.replace('*', '%')
-                query = query.filter(Question.qid.ilike(qid_pattern))
+        qid_pattern = dashboard_qid_pattern(qid_search, bool(qid_strict))
+        if qid_pattern:
+            under = _descendants_of_matching_stems(qid_pattern)
+            if under:
+                query = query.filter(or_(Question.qid.ilike(qid_pattern), Question.id.in_(under)))
             else:
-                query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
-        else:
-            raw = qid_search.strip().upper()
-            tokens = re.split(r'[^A-Z0-9]+', raw)
-            tokens = [t for t in tokens if t]
-            if tokens:
-                qid_pattern = '%' + '%'.join(tokens) + '%'
                 query = query.filter(Question.qid.ilike(qid_pattern))
 
     # Filter by subject

@@ -1,4 +1,5 @@
-"""Pure helpers for the single-subject Question Management page (ADR-016).
+"""Pure helpers for the single-subject Question Management page (ADR-016)
+and the dashboard QID search pattern.
 
 No DB imports: `app/admin.py` feeds these plain rows and request
 args, and `tests/test_admin_questions_scope.py` exercises them directly.
@@ -6,6 +7,7 @@ args, and `tests/test_admin_questions_scope.py` exercises them directly.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Iterable, Optional
 
@@ -140,6 +142,21 @@ def qid_search_pattern(term: str) -> str:
     if '*' in term or '%' in term:
         return term.replace('*', '%')
     return f'%{term}%'
+
+
+def dashboard_qid_pattern(term: str, strict: bool) -> Optional[str]:
+    """SQL ILIKE pattern for the dashboard QID box, or None for no filter.
+
+    Strict, or any `*` / `%` typed: the user's own pattern (`*` = `%`, no
+    wildcard = substring). Loose: words / numbers matched in order
+    (`2025 q1` -> `%2025%Q1%`); punctuation only separates them."""
+    term = (term or '').strip()
+    if not term:
+        return None
+    if strict or '*' in term or '%' in term:
+        return qid_search_pattern(term)
+    tokens = [t for t in re.split(r'[^A-Z0-9]+', term.upper()) if t]
+    return '%' + '%'.join(tokens) + '%' if tokens else None
 
 
 def root_sort_key(sort: str):

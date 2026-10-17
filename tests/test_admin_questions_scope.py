@@ -3,6 +3,7 @@ import unittest
 
 from app.question_scope import (
     DEFAULT_PAGE_SIZE,
+    dashboard_qid_pattern,
     ids_subject_violation,
     page_slice,
     parse_list_args,
@@ -75,6 +76,20 @@ class ListArgsTests(unittest.TestCase):
         self.assertEqual(qid_search_pattern('2025_P1B'), '%2025_P1B%')
         self.assertEqual(qid_search_pattern('*_Q7*'), '%_Q7%')
         self.assertEqual(qid_search_pattern('ICT%'), 'ICT%')
+
+    def test_dashboard_qid_pattern_loose(self):
+        self.assertEqual(dashboard_qid_pattern('2025 q1', False), '%2025%Q1%')
+        self.assertEqual(dashboard_qid_pattern('Q16-17', False), '%Q16%17%')
+        self.assertIsNone(dashboard_qid_pattern('  ', False))
+        self.assertIsNone(dashboard_qid_pattern('-', False))
+
+    def test_dashboard_qid_pattern_wildcard_wins_in_loose(self):
+        self.assertEqual(dashboard_qid_pattern('*-*', False), '%-%')
+        self.assertEqual(dashboard_qid_pattern('*_Q16-17', False), '%_Q16-17')
+
+    def test_dashboard_qid_pattern_strict(self):
+        self.assertEqual(dashboard_qid_pattern('ECON_DSE_2012_P1_Q16-17', True), '%ECON_DSE_2012_P1_Q16-17%')
+        self.assertEqual(dashboard_qid_pattern('MATC_DSE_2024*', True), 'MATC_DSE_2024%')
 
 
 class RootSortAndPagingTests(unittest.TestCase):

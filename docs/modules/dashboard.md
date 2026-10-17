@@ -64,7 +64,7 @@ All routes are `@login_required`. Subject scoping is enforced inside the handler
 | `levels` | list | `1`, `2`, `3` and/or the literal string `null` (questions with no level). |
 | `q_type` | string | `MC`, `CQ`, or `all`. |
 | `qid_search` | string | Pattern search on `Question.qid`. |
-| `qid_strict` | bool (`on`/`true`/`1`) | Strict: user-controlled pattern, `*` maps to SQL `%`, no wildcard = substring. Loose (default): uppercase, split on non-alphanumerics, `%TOK1%TOK2%`. |
+| `qid_strict` | bool (`on`/`true`/`1`) | Strict: user-controlled pattern, `*` maps to SQL `%`, no wildcard = substring. Loose (default): uppercase, split on non-alphanumerics, `%TOK1%TOK2%`; a `*` / `%` in loose mode switches to the strict pattern. Pure: `question_scope.dashboard_qid_pattern`. A stem whose QID matches also brings in every row under it (`_descendants_of_matching_stems`), because the list is leaves-only and range children do not repeat the stem QID (`Q16-17` → `Q16`, `Q17`). |
 | `qids` | csv string | Explicit QID list. **Overrides every other filter** (only intersected with accessible subjects). Set from Admin DB Health via `?qids=` or `?qids_token=<localStorage key>`; held in hidden `#qidsInput` with a dismissible banner. |
 | `ids` | csv int | Explicit `Question.id` list. Same override semantics as `qids`. Powers **Show Selected Only** (hidden `#idsInput`). Non-integer tokens are dropped. |
 | `page` | int | Default 1. Pagination links pass it as a query arg on a `hx-get`. |
