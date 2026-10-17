@@ -41,6 +41,7 @@ one or more super admins (users, subjects, settings, everything).
 - **QIDs, `Subject.id`, and asset filenames are stable public identifiers** embedded in the on-disk layout under `SOURCE_PATH`; never rename them casually. Grammar in [docs/reference/filename-convention.md](docs/reference/filename-convention.md).
 - **Asset versions are `EN / CH / BI / ENO / CHO`** (formerly "languages"); the canonical list lives in `app/utils.VERSIONS` and templates get it via a context processor. Do not hardcode the list ([ADR-006](docs/decisions/ADR-006-versions-replace-languages.md)).
 - **Dashboard Selection is independent of the Filter** ([ADR-008](docs/decisions/ADR-008-selection-independent-of-filter.md)).
+- **Question Management works on one subject at a time**: no "All subjects" option; list APIs require `subject`, and every bulk route refuses ids outside `subject_id` (`_bulk_subject_guard`) — super admins included ([ADR-016](docs/decisions/ADR-016-single-subject-question-management.md)).
 - **Questions form a tree** (`parent_id`) rather than peer links. A part is its own `Question`. Shared grammar and render-plan expansion live in `app/hierarchy.py` ([ADR-009](docs/decisions/ADR-009-question-hierarchy-over-linking.md)). Text printed **between** parts is a transparent tree node `Q7~c` that parents the parts after it, never an extra page on the root ([ADR-015](docs/decisions/ADR-015-shared-blocks.md)).
 - **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)). It is the experimental full-auto path; the normal path is Detect questions + Detect parts.
 - **PDF import crop width is one mode, not independent toggles**: printed frame > uniform width per side > the model's own edges (`auto` / `uniform` / `model`, default `auto`) ([ADR-014](docs/decisions/ADR-014-crop-width-mode.md)).
@@ -57,7 +58,7 @@ one or more super admins (users, subjects, settings, everything).
 | My Files, search profiles, generation presets | `user_bp` `/user` | `app/user.py` | [modules/my-files.md](docs/modules/my-files.md) |
 | Question Sets | `user_bp` `/user/sets` | `app/user.py` | [modules/question-sets.md](docs/modules/question-sets.md) |
 | Admin panel (topics, chapters, subjects, users, export/import, health, settings pages) | `admin_bp` `/admin` | `app/admin.py` | [modules/admin-panel.md](docs/modules/admin-panel.md) |
-| Question Management + Edit modal + batch ops | `admin_bp` `/admin/questions` | `app/admin.py`, `app/batch_image_gen.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) |
+| Question Management (single-subject tree, bulk panel) + Edit modal + batch ops | `admin_bp` `/admin/questions` | `app/admin.py`, `app/question_scope.py`, `app/batch_image_gen.py` | [modules/admin-questions.md](docs/modules/admin-questions.md) |
 | AI Tools (proofread, generate MD, solve, auto-tag, LLM endpoints) | `admin_bp` | `app/ai_tools.py`, `app/llm_client.py`, `app/parallel.py` | [modules/ai-tools.md](docs/modules/ai-tools.md) |
 | AI Prompts registry + variants | `admin_bp` `/admin/prompts` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) |
 | Subject AI tuning (per-subject Auto Tag instructions, taxonomy hints, preview, evaluate, correction log) | `subject_ai_bp` `/admin/subjects/<sid>/ai` | `app/subject_ai.py`, `app/subject_ai_service.py` | [modules/subject-ai.md](docs/modules/subject-ai.md) |
@@ -93,6 +94,7 @@ one or more super admins (users, subjects, settings, everything).
 | [013](docs/decisions/ADR-013-subject-restore-points.md) | Per-subject undo = a JSON snapshot of the subject's taxonomy + question tags captured before every such save (100 kept + daily anchors); whole-subject restore in one transaction, preceded by a `before-restore` point; not binlog, not an audit log |
 | [014](docs/decisions/ADR-014-crop-width-mode.md) | PDF import crop width is one select (`auto` = frame else uniform width, `uniform`, `model`) replacing the frame-snap and uniform-width checkboxes; one setting `PDF_IMPORT_WIDTH_MODE_DEFAULT` |
 | [015](docs/decisions/ADR-015-shared-blocks.md) | Text printed between parts = shared block `Q7~c`: child of the lettered parent, parent of the parts from the anchor on; parts keep their QIDs; always a stem; no schema change |
+| [016](docs/decisions/ADR-016-single-subject-question-management.md) | Question Management is scoped to one subject (no "All" option); list APIs require `subject`; bulk routes refuse ids outside `subject_id`; tree list paged by root; one bulk panel with typed-subject confirms |
 
 ## Documentation map
 

@@ -1,0 +1,70 @@
+<style>
+/* ---- Page shell ---- */
+.aq-header { gap: .75rem; }
+.aq-subject-select { min-width: 18rem; font-weight: 600; }
+.aq-subject-meta { font-size: .85rem; }
+.aq-empty-state { padding: 4rem 1rem; text-align: center; color: #6c757d; }
+.aq-empty-state .bi { font-size: 2.5rem; display: block; margin-bottom: .5rem; }
+
+/* ---- Filters ---- */
+.aq-filters .form-select, .aq-filters .form-control { min-width: 0; }
+.aq-filter-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: #6c757d; margin-bottom: .1rem; }
+.aq-years-menu { max-height: 18rem; overflow-y: auto; min-width: 12rem; }
+.aq-chip { display: inline-flex; align-items: center; gap: .35rem; border-radius: 1rem; padding: .15rem .35rem .15rem .65rem;
+           font-size: .8rem; background: #e7f1ff; color: #0a3a7a; border: 1px solid #b6d4fe; }
+.aq-chip.aq-chip-pinned { background: #fff3cd; color: #664d03; border-color: #ffe69c; }
+.aq-chip .btn-close { font-size: .55rem; }
+
+/* ---- Tree list ---- */
+.aq-table { font-size: .875rem; }
+.aq-table th { white-space: nowrap; user-select: none; }
+.aq-table th.aq-sortable { cursor: pointer; }
+.aq-table th.aq-sortable:hover { background: #e9ecef; }
+.aq-table th .aq-sort-icon { opacity: .3; }
+.aq-table th.aq-sorted .aq-sort-icon { opacity: 1; color: #0d6efd; }
+.aq-table td { vertical-align: middle; }
+.aq-row-root td { border-top: 1px solid #ced4da; }
+.aq-row-child td { background: #fcfcfd; }
+.aq-row.aq-selected td { background-color: #e7f1ff !important; }
+.aq-row.aq-dim td:not(.aq-cell-check) { opacity: .55; }
+.aq-caret { width: 1.4rem; padding: 0; border: 0; background: none; color: #6c757d; }
+.aq-caret:hover { color: #0d6efd; }
+.aq-caret .bi { transition: transform .12s; display: inline-block; }
+.aq-caret.aq-open .bi { transform: rotate(90deg); }
+.aq-indent { display: inline-block; }
+.aq-label { font-weight: 600; }
+.aq-qid { font-size: .78rem; color: #495057; }
+.aq-ver { font-size: .68rem; padding: .1rem .3rem; margin-right: 2px; }
+.aq-match-dot { display: inline-block; width: .45rem; height: .45rem; border-radius: 50%; background: #0d6efd; margin-left: .3rem; }
+
+/* ---- Sticky action bar ---- */
+.aq-action-bar { position: sticky; bottom: 0; z-index: 1020; background: #fff; border-top: 2px solid #0d6efd;
+                 box-shadow: 0 -.25rem .75rem rgba(0,0,0,.08); padding: .5rem 1rem; margin: 0 -1.5rem; }
+.aq-action-bar .dropdown-menu { max-height: 70vh; overflow-y: auto; }
+.aq-action-bar .dropdown-item small { display: block; color: #6c757d; white-space: normal; max-width: 22rem; }
+
+/* ---- Bulk panel ---- */
+#aqBulkPanel { width: min(720px, 100vw); }
+#aqBulkPanel .offcanvas-header { border-bottom: 1px solid #dee2e6; }
+#aqBulkPanel .offcanvas-footer { border-top: 1px solid #dee2e6; padding: .75rem 1rem; display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+.bp-steps { display: flex; gap: 0; margin-bottom: 1rem; }
+.bp-steps .bp-step { flex: 1; text-align: center; font-size: .8rem; padding: .35rem; border-bottom: 3px solid #dee2e6; color: #6c757d; }
+.bp-steps .bp-step.active { border-bottom-color: #0d6efd; color: #0d6efd; font-weight: 600; }
+.bp-steps .bp-step.done { border-bottom-color: #198754; color: #198754; }
+.bp-section-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: #6c757d; font-weight: 600; margin: 1rem 0 .35rem; }
+.bp-section-title:first-child { margin-top: 0; }
+.bp-qid-list { max-height: 11rem; overflow-y: auto; font-size: .78rem; background: #f8f9fa; border-radius: .25rem; padding: .4rem .6rem; }
+.bp-log { max-height: 320px; overflow-y: auto; font-size: .78rem; background: #1e1e1e; color: #ddd; padding: .5rem;
+          font-family: monospace; border-radius: 4px; }
+.bp-log .bp-log-line { display: block; white-space: pre-wrap; word-break: break-word; }
+.bp-log pre { margin: 0 0 .4rem 1.2rem; color: #b0b0b0; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; font-size: .72rem; }
+.bp-stat { text-align: center; }
+.bp-stat .bp-stat-n { font-size: 1.25rem; font-weight: 700; }
+.bp-danger-box { border: 1px solid #f1aeb5; background: #f8d7da33; border-radius: .375rem; padding: .75rem; }
+
+/* ---- Add-question wizard ---- */
+.step-indicator { display: flex; gap: 0; margin-bottom: 1.5rem; }
+.step-indicator .step { flex: 1; text-align: center; padding: 0.5rem; border-bottom: 3px solid #dee2e6; color: #6c757d; font-size: 0.85rem; }
+.step-indicator .step.active { border-bottom-color: #0d6efd; color: #0d6efd; font-weight: 600; }
+.step-indicator .step.done { border-bottom-color: #198754; color: #198754; }
+</style>

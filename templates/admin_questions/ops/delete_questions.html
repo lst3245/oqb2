@@ -1,0 +1,19 @@
+<div class="bp-op d-none" data-op="deleteQuestions">
+    <div class="bp-danger-box small mb-3">
+        <i class="bi bi-exclamation-octagon-fill text-danger"></i>
+        The selected question rows and all their assets are removed from the database. Restore points do not cover deleted questions.
+    </div>
+    <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="opDqChildren">
+        <label class="form-check-label" for="opDqChildren">Also delete child parts that are not selected</label>
+    </div>
+    <div class="form-check mt-1">
+        <input class="form-check-input" type="checkbox" id="opDqEmptyParents" checked>
+        <label class="form-check-label" for="opDqEmptyParents">Also delete parent rows left with no parts (stem text, shared intros, range preambles, whole-question images)</label>
+    </div>
+    <div class="form-check mt-1">
+        <input class="form-check-input" type="checkbox" id="opDqFiles">
+        <label class="form-check-label" for="opDqFiles">Also delete the asset files from disk <span class="text-danger">(cannot be undone)</span></label>
+    </div>
+    <div class="form-text">The review step lists exactly what goes, including any whole-question images.</div>
+</div>

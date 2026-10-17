@@ -17,7 +17,7 @@
 | `migrate_md_format.py` | One-off, idempotent `ALTER TABLE question_assets` to extend `file_format` to `ENUM('IMG','DOC','MD')`. |
 | `templates/partials/md_editor.html` | Editor factory `window.oqbCreateMdEditor` (EasyMDE + marked + KaTeX + FontAwesome 4.7, all CDN); idempotent include. |
 | `templates/admin_md_editor.html` | Fullscreen editor page (edit + create modes), dirty-state, 409 handling, `beforeunload` guard. |
-| `templates/admin_questions.html`, `templates/partials/edit_question_modal*.html` | `renderAssetSections`, `openMdEditorModal`, `#mdEditorModal` inline modal editor, paste-handler isolation. |
+| `templates/partials/edit_question_modal*.html` | `renderAssetSections`, `openMdEditorModal`, `#mdEditorModal` inline modal editor, paste-handler isolation (mounted by `admin_questions.html` and `dashboard.html`). |
 | `templates/base.html` | Shared client helpers `oqbTypesetMath`, `oqbRenderMarkdownInto`, `oqbLoadMarkdownPreviewCards`. |
 | `templates/viewer.html` | Duplicates those helpers (does NOT extend `base.html`). |
 
@@ -85,7 +85,7 @@ Threat surface: admin-authored content rendered to other admins and to read-only
 
 - **Live preview**: `_oqbPreprocessMath()` runs KaTeX `renderToString()` over every `$...$` / `$$...$$` first, then marked parses the result. This matches server fidelity and survives blank-line-separated `$$` blocks (marked alone splits them into separate `<p>`). The inline regex tolerates inner whitespace (`$ D $` previews like `$D$`, captured trimmed — faithful to the docx because the server tightens before pandoc) and ignores currency-style `$5` via a "closing `$` not followed by a digit" guard.
 - **Image insert / paste** produce `![](data:image/...;base64,...)` with **empty alt** (pandoc would otherwise render alt as a visible caption in the docx).
-- **Paste isolation**: the CodeMirror paste handler calls `e.stopPropagation()` so the admin page's document-level paste handler does not ALSO upload the image as an IMG asset; `admin_questions.html` also skips its handler when the MD modal is showing or focus is inside `.EasyMDEContainer`.
+- **Paste isolation**: the CodeMirror paste handler calls `e.stopPropagation()` so the admin page's document-level paste handler does not ALSO upload the image as an IMG asset; the document-level paste handler in `partials/edit_question_modal_js.html` also skips when focus is inside `.EasyMDEContainer` / `.CodeMirror`.
 - **Fullscreen reparenting**: a `MutationObserver` (`_fsObserver`) watches for EasyMDE's `.fullscreen` class; on entry the whole `.EasyMDEContainer` is moved to `<body>` (placeholder left behind) to escape the Bootstrap-modal stacking context that would confine the `position: fixed` editor; on exit it is restored. `destroy()` calls `toggleFullScreen()` first so the textarea is not reparented onto `<body>`.
 - **Toolbar collision**: `.EasyMDEContainer .editor-toolbar button.table { width: auto !important; }` because Bootstrap's `.table { width: 100% }` stretches the Insert-Table button.
 - **Idempotent include**: the script bails if `window.oqbCreateMdEditor` already exists (the partial is pulled in transitively by `edit_question_modal.html` and directly by `admin_md_editor.html`).

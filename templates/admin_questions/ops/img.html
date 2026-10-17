@@ -1,0 +1,71 @@
+<div class="bp-op d-none" data-op="img">
+    <div class="row g-3">
+        <div class="col-sm-4">
+            <div class="bp-section-title">Asset types</div>
+            {% for t, label in [('QUE', 'QUE (questions)'), ('ANS', 'ANS (answers)'), ('SOL', 'SOL (solutions)')] %}
+            <div class="form-check">
+                <input class="form-check-input op-img-type" type="checkbox" value="{{ t }}" id="opImgType_{{ t }}"{% if t == 'QUE' %} checked{% endif %}>
+                <label class="form-check-label" for="opImgType_{{ t }}">{{ label }}</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Versions</div>
+            {% for v in OQB_VERSIONS %}
+            <div class="form-check">
+                <input class="form-check-input op-img-version" type="checkbox" value="{{ v }}" id="opImgVer_{{ v }}"{% if v in ['EN', 'CH', 'BI'] %} checked{% endif %}>
+                <label class="form-check-label" for="opImgVer_{{ v }}" title="{{ OQB_VERSION_LABELS[v] }}">{{ v }}</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Sources (priority order)</div>
+            <div class="form-check">
+                <input class="form-check-input op-img-src" type="checkbox" value="DOC" id="opImgSrc_DOC" checked>
+                <label class="form-check-label" for="opImgSrc_DOC">DOC (.docx) — preferred</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input op-img-src" type="checkbox" value="MD" id="opImgSrc_MD" checked>
+                <label class="form-check-label" for="opImgSrc_MD">MD — fallback</label>
+            </div>
+        </div>
+    </div>
+    <div class="bp-section-title">Output</div>
+    <div class="row g-3 align-items-end">
+        <div class="col-sm-6">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="opImgStitch" id="opImgStitch1" value="1" checked>
+                <label class="form-check-label" for="opImgStitch1">Stitch pages into one tall PNG</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="opImgStitch" id="opImgStitch0" value="0">
+                <label class="form-check-label" for="opImgStitch0">One PNG per page</label>
+            </div>
+        </div>
+        <div class="col-sm-6">
+            <label class="form-label small mb-1" for="opImgWidth">Render width (px)</label>
+            <input type="number" class="form-control form-control-sm" id="opImgWidth" min="200" max="4000" step="50" placeholder="System default">
+        </div>
+    </div>
+    <div class="row g-2 mt-1">
+        <div class="col-sm-4">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="opImgOverwrite" checked>
+                <label class="form-check-label" for="opImgOverwrite">Replace existing IMG</label>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="opImgTransparent">
+                <label class="form-check-label" for="opImgTransparent">Transparent background</label>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="form-check form-switch" title="Cap left/right cropping to min(left, right) so short questions keep proportional whitespace">
+                <input class="form-check-input" type="checkbox" id="opImgSymmetric">
+                <label class="form-check-label" for="opImgSymmetric">Symmetric side crop</label>
+            </div>
+        </div>
+    </div>
+    <div class="form-text">Defaults come from System Settings when you can read them. Word renders one slot at a time.</div>
+</div>

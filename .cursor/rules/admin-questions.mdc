@@ -1,0 +1,37 @@
+---
+description: Question Management page (/admin/questions) - single-subject scope, tree list, bulk panel, subject guard on batch routes
+globs: templates/admin_questions.html,templates/admin_questions/**,app/question_scope.py
+alwaysApply: false
+---
+
+# Question Management (bootloader — spec in `docs/modules/admin-questions.md`, ADR-016)
+
+## Invariants
+- **One subject at a time.** No "All subjects" option in `_header.html`, ever. `/admin/questions/api/tree|facets|ids|list` require `subject` (400 `subject_required`, 403 `subject_denied`).
+- **Every bulk route the page calls runs `_bulk_subject_guard(ids)`** after the admin-subject intersection, before any write or stream. It reads `subject_id` from query / form / JSON; super admins are not exempt. New batch route → add the guard + a case in `tests/test_admin_questions_scope.py`.
+- **Every request the page sends carries `subject_id`**: form ops through `opIdsForm`, JSON ops add it explicitly, SSE runner appends it. `tests/test_admin_questions_ux.py` checks this; keep it green.
+- Per-question routes (`update`, `assets`, asset delete, reorder, `rename` — old and new subject) check the question's subject with `_require_md_admin`.
+- Tree API pages **by root**; each page root returns its whole subtree with `matched` / `matched_count` / `subtree_ids`. Grouping is pure `hierarchy.group_admin_tree` (tested in `AdminTreeTests`).
+- Selection: row click = whole subtree; partial subtree shows indeterminate, next click selects all. Page checkbox = every node on the page. "Select all matching" = matched rows only (`/api/ids`), never their unmatched parents / children.
+- Hand-offs with ids (`?qids=`, `?qids_token=`, `?ids=`, `?from=dashboard`) go through `/api/subjects-of`: one subject → switch + pin, several → `#aqHandoff` chooser. Never silently drop or merge subjects.
+- Changing subject with a selection asks first, then clears it. The selection is never persisted.
+
+## Bulk panel (`_bulk_panel.html` + `_js_bulk.html`)
+- No new modals for bulk actions. Add `AQ_OPS.<key>` in `_js_ops.html` + `ops/<file>.html` (`.bp-op[data-op]`) + a menu item in `_action_bar.html`.
+- Stages Configure → Review (subjects-of preflight + optional server dry run via `preview`) → Run.
+- `danger(p) === 'typed'` (subject code) for anything that deletes rows / files or overwrites teacher data: deleteQuestions, deleteAssets, combine, assetOps with move or overwrite, aiTag overwrite. Otherwise a tick above `BP_TICK_THRESHOLD` (100).
+- SSE ids are chunked by `BP_SSE_CHUNK` (800) to stay under URL limits. AI Stop = POST `ai/cancel` and wait for `done`.
+- Put QIDs in error messages so **Select failed only** works (`bpNoteFailure`).
+
+## Gotchas
+- `_js_*.html` share the global scope with `partials/edit_question_modal_js.html`. Prefix new names `aq` / `bp` / `op`. The Add-wizard names (`addCreatedQuestionId`, `showAddModal`, `addActivePasteTarget` via `window.`) are fixed because the partial references them.
+- The Edit modal calls `loadQuestions()` if defined; it is an alias of `aqReload()`. Hosts set `window.oqbAfterQuestionEdit` / `window.oqbEditNavSource`.
+- `localStorage.oqb_adminQuestionsState` holds `{subject, filtersBySubject, pageSize, sort}`; the old `oqb_adminQuestionsFilters` is deleted on load.
+- Never test a bulk op against the live DB to "see if it works". Use the delete / delete-assets `dry_run` paths or the read-only render in `$env:TEMP`.
+- `/api/tree` loads all `(id, parent_id)` of the subject per request; fine per subject, a reason never to add a global list back.
+- Dashboard Bulk Edit (`batch-update`) is a different page and is not subject-guarded.
+
+## Files
+`templates/admin_questions.html` (thin page, `window.AQ_CONFIG`) · `admin_questions/_header|_filters|_tree|_action_bar|_bulk_panel|_add_modal|_styles.html` · `ops/*.html` · `_js_state` (AQ state, filters, hand-off) · `_js_tree` (render, selection) · `_js_ops` (AQ_OPS) · `_js_bulk` (BulkRunner) · `_js_add` (wizard) · `app/question_scope.py` (pure arg parsing, subject check) · `app/hierarchy.group_admin_tree`.
+
+See `docs/modules/admin-questions.md`.

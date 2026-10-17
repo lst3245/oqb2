@@ -1689,6 +1689,83 @@ def ancestors_left_empty(delete_ids, parent_of: dict, children_of: dict,
     return out
 
 
+def root_id_of(qid, parent_of: dict):
+    """Pure: walk ``parent_of`` (id → parent id) up to the tree root id."""
+    node = qid
+    seen = set()
+    while parent_of.get(node) is not None and node not in seen:
+        seen.add(node)
+        node = parent_of[node]
+    return node
+
+
+def root_ids_for(ids, parent_of: dict) -> list:
+    """Pure: distinct root ids of ``ids`` in first-seen order."""
+    out = []
+    seen = set()
+    for i in ids:
+        r = root_id_of(i, parent_of)
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _admin_child_key(row: dict) -> tuple:
+    return (int(row.get('qno') or 0), part_sort_key(row.get('part')), row.get('id') or 0)
+
+
+def group_admin_tree(rows, matched_ids=(), root_order=None) -> list[dict]:
+    """Pure: nest flat row dicts (``id``, ``parent_id``, ``part``, ``qno``…)
+    into root nodes for the admin Question Management tree.
+
+    Each returned node is a copy of its row plus ``children`` (print order:
+    qno, then part — a ``~c`` block sorts just before ``c``), ``depth``,
+    ``matched`` (row hit the filters), ``matched_count`` (hits in the
+    subtree) and ``subtree_ids`` (self + descendants, pre-order). Rows whose
+    parent is missing from ``rows`` become roots. ``root_order`` fixes the
+    root sequence; otherwise input order is kept."""
+    matched = set(matched_ids)
+    by_id = {}
+    order = []
+    for r in rows:
+        node = dict(r)
+        node['children'] = []
+        by_id[node['id']] = node
+        order.append(node['id'])
+    roots = []
+    for nid in order:
+        node = by_id[nid]
+        pid = node.get('parent_id')
+        if pid is not None and pid in by_id and pid != nid:
+            by_id[pid]['children'].append(node)
+        else:
+            roots.append(node)
+
+    def finish(node, depth, seen):
+        seen.add(node['id'])
+        node['children'] = sorted((c for c in node['children'] if c['id'] not in seen),
+                                  key=_admin_child_key)
+        node['depth'] = depth
+        node['matched'] = node['id'] in matched
+        ids = [node['id']]
+        count = 1 if node['matched'] else 0
+        for c in node['children']:
+            finish(c, depth + 1, seen)
+            ids.extend(c['subtree_ids'])
+            count += c['matched_count']
+        node['subtree_ids'] = ids
+        node['matched_count'] = count
+
+    seen = set()
+    for r in roots:
+        finish(r, 0, seen)
+    if root_order is not None:
+        rank = {rid: i for i, rid in enumerate(root_order)}
+        roots = sorted((r for r in roots if r['id'] in rank), key=lambda r: rank[r['id']])
+    return roots
+
+
 def collect_subtree_ids(question) -> list[int]:
     """`[question.id]` plus every descendant id (query-based, session-safe)."""
     from app.models import Question

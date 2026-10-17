@@ -38,6 +38,11 @@ from app.hierarchy import (
     token_fits_under, stem_id_query, is_block, relink_block_level, leaf_clause,
     block_end_options, block_display_label, set_block_end,
     question_root, whole_marks, ancestors_left_empty,
+    group_admin_tree, root_id_of, root_ids_for,
+)
+from app.question_scope import (
+    ids_subject_violation, subjects_of, parse_list_args, qid_search_pattern,
+    root_sort_key, page_slice,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -760,6 +765,9 @@ def update_question(question_id):
     """Update question metadata and tags"""
     try:
         question = Question.query.get_or_404(question_id)
+        denied = _require_md_admin(question)
+        if denied:
+            return denied
         stem_row = is_stem(question)
         # Read before any mutation; kept as a restore point only if tags change.
         tag_state = subject_snapshot.read_state(question.subject)
@@ -911,6 +919,35 @@ def update_question(question_id):
             'error': str(e)
         }), 500
 
+# ==================== Bulk subject scope (ADR-016) ====================
+
+def _request_bulk_subject():
+    """``subject_id`` sent with a bulk call (query string, form or JSON)."""
+    sid = request.args.get('subject_id') or request.form.get('subject_id')
+    if not sid:
+        data = request.get_json(silent=True)
+        if isinstance(data, dict):
+            sid = data.get('subject_id')
+    sid = str(sid).strip() if sid else ''
+    return sid or None
+
+
+def _bulk_subject_guard(ids, subject_id=None):
+    """Refuse a bulk call whose ids leave one subject. With ``subject_id``
+    (default: read from the request) every id must be in it; without one the
+    ids must not span subjects. Returns ``(response, 400)`` or None."""
+    if subject_id is None:
+        subject_id = _request_bulk_subject()
+    ids = [int(i) for i in ids]
+    rows = (db.session.query(Question.id, Question.subject)
+            .filter(Question.id.in_(ids)).all()) if ids else []
+    problem = ids_subject_violation(rows, subject_id)
+    if problem:
+        return jsonify({'success': False, 'ok': False, 'error': problem['message'],
+                        **problem}), 400
+    return None
+
+
 # ==================== Question Deletion ====================
 
 @admin_bp.route('/questions/delete', methods=['POST'])
@@ -938,6 +975,9 @@ def delete_questions():
                 'success': False,
                 'error': 'Invalid question IDs'
             }), 400
+        refused = _bulk_subject_guard(question_ids)
+        if refused:
+            return refused
         
         # Get questions to delete, restricted to subjects the caller can admin.
         admin_subject_ids = [s.id for s in get_user_admin_subjects()]
@@ -987,7 +1027,7 @@ def delete_questions():
             )
             questions = questions + extra_rows
 
-        empty_parents, kept_archive = _empty_parents_after_delete(
+        empty_parents, archive_qids = _empty_parents_after_delete(
             questions, dissolve, admin_subject_ids)
         if request.form.get('dry_run') == 'true':
             return jsonify({
@@ -995,7 +1035,7 @@ def delete_questions():
                 'dry_run': True,
                 'count': len(questions),
                 'empty_parent_qids': [p.qid for p in empty_parents],
-                'kept_archive_qids': kept_archive,
+                'archive_qids': archive_qids,
             })
         left_empty = []
         if request.form.get('delete_empty_parents') == 'true':
@@ -1083,9 +1123,10 @@ def delete_questions():
 def _empty_parents_after_delete(questions, dissolve, admin_subject_ids):
     """Parent rows (roots, intermediate stems, shared blocks, range stems)
     that would have no children left after ``questions`` are deleted.
-    Returns ``(rows, kept_archive_qids)``. Never offered: a row with a WHOLE
-    archive (the unsplit original), and the ancestors of a block being
-    dissolved (its parts move up into them)."""
+    Returns ``(rows, archive_qids)``: ``archive_qids`` are the rows that hold a
+    WHOLE archive (the unsplit original), which is deleted with them. Never
+    offered: the ancestors of a block being dissolved (its parts move up
+    into them)."""
     delete_ids = {q.id for q in questions}
     parent_of = {}
     for q in questions:
@@ -1109,13 +1150,11 @@ def _empty_parents_after_delete(questions, dissolve, admin_subject_ids):
     archive_ids = {qid for (qid,) in db.session.query(QuestionAsset.question_id)
                    .filter(QuestionAsset.question_id.in_(ancestor_ids),
                            QuestionAsset.asset_type == 'WHOLE').distinct()}
-    ids = ancestors_left_empty(delete_ids, parent_of, children_of, keep | archive_ids)
-    archived = [i for i in ancestors_left_empty(delete_ids, parent_of, children_of, keep)
-                if i in archive_ids]
-    wanted = set(ids) | set(archived)
+    ids = ancestors_left_empty(delete_ids, parent_of, children_of, keep)
     by_id = {r.id: r for r in Question.query.filter(
-        Question.id.in_(wanted), Question.subject.in_(admin_subject_ids)).all()} if wanted else {}
-    return [by_id[i] for i in ids if i in by_id], [by_id[i].qid for i in archived if i in by_id]
+        Question.id.in_(ids), Question.subject.in_(admin_subject_ids)).all()} if ids else {}
+    rows = [by_id[i] for i in ids if i in by_id]
+    return rows, [r.qid for r in rows if r.id in archive_ids]
 
 
 @admin_bp.route('/questions/batch_delete_assets', methods=['POST'])
@@ -1157,6 +1196,9 @@ def batch_delete_assets():
         question_ids = [int(qid) for qid in question_ids if qid.isdigit()]
         if not question_ids:
             return jsonify({'success': False, 'error': 'Invalid question IDs'}), 400
+        refused = _bulk_subject_guard(question_ids)
+        if refused:
+            return refused
 
         # Restrict to questions whose subject the caller can admin.
         admin_subjects = [s.id for s in get_user_admin_subjects()]
@@ -1177,6 +1219,14 @@ def batch_delete_assets():
             .filter(QuestionAsset.asset_type.in_(atypes))
             .all()
         )
+
+        if request.form.get('dry_run') == 'true':
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'count': len(assets),
+                'questions_touched': len({a.question_id for a in assets}),
+            })
 
         if not assets:
             return jsonify({
@@ -1729,6 +1779,9 @@ def batch_asset_ops():
         return jsonify({'error': 'question_ids must be integers'}), 400
     if not question_ids:
         return jsonify({'error': 'question_ids is empty'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return refused
 
     try:
         ops = _normalize_asset_ops(json.loads(raw_ops))
@@ -1891,66 +1944,62 @@ def questions_page():
     )
 
 
-def _admin_questions_query_from_args(args):
-    """Build the admin-scoped question query used by the table and bulk selection."""
-    qid_search = args.get('qid_search', '').strip()
-    selected_ids_str = args.get('selected_ids', '').strip()
-    # Explicit QID-string list filter (comma-separated). Used by the DB-Health
-    # anomaly modal to jump straight to a specific set of questions.
-    qids_str = args.get('qids', '').strip()
-    sort_field = args.get('sort', 'created_at')
-    sort_dir = args.get('dir', 'desc')
+def _admin_list_subject(args):
+    """The required ``subject`` of every Question Management list call
+    (ADR-016). Returns ``(subject_id, None)`` or ``(None, (response, code))``."""
+    sid = (args.get('subject') or '').strip()
+    if not sid:
+        return None, (jsonify({'error': 'Pick a subject first.',
+                               'error_code': 'subject_required'}), 400)
+    if sid not in {s.id for s in get_user_admin_subjects()}:
+        return None, (jsonify({'error': 'Access denied', 'error_code': 'subject_denied'}), 403)
+    return sid, None
 
-    admin_subjects = [s.id for s in get_user_admin_subjects()]
-    query = Question.query.filter(Question.subject.in_(admin_subjects))
 
-    preserve_selection_order = False
-    selected_ids = []
-    qid_order_list = []
+def _admin_questions_filter(args, subject_id):
+    """Filtered, unsorted query for one subject. Returns ``(query, filters)``.
 
-    if qids_str:
-        # Filter by explicit QID string list (anomaly view, etc.)
-        qid_order_list = [q.strip() for q in qids_str.split(',') if q.strip()]
-        if qid_order_list:
-            query = query.filter(Question.qid.in_(qid_order_list))
-            # Preserve the supplied order unless user picked an explicit sort
-            if sort_field in ('selection_order', 'created_at'):
-                preserve_selection_order = True
-    elif selected_ids_str:
-        # Filter by specific question internal IDs (from dashboard localStorage)
-        try:
-            selected_ids = [int(x) for x in selected_ids_str.split(',') if x.strip()]
-            if selected_ids:
-                query = query.filter(Question.id.in_(selected_ids))
-                # Default to preserving selection order (dashboard order)
-                if sort_field == 'selection_order' or sort_field == 'created_at':
-                    preserve_selection_order = True
-        except ValueError:
-            pass
-    elif qid_search:
-        qid_pattern = qid_search
-        if '*' in qid_pattern or '%' in qid_pattern:
-            qid_pattern = qid_pattern.replace('*', '%')
-            query = query.filter(Question.qid.ilike(qid_pattern))
-        else:
-            query = query.filter(Question.qid.ilike(f'%{qid_pattern}%'))
+    ``qids`` (QID strings, Health / Subject AI), ``selected_ids`` (dashboard
+    hand-off) and ``qid_search`` are mutually exclusive, first wins; every
+    other filter combines with them."""
+    f = parse_list_args(args)
+    query = Question.query.filter(Question.subject == subject_id)
 
-    # Verified filter (1/0)
-    verified_param = args.get('verified', '').strip().lower()
-    if verified_param in ('1', 'true', 'yes'):
+    if f['qids']:
+        query = query.filter(Question.qid.in_(f['qids']))
+    elif f['selected_ids']:
+        query = query.filter(Question.id.in_(f['selected_ids']))
+    elif f['qid_search']:
+        query = query.filter(Question.qid.ilike(qid_search_pattern(f['qid_search'])))
+
+    if f['source']:
+        query = query.filter(Question.source == f['source'])
+    if f['years']:
+        query = query.filter(Question.year.in_(f['years']))
+    if f['paper']:
+        query = query.filter(Question.paper == f['paper'])
+    if f['q_type']:
+        query = query.filter(Question.q_type == f['q_type'])
+    if f['verified'] is True:
         query = query.filter(Question.verified.is_(True))
-    elif verified_param in ('0', 'false', 'no'):
+    elif f['verified'] is False:
         query = query.filter(Question.verified.is_(False))
 
-    tree_scope = (args.get('tree_scope') or 'all').strip().lower()
+    tree_scope = f['tree_scope']
     if tree_scope == 'roots':
         query = query.filter(Question.parent_id.is_(None))
     elif tree_scope == 'leaves':
         query = query.filter(leaf_clause())
+    elif tree_scope == 'with_parts':
+        from sqlalchemy import or_
+        query = query.filter(or_(Question.parent_id.isnot(None),
+                                 Question.id.in_(stem_id_query())))
+    elif tree_scope == 'standalone':
+        query = query.filter(Question.parent_id.is_(None),
+                             ~Question.id.in_(stem_id_query()))
 
     # Root-only WHOLE archive presence (1 = has an archive image).
-    has_whole = (args.get('has_whole') or '').strip().lower()
-    if has_whole in ('1', 'true', 'yes'):
+    if f['has_whole']:
         from sqlalchemy import exists, and_
         A = QuestionAsset
         query = query.filter(exists().where(and_(A.question_id == Question.id,
@@ -1959,8 +2008,8 @@ def _admin_questions_query_from_args(args):
     # Asset-check status rollup filter (issues / ok / unchecked) via correlated
     # EXISTS subqueries. Defaults to TYPED_VERSIONS (EN/CH/BI), but the advanced
     # toolbar can narrow the scope by version, asset type, and file format.
-    check_status = args.get('check_status', '').strip().lower()
-    if check_status in ('issues', 'ok', 'unchecked'):
+    check_status = f['check_status']
+    if check_status:
         from sqlalchemy import exists, and_, or_, not_
         A = QuestionAsset
         versions, atypes, formats = _admin_check_scope_from_args(args)
@@ -1980,67 +2029,21 @@ def _admin_questions_query_from_args(args):
         else:  # 'ok'
             query = query.filter(and_(has_any_asset, not_(has_not_ok)))
 
-    # Sorting
-    if preserve_selection_order and qid_order_list:
-        # Preserve order of the supplied QID list
-        from sqlalchemy import case
-        whens = [(qid, idx) for idx, qid in enumerate(qid_order_list)]
-        ordering = case(*whens, value=Question.qid, else_=len(qid_order_list))
-        query = query.order_by(ordering)
-    elif preserve_selection_order and selected_ids:
-        # Use CASE expression to preserve the original selection order from dashboard
-        from sqlalchemy import case
-        whens = [(qid, idx) for idx, qid in enumerate(selected_ids)]
-        ordering = case(*whens, value=Question.id, else_=len(selected_ids))
-        query = query.order_by(ordering)
-    elif sort_field == 'qid':
-        # Paper identity + integer qno, roots before children, then part_sort.
-        from sqlalchemy import case
-        child_flag = case((Question.parent_id.is_(None), 0), else_=1)
-        if sort_dir == 'asc':
-            query = query.order_by(
-                Question.subject.asc(), Question.source.asc(),
-                Question.year.asc(), Question.paper.asc(), Question.qno.asc(),
-                child_flag.asc(), Question.qno_end.asc(),
-                Question.part_sort.asc(), Question.id.asc(),
-            )
-        else:
-            query = query.order_by(
-                Question.subject.desc(), Question.source.desc(),
-                Question.year.desc(), Question.paper.desc(), Question.qno.desc(),
-                child_flag.desc(), Question.qno_end.desc(),
-                Question.part_sort.desc(), Question.id.desc(),
-            )
-    elif sort_field == 'qno':
-        from sqlalchemy import case
-        child_flag = case((Question.parent_id.is_(None), 0), else_=1)
-        if sort_dir == 'asc':
-            query = query.order_by(
-                Question.qno.asc(), child_flag.asc(), Question.qno_end.asc(),
-                Question.part_sort.asc(), Question.id.asc(),
-            )
-        else:
-            query = query.order_by(
-                Question.qno.desc(), child_flag.desc(), Question.qno_end.desc(),
-                Question.part_sort.desc(), Question.id.desc(),
-            )
-    else:
-        sort_col_map = {
-            'subject': Question.subject,
-            'source': Question.source,
-            'year': Question.year,
-            'paper': Question.paper,
-            'qno': Question.qno,
-            'q_type': Question.q_type,
-            'created_at': Question.created_at,
-        }
-        sort_col = sort_col_map.get(sort_field, Question.created_at)
-        if sort_dir == 'asc':
-            query = query.order_by(sort_col.asc())
-        else:
-            query = query.order_by(sort_col.desc())
+    return query, f
 
-    return query
+
+def _admin_questions_query_from_args(args, subject_id):
+    """Flat, row-sorted variant of :func:`_admin_questions_filter` for the
+    legacy ``/questions/api/list`` and ``/questions/api/ids``: paper identity,
+    then qno, roots before children, then ``part_sort``."""
+    from sqlalchemy import case
+    query, f = _admin_questions_filter(args, subject_id)
+    child_flag = case((Question.parent_id.is_(None), 0), else_=1)
+    cols = [Question.source, Question.year, Question.paper, Question.qno,
+            child_flag, Question.qno_end, Question.part_sort, Question.id]
+    if f['dir'] == 'desc':
+        return query.order_by(*[c.desc() for c in cols])
+    return query.order_by(*[c.asc() for c in cols])
 
 
 def _admin_check_scope_from_args(args):
@@ -2078,120 +2081,287 @@ def _admin_check_scope_clauses(asset_model, versions, atypes, formats):
     return clauses
 
 
-@admin_bp.route('/questions/api/list')
+def _admin_list_args():
+    """List / tree / ids args from the query string, or a JSON / form body
+    (POST keeps long ``selected_ids`` / ``qids`` lists out of the URL).
+    List values are joined with commas so :func:`parse_list_args` sees CSV."""
+    if request.method != 'POST':
+        return request.args
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = request.form.to_dict()
+    out = dict(request.args.to_dict())
+    for key, val in data.items():
+        if isinstance(val, (list, tuple)):
+            out[key] = ','.join(str(v) for v in val)
+        elif isinstance(val, bool):
+            out[key] = '1' if val else '0'
+        elif val is not None:
+            out[key] = str(val)
+    return out
+
+
+def _admin_check_summary(states):
+    total_assets = len(states)
+    n_issues = sum(1 for s in states if s in ('issues', 'error'))
+    n_unchecked = sum(1 for s in states if s is None)
+    n_checking = sum(1 for s in states if s == 'checking')
+    n_ok = sum(1 for s in states if s == 'ok')
+    if total_assets == 0:
+        status = 'none'
+    elif n_issues:
+        status = 'issues'
+    elif n_unchecked or n_checking:
+        status = 'unchecked'
+    else:
+        status = 'ok'
+    return {'status': status, 'total': total_assets, 'ok': n_ok,
+            'issues': n_issues, 'unchecked': n_unchecked}
+
+
+def _admin_asset_rollup(ids, args):
+    """One pass over the assets of ``ids``: true totals (all versions),
+    check states inside the Status scope, WHOLE archive IMG ids, and the
+    versions that have a QUE asset."""
+    from collections import defaultdict
+    totals = defaultdict(int)
+    scoped = defaultdict(list)
+    wholes = defaultdict(list)
+    que_versions = defaultdict(set)
+    if not ids:
+        return totals, scoped, wholes, que_versions
+    versions, atypes, formats = _admin_check_scope_from_args(args)
+    vset = set(versions)
+    rows = (db.session.query(QuestionAsset.id, QuestionAsset.question_id,
+                             QuestionAsset.version, QuestionAsset.asset_type,
+                             QuestionAsset.file_format, QuestionAsset.check_state,
+                             QuestionAsset.part_number)
+            .filter(QuestionAsset.question_id.in_(ids))
+            .order_by(QuestionAsset.version, QuestionAsset.part_number).all())
+    for aid, qid_, ver, atype, fmt, state, _part in rows:
+        totals[qid_] += 1
+        if atype == 'WHOLE':
+            if fmt == 'IMG':
+                wholes[qid_].append(aid)
+            continue
+        if atype == 'QUE':
+            que_versions[qid_].add(ver)
+        if (ver in vset and (atypes is None or atype in atypes)
+                and (formats is None or fmt in formats)):
+            scoped[qid_].append(state)
+    return totals, scoped, wholes, que_versions
+
+
+def _admin_row_label(q):
+    if q.part:
+        if is_block(q):
+            return block_display_label(q.part, q.block_end)
+        return f'({q.part})'
+    if q.qno_end:
+        return f'Q{q.qno}-{q.qno_end}'
+    return f'Q{q.qno}'
+
+
+def _admin_row_payload(q, rollup, *, child_count=None):
+    totals, scoped, wholes, que_versions = rollup
+    kids = child_count if child_count is not None else len(q.children)
+    block = is_block(q)
+    return {
+        'id': q.id,
+        'qid': q.qid,
+        'subject': q.subject,
+        'source': q.source,
+        'year': q.year,
+        'paper': q.paper,
+        'section': q.section,
+        'qno': q.qno,
+        'qno_end': q.qno_end,
+        'parent_id': q.parent_id,
+        'part': q.part,
+        'label': _admin_row_label(q),
+        'is_block': block,
+        'block_end': q.block_end if block else None,
+        'is_stem': bool(q.qno_end) or block or kids > 0,
+        'child_count': kids,
+        'q_type': q.q_type,
+        'level': q.level,
+        'created_at': utc_iso(q.created_at) or '',
+        'asset_count': totals.get(q.id, 0),
+        'has_whole': bool(wholes.get(q.id)),
+        'whole_asset_ids': wholes.get(q.id, []),
+        'que_versions': [v for v in VERSIONS if v in que_versions.get(q.id, ())],
+        'verified': bool(q.verified),
+        'check_summary': _admin_check_summary(scoped.get(q.id, [])),
+    }
+
+
+@admin_bp.route('/questions/api/tree', methods=['GET', 'POST'])
 @login_required
 @admin_required
-def questions_api_list():
-    """API: fetch paginated & filtered question list"""
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('page_size', 50))
-    if page_size not in (10, 20, 50, 100, 200):
-        page_size = 50
+def questions_api_tree():
+    """API: one page of whole questions (roots) for one subject, each with
+    its nested parts; rows that hit the filters carry ``matched``."""
+    args = _admin_list_args()
+    sid, err = _admin_list_subject(args)
+    if err:
+        return err
+    query, f = _admin_questions_filter(args, sid)
+    matched_ids = [r[0] for r in query.with_entities(Question.id).all()]
 
-    query = _admin_questions_query_from_args(request.args)
-    total = query.count()
-    questions = query.offset((page - 1) * page_size).limit(page_size).all()
+    parent_of = dict(db.session.query(Question.id, Question.parent_id)
+                     .filter(Question.subject == sid).all())
+    kids_of = {}
+    for cid, pid in parent_of.items():
+        if pid is not None:
+            kids_of.setdefault(pid, []).append(cid)
+    root_ids = root_ids_for(matched_ids, parent_of)
 
-    # Roll up asset check states for THIS page in one query (replaces the old
-    # per-row assets.count() N+1). `asset_count` keeps the TRUE total (all
-    # versions); the status summary follows the active Status advanced scope.
-    from collections import defaultdict
-    page_qids = [q.id for q in questions]
-    total_by_q = defaultdict(int)
-    scoped_states_by_q = defaultdict(list)
-    if page_qids:
-        versions, atypes, formats = _admin_check_scope_from_args(request.args)
-        scoped_assets_query = (
-            db.session.query(QuestionAsset.question_id, QuestionAsset.version,
-                             QuestionAsset.check_state)
-            .filter(QuestionAsset.question_id.in_(page_qids))
-            .filter(QuestionAsset.version.in_(versions))
-        )
-        if atypes is not None:
-            scoped_assets_query = scoped_assets_query.filter(QuestionAsset.asset_type.in_(atypes))
-        if formats is not None:
-            scoped_assets_query = scoped_assets_query.filter(QuestionAsset.file_format.in_(formats))
+    summaries = []
+    if root_ids:
+        for row in (db.session.query(Question.id, Question.qid, Question.source,
+                                     Question.year, Question.paper, Question.qno,
+                                     Question.qno_end, Question.q_type, Question.created_at)
+                    .filter(Question.id.in_(root_ids)).all()):
+            detail = ''
+            if row.source == 'QB':
+                parsed = parse_qid(row.qid)
+                detail = (parsed.detail or '') if parsed else ''
+            summaries.append({
+                'id': row.id, 'source': row.source, 'year': row.year,
+                'paper': row.paper, 'detail': detail, 'qno': row.qno,
+                'qno_end': row.qno_end, 'q_type': row.q_type,
+                'created_at': utc_iso(row.created_at) or '',
+            })
+    summaries.sort(key=root_sort_key(f['sort']), reverse=(f['dir'] == 'desc'))
+    ordered_roots = [s['id'] for s in summaries]
+    page_roots, page, total_pages = page_slice(ordered_roots, f['page'], f['page_size'])
 
-        for qid_, version, state in (db.session.query(QuestionAsset.question_id,
-                                                       QuestionAsset.version,
-                                                       QuestionAsset.check_state)
-                                      .filter(QuestionAsset.question_id.in_(page_qids)).all()):
-            total_by_q[qid_] += 1
-        for qid_, _version, state in scoped_assets_query.all():
-            scoped_states_by_q[qid_].append(state)
+    tree_ids = []
+    stack = list(page_roots)
+    seen = set()
+    while stack:
+        nid = stack.pop()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        tree_ids.append(nid)
+        stack.extend(kids_of.get(nid, ()))
 
-    # WHOLE archive ids for this page (root-only; indicator + quick preview).
-    whole_ids_by_q = defaultdict(list)
-    if page_qids:
-        for qid_, aid in (db.session.query(QuestionAsset.question_id, QuestionAsset.id)
-                          .filter(QuestionAsset.question_id.in_(page_qids),
-                                  QuestionAsset.asset_type == 'WHOLE',
-                                  QuestionAsset.file_format == 'IMG')
-                          .order_by(QuestionAsset.version, QuestionAsset.part_number).all()):
-            whole_ids_by_q[qid_].append(aid)
+    rows = Question.query.filter(Question.id.in_(tree_ids)).all() if tree_ids else []
+    rollup = _admin_asset_rollup(tree_ids, args)
+    payload = [_admin_row_payload(q, rollup, child_count=len(kids_of.get(q.id, ())))
+               for q in rows]
+    items = group_admin_tree(payload, matched_ids, root_order=page_roots)
 
-    def _check_summary(states):
-        total_assets = len(states)
-        n_issues = sum(1 for s in states if s in ('issues', 'error'))
-        n_unchecked = sum(1 for s in states if s is None)
-        n_checking = sum(1 for s in states if s == 'checking')
-        n_ok = sum(1 for s in states if s == 'ok')
-        if total_assets == 0:
-            status = 'none'
-        elif n_issues:
-            status = 'issues'
-        elif n_unchecked or n_checking:
-            status = 'unchecked'
-        else:
-            status = 'ok'
-        return {'status': status, 'total': total_assets, 'ok': n_ok,
-                'issues': n_issues, 'unchecked': n_unchecked}
-
-    items = []
-    for q in questions:
-        items.append({
-            'id': q.id,
-            'qid': q.qid,
-            'subject': q.subject,
-            'source': q.source,
-            'year': q.year,
-            'paper': q.paper,
-            'section': q.section,
-            'qno': q.qno,
-            'qno_end': q.qno_end,
-            'parent_id': q.parent_id,
-            'part': q.part,
-            'block_end': q.block_end if is_block(q) else None,
-            'depth': (2 if (q.parent_id and q.parent and q.parent.parent_id) else (1 if q.parent_id else 0)),
-            'is_stem': bool(q.qno_end) or bool(q.children),
-            'q_type': q.q_type,
-            'level': q.level,
-            'created_at': utc_iso(q.created_at) or '',
-            'asset_count': total_by_q.get(q.id, 0),
-            'has_whole': bool(whole_ids_by_q.get(q.id)),
-            'whole_asset_ids': whole_ids_by_q.get(q.id, []),
-            'verified': bool(q.verified),
-            'check_summary': _check_summary(scoped_states_by_q.get(q.id, [])),
-        })
-
+    root_set = set(root_ids)
+    total_rows = sum(1 for i in parent_of if root_id_of(i, parent_of) in root_set)
     return jsonify({
+        'subject': sid,
         'items': items,
-        'total': total,
+        'total_roots': len(root_ids),
+        'total_rows': total_rows,
+        'total_matched': len(matched_ids),
+        'subject_rows': len(parent_of),
         'page': page,
-        'page_size': page_size,
-        'total_pages': (total + page_size - 1) // page_size,
+        'page_size': f['page_size'],
+        'total_pages': total_pages,
     })
 
 
-@admin_bp.route('/questions/api/ids')
+@admin_bp.route('/questions/api/facets')
+@login_required
+@admin_required
+def questions_api_facets():
+    """API: filter dropdown values (sources / years / papers / types) and
+    row counts for one subject."""
+    sid, err = _admin_list_subject(request.args)
+    if err:
+        return err
+    base = db.session.query(Question).filter(Question.subject == sid)
+
+    def distinct(col):
+        return [v for (v,) in base.with_entities(col).distinct().all() if v not in (None, '')]
+
+    return jsonify({
+        'subject': sid,
+        'sources': sorted(distinct(Question.source)),
+        'years': sorted(distinct(Question.year), reverse=True),
+        'papers': sorted(distinct(Question.paper)),
+        'q_types': sorted(distinct(Question.q_type)),
+        'total_rows': base.count(),
+        'total_roots': base.filter(Question.parent_id.is_(None)).count(),
+    })
+
+
+@admin_bp.route('/questions/api/subjects-of', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def questions_api_subjects_of():
+    """API: which subjects a hand-off id / QID list falls in.
+
+    Body / query: ``ids`` (DB ids) or ``qids`` (QID strings). Returns
+    ``{subjects: {SUBJ: n}, total, missing, inaccessible}`` where ``subjects``
+    only lists subjects the caller can admin (largest first)."""
+    args = _admin_list_args()
+    ids = [int(t) for t in str(args.get('ids') or '').split(',') if t.strip().isdigit()]
+    qids = [t.strip() for t in str(args.get('qids') or '').split(',') if t.strip()]
+    if ids:
+        rows = db.session.query(Question.id, Question.subject).filter(Question.id.in_(ids)).all()
+        asked = len(set(ids))
+    elif qids:
+        rows = db.session.query(Question.id, Question.subject).filter(Question.qid.in_(qids)).all()
+        asked = len(set(qids))
+    else:
+        return jsonify({'subjects': {}, 'total': 0, 'missing': 0, 'inaccessible': 0})
+    allowed = {s.id for s in get_user_admin_subjects()}
+    mine = [(i, s) for i, s in rows if s in allowed]
+    return jsonify({
+        'subjects': subjects_of(mine),
+        'total': len(mine),
+        'missing': max(0, asked - len(rows)),
+        'inaccessible': len(rows) - len(mine),
+    })
+
+
+@admin_bp.route('/questions/api/list', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def questions_api_list():
+    """API: flat, paginated rows for one subject (legacy; the page uses
+    ``/questions/api/tree``)."""
+    args = _admin_list_args()
+    sid, err = _admin_list_subject(args)
+    if err:
+        return err
+    f = parse_list_args(args)
+    query = _admin_questions_query_from_args(args, sid)
+    total = query.count()
+    questions = query.offset((f['page'] - 1) * f['page_size']).limit(f['page_size']).all()
+    rollup = _admin_asset_rollup([q.id for q in questions], args)
+    items = [_admin_row_payload(q, rollup) for q in questions]
+    return jsonify({
+        'items': items,
+        'total': total,
+        'page': f['page'],
+        'page_size': f['page_size'],
+        'total_pages': (total + f['page_size'] - 1) // f['page_size'],
+    })
+
+
+@admin_bp.route('/questions/api/ids', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def questions_api_ids():
-    """API: fetch every question ID matching the current admin question filters."""
-    query = _admin_questions_query_from_args(request.args)
-    rows = query.with_entities(Question.id, Question.qid).all()
-    items = [{'id': row.id, 'qid': row.qid} for row in rows]
+    """API: every row id matching the current filters, inside one subject."""
+    args = _admin_list_args()
+    sid, err = _admin_list_subject(args)
+    if err:
+        return err
+    query = _admin_questions_query_from_args(args, sid)
+    rows = query.with_entities(Question.id, Question.qid, Question.parent_id).all()
+    items = [{'id': row.id, 'qid': row.qid, 'is_root': row.parent_id is None} for row in rows]
     return jsonify({
+        'subject': sid,
         'items': items,
         'ids': [item['id'] for item in items],
         'total': len(items),
@@ -2537,6 +2707,9 @@ def combine_questions_bulk():
             continue
     if not ids:
         return jsonify({'error': 'No questions selected', 'ok': False}), 400
+    refused = _bulk_subject_guard(ids)
+    if refused:
+        return refused
     admin_subjects = [s.id for s in get_user_admin_subjects()]
     questions = (
         Question.query
@@ -2737,6 +2910,9 @@ def split_question_detect(question_id):
 def question_assets(question_id):
     """API: get all assets for a question, grouped by version and type"""
     question = Question.query.get_or_404(question_id)
+    denied = _require_md_admin(question)
+    if denied:
+        return denied
     assets = QuestionAsset.query.filter_by(question_id=question_id).order_by(
         QuestionAsset.version, QuestionAsset.asset_type, QuestionAsset.part_number
     ).all()
@@ -2865,6 +3041,9 @@ def set_asset_check_state(question_id):
 def rename_question(question_id):
     """Rename a question ID and optionally move asset files"""
     question = Question.query.get_or_404(question_id)
+    denied = _require_md_admin(question)
+    if denied:
+        return denied
     data = request.get_json()
     new_qid = data.get('new_qid', '').strip()
     confirm_rename_files = data.get('confirm_rename_files', False)
@@ -3459,6 +3638,9 @@ def new_md_asset_page(question_id):
 def delete_question_asset(question_id, asset_id):
     """Delete a specific asset (DB record + file on disk by default)"""
     asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
+    denied = _require_md_admin(Question.query.get_or_404(question_id))
+    if denied:
+        return denied
     
     file_deleted = False
     file_path = asset.file_path
@@ -3533,6 +3715,9 @@ def reorder_question_assets(question_id):
         return jsonify({'error': 'Missing required fields'}), 400
 
     question = Question.query.get_or_404(question_id)
+    denied = _require_md_admin(question)
+    if denied:
+        return denied
     source_path = current_app.config['SOURCE_PATH']
 
     # Gather assets and record old state. Reordering only applies to IMG
@@ -6363,6 +6548,9 @@ def batch_generate_images():
         return jsonify({'error': 'question_ids must be a comma-separated list of integers'}), 400
     if not question_ids:
         return jsonify({'error': 'question_ids resolved to empty list'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return refused
 
     def _csv_set(name, default):
         raw = request.args.get(name, '').strip()
@@ -6569,6 +6757,9 @@ def batch_mcq_ans():
         return jsonify({'error': 'question_ids must be integers'}), 400
     if not question_ids:
         return jsonify({'error': 'question_ids is empty'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return refused
 
     raw_versions = (request.args.get('versions', '').strip()
                     or request.args.get('langs', '').strip() or 'EN')
@@ -6730,6 +6921,9 @@ def _ai_parse_qs():
         return None, jsonify({'error': 'question_ids must be integers'}), 400
     if not question_ids:
         return None, jsonify({'error': 'question_ids resolved to empty list'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return None, refused[0], refused[1]
 
     admin_subject_ids = [s.id for s in get_user_admin_subjects()]
     qs = Question.query.filter(Question.id.in_(question_ids)).all()
@@ -7718,6 +7912,9 @@ def batch_set_verified():
         return jsonify({'error': 'question_ids must be integers'}), 400
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return refused
     verified = bool(data.get('verified'))
 
     admin_subject_ids = [s.id for s in get_user_admin_subjects()]
@@ -7766,6 +7963,9 @@ def batch_set_check_state():
         return jsonify({'error': 'question_ids must be integers'}), 400
     if not question_ids:
         return jsonify({'error': 'No questions selected'}), 400
+    refused = _bulk_subject_guard(question_ids)
+    if refused:
+        return refused
 
     versions = [str(v).strip().upper() for v in (data.get('versions') or [])]
     versions = [v for v in versions if v in set(VERSIONS)]

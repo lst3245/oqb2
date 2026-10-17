@@ -1,0 +1,190 @@
+<script>
+// ===================== ADD QUESTION WIZARD =====================
+// Defaults to the subject chosen in the header. Step 3 borrows the shared
+// tag form (#editForm) from the edit modal and hands it back on close.
+let addCreatedQuestionId = null;
+let addCreatedQid = null;
+
+function showAddModal() {
+    addCreatedQuestionId = null;
+    addCreatedQid = null;
+    const subj = document.getElementById('addSubject');
+    if (AQ.subject) subj.value = AQ.subject;
+    document.getElementById('addSubjectHint').textContent = AQ.subject
+        ? 'Defaults to the subject you are working in.' : '';
+    goToAddStep(1);
+    document.getElementById('addStep1Error').textContent = '';
+    onAddSourceChange();
+    updateAddQidPreview();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addQuestionModal')).show();
+}
+
+function onAddSourceChange() {
+    const isQB = document.getElementById('addSource').value === 'QB';
+    document.getElementById('addYearGroup').style.display = isQB ? 'none' : '';
+    document.getElementById('addPaperGroup').style.display = isQB ? 'none' : '';
+    document.getElementById('addDetailGroup').style.display = isQB ? '' : 'none';
+}
+
+function updateAddQidPreview() {
+    const subject = document.getElementById('addSubject').value;
+    const source = document.getElementById('addSource').value;
+    const year = document.getElementById('addYear').value;
+    const paper = document.getElementById('addPaper').value;
+    const detail = document.getElementById('addDetail').value.trim();
+    let qno = (document.getElementById('addQno').value || '').trim();
+    if (qno && !/^q/i.test(qno)) qno = 'Q' + qno;
+    if (!qno) qno = 'Q?';
+    const qid = source === 'QB'
+        ? `${subject}_QB_${detail || '???'}_${qno}`
+        : `${subject}_${source}_${year}_${paper}_${qno}`;
+    document.getElementById('addQidPreview').textContent = qid;
+    const other = AQ.subject && subject !== AQ.subject;
+    document.getElementById('addSubjectHint').innerHTML = other
+        ? `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Not the subject you are working in (${aqEsc(AQ.subject)}).</span>`
+        : (AQ.subject ? 'Defaults to the subject you are working in.' : '');
+}
+
+function goToAddStep(step) {
+    ['addStep1', 'addStep2', 'addStep3'].forEach((id, i) => {
+        document.getElementById(id).style.display = (i + 1 === step) ? '' : 'none';
+    });
+    ['addStep1Ind', 'addStep2Ind', 'addStep3Ind'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.classList.remove('active', 'done');
+        if (i + 1 === step) el.classList.add('active');
+        else if (i + 1 < step) el.classList.add('done');
+    });
+
+    if (step === 2 && addCreatedQuestionId) {
+        document.getElementById('addStep2Qid').textContent = addCreatedQid;
+        returnTagFormToEditModal();
+        const area = document.getElementById('addAssetUploadArea');
+        area.innerHTML = renderAssetSections(addCreatedQuestionId, 'EN', {}, 'add');
+        const verBtns = AQ_VERSIONS.map((v, i) =>
+            `<button class="btn btn-outline-primary${i === 0 ? ' active' : ''}" onclick="reloadAddAssets('${v}', this)">${v}</button>`
+        ).join('');
+        area.insertAdjacentHTML('afterbegin', `
+            <div class="mb-3">
+                <label class="form-label">Upload version:</label>
+                <div class="btn-group btn-group-sm">${verBtns}</div>
+            </div>`);
+    }
+
+    if (step === 3 && addCreatedQuestionId) {
+        document.getElementById('addStep3Qid').textContent = addCreatedQid;
+        borrowTagFormForAdd();
+        populateTagForm({
+            subject: document.getElementById('addSubject').value,
+            level: null, q_type: '', section: '', description: '',
+            correct_percentage: null, marks: null, answer: '', comment: '',
+            major_topic_id: null, major_subtopic_id: null,
+            minor_topic_ids: [], subtopic_ids: [],
+            chapter_id: null, subchapter_id: null
+        });
+    }
+}
+
+function borrowTagFormForAdd() {
+    const editForm = document.getElementById('editForm');
+    const addArea = document.getElementById('addTagFormArea');
+    if (editForm && addArea && !addArea.contains(editForm)) {
+        addArea.appendChild(editForm);
+        const saveBtn = editForm.querySelector('[onclick="saveQuestionTags()"]');
+        if (saveBtn) saveBtn.closest('.mt-3').style.display = 'none';
+    }
+}
+
+function returnTagFormToEditModal() {
+    const editForm = document.getElementById('editForm');
+    const tabTags = document.getElementById('tabTags');
+    if (editForm && tabTags && !tabTags.contains(editForm)) {
+        tabTags.appendChild(editForm);
+        const saveBtn = editForm.querySelector('[onclick="saveQuestionTags()"]');
+        if (saveBtn) saveBtn.closest('.mt-3').style.display = '';
+    }
+}
+
+function reloadAddAssets(lang, btn) {
+    btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    window.addActivePasteTarget = { lang, atype: 'QUE', ctx: 'add' };
+    const area = document.getElementById('addAssetUploadArea');
+    const langSelector = area.querySelector('.mb-3');
+    area.innerHTML = '';
+    if (langSelector) area.appendChild(langSelector);
+    area.insertAdjacentHTML('beforeend', renderAssetSections(addCreatedQuestionId, lang, {}, 'add'));
+    fetch(AQ.cfg.urls.questionAssets.replace('/0/', `/${addCreatedQuestionId}/`))
+        .then(r => r.json())
+        .then(data => {
+            const html = renderAssetSections(addCreatedQuestionId, lang, (data.assets || {})[lang] || {}, 'add');
+            while (area.children.length > 1) area.removeChild(area.lastChild);
+            area.insertAdjacentHTML('beforeend', html);
+        });
+}
+
+function createQuestionStep1() {
+    const subject = document.getElementById('addSubject').value;
+    const source = document.getElementById('addSource').value;
+    const body = { subject, source, qno: document.getElementById('addQno').value.trim() };
+    if (source !== 'QB') {
+        body.year = parseInt(document.getElementById('addYear').value, 10);
+        body.paper = document.getElementById('addPaper').value;
+    } else {
+        body.detail = document.getElementById('addDetail').value.trim();
+    }
+    const err = document.getElementById('addStep1Error');
+    err.textContent = '';
+    fetch(AQ.cfg.urls.createQuestion, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                addCreatedQuestionId = data.question.id;
+                addCreatedQid = data.question.qid;
+                showToast(`Question ${aqEsc(data.question.qid)} created.`);
+                goToAddStep(2);
+            } else {
+                err.textContent = data.error || 'Could not create the question.';
+            }
+        })
+        .catch(e => { err.textContent = 'Error: ' + e.message; });
+}
+
+function saveAddQuestionTags() {
+    if (!addCreatedQuestionId) return Promise.resolve();
+    const editForm = document.getElementById('editForm');
+    if (!editForm) return Promise.resolve();
+    return fetch(AQ.cfg.urls.updateQuestion.replace('/0/', `/${addCreatedQuestionId}/`), {
+        method: 'POST',
+        body: new FormData(editForm)
+    }).then(r => r.json());
+}
+
+function finishAndAddAnother() {
+    saveAddQuestionTags().then(() => {
+        returnTagFormToEditModal();
+        const qnoInput = document.getElementById('addQno');
+        const n = parseInt(qnoInput.value, 10);
+        if (!isNaN(n)) qnoInput.value = n + 1;
+        addCreatedQuestionId = null;
+        addCreatedQid = null;
+        goToAddStep(1);
+        updateAddQidPreview();
+        aqReload();
+    });
+}
+
+function finishAndEdit() {
+    saveAddQuestionTags().then(() => {
+        const editId = addCreatedQuestionId;
+        returnTagFormToEditModal();
+        bootstrap.Modal.getInstance(document.getElementById('addQuestionModal')).hide();
+        aqReload();
+        setTimeout(() => openEditModal(editId), 500);
+    });
+}
+</script>

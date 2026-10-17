@@ -1,0 +1,38 @@
+<div class="bp-op d-none" data-op="aiSolveCheck">
+    <div class="row g-3">
+        <div class="col-sm-4">
+            <div class="bp-section-title">Versions</div>
+            {% for v in OQB_VERSIONS %}
+            <div class="form-check">
+                <input class="form-check-input op-solvecheck-version" type="checkbox" value="{{ v }}" id="opSolveCheckVer_{{ v }}"{% if v == 'EN' %} checked{% endif %}>
+                <label class="form-check-label" for="opSolveCheckVer_{{ v }}">{{ v }}</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Check</div>
+            {% for val, label, on in [('ANS', 'ANS assets', true), ('SOL', 'SOL assets', true), ('ANS_TEXT', 'ANS text (report only)', false)] %}
+            <div class="form-check">
+                <input class="form-check-input op-solvecheck-target" type="checkbox" value="{{ val }}" id="opSolveCheckTarget_{{ val }}"{% if on %} checked{% endif %}>
+                <label class="form-check-label" for="opSolveCheckTarget_{{ val }}">{{ label }}</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Formats</div>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                {% for f in ['IMG', 'MD', 'DOC'] %}
+                <div class="form-check">
+                    <input class="form-check-input op-solvecheck-format" type="checkbox" value="{{ f }}" id="opSolveCheckFmt_{{ f }}" checked>
+                    <label class="form-check-label" for="opSolveCheckFmt_{{ f }}">{{ f }}</label>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="opSolveCheckOfficial">
+                <label class="form-check-label" for="opSolveCheckOfficial">Also send ENO/CHO SOL when available</label>
+            </div>
+        </div>
+    </div>
+    <div class="form-text">ANS / SOL issues are written to the proofread state of each asset. ANS text findings only appear in the log.</div>
+</div>

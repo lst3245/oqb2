@@ -45,6 +45,7 @@ The server checks the `HX-Request` header and returns only `partials/question_li
 |---|---|
 | `partials/question_list.html` | dashboard HTMX target only (rendered by `filter_questions` and included by `dashboard.html`). Every question is a **question sheet**: head bar + paper \| rail rows, with one image scale per sheet and an Enlarge overlay. Spec and invariants: [../modules/dashboard.md](../modules/dashboard.md#question-sheets-card-layout). Elsewhere, crops of one question stacked together should likewise share one scale (no per-image `max-height`). |
 | `partials/edit_question_modal.html` | shared 3-tab Edit modal + `#renameConfirmModal` + `#mdEditorModal` + `#toastContainer`; mounted by `dashboard.html` (admin-gated) and `admin_questions.html`. Contract: [../modules/admin-questions.md](../modules/admin-questions.md) |
+| `admin_questions/*.html` | Question Management page parts (header, filters, tree, action bar, bulk panel + `ops/`, add modal, `_js_*.html`). Page-local, not reusable elsewhere; their JS shares the global scope with the Edit-modal JS, hence the `aq` / `bp` / `op` name prefixes. |
 | `partials/edit_question_modal_js.html` | all Edit-modal JS; **transitively includes** `tag_editor_js.html` — do not include that separately |
 | `partials/tag_editor_form.html`, `partials/tag_editor_js.html` | tag editor (Tags tab; borrowed by the admin Add-question wizard step 3) |
 | `partials/md_editor.html` | EasyMDE-based Markdown editor; included by the Edit modal (idempotent) and `admin_md_editor.html` |
@@ -102,6 +103,18 @@ es.onmessage = e => { const ev = JSON.parse(e.data); appendLog(ev.message, ev.ty
 
 Event types: `info | success | skip | error | done`, optional `current` / `total`. Server contract: [../core/04-backend-conventions.md](../core/04-backend-conventions.md).
 
+## Bulk actions (Question Management `BulkRunner`)
+
+New bulk actions on `/admin/questions` do not get their own modal. They are one entry in `AQ_OPS` (`admin_questions/_js_ops.html`) plus a form `admin_questions/ops/<op>.html` (`<div class="bp-op d-none" data-op="…">`), driven by the `#aqBulkPanel` offcanvas (`_js_bulk.html`):
+
+- **Configure** → `collect()` / `validate(p)`; **Review** → `summary(p)`, affected-row list, preflight `/admin/questions/api/subjects-of`, optional server dry run `preview(ids, p)` → `{html, block}`; **Run** → `transport` `json` / `form` (`request(ids, p)`, `result(data)`) or `sse` (`sse.url()`, `sse.params(p)`, `stats` keys; ids are sent 800 per stream).
+- Every request carries `subject_id` (`opIdsForm` for forms; the SSE runner adds it). The route must call `_bulk_subject_guard` ([ADR-016](../decisions/ADR-016-single-subject-question-management.md)).
+- Confirm gate: `danger(p) === 'typed'` → the user types the subject code; otherwise more than 100 rows → a tick. Destructive = deletes rows / files or overwrites data a teacher entered.
+- Stop: AI ops cancel through `/admin/questions/ai/cancel` and wait for `done`; other streams close client-side.
+- Results: put the QID in `error` event messages (or an event `qid`) so **Select failed only** can find the rows.
+
+The same panel pattern (Configure → Review with a dry run → Run with log) is the model for any other page that runs a destructive batch.
+
 ## Polling conventions
 
 - `generate.html` polls `GET /generate/status/<id>` every 2 s until `completed` / `failed`.
@@ -113,6 +126,7 @@ Event types: `info | success | skip | error | done`, optional `current` / `total
 |---|---|
 | `oqb_assetThumbsCompact` (`'1'`/`'0'`) | Edit modal asset preview density (`oqbInitThumbCompact`) |
 | `oqb_adminTaxonomyPreview` (`'1'`/`'0'`, absent = on) | Admin → Topics numbering & MC/CQ preview switch (`oqbTaxonomyAdmin`) |
+| `oqb_adminQuestionsState` (JSON `{subject, filtersBySubject, pageSize, sort}`) | Question Management (`admin_questions/_js_state.html`); replaced `oqb_adminQuestionsFilters`, which is deleted on load. The selection is never stored. |
 | dashboard selection / scratch sets / set-builder state | `dashboard.html` (see [../modules/dashboard.md](../modules/dashboard.md)) |
 | Markup canvas autosave | IndexedDB, not localStorage ([../modules/markup.md](../modules/markup.md)) |
 

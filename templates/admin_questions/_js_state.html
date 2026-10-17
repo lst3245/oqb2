@@ -1,0 +1,416 @@
+<script>
+// ===================== STATE (single subject, ADR-016) =====================
+// Everything on this page is scoped to AQ.subject: the list, search, select
+// all and every bulk call (which also sends subject_id; the server refuses
+// ids outside it). Filters are remembered per subject.
+const AQ_STATE_KEY = 'oqb_adminQuestionsState';
+const AQ_VERSIONS = window.OQB_VERSIONS || ['EN', 'CH', 'BI', 'ENO', 'CHO'];
+const AQ_TYPED_VERSIONS = ['EN', 'CH', 'BI'].filter(v => AQ_VERSIONS.includes(v));
+const AQ_ATYPES = ['QUE', 'ANS', 'SOL'];
+const AQ_FORMATS = ['IMG', 'MD', 'DOC'];
+const AQ_PAGE_SIZES = [10, 20, 50, 100, 200];
+const AQ_SORTS = ['qid', 'qno', 'year', 'q_type', 'created_at'];
+const AQ_STRUCTURE_LABELS = {
+    with_parts: 'Questions with parts', standalone: 'Standalone questions',
+    leaves: 'Printable parts only', roots: 'Top-level rows only'
+};
+
+function aqDefaultFilters() {
+    return {
+        q: '', source: '', years: [], paper: '', q_type: '', tree_scope: 'all',
+        verified: '', check_status: '', has_whole: false,
+        scope: { versions: AQ_TYPED_VERSIONS.slice(), atypes: AQ_ATYPES.slice(), formats: AQ_FORMATS.slice() },
+    };
+}
+
+const AQ = {
+    cfg: window.AQ_CONFIG,
+    subject: '',
+    filters: aqDefaultFilters(),
+    sort: { field: 'qid', dir: 'asc' },
+    page: 1,
+    pageSize: 50,
+    pinned: null,          // {kind: 'qids' | 'selected_ids', values: [...], label}
+    selected: new Map(),   // row id -> {qid, root}
+    allMatching: null,     // {signature, total} after "select all matching"
+    data: null,            // last /api/tree response
+    nodes: new Map(),      // row id -> node on the current page
+    open: new Map(),       // node id -> bool, user override of the default expand state
+    facets: null,
+    seq: 0,
+};
+
+function aqEsc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function aqSubjectName(sid) {
+    const s = (AQ.cfg.subjects || []).find(x => x.id === sid);
+    return s ? s.name : sid;
+}
+
+function aqPost(url, body) {
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+    }).then(r => r.json().then(d => {
+        if (!r.ok) { const e = new Error(d.error || ('HTTP ' + r.status)); e.data = d; throw e; }
+        return d;
+    }));
+}
+
+// ---- persistence ----
+function aqLoadStore() {
+    try { return JSON.parse(localStorage.getItem(AQ_STATE_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function aqSaveStore() {
+    try {
+        const s = aqLoadStore();
+        if (AQ.subject) s.subject = AQ.subject;
+        s.filtersBySubject = s.filtersBySubject || {};
+        if (AQ.subject) s.filtersBySubject[AQ.subject] = AQ.filters;
+        s.pageSize = AQ.pageSize;
+        s.sort = AQ.sort;
+        localStorage.setItem(AQ_STATE_KEY, JSON.stringify(s));
+    } catch (e) { /* private mode / quota */ }
+}
+
+// ---- subject ----
+function aqSubjectChanged(newSid, opts) {
+    opts = opts || {};
+    const sel = document.getElementById('aqSubject');
+    if (!newSid) return false;
+    if (newSid === AQ.subject && !opts.reload) { sel.value = newSid; return true; }
+    if (AQ.selected.size && newSid !== AQ.subject && !opts.force) {
+        const ok = confirm(`Clear the ${AQ.selected.size} selected row(s) in ${AQ.subject}?\n\n`
+            + 'A selection never carries over to another subject.');
+        if (!ok) { sel.value = AQ.subject || ''; return false; }
+    }
+    if (newSid !== AQ.subject) {
+        AQ.selected.clear();
+        AQ.allMatching = null;
+        AQ.open.clear();
+        if (!opts.keepPinned) AQ.pinned = null;
+    }
+    AQ.subject = newSid;
+    sel.value = newSid;
+    const saved = (aqLoadStore().filtersBySubject || {})[newSid] || {};
+    const base = aqDefaultFilters();
+    AQ.filters = Object.assign(base, saved);
+    AQ.filters.scope = Object.assign(aqDefaultFilters().scope, saved.scope || {});
+    if (!Array.isArray(AQ.filters.years)) AQ.filters.years = [];
+    AQ.page = 1;
+    aqSaveStore();
+    document.getElementById('aqAddBtn').disabled = false;
+    document.getElementById('aqFilters').classList.remove('opacity-50');
+    aqSyncFilterUI();
+    aqUpdateSelectionUI();
+    aqLoadFacets().then(() => { aqSyncFilterUI(); aqReload(); });
+    return true;
+}
+
+function aqLoadFacets() {
+    const sid = AQ.subject;
+    return fetch(AQ.cfg.urls.facets + '?subject=' + encodeURIComponent(sid))
+        .then(r => r.json())
+        .then(d => {
+            if (sid !== AQ.subject) return;
+            AQ.facets = d;
+            const fill = (id, values) => {
+                const el = document.getElementById(id);
+                el.innerHTML = '<option value="">Any</option>'
+                    + (values || []).map(v => `<option value="${aqEsc(v)}">${aqEsc(v)}</option>`).join('');
+            };
+            fill('aqSource', d.sources);
+            fill('aqPaper', d.papers);
+            document.getElementById('aqYearsMenu').innerHTML = (d.years || []).length
+                ? d.years.map(y => `<div class="form-check">
+                        <input class="form-check-input aq-year" type="checkbox" value="${y}" id="aqYear_${y}" onchange="aqToggleYear(${y}, this.checked)">
+                        <label class="form-check-label" for="aqYear_${y}">${y}</label></div>`).join('')
+                : '<div class="small text-muted px-1">No years in this subject</div>';
+            document.getElementById('aqSubjectMeta').textContent =
+                `${d.total_roots} questions · ${d.total_rows} rows`;
+        })
+        .catch(() => { document.getElementById('aqSubjectMeta').textContent = ''; });
+}
+
+// ---- filters ----
+function aqSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    value = value == null ? '' : String(value);
+    if (value && !Array.from(el.options).some(o => o.value === value)) {
+        el.insertAdjacentHTML('beforeend', `<option value="${aqEsc(value)}">${aqEsc(value)}</option>`);
+    }
+    el.value = value;
+}
+
+function aqScopeIsDefault(scope) {
+    const same = (a, b) => a.length === b.length && a.every(v => b.includes(v));
+    return same(scope.versions, AQ_TYPED_VERSIONS) && same(scope.atypes, AQ_ATYPES) && same(scope.formats, AQ_FORMATS);
+}
+
+function aqSyncFilterUI() {
+    const f = AQ.filters;
+    const search = document.getElementById('aqSearch');
+    if (document.activeElement !== search) search.value = f.q || '';
+    aqSelectValue('aqSource', f.source);
+    aqSelectValue('aqPaper', f.paper);
+    aqSelectValue('aqType', f.q_type);
+    aqSelectValue('aqStructure', f.tree_scope || 'all');
+    aqSelectValue('aqVerified', f.verified);
+    aqSelectValue('aqCheckStatus', f.check_status);
+    document.getElementById('aqHasWhole').checked = !!f.has_whole;
+    document.querySelectorAll('.aq-year').forEach(cb => { cb.checked = f.years.includes(parseInt(cb.value, 10)); });
+    const yb = document.getElementById('aqYearsBtn');
+    yb.textContent = !f.years.length ? 'Any'
+        : (f.years.length <= 2 ? f.years.slice().sort().join(', ') : `${f.years.length} years`);
+    document.querySelectorAll('.aq-scope-version').forEach(cb => { cb.checked = f.scope.versions.includes(cb.value); });
+    document.querySelectorAll('.aq-scope-atype').forEach(cb => { cb.checked = f.scope.atypes.includes(cb.value); });
+    document.querySelectorAll('.aq-scope-format').forEach(cb => { cb.checked = f.scope.formats.includes(cb.value); });
+    document.getElementById('aqScopeBadge').classList.toggle('d-none', aqScopeIsDefault(f.scope));
+    aqRenderChips();
+}
+
+function aqSetFilter(key, value) {
+    if (key === 'q') {
+        document.getElementById('aqSearch').value = value;
+        if (value && AQ.pinned) AQ.pinned = null;
+    }
+    AQ.filters[key] = value;
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqFiltersChanged() {
+    AQ.allMatching = null;
+    aqSaveStore();
+    aqSyncFilterUI();
+    aqReload();
+}
+
+function aqToggleYear(y, on) {
+    const ys = new Set(AQ.filters.years);
+    if (on) ys.add(y); else ys.delete(y);
+    AQ.filters.years = Array.from(ys).sort((a, b) => b - a);
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqScopeChanged() {
+    const vals = sel => Array.from(document.querySelectorAll(sel + ':checked')).map(cb => cb.value);
+    AQ.filters.scope = { versions: vals('.aq-scope-version'), atypes: vals('.aq-scope-atype'), formats: vals('.aq-scope-format') };
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqResetScope() {
+    AQ.filters.scope = aqDefaultFilters().scope;
+    aqFiltersChanged();
+}
+
+function aqResetFilters() {
+    AQ.filters = aqDefaultFilters();
+    AQ.pinned = null;
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqClearPinned() {
+    AQ.pinned = null;
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqRenderChips() {
+    const f = AQ.filters;
+    const chips = [];
+    const chip = (label, onclick, pinned) =>
+        `<span class="aq-chip${pinned ? ' aq-chip-pinned' : ''}">${label}
+            <button type="button" class="btn-close" aria-label="Remove" onclick="${onclick}"></button></span>`;
+    if (AQ.pinned) {
+        chips.push(chip(`<i class="bi bi-pin-angle"></i> ${aqEsc(AQ.pinned.label)} (${AQ.pinned.values.length})`, 'aqClearPinned()', true));
+    }
+    if (f.q) chips.push(chip(`QID: <code>${aqEsc(f.q)}</code>`, "aqSetFilter('q', '')"));
+    if (f.source) chips.push(chip(`Source: ${aqEsc(f.source)}`, "aqSetFilter('source', '')"));
+    if (f.years.length) chips.push(chip(`Years: ${f.years.slice().sort().join(', ')}`, "aqSetFilter('years', [])"));
+    if (f.paper) chips.push(chip(`Paper: ${aqEsc(f.paper)}`, "aqSetFilter('paper', '')"));
+    if (f.q_type) chips.push(chip(`Type: ${aqEsc(f.q_type)}`, "aqSetFilter('q_type', '')"));
+    if (f.tree_scope && f.tree_scope !== 'all') chips.push(chip(AQ_STRUCTURE_LABELS[f.tree_scope] || f.tree_scope, "aqSetFilter('tree_scope', 'all')"));
+    if (f.verified !== '') chips.push(chip(f.verified === '1' ? 'Verified' : 'Not verified', "aqSetFilter('verified', '')"));
+    if (f.check_status) {
+        const lbl = { issues: 'Has issues', ok: 'All checked OK', unchecked: 'Has unchecked' }[f.check_status];
+        chips.push(chip(`Proofread: ${lbl}${aqScopeIsDefault(f.scope) ? '' : ' (custom scope)'}`, "aqSetFilter('check_status', '')"));
+    }
+    if (f.has_whole) chips.push(chip('<i class="bi bi-archive"></i> Has archive', "aqSetFilter('has_whole', false)"));
+    document.getElementById('aqChips').innerHTML = chips.join('');
+}
+
+// Query sent to /api/tree and /api/ids (POST body, so long id lists fit).
+function aqQuery(extra) {
+    const f = AQ.filters;
+    const p = { subject: AQ.subject, sort: AQ.sort.field, dir: AQ.sort.dir };
+    if (AQ.pinned) p[AQ.pinned.kind] = AQ.pinned.values.join(',');
+    else if (f.q) p.qid_search = f.q;
+    if (f.source) p.source = f.source;
+    if (f.years.length) p.years = f.years.join(',');
+    if (f.paper) p.paper = f.paper;
+    if (f.q_type) p.q_type = f.q_type;
+    if (f.tree_scope && f.tree_scope !== 'all') p.tree_scope = f.tree_scope;
+    if (f.verified !== '') p.verified = f.verified;
+    if (f.has_whole) p.has_whole = '1';
+    if (f.check_status) p.check_status = f.check_status;
+    if (!aqScopeIsDefault(f.scope)) {
+        p.check_versions = f.scope.versions.join(',');
+        p.check_atypes = f.scope.atypes.join(',');
+        p.check_formats = f.scope.formats.join(',');
+    }
+    return Object.assign(p, extra || {});
+}
+
+function aqFilterSignature() {
+    const q = aqQuery();
+    delete q.sort; delete q.dir;
+    return JSON.stringify(q);
+}
+
+// ---- sorting / paging ----
+function aqSortBy(field) {
+    if (AQ.sort.field === field) AQ.sort.dir = AQ.sort.dir === 'asc' ? 'desc' : 'asc';
+    else AQ.sort = { field, dir: field === 'created_at' ? 'desc' : 'asc' };
+    AQ.page = 1;
+    aqSaveStore();
+    aqReload();
+}
+
+function aqSetPageSize(v) {
+    AQ.pageSize = AQ_PAGE_SIZES.includes(+v) ? +v : 50;
+    AQ.page = 1;
+    aqSaveStore();
+    aqReload();
+}
+
+function aqGoToPage(p) { AQ.page = p; aqReload(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+// ---- hand-off from the dashboard / Health / Subject AI ----
+function aqDashboardIds() {
+    try { const raw = localStorage.getItem('oqb_selectedQuestions'); return raw ? JSON.parse(raw) : []; }
+    catch (e) { return []; }
+}
+
+function aqDismissHandoff() {
+    document.getElementById('aqHandoff').classList.add('d-none');
+}
+
+// Resolve which subject(s) a linked id / QID list belongs to. One subject:
+// switch to it and pin the list. Several: let the user pick (nothing loads
+// across subjects).
+function aqHandoff(kind, values, label) {
+    if (!values.length) return Promise.resolve(false);
+    const body = kind === 'qids' ? { qids: values } : { ids: values };
+    return aqPost(AQ.cfg.urls.subjectsOf, body).then(d => {
+        const subs = Object.entries(d.subjects || {});
+        const lost = (d.missing || 0) + (d.inaccessible || 0);
+        if (lost) showToast(`${lost} linked question(s) no longer exist or are in a subject you do not manage.`, 'warning');
+        if (!subs.length) {
+            showToast(`None of the ${values.length} linked question(s) are in a subject you manage.`, 'warning');
+            return false;
+        }
+        const pin = { kind, values, label };
+        if (subs.length === 1) { aqApplyHandoff(subs[0][0], pin); return true; }
+        AQ._pendingPin = pin;
+        document.getElementById('aqHandoffText').innerHTML =
+            `<strong>${aqEsc(label)}</strong> spans ${subs.length} subjects. Bulk actions work on one subject at a time — pick one:`;
+        document.getElementById('aqHandoffButtons').innerHTML = subs.map(([sid, n]) =>
+            `<button type="button" class="btn btn-sm btn-warning" onclick="aqApplyHandoff('${aqEsc(sid)}')">${aqEsc(sid)} <span class="badge bg-light text-dark">${n}</span></button>`
+        ).join('');
+        document.getElementById('aqHandoff').classList.remove('d-none');
+        return 'choose';
+    }).catch(err => { showToast('Could not resolve the linked questions: ' + err.message, 'danger'); return false; });
+}
+
+function aqApplyHandoff(sid, pin) {
+    pin = pin || AQ._pendingPin;
+    aqDismissHandoff();
+    if (!pin) return;
+    if (sid !== AQ.subject) {
+        const prevPinned = AQ.pinned;
+        AQ.pinned = pin;
+        if (!aqSubjectChanged(sid, { keepPinned: true })) { AQ.pinned = prevPinned; return; }
+        aqRenderChips();
+        return;
+    }
+    AQ.pinned = pin;
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+function aqUseDashboardSelection(quiet) {
+    const ids = aqDashboardIds();
+    if (!ids.length) {
+        if (!quiet) showToast('Nothing is selected on the dashboard.', 'info');
+        return Promise.resolve(false);
+    }
+    return aqHandoff('selected_ids', ids.map(Number).filter(n => !isNaN(n)), 'Dashboard selection');
+}
+
+function aqShowSelectedOnly() {
+    if (!AQ.selected.size) return;
+    AQ.pinned = { kind: 'selected_ids', values: Array.from(AQ.selected.keys()), label: 'Selected rows' };
+    AQ.page = 1;
+    aqFiltersChanged();
+}
+
+// ---- init ----
+document.addEventListener('DOMContentLoaded', function () {
+    try { localStorage.removeItem('oqb_adminQuestionsFilters'); } catch (e) { /* ignore */ }
+    document.getElementById('aqDashSelCount').textContent = aqDashboardIds().length;
+    document.getElementById('aqFilters').classList.add('opacity-50');
+
+    let debounce = null;
+    document.getElementById('aqSearch').addEventListener('input', function () {
+        const v = this.value.trim();
+        clearTimeout(debounce);
+        debounce = setTimeout(() => { if (AQ.subject) aqSetFilter('q', v); }, 300);
+    });
+    document.getElementById('aqSubject').addEventListener('change', function () {
+        aqDismissHandoff();
+        aqSubjectChanged(this.value);
+    });
+    document.getElementById('addQuestionModal').addEventListener('hidden.bs.modal', returnTagFormToEditModal);
+
+    const store = aqLoadStore();
+    AQ.pageSize = AQ_PAGE_SIZES.includes(+store.pageSize) ? +store.pageSize : 50;
+    if (store.sort && AQ_SORTS.includes(store.sort.field)) AQ.sort = store.sort;
+    document.getElementById('aqPageSize').value = String(AQ.pageSize);
+
+    // One-shot entry params, stripped so a refresh does not re-apply them.
+    const url = new URL(window.location.href);
+    let qids = url.searchParams.get('qids');
+    const token = url.searchParams.get('qids_token');
+    if (!qids && token) {
+        try { qids = localStorage.getItem(token); localStorage.removeItem(token); } catch (e) { /* ignore */ }
+    }
+    const ids = url.searchParams.get('ids');
+    const fromDashboard = url.searchParams.get('from') === 'dashboard';
+    const subjectParam = url.searchParams.get('subject');
+    ['qids', 'qids_token', 'ids', 'from', 'subject'].forEach(k => url.searchParams.delete(k));
+    window.history.replaceState({}, document.title, url.toString());
+
+    const known = sid => (AQ.cfg.subjects || []).some(s => s.id === sid);
+    let start = known(subjectParam) ? subjectParam : (known(store.subject) ? store.subject : '');
+    if (!start && (AQ.cfg.subjects || []).length === 1) start = AQ.cfg.subjects[0].id;
+
+    let handoff = Promise.resolve(false);
+    if (qids) handoff = aqHandoff('qids', qids.split(',').map(s => s.trim()).filter(Boolean), 'Linked QIDs');
+    else if (ids) handoff = aqHandoff('selected_ids', ids.split(',').map(Number).filter(n => !isNaN(n)), 'Linked questions');
+    else if (fromDashboard) handoff = aqUseDashboardSelection(true);
+    handoff.then(res => {
+        if (res === true) return;
+        if (start) aqSubjectChanged(start, { force: true });
+    });
+});
+</script>

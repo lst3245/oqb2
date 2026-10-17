@@ -18,6 +18,7 @@ from app.hierarchy import (
     question_root,
     whole_marks,
     format_qno_token,
+    group_admin_tree,
     label_is_ancestor,
     next_part_label,
     group_for_dashboard,
@@ -31,6 +32,8 @@ from app.hierarchy import (
     rename_shape_ok,
     resolve_render_plan,
     rewrite_descendant_token,
+    root_id_of,
+    root_ids_for,
     seq_owner_id,
     sort_key,
     split_part_path,
@@ -660,6 +663,68 @@ class AncestorsLeftEmptyTests(unittest.TestCase):
         leaves = [2, 3, 5, 6]
         self.assertEqual(self._run(leaves, keep={1}), [4])   # root has a WHOLE archive
         self.assertEqual(self._run(leaves, keep={4}), [])    # Q7 still has the kept block
+
+
+class AdminTreeTests(unittest.TestCase):
+    """Question Management groups rows under their whole question (ADR-016)."""
+
+    # Q7(1) -> ~c(4) -> d(6), c(5); a(2); b(3)   (input order deliberately shuffled)
+    # Q8(10) standalone;  Q23-24(20) -> Q24(22), Q23(21)
+    ROWS = [
+        dict(id=6, parent_id=4, part='d', qno=7), dict(id=1, parent_id=None, part=None, qno=7),
+        dict(id=3, parent_id=1, part='b', qno=7), dict(id=4, parent_id=1, part='~c', qno=7),
+        dict(id=5, parent_id=4, part='c', qno=7), dict(id=2, parent_id=1, part='a', qno=7),
+        dict(id=10, parent_id=None, part=None, qno=8),
+        dict(id=22, parent_id=20, part=None, qno=24), dict(id=20, parent_id=None, part=None, qno=23),
+        dict(id=21, parent_id=20, part=None, qno=23),
+    ]
+    PARENT = {r['id']: r['parent_id'] for r in ROWS}
+
+    def _flat(self, node):
+        out = [(node['id'], node['depth'])]
+        for c in node['children']:
+            out.extend(self._flat(c))
+        return out
+
+    def test_nesting_and_print_order(self):
+        roots = group_admin_tree(self.ROWS, root_order=[1, 10, 20])
+        self.assertEqual([r['id'] for r in roots], [1, 10, 20])
+        self.assertEqual(self._flat(roots[0]), [(1, 0), (2, 1), (3, 1), (4, 1), (5, 2), (6, 2)])
+        self.assertEqual(roots[0]['subtree_ids'], [1, 2, 3, 4, 5, 6])
+        self.assertEqual([c['id'] for c in roots[2]['children']], [21, 22])
+        self.assertEqual(roots[1]['children'], [])
+
+    def test_block_sorts_before_its_first_part(self):
+        rows = [dict(id=1, parent_id=None, part=None, qno=7), dict(id=5, parent_id=1, part='c', qno=7),
+                dict(id=4, parent_id=1, part='~c', qno=7), dict(id=7, parent_id=1, part='b', qno=7)]
+        root = group_admin_tree(rows)[0]
+        self.assertEqual([c['id'] for c in root['children']], [7, 4, 5])
+
+    def test_matched_counts(self):
+        roots = group_admin_tree(self.ROWS, matched_ids=[5, 10], root_order=[1, 10, 20])
+        q7 = roots[0]
+        self.assertFalse(q7['matched'])
+        self.assertEqual(q7['matched_count'], 1)
+        block = q7['children'][2]
+        self.assertEqual((block['id'], block['matched'], block['matched_count']), (4, False, 1))
+        self.assertTrue(roots[1]['matched'])
+        self.assertEqual(roots[2]['matched_count'], 0)
+
+    def test_root_order_filters_and_orphans_become_roots(self):
+        self.assertEqual([r['id'] for r in group_admin_tree(self.ROWS, root_order=[20, 1])], [20, 1])
+        orphan = group_admin_tree([dict(id=5, parent_id=4, part='c', qno=7)])
+        self.assertEqual((orphan[0]['id'], orphan[0]['depth']), (5, 0))
+
+    def test_input_rows_are_not_mutated(self):
+        rows = [dict(r) for r in self.ROWS]
+        group_admin_tree(rows)
+        self.assertNotIn('children', rows[0])
+
+    def test_root_lookup(self):
+        self.assertEqual(root_id_of(6, self.PARENT), 1)
+        self.assertEqual(root_id_of(10, self.PARENT), 10)
+        self.assertEqual(root_ids_for([6, 22, 2, 10, 21], self.PARENT), [1, 20, 10])
+        self.assertEqual(root_id_of(99, self.PARENT), 99)
 
 
 class ExistingQnoSortStillNumeric(unittest.TestCase):

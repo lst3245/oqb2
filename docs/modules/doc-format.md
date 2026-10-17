@@ -17,7 +17,7 @@
 | `templates/base.html` | `oqbLoadMarkdownPreviewCards`, `oqbPollDocThumbnails`, `oqbRerenderThumb`, `_oqbBuildThumbHtml`, `window.OQB_IS_ADMIN`. |
 | `templates/dashboard.html`, `templates/partials/question_list.html` | `previewAsset` modal + card list wiring for the poller. |
 | `templates/viewer.html` | `loadAsset`/`loadAnswerAsset` show DOC thumbnails (no rerender button; does not extend `base.html`). |
-| `templates/admin_questions.html` | `#batchImgModal` (Generate IMG) and DOC single-slot upload cards. |
+| `templates/admin_questions/ops/img.html`, `_js_ops.html` (`AQ_OPS.img`) | Generate IMG form in the Question Management bulk panel (SSE `/admin/questions/batch-generate-images`). DOC single-slot upload cards live in the shared Edit modal (`partials/edit_question_modal_js.html`). |
 | `templates/admin_health.html` | "DOC Asset Thumbnails" card: Backfill Missing / Force Re-render All / Delete All. |
 | `tests/test_doc_thumbnails.py` | Pure crop-box / footer-island bbox / `strip_docx_header_footer_refs` (no `create_app()`, no Word). |
 

@@ -498,12 +498,17 @@ function renderEvalDiffs(diffs) {
         <div style="max-height: 22rem; overflow:auto"><table class="table table-sm table-striped diff-table mb-0">
         <thead><tr><th>QID</th><th>Field</th><th>Model said</th><th>Tagged as</th><th>Model's reason</th></tr></thead><tbody>
         ${diffs.map(d => `<tr>
-            <td><a href="${URLS.questions}?qids=${d.question_id}" target="_blank">${escapeHtml(d.qid || d.question_id)}</a></td>
+            <td><a href="${questionsLink(d)}" target="_blank">${escapeHtml(d.qid || d.question_id)}</a></td>
             <td>${escapeHtml(fieldLabel(d.field))}</td>
             <td class="text-danger">${escapeHtml(d.suggested || '—')}${d.confidence != null ? ` <small class="text-muted">(${Math.round(d.confidence * 100)}%)</small>` : ''}</td>
             <td class="text-success">${escapeHtml(d.existing)}</td>
             <td class="text-muted">${escapeHtml(d.reason || '')}</td></tr>`).join('')}
         </tbody></table></div>`;
+}
+function questionsLink(row) {
+    return row.qid
+        ? `${URLS.questions}?qids=${encodeURIComponent(row.qid)}`
+        : `${URLS.questions}?ids=${encodeURIComponent(row.question_id)}`;
 }
 function fieldLabel(f) {
     const map = {{ dict(tag_fields)|tojson }};
@@ -524,7 +529,7 @@ function renderReport(rep) {
         <td><span class="text-danger">${escapeHtml(c.suggested || '—')}</span><span class="confusion-arrow">→</span><span class="text-success">${escapeHtml(c.saved || '—')}</span></td>
         <td class="text-end">${c.count}</td></tr>`).join('');
     const recent = rep.recent.slice(0, 30).map(r => `<tr class="${r.agreed ? '' : 'table-warning'}">
-        <td><a href="${URLS.questions}?qids=${r.question_id}" target="_blank">${escapeHtml(r.qid || r.question_id)}</a></td>
+        <td><a href="${questionsLink(r)}" target="_blank">${escapeHtml(r.qid || r.question_id)}</a></td>
         <td>${escapeHtml(r.label)}</td><td>${escapeHtml(r.suggested || '—')}</td><td>${escapeHtml(r.saved || '—')}</td>
         <td class="text-muted">${escapeHtml(r.user || '')}<br><small>${formatTimestamp(r.created_at)}</small></td></tr>`).join('');
     el.innerHTML = `

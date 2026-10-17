@@ -1,0 +1,36 @@
+<div class="bp-op d-none" data-op="deleteAssets">
+    <div class="small text-muted mb-2">Only assets matching <strong>format × version × type</strong> are removed; the questions stay. Every box starts empty on purpose.</div>
+    <div class="row g-3">
+        <div class="col-sm-4">
+            <div class="bp-section-title">Formats</div>
+            {% for f in ['IMG', 'MD', 'DOC'] %}
+            <div class="form-check">
+                <input class="form-check-input op-da-format" type="checkbox" value="{{ f }}" id="opDaFmt_{{ f }}">
+                <label class="form-check-label" for="opDaFmt_{{ f }}">{{ f }}</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Versions</div>
+            {% for v in OQB_VERSIONS %}
+            <div class="form-check">
+                <input class="form-check-input op-da-version" type="checkbox" value="{{ v }}" id="opDaVer_{{ v }}">
+                <label class="form-check-label" for="opDaVer_{{ v }}">{{ v }} <small class="text-muted">{{ OQB_VERSION_LABELS[v] }}</small></label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="col-sm-4">
+            <div class="bp-section-title">Asset types</div>
+            {% for t, label in [('QUE', 'Question'), ('ANS', 'Answer'), ('SOL', 'Solution')] %}
+            <div class="form-check">
+                <input class="form-check-input op-da-atype" type="checkbox" value="{{ t }}" id="opDaType_{{ t }}">
+                <label class="form-check-label" for="opDaType_{{ t }}">{{ t }} <small class="text-muted">{{ label }}</small></label>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="form-check form-switch mt-3">
+        <input class="form-check-input" type="checkbox" id="opDaFiles" checked>
+        <label class="form-check-label" for="opDaFiles">Also delete the files from disk</label>
+    </div>
+</div>

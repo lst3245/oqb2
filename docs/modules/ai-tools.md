@@ -18,7 +18,7 @@ AI Tools call an `LLMConfig` endpoint over selected questions to proofread typed
 | `app/config.py` | `.env` secrets `LLM_API_KEY`, `LLM_KEY_SECRET` |
 | `app/__init__.py` | Idempotent start-up migration for `llm_configs.kind` / `max_concurrency` / `service_tier*` columns + cloud back-fill |
 | `templates/admin_llm_endpoints.html` | Endpoint CRUD UI (`#epKind`, `#epMaxConcurrency`, `#epServiceTier`, `#epServiceTierBatch`, `onKindChange`), raw Chat console (`#chatModal`, `openChatModal`, `sendChatMessage`, `_chatStageFiles`, `_chatRenderStaged`) |
-| `templates/admin_questions.html` | `#aiToolsModal` (ops: check / MD / solvegen / solvecheck / tag), console, `aiToolsToggleOp` → `_aiApplyDefaultEndpoint`, `aiUpdateParallelUI` |
+| `templates/admin_questions/` | Batch AI runs from the Question Management bulk panel: forms `ops/ai_{check,md,solve_gen,solve_check,tag}.html` + shared `ops/ai_endpoint.html`; `AQ_OPS.ai*` in `_js_ops.html` (`opLoadAiEndpoints` applies the per-op default endpoint, `opAiParallelUI`); streaming / Stop (`ai/cancel`) in `_js_bulk.html`. Every request carries `subject_id` ([admin-questions.md](admin-questions.md), ADR-016) |
 | `templates/partials/edit_question_modal.html` | `#autoTagModal`, `#editNavControls` |
 | `templates/partials/edit_question_modal_js.html` | `renderCheckBadge`, `renderCheckStatusBar`, `setSlotCheckState`, `showCheckRawModal`, `openAiSlotMdModal`, `generateImgFromSlot`, `openQuickCheckModal`, `runQuickCheck`, `openAiSolveSlotModal`, `runAiSolveSlot`, `openAnswerTextAiModal`, `runAnswerTextAi`, `openAutoTagModal`, `runAutoTag`, `applySuggestionsToForm`, `_lastAutoTagSuggestion` / `_logTagCorrections`, `_aiPickDefaultEndpointId`, `oqbEditNavGo` |
 | `templates/base.html` | `window.OQB_AI_TOOLS_ENABLED` global (admin + dashboard) |
@@ -139,7 +139,7 @@ Client side: `_aiPickDefaultEndpointId(eps, defaults, opKey)` in the edit modal;
 - Per-item units are pure functions returning a result dict or raising: `generate_md_slot`, `check_slot`, `solve_generate_slot`, `generate_answer_text`, `solve_check_slot_format`, `check_answer_text`, `_auto_tag_one`, `pdf_import.detect_page`. All counter updates and event shaping happen on the consumer thread.
 - Word COM: in parallel `iter_check` each worker owns a short-lived `_LazyWord` (opened + closed inside the worker), so MD/DOC pre-rendering serialises on `word_com._WORD_COM_LOCK` while pure-IMG checks run concurrently. The sequential path reuses one session for the whole run.
 - Migration: `app/__init__.py` adds `kind` / `max_concurrency` / `service_tier*` columns idempotently and back-fills `kind='cloud', max_concurrency=4` for known hosted hosts (OpenAI / OpenRouter / Google / Anthropic / Groq / Together / DeepSeek / Mistral / xAI).
-- UI: "Run in parallel" checkbox (shown for cloud endpoints, default checked) in `admin_questions.html` (`aiUpdateParallelUI`) and `admin_pdf_import.html` (`updateParallelUI`); both append `&parallel=1`. `onKindChange` pins `max_concurrency` to 1 for local.
+- UI: "Run in parallel" checkbox (shown for cloud endpoints, default checked) in the Question Management bulk panel (`admin_questions/_js_ops.html` `opAiParallelUI`; shown when the endpoint is cloud with `max_concurrency > 1`) and `admin_pdf_import.html` (`updateParallelUI`); both append `&parallel=1`. `onKindChange` pins `max_concurrency` to 1 for local.
 
 ### Check-state semantics (proofread)
 

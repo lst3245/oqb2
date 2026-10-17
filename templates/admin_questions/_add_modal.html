@@ -1,0 +1,98 @@
+{# Add-question wizard. Defaults to the subject picked in the page header. #}
+<div class="modal fade" id="addQuestionModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xxl modal-fullscreen-md-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add question</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="step-indicator">
+                    <div class="step active" id="addStep1Ind">1. Details</div>
+                    <div class="step" id="addStep2Ind">2. Assets</div>
+                    <div class="step" id="addStep3Ind">3. Tags</div>
+                </div>
+
+                <div id="addStep1">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="addSubject">Subject</label>
+                            <select class="form-select" id="addSubject" onchange="updateAddQidPreview()">
+                                {% for s in subjects %}
+                                <option value="{{ s.id }}">{{ s.id }} — {{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text" id="addSubjectHint"></div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="addSource">Source</label>
+                            <select class="form-select" id="addSource" onchange="onAddSourceChange(); updateAddQidPreview();">
+                                <option value="DSE">DSE</option>
+                                <option value="CE">CE</option>
+                                <option value="AL">AL</option>
+                                <option value="QB">QB (Question Bank)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4" id="addYearGroup">
+                            <label class="form-label fw-bold" for="addYear">Year</label>
+                            <input type="number" class="form-control" id="addYear" value="2025" min="1990" max="2099" oninput="updateAddQidPreview()">
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4" id="addPaperGroup">
+                            <label class="form-label fw-bold" for="addPaper">Paper</label>
+                            <input type="text" class="form-control" id="addPaper" value="P1" placeholder="e.g. P1, P2, P2A" oninput="updateAddQidPreview()">
+                        </div>
+                        <div class="col-md-4" id="addDetailGroup" style="display:none">
+                            <label class="form-label fw-bold" for="addDetail">Detail / book name</label>
+                            <input type="text" class="form-control" id="addDetail" placeholder="e.g. MATHSMART2024 (no underscores)" oninput="updateAddQidPreview()">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="addQno">Question number</label>
+                            <input type="text" class="form-control" id="addQno" value="1" placeholder="e.g. 1, 3a, 3ci, 23-24" oninput="updateAddQidPreview()">
+                            <small class="text-muted">Plain number, part (<code>3a</code>, <code>3ci</code>) or range stem (<code>23-24</code>)</small>
+                        </div>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <div class="small text-muted">Question ID</div>
+                        <div class="h5 mb-0 text-primary" id="addQidPreview">---</div>
+                    </div>
+                    <div id="addStep1Error" class="text-danger mt-2"></div>
+                    <div class="mt-3 text-end">
+                        <button class="btn btn-primary" onclick="createQuestionStep1()">
+                            Create and upload assets <i class="bi bi-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="addStep2" style="display:none">
+                    <div class="alert alert-info py-2">
+                        <i class="bi bi-info-circle"></i> Upload assets for <strong id="addStep2Qid"></strong>. You can skip this and upload later.
+                    </div>
+                    <div id="addAssetUploadArea"></div>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <button class="btn btn-outline-secondary" onclick="goToAddStep(1)"><i class="bi bi-arrow-left"></i> Back</button>
+                        <div>
+                            <button class="btn btn-outline-secondary me-2" onclick="goToAddStep(3)">Skip <i class="bi bi-arrow-right"></i></button>
+                            <button class="btn btn-primary" onclick="goToAddStep(3)">Next: tags <i class="bi bi-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="addStep3" style="display:none">
+                    <div class="alert alert-info py-2">
+                        <i class="bi bi-info-circle"></i> Tag <strong id="addStep3Qid"></strong>. You can skip this and tag later.
+                    </div>
+                    <div id="addTagFormArea"></div>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <button class="btn btn-outline-secondary" onclick="goToAddStep(2)"><i class="bi bi-arrow-left"></i> Back</button>
+                        <div>
+                            <button class="btn btn-success me-2" onclick="finishAndAddAnother()"><i class="bi bi-plus"></i> Save and add another</button>
+                            <button class="btn btn-primary" onclick="finishAndEdit()"><i class="bi bi-pencil-square"></i> Save and edit</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
