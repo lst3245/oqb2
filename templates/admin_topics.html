@@ -81,7 +81,9 @@
         </div>
         <div class="card-body">
             <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                <span class="small text-muted">{{ t('Dashboard filter prefix') }}</span>
+                <span class="small text-muted" title="{{ t('Applies wherever topic names are shown: dashboard filter and question tags, the tag editor, Batch Edit and Reorder blocks. Generated papers follow the Generate page numbering option.') }}">
+                    {{ t('Show numbers before topic names') }} <i class="bi bi-info-circle"></i>
+                </span>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" role="switch" id="prefixTopics"
                            {% if subject.topic_number_prefix %}checked{% endif %} onchange="saveNumberPrefixes()">

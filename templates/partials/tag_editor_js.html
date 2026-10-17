@@ -26,7 +26,7 @@ function loadTopicsForEditForm(subjectId) {
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('editMajorTopicOptions');
             majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorTopic(\'\', \'\')">' + OQB.t('None') + '</div>' +
-                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${OQB.taxSearchKey(t)}" onclick="selectEditMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${OQB.taxSearchKey(t)}" onclick="selectEditMajorTopic('${t.id}', '${OQB.taxLabel(t).replace(/'/g, "\\'")}')">${OQB.taxLabel(t)}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
             const minorCheckboxesDiv = document.getElementById('editMinorTopicsCheckboxes');
@@ -34,13 +34,13 @@ function loadTopicsForEditForm(subjectId) {
                 <div class="form-check" data-topic-name="${OQB.taxSearchKey(t)}">
                     <input class="form-check-input edit-minor-topic-checkbox" type="checkbox" 
                            value="${t.id}" id="editMinorTopic${t.id}" onchange="onEditMinorTopicsChange()">
-                    <label class="form-check-label" for="editMinorTopic${t.id}">${t.name}</label>
+                    <label class="form-check-label" for="editMinorTopic${t.id}">${OQB.taxLabel(t)}</label>
                 </div>
             `).join('');
             
             // Update hidden select with all options
             const minorSelect = document.getElementById('editMinorTopics');
-            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${OQB.taxLabel(t)}</option>`).join('');
             
             // Setup search listeners
             setupEditTopicSearchListeners();
@@ -138,13 +138,13 @@ function loadMajorSubtopicsSearchable(topicId, selectedSubtopicId) {
             
             const optionsDiv = document.getElementById('editMajorSubtopicOptions');
             optionsDiv.innerHTML = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditMajorSubtopic(\'\', \'\')">' + OQB.t('None') + '</div>' +
-                subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${OQB.taxSearchKey(s)}" onclick="selectEditMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+                subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${OQB.taxSearchKey(s)}" onclick="selectEditMajorSubtopic('${s.id}', '${OQB.taxLabel(s).replace(/'/g, "\\'")}')">${OQB.taxLabel(s)}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
             
             if (selectedSubtopicId) {
                 const subtopic = subtopics.find(s => s.id == selectedSubtopicId);
                 if (subtopic) {
                     document.getElementById('editMajorSubtopic').value = selectedSubtopicId;
-                    document.getElementById('editMajorSubtopicLabel').textContent = subtopic.name;
+                    document.getElementById('editMajorSubtopicLabel').textContent = OQB.taxLabel(subtopic);
                 }
             }
             
@@ -259,14 +259,14 @@ function loadSubtopicsSearchable(topicIds, selectedSubtopicIds) {
                            value="${s.id}" id="editSubtopic${s.id}" onchange="onEditSubtopicsChange()"
                            ${selectedSubtopicIds.includes(s.id) ? 'checked' : ''}>
                     <label class="form-check-label" for="editSubtopic${s.id}">
-                        ${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
+                        ${OQB.taxLabel(s)}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
                     </label>
                 </div>
             `).join('');
             
             const subtopicSelect = document.getElementById('editSubtopics');
             subtopicSelect.innerHTML = subtopics.map(s => 
-                `<option value="${s.id}" ${selectedSubtopicIds.includes(s.id) ? 'selected' : ''}>${s.name}</option>`
+                `<option value="${s.id}" ${selectedSubtopicIds.includes(s.id) ? 'selected' : ''}>${OQB.taxLabel(s)}</option>`
             ).join('');
             
             updateEditSubtopicsLabel();
@@ -594,7 +594,7 @@ function populateTagForm(questionData) {
 
         if (majorTopicId && window.editTopicsList) {
             const topic = window.editTopicsList.find(t => t.id == majorTopicId);
-            document.getElementById('editMajorTopicLabel').textContent = topic ? topic.name : OQB.t('None');
+            document.getElementById('editMajorTopicLabel').textContent = topic ? OQB.taxLabel(topic) : OQB.t('None');
         } else {
             document.getElementById('editMajorTopicLabel').textContent = OQB.t('None');
         }

@@ -145,9 +145,9 @@ class Subject(db.Model):
     # subjects (one image per numbered question). Wired in the import wizard
     # in a later phase; the column is additive and defaults off.
     split_parts_default = db.Column(db.Boolean, default=False, nullable=False)
-    # Dashboard filter prefixes the saved-list number as plain text
-    # ("01 Basic Algebra", "1.1 Law of Indices"). Topic on, subtopic off.
-    # Independent of the Generate-page numbering option.
+    # Teacher-facing topic / subtopic names carry the saved-list number as
+    # plain text ("01 Basic Algebra", "1.1 Law of Indices"; app/tax_numbers.py).
+    # Topic on, subtopic off. Independent of the Generate-page numbering option.
     topic_number_prefix = db.Column(db.Boolean, default=True, nullable=False)
     subtopic_number_prefix = db.Column(db.Boolean, default=False, nullable=False)
     # Generate-page "spacing by marks" rules (JSON, see app/marks_spacing.py).

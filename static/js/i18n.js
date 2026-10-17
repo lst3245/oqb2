@@ -10,6 +10,9 @@
  *   writes the per-device cookie and reloads.
  * OQB.taxName(node) -> display name of an API node that carries
  *   name_en / name_zh (falls back to node.name), in the taxonomy mode.
+ * OQB.taxLabel(node) -> node.name with the subject's number prefix
+ *   (node.number, "01 Basic Algebra") from /dashboard/api/topics|subtopics.
+ *   Display only; post ids or name_en, never the label.
  */
 (function () {
     var OQB = window.OQB = window.OQB || {};
@@ -62,6 +65,12 @@
         if (!node) return '';
         if (node.name_en === undefined) return node.name || '';
         return OQB.bilingual(node.name_en, node.name_zh);
+    };
+
+    OQB.taxLabel = function (node) {
+        if (!node) return '';
+        var name = node.name || '';
+        return node.number ? node.number + ' ' + name : name;
     };
 
     // Lower-cased "English 中文" haystack for client-side search boxes.

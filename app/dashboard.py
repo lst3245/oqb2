@@ -7,7 +7,7 @@ from sqlalchemy import or_, and_, case
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
-                       enumerate_sort_groups, GROUPING_FIELDS, number_taxonomy,
+                       enumerate_sort_groups, GROUPING_FIELDS,
                        parse_version_priority, VERSIONS, DEFAULT_VERSION_PRIORITY)
 from app.hierarchy import (
     ancestors as hier_ancestors, breadcrumb_parts, eager_load_tree,
@@ -17,6 +17,7 @@ from app.hierarchy import (
 )
 from app import md_render
 from app.i18n import display_name, t as _t
+from app.tax_numbers import numbered_name, subject_numbers
 from app.storage import safe_join
 import os
 import re
@@ -288,14 +289,14 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         'level': q.level,
         'q_type': q.q_type,
         'subject': q.subject,
-        'major_topic': display_name(q.major_topic) if q.major_topic else 'N/A',
+        'major_topic': numbered_name(q.major_topic) if q.major_topic else 'N/A',
         'major_topic_id': q.major_topic_id,
-        'major_subtopic': display_name(q.major_subtopic),
+        'major_subtopic': numbered_name(q.major_subtopic),
         'major_subtopic_id': q.major_subtopic_id,
         'minor_topic_ids': [t.id for t in q.minor_topics],
-        'minor_topics': [display_name(t) for t in q.minor_topics],
+        'minor_topics': [numbered_name(t) for t in q.minor_topics],
         'subtopic_ids': [s.id for s in q.subtopics],
-        'subtopics': [display_name(s) for s in q.subtopics],
+        'subtopics': [numbered_name(s) for s in q.subtopics],
         'chapter': display_name(q.chapter),
         'chapter_id': q.chapter_id,
         'subchapter': display_name(q.subchapter),
@@ -682,14 +683,6 @@ def _tax_names(node):
     return {'name': display_name(node), 'name_en': node.name, 'name_zh': node.name_zh}
 
 
-def _subject_number_maps(subject_id):
-    """Full saved-list numbering for one subject (default padding ``01`` / ``1.1``)."""
-    topics = Topic.query.filter_by(subject_id=subject_id).all()
-    subs = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
-            .filter(Topic.subject_id == subject_id).all())
-    return number_taxonomy(topics, subs)
-
-
 def _subtopic_numbers_for(topic_ids):
     """``{subtopic_id: '1.1'}`` for subjects that prefix subtopic numbers.
 
@@ -702,16 +695,9 @@ def _subtopic_numbers_for(topic_ids):
         row[0] for row in db.session.query(Topic.subject_id)
         .filter(Topic.id.in_(topic_ids)).distinct()
     }
-    if not subject_ids:
-        return {}
-    flagged = [
-        s.id for s in Subject.query.filter(Subject.id.in_(subject_ids))
-        if s.subtopic_number_prefix
-    ]
     numbers = {}
-    for sid in flagged:
-        _, sub_nums = _subject_number_maps(sid)
-        numbers.update(sub_nums)
+    for sid in subject_ids:
+        numbers.update(subject_numbers(sid)[1])
     return numbers
 
 
@@ -727,10 +713,7 @@ def get_topics(subject_id):
     if request.args.get('include_hidden', '0') != '1':
         query = query.filter(Topic.hidden == False)
     topics = query.order_by(Topic.sort_order, Topic.id).all()
-    subject = Subject.query.get(subject_id)
-    topic_nums = {}
-    if subject is not None and subject.topic_number_prefix:
-        topic_nums, _ = _subject_number_maps(subject_id)
+    topic_nums = subject_numbers(subject_id)[0]
     return jsonify([dict(
         _tax_names(t), id=t.id, hidden=t.hidden, number=topic_nums.get(t.id),
     ) for t in topics])

@@ -3351,11 +3351,6 @@ function clearAllSections() {
 
 // ============== TOPIC DROPDOWN FUNCTIONS ==============
 
-// "01 Basic Algebra" when the subject prefixes numbers; otherwise the name.
-function prefixedFilterName(node) {
-    return node.number ? (node.number + ' ' + node.name) : node.name;
-}
-
 // Lower-cased search haystack: the shown label plus both stored names, so
 // either language finds the node whatever the taxonomy display mode.
 function filterSearchKey(node, label) {
@@ -3381,7 +3376,7 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     
     // Render checkboxes
     topicDiv.innerHTML = topics.map(t => {
-        const label = prefixedFilterName(t);
+        const label = OQB.taxLabel(t);
         return `
         <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${filterSearchKey(t, label)}">
             <input class="form-check-input topic-checkbox" type="checkbox" 
@@ -3393,7 +3388,7 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     
     // Update hidden select with all options
     topicSelect.innerHTML = topics.map(t => 
-        `<option value="${t.id}" ${selectedTopics.includes(t.id.toString()) ? 'selected' : ''}>${prefixedFilterName(t)}</option>`
+        `<option value="${t.id}" ${selectedTopics.includes(t.id.toString()) ? 'selected' : ''}>${OQB.taxLabel(t)}</option>`
     ).join('');
     
     // Setup search filter
@@ -3652,7 +3647,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
         const typeBadges = (s.types || []).map(t =>
             ` <span class="badge rounded-pill ${typeClass[t] || 'bg-light text-dark'}" style="font-size: 0.65em;">${t}</span>`
         ).join('');
-        const label = prefixedFilterName(s);
+        const label = OQB.taxLabel(s);
         return `
         <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${filterSearchKey(s, label)}">
             <input class="form-check-input subtopic-checkbox" type="checkbox" 
@@ -3667,7 +3662,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
     
     // Update hidden select
     subtopicSelect.innerHTML = subtopics.map(s => 
-        `<option value="${s.id}" ${selectedSubtopics.includes(s.id.toString()) ? 'selected' : ''}>${prefixedFilterName(s)}</option>`
+        `<option value="${s.id}" ${selectedSubtopics.includes(s.id.toString()) ? 'selected' : ''}>${OQB.taxLabel(s)}</option>`
     ).join('');
     
     // Setup search filter
@@ -5853,7 +5848,7 @@ function loadBatchTopics(subjectId) {
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('batchMajorTopicOptions');
             majorOptionsDiv.innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorTopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>') +
-                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${filterSearchKey(t)}" onclick="selectBatchMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${filterSearchKey(t)}" onclick="selectBatchMajorTopic('${t.id}', '${OQB.taxLabel(t).replace(/'/g, "\\'")}')">${OQB.taxLabel(t)}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
             const minorCheckboxesDiv = document.getElementById('batchMinorTopicsCheckboxes');
@@ -5861,13 +5856,13 @@ function loadBatchTopics(subjectId) {
                 <div class="form-check" data-topic-name="${filterSearchKey(t)}">
                     <input class="form-check-input batch-minor-topic-checkbox" type="checkbox" 
                            value="${t.id}" id="batchMinorTopic${t.id}" onchange="onBatchMinorTopicsChange()">
-                    <label class="form-check-label" for="batchMinorTopic${t.id}">${t.name}</label>
+                    <label class="form-check-label" for="batchMinorTopic${t.id}">${OQB.taxLabel(t)}</label>
                 </div>
             `).join('');
             
             // Update hidden select
             const minorSelect = document.getElementById('batchMinorTopics');
-            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            minorSelect.innerHTML = topics.map(t => `<option value="${t.id}">${OQB.taxLabel(t)}</option>`).join('');
             
             // Setup search listeners
             setupBatchTopicSearchListeners();
@@ -5994,7 +5989,7 @@ function onBatchMajorTopicChange() {
             .then(subtopics => {
                 const optionsDiv = document.getElementById('batchMajorSubtopicOptions');
                 optionsDiv.innerHTML = ('<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'' + OQB.t('None') + '\')">' + OQB.t('None') + '</div>') +
-                    subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${filterSearchKey(s)}" onclick="selectBatchMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+                    subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${filterSearchKey(s)}" onclick="selectBatchMajorSubtopic('${s.id}', '${OQB.taxLabel(s).replace(/'/g, "\\'")}')">${OQB.taxLabel(s)}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
                 
                 // Setup search listener
                 const searchInput = document.getElementById('batchMajorSubtopicSearch');
@@ -6058,12 +6053,12 @@ function reloadBatchSubtopics() {
                         <input class="form-check-input batch-subtopic-checkbox" type="checkbox" 
                                value="${s.id}" id="batchSubtopic${s.id}" onchange="onBatchSubtopicsChange()">
                         <label class="form-check-label" for="batchSubtopic${s.id}">
-                            ${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
+                            ${OQB.taxLabel(s)}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}
                         </label>
                     </div>
                 `).join('');
                 
-                subtopicSelect.innerHTML = subtopics.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+                subtopicSelect.innerHTML = subtopics.map(s => `<option value="${s.id}">${OQB.taxLabel(s)}</option>`).join('');
                 
                 updateBatchSubtopicsLabel();
                 

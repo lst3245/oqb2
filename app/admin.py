@@ -25,6 +25,7 @@ from app import storage
 from app import subject_snapshot
 from app import marks_spacing
 from app.i18n import display_name, build_name_index, lookup_name, t as _t
+from app.tax_numbers import numbered_name
 from sqlalchemy.orm import configure_mappers, selectinload
 from app.batch_edit import (
     BatchEditError, apply_resolved, parse_batch_form,
@@ -1409,13 +1410,13 @@ def _taxonomy_maps(parsed):
             topic_ids.add(parsed['major_topic_id'])
         if topic_ids:
             for row in Topic.query.filter(Topic.id.in_(topic_ids)):
-                topics[row.id] = display_name(row)
+                topics[row.id] = numbered_name(row)
         sub_ids = set(parsed['subtopic_ids'])
         if parsed['major_subtopic_id'] is not None:
             sub_ids.add(parsed['major_subtopic_id'])
         if sub_ids:
             for row in Subtopic.query.filter(Subtopic.id.in_(sub_ids)):
-                subtopics[row.id] = {'name': display_name(row), 'topic_id': row.topic_id}
+                subtopics[row.id] = {'name': numbered_name(row), 'topic_id': row.topic_id}
     if flags['chapters']:
         if parsed['chapter_id'] is not None:
             row = db.session.get(Chapter, parsed['chapter_id'])
@@ -2508,18 +2509,18 @@ def _descendant_tag_union(question):
     for n in nodes:
         if n.major_topic and n.major_topic_id not in seen['t']:
             seen['t'].add(n.major_topic_id)
-            topics.append(display_name(n.major_topic))
+            topics.append(numbered_name(n.major_topic))
         for t in n.minor_topics:
             if t.id not in seen['m']:
                 seen['m'].add(t.id)
-                minors.append(display_name(t))
+                minors.append(numbered_name(t))
         if n.major_subtopic and n.major_subtopic_id not in seen['s']:
             seen['s'].add(n.major_subtopic_id)
-            subs.append(display_name(n.major_subtopic))
+            subs.append(numbered_name(n.major_subtopic))
         for s in n.subtopics:
             if s.id not in seen['s']:
                 seen['s'].add(s.id)
-                subs.append(display_name(s))
+                subs.append(numbered_name(s))
         if n.chapter and n.chapter_id not in seen['c']:
             seen['c'].add(n.chapter_id)
             chapters.append(display_name(n.chapter))

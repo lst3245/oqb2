@@ -22,7 +22,7 @@ UI language (`oqb_lang` cookie, en | zh) and taxonomy display (`oqb_tax_lang`, e
 - A standalone page that does not extend `base.html` must load `/i18n/zh.js` (UI zh only) and `static/js/i18n.js` in `<head>` itself, like `viewer.html` / `markup.html`.
 
 ## Taxonomy names (`name` = English, `name_zh` optional)
-- Display: `i18n.display_name(node)` / Jinja `tax_name(node)` / JS `OQB.taxName(node)` — never `node.name` in teacher-facing text. Search boxes use `OQB.taxSearchKey(node)`.
+- Display: `i18n.display_name(node)` / Jinja `tax_name(node)` / JS `OQB.taxName(node)` — never `node.name` in teacher-facing text. Topics / subtopics add the subject's number prefix: `tax_numbers.numbered_name(node)` / `OQB.taxLabel(node)` (API `number` field). Search boxes use `OQB.taxSearchKey(node)`.
 - Match (CSV import, Auto Tag, anything parsing a typed name): `i18n.build_name_index(nodes)` + `lookup_name(index, raw)`. Never compare against a display string. English wins a collision.
 - Store ids. The tag-correction log, Auto Tag `display` and `subject_ai_service` labels keep the English `name`. API nodes carry `name` (display), `name_en`, `name_zh`; post `name_en` or the id, never `name`.
 - `name_zh` is a restore-point field: any writer captures before mutating (`subject-snapshots.mdc`). Edit routes validate before the capture (`_taxonomy_name_updates`).

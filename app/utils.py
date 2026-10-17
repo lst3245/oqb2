@@ -9,6 +9,7 @@ from natsort import natsorted, natsort_keygen
 
 from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key, question_marks
 from app.i18n import display_name, t as _t
+from app.tax_numbers import numbered_name
 
 
 # ==================== Asset Versions ====================
@@ -288,9 +289,9 @@ def number_taxonomy(topics, subtopics, pad_topic=True, pad_subtopic=False):
     ``01`` (``1`` unpadded), visible subtopics ``1.1`` (``01.01`` padded).
     Hidden topics / subtopics get no number and do not consume one; children
     of a hidden topic are unnumbered too. Generated documents (section
-    headings, split names), the admin Topics page and the dashboard filter
-    prefix (``Subject.topic_number_prefix`` / ``subtopic_number_prefix``)
-    all use this.
+    headings, split names), the admin Topics page and the UI name prefix
+    (``app.tax_numbers``, ``Subject.topic_number_prefix`` /
+    ``subtopic_number_prefix``) all use this.
     Returns ``({topic_id: str}, {subtopic_id: str})``.
     """
     topic_nums, sub_nums, topic_index, counters = {}, {}, {}, {}
@@ -441,10 +442,11 @@ GROUP_ID_KEYS = {
 }
 
 # Human-readable name accessors (None when untagged), in the request's
-# taxonomy display mode (app.i18n.display_name).
+# taxonomy display mode (app.i18n.display_name), topics / subtopics with the
+# subject's number prefix (app.tax_numbers).
 GROUP_NAME_KEYS = {
-    'topic': lambda q: display_name(q.major_topic),
-    'subtopic': lambda q: display_name(q.major_subtopic),
+    'topic': lambda q: numbered_name(q.major_topic),
+    'subtopic': lambda q: numbered_name(q.major_subtopic),
     'chapter': lambda q: display_name(q.chapter),
     'subchapter': lambda q: display_name(q.subchapter),
 }

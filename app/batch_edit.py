@@ -8,7 +8,7 @@ to the new major topic, and a subchapter only when it belongs to the new
 chapter; otherwise that child is cleared.
 """
 from app.hierarchy import is_stem
-from app.i18n import display_name
+from app.tax_numbers import numbered_name
 from app.utils import parse_marks
 
 _NONE = 'None'
@@ -270,7 +270,7 @@ def view_from_question(question):
     def named(obj, id_):
         if id_ is None:
             return None
-        return (id_, display_name(obj))
+        return (id_, numbered_name(obj))
 
     return {
         'level': question.level,
@@ -281,8 +281,8 @@ def view_from_question(question):
         'is_stem': is_stem(question),
         'major_topic': named(getattr(question, 'major_topic', None), question.major_topic_id),
         'major_subtopic': named(getattr(question, 'major_subtopic', None), question.major_subtopic_id),
-        'minor_topics': [(row.id, display_name(row)) for row in (question.minor_topics or [])],
-        'subtopics': [(row.id, display_name(row)) for row in (question.subtopics or [])],
+        'minor_topics': [(row.id, numbered_name(row)) for row in (question.minor_topics or [])],
+        'subtopics': [(row.id, numbered_name(row)) for row in (question.subtopics or [])],
         'chapter': named(getattr(question, 'chapter', None), question.chapter_id),
         'subchapter': named(getattr(question, 'subchapter', None), question.subchapter_id),
     }
