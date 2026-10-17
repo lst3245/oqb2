@@ -6495,7 +6495,10 @@ def doc_thumbnail_backfill():
     app = current_app._get_current_object()
 
     def generate():
-        with app.app_context():
+        with app.app_context(), word_com.ReusableWordSession(
+            lock_timeout=float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600)),
+            max_uses=doc_thumbnails.BACKFILL_RENDERS_PER_SESSION,
+        ) as word:
             from app.models import QuestionAsset
             try:
                 doc_assets = QuestionAsset.query.filter_by(file_format='DOC').all()
@@ -6527,7 +6530,7 @@ def doc_thumbnail_backfill():
                         yield f"data: {json.dumps({'type': 'skip', 'message': f'{base_msg} - already cached', 'current': i, 'total': total})}\n\n"
                         continue
 
-                    ok = doc_thumbnails.render_doc_thumbnail_sync(app, a.id)
+                    ok = doc_thumbnails.render_doc_thumbnail_sync(app, a.id, word=word)
                     if ok:
                         rendered += 1
                         yield f"data: {json.dumps({'type': 'success', 'message': f'{base_msg} - rendered', 'current': i, 'total': total})}\n\n"

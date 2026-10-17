@@ -252,6 +252,76 @@ def word_session(lock_timeout: float = 600.0, visible: bool = False):
         _WORD_COM_LOCK.release()
 
 
+class ReusableWordSession:
+    """
+    One `word_session` shared across many renders in a long batch, opened
+    on the first `get()`.
+
+    Every `max_uses` renders the session is closed and the global lock is
+    released for `yield_s` seconds, so a paper generation or lazy PDF that
+    is waiting on the lock gets a turn instead of timing out behind the
+    whole batch. `close()` after a failed render so the next `get()` starts
+    a fresh Word. Must be entered and closed on the same thread (COM
+    apartment). `get()` raises `TimeoutError` like `word_session`.
+    """
+
+    def __init__(self, lock_timeout: float = 600.0, max_uses: int = 20,
+                 yield_s: float = 0.5):
+        self.lock_timeout = lock_timeout
+        self.max_uses = max(1, int(max_uses))
+        self.yield_s = max(0.0, float(yield_s))
+        self._cm = None
+        self._app = None
+        self._uses = 0
+
+    def get(self):
+        if self._app is not None and self._uses >= self.max_uses:
+            self.close()
+            if self.yield_s:
+                time.sleep(self.yield_s)
+        if self._app is None:
+            self._open()
+        self._uses += 1
+        return self._app
+
+    def _open(self) -> None:
+        # Starting Word right after another instance quit can return a
+        # half-initialised Application without `Documents`; quit it and
+        # retry once after a pause.
+        for attempt in (1, 2):
+            cm = word_session(lock_timeout=self.lock_timeout)
+            app = cm.__enter__()
+            try:
+                app.Documents
+            except Exception:
+                logger.warning('Word started without Documents (attempt %d); restarting', attempt)
+                try:
+                    cm.__exit__(None, None, None)
+                except Exception:
+                    logger.exception('Word session close failed')
+                if attempt == 2:
+                    raise RuntimeError('Word started without a usable Documents collection')
+                time.sleep(2.0)
+                continue
+            self._cm, self._app, self._uses = cm, app, 0
+            return
+
+    def close(self) -> None:
+        cm, self._cm, self._app, self._uses = self._cm, None, None, 0
+        if cm is not None:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                logger.exception('Word session close failed')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Public operations
 # ---------------------------------------------------------------------------

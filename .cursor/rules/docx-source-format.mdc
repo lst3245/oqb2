@@ -15,6 +15,7 @@ alwaysApply: false
 - `_INFLIGHT` is cleared in `finally`; `_RETRY_COOLDOWN_S = 5`; `force_rerender` bypasses the cooldown. Poller: 60 × 3 s. Thumbnail endpoint keeps `Cache-Control: private, no-cache, must-revalidate`.
 - Thumbnail settings (`DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_*`) apply to new renders only → Health → Force Re-render All.
 - `batch_image_gen` (DOC/MD → IMG) uses one `word_session` per run and whole-slot `replace_img_assets`.
+- Thumbnail backfill reuses Word via `word_com.ReusableWordSession` (`render_doc_thumbnail_sync(..., word=)`), recycled every `BACKFILL_RENDERS_PER_SESSION` (20) renders so other jobs get the lock. New long Word loops use it too; never wrap a whole big batch in one `word_session`, and never go back to one Word start per asset (≈2.5× slower, and back-to-back restarts can yield a Word without `Documents`).
 - Horizontal crop for every image render goes through `_compute_crop_box`: text area (`THUMBNAIL_TEXT_AREA_CROP`, default on; margins from `export_to_pdf`'s returned page setup via `_text_area_px`) wins over symmetric, which wins over tight. Keep width uniform per page setup; never crop narrower than the text area.
 - Image renders prepare the DOCX with `strip_docx_header_footer_refs` (keeps page size / margins). `sanitize_docx_for_insertion` is for **merges only** — using it for a render reflows onto Word's default page.
 

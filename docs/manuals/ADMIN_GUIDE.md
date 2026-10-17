@@ -448,6 +448,7 @@ DOCX source assets are merged into the generated document via Microsoft Word COM
 
 **Image width.** With **Crop to page text area** on (System Settings → Thumbnails, default), every image rendered from a DOCX keeps the full width between the page margins, so all questions with the same page setup come out the same width and their text is the same size on the cards. Only the height follows the content. A picture or table that runs into the margin makes that one image a little wider; nothing is cut off. Thumbnails made before this setting existed keep their old, uneven widths until you run **Force Re-render All**. For IMGs created with **Generate IMG**, run it again with **Replace existing IMG** ticked.
 - **Delete All** drops every cached PNG; the lazy resolver re-creates them on demand.
+- Backfill and Force Re-render All keep one Word open and render about one file every 1.5 seconds (roughly 15 minutes for 600 files). Every 20 files Word briefly lets other jobs go first, so a teacher generating a paper during a backfill waits about half a minute at most, not until the backfill ends.
 - You can also let the lazy-render kick in automatically: any time a user opens a question card / modal / viewer that resolves to a DOC, a render is scheduled in the background. The thumbnail appears in-place within a few seconds (live JS poller — no manual refresh needed).
 
 **Per-preview "Re-render" button:**

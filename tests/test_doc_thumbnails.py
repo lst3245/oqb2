@@ -3,10 +3,14 @@ import os
 import tempfile
 import unittest
 import zipfile
+from contextlib import contextmanager
+from unittest import mock
 
 from PIL import Image
 
+from app import word_com
 from app.word_com import (
+    ReusableWordSession,
     _compute_crop_box,
     _content_bbox,
     _text_area_px,
@@ -113,6 +117,74 @@ class ContentBboxTests(unittest.TestCase):
         _l, top, _r, bottom = bbox
         self.assertLessEqual(top, 20)
         self.assertGreaterEqual(bottom, 560)
+
+
+class _FakeWord:
+    def __init__(self, name, broken=False):
+        self.name = name
+        if not broken:
+            self.Documents = []
+
+    def __eq__(self, other):
+        return self.name == other
+
+
+class ReusableWordSessionTests(unittest.TestCase):
+    def _fake_sessions(self, broken=()):
+        log = []
+
+        @contextmanager
+        def fake_session(lock_timeout=600.0, visible=False):
+            n = len([e for e in log if e[0] == 'open'])
+            log.append(('open', n))
+            try:
+                yield _FakeWord(f'word{n}', broken=n in broken)
+            finally:
+                log.append(('close', n))
+        return log, fake_session
+
+    def test_reuses_then_recycles_after_max_uses(self):
+        log, fake = self._fake_sessions()
+        with mock.patch.object(word_com, 'word_session', fake):
+            with ReusableWordSession(max_uses=2, yield_s=0) as word:
+                got = [word.get().name for _ in range(5)]
+        self.assertEqual(got, ['word0', 'word0', 'word1', 'word1', 'word2'])
+        self.assertEqual(log, [('open', 0), ('close', 0), ('open', 1), ('close', 1),
+                               ('open', 2), ('close', 2)])
+
+    def test_close_after_failure_starts_fresh_word(self):
+        log, fake = self._fake_sessions()
+        with mock.patch.object(word_com, 'word_session', fake):
+            word = ReusableWordSession(max_uses=20, yield_s=0)
+            self.assertEqual(word.get().name, 'word0')
+            word.close()
+            self.assertEqual(word.get().name, 'word1')
+            word.close()
+            word.close()
+        self.assertEqual(log, [('open', 0), ('close', 0), ('open', 1), ('close', 1)])
+
+    def test_half_started_word_is_replaced_once(self):
+        log, fake = self._fake_sessions(broken={0})
+        with mock.patch.object(word_com, 'word_session', fake), \
+                mock.patch.object(word_com.time, 'sleep'):
+            with ReusableWordSession(yield_s=0) as word:
+                self.assertEqual(word.get().name, 'word1')
+        self.assertEqual(log, [('open', 0), ('close', 0), ('open', 1), ('close', 1)])
+
+    def test_two_broken_starts_raise(self):
+        _log, fake = self._fake_sessions(broken={0, 1})
+        with mock.patch.object(word_com, 'word_session', fake), \
+                mock.patch.object(word_com.time, 'sleep'):
+            with ReusableWordSession(yield_s=0) as word:
+                with self.assertRaises(RuntimeError):
+                    word.get()
+
+    def test_never_opened_never_closes(self):
+        log, fake = self._fake_sessions()
+        with mock.patch.object(word_com, 'word_session', fake):
+            with ReusableWordSession():
+                pass
+        self.assertEqual(log, [])
 
 
 class StripHeaderFooterRefsTests(unittest.TestCase):

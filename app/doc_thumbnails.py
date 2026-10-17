@@ -69,13 +69,23 @@ def _slot_has_img(question_id: int, asset_type: str, version: str) -> bool:
     ).first() is not None
 
 
-def render_doc_thumbnail_sync(app, asset_id: int) -> bool:
+BACKFILL_RENDERS_PER_SESSION = 20
+
+
+def render_doc_thumbnail_sync(app, asset_id: int,
+                              word: 'word_com.ReusableWordSession | None' = None) -> bool:
     """
     Synchronously render the thumbnail for a single DOC asset.
 
     Looks up the asset within `app.app_context()`, checks that its slot has
     no IMG (otherwise the IMG resolver wins and we shouldn't waste a Word
     session), then runs `word_com.render_first_page_png`.
+
+    `word` (a `word_com.ReusableWordSession`) lets a batch reuse one Word
+    process instead of starting one per asset; without it this call opens
+    and quits its own session. A render failure closes the shared session
+    so the next asset gets a fresh Word. A lock timeout from `word.get()`
+    propagates so the batch stops instead of waiting again per asset.
 
     Returns True on success, False otherwise.
     """
@@ -103,9 +113,13 @@ def render_doc_thumbnail_sync(app, asset_id: int) -> bool:
         width = int(app.config.get('DOC_THUMBNAIL_WIDTH', 1000))
         lock_timeout = float(app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
 
+        shared_app = word.get() if word is not None else None
         try:
-            with word_com.word_session(lock_timeout=lock_timeout) as word_app:
-                word_com.render_first_page_png(word_app, src_abs, target, width_px=width)
+            if shared_app is not None:
+                word_com.render_first_page_png(shared_app, src_abs, target, width_px=width)
+            else:
+                with word_com.word_session(lock_timeout=lock_timeout) as word_app:
+                    word_com.render_first_page_png(word_app, src_abs, target, width_px=width)
             ok = os.path.isfile(target) and os.path.getsize(target) > 0
             if ok:
                 logger.info('DOC thumbnail rendered: asset=%s -> %s (%d bytes)',
@@ -115,6 +129,8 @@ def render_doc_thumbnail_sync(app, asset_id: int) -> bool:
             return ok
         except Exception as e:
             logger.exception('DOC thumbnail render failed for asset %s: %s', asset_id, e)
+            if word is not None:
+                word.close()
             return False
 
 

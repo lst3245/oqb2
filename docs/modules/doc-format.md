@@ -6,8 +6,8 @@
 
 | File | Role |
 |---|---|
-| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `export_to_pdf` (returns `_read_page_setup`), `render_first_page_png`, `sanitize_docx_for_insertion`, `strip_docx_header_footer_refs`, `_text_area_px`, `_compute_crop_box`, `_content_bbox`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
-| `app/doc_thumbnails.py` | Thumbnail lifecycle: `thumbnail_path`/`thumbnail_exists`/`delete_thumbnail`, `render_doc_thumbnail_sync`, `schedule_thumbnail`, `ensure_thumbnail` (lazy + cooldown), `force_rerender`, slot hooks `on_doc_asset_created`/`on_img_asset_created`/`on_doc_asset_deleted`/`on_img_asset_deleted`. |
+| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `ReusableWordSession`, `export_to_pdf` (returns `_read_page_setup`), `render_first_page_png`, `sanitize_docx_for_insertion`, `strip_docx_header_footer_refs`, `_text_area_px`, `_compute_crop_box`, `_content_bbox`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
+| `app/doc_thumbnails.py` | Thumbnail lifecycle: `thumbnail_path`/`thumbnail_exists`/`delete_thumbnail`, `render_doc_thumbnail_sync` (optional shared `word=`), `BACKFILL_RENDERS_PER_SESSION`, `schedule_thumbnail`, `ensure_thumbnail` (lazy + cooldown), `force_rerender`, slot hooks `on_doc_asset_created`/`on_img_asset_created`/`on_doc_asset_deleted`/`on_img_asset_deleted`. |
 | `app/generator.py` | DOC branch of `add_question_content_to_doc` (marker paragraphs + `doc_insertions`), `_run_word_postprocess_single`/`_run_word_postprocess_split`, lazy PDF: `_pdf_sibling_filename`, `_build_pdf_from_docx`, `_build_pdf_zip_from_docx_zip`, route `download_pdf`. `get_viewer_asset` attaches `thumbnail_url` for DOC. |
 | `app/batch_image_gen.py` | Batch "Generate IMG from DOC/MD": `render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`; reuses the thumbnail crop/transparency primitives. |
 | `app/admin.py` | `upload_question_asset`/`delete_question_asset` lifecycle hooks, `rerender_doc_thumbnail`, `doc_thumbnail_backfill` (SSE), `doc_thumbnail_clear`. |
@@ -121,6 +121,8 @@ Preview path → ensure_thumbnail(asset_id):
 
 Use **Backfill Missing** (`force=0`) after upgrading to a build with thumbnails or after wiping the folder; **Force Re-render All** (`force=1`) after changing `DOC_THUMBNAIL_WIDTH` or cropping settings (renders are NOT invalidated by config or code changes); **Delete All** to reclaim disk (lazy resolver recreates on demand).
 
+The backfill renders through one `word_com.ReusableWordSession` passed to `render_doc_thumbnail_sync(app, id, word=...)` instead of starting Word per asset (measured 2026-10-17 on ECON: ~1.4–1.7 s per file vs ~3.9 s). Word is opened on the first render that needs it (an all-cached / IMG-eclipsed run never starts Word), and is closed — releasing the global lock for 0.5 s — every `BACKFILL_RENDERS_PER_SESSION` (20) renders so a paper generation or lazy PDF waits about 30 s at most, not the whole backfill. A failed render closes the session so the next asset gets a fresh Word. A freshly started Word without `Documents` (seen when Word is restarted right after a quit) is quit and retried once after 2 s. A lock timeout aborts the backfill with one error line. Single-asset paths (`schedule_thumbnail`, `ensure_thumbnail`, `force_rerender`) still open their own session.
+
 ### Batch IMG generation (DOC/MD → IMG)
 
 ```
@@ -189,6 +191,7 @@ External dependencies (see `../core/01-runtime-and-ops.md`): Microsoft Word (wit
 15. Generation never produces PDF; anything that reads `output_format == 'PDF'` at create time is dead code kept for compatibility with saved presets (ignored on load).
 16. Extracted DOCX files may inherit a PAGE footer from the compiled source book. Thumbnail export must run `strip_docx_header_footer_refs` before Word; otherwise that glyph pins the whitespace crop to a full A4 page. Do not strip the source files themselves.
 17. Text-area crop uses **section 1** only. A later section with a different page width falls back to the ink crop for its pages (`_text_area_px` → `None`); a different-margin section of the same width is cropped with section 1's margins (ink outside still widens the box, so nothing is clipped).
+18. Long Word batches must not hold the global lock for the whole run: use `ReusableWordSession` (recycles every N uses) rather than one `word_session` around a big loop. Generate IMG and `ai_tools._LazyWord` still hold one session for their whole run — a large Generate IMG makes paper generation wait (up to `WORD_COM_LOCK_TIMEOUT`, then fail).
 
 ## Related
 
