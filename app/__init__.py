@@ -67,9 +67,10 @@ def create_app():
     from app.sso import sso_bp
     from app.sms_admin import sms_admin_bp
     from app.account_admin import account_admin_bp
-    from app import web_security
+    from app import csrf, web_security
 
     web_security.init_app(app)
+    csrf.init_app(app)
     app.register_blueprint(sso_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)

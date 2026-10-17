@@ -10,7 +10,7 @@ import shutil
 import uuid
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file, abort, session
-from flask_login import login_required, login_user, current_user
+from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
@@ -23,6 +23,7 @@ from app.utils import (admin_required, super_admin_required, subject_admin_requi
 from app import authz
 from app import auth_audit
 from app import md_render
+from app import web_security
 from app import storage
 from app import subject_snapshot
 from app import marks_spacing
@@ -4113,7 +4114,7 @@ def edit_user(user_id):
                           actor_id=current_user.id, detail={'self': True})
         db.session.commit()
         # Other sessions of this account end; this one carries the new version.
-        login_user(user, remember=True)
+        web_security.relogin(user)
         return jsonify({
             'success': True,
             'id': user.id,

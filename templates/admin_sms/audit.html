@@ -13,7 +13,7 @@
     <td class="small">{{ r.ip or '' }}</td>
     <td class="small text-break" style="max-width: 280px;">{{ (r.detail or '')|truncate(200) }}</td>
     <td>{% if ack %}
-        <form method="post" action="{{ url_for('sms_admin.audit_ack', row_id=r.id) }}">
+        <form method="post" action="{{ url_for('sms_admin.audit_ack', row_id=r.id) }}">{{ csrf_field() }}
             <button type="submit" class="btn btn-sm btn-outline-success">{{ t('Acknowledge') }}</button>
         </form>
         {% elif r.acknowledged_at %}<span class="small text-muted" title="{{ r.acknowledged_at.strftime('%Y-%m-%d %H:%M') }}"><i class="bi bi-check2"></i> {{ names.get(r.acknowledged_by, '') }}</span>{% endif %}</td>
@@ -29,7 +29,7 @@
     <div class="card border-danger mb-4" id="sms-open-alerts">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-bell"></i> {{ t('Open alerts') }}</span>
-            <form method="post" action="{{ url_for('sms_admin.audit_ack_all') }}">
+            <form method="post" action="{{ url_for('sms_admin.audit_ack_all') }}">{{ csrf_field() }}
                 <button type="submit" class="btn btn-sm btn-outline-success">{{ t('Acknowledge all') }}</button>
             </form>
         </div>

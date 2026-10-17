@@ -25,11 +25,11 @@
                 {% endfor %}
                 </tbody>
             </table>
-            <form method="post" action="{{ url_for('sms_admin.snapshot_approve', snapshot_id=r.id) }}" class="d-inline">
+            <form method="post" action="{{ url_for('sms_admin.snapshot_approve', snapshot_id=r.id) }}" class="d-inline">{{ csrf_field() }}
                 <button type="submit" class="btn btn-danger btn-sm"
                         onclick="return confirm(OQB.t('Disable these accounts now?'))"><i class="bi bi-check2"></i> {{ t('Approve: disable these accounts') }}</button>
             </form>
-            <form method="post" action="{{ url_for('sms_admin.snapshot_discard', snapshot_id=r.id) }}" class="d-inline">
+            <form method="post" action="{{ url_for('sms_admin.snapshot_discard', snapshot_id=r.id) }}" class="d-inline">{{ csrf_field() }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i> {{ t('Discard: keep them active') }}</button>
             </form>
         </div>

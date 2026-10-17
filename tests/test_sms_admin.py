@@ -7,6 +7,7 @@ import re
 import unittest
 
 import smskit
+from dbcase import sign_in
 from test_sms_feed import BRAKE, FeedCase
 from test_sms_workshop_window import KID, TEST_SUBS, WORKSHOP, WindowCase
 
@@ -29,10 +30,7 @@ POST_ENDPOINTS = {
 class AdminMixin:
     def as_user(self, name):
         client = self.app.test_client()
-        u = self.user(name)
-        with client.session_transaction() as sess:
-            sess['_user_id'] = u.get_id()
-            sess['_fresh'] = True
+        sign_in(client, self.user(name))
         return client
 
     @property

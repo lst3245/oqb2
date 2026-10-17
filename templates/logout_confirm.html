@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('Log out') }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h4 class="card-title">{{ t('Log out') }}</h4>
+                    <p>{{ t('Log out of the Question Bank as {username}?', username=current_user.username) }}</p>
+                    <p class="text-muted small">{{ t('This signs you out of OQB only. Your SMS session is not affected.') }}</p>
+                    <div class="d-flex gap-2">
+                        <form method="post" action="{{ url_for('auth.logout') }}">
+                            {{ csrf_field() }}
+                            <button type="submit" class="btn btn-primary" id="logoutConfirm">
+                                <i class="bi bi-box-arrow-right"></i> {{ t('Log out') }}
+                            </button>
+                        </form>
+                        <a class="btn btn-outline-secondary" href="{{ url_for('dashboard.index') }}">{{ t('Cancel') }}</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

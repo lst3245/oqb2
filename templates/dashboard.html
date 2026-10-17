@@ -5751,6 +5751,7 @@ function submitQuestionIds(actionUrl, target) {
     if (target) {
         form.target = target;  // e.g. '_blank' for new tab
     }
+    form.appendChild(OQB.csrfInput());
     
     // Add question IDs as hidden inputs
     questionIds.forEach(id => {

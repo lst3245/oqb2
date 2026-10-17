@@ -32,7 +32,7 @@
                     {% if not r.cat %}<span class="small text-muted">{{ t('Seen in sign-in tokens only') }}</span>{% endif %}</td>
                 <td>
                     {% for m in r.maps %}
-                    <form method="post" action="{{ url_for('sms_admin.mapping_remove') }}" class="d-inline">
+                    <form method="post" action="{{ url_for('sms_admin.mapping_remove') }}" class="d-inline">{{ csrf_field() }}
                         <input type="hidden" name="sms_uuid" value="{{ m.sms_uuid }}">
                         <input type="hidden" name="subject_id" value="{{ m.oqb_subject_id }}">
                         <span class="badge bg-primary">{{ m.oqb_subject_id }}
@@ -43,7 +43,7 @@
                     {% else %}<span class="text-muted">{{ t('Not mapped') }}</span>{% endfor %}
                 </td>
                 <td>
-                    <form method="post" action="{{ url_for('sms_admin.mapping_add') }}" class="d-flex gap-1">
+                    <form method="post" action="{{ url_for('sms_admin.mapping_add') }}" class="d-flex gap-1">{{ csrf_field() }}
                         <input type="hidden" name="sms_uuid" value="{{ r.uuid }}">
                         <select name="subject_id" class="form-select form-select-sm" required>
                             <option value="">{{ t('OQB subject…') }}</option>

@@ -32,7 +32,7 @@
                             <tr><td><code>{{ k.kid }}</code></td>
                                 <td class="small font-monospace text-break">{{ k.fingerprint }}</td>
                                 <td class="small">{{ k.pinned_at.strftime('%Y-%m-%d') }}</td>
-                                <td><form method="post" action="{{ url_for('sms_admin.trust_unpin', issuer_id=row.id) }}">
+                                <td><form method="post" action="{{ url_for('sms_admin.trust_unpin', issuer_id=row.id) }}">{{ csrf_field() }}
                                     <input type="hidden" name="kid" value="{{ k.kid }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger"
                                             onclick="return confirm(OQB.t('Unpin this key? Sign-ins signed with it stop working at once.'))">{{ t('Unpin') }}</button>
@@ -45,7 +45,7 @@
                     {% endif %}
                     <details>
                         <summary class="small">{{ t('Pin a key') }}</summary>
-                        <form method="post" action="{{ url_for('sms_admin.trust_pin', issuer_id=row.id) }}" class="mt-2">
+                        <form method="post" action="{{ url_for('sms_admin.trust_pin', issuer_id=row.id) }}" class="mt-2">{{ csrf_field() }}
                             <input type="text" name="kid" class="form-control form-control-sm mb-1" placeholder="kid" required maxlength="64">
                             <textarea name="pem" class="form-control form-control-sm font-monospace mb-1" rows="4" placeholder="-----BEGIN PUBLIC KEY-----" required></textarea>
                             <input type="text" name="fingerprint" class="form-control form-control-sm font-monospace mb-1" required
@@ -56,7 +56,7 @@
                 </div>
                 <div class="col-lg-6">
                     <h6>{{ t('Settings') }}</h6>
-                    <form method="post" action="{{ url_for('sms_admin.trust_edit', issuer_id=row.id) }}">
+                    <form method="post" action="{{ url_for('sms_admin.trust_edit', issuer_id=row.id) }}">{{ csrf_field() }}
                         <div class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="en-{{ row.id }}" {{ 'checked' if row.enabled }}>
                             <label class="form-check-label" for="en-{{ row.id }}">{{ t('Enabled') }}</label></div>
                         <div class="input-group input-group-sm my-1">
@@ -93,7 +93,7 @@
             <div class="row g-4">
                 <div class="col-lg-6">
                     <h6><i class="bi bi-door-open"></i> {{ t('Open test window') }}</h6>
-                    <form method="post" action="{{ url_for('sms_admin.trust_window_open', issuer_id=row.id) }}" id="window-open-{{ row.id }}">
+                    <form method="post" action="{{ url_for('sms_admin.trust_window_open', issuer_id=row.id) }}" id="window-open-{{ row.id }}">{{ csrf_field() }}
                         <div class="row g-1 mb-1">
                             <div class="col-4"><input type="text" name="kid" class="form-control form-control-sm" placeholder="kid" required
                                    value="{{ workshop_kid if row.keys|length == 0 else row.keys[0].kid }}"></div>
@@ -114,7 +114,7 @@
                 </div>
                 <div class="col-lg-6">
                     <h6><i class="bi bi-door-closed"></i> {{ t('Close test window') }}</h6>
-                    <form method="post" action="{{ url_for('sms_admin.trust_window_close', issuer_id=row.id) }}" id="window-close-{{ row.id }}">
+                    <form method="post" action="{{ url_for('sms_admin.trust_window_close', issuer_id=row.id) }}" id="window-close-{{ row.id }}">{{ csrf_field() }}
                         <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="disable_accounts" value="1" id="da-{{ row.id }}" checked>
                             <label class="form-check-label small" for="da-{{ row.id }}">{{ t('Also unlink and disable the {n} linked account(s)', n=linked[row.issuer]|length) }}</label></div>
                         <button type="submit" class="btn btn-sm btn-danger"
@@ -127,7 +127,7 @@
                             <tr><td>{{ u.username }}{% if not u.is_active %} <span class="badge bg-secondary">{{ t('Disabled') }}</span>{% endif %}</td>
                                 <td class="small font-monospace">{{ identity.sub }}</td>
                                 <td class="small">{% for i in subs if i.sub == identity.sub %}{{ i.label or '' }}{% endfor %}</td>
-                                <td><form method="post" action="{{ url_for('sms_admin.unlink') }}">
+                                <td><form method="post" action="{{ url_for('sms_admin.unlink') }}">{{ csrf_field() }}
                                     <input type="hidden" name="issuer" value="{{ row.issuer }}">
                                     <input type="hidden" name="user_id" value="{{ u.id }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">{{ t('Unlink') }}</button>
@@ -136,7 +136,7 @@
                         </tbody>
                     </table>
                     {% if linked[row.issuer] %}
-                    <form method="post" action="{{ url_for('sms_admin.trust_disable_linked', issuer_id=row.id) }}">
+                    <form method="post" action="{{ url_for('sms_admin.trust_disable_linked', issuer_id=row.id) }}">{{ csrf_field() }}
                         <button type="submit" class="btn btn-sm btn-outline-danger"
                                 onclick="return confirm(OQB.t('Unlink and disable every account linked to this issuer?'))">{{ t('Unlink and disable all') }}</button>
                     </form>

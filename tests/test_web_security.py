@@ -48,7 +48,7 @@ class OriginTests(unittest.TestCase):
 
     def test_proxy_fix(self):
         app, seen = self.app(PROXY_FIX_HOPS=1)
-        web_security.init_app(app)
+        web_security.init_proxy(app)
         app.test_client().post('/probe', headers={
             'Origin': 'https://oqb.mathedu.info', 'X-Forwarded-For': '198.51.100.7',
             'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'oqb.mathedu.info'})
@@ -58,7 +58,7 @@ class OriginTests(unittest.TestCase):
 
     def test_without_proxy_fix_forwarded_for_is_ignored(self):
         app, seen = self.app()
-        web_security.init_app(app)
+        web_security.init_proxy(app)
         app.test_client().post('/probe', headers={'X-Forwarded-For': '198.51.100.7'},
                                environ_base={'REMOTE_ADDR': '8.8.4.4'})
         self.assertEqual(seen['ip'], '8.8.4.4')

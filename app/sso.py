@@ -19,7 +19,6 @@ body is never logged.
 """
 from __future__ import annotations
 
-import hmac
 import logging
 import secrets
 from urllib.parse import quote
@@ -28,7 +27,7 @@ from flask import (Blueprint, abort, current_app, flash, jsonify, make_response,
                    render_template, request, session, url_for)
 from flask_login import current_user, login_user, logout_user
 
-from app import (auth_audit, db, sms_clock, sms_feed_service, sms_linking,
+from app import (auth_audit, authz, csrf, db, sms_clock, sms_feed_service, sms_linking,
                  sms_sso_service as service, sms_trust, sms_verify, web_security)
 from app.auth import SSO_LINK_KEY
 from app.i18n import t as _t
@@ -47,9 +46,6 @@ NEXT_PATHS = (NEXT_HOME, NEXT_LINK, NEXT_FAILED)
 RATE_LIMIT = 20
 RATE_WINDOW_SECONDS = 300
 MAX_BODY_BYTES = 16 * 1024
-FORM_KEY = 'sso_link_form'  # interim per-link form token (global CSRF arrives in stage 6)
-AUTH_METHOD_KEY = 'auth_method'
-
 _limiter = RateLimiter(RATE_LIMIT, RATE_WINDOW_SECONDS)
 
 FEED_RATE_LIMIT = 30
@@ -135,29 +131,24 @@ def _token_from_request():
     return token if isinstance(token, str) else None
 
 
-def _start_session(user: User) -> None:
+def _start_session(user: User, issuer: str) -> None:
     """A different signed-in user is replaced (the session is cleared); the
-    same user keeps the session and gets fresh levels. SMS sessions never get
-    a remember-me cookie, and any existing one is deleted."""
+    same user keeps the session, gets fresh levels and an SMS marker (12 h /
+    2 h limits). SMS sessions never get a remember-me cookie, and any existing
+    one is deleted."""
     if current_user.is_authenticated and current_user.id != user.id:
         logout_user()
     if not current_user.is_authenticated or current_user.id != user.id:
         session.clear()
     login_user(user, remember=False, fresh=True)
     session['_remember'] = 'clear'
-    session[AUTH_METHOD_KEY] = 'sms'
+    web_security.start_auth(web_security.SMS, issuer=issuer)
+    csrf.rotate()
+    authz.invalidate()
 
 
-def _form_token() -> str:
-    token = session.get(FORM_KEY)
-    if not token:
-        token = session[FORM_KEY] = secrets.token_urlsafe(24)
-    return token
-
-
-def _form_token_ok() -> bool:
-    expected = session.get(FORM_KEY) or ''
-    return bool(expected) and hmac.compare_digest(expected, request.form.get('form_token') or '')
+def _password_session() -> bool:
+    return current_user.is_authenticated and web_security.auth_method() == web_security.PASSWORD
 
 
 def _pending():
@@ -166,7 +157,6 @@ def _pending():
 
 def _drop_pending() -> None:
     session.pop(SSO_LINK_KEY, None)
-    session.pop(FORM_KEY, None)
 
 
 # ---------------------------------------------------------------- routes
@@ -211,7 +201,7 @@ def token_post():
         user = db.session.get(User, outcome.user_id)
         if user is None:
             return _refuse('server_error', ip)
-        _start_session(user)
+        _start_session(user, result.issuer)
         return _answer(NEXT_HOME, 200)
     if outcome.kind == service.LINK:
         # Never link to whoever happens to be signed in: a link always needs
@@ -238,12 +228,12 @@ def link_prompt():
     if found is None:
         _drop_pending()
         return redirect(url_for('sso.failed'))
-    if current_user.is_authenticated and session.get(AUTH_METHOD_KEY) == 'password':
+    if _password_session():
         return redirect(url_for('sso.link_confirm'))
     _row, result = found
     resp = make_response(render_template(
         'sso/link_prompt.html', message=_t(NOT_LINKED_MESSAGE), sms_name=result.name,
-        sms_staff_code=result.staff_code, form_token=_form_token()))
+        sms_staff_code=result.staff_code))
     return _private(resp, "frame-ancestors 'none'")
 
 
@@ -255,13 +245,11 @@ def link_confirm():
         _drop_pending()
         flash(_t('The SMS link request has expired. Open the Question Bank from SMS again.'), 'warning')
         return redirect(url_for('auth.index'))
-    if not current_user.is_authenticated or session.get(AUTH_METHOD_KEY) != 'password':
+    if not _password_session():
         return redirect(url_for('auth.login'))
     _row, result = found
     refusal = service.self_refusal(current_user, result)
     if request.method == 'POST':
-        if not _form_token_ok():
-            abort(400)
         ip = web_security.client_ip(request)
         outcome = service.self_link(session.get(SSO_LINK_KEY), current_user, ip=ip)
         _drop_pending()
@@ -272,16 +260,13 @@ def link_confirm():
         return redirect(url_for('auth.index'))
     resp = make_response(render_template(
         'sso/link_confirm.html', username=current_user.username, sms_name=result.name,
-        sms_staff_code=result.staff_code, refusal=_t(_refusal_message(refusal)) if refusal else None,
-        form_token=_form_token()))
+        sms_staff_code=result.staff_code, refusal=_t(_refusal_message(refusal)) if refusal else None))
     return _private(resp, "frame-ancestors 'none'")
 
 
 @sso_bp.route('/sso/sms/link/cancel', methods=['POST'])
 def link_cancel():
     _gate()
-    if not _form_token_ok():
-        abort(400)
     service.cancel_pending(session.get(SSO_LINK_KEY))
     _drop_pending()
     return redirect(url_for('auth.index'))

@@ -1,7 +1,7 @@
 """Contract v1.2 section 15 acceptance tests AT01-AT16 and AT21 through the
 real routes (``POST /sso/sms`` etc.) against oqb_sso_test, with the clock
 frozen to each fixture's ``verify_at``. AT17-AT20 (feed) are in
-test_sms_feed.py; AT22 (session limits) arrives with stage 6. AT03's mapping
+test_sms_feed.py; AT22 (session limits) is below. AT03's mapping
 removal and AT08's admin linking are repeated through the super-admin routes
 in test_sms_admin.py.
 """
@@ -120,8 +120,7 @@ class _LinkFlow(SsoCase):
                                 follow_redirects=follow)
 
     def form_token(self):
-        with self.client.session_transaction() as sess:
-            return sess.get('sso_link_form')
+        return self.client.csrf_token()
 
     def identity(self, sub_person='unlinked'):
         from app import db
@@ -147,9 +146,9 @@ class TestAT06SelfLink(_LinkFlow):
         body = page.get_data(as_text=True)
         self.assertIn('nogrants', body)
         self.assertIn(smskit.person('unlinked')['name'], body)
-        self.assertEqual(self.client.post('/sso/sms/link/confirm', data={'form_token': 'wrong'}).status_code, 400)
+        self.assertEqual(self.client.post('/sso/sms/link/confirm', data={'csrf_token': 'wrong'}).status_code, 400)
         self.assertIsNone(self.identity())
-        resp = self.client.post('/sso/sms/link/confirm', data={'form_token': self.form_token()})
+        resp = self.client.post('/sso/sms/link/confirm', data={'csrf_token': self.form_token()})
         self.assertEqual(resp.status_code, 302)
         link = self.identity()
         self.assertEqual((link.user_id, link.link_method), (self.users['nogrants'], 'self'))
@@ -172,7 +171,7 @@ class TestAT06SelfLink(_LinkFlow):
     def test_at06_cancel_drops_the_pending_link(self):
         self.start_unlinked()
         self.client.get('/sso/sms/link')
-        self.assertEqual(self.client.post('/sso/sms/link/cancel', data={'form_token': self.form_token()}).status_code, 302)
+        self.assertEqual(self.client.post('/sso/sms/link/cancel', data={'csrf_token': self.form_token()}).status_code, 302)
         self.password_login('nogrants')
         self.assertEqual(self.client.get('/sso/sms/link/confirm').status_code, 302)
         self.assertIsNone(self.identity())
@@ -201,7 +200,7 @@ class TestAT07PrivilegedRefused(_LinkFlow):
                 page = self.client.get('/sso/sms/link/confirm')
                 self.assertIn('cannot be linked to SMS', page.get_data(as_text=True))
                 self.client.get('/sso/sms/link')
-                self.client.post('/sso/sms/link/confirm', data={'form_token': self.form_token()})
+                self.client.post('/sso/sms/link/confirm', data={'csrf_token': self.form_token()})
                 self.assertIsNone(self.identity())
 
     def test_at07_linked_privileged_account_refused_at_handoff(self):
@@ -534,7 +533,7 @@ class TestAT16Origin(SsoCase):
         from app import web_security
         original = self.app.wsgi_app
         self.app.config['PROXY_FIX_HOPS'] = 1
-        web_security.init_app(self.app)
+        web_security.init_proxy(self.app)
         self.addCleanup(setattr, self.app, 'wsgi_app', original)
         proxied = {'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'oqb.test',
                    'X-Forwarded-For': '203.0.113.9'}
@@ -558,6 +557,64 @@ class TestAT21PasswordLogin(SsoCase):
                 self.assertEqual(resp.status_code, 302)
                 self.assertTrue(self.session_user(client).startswith(f'{self.users[username]}:'))
         self.assertEqual(len(self.audit('password_login')), 2)
+
+
+class TestAT22SessionLimits(SsoCase):
+    """Section 11: SMS sessions end after 12 h, or 2 h without activity, and
+    never get a remember-me cookie. ``web_security.now`` is patched."""
+    PAGE = '/user/sets'
+
+    def sms_login(self, client=None):
+        """A fresh token (new jti) each time; the session starts at REFERENCE_NOW."""
+        token = smskit.mint('teacher_viewer_user', iat=smskit.REFERENCE_NOW, nbf=smskit.REFERENCE_NOW,
+                            exp=smskit.REFERENCE_NOW + 60)
+        resp = self.post_token(token, client=client)
+        self.assert_next(resp, '/')
+        self.assertFalse(_set_cookie(resp, 'oqb_remember'))
+        return smskit.REFERENCE_NOW
+
+    def get_at(self, ts, client=None):
+        from unittest import mock
+        from app import db, web_security
+        db.session.rollback()
+        with mock.patch.object(web_security, 'now', return_value=ts):
+            return (client or self.client).get(self.PAGE)
+
+    def marker(self, client=None):
+        with (client or self.client).session_transaction() as sess:
+            return sess.get('oqb_auth')
+
+    def test_at22_sms_session_limits_no_remember(self):
+        t0 = self.sms_login()
+        marker = self.marker()
+        self.assertEqual((marker['m'], marker['iss'], marker['at']), ('sms', smskit.PRIMARY, t0))
+        self.assertNotIn('r', marker)
+        # activity every 110 minutes keeps it alive until the 12 h absolute limit
+        for step in range(1, 7):
+            self.assertEqual(self.get_at(t0 + step * 6600).status_code, 200, step)
+        self.assertEqual(self.get_at(t0 + 12 * 3600).status_code, 302)
+        self.assertIsNone(self.session_user())
+
+        idle = self.app.test_client()
+        t0 = self.sms_login(client=idle)
+        self.assertEqual(self.get_at(t0 + 7199, client=idle).status_code, 200)
+        self.assertEqual(self.get_at(t0 + 7199 + 7200, client=idle).status_code, 302)
+        self.assertIsNone(self.session_user(idle))
+
+    def test_at22_password_switch_does_not_relax_sms_limits(self):
+        self.app.config.update(PASSWORD_SESSION_LIMITS=False)
+        t0 = self.sms_login()
+        self.assertEqual(self.get_at(t0 + 7200).status_code, 302)
+
+    def test_at22_remember_box_ignored_for_sms_and_linked(self):
+        # teacher_a is linked: a password login never gets remember-me either
+        resp = self.client.post('/login', data={'username': 'teacher_a', 'password': PASSWORD,
+                                                'remember': '1'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(_set_cookie(resp, 'oqb_remember'))
+        # an SMS sign-in on top keeps the session but switches it to SMS limits
+        self.sms_login()
+        self.assertEqual(self.marker()['m'], 'sms')
 
 
 if __name__ == '__main__':

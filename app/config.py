@@ -31,14 +31,26 @@ class Config:
     
     # Flask settings
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-    # Stay signed in for 90 days. Secure is left off: the LAN still uses plain
-    # HTTP, and a Secure cookie would not be stored there. SameSite=Lax keeps
-    # the cookie off cross-site form posts.
-    REMEMBER_COOKIE_DURATION = timedelta(days=90)
+    # Cookies `oqb_session` / `oqb_remember`: HttpOnly, SameSite=Lax (None +
+    # Secure + Partitioned while SMS_EMBED_ENABLED). app/web_security.py sets
+    # the names and flags at boot (docs/modules/sms-sso.md, ADR-018).
+    SESSION_COOKIE_NAME = 'oqb_session'
+    REMEMBER_COOKIE_NAME = 'oqb_remember'
+    REMEMBER_COOKIE_DURATION = timedelta(days=30)  # each login passes its own duration
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
+    # Env-only. auto = Secure when PUBLIC_ORIGIN is https://; true / false
+    # force it (false only while LAN clients still use plain http).
+    SESSION_COOKIE_SECURE_MODE = os.getenv('SESSION_COOKIE_SECURE', 'auto').strip().lower()
+    # [tunable] enforce = refuse a POST/PUT/PATCH/DELETE without the CSRF
+    # token; report = log `csrf_failed` and let it through (rollout only).
+    CSRF_MODE = os.getenv('CSRF_MODE', 'enforce').strip().lower()
+    # [tunable] Password sessions without remember-me end after 12 h, or 2 h idle.
+    PASSWORD_SESSION_LIMITS = os.getenv('PASSWORD_SESSION_LIMITS', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Remember-me lifetime for unlinked password accounts (0-30; 0 = off).
+    PASSWORD_REMEMBER_DAYS = int(os.getenv('PASSWORD_REMEMBER_DAYS', '30') or 0)
     # None → trust private/loopback/link-local peers for X-Real-IP and
     # X-Forwarded-For. A comma list pins the reverse proxy. An empty value
     # trusts nobody (every internet client then shares the proxy's address).
@@ -68,6 +80,9 @@ class Config:
     # max(BRAKE_MIN, ceil(BRAKE_PCT% of linked users)).
     SMS_FEED_BRAKE_MIN = int(os.getenv('SMS_FEED_BRAKE_MIN', '5'))
     SMS_FEED_BRAKE_PCT = int(os.getenv('SMS_FEED_BRAKE_PCT', '10'))
+    # [tunable] Let the SMS frame OQB (frame-ancestors = the SMS hosts; cookies
+    # SameSite=None; Secure; Partitioned). Needs HTTPS.
+    SMS_EMBED_ENABLED = os.getenv('SMS_EMBED_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
     # Database settings
     DB_HOST = os.getenv('DB_HOST', 'localhost')

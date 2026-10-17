@@ -18,7 +18,7 @@
                             <i class="bi bi-box-arrow-in-right"></i> {{ t('Sign in with your OQB password') }}
                         </a>
                         <form method="POST" action="{{ url_for('sso.link_cancel') }}">
-                            <input type="hidden" name="form_token" value="{{ form_token }}">
+                            {{ csrf_field() }}
                             <button type="submit" class="btn btn-outline-secondary">{{ t('Cancel') }}</button>
                         </form>
                     </div>

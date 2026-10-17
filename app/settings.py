@@ -588,6 +588,30 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         help='Percentage of linked accounts a single snapshot may deactivate before it is held. Default 10.',
         min=1, max=100,
     )),
+    ('SMS_EMBED_ENABLED', _spec(
+        'SMS_EMBED_ENABLED', 'bool', group='SMS sign-in',
+        label='Allow SMS to show OQB inside its page',
+        help='Let the school SMS (and the workshop SMS while its test window is open) show OQB in a frame. Sign-in cookies then become SameSite=None; Secure; Partitioned, so OQB must be served over HTTPS. Off: no site may frame OQB.',
+    )),
+
+    # Sign-in and sessions (docs/modules/sms-sso.md, ADR-018)
+    ('CSRF_MODE', _spec(
+        'CSRF_MODE', 'string', group='Sign-in and sessions',
+        label='CSRF protection mode',
+        help='"enforce" refuses any form post or API change that lacks the page\'s security token. "report" only logs csrf_failed with the page address and lets the request through; use it for the first days of a deployment, then switch back to enforce.',
+        validator=_choice_validator('enforce', 'report'),
+    )),
+    ('PASSWORD_SESSION_LIMITS', _spec(
+        'PASSWORD_SESSION_LIMITS', 'bool', group='Sign-in and sessions',
+        label='Time limits for password sessions',
+        help='Password sign-ins without "Remember me" end after 12 hours, or after 2 hours without activity (the same limits as SMS sign-ins, which always apply). Off: they last until the browser is closed.',
+    )),
+    ('PASSWORD_REMEMBER_DAYS', _spec(
+        'PASSWORD_REMEMBER_DAYS', 'int', group='Sign-in and sessions',
+        label='Remember me (days)',
+        help='How long "Remember me" keeps an OQB password account signed in. Never offered to accounts linked to SMS. 0 hides the option. Default 30, at most 30.',
+        min=0, max=30,
+    )),
 ])
 
 

@@ -7,11 +7,13 @@ on a raw engine, and checks again before every reset. Without the guard the
 DB tests skip; they never touch another database.
 """
 import os
+import secrets
 import unittest
 
 from flask import g, has_app_context
 from flask.testing import FlaskClient
 from sqlalchemy import create_engine, text
+from werkzeug.datastructures import Headers
 
 GUARD = 'oqb_sso_test'
 
@@ -73,16 +75,58 @@ def rebuild_schema() -> None:
         engine.dispose()
 
 
+UNSAFE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
+
+
 class FreshGClient(FlaskClient):
     """The test keeps an app context pushed, and Flask reuses it for each
     request, so ``g`` (Flask-Login's user, the authz level cache) would leak
-    between requests. Clear it first, as a real server would."""
+    between requests. Clear it first, as a real server would.
+
+    Unsafe requests carry the session's CSRF token in ``X-CSRF-Token`` the way
+    ``static/js/csrf.js`` sends it, unless the test passes its own header or
+    ``csrf_token`` field, or sets ``auto_csrf = False`` (tests/test_csrf_routes.py).
+    """
+
+    auto_csrf = True
+
+    def csrf_token(self) -> str:
+        with self.session_transaction() as sess:
+            token = sess.get('_csrf')
+            if not token:
+                token = sess['_csrf'] = secrets.token_urlsafe(32)
+        return token
+
+    def _add_csrf(self, kwargs) -> None:
+        if not self.auto_csrf or str(kwargs.get('method', 'GET')).upper() not in UNSAFE_METHODS:
+            return
+        data = kwargs.get('data')
+        if isinstance(data, dict) and 'csrf_token' in data:
+            return
+        headers = Headers(kwargs.get('headers') or {})
+        if 'X-CSRF-Token' not in headers:
+            headers['X-CSRF-Token'] = self.csrf_token()
+        kwargs['headers'] = headers
 
     def open(self, *args, **kwargs):
+        if not args or isinstance(args[0], str):
+            self._add_csrf(kwargs)
         if has_app_context():
             for key in list(vars(g)):
                 delattr(g, key)
         return super().open(*args, **kwargs)
+
+
+def sign_in(client, user, method='password', **marker):
+    """Store ``user``'s login on ``client`` the way Flask-Login and
+    ``web_security.start_auth`` do."""
+    from app import sms_clock
+    now = sms_clock.now()
+    with client.session_transaction() as sess:
+        sess['_user_id'] = user.get_id()
+        sess['_fresh'] = True
+        sess['oqb_auth'] = {'m': method, 'at': now, 'seen': now, **marker}
+    return user
 
 
 def _no_network(url, timeout):
@@ -202,11 +246,7 @@ class DbTestCase(unittest.TestCase):
 
     def login(self, name):
         """Sign ``name`` in on ``self.client`` the way Flask-Login stores it."""
-        u = self.user(name)
-        with self.client.session_transaction() as sess:
-            sess['_user_id'] = u.get_id()
-            sess['_fresh'] = True
-        return u
+        return sign_in(self.client, self.user(name))
 
     def api_post(self, url, json=None, **kw):
         return self.client.post(url, json=json if json is not None else {}, **kw)

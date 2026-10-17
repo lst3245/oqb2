@@ -18,12 +18,12 @@
                     <div class="d-flex gap-2">
                         {% if not refusal %}
                         <form method="POST" action="{{ url_for('sso.link_confirm') }}">
-                            <input type="hidden" name="form_token" value="{{ form_token }}">
+                            {{ csrf_field() }}
                             <button type="submit" class="btn btn-primary">{{ t('Link accounts') }}</button>
                         </form>
                         {% endif %}
                         <form method="POST" action="{{ url_for('sso.link_cancel') }}">
-                            <input type="hidden" name="form_token" value="{{ form_token }}">
+                            {{ csrf_field() }}
                             <button type="submit" class="btn btn-outline-secondary">{{ t('Cancel') }}</button>
                         </form>
                     </div>

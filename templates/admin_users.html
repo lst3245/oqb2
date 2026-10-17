@@ -81,7 +81,7 @@
                                 <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=data.user.id) }}', {local_only: '1'}); return false;"><i class="bi bi-lock"></i> {{ t('Make local-only') }}</a></li>
                                 {% endif %}
                                 {% for i in data.identities %}
-                                <li><form method="post" action="{{ url_for('sms_admin.unlink') }}" class="m-0">
+                                <li><form method="post" action="{{ url_for('sms_admin.unlink') }}" class="m-0">{{ csrf_field() }}
                                     <input type="hidden" name="issuer" value="{{ i.issuer }}">
                                     <input type="hidden" name="user_id" value="{{ data.user.id }}">
                                     <input type="hidden" name="next" value="users">
