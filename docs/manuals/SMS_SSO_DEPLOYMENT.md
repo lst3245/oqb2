@@ -2,7 +2,7 @@
 
 > For the person deploying branch `feature/sms-sso` to the live host (`https://oqb.mathedu.info`). Spec: [../modules/sms-sso.md](../modules/sms-sso.md). Contract: `OQB_CONTRACT_v1.2.md` (sections 2, 2a, 3, 13).
 
-**State of the branch:** stages 1–3 are built (authorization, trust list, verifier, sign-in, linking services). The feed (stage 4), the super-admin screens — trust list, mapping, linking, audit (stage 5) — and CSRF / session limits / cookie flags (stage 6) are **not**. Steps marked *(stage N)* need that stage merged first. Do not switch `SMS_SSO_ENABLED` on in production before stages 5 and 6 are merged.
+**State of the branch:** stages 1–4 are built (authorization, trust list, verifier, sign-in, linking services, directory feed). The super-admin screens — trust list, mapping, linking, held snapshots, audit (stage 5) — and CSRF / session limits / cookie flags (stage 6) are **not**. Steps marked *(stage N)* need that stage merged first. Do not switch `SMS_SSO_ENABLED` on in production before stages 5 and 6 are merged.
 
 ## 0. Before the first live boot
 
@@ -28,7 +28,8 @@
 | `SESSION_COOKIE_SECURE` | `.env` *(stage 6)* | on |
 | `CSRF_MODE` | `.env` *(stage 6)* | `report` first; `enforce` after the logs show no `csrf_failed` for real pages |
 | `SMS_SSO_ENABLED` | System Settings → SMS sign-in | on, only after the steps below |
-| `SMS_FEED_ENABLED` | System Settings *(stage 4)* | on when the feed should start (before linking, to get the roster) |
+| `SMS_FEED_ENABLED` | System Settings | on when the feed should start (before linking, to get the roster; works while `SMS_SSO_ENABLED` is still off) |
+| `SMS_FEED_BRAKE_MIN` / `SMS_FEED_BRAKE_PCT` | System Settings | leave at 5 / 10 (hold a snapshot that would disable more than max(5, 10 % of linked) accounts) |
 | `SMS_JIT_ENABLED` | System Settings | **off** until linking (phase A) is complete |
 
 ## 3. Pin the live key
@@ -39,28 +40,49 @@ The repo carries SMS's live public key: `deploy/sms/sms-live-202610.pub.pem` (ki
 2. Pin it on the live entry from the trust screen *(stage 5)*: paste the PEM, type the confirmed fingerprint (a mismatch is refused), kid `sms-live-202610`. Keep `jwks_auto` off.
 3. Staging and test never trust this key (their trust lists hold only the contract-test issuers).
 
-## 4. Subject mapping and linking (phase A)
+## 4. Feed, subject mapping and linking (phase A)
 
-1. Map each SMS subject uuid to OQB subjects *(stage 5; the catalogue fills from the feed or from sign-ins)*. Nothing is matched automatically; an unmapped subject grants only the default level.
-2. Link existing teachers: admin linking from the roster *(stage 5 screen; `sms_sso_service.admin_link`)*, or teachers self-link (open the Question Bank from SMS → sign in with the OQB password → confirm).
-3. Turn on `SMS_SSO_ENABLED`. The login page then shows **Sign in with SMS** (`https://ms.tic.edu.hk/apps/oqb?origin=https://oqb.mathedu.info`).
-4. Feed *(stage 4)*: SMS pushes every 10 minutes to `POST /api/sms/directory`; leavers are deprovisioned, with a safety brake for mass deactivations.
-5. JIT later: turn on `SMS_JIT_ENABLED` once linking is done; new staff then get a password-less account on first sign-in.
+1. **Feed first.** Turn on `SMS_FEED_ENABLED` and ask SMS to point its push at `https://oqb.mathedu.info/api/sms/directory` (SMS pushes every 10 minutes and on "Sync now"). Check the first push: `auth_audit_log` event `feed_snapshot` with reason `applied`; `sms_subject_catalogue` and `sms_roster` are filled. Until `SMS_SSO_ENABLED` is on, SMS levels do not count, so nobody's access changes; a linked leaver is still disabled.
+2. Map each SMS subject uuid to OQB subjects *(stage 5 screen)*. Nothing is matched automatically; an unmapped subject grants only the default level. Each push reports the uuids still unmapped (`unmapped_subjects`).
+3. Link existing teachers: admin linking from the roster *(stage 5 screen; `sms_sso_service.admin_link`)*, or teachers self-link once sign-in is on (open the Question Bank from SMS → sign in with the OQB password → confirm).
+4. Turn on `SMS_SSO_ENABLED`. The login page then shows **Sign in with SMS** (`https://ms.tic.edu.hk/apps/oqb?origin=https://oqb.mathedu.info`).
+5. **Watch the brake.** A push that would disable more than max(5, 10 %) of linked accounts answers 202 and is held (alert `feed_held`); nothing is disabled until a super admin approves it *(stage 5 screen; `sms_feed_service.approve_held` / `discard_held`)*. The first real snapshot is the most likely to trip it if SMS data is off. Linked subs missing from a snapshot are left alone and flagged (`feed_missing` alert, `external_identities.missing_since`).
+6. JIT later: turn on `SMS_JIT_ENABLED` once linking is done; new staff then get a password-less account on first sign-in.
 
 ## 5. Workshop test window (contract section 2a)
 
-The workshop issuer `https://ms-test.tic.edu.hk` exists on the trust list but is **disabled**. Use it against live OQB only inside a test window:
+The workshop issuer `https://ms-test.tic.edu.hk` exists on the trust list but is **disabled**. Use it against live OQB only inside a test window. The values below are the planned first window; they are **not** seeded or applied anywhere — enter them by hand when the window opens.
+
+| Item | Value |
+|---|---|
+| Issuer | `https://ms-test.tic.edu.hk` |
+| Key | kid `sms-test-202610`, SHA-256 (DER SPKI) fingerprint `450e8b5093650aa7c1feafd9458582c3c66c27687d19e79866d055ee8f239d2b` |
+| JWKS | `https://tic-test.mathedu.info/api/v1/apps/jwks.json` (the same document is served at `https://ms-test.tic.edu.hk/api/v1/apps/jwks.json`, the URL seeded on the entry); `jwks_auto` stays off |
+
+| SMS test account | `sub` (`allowed_subs`; label = email) | OQB test account | SMS sends | Live OQB gives (level cap) |
+|---|---|---|---|---|
+| `oqb-test-viewer@tic.edu.hk` | `8a7b097b-52d2-4afe-9c13-47bd5d22dfc7` | `sso_test_viewer` | `default_level=viewer`, no subjects | Viewer on every subject |
+| `oqb-test-maths@tic.edu.hk` | `0d2b22b8-4104-4d88-8c47-7ee2eee47679` | `sso_test_maths` | `viewer` + `admin` on MATH | **User** on MATC / MAT1 / MAT2 (mapped from MATH), Viewer elsewhere; admin pages 403 |
+| `oqb-test-admin@tic.edu.hk` | `877f5123-e3a2-4ffd-a09e-7f016d264e04` | `sso_test_admin` | `default_level=admin` | Viewer on every subject; never admin, never super admin |
 
 **Open** (trust screen *(stage 5)*; service `sms_trust.open_test_window`):
-1. SMS sends the new workshop public key (`sms-test-YYYYMM`), its fingerprint over a second channel, the test accounts' `sub`s with account names, and the end date.
-2. On the `https://ms-test.tic.edu.hk` entry: pin the key after checking the fingerprint; `jwks_auto` off; enabled with `enabled_until` **at most 7 days ahead** (more is refused); primary / JIT / feed off; level cap on; `allowed_subs` = exactly the test subs (each with its account name as label). OQB refuses any other combination.
-3. Create one dedicated, non-privileged OQB test account per SMS test account (Admin → Users; never a real teacher's account) and link each `(https://ms-test.tic.edu.hk, sub)` to it by **typing the issuer and sub** in admin linking (the test accounts are never in the roster). A sub that is not on `allowed_subs` is refused.
-4. Every non-primary sign-in writes an `is_alert` audit row (`nonprimary_login`) for super admins.
+1. SMS sends the workshop public key, its fingerprint over a second channel, the test accounts' `sub`s with account names, and the end date. Check the fingerprint against the table (or the new one for a later window).
+2. On the `https://ms-test.tic.edu.hk` entry: pin the key after checking the fingerprint; `jwks_auto=false`; `enabled=true` with `enabled_until` **at most 7 days ahead** (more is refused); `primary=false`, `allow_jit=false`, `accepts_feed=false`, `level_cap` on; `allowed_subs` = exactly the three subs above, each labelled with its email. OQB refuses any other combination.
+3. Create the three OQB test accounts `sso_test_viewer`, `sso_test_maths`, `sso_test_admin` (Admin → Users → **Add User**, a long random password): not super admin, not local-only, **no local subject grants**, no real teacher's data. Never reuse a real teacher's account.
+4. Link each `(https://ms-test.tic.edu.hk, sub)` to its test account by **typing the issuer and sub** in admin linking *(stage 5 screen; `sms_sso_service.admin_link`)* — the test accounts are never in the roster. A sub outside `allowed_subs` is refused.
+5. Confirm the mapping MATH → MATC, MAT1, MAT2 exists (without it `sso_test_maths` gets Viewer only).
+6. Check that alerts are on: every non-primary sign-in writes an `is_alert` audit row (`nonprimary_login`) for super admins.
 
-**During**: each test account opens the Question Bank from the workshop SMS. Expected: `oqb-test-viewer` → Viewer everywhere; `oqb-test-maths` → Viewer plus **User** on the mapped maths subjects (admin is capped); `oqb-test-admin` → Viewer everywhere; a real teacher's workshop account is refused (`sub_not_allowed`).
+**During**: each test account opens the Question Bank from the workshop SMS. Expect the last column of the table. A real teacher's workshop account is refused (`sub_not_allowed`); nothing changes for real accounts. SMS must not refresh the workshop database during the window (that recreates the test accounts with new `sub`s).
 
-**Close** (on the end date or earlier): "Close test window" disables the entry and unpins every kid in one action (`sms_trust.close_test_window`, audited); then unlink or disable each test account (`sms_sso_service.linked_users(issuer)` lists them); review the `nonprimary_login` audit rows. A workshop token is then refused with `issuer_disabled` / `unknown_kid`.
+**Close** (on the end date or earlier; do not rely on `enabled_until` alone):
+1. "Close test window" *(stage 5 screen; `sms_trust.close_test_window`)*: `enabled=false` and every workshop kid unpinned in one audited action.
+2. Unlink and disable `sso_test_viewer`, `sso_test_maths`, `sso_test_admin` (`sms_sso_service.linked_users('https://ms-test.tic.edu.hk')` lists every linked account).
+3. Review the `nonprimary_login` alerts / audit rows for the window.
+4. Confirm a workshop token is now refused with `issuer_disabled` (or `unknown_kid`).
+
+This procedure is rehearsed end to end by `tests/test_sms_workshop_window.py` with the fixture workshop stand-in issuer `https://sms-contract-test-workshop.invalid` (never with `ms-test` and a fixture key).
 
 ## 6. Rollback
 
-Redeploy `main` (stop the server, check out `main`, start). The new columns and tables are additive and ignored by the old code; leave them in place. To switch SMS sign-in off without a redeploy: System Settings → `SMS_SSO_ENABLED` off (SMS routes 404, SMS levels stop counting, local grants and passwords keep working). Key compromise: unpin the kid at once; password login keeps working.
+Redeploy `main` (stop the server, check out `main`, start). The new columns and tables are additive and ignored by the old code; leave them in place. To switch SMS sign-in off without a redeploy: System Settings → `SMS_SSO_ENABLED` off (SMS routes 404, SMS levels stop counting, local grants and passwords keep working). To stop the feed: `SMS_FEED_ENABLED` off (`/api/sms/directory` answers 404; SMS keeps retrying on its schedule). Accounts the feed disabled (`sms_deprovisioned`) are re-enabled by their next valid sign-in or snapshot (a super-admin enable / disable action arrives with stage 5). Key compromise: unpin the kid at once; password login keeps working.

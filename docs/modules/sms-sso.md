@@ -1,8 +1,8 @@
 # SMS sign-in and centralised authorization
 
-> Teachers sign in with the school SMS; OQB keeps local accounts, decides every permission through one effective-level function, and never trusts the browser for a subject. Built in six stages on branch `feature/sms-sso`; **stages 1–3 (authorization, trust list + verifier + audit, sign-in endpoints + linking) are done; stages 4–6 are not built. Not deployed.**
+> Teachers sign in with the school SMS; OQB keeps local accounts, decides every permission through one effective-level function, and never trusts the browser for a subject. Built in six stages on branch `feature/sms-sso`; **stages 1–4 (authorization, trust list + verifier + audit, sign-in endpoints + linking, directory feed) are done; stages 5–6 are not built. Not deployed.**
 
-Contract: `OQB_CONTRACT_v1.2.md` (refreshed, with section 2a "Test window"), `V1_2_ADDENDUM.md`, `V1_2_ADDENDUM_2.md` and the build plan live outside the repo (`D:\oqb_work\SMS_integration\`). This doc describes what exists in the repo. Deployment: [../manuals/SMS_SSO_DEPLOYMENT.md](../manuals/SMS_SSO_DEPLOYMENT.md).
+Contract: `OQB_CONTRACT_v1.2.md` (refreshed, with section 2a "Test window"), `V1_2_ADDENDUM.md`, `V1_2_ADDENDUM_2.md`, `V1_2_ADDENDUM_3.md` and the build plan live outside the repo (`D:\oqb_work\SMS_integration\`). This doc describes what exists in the repo. Deployment: [../manuals/SMS_SSO_DEPLOYMENT.md](../manuals/SMS_SSO_DEPLOYMENT.md).
 
 ## Stages
 
@@ -11,7 +11,7 @@ Contract: `OQB_CONTRACT_v1.2.md` (refreshed, with section 2a "Test window"), `V1
 | 1 | `app/authz.py` (effective level, fail-closed decorators, deny envelope), the 34 scope-gap fixes, `users` account-state columns, `session_version` / `active` | done |
 | 2 | 12 SSO tables, trust list + bootstrap file + production guards, pure token verifier, auth audit, SMS levels fed into `authz`, level module, mint script, the official fixtures in `tests/fixtures/sms` | done |
 | 3 | Sign-in endpoints (landing, token POST, failure page, link prompt / confirm / cancel), JIT accounts, session replacement, `PUBLIC_ORIGIN` / `PROXY_FIX_HOPS` / rate limit, login button; service-level admin linking by typed issuer + sub and the section 2a test-window open / close | done |
-| 4 | Directory feed (`POST /api/sms/directory`): catalogue, roster, deprovision / reactivate, brake | pending (verifier side done in stage 2) |
+| 4 | Directory feed (`POST /api/sms/directory`): catalogue, roster, profile + level refresh, deprovision / reactivate, missing-sub flags, safety brake with held snapshots (approve / discard services), the workshop test-window end-to-end test | done |
 | 5 | Admin screens: subject mapping, linking (roster + typed issuer/sub), snapshots, trust list (pin after fingerprint check, test window), audit / alerts, account admin | pending (services exist) |
 | 6 | Cookie names / `Secure`, session limits + opt-in remember-me, POST logout, CSRF, security headers, ADR-018, manuals | pending |
 
@@ -27,7 +27,8 @@ Contract: `OQB_CONTRACT_v1.2.md` (refreshed, with section 2a "Test window"), `V1
 | `app/auth_audit.py` | `record` (caller's transaction) / `record_now` (own connection, never raises); event constants; `scrub` replaces anything JWS-shaped with `[token]`. |
 | `app/sms_linking.py` | Pure: `derive_username`, `suggest_users` (rapidfuzz), `link_refusal`, `is_privileged`. |
 | `app/sms_sso_service.py` | `complete_handoff` (contract section 6 step 9 in one transaction), `replace_levels`, pending links (`pending_link`, `cancel_pending`), `self_refusal` / `self_link`, `admin_link` (typed or roster issuer + sub), `unlink`, `linked_users`, `purge` / `maybe_purge`. |
-| `app/sso.py` | Blueprint `sso`: the routes below, `signin_url()` for the login button, the fixed `next` allowlist, response headers. |
+| `app/sms_feed_service.py` | `apply_snapshot` (contract section 10 "Applying the snapshot" in one transaction), `brake_threshold`, `held_snapshots`, `approve_held`, `discard_held`, `purge_snapshots`, `FeedResult`, `FeedError`. |
+| `app/sso.py` | Blueprint `sso`: the routes below (including the feed endpoint `sso.directory_feed`), `signin_url()` for the login button, the fixed `next` allowlist, response headers. |
 | `app/web_security.py` | ProxyFix wiring (`init_app`), `public_origin`, `normalise_origin`, `origin_ok`, `client_ip`. Stage 6 adds cookies / headers / session limits. |
 | `app/rate_limit.py` | `RateLimiter(limit, window)` per key on the login guard's sliding window. |
 | `app/sso_schema.py` | Boot patches: `patch_users` (users columns) + `create_sso_tables` (the 12 tables, `checkfirst`, one try per table); `apply_sso_patches` → `SMS_SCHEMA_READY`. |
@@ -41,7 +42,7 @@ Contract: `OQB_CONTRACT_v1.2.md` (refreshed, with section 2a "Test window"), `V1
 | `docs/reference/sms-trust-bootstrap.example.json` | Bootstrap file format (contract-test keys). |
 | `tests/fixtures/sms/` | Byte copy of SMS's `oqb-fixtures` (cases.json, tokens, snapshots, keys incl. private test keys, reference `verify.py` / `sign.py`). `.gitattributes` marks them `-text`. |
 | `tests/smskit.py`, `tests/ssocase.py` | Fixture helpers (trust list, minting edge cases) and the SSO DB test base (fixture trust list in the DB, mapping, linked accounts). |
-| Tests | Pure: `test_sms_fixtures` (31 `test_case_<name>` + variants), `test_sms_verify`, `test_sms_trust`, `test_sms_levels`, `test_sms_mint`, `test_sms_linking`, `test_web_security`. DB: `test_sms_acceptance` (AT01–AT16, AT21), `test_sms_routes_fixtures` (23 token cases through `POST /sso/sms`), `test_sms_sso_routes`, `test_sms_store`, `test_schema_patches`. |
+| Tests | Pure: `test_sms_fixtures` (31 `test_case_<name>` + variants), `test_sms_verify`, `test_sms_trust`, `test_sms_levels`, `test_sms_mint`, `test_sms_linking`, `test_web_security`. DB: `test_sms_acceptance` (AT01–AT16, AT21), `test_sms_routes_fixtures` (23 token cases through `POST /sso/sms`), `test_sms_feed` (the 8 snapshot cases through `POST /api/sms/directory` in order, AT17–AT20, AT05 / AT08 via the feed, endpoint edge cases, concurrency), `test_sms_workshop_window` (contract 2a with the fixture workshop stand-in and the three window subs), `test_sms_sso_routes`, `test_sms_store`, `test_schema_patches`. |
 
 ## Tables
 
@@ -53,8 +54,10 @@ All new tables are InnoDB, `utf8mb4` / `utf8mb4_unicode_ci` (the live schema mix
 | `external_identities` | `(issuer, sub)` → one user; unique `(issuer, sub)` and `(issuer, user_id)`; `link_method` self / admin / jit. |
 | `user_sms_levels` | SMS-sourced levels (OQB level names), replaced per user + issuer; `sms_subject_uuid = ''` is the default-level row. |
 | `sms_subject_map` | Admin-confirmed SMS subject uuid → OQB subject (one-to-many). |
-| `sms_subject_catalogue` | SMS subjects seen in snapshots (stage 4) or primary-issuer tokens. |
-| `sms_roster`, `sms_feed_state`, `sms_snapshots` | Feed state (stage 4). |
+| `sms_subject_catalogue` | SMS subjects: the full catalogue from snapshots (inactive ones too), or subjects seen in primary-issuer tokens. Never deleted. |
+| `sms_roster` | The latest snapshot's users per issuer (replaced on every applied snapshot); feeds admin linking. Never authorises. |
+| `sms_feed_state` | Last applied `iat` / `snapshot_id` per issuer; the row is locked `FOR UPDATE` to serialise pushes. |
+| `sms_snapshots` | One row per accepted snapshot: `applied` / `held` (+ `held_subs_json`) / `approved` / `discarded` / `superseded`, counts, unmapped uuids. Decided rows purged after 90 days. |
 | `sso_used_jti` | Shared single-use store, unique `(issuer, jti)`; purged after 24 h. |
 | `sso_pending_links` | Verified claims of an unlinked handoff, 10 min, keyed by sha256 of a session-bound nonce. |
 | `sms_trust_issuers`, `sms_trust_keys` | The trust list and pinned keys. |
@@ -74,7 +77,7 @@ All `/sso/*` routes answer **404** unless `SMS_SSO_ENABLED` is on and `PUBLIC_OR
 | POST | `/sso/sms/link/cancel` | `sso.link_cancel` | per-link form token | Drops the pending link. |
 | GET/POST | `/login` | `auth.login` | public | Shows "Sign in with SMS" (`{primary issuer}/apps/oqb?origin={PUBLIC_ORIGIN}`) when SSO is on, the schema is ready and the primary has a pinned key (or `jwks_auto`); after a password login with a pending link, redirects to `/sso/sms/link/confirm`. |
 
-`POST /api/sms/directory` does not exist yet (404; stage 4).
+| POST | `/api/sms/directory` | `sso.directory_feed` | the snapshot's signature (primary issuer with `accepts_feed`); no cookies / session | **404** unless `SMS_FEED_ENABLED` (independent of `SMS_SSO_ENABLED`); 503 `{"status":"unavailable"}` without the schema. Rate limit (30 / 10 min / IP) → `Content-Type: application/jwt` and `Content-Length` ≤ 5 MB (else 400 `malformed`) → `verify_snapshot` → `apply_snapshot`. Bodies: 200 `{"status":"applied","snapshot_id","linked","deactivated","reactivated","unmapped_subjects":[uuid…],"missing","invalid_entries"}`; 202 the same with `"status":"held","held":n`; 409 `{"status":"stale"}`; 400 / 401 / 403 / 429 `{"status":"rejected","reason":code}`; 500 `{"status":"error"}`, 503 `{"status":"busy"}` (SMS retries 5xx). `Cache-Control: no-store`. |
 
 **Stage 1 authorization changes to existing routes** (details in [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md)):
 
@@ -123,6 +126,25 @@ One transaction, before any cookie: insert the jti (duplicate → roll back, `re
 
 Session (route): a different signed-in user is logged out and the session cleared; the same user keeps the session; `login_user(remember=False)`, any remember cookie is deleted (`_remember = 'clear'`), `session['auth_method'] = 'sms'`. A "not linked" outcome signs out whoever is signed in, clears the session and stores only the nonce.
 
+## Directory feed (contract section 10; `sms_feed_service.apply_snapshot`)
+
+Verification is `verify_snapshot` (section 6 steps 1–7, `purpose=directory_snapshot`, lifetime ≤ 600 s, `nbf` required, primary issuer with `accepts_feed` else 403 `issuer_disabled`). Then one transaction:
+
+1. Lock the issuer's `sms_feed_state` row (created first in its own short transaction, so two first pushes never deadlock on a gap lock). `iat` ≤ last applied → 409 `stale`. Insert the jti into `sso_used_jti` (duplicate → 409).
+2. Upsert the whole catalogue; replace the issuer's roster with the snapshot's users.
+3. For every **linked** identity of the issuer:
+   - absent from the snapshot → unchanged; `external_identities.missing_since` set (first time: `feed_missing` audit row with `is_alert`); cleared when the sub reappears;
+   - listed but its entry was invalid → unchanged (counted in `invalid_entries`, not flagged missing);
+   - privileged account → skipped;
+   - otherwise refresh the profile, then `active=false` → drop **all** its SMS levels; an active account is disabled `sms_deprovisioned`, `disabled_at` set, `session_version` bumped (every session ends at its next request), `deprovision` audit; an account disabled for another reason keeps that reason;
+   - `active=true` → a `sms_deprovisioned` account is re-enabled (`reactivate` audit; any other disabled reason stays disabled), then the issuer's levels are replaced (`source='snapshot'`).
+4. **Safety brake**: if the active linked accounts the snapshot would deactivate exceed `max(SMS_FEED_BRAKE_MIN, SMS_FEED_BRAKE_PCT % of linked)` (default `max(5, 10 %)`), everything else is applied, those accounts stay active, the snapshot is stored `held` with their subs, a `feed_held` alert is written and the answer is 202. Any older `held` row of the issuer becomes `superseded`.
+5. Record the snapshot row, the new `last_iat` / `last_snapshot_id`, a `feed_snapshot` audit row; commit.
+
+`unmapped_subjects` = uuids that are granted to someone in the snapshot or active in its catalogue and have no `sms_subject_map` row.
+
+**Held snapshots** (screen in stage 5): `approve_held(id, actor_id)` disables the held subs the latest roster still lists as inactive (`deprovision` audit reason `held_approved`) and marks the row `approved`; `discard_held` marks it `discarded` (the accounts stay active; the next snapshot that still drops them is held again). Only the latest snapshot of an issuer can be decided (`FeedError` otherwise). Both audited `feed_decision`.
+
 ## Linking (contract section 9)
 
 - **Self-link**: prompt → password login (`auth_method = password`) → confirm page → `self_link` re-checks the pending link (10 min), that its issuer is still the primary, privileged / already-linked refusals, then links (`self`) and applies the token's levels. Only the primary issuer has self-links.
@@ -150,15 +172,15 @@ Session (route): a different signed-in user is logged out and the session cleare
 
 ## Settings & config keys
 
-See [../core/06-system-settings.md](../core/06-system-settings.md). Env-only: `OQB_ENVIRONMENT`, `SMS_TRUST_BOOTSTRAP_FILE`, `PUBLIC_ORIGIN`, `PROXY_FIX_HOPS`. Registry (group "SMS sign-in"): `SMS_SSO_ENABLED`, `SMS_JIT_ENABLED`, `SMS_FEED_ENABLED`, `SMS_FEED_BRAKE_MIN`, `SMS_FEED_BRAKE_PCT` (the feed keys are used from stage 4). Runtime flag `SMS_SCHEMA_READY`. Constants (contract MUSTs): skew 30 s, handoff lifetime 120 s, snapshot 600 s, token 8 KB, snapshot 5 MB, pending link 10 min, jti kept 24 h, rate limit 20 / 5 min, non-primary window 7 days.
+See [../core/06-system-settings.md](../core/06-system-settings.md). Env-only: `OQB_ENVIRONMENT`, `SMS_TRUST_BOOTSTRAP_FILE`, `PUBLIC_ORIGIN`, `PROXY_FIX_HOPS`. Registry (group "SMS sign-in"): `SMS_SSO_ENABLED`, `SMS_JIT_ENABLED`, `SMS_FEED_ENABLED`, `SMS_FEED_BRAKE_MIN`, `SMS_FEED_BRAKE_PCT`. Runtime flag `SMS_SCHEMA_READY`. Constants (contract MUSTs): skew 30 s, handoff lifetime 120 s, snapshot 600 s, token 8 KB, snapshot 5 MB, pending link 10 min, jti kept 24 h, sign-in rate limit 20 / 5 min, feed rate limit 30 / 10 min, decided snapshot rows kept 90 days, non-primary window 7 days.
 
 ## Permissions
 
-See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). The `/sso/*` routes are public by design (the token or the pending link is the credential). Trust / linking edits are super-admin services (screens in stage 5).
+See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). The `/sso/*` routes and `/api/sms/directory` are public by design (the signed token, the snapshot signature or the pending link is the credential). Trust / linking / held-snapshot decisions are super-admin services (screens in stage 5).
 
 ## Background work / SSE / threads
 
-None. `maybe_purge` runs at most every 10 minutes inside a token POST. The JWKS cache and the rate limiter are per process.
+None. `maybe_purge` runs at most every 10 minutes inside a token or feed POST. The JWKS cache and the rate limiters are per process; the feed is serialised in the DB (`sms_feed_state` `FOR UPDATE`).
 
 ## Gotchas
 
@@ -171,11 +193,15 @@ None. `maybe_purge` runs at most every 10 minutes inside a token POST. The JWKS 
 - `authz.require_subjects([])` denies; callers with an optional empty list short-circuit first.
 - A refused fetch gets JSON only when the request looks like an API call; a bare test-client GET gets the HTML 403.
 - Tests keep an app context pushed; `tests/dbcase.FreshGClient` clears `g` between requests, and `DbTestCase` restores `app.config` and the trust cache after each test.
+- Feed: never `SELECT … FOR UPDATE` a missing `sms_feed_state` row and then insert it from another connection — the gap lock blocks the insert. `_lock_state` creates the row first, then locks.
+- Feed: SMS levels from snapshots count only once `SMS_SSO_ENABLED` is on, so the feed can run before go-live (roster for linking) without changing anyone's access. Deprovisioning does act while sign-in is off.
+- The feed is independent of `PUBLIC_ORIGIN` and sends no cookies; do not add `current_user` / `session` access to `directory_feed` (it would start setting cookies).
 
 ## Open issues
 
 - **SSE GETs that write** (plan point 12, not implemented by decision): `GET /admin/health/sync?mode=delete`, PDF-import `GET /admin/pdf-import/commit`, `GET /admin/import/apply`, `GET /admin/ingestion/start`, `GET /admin/health/doc-thumbnails/backfill`. A top-level GET navigation carries `SameSite=Lax` cookies, so these can be triggered cross-site by a signed-in admin's browser. Proposed for stage 6: require a `csrf` query parameter (`OQB.csrfUrl(url)`) on these endpoints behind `CSRF_MODE`; needs the owner's approval.
-- The link confirm / cancel forms use an interim per-link form token until stage 6 adds CSRF everywhere.
+- The link confirm / cancel forms use an interim per-link form token until stage 6 adds CSRF everywhere. Stage 6 must list `sso.token_post` and `sso.directory_feed` as the only CSRF exemptions.
+- Held snapshots, the trust list's enable / `enabled_until` edit and the mapping have services but no screens until stage 5 (addendum 3 item 6, "refused by the trust admin route", is tested at the service level for now).
 - SMS sessions get no remember-me now; the 12 h / 2 h limits arrive with stage 6.
 - The "Sign in with SMS" landing must be checked in a real browser on staging (Origin under `no-referrer`, plan point 5).
 - Smart Import plan tokens (`/admin/import/apply?token=`) and IMG Split staging tokens are not owner-bound.

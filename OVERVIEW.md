@@ -76,7 +76,7 @@ one or more super admins (users, subjects, settings, everything).
 | MD source format (render, editor, pandoc) | cross-cutting | `app/md_render.py` | [modules/md-format.md](docs/modules/md-format.md) |
 | System Settings | `admin_bp` `/admin/settings` | `app/settings.py` | [core/06](docs/core/06-system-settings.md) |
 | Bilingual UI + taxonomy names (English / 繁體中文: language cookies, catalogue, `name_zh`, document heading language) | cross-cutting; `i18n_bp` `/i18n/<lang>.js` | `app/i18n.py`, `app/translations/zh_Hant.json`, `static/js/i18n.js` | [modules/i18n.md](docs/modules/i18n.md) |
-| Authorization (effective level, scope helpers, download policy) + SMS sign-in (stages 1–3 of 6 built: account state, trust list, verifier, audit, `/sso/sms` sign-in + linking; feed / admin screens / CSRF pending) | cross-cutting | `app/authz.py`, `app/files_policy.py`, `app/sso_schema.py`, `app/sms_*.py`, `app/sso.py`, `app/auth_audit.py`, `app/web_security.py` | [modules/sms-sso.md](docs/modules/sms-sso.md) |
+| Authorization (effective level, scope helpers, download policy) + SMS sign-in (stages 1–4 of 6 built: account state, trust list, verifier, audit, `/sso/sms` sign-in + linking, directory feed; admin screens / CSRF pending) | cross-cutting | `app/authz.py`, `app/files_policy.py`, `app/sso_schema.py`, `app/sms_*.py`, `app/sso.py`, `app/auth_audit.py`, `app/web_security.py` | [modules/sms-sso.md](docs/modules/sms-sso.md) |
 
 ## Key decisions (summaries; the why is in `docs/decisions/`)
 
