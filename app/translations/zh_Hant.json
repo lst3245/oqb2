@@ -1,6 +1,12 @@
 {
   "_comment": "English UI text -> Traditional Chinese (Hong Kong). Keys are the exact English strings passed to t() / OQB.t(); keep {placeholders} identical. Terms: docs/reference/glossary-zh.md. Spec: docs/modules/i18n.md.",
   "Online Question Bank": "網上題庫",
+  "You do not have permission to do that.": "你沒有權限執行此操作。",
+  "{n} selected question(s) are in subjects you cannot edit.": "已選的 {n} 條題目屬於你無權編輯的科目。",
+  "The selected topics or chapters belong to a different subject than the questions.": "所選的課題或章節與題目屬於不同科目。",
+  "This staging session belongs to another user.": "此暫存工作階段屬於另一位用戶。",
+  "This uploaded folder belongs to another user.": "此上載的資料夾屬於另一位用戶。",
+  "{n} question(s) in subjects you cannot generate from were removed.": "已移除 {n} 條屬於你無權產生試卷的科目的題目。",
   "Question Bank": "題庫",
   "Dashboard": "主頁",
   "My Stuff": "我的項目",

@@ -14,7 +14,7 @@ from flask import (
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_
 
-from app import db
+from app import authz, db, files_policy
 from app.i18n import t as _t
 from app.models import (
     SavedFilter, SavedGenerationProfile, SavedQuestionSet,
@@ -110,22 +110,9 @@ def _ids_of_files_shared_with(user_id):
 
 
 def _user_can_view_file(gen_file, user):
-    """Return True if `user` may see / download `gen_file`."""
-    if gen_file.user_id == user.id or user.is_super_admin:
-        return True
-    # Shared (direct OR section-level)
-    direct = FileShare.query.filter_by(
-        file_id=gen_file.id, shared_with_user_id=user.id,
-    ).first()
-    if direct:
-        return True
-    if gen_file.section_id is not None:
-        sect_share = FileShare.query.filter_by(
-            section_id=gen_file.section_id, shared_with_user_id=user.id,
-        ).first()
-        if sect_share:
-            return True
-    return False
+    """Return True if `user` may see `gen_file` (owner, super admin, or a
+    direct / section share). Downloads use ``files_policy.can_download``."""
+    return files_policy.can_view(gen_file, user)
 
 
 def _user_owns_file(gen_file, user):
@@ -316,6 +303,8 @@ def profiles_list():
 @login_required
 def profiles_save():
     """API: save a new filter profile"""
+    if not current_user.can_generate():
+        authz.deny()
     data = request.get_json()
     if not data:
         return jsonify({'error': _t('No data provided')}), 400
@@ -344,7 +333,9 @@ def profiles_save():
 def profiles_data(profile_id):
     """API: get filter data for a profile (for restoring on dashboard).
 
-    Accessible to: owner, super admin, or any logged-in user if the profile is shared.
+    Accessible to: owner, super admin, or (when shared) a user who can read
+    the profile's subject. Question ids outside the reader's subjects are
+    stripped.
     """
     profile = SavedFilter.query.get_or_404(profile_id)
 
@@ -356,6 +347,13 @@ def profiles_data(profile_id):
         filter_data = json.loads(profile.filter_data)
     except (json.JSONDecodeError, TypeError):
         filter_data = {}
+    if not isinstance(filter_data, dict):
+        filter_data = {}
+    if not is_owner_or_admin:
+        subject = filter_data.get('subject')
+        if subject and not authz.has_level(current_user, subject, 'viewer'):
+            authz.deny()
+    filter_data = files_policy.scrub(filter_data)
     
     return jsonify({
         'id': profile.id,
@@ -497,6 +495,8 @@ def gen_profiles_list():
 @login_required
 def gen_profiles_save():
     """API: save (upsert by name) a generation preset for the current user."""
+    if not current_user.can_generate():
+        authz.deny()
     data = request.get_json()
     if not data:
         return jsonify({'error': _t('No data provided')}), 400
@@ -561,6 +561,7 @@ def gen_profiles_data(preset_id):
         options_data = json.loads(preset.options_data)
     except (json.JSONDecodeError, TypeError):
         options_data = {}
+    options_data = files_policy.scrub(options_data)
 
     return jsonify({
         'id': preset.id,
@@ -771,7 +772,7 @@ def sets_save():
 
     if not Subject.query.get(subject):
         return jsonify({'error': _t('Unknown subject: {subject}', subject=subject)}), 400
-    if not current_user.has_subject_access(subject):
+    if not current_user.can_generate_in(subject):
         return jsonify({'error': _t('No access to this subject')}), 403
 
     # Coerce to int and de-duplicate while preserving order
@@ -1200,10 +1201,13 @@ def files_list():
         `display_name` and `filename`. Used by the page-level search box
         so a query finds matches across every page of the section, not
         just the currently-rendered rows.
-      - show_all (super-admin): include any other user's files in their
+        - show_all (super-admin): include any other user's files in their
         own sections — used by the admin "Show all users" toggle and only
         meaningful for own (non-shared) sections.
+    Viewers (``can_generate()`` false) get 403, like the page.
     """
+    if not current_user.can_generate():
+        authz.deny()
     section_id_raw = request.args.get('section_id', '')
     try:
         section_id = int(section_id_raw)
@@ -1332,7 +1336,7 @@ def files_filter_data(file_id):
     except (json.JSONDecodeError, TypeError):
         return jsonify({'error': _t('Invalid filter data')}), 500
 
-    return jsonify({'filter_data': filter_data})
+    return jsonify({'filter_data': files_policy.scrub(filter_data)})
 
 
 @user_bp.route('/files/<int:file_id>/generation_options')
@@ -1349,10 +1353,20 @@ def files_generation_options(file_id):
     except (json.JSONDecodeError, TypeError):
         generation_options = {}
 
+    filter_data = gen_file.filter_data or ''
+    try:
+        parsed_filter = json.loads(filter_data) if filter_data else None
+    except (json.JSONDecodeError, TypeError):
+        parsed_filter = None
+    if isinstance(parsed_filter, dict):
+        scrubbed = files_policy.scrub(parsed_filter)
+        if scrubbed is not parsed_filter:
+            filter_data = json.dumps(scrubbed)
+
     return jsonify({
-        'generation_options': generation_options,
+        'generation_options': files_policy.scrub(generation_options),
         'display_name': gen_file.display_name,
-        'filter_data': gen_file.filter_data or '',
+        'filter_data': filter_data,
     })
 
 
@@ -1538,8 +1552,8 @@ def files_bulk_delete():
 def files_bulk_download():
     """Stream a ZIP containing the selected (completed) generated files.
 
-    Permission: each file individually must be visible to the current user
-    (own / shared / super-admin). Non-completed and missing-on-disk files
+    Permission: each file individually must pass ``files_policy.can_download``
+    (own / super-admin / shared with readable subjects). Non-completed and missing-on-disk files
     are silently skipped. Duplicate display_names get a `(2)`, `(3)`, ...
     suffix inside the zip so the user always gets every file.
     """
@@ -1557,7 +1571,7 @@ def files_bulk_download():
         gf = GeneratedFile.query.get(fid)
         if not gf or gf.status != 'completed':
             continue
-        if not _user_can_view_file(gf, current_user):
+        if not files_policy.can_download(gf, current_user):
             continue
         disk_path = os.path.join(generated_file_dir(gf), gf.filename)
         if not os.path.exists(disk_path):

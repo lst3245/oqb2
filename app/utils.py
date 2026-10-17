@@ -7,6 +7,7 @@ from flask import abort, request
 from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
+from app import authz
 from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key, question_marks
 from app.i18n import display_name, t as _t
 from app.tax_numbers import numbered_name
@@ -138,13 +139,14 @@ def validate_username(username):
 # ==================== Permission Decorators ====================
 
 def admin_required(f):
-    """Decorator to require admin access to at least one subject (or super admin)"""
+    """Admin on at least one subject (or super admin). A floor only: routes
+    that touch one subject's data still check that subject."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated:
             abort(403)
-        if not current_user.is_super_admin and not current_user.has_any_admin_access():
-            abort(403)
+        if not authz.any_level(current_user, 'admin'):
+            authz.deny()
         return f(*args, **kwargs)
     return decorated_function
 
@@ -153,68 +155,60 @@ def super_admin_required(f):
     """Decorator to require super admin access"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_super_admin:
-            abort(403)
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def subject_access_required(f):
-    """
-    Decorator to require access to a subject.
-    Expects subject_id in URL params, form data, or JSON body.
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated:
             abort(403)
-        
-        # Super admin has access to everything
-        if current_user.is_super_admin:
-            return f(*args, **kwargs)
-        
-        # Get subject_id from various sources
-        subject_id = kwargs.get('subject_id') or \
-                     request.args.get('subject_id') or \
-                     request.form.get('subject_id')
-        
-        if not subject_id and request.is_json:
-            subject_id = request.get_json().get('subject_id')
-        
-        if subject_id and not current_user.has_subject_access(subject_id):
-            abort(403)
-        
+        if not authz.is_super_admin(current_user):
+            authz.deny()
         return f(*args, **kwargs)
     return decorated_function
 
 
-def subject_admin_required(f):
-    """
-    Decorator to require admin access to a subject.
-    Expects subject_id in URL params, form data, or JSON body.
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated:
-            abort(403)
-        
-        # Super admin has access to everything
-        if current_user.is_super_admin:
+def request_subject_id(kwargs):
+    """``subject_id`` from the URL, query string, form, or JSON body."""
+    subject_id = kwargs.get('subject_id') or request.args.get('subject_id') or request.form.get('subject_id')
+    if not subject_id and request.is_json:
+        data = request.get_json(silent=True)
+        if isinstance(data, dict):
+            subject_id = data.get('subject_id')
+    return subject_id
+
+
+def _subject_level_decorator(minimum, source):
+    def wrap(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                abort(403)
+            if authz.is_super_admin(current_user):
+                return f(*args, **kwargs)
+            subject_id = source(kwargs) if source else request_subject_id(kwargs)
+            # Fail closed: no resolvable subject means no access.
+            if not authz.has_level(current_user, subject_id, minimum):
+                authz.deny()
             return f(*args, **kwargs)
-        
-        # Get subject_id from various sources
-        subject_id = kwargs.get('subject_id') or \
-                     request.args.get('subject_id') or \
-                     request.form.get('subject_id')
-        
-        if not subject_id and request.is_json:
-            subject_id = request.get_json().get('subject_id')
-        
-        if subject_id and not current_user.is_subject_admin(subject_id):
-            abort(403)
-        
-        return f(*args, **kwargs)
-    return decorated_function
+        return decorated_function
+    return wrap
+
+
+def subject_level_required(minimum, source=None):
+    """Require ``minimum`` ('viewer' | 'user' | 'admin') on the request's
+    subject. ``source(kwargs) -> subject_id`` overrides the default lookup."""
+    return _subject_level_decorator(minimum, source)
+
+
+def subject_access_required(f=None, *, source=None):
+    """Viewer or above on the request's subject; 403 when none is found.
+    Use bare or as ``@subject_access_required(source=...)``."""
+    if f is None:
+        return _subject_level_decorator('viewer', source)
+    return _subject_level_decorator('viewer', None)(f)
+
+
+def subject_admin_required(f=None, *, source=None):
+    """Subject admin on the request's subject; 403 when none is found."""
+    if f is None:
+        return _subject_level_decorator('admin', source)
+    return _subject_level_decorator('admin', None)(f)
 
 
 # ==================== Permission Helper Functions ====================

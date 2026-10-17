@@ -22,7 +22,7 @@ from flask import (Response, abort, current_app, jsonify, render_template,
                    request, send_file)
 from flask_login import current_user, login_required
 
-from app import pdf_tools
+from app import authz, pdf_tools
 from app.i18n import t as _t
 from app.toolbox import toolbox_bp
 from app.toolbox.common import pdf_source_root, safe_filename, safe_join
@@ -31,13 +31,14 @@ from app.utils import admin_required
 logger = logging.getLogger(__name__)
 
 
-def _resolve_root_base(root_id, require_write=False):
+def _resolve_root_base(root_id, require_write=False, rel=''):
     """Resolve a unified-selector ``root_id`` to ``(base_dir, error)``.
 
     When ``root_id`` is provided, the base dir comes from the per-user
     :class:`RootRegistry` (Shared / personal / Storage), enforcing
     ``can_write`` when ``require_write`` is set. When blank, it falls back to
-    the legacy ``PDF_SOURCE_PATH`` for backward compatibility.
+    the legacy ``PDF_SOURCE_PATH`` for backward compatibility; there ``rel``
+    (the path the caller will use) must pass ``authz.pdf_source_allowed``.
     """
     root_id = (root_id or '').strip()
     if root_id:
@@ -55,6 +56,8 @@ def _resolve_root_base(root_id, require_write=False):
     base = pdf_source_root()
     if not base or not os.path.isdir(base):
         return None, _t('The server source-PDF folder is not configured.')
+    if not authz.pdf_source_allowed(rel):
+        return None, _t('You do not have access to that location.')
     return base, None
 
 _TOKEN_RE = re.compile(r'^[0-9a-f]{8,40}$')
@@ -100,12 +103,31 @@ def _session_path(token: str) -> str:
     return os.path.join(_token_dir(token), 'session.json')
 
 
-def _load_session(token: str) -> dict:
+def _read_session(token: str) -> dict:
     with open(_session_path(token), 'r', encoding='utf-8') as f:
         data = json.load(f)
     data.setdefault('sources', {})
     data.setdefault('pages', [])
     return data
+
+
+def _load_session(token: str) -> dict:
+    """The session, refused (403) unless it belongs to the current user or
+    the user is a super admin. Sessions without ``owner_user_id`` predate
+    owner tracking and are super admin only."""
+    data = _read_session(token)
+    if not authz.owns(data.get('owner_user_id')):
+        authz.deny()
+    return data
+
+
+def _require_owner(token: str) -> None:
+    try:
+        owner = _read_session(token).get('owner_user_id')
+    except (OSError, ValueError):
+        owner = None
+    if not authz.owns(owner):
+        authz.deny()
 
 
 def _save_session(token: str, data: dict) -> None:
@@ -122,6 +144,7 @@ def _new_session() -> str:
     token = uuid.uuid4().hex
     os.makedirs(_sources_dir(token), exist_ok=True)
     _save_session(token, {'created_at': datetime.utcnow().isoformat(),
+                          'owner_user_id': authz.current_user_id(),
                           'sources': {}, 'pages': []})
     return token
 
@@ -390,6 +413,7 @@ def pdf_upload():
     if token:
         if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
             return jsonify({'error': _t('Session expired — reload the page.')}), 400
+        _require_owner(token)
     else:
         token = _new_session()
 
@@ -413,7 +437,8 @@ def pdf_upload():
             return jsonify({'error': _t('Please upload a .pdf file or an image.')}), 400
     else:
         rel = (request.form.get('server_path') or '').strip().strip('/').strip('\\')
-        root, err = _resolve_root_base((request.form.get('server_root') or '').strip())
+        root, err = _resolve_root_base((request.form.get('server_root') or '').strip(),
+                                       rel=rel)
         if err:
             return jsonify({'error': err}), 400
         full = safe_join(root, rel) if rel else None
@@ -696,6 +721,7 @@ def pdf_thumb(token, page_id):
 def pdf_src_thumb(token, srcid, idx):
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return abort(404)
+    _require_owner(token)
     try:
         width = max(120, min(2400, int(request.args.get('w', 300))))
     except (TypeError, ValueError):
@@ -715,7 +741,8 @@ def pdf_src_thumb(token, srcid, idx):
 # ==================== Session Management ====================
 
 def _list_sessions() -> list:
-    """Return metadata for all valid staging sessions, newest first."""
+    """Metadata for the current user's staging sessions (a super admin sees
+    every session), newest first."""
     root = _staging_root()
     if not os.path.isdir(root):
         return []
@@ -730,6 +757,8 @@ def _list_sessions() -> list:
         try:
             with open(sess_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            if not authz.owns(data.get('owner_user_id')):
+                continue
             srcs = data.get('sources') or {}
             pages = data.get('pages') or []
             # Compute total source size from files on disk
@@ -775,8 +804,9 @@ def pdf_session_restore():
     token = (data.get('token') or '').strip()
     if not _TOKEN_RE.match(token) or not os.path.isdir(_token_dir(token)):
         return jsonify({'error': _t('Session not found.')}), 404
+    _require_owner(token)
     try:
-        session = _load_session(token)
+        session = _read_session(token)
     except Exception as e:
         return jsonify({'error': _t('Could not load session: {err}', err=e)}), 500
     return jsonify({
@@ -802,17 +832,25 @@ def pdf_sessions_delete():
         if not _TOKEN_RE.match(token):
             continue
         path = os.path.join(_staging_root(), token)
-        if os.path.isdir(path):
+        if os.path.isdir(path) and _owns_session_dir(token):
             shutil.rmtree(path, ignore_errors=True)
             deleted += 1
     return jsonify({'ok': True, 'deleted': deleted})
+
+
+def _owns_session_dir(token: str) -> bool:
+    try:
+        owner = _read_session(token).get('owner_user_id')
+    except (OSError, ValueError):
+        owner = None
+    return authz.owns(owner)
 
 
 @toolbox_bp.route('/pdf/sessions/clear-all', methods=['POST'])
 @login_required
 @admin_required
 def pdf_sessions_clear_all():
-    """Delete every staging session."""
+    """Delete the current user's staging sessions (a super admin: all)."""
     root = _staging_root()
     deleted = 0
     if os.path.isdir(root):
@@ -820,7 +858,7 @@ def pdf_sessions_clear_all():
             if not _TOKEN_RE.match(name):
                 continue
             path = os.path.join(root, name)
-            if os.path.isdir(path):
+            if os.path.isdir(path) and _owns_session_dir(name):
                 shutil.rmtree(path, ignore_errors=True)
                 deleted += 1
     return jsonify({'ok': True, 'deleted': deleted})
@@ -870,7 +908,8 @@ def pdf_export_start():
     job_id = uuid.uuid4().hex
     q: _queue_mod.Queue = _queue_mod.Queue()
     job: dict = {'q': q, 'mode': 'download', 'blob': None,
-                 'mime': mime, 'download_name': download_name, 'ts': time.time()}
+                 'mime': mime, 'download_name': download_name, 'ts': time.time(),
+                 'owner': authz.current_user_id()}
     _EXPORT_JOBS[job_id] = job
 
     app = current_app._get_current_object()
@@ -905,7 +944,7 @@ def pdf_export_stream():
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
     job = _EXPORT_JOBS.get(job_id)
-    if not job:
+    if not job or not authz.owns(job.get('owner')):
         return _sse_error('Unknown export job.')
 
     q: _queue_mod.Queue = job['q']
@@ -930,9 +969,11 @@ def pdf_export_stream():
 def pdf_export_download():
     """Serve a completed download-export job and clean it up."""
     job_id = (request.args.get('job_id') or '').strip()
-    job = _EXPORT_JOBS.pop(job_id, None)
-    if not job or job.get('mode') != 'download' or not job.get('blob'):
+    job = _EXPORT_JOBS.get(job_id)
+    if (not job or not authz.owns(job.get('owner'))
+            or job.get('mode') != 'download' or not job.get('blob')):
         return jsonify({'error': _t('Export job not found or not ready.')}), 404
+    _EXPORT_JOBS.pop(job_id, None)
     buf = io.BytesIO(job['blob'])
     return send_file(buf, mimetype=job['mime'], as_attachment=True,
                      download_name=job['download_name'])
@@ -949,12 +990,13 @@ def pdf_export_save_start():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True)
-    if err:
-        return jsonify({'error': err}), 400
     subdir = (data.get('dest') or '').strip().strip('/').strip('\\')
     if not subdir:
         subdir = str(current_app.config.get('TOOLBOX_SAVE_SUBDIR', 'Saved'))
+    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True,
+                                   rel=subdir)
+    if err:
+        return jsonify({'error': err}), 400
     save_dir = safe_join(root, subdir) if subdir else root
     if not save_dir:
         return jsonify({'error': _t('Invalid save directory.')}), 400
@@ -986,7 +1028,8 @@ def pdf_export_save_start():
     _cleanup_export_jobs()
     job_id = uuid.uuid4().hex
     q: _queue_mod.Queue = _queue_mod.Queue()
-    job: dict = {'q': q, 'mode': 'save', 'ts': time.time()}
+    job: dict = {'q': q, 'mode': 'save', 'ts': time.time(),
+                 'owner': authz.current_user_id()}
     _EXPORT_JOBS[job_id] = job
 
     app = current_app._get_current_object()
@@ -1013,10 +1056,11 @@ def pdf_export_save_start():
 @admin_required
 def pdf_mkdir():
     data = request.get_json(silent=True) or {}
-    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True)
+    parent_rel = (data.get('path') or '').strip().strip('/').strip('\\')
+    root, err = _resolve_root_base((data.get('dest_root') or '').strip(), require_write=True,
+                                   rel=parent_rel)
     if err:
         return jsonify({'error': err}), 400
-    parent_rel = (data.get('path') or '').strip().strip('/').strip('\\')
     name = (data.get('name') or '').strip()
     name = re.sub(r'[^\w\-. ]+', '_', name).strip('. ')
     if not name:
@@ -1361,7 +1405,11 @@ def pdf_llm_detect():
 def pdf_llm_detect_cancel():
     from app import pdf_import
     data = request.get_json(silent=True) or {}
-    ok = pdf_import.cancel_job((data.get('job_id') or '').strip())
+    job_id = (data.get('job_id') or '').strip()
+    known, owner = pdf_import.job_owner(job_id)
+    if known and not authz.owns(owner):
+        authz.deny()
+    ok = pdf_import.cancel_job(job_id)
     return jsonify({'ok': ok})
 
 
@@ -1375,5 +1423,6 @@ def pdf_discard():
         return jsonify({'ok': False}), 400
     d = _token_dir(token)
     if os.path.isdir(d):
+        _require_owner(token)
         shutil.rmtree(d, ignore_errors=True)
     return jsonify({'ok': True})

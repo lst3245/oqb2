@@ -9,8 +9,8 @@ preview what a restore would change, and restore. Logic lives in
 
 Authz: the capture route carries ``subject_id`` in the URL so
 ``@subject_admin_required`` fires; routes keyed by ``point_id`` check the
-point's subject explicitly (the subject decorators pass through without a
-``subject_id``).
+point's subject explicitly (the subject decorators refuse a request without
+a ``subject_id``).
 """
 from __future__ import annotations
 

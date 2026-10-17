@@ -264,6 +264,52 @@ def resolve_batch(parsed, topics, subtopics, chapters, subchapters):
     }
 
 
+_OWNER_FIELDS = (
+    ('major_topic_id', 'topic'),
+    ('minor_topic_ids', 'topic'),
+    ('major_subtopic_id', 'subtopic'),
+    ('subtopic_ids', 'subtopic'),
+    ('chapter_id', 'chapter'),
+    ('subchapter_id', 'subchapter'),
+)
+
+
+def resolved_taxonomy_ids(resolved):
+    """``{'topic': set, 'subtopic': set, 'chapter': set, 'subchapter': set}``
+    of the ids ``resolved`` would write."""
+    out = {'topic': set(), 'subtopic': set(), 'chapter': set(), 'subchapter': set()}
+    for key, kind in _OWNER_FIELDS:
+        value = resolved.get(key)
+        if value is None:
+            continue
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        out[kind].update(v for v in values if v is not None)
+    return out
+
+
+def taxonomy_violations(question_subjects, resolved, owners):
+    """Written taxonomy ids whose subject differs from a question's subject.
+
+    ``owners`` maps kind ('topic' | 'subtopic' | 'chapter' | 'subchapter')
+    to ``{id: subject_id}``. Ids with no owner (deleted rows) are left to
+    ``resolve_batch``. Returns ``[{'field', 'id', 'subject'}]``.
+    """
+    subjects = set(question_subjects)
+    problems = []
+    for key, kind in _OWNER_FIELDS:
+        value = resolved.get(key)
+        if value is None:
+            continue
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        for id_ in values:
+            owner = owners.get(kind, {}).get(id_)
+            if owner is None:
+                continue
+            if subjects != {owner}:
+                problems.append({'field': key, 'id': id_, 'subject': owner})
+    return problems
+
+
 def view_from_question(question):
     """Current tag fields as the preview compares them."""
 

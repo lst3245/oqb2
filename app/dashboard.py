@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, jsonify, session, current
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
 from sqlalchemy.orm import selectinload
-from app import db
+from app import authz, db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
                        enumerate_sort_groups, GROUPING_FIELDS,
@@ -82,7 +82,7 @@ def _build_filtered_query(params):
     qid_list = params.get('qids') or []
     id_list = params.get('ids') or []
 
-    query = Question.query
+    query = authz.scope_query(Question.query, Question.subject, 'viewer')
 
     # Explicit QID list - if provided, filter by exact QID matches and ignore all other filters.
     if qid_list:
@@ -815,6 +815,10 @@ def get_subtopics():
     
     if not topic_ids:
         return jsonify([])
+    owners = authz.taxonomy_subjects(Topic, topic_ids)
+    if not owners:
+        return jsonify([])
+    authz.require_subjects(owners, 'viewer')
     
     query = Subtopic.query.filter(Subtopic.topic_id.in_(topic_ids))
     
@@ -887,6 +891,10 @@ def get_subchapters():
     
     if not chapter_ids:
         return jsonify([])
+    owners = authz.taxonomy_subjects(Chapter, chapter_ids)
+    if not owners:
+        return jsonify([])
+    authz.require_subjects(owners, 'viewer')
     
     query = Subchapter.query.filter(Subchapter.chapter_id.in_(chapter_ids))
     
@@ -1651,9 +1659,10 @@ def doc_thumbnail(asset_id):
     """
     Serve the cached first-page PNG thumbnail for a DOC asset.
 
-    Permission: any logged-in user who has access to the question's subject.
-    Returns 404 when the cached PNG isn't on disk (the frontend falls back to
-    the existing download stub).
+    Permission: any logged-in user who has access to the question's subject;
+    an orphan asset (no question row) only for a super admin. Returns 404
+    when the cached PNG isn't on disk (the frontend falls back to the
+    existing download stub).
     """
     asset = QuestionAsset.query.get_or_404(asset_id)
     if asset.file_format != 'DOC':
@@ -1661,9 +1670,11 @@ def doc_thumbnail(asset_id):
 
     # Subject permission check (mirrors /dashboard/files/<path>).
     question = Question.query.get(asset.question_id)
-    if question is not None and not current_user.is_super_admin:
-        if not current_user.has_subject_access(question.subject):
-            return abort(403)
+    if question is None:
+        if not authz.is_super_admin():
+            return abort(404)
+    elif not authz.has_level(current_user, question.subject, 'viewer'):
+        return abort(403)
 
     from app import doc_thumbnails
     path = doc_thumbnails.thumbnail_path(asset_id)

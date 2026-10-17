@@ -1,13 +1,15 @@
 """
 Authentication routes and handlers
 """
+from datetime import datetime
+
 from flask import Blueprint, current_app, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from app import db
 from app.i18n import t as _t
 from app.login_guard import LoginThrottle, client_ip, retry_phrase, safe_next_url
 from app.models import User
-from app.utils import admin_required, validate_username
+from app.utils import super_admin_required, validate_username
 
 auth_bp = Blueprint('auth', __name__)
 _login_throttle = LoginThrottle()
@@ -52,9 +54,13 @@ def login():
 
         user = User.query.filter_by(username=username).first() if username else None
 
-        if user and user.check_password(password):
+        # A disabled account gets the same message as a wrong password.
+        if user and user.is_active and user.check_password(password):
             _login_throttle.record_success(username)
             login_user(user, remember=True)
+            user.last_login_at = datetime.utcnow()
+            user.last_login_method = 'password'
+            db.session.commit()
             return redirect(_after_login_url())
 
         _login_throttle.record_failure(ip, username)
@@ -72,13 +78,13 @@ def logout():
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@super_admin_required
 def register():
-    """Register new user (admin only)"""
+    """Register a new user without subject access (super admin only;
+    Admin → Users is the main path)."""
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
-        password = request.form.get('password')
-        is_admin = request.form.get('is_admin') == 'on'
+        password = request.form.get('password') or ''
         
         ok, err = validate_username(username)
         if not ok:
@@ -86,8 +92,10 @@ def register():
             flash(_t(err), 'danger')
         elif User.query.filter_by(username=username).first():
             flash(_t('Username already exists'), 'danger')
+        elif not password:
+            flash(_t('Username and password are required'), 'danger')
         else:
-            user = User(username=username, is_admin=is_admin)
+            user = User(username=username)
             user.set_password(password)
             db.session.add(user)
             db.session.commit()

@@ -50,16 +50,26 @@ def _check_sse_extras(res: dict) -> dict:
 # POST to reach the same worker running the stream.
 
 _AI_CANCEL: 'dict[str, threading.Event]' = {}
+_AI_OWNER: 'dict[str, int | None]' = {}
 _AI_LOCK = threading.Lock()
 
 
-def new_job():
-    """Register a new cancellable job; returns ``(job_id, cancel_event)``."""
+def new_job(owner_id=None):
+    """Register a new cancellable job; returns ``(job_id, cancel_event)``.
+    The owner defaults to the signed-in user of the current request."""
+    from app.authz import current_user_id
     job_id = uuid.uuid4().hex
     ev = threading.Event()
     with _AI_LOCK:
         _AI_CANCEL[job_id] = ev
+        _AI_OWNER[job_id] = owner_id if owner_id is not None else current_user_id()
     return job_id, ev
+
+
+def job_owner(job_id: str):
+    """``(known, owner_id)`` for a registered job."""
+    with _AI_LOCK:
+        return job_id in _AI_CANCEL, _AI_OWNER.get(job_id)
 
 
 def cancel_job(job_id: str) -> bool:
@@ -76,6 +86,7 @@ def finish_job(job_id: str) -> None:
     """Drop a finished job's cancel flag from the registry."""
     with _AI_LOCK:
         _AI_CANCEL.pop(job_id, None)
+        _AI_OWNER.pop(job_id, None)
 
 
 # ==================== Slot / path helpers ====================

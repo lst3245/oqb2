@@ -35,11 +35,22 @@ def create_app():
     from app.i18n import t as _i18n_t
     login_manager.localize_callback = _i18n_t
     
-    # User loader for Flask-Login
+    # User loader for Flask-Login. The id is "<user id>:<session_version>";
+    # a bumped version, a disabled account or a pre-version cookie logs out.
     from app.models import User
     @login_manager.user_loader
     def load_user(user_id):
-        return User.query.get(int(user_id))
+        uid, sep, version = str(user_id).partition(':')
+        if not sep:
+            return None
+        try:
+            uid, version = int(uid), int(version)
+        except ValueError:
+            return None
+        user = db.session.get(User, uid)
+        if user is None or not user.is_active or (user.session_version or 0) != version:
+            return None
+        return user
     
     # Register blueprints
     from app.auth import auth_bp
@@ -84,6 +95,27 @@ def create_app():
             'OQB_DEFAULT_VERSION_PRIORITY': paper_version_priority(paper_lang()),
         }
     
+    # API callers get the JSON permission envelope instead of the HTML 403 page.
+    from app import authz as _authz
+
+    @app.errorhandler(403)
+    def _forbidden(exc):
+        if _authz.wants_json():
+            from flask import jsonify
+            return jsonify(_authz.deny_payload(
+                _i18n_t('You do not have permission to do that.'))), 403
+        return exc
+
+    # Account-state / SMS sign-in columns first: User queries select them.
+    # A failure is logged and keeps SMS sign-in off (docs/modules/sms-sso.md).
+    with app.app_context():
+        from app import sso_schema as _sso_schema
+        try:
+            app.config['SMS_SCHEMA_READY'] = _sso_schema.apply_sso_patches(db.engine, app.logger)
+        except Exception:
+            app.logger.exception('sso_schema patches failed')
+            app.config['SMS_SCHEMA_READY'] = False
+
     # Create output directory if it doesn't exist (legacy generated-files base)
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
     # DOC thumbnail cache directory

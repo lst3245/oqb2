@@ -7,6 +7,9 @@ from datetime import datetime
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Stored in users.password_hash for accounts that have no password (SMS JIT).
+UNUSABLE_PASSWORD_PREFIX = '!'
+
 # Association table for question minor topics (many-to-many)
 question_minor_topics = db.Table('question_minor_topics',
     db.Column('question_id', db.Integer, db.ForeignKey('questions.id'), primary_key=True),
@@ -33,85 +36,109 @@ class User(UserMixin, db.Model):
     # open in each file-browser scope. The per-user browser and every
     # OQBFileSelector share the `user` entry; `/admin/files` uses `admin`.
     file_browser_location = db.Column(db.Text, nullable=True)
-    
+
+    # Account state and SMS-sourced profile (docs/modules/sms-sso.md). Named
+    # `active`, not `is_active`: Flask-Login reads the `is_active` property.
+    active = db.Column(db.Boolean, default=True, nullable=False, server_default=db.text('1'))
+    disabled_reason = db.Column(db.String(32), nullable=True)  # 'sms_deprovisioned' | 'local'
+    disabled_at = db.Column(db.DateTime, nullable=True)
+    # Display / audit only; never used to authorise or to link.
+    display_name = db.Column(db.String(200), nullable=True)
+    name_zh = db.Column(db.String(200), nullable=True)
+    email = db.Column(db.String(254), nullable=True)
+    staff_code = db.Column(db.String(32), nullable=True)
+    # Part of the Flask-Login id ("<id>:<version>"); bumping it ends every
+    # session and remember cookie of this user at their next request.
+    session_version = db.Column(db.Integer, default=0, nullable=False, server_default=db.text('0'))
+    # Break-glass / password-only account: never linked to an SMS identity.
+    local_only = db.Column(db.Boolean, default=False, nullable=False, server_default=db.text('0'))
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    last_login_method = db.Column(db.String(16), nullable=True)
+
     # Relationships
     subject_permissions = db.relationship('UserSubjectPermission', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    
+
+    def get_id(self):
+        return f'{self.id}:{self.session_version or 0}'
+
+    @property
+    def is_active(self):
+        return self.active is not False
+
+    @property
+    def is_privileged(self):
+        """Super admins and local-only accounts are never linked to SMS."""
+        return bool(self.is_super_admin or self.local_only)
+
+    def bump_session_version(self):
+        self.session_version = (self.session_version or 0) + 1
+
     def set_password(self, password):
         """Hash and set password"""
         self.password_hash = generate_password_hash(password)
-    
+
     def check_password(self, password):
-        """Check if password matches"""
+        """Check if password matches. Accounts without a password carry a
+        hash starting with '!' and never match."""
+        if not self.password_hash or self.password_hash.startswith(UNUSABLE_PASSWORD_PREFIX):
+            return False
         return check_password_hash(self.password_hash, password)
-    
+
+    # Every helper below reads the effective level (app/authz.py), which
+    # combines local grants with SMS-sourced levels.
+
     def has_subject_access(self, subject_id):
-        """Check if user has any access (user or admin) to a subject"""
-        if self.is_super_admin:
-            return True
-        return UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first() is not None
-    
+        """Any access (viewer, user or admin) to a subject."""
+        from app import authz
+        return authz.has_level(self, subject_id, 'viewer')
+
     def is_subject_admin(self, subject_id):
-        """Check if user is admin for a specific subject"""
-        if self.is_super_admin:
-            return True
-        perm = UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first()
-        return perm is not None and perm.role == 'admin'
-    
+        from app import authz
+        return authz.has_level(self, subject_id, 'admin')
+
+    def can_generate_in(self, subject_id):
+        """'user' or above on this subject: may put its questions in a paper."""
+        from app import authz
+        return authz.has_level(self, subject_id, 'user')
+
     def get_accessible_subjects(self):
-        """Get list of subject IDs user can access"""
-        if self.is_super_admin:
-            return [s.id for s in Subject.query.all()]
-        return [p.subject_id for p in self.subject_permissions.all()]
-    
+        """Subject ids the user can at least view."""
+        from app import authz
+        return authz.subjects_with_level(self, 'viewer')
+
     def get_admin_subjects(self):
-        """Get list of subject IDs user has admin access to"""
-        if self.is_super_admin:
-            return [s.id for s in Subject.query.all()]
-        return [p.subject_id for p in self.subject_permissions.filter_by(role='admin').all()]
-    
+        from app import authz
+        return authz.subjects_with_level(self, 'admin')
+
+    def get_generate_subjects(self):
+        """Subject ids at 'user' or above."""
+        from app import authz
+        return authz.subjects_with_level(self, 'user')
+
     def has_any_admin_access(self):
-        """Check if user has admin access to any subject"""
-        if self.is_super_admin:
-            return True
-        return self.subject_permissions.filter_by(role='admin').first() is not None
+        from app import authz
+        return authz.any_level(self, 'admin')
 
     def is_view_only(self, subject_id):
-        """Check if user only has view-only access to a subject"""
-        if self.is_super_admin:
+        from app import authz
+        if authz.is_super_admin(self):
             return False
-        perm = UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first()
-        return perm is not None and perm.role == 'viewer'
+        return authz.effective_level(self, subject_id) == 'viewer'
 
     def can_generate(self):
-        """Check if user can generate documents (has at least 'user' role for any subject)"""
-        if self.is_super_admin:
-            return True
-        return self.subject_permissions.filter(
-            UserSubjectPermission.role.in_(['user', 'admin'])
-        ).first() is not None
+        """'user' or above on at least one subject."""
+        from app import authz
+        return authz.any_level(self, 'user')
 
     def is_all_view_only(self):
-        """Check if ALL of user's subject permissions are view-only (no user or admin roles)"""
-        if self.is_super_admin:
-            return False
-        perms = self.subject_permissions.all()
-        if not perms:
-            return True
-        return all(p.role == 'viewer' for p in perms)
+        """No subject above 'viewer' (also true with no access at all)."""
+        from app import authz
+        return not authz.any_level(self, 'user')
 
     def get_subject_roles(self):
-        """Get a dict mapping subject_id -> role for all permissions.
-        Super admins get 'admin' for every subject."""
-        if self.is_super_admin:
-            return {s.id: 'admin' for s in Subject.query.all()}
-        return {p.subject_id: p.role for p in self.subject_permissions.all()}
+        """``{subject_id: role}``; super admins get 'admin' everywhere."""
+        from app import authz
+        return dict(authz.effective_levels(self))
 
     def __repr__(self):
         return f'<User {self.username}>'

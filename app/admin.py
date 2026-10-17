@@ -10,7 +10,7 @@ import shutil
 import uuid
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, Response, make_response, current_app, send_file, abort, session
-from flask_login import login_required, current_user
+from flask_login import login_required, login_user, current_user
 from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
@@ -20,6 +20,7 @@ from app.utils import (admin_required, super_admin_required, subject_admin_requi
                        get_user_admin_subjects,
                        VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso,
                        validate_username, parse_marks)
+from app import authz
 from app import md_render
 from app import storage
 from app import subject_snapshot
@@ -30,7 +31,7 @@ from sqlalchemy.orm import configure_mappers, selectinload
 from app.batch_edit import (
     BatchEditError, apply_resolved, parse_batch_form,
     parse_batch_question_ids, preview_for_questions, resolve_batch,
-    view_from_question,
+    resolved_taxonomy_ids, taxonomy_violations, view_from_question,
 )
 from app.hierarchy import (
     parse_qid, parse_qno_token, ensure_question, HierarchyError,
@@ -292,23 +293,22 @@ def _subjects_of(model, ids):
     """Distinct subject ids owning the given Topic / Chapter ids (or
     Subtopic / Subchapter ids, via their parent). Read before any mutation —
     feeds ``subject_snapshot.capture``."""
-    ids = [int(i) for i in ids if str(i).strip().lstrip('-').isdigit()]
-    if not ids:
-        return set()
-    if model is Subtopic:
-        q = db.session.query(Topic.subject_id).join(Subtopic, Subtopic.topic_id == Topic.id)
-        q = q.filter(Subtopic.id.in_(ids))
-    elif model is Subchapter:
-        q = db.session.query(Chapter.subject_id).join(Subchapter, Subchapter.chapter_id == Chapter.id)
-        q = q.filter(Subchapter.id.in_(ids))
-    else:
-        q = db.session.query(model.subject_id).filter(model.id.in_(ids))
-    return {row[0] for row in q.distinct()}
+    return authz.taxonomy_subjects(model, ids)
 
 
 def _require_subject_admin(subject_id):
-    if not current_user.is_subject_admin(subject_id):
-        abort(403)
+    authz.require_subject(subject_id, 'admin')
+
+
+def _require_taxonomy_admin(model, ids):
+    """Subject admin on every subject owning ``ids`` (403 if none resolve)."""
+    return authz.require_taxonomy(model, ids, 'admin')
+
+
+def _json_id_list(key):
+    data = request.get_json(silent=True)
+    ids = data.get(key, []) if isinstance(data, dict) else []
+    return ids if isinstance(ids, list) else []
 
 
 def _major_type_stats(subject_id):
@@ -431,6 +431,7 @@ def add_topic():
     
     if not subject_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
+    _require_subject_admin(subject_id)
     
     subject_snapshot.capture(subject_id, 'topic-edit')
     # Get max sort_order for this subject
@@ -482,6 +483,7 @@ def toggle_topic_hidden(topic_id):
 def delete_topic(topic_id):
     """Delete a topic"""
     topic = Topic.query.get_or_404(topic_id)
+    _require_subject_admin(topic.subject_id)
     subject_snapshot.capture(topic.subject_id, 'topic-edit')
     db.session.delete(topic)
     db.session.commit()
@@ -499,8 +501,7 @@ def add_subtopic():
     
     if not topic_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
-    
-    subject_snapshot.capture_many(_subjects_of(Topic, [topic_id]), 'topic-edit')
+    subject_snapshot.capture_many(_require_taxonomy_admin(Topic, [topic_id]), 'topic-edit')
     # Get max sort_order for this topic
     max_order = db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=int(topic_id)).scalar() or 0
     
@@ -553,6 +554,7 @@ def toggle_subtopic_hidden(subtopic_id):
 def delete_subtopic(subtopic_id):
     """Delete a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
+    _require_subject_admin(subtopic.topic.subject_id)
     subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
     db.session.delete(subtopic)
     db.session.commit()
@@ -564,10 +566,12 @@ def delete_subtopic(subtopic_id):
 @admin_required
 def reorder_topics():
     """Reorder topics within a subject"""
+    topic_ids = _json_id_list('topic_ids')
+    if not topic_ids:
+        return jsonify({'success': True})
+    subjects = _require_taxonomy_admin(Topic, topic_ids)
     try:
-        data = request.get_json()
-        topic_ids = data.get('topic_ids', [])
-        subject_snapshot.capture_many(_subjects_of(Topic, topic_ids), 'topic-edit')
+        subject_snapshot.capture_many(subjects, 'topic-edit')
         
         for index, topic_id in enumerate(topic_ids):
             topic = Topic.query.get(topic_id)
@@ -585,10 +589,12 @@ def reorder_topics():
 @admin_required
 def reorder_subtopics():
     """Reorder subtopics within a topic"""
+    subtopic_ids = _json_id_list('subtopic_ids')
+    if not subtopic_ids:
+        return jsonify({'success': True})
+    subjects = _require_taxonomy_admin(Subtopic, subtopic_ids)
     try:
-        data = request.get_json()
-        subtopic_ids = data.get('subtopic_ids', [])
-        subject_snapshot.capture_many(_subjects_of(Subtopic, subtopic_ids), 'topic-edit')
+        subject_snapshot.capture_many(subjects, 'topic-edit')
         
         for index, subtopic_id in enumerate(subtopic_ids):
             subtopic = Subtopic.query.get(subtopic_id)
@@ -636,6 +642,7 @@ def add_chapter():
 
     if not subject_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
+    _require_subject_admin(subject_id)
 
     subject_snapshot.capture(subject_id, 'chapter-edit')
     # Get max sort_order for this subject
@@ -687,6 +694,7 @@ def toggle_chapter_hidden(chapter_id):
 def delete_chapter(chapter_id):
     """Delete a chapter"""
     chapter = Chapter.query.get_or_404(chapter_id)
+    _require_subject_admin(chapter.subject_id)
     subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
     
     # Clear chapter_id from questions (ON DELETE SET NULL may not work in SQLite)
@@ -708,8 +716,7 @@ def add_subchapter():
 
     if not chapter_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
-
-    subject_snapshot.capture_many(_subjects_of(Chapter, [chapter_id]), 'chapter-edit')
+    subject_snapshot.capture_many(_require_taxonomy_admin(Chapter, [chapter_id]), 'chapter-edit')
     # Get max sort_order for this chapter
     max_order = db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=int(chapter_id)).scalar() or 0
 
@@ -763,6 +770,7 @@ def toggle_subchapter_hidden(subchapter_id):
 def delete_subchapter(subchapter_id):
     """Delete a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
+    _require_subject_admin(subchapter.chapter.subject_id)
     subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
 
     # Clear subchapter_id from questions
@@ -778,10 +786,12 @@ def delete_subchapter(subchapter_id):
 @admin_required
 def reorder_chapters():
     """Reorder chapters within a subject"""
+    chapter_ids = _json_id_list('chapter_ids')
+    if not chapter_ids:
+        return jsonify({'success': True})
+    subjects = _require_taxonomy_admin(Chapter, chapter_ids)
     try:
-        data = request.get_json()
-        chapter_ids = data.get('chapter_ids', [])
-        subject_snapshot.capture_many(_subjects_of(Chapter, chapter_ids), 'chapter-edit')
+        subject_snapshot.capture_many(subjects, 'chapter-edit')
         
         for index, chapter_id in enumerate(chapter_ids):
             chapter = Chapter.query.get(chapter_id)
@@ -799,10 +809,12 @@ def reorder_chapters():
 @admin_required
 def reorder_subchapters():
     """Reorder subchapters within a chapter"""
+    subchapter_ids = _json_id_list('subchapter_ids')
+    if not subchapter_ids:
+        return jsonify({'success': True})
+    subjects = _require_taxonomy_admin(Subchapter, subchapter_ids)
     try:
-        data = request.get_json()
-        subchapter_ids = data.get('subchapter_ids', [])
-        subject_snapshot.capture_many(_subjects_of(Subchapter, subchapter_ids), 'chapter-edit')
+        subject_snapshot.capture_many(subjects, 'chapter-edit')
         
         for index, subchapter_id in enumerate(subchapter_ids):
             subchapter = Subchapter.query.get(subchapter_id)
@@ -1448,9 +1460,37 @@ def _load_batch_update():
     questions = _load_batch_questions(question_ids)
     if not questions:
         raise BatchEditError(_t('No questions found with the given IDs'), 404)
+    outside = [q for q in questions if not authz.has_level(current_user, q.subject, 'admin')]
+    if outside:
+        raise BatchEditError(
+            _t('{n} selected question(s) are in subjects you cannot edit.', n=len(outside)), 403)
     topics, subtopics, chapters, subchapters = _taxonomy_maps(parsed)
     resolved = resolve_batch(parsed, topics, subtopics, chapters, subchapters)
+    owners = _taxonomy_owners(resolved_taxonomy_ids(resolved))
+    if taxonomy_violations({q.subject for q in questions}, resolved, owners):
+        raise BatchEditError(
+            _t('The selected topics or chapters belong to a different subject than the questions.'), 400)
     return question_ids, questions, resolved
+
+
+def _taxonomy_owners(ids_by_kind):
+    """``{kind: {id: subject_id}}`` for ``batch_edit.resolved_taxonomy_ids``."""
+    owners = {'topic': {}, 'subtopic': {}, 'chapter': {}, 'subchapter': {}}
+    if ids_by_kind['topic']:
+        owners['topic'] = dict(db.session.query(Topic.id, Topic.subject_id)
+                               .filter(Topic.id.in_(ids_by_kind['topic'])))
+    if ids_by_kind['subtopic']:
+        owners['subtopic'] = dict(db.session.query(Subtopic.id, Topic.subject_id)
+                                  .join(Topic, Subtopic.topic_id == Topic.id)
+                                  .filter(Subtopic.id.in_(ids_by_kind['subtopic'])))
+    if ids_by_kind['chapter']:
+        owners['chapter'] = dict(db.session.query(Chapter.id, Chapter.subject_id)
+                                 .filter(Chapter.id.in_(ids_by_kind['chapter'])))
+    if ids_by_kind['subchapter']:
+        owners['subchapter'] = dict(db.session.query(Subchapter.id, Chapter.subject_id)
+                                    .join(Chapter, Subchapter.chapter_id == Chapter.id)
+                                    .filter(Subchapter.id.in_(ids_by_kind['subchapter'])))
+    return owners
 
 
 def _batch_edit_error(exc):
@@ -4059,7 +4099,10 @@ def edit_user(user_id):
         if not password:
             return jsonify({'error': _t('Enter a new password')}), 400
         user.set_password(password)
+        user.bump_session_version()
         db.session.commit()
+        # Other sessions of this account end; this one carries the new version.
+        login_user(user, remember=True)
         return jsonify({
             'success': True,
             'id': user.id,
@@ -4094,6 +4137,7 @@ def edit_user(user_id):
     
     if password:
         user.set_password(password)
+        user.bump_session_version()
     
     db.session.commit()
     
@@ -4155,6 +4199,7 @@ def update_user_permissions(user_id):
                     db.session.add(perm)
         
         db.session.commit()
+        authz.invalidate(user)
         
         return jsonify({'success': True})
     except Exception as e:
@@ -5023,6 +5068,8 @@ def _smart_import_sources(data):
             return None, _t('Invalid upload token.')
         if not os.path.isdir(base):
             return None, _t('Uploaded folder not found or expired.')
+        if not authz.owns(smart_import.upload_owner(token)):
+            return None, _t('This uploaded folder belongs to another user.')
         return [{
             'root_id': None,
             'root_label': _t('Uploaded folder'),
@@ -5389,6 +5436,8 @@ def smart_import_uploaded_file():
         base = smart_import.upload_dir(token)
     except ValueError:
         return 'Invalid token', 400
+    if not authz.owns(smart_import.upload_owner(token)):
+        return 'File not found', 404
     full = storage.safe_join(base, request.args.get('path', ''))
     if not full or not os.path.isfile(full):
         return 'File not found', 404
@@ -5482,6 +5531,8 @@ def _resolve_server_pdf(rel_path, root_id=None):
         base = _pdf_source_root()
         if not base or not os.path.isdir(base):
             return None, _t('The server source-PDF folder is not configured or missing.')
+        if not authz.pdf_source_allowed(rel):
+            return None, _t('You do not have access to that location.')
 
     full = storage.safe_join(base, rel)
     if not full or not os.path.isfile(full) or not full.lower().endswith('.pdf'):
@@ -5510,6 +5561,10 @@ def pdf_import_source_list():
     rel_norm = os.path.relpath(cur_dir, root).replace('\\', '/')
     if rel_norm == '.':
         rel_norm = ''
+    # Non-super admins see only the top-level folders of subjects they administer.
+    if rel_norm and not authz.pdf_source_allowed(rel_norm):
+        return jsonify({'error': _t('Directory not found or access denied')}), 404
+    unrestricted = authz.is_super_admin()
 
     dirs, files = [], []
     try:
@@ -5519,6 +5574,8 @@ def pdf_import_source_list():
     for name in entries:
         full = os.path.join(cur_dir, name)
         child_rel = (rel_norm + '/' + name) if rel_norm else name
+        if not unrestricted and not authz.pdf_source_allowed(child_rel):
+            continue
         if os.path.isdir(full):
             dirs.append({'name': name, 'rel_path': child_rel})
         elif name.lower().endswith('.pdf'):
@@ -5592,22 +5649,24 @@ def pdf_import_guess_paper():
 
 
 def _pdf_load_token_meta(token):
-    """Load a staging token's meta.json and enforce admin access to its
-    subject. Returns ``(meta, error_message)``."""
+    """Load a staging token's meta.json and enforce that it belongs to the
+    current user (super admin: any; tokens without ``owner_user_id`` predate
+    owner tracking and are super admin only) and, for exam sessions, admin
+    access to its subject. Returns ``(meta, error_message)``."""
     from app import pdf_import
     try:
         meta = pdf_import.load_meta(token)
     except (ValueError, OSError):
         return None, _t('Staging session not found or expired. Please re-upload.')
+    if not authz.owns(meta.get('owner_user_id')):
+        return None, _t('This staging session belongs to another user.')
     # Generic Extraction sessions have no subject (they never touch the
-    # question DB), so any admin who can use the tool may access them.
+    # question DB).
     if meta.get('mode') == 'generic':
         return meta, None
     subject = meta.get('subject')
-    if not current_user.is_super_admin:
-        admin_ids = [s.id for s in get_user_admin_subjects()]
-        if subject not in admin_ids:
-            return None, _t('You do not have admin access to subject {subject}.', subject=subject)
+    if not authz.has_level(current_user, subject, 'admin'):
+        return None, _t('You do not have admin access to subject {subject}.', subject=subject)
     return meta, None
 
 
@@ -6315,6 +6374,9 @@ def pdf_import_cancel():
     job_id = (data.get('job_id') or '').strip()
     if not job_id:
         return jsonify({'error': _t('job_id is required')}), 400
+    known, owner = pdf_import.job_owner(job_id)
+    if known and not authz.owns(owner):
+        authz.deny()
     known = pdf_import.cancel_job(job_id)
     return jsonify({'success': True, 'known': known})
 
@@ -7233,6 +7295,9 @@ def ai_cancel():
     job_id = (data.get('job_id') or '').strip()
     if not job_id:
         return jsonify({'error': _t('job_id is required')}), 400
+    known, owner = ai_tools.job_owner(job_id)
+    if known and not authz.owns(owner):
+        authz.deny()
     known = ai_tools.cancel_job(job_id)
     return jsonify({'success': True, 'known': known})
 
