@@ -85,7 +85,7 @@
                     <p class="csv-format-info text-muted">
                         {{ t('Upload a CSV in the same format. Questions are looked up by <code>qid</code>; topics/subtopics/chapters are matched by name — the English name, the Chinese name or both together. Questions or names not found in the database are skipped with warnings.')|safe }}
                     </p>
-                    <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form" id="importQuestionTagsForm">
+                    <form action="{{ url_for('admin.import_question_tags') }}" method="post" enctype="multipart/form-data" class="import-form" id="importQuestionTagsForm">{{ csrf_field() }}
                         <div class="mb-2">
                             <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required
                                    id="importQuestionTagsFile" onchange="onQuestionTagsFileSelected(this)">
@@ -157,7 +157,7 @@
                     <p class="csv-format-info text-muted">
                         {{ t('Upload a CSV with the same format. Existing topics/subtopics are matched by name (English or Chinese); new ones are created automatically. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one (or a missing column) leaves it unchanged. English names are never renamed by an import.')|safe }}
                     </p>
-                    <form action="{{ url_for('admin.import_topics') }}" method="post" enctype="multipart/form-data" class="import-form">
+                    <form action="{{ url_for('admin.import_topics') }}" method="post" enctype="multipart/form-data" class="import-form">{{ csrf_field() }}
                         <div class="input-group">
                             <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
                             <button class="btn btn-outline-success btn-sm" type="submit">
@@ -196,7 +196,7 @@
                     <p class="csv-format-info text-muted">
                         {{ t('Upload a CSV with the same format. Existing chapters/subchapters are matched by name (English or Chinese); new ones are created. Sort order is derived from row position; hidden flags are updated. A filled <code>*_name_zh</code> cell sets the Chinese name; a blank one leaves it unchanged.')|safe }}
                     </p>
-                    <form action="{{ url_for('admin.import_chapters') }}" method="post" enctype="multipart/form-data" class="import-form">
+                    <form action="{{ url_for('admin.import_chapters') }}" method="post" enctype="multipart/form-data" class="import-form">{{ csrf_field() }}
                         <div class="input-group">
                             <input type="file" class="form-control form-control-sm" name="file" accept=".csv" required>
                             <button class="btn btn-outline-info btn-sm" type="submit">

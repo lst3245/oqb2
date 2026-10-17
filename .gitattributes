@@ -1,0 +1,3 @@
+# SMS contract-test fixtures and the SMS public keys are byte copies of what SMS delivered; never convert line endings.
+tests/fixtures/sms/** -text
+deploy/sms/** -text

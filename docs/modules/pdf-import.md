@@ -249,7 +249,8 @@ DB-backed tunables in `app/settings.py` (group "PDF Import" unless noted); see [
 
 ## Permissions
 
-- Every route is `@admin_required`. Exam sessions are subject-scoped: `stage` rejects a paper whose subject is not in `get_user_admin_subjects()` (super-admins bypass), and every token route re-checks through `_pdf_load_token_meta`. Generic sessions bypass the subject check because they never touch the question DB.
+- Every route is `@admin_required`. Exam sessions are subject-scoped: `stage` rejects a paper whose subject is not in `get_user_admin_subjects()` (super-admins bypass), and every token route re-checks through `_pdf_load_token_meta`. Generic sessions skip the subject check because they never touch the question DB, but every token is **owner-bound** (`meta['owner_user_id']`; another user's token → "This staging session belongs to another user."; super admin passes; ownerless legacy tokens are super admin only). `cancel` checks the job owner (`pdf_import.job_owner`).
+- Legacy server picks (`source-list`, picks without `root_id`) are limited to `<subject code>/…` folders of administered subjects (`authz.pdf_source_allowed`).
 - `guess-paper` passes only the caller's admin subject codes to the model as allowed `subjects`.
 - Server picks are sandboxed through `RootRegistry` (per-user roots) or `storage.safe_join` under `PDF_SOURCE_PATH`.
 - See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
@@ -290,7 +291,7 @@ A typical ICT P1B (12 QUE pages, 5 multi-part questions, no SOL) is roughly: wiz
 ## Gotchas
 
 1. Detection, redo-page, split-detect, commit and guess-paper are gated on `AI_TOOLS_ENABLED` and need a vision-capable `LLMConfig` (SSE routes surface this as a single `error` + `done`). Staging, page images, plan save, processed PDF, ZIP export and discard work without AI.
-2. Subject admins can only stage / import papers for their subjects; generic sessions are open to any admin.
+2. Subject admins can only stage / import papers for their subjects; generic sessions are open to any admin, but only the admin who staged one can use it.
 3. Past-paper sources only (`DSE` / `CE` / `AL` via `PREFIX_PATTERN`); QB is out of scope. `section` / `level` remain null.
 4. The LLM sees the downscaled page (`LLM_IMAGE_MAX_DIM`); crops come from the high-res page (`PDF_IMPORT_RASTER_WIDTH`). Boxes are fractional, so they are resolution-independent — but pixel-range replies are normalised against the downscaled size, not the raster size.
 5. The box axis order changes both the prompt wording and the parse. It is per endpoint (`LLMConfig.box_coord_order`, blank = `PDF_IMPORT_COORD_ORDER`). If boxes look shifted or transposed, check the raw reply with Debug, then set that endpoint's Box axis order rather than the global setting. Always read it through `llm_client.box_coord_order(config)`; never read `PDF_IMPORT_COORD_ORDER` directly at a new call site.

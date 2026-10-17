@@ -10,8 +10,8 @@ report. Logic lives in ``app/subject_ai_service.py``; prompt assembly in
 
 Authz: every subject route carries ``subject_id`` in the URL so
 ``@subject_admin_required`` actually fires; the per-question route checks the
-question's subject explicitly (the subject decorators pass through without
-a ``subject_id``).
+question's subject explicitly (the subject decorators refuse a request
+without a ``subject_id``).
 """
 from __future__ import annotations
 

@@ -35,11 +35,22 @@ def create_app():
     from app.i18n import t as _i18n_t
     login_manager.localize_callback = _i18n_t
     
-    # User loader for Flask-Login
+    # User loader for Flask-Login. The id is "<user id>:<session_version>";
+    # a bumped version, a disabled account or a pre-version cookie logs out.
     from app.models import User
     @login_manager.user_loader
     def load_user(user_id):
-        return User.query.get(int(user_id))
+        uid, sep, version = str(user_id).partition(':')
+        if not sep:
+            return None
+        try:
+            uid, version = int(uid), int(version)
+        except ValueError:
+            return None
+        user = db.session.get(User, uid)
+        if user is None or not user.is_active or (user.session_version or 0) != version:
+            return None
+        return user
     
     # Register blueprints
     from app.auth import auth_bp
@@ -53,10 +64,19 @@ def create_app():
     from app.subject_ai import subject_ai_bp
     from app.restore_points import restore_points_bp
     from app.i18n import i18n_bp, template_globals as _i18n_globals
-    
+    from app.sso import sso_bp
+    from app.sms_admin import sms_admin_bp
+    from app.account_admin import account_admin_bp
+    from app import csrf, web_security
+
+    web_security.init_app(app)
+    csrf.init_app(app)
+    app.register_blueprint(sso_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(sms_admin_bp)
+    app.register_blueprint(account_admin_bp)
     app.register_blueprint(generator_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(toolbox_bp)
@@ -84,6 +104,36 @@ def create_app():
             'OQB_DEFAULT_VERSION_PRIORITY': paper_version_priority(paper_lang()),
         }
     
+    # API callers get the JSON permission envelope instead of the HTML 403 page.
+    from app import authz as _authz
+
+    @app.errorhandler(403)
+    def _forbidden(exc):
+        if _authz.wants_json():
+            from flask import jsonify
+            return jsonify(_authz.deny_payload(
+                _i18n_t('You do not have permission to do that.'))), 403
+        return exc
+
+    # Account-state / SMS sign-in columns first: User queries select them.
+    # A failure is logged and keeps SMS sign-in off (docs/modules/sms-sso.md).
+    with app.app_context():
+        from app import sso_schema as _sso_schema
+        try:
+            app.config['SMS_SCHEMA_READY'] = _sso_schema.apply_sso_patches(db.engine, app.logger)
+        except Exception:
+            app.logger.exception('sso_schema patches failed')
+            app.config['SMS_SCHEMA_READY'] = False
+        if app.config['SMS_SCHEMA_READY']:
+            # Live issuer (enabled, primary, no key) + workshop (disabled);
+            # inserted only if absent, never updated.
+            from app import sms_trust as _sms_trust
+            try:
+                _sms_trust.seed_defaults()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('sms_trust seed failed')
+
     # Create output directory if it doesn't exist (legacy generated-files base)
     os.makedirs(app.config['OUTPUT_PATH'], exist_ok=True)
     # DOC thumbnail cache directory

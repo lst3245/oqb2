@@ -168,7 +168,7 @@ Details: [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md
 6. **`/files/reorder` flips the section to manual sort**; a later PATCH to another `sort_field` discards the manual order visually but keeps `manual_position` values.
 7. **`profiles_save` is insert-only** (duplicate names allowed); `gen_profiles_save` and `sets_save` are upserts. Do not assume symmetry.
 8. **Shared profile/preset `/data` is open to any logged-in user**; shared question sets additionally require subject access.
-9. **Download asymmetry**: `/generate/download/<id>` rejects share recipients while bulk download and lazy PDF accept them. Known inconsistency; fix in `download_file` (use `_user_can_view_file`) if it is ever addressed.
+9. **One download policy**: `/generate/download/<id>`, `/generate/pdf/<id>` and bulk download all call `files_policy.can_download` — owner, super admin, or a share recipient who can read every subject of the file's `question_ids`. A file whose ids cannot be recovered is owner / super admin only. Seeing a shared row (`can_view`) does not imply downloading it.
 10. **`show_all` omits the virtual Shared-with-me row** by design; the admin sees the source files directly.
 11. **Saved search profiles store the dashboard's raw `getCurrentFilterValues()`**, including the forced `is_crosstopic=true` when AND mode implied it (see [dashboard.md](dashboard.md)).
 12. **Presets carrying `output_format: 'PDF'` are legacy** and ignored by `restoreGenerationOptions()`; PDF is lazy from My Files.

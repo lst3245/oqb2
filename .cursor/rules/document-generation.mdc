@@ -27,7 +27,7 @@ alwaysApply: false
 - `viewer_asset` allow-list is `QUE/ANS/SOL/WHOLE`; WHOLE exists only for the Present `Whole` chip (`whole_root_id`), never for slides or the docx.
 
 ## Authz
-- `/generate/download/<id>` is owner / super-admin only, while `/generate/pdf/<id>` and `/user/files/bulk-download` also accept share recipients (`_user_can_view_file`). Known asymmetry — listed in STATUS; align both if you touch either.
+- Downloads (`/generate/download/<id>`, `/generate/pdf/<id>`, `/user/files/bulk-download`) all use `files_policy.can_download`: owner, super admin, or a share recipient who can read every subject of the file's `question_ids` (no ids → owner / super admin only). Generation (`index`, `create_document`) needs `user` level on each question's subject; viewer-only questions are dropped.
 - Viewer routes are `@subject_access_required` style; `viewer.html` does not extend `base.html`.
 
 ## Gotchas

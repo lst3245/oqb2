@@ -44,3 +44,4 @@ pypdf>=4.0
 # digital-text and AI engines still work; only the OCR engine is disabled.
 rapidfuzz>=3.0
 pytesseract>=0.3.10
+PyJWT>=2.8,<3

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ t('Subject mapping') }} - {{ t('SMS sign-in') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% with sms_tab = 'mapping' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+    <p class="text-muted">{{ t('An SMS level counts only for the OQB subjects its SMS subject is mapped to. Unmapped SMS subjects grant nothing. Removing a mapping takes effect on the next request.') }}</p>
+
+    {% if unmapped %}
+    <div class="alert alert-warning" id="sms-unmapped">
+        <i class="bi bi-exclamation-triangle"></i> {{ t('{n} SMS subject(s) are not mapped to any OQB subject.', n=unmapped|length) }}
+    </div>
+    {% endif %}
+
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+            <tr>
+                <th>{{ t('SMS subject') }}</th>
+                <th>{{ t('Name') }}</th>
+                <th>{{ t('Mapped to') }}</th>
+                <th style="width: 280px;">{{ t('Add mapping') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr id="sms-subject-{{ r.uuid }}" class="{{ 'table-warning' if r.uuid in unmapped }}">
+                <td><strong>{{ r.code or '—' }}</strong>
+                    {% if r.cat and not r.cat.is_active %}<span class="badge bg-secondary">{{ t('Inactive') }}</span>{% endif %}
+                    <div class="small text-muted"><code>{{ r.uuid }}</code></div></td>
+                <td>{{ r.cat.name_en if r.cat else '' }}{% if r.cat and r.cat.name_zh %}<div class="small">{{ r.cat.name_zh }}</div>{% endif %}
+                    {% if not r.cat %}<span class="small text-muted">{{ t('Seen in sign-in tokens only') }}</span>{% endif %}</td>
+                <td>
+                    {% for m in r.maps %}
+                    <form method="post" action="{{ url_for('sms_admin.mapping_remove') }}" class="d-inline">{{ csrf_field() }}
+                        <input type="hidden" name="sms_uuid" value="{{ m.sms_uuid }}">
+                        <input type="hidden" name="subject_id" value="{{ m.oqb_subject_id }}">
+                        <span class="badge bg-primary">{{ m.oqb_subject_id }}
+                            <button type="submit" class="btn btn-link btn-sm p-0 text-white" title="{{ t('Remove') }}"
+                                    onclick="return confirm(OQB.t('Remove this mapping? Levels from this SMS subject stop counting for that OQB subject.'))"><i class="bi bi-x"></i></button>
+                        </span>
+                    </form>
+                    {% else %}<span class="text-muted">{{ t('Not mapped') }}</span>{% endfor %}
+                </td>
+                <td>
+                    <form method="post" action="{{ url_for('sms_admin.mapping_add') }}" class="d-flex gap-1">{{ csrf_field() }}
+                        <input type="hidden" name="sms_uuid" value="{{ r.uuid }}">
+                        <select name="subject_id" class="form-select form-select-sm" required>
+                            <option value="">{{ t('OQB subject…') }}</option>
+                            {% for s in subjects %}<option value="{{ s.id }}">{{ s.id }} — {{ tax_name(s) }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">{{ t('Map') }}</button>
+                    </form>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="text-muted">{{ t('No SMS subjects yet. They appear after the first snapshot or SMS sign-in.') }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

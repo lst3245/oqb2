@@ -234,7 +234,8 @@ Storage root (`STORAGE_PATH`) drives `storage.user_generated_dir`. Runtime-tunab
 - `can_generate()` (role `user`/`admin` or super admin) is required for `/generate/`, `/create`, `/download/<id>`, `/api/sort-groups`, `/api/marks-rules/check`. Viewers get 403.
 - `/create` silently drops questions from subjects where the caller is a viewer; 403 if nothing remains.
 - `/status/<id>` and `/download/<id>`: owner or super admin.
-- `/pdf/<id>`: `_user_can_view_file` — owner, super admin, or any user with a `FileShare` on the file or its section. Note the asymmetry: `/download/<id>` is owner/super-admin only, so a share recipient clicking Download on a "Shared with me" row is redirected with an "Access denied" flash; they can still obtain the file through `/generate/pdf/<id>` or `POST /user/files/bulk-download` (both use `_user_can_view_file`). Treat this as a known inconsistency, not a design rule.
+- `/download/<id>`, `/pdf/<id>` and `POST /user/files/bulk-download`: `files_policy.can_download` — owner, super admin, or a user with a `FileShare` on the file or its section **who can read every subject** of the file's `question_ids`. No recoverable ids → owner / super admin only.
+- Generation needs `user` level on each question's subject: `index` drops viewer-only questions with a flash (redirects to the dashboard when none remain), `create_document` drops them and returns 403 when none remain.
 - `/viewer` and `/api/viewer_asset`: login, and the question's subject (`has_subject_access`). Viewer drops inaccessible ids; `viewer_asset` returns 403.
 - Details: [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 

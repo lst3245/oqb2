@@ -1,0 +1,140 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "aud": "oqb",
+    "exp": 1792002400,
+    "iat": 1792001800,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "d3816aea-19eb-5840-a1d5-c402429d001e",
+    "nbf": 1792001800,
+    "purpose": "directory_snapshot",
+    "snapshot_id": "0d30bca5-e40d-5d61-bad5-cef88b22a6fe",
+    "subjects": [
+      {
+        "code": "MATH",
+        "is_active": true,
+        "name_en": "Mathematics",
+        "name_zh": "數學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+      },
+      {
+        "code": "M2",
+        "is_active": true,
+        "name_en": "Mathematics Extended Part Module 2",
+        "name_zh": "數學延伸部分單元二",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000002"
+      },
+      {
+        "code": "PHY",
+        "is_active": true,
+        "name_en": "Physics",
+        "name_zh": "物理",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003"
+      },
+      {
+        "code": "CHEM",
+        "is_active": true,
+        "name_en": "Chemistry",
+        "name_zh": "化學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004"
+      },
+      {
+        "code": "LAT",
+        "is_active": false,
+        "name_en": "Latin",
+        "name_zh": null,
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000005"
+      }
+    ],
+    "users": [
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "ctm@school.test",
+        "name": "CHAN Tai Man",
+        "name_zh": "陳大文",
+        "staff_code": "CTM",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000001",
+        "subjects": [
+          {
+            "code": "MATH",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+          },
+          {
+            "code": "PHY",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003"
+          }
+        ]
+      },
+      {
+        "active": true,
+        "default_level": "admin",
+        "email": "wkm@school.test",
+        "name": "WONG Ka Ming",
+        "name_zh": null,
+        "staff_code": "WKM",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000003",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "hpl@school.test",
+        "name": "HO Pui Ling",
+        "name_zh": "何佩玲",
+        "staff_code": "HPL",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000004",
+        "subjects": [
+          {
+            "code": "CHEM",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004"
+          }
+        ]
+      },
+      {
+        "active": true,
+        "default_level": "none",
+        "email": "tkw@school.test",
+        "name": "TSE Kwok Wai",
+        "name_zh": null,
+        "staff_code": "TKW",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000007",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "oqb-test1@school.test",
+        "name": "OQB Test 1",
+        "name_zh": null,
+        "staff_code": null,
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000005",
+        "subjects": [
+          {
+            "code": "MATH",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+          }
+        ]
+      },
+      {
+        "active": false,
+        "default_level": "none",
+        "email": "ysf@school.test",
+        "name": "YIP Sau Fong",
+        "name_zh": "葉秀芳",
+        "staff_code": "YSF",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000006",
+        "subjects": []
+      }
+    ],
+    "ver": 1
+  }
+}

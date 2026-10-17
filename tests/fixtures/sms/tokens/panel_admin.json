@@ -1,0 +1,40 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "viewer",
+    "email": "lsy@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "aee29a94-a678-586b-b952-109247eb60c1",
+    "name": "LEE Siu Yan",
+    "name_zh": "李小欣",
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "LSY",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000002",
+    "subjects": [
+      {
+        "code": "M2",
+        "level": "admin",
+        "name_en": "Mathematics Extended Part Module 2",
+        "name_zh": "數學延伸部分單元二",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000002"
+      },
+      {
+        "code": "MATH",
+        "level": "admin",
+        "name_en": "Mathematics",
+        "name_zh": "數學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+      }
+    ],
+    "ver": 1
+  }
+}

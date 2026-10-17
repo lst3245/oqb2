@@ -1,0 +1,25 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "none",
+    "email": "tkw@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "f05ad7c3-edea-5e44-9626-bcde4ffeb131",
+    "name": "TSE Kwok Wai",
+    "name_zh": null,
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "TKW",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000007",
+    "subjects": [],
+    "ver": 1
+  }
+}

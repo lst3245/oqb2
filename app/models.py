@@ -7,6 +7,9 @@ from datetime import datetime
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Stored in users.password_hash for accounts that have no password (SMS JIT).
+UNUSABLE_PASSWORD_PREFIX = '!'
+
 # Association table for question minor topics (many-to-many)
 question_minor_topics = db.Table('question_minor_topics',
     db.Column('question_id', db.Integer, db.ForeignKey('questions.id'), primary_key=True),
@@ -33,85 +36,109 @@ class User(UserMixin, db.Model):
     # open in each file-browser scope. The per-user browser and every
     # OQBFileSelector share the `user` entry; `/admin/files` uses `admin`.
     file_browser_location = db.Column(db.Text, nullable=True)
-    
+
+    # Account state and SMS-sourced profile (docs/modules/sms-sso.md). Named
+    # `active`, not `is_active`: Flask-Login reads the `is_active` property.
+    active = db.Column(db.Boolean, default=True, nullable=False, server_default=db.text('1'))
+    disabled_reason = db.Column(db.String(32), nullable=True)  # 'sms_deprovisioned' | 'local'
+    disabled_at = db.Column(db.DateTime, nullable=True)
+    # Display / audit only; never used to authorise or to link.
+    display_name = db.Column(db.String(200), nullable=True)
+    name_zh = db.Column(db.String(200), nullable=True)
+    email = db.Column(db.String(254), nullable=True)
+    staff_code = db.Column(db.String(32), nullable=True)
+    # Part of the Flask-Login id ("<id>:<version>"); bumping it ends every
+    # session and remember cookie of this user at their next request.
+    session_version = db.Column(db.Integer, default=0, nullable=False, server_default=db.text('0'))
+    # Break-glass / password-only account: never linked to an SMS identity.
+    local_only = db.Column(db.Boolean, default=False, nullable=False, server_default=db.text('0'))
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    last_login_method = db.Column(db.String(16), nullable=True)
+
     # Relationships
     subject_permissions = db.relationship('UserSubjectPermission', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    
+
+    def get_id(self):
+        return f'{self.id}:{self.session_version or 0}'
+
+    @property
+    def is_active(self):
+        return self.active is not False
+
+    @property
+    def is_privileged(self):
+        """Super admins and local-only accounts are never linked to SMS."""
+        return bool(self.is_super_admin or self.local_only)
+
+    def bump_session_version(self):
+        self.session_version = (self.session_version or 0) + 1
+
     def set_password(self, password):
         """Hash and set password"""
         self.password_hash = generate_password_hash(password)
-    
+
     def check_password(self, password):
-        """Check if password matches"""
+        """Check if password matches. Accounts without a password carry a
+        hash starting with '!' and never match."""
+        if not self.password_hash or self.password_hash.startswith(UNUSABLE_PASSWORD_PREFIX):
+            return False
         return check_password_hash(self.password_hash, password)
-    
+
+    # Every helper below reads the effective level (app/authz.py), which
+    # combines local grants with SMS-sourced levels.
+
     def has_subject_access(self, subject_id):
-        """Check if user has any access (user or admin) to a subject"""
-        if self.is_super_admin:
-            return True
-        return UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first() is not None
-    
+        """Any access (viewer, user or admin) to a subject."""
+        from app import authz
+        return authz.has_level(self, subject_id, 'viewer')
+
     def is_subject_admin(self, subject_id):
-        """Check if user is admin for a specific subject"""
-        if self.is_super_admin:
-            return True
-        perm = UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first()
-        return perm is not None and perm.role == 'admin'
-    
+        from app import authz
+        return authz.has_level(self, subject_id, 'admin')
+
+    def can_generate_in(self, subject_id):
+        """'user' or above on this subject: may put its questions in a paper."""
+        from app import authz
+        return authz.has_level(self, subject_id, 'user')
+
     def get_accessible_subjects(self):
-        """Get list of subject IDs user can access"""
-        if self.is_super_admin:
-            return [s.id for s in Subject.query.all()]
-        return [p.subject_id for p in self.subject_permissions.all()]
-    
+        """Subject ids the user can at least view."""
+        from app import authz
+        return authz.subjects_with_level(self, 'viewer')
+
     def get_admin_subjects(self):
-        """Get list of subject IDs user has admin access to"""
-        if self.is_super_admin:
-            return [s.id for s in Subject.query.all()]
-        return [p.subject_id for p in self.subject_permissions.filter_by(role='admin').all()]
-    
+        from app import authz
+        return authz.subjects_with_level(self, 'admin')
+
+    def get_generate_subjects(self):
+        """Subject ids at 'user' or above."""
+        from app import authz
+        return authz.subjects_with_level(self, 'user')
+
     def has_any_admin_access(self):
-        """Check if user has admin access to any subject"""
-        if self.is_super_admin:
-            return True
-        return self.subject_permissions.filter_by(role='admin').first() is not None
+        from app import authz
+        return authz.any_level(self, 'admin')
 
     def is_view_only(self, subject_id):
-        """Check if user only has view-only access to a subject"""
-        if self.is_super_admin:
+        from app import authz
+        if authz.is_super_admin(self):
             return False
-        perm = UserSubjectPermission.query.filter_by(
-            user_id=self.id, subject_id=subject_id
-        ).first()
-        return perm is not None and perm.role == 'viewer'
+        return authz.effective_level(self, subject_id) == 'viewer'
 
     def can_generate(self):
-        """Check if user can generate documents (has at least 'user' role for any subject)"""
-        if self.is_super_admin:
-            return True
-        return self.subject_permissions.filter(
-            UserSubjectPermission.role.in_(['user', 'admin'])
-        ).first() is not None
+        """'user' or above on at least one subject."""
+        from app import authz
+        return authz.any_level(self, 'user')
 
     def is_all_view_only(self):
-        """Check if ALL of user's subject permissions are view-only (no user or admin roles)"""
-        if self.is_super_admin:
-            return False
-        perms = self.subject_permissions.all()
-        if not perms:
-            return True
-        return all(p.role == 'viewer' for p in perms)
+        """No subject above 'viewer' (also true with no access at all)."""
+        from app import authz
+        return not authz.any_level(self, 'user')
 
     def get_subject_roles(self):
-        """Get a dict mapping subject_id -> role for all permissions.
-        Super admins get 'admin' for every subject."""
-        if self.is_super_admin:
-            return {s.id: 'admin' for s in Subject.query.all()}
-        return {p.subject_id: p.role for p in self.subject_permissions.all()}
+        """``{subject_id: role}``; super admins get 'admin' everywhere."""
+        from app import authz
+        return dict(authz.effective_levels(self))
 
     def __repr__(self):
         return f'<User {self.username}>'
@@ -796,3 +823,267 @@ class SubjectRestorePoint(db.Model):
 
     def __repr__(self):
         return f'<SubjectRestorePoint #{self.id} {self.subject_id} {self.action}>'
+
+
+# ---------------------------------------------------------------------------
+# SMS sign-in (docs/modules/sms-sso.md). Created by app/sso_schema.py. InnoDB
+# and utf8mb4_unicode_ci are pinned: the live server has MyISAM defaults on
+# some tables, and FKs need the collation of users.id / subjects.id. Indexed
+# strings stay <= 191 chars (767-byte key limit on COMPACT rows).
+# ---------------------------------------------------------------------------
+
+_SSO_TABLE = {'mysql_engine': 'InnoDB', 'mysql_charset': 'utf8mb4',
+              'mysql_collate': 'utf8mb4_unicode_ci'}
+_LONG_TEXT = db.Text().with_variant(MEDIUMTEXT(), 'mysql', 'mariadb')
+
+
+class ExternalIdentity(db.Model):
+    """A link between an SMS identity ``(issuer, sub)`` and one OQB user."""
+    __tablename__ = 'external_identities'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    link_method = db.Column(db.String(8), nullable=False)  # self | admin | jit
+    linked_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    linked_by_user_id = db.Column(db.Integer, nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    last_seen_snapshot_at = db.Column(db.DateTime, nullable=True)
+    # Set when a snapshot no longer lists this sub (flag for admin review).
+    missing_since = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'sub', name='uq_extid_issuer_sub'),
+        db.UniqueConstraint('issuer', 'user_id', name='uq_extid_issuer_user'),
+        _SSO_TABLE,
+    )
+
+
+class UserSmsLevel(db.Model):
+    """SMS-sourced levels, replaced per user per issuer on every handoff and
+    snapshot. ``level`` holds the OQB level name (app/sms_levels.py converts).
+    ``sms_subject_uuid == ''`` is the row holding ``default_level``."""
+    __tablename__ = 'user_sms_levels'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                        nullable=False)
+    issuer = db.Column(db.String(191), nullable=False)
+    sms_subject_uuid = db.Column(db.String(64), nullable=False, default='', server_default='')
+    sms_subject_code = db.Column(db.String(32), nullable=True)
+    level = db.Column(db.String(10), nullable=False)
+    source = db.Column(db.String(10), nullable=False)  # handoff | snapshot
+    synced_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'issuer', 'sms_subject_uuid', name='uq_sms_level'),
+        db.Index('ix_sms_level_uuid', 'sms_subject_uuid'),
+        _SSO_TABLE,
+    )
+
+
+class SmsSubjectMap(db.Model):
+    """Admin-confirmed mapping: one SMS subject uuid -> many OQB subjects."""
+    __tablename__ = 'sms_subject_map'
+
+    id = db.Column(db.Integer, primary_key=True)
+    sms_uuid = db.Column(db.String(64), nullable=False)
+    oqb_subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id', ondelete='CASCADE'),
+                               nullable=False)
+    confirmed_by_user_id = db.Column(db.Integer, nullable=True)
+    confirmed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('sms_uuid', 'oqb_subject_id', name='uq_sms_map'),
+        db.Index('ix_sms_map_subject', 'oqb_subject_id'),
+        _SSO_TABLE,
+    )
+
+
+class SmsSubjectCatalogue(db.Model):
+    """SMS subjects seen in snapshots (full catalogue) or tokens."""
+    __tablename__ = 'sms_subject_catalogue'
+
+    sms_uuid = db.Column(db.String(64), primary_key=True)
+    code = db.Column(db.String(32), nullable=False)
+    name_en = db.Column(db.String(200), nullable=False, default='')
+    name_zh = db.Column(db.String(200), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    seen_in = db.Column(db.String(10), nullable=False)  # snapshot | token
+    issuer = db.Column(db.String(191), nullable=False)
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsRoster(db.Model):
+    """The latest snapshot's users (for admin linking). Never authorises."""
+    __tablename__ = 'sms_roster'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    email = db.Column(db.String(254), nullable=True)
+    name = db.Column(db.String(200), nullable=True)
+    name_zh = db.Column(db.String(200), nullable=True)
+    staff_code = db.Column(db.String(32), nullable=True)
+    default_level = db.Column(db.String(10), nullable=True)
+    subjects_json = db.Column(db.Text, nullable=True)
+    snapshot_id = db.Column(db.String(64), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'sub', name='uq_sms_roster'),
+        _SSO_TABLE,
+    )
+
+
+class SmsFeedState(db.Model):
+    """Last applied snapshot per issuer; read FOR UPDATE to serialise pushes."""
+    __tablename__ = 'sms_feed_state'
+
+    issuer = db.Column(db.String(191), primary_key=True)
+    last_iat = db.Column(db.BigInteger, nullable=False, default=0, server_default='0')
+    last_snapshot_id = db.Column(db.String(64), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsSnapshot(db.Model):
+    """One received snapshot (applied / held / approved / discarded / superseded)."""
+    __tablename__ = 'sms_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    snapshot_id = db.Column(db.String(64), nullable=False)
+    jti = db.Column(db.String(64), nullable=False)
+    iat = db.Column(db.BigInteger, nullable=False)
+    received_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    status = db.Column(db.String(12), nullable=False)
+    counts_json = db.Column(db.Text, nullable=True)
+    # Held deactivations: subs the brake stopped (approve applies them).
+    held_subs_json = db.Column(_LONG_TEXT, nullable=True)
+    unmapped_json = db.Column(db.Text, nullable=True)
+    decided_by_user_id = db.Column(db.Integer, nullable=True)
+    decided_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_sms_snapshot_issuer_iat', 'issuer', 'iat'),
+        _SSO_TABLE,
+    )
+
+
+class SsoUsedJti(db.Model):
+    """Single-use token ids, shared by every process (unique key = replay guard)."""
+    __tablename__ = 'sso_used_jti'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    jti = db.Column(db.String(64), nullable=False)
+    purpose = db.Column(db.String(24), nullable=False)
+    exp = db.Column(db.BigInteger, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'jti', name='uq_jti'),
+        db.Index('ix_jti_used_at', 'used_at'),
+        _SSO_TABLE,
+    )
+
+
+class SsoPendingLink(db.Model):
+    """Verified claims of an unlinked handoff, kept <= 10 minutes and bound to
+    the browser session by a nonce (only its sha256 is stored)."""
+    __tablename__ = 'sso_pending_links'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nonce_hash = db.Column(db.String(64), nullable=False, unique=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    claims_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsTrustIssuer(db.Model):
+    """Trust-list entry. Normalised on load by app/sms_trust.py."""
+    __tablename__ = 'sms_trust_issuers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False, unique=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    enabled_until = db.Column(db.DateTime, nullable=True)
+    is_primary = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    allow_jit = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    accepts_feed = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    allowed_subs_json = db.Column(db.Text, nullable=True)
+    level_cap = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    jwks_url = db.Column(db.String(500), nullable=True)
+    jwks_auto = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    jwks_seen_kids_json = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_by_user_id = db.Column(db.Integer, nullable=True)
+
+    keys = db.relationship('SmsTrustKey', backref='issuer_entry', lazy='select',
+                           cascade='all, delete-orphan', passive_deletes=True)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsTrustKey(db.Model):
+    """A pinned RSA public key (>= 2048 bits) for one issuer."""
+    __tablename__ = 'sms_trust_keys'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer_id = db.Column(db.Integer, db.ForeignKey('sms_trust_issuers.id', ondelete='CASCADE'),
+                          nullable=False)
+    kid = db.Column(db.String(64), nullable=False)
+    public_pem = db.Column(db.Text, nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=False)  # sha256(DER SPKI), hex
+    pinned_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    pinned_by_user_id = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer_id', 'kid', name='uq_trust_key'),
+        _SSO_TABLE,
+    )
+
+
+class AuthAuditLog(db.Model):
+    """Sign-in, linking, feed and trust events. Never stores a token."""
+    __tablename__ = 'auth_audit_log'
+
+    id = db.Column(db.BigInteger().with_variant(db.Integer, 'sqlite'), primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    event = db.Column(db.String(40), nullable=False, index=True)
+    outcome = db.Column(db.String(8), nullable=False)  # ok | fail | info
+    reason = db.Column(db.String(32), nullable=True)
+    issuer = db.Column(db.String(191), nullable=True)
+    sub = db.Column(db.String(64), nullable=True)
+    user_id = db.Column(db.Integer, nullable=True)  # no FK: rows outlive users
+    actor_user_id = db.Column(db.Integer, nullable=True)
+    ip = db.Column(db.String(45), nullable=True)
+    detail = db.Column(db.Text, nullable=True)
+    is_alert = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    acknowledged_by = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_audit_alert', 'is_alert', 'acknowledged_at'),
+        _SSO_TABLE,
+    )
+
+
+SSO_MODELS = (
+    SmsTrustIssuer, SmsTrustKey, ExternalIdentity, UserSmsLevel, SmsSubjectMap,
+    SmsSubjectCatalogue, SmsRoster, SmsFeedState, SmsSnapshot, SsoUsedJti,
+    SsoPendingLink, AuthAuditLog,
+)

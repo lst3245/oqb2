@@ -31,6 +31,16 @@ Loaded in the `<head>` of `base.html`, `viewer.html` and `markup.html` as `js/i1
 
 Jinja side: `{{ t('English text', name=value) }}` for UI text, `{{ tax_name(node) }}` for a taxonomy node or subject, `OQB_HTML_LANG` for `<html lang>`. `showToast(message, …)` in the Edit modal runs `OQB.t(message)` itself, so a fixed toast string only needs a catalogue entry. Never send a displayed taxonomy name back to the server; post ids, or `name_en` where a name is required.
 
+## CSRF token (`static/js/csrf.js`, `app/csrf.py`)
+
+Every POST / PUT / PATCH / DELETE needs the session's CSRF token (server rules: [../core/04-backend-conventions.md](../core/04-backend-conventions.md)). `base.html`, `viewer.html` and `markup.html` emit `<meta name="csrf-token" content="{{ csrf_token() }}">` and load `js/csrf.js?v=N` right after `i18n.js`, **before htmx and every page script** (bump `N` in all three when the file changes). It:
+
+- adds `X-CSRF-Token` to same-origin unsafe `fetch` and `XMLHttpRequest` calls (unless already set) and to htmx requests (`htmx:configRequest`);
+- injects a hidden `csrf_token` field into same-origin `<form method="post">` submits (capture-phase `submit` listener) and `form.submit()` calls;
+- exposes `OQB.csrfToken()` and `OQB.csrfInput()` (a hidden `<input>`).
+
+Rules: every server-rendered `<form method="post">` still contains `{{ csrf_field() }}` (works without JS; `tests/test_csrf_templates.py` scans for it). A form built in JS appends `OQB.csrfInput()`; a hand-made XHR calls `xhr.setRequestHeader('X-CSRF-Token', OQB.csrfToken())`. A new standalone page (no `base.html`) that posts needs the meta tag and the script. Logout is a POST form in the navbar (`GET /logout` only asks). A refused request answers 400 `{"error": "csrf_failed"}` (JSON) or the "Session expired" page; reloading the page fetches a fresh token.
+
 ## Shared JS helpers (`base.html`)
 
 | Helper | Purpose |

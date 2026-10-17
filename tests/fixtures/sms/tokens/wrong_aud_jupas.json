@@ -1,0 +1,40 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "jupas",
+    "default_level": "viewer",
+    "email": "ctm@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "9cb91cb4-b953-51cd-8a31-316c41b0c645",
+    "name": "CHAN Tai Man",
+    "name_zh": "陳大文",
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "CTM",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000001",
+    "subjects": [
+      {
+        "code": "MATH",
+        "level": "user",
+        "name_en": "Mathematics",
+        "name_zh": "數學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+      },
+      {
+        "code": "PHY",
+        "level": "user",
+        "name_en": "Physics",
+        "name_zh": "物理",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003"
+      }
+    ],
+    "ver": 1
+  }
+}

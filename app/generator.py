@@ -25,7 +25,8 @@ from datetime import datetime
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
-from app import db
+from app import authz, db
+from app import files_policy
 from app.models import Question, QuestionAsset, GeneratedFile, Topic, Subtopic
 from app.utils import (natural_sort, apply_multi_sort, SORT_FIELDS, enumerate_sort_groups,
                        GROUPING_FIELDS, parse_version_priority, DEFAULT_VERSION_PRIORITY,
@@ -396,6 +397,15 @@ def index():
         for q in eager_load_tree(Question.query.filter(Question.id.in_(question_ids))).all()
     }
     questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+    allowed = [q for q in questions if authz.has_level(current_user, q.subject, 'user')]
+    if len(allowed) < len(questions):
+        flash(_t('{n} question(s) in subjects you cannot generate from were removed.',
+                 n=len(questions) - len(allowed)), 'warning')
+        questions = allowed
+        question_ids = [str(q.id) for q in questions]
+        session['generator_question_ids'] = question_ids
+        if not questions:
+            return redirect(url_for('dashboard.index'))
     
     # Get sort config from session (from dashboard)
     sort_config = session.get('sort_config', [{"field": "qid", "direction": "asc"}])
@@ -812,12 +822,10 @@ def create_document():
     if not question_ids:
         return jsonify({'error': _t('No questions selected')}), 400
 
-    # Filter out questions from view-only subjects
-    if not current_user.is_super_admin:
-        subject_roles = current_user.get_subject_roles()
-        allowed_subjects = {sid for sid, role in subject_roles.items() if role in ('user', 'admin')}
+    # Generation needs `user` level on every question's subject.
+    if not authz.is_super_admin():
         qs = Question.query.filter(Question.id.in_(question_ids)).all()
-        question_ids = [str(q.id) for q in qs if q.subject in allowed_subjects]
+        question_ids = [str(q.id) for q in qs if authz.has_level(current_user, q.subject, 'user')]
         if not question_ids:
             return jsonify({'error': _t('No questions available for generation with your permissions')}), 403
 
@@ -1250,12 +1258,11 @@ def generation_status(file_id):
 @generator_bp.route('/download/<int:file_id>')
 @login_required
 def download_file(file_id):
-    """Download a completed generated file"""
+    """Download a completed generated file (``files_policy.can_download``)."""
     _require_generate_permission()
     gen_file = GeneratedFile.query.get_or_404(file_id)
     
-    # Only owner or super admin
-    if gen_file.user_id != current_user.id and not current_user.is_super_admin:
+    if not files_policy.can_download(gen_file, current_user):
         flash(_t('Access denied'), 'danger')
         return redirect(url_for('user.files'))
     
@@ -1414,17 +1421,15 @@ def download_pdf(file_id):
     file, and then sent. The whole thing is synchronous — long jobs
     will hold the request open until Word finishes.
 
-    Permission: any user who can view the file
-    (owner / super-admin / shared-with).
+    Permission: ``files_policy.can_download`` (owner, super admin, or a share
+    recipient who can read every subject of the file's questions).
     """
-    from app.user import _user_can_view_file  # avoid circular import
-
     gen_file = GeneratedFile.query.get_or_404(file_id)
 
     # All error paths return JSON so that the fetch-driven frontend
     # (`buildAndDownloadPdf` in my_files.html) can surface them via toast.
     # Successful response is a binary `send_file`.
-    if not _user_can_view_file(gen_file, current_user):
+    if not files_policy.can_download(gen_file, current_user):
         return jsonify({'error': _t('Access denied')}), 403
 
     if gen_file.status != 'completed':

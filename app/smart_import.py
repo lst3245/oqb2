@@ -599,16 +599,39 @@ def upload_dir(token):
     return os.path.join(upload_root(), token)
 
 
-def create_upload():
-    """Create a fresh uploaded-folder staging dir and return its token."""
+def _upload_owner_path(token):
+    # A sibling file: anything inside the folder would be scanned as an import file.
+    return upload_dir(token) + '.owner.json'
+
+
+def create_upload(owner_id=None):
+    """Create a fresh uploaded-folder staging dir and return its token. The
+    owner defaults to the signed-in user of the current request."""
+    from app.authz import current_user_id
     token = uuid.uuid4().hex
     os.makedirs(os.path.join(upload_root(), token), exist_ok=True)
+    with open(_upload_owner_path(token), 'w', encoding='utf-8') as f:
+        json.dump({'owner_user_id': owner_id if owner_id is not None else current_user_id()}, f)
     return token
+
+
+def upload_owner(token):
+    """The owner user id of an uploaded folder; ``None`` when unknown (uploads
+    that predate owner tracking)."""
+    try:
+        with open(_upload_owner_path(token), 'r', encoding='utf-8') as f:
+            return json.load(f).get('owner_user_id')
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def discard_upload(token):
     try:
         shutil.rmtree(upload_dir(token))
+    except (OSError, ValueError):
+        pass
+    try:
+        os.remove(_upload_owner_path(token))
     except (OSError, ValueError):
         pass
 

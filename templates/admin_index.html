@@ -159,6 +159,18 @@
         <div class="col-md-3">
             <div class="card h-100 border-danger">
                 <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-box-arrow-in-right"></i> {{ t('SMS sign-in') }}
+                        {% set _alerts = sms_alert_count() %}{% if _alerts %}<span class="badge rounded-pill bg-danger">{{ _alerts }}</span>{% endif %}</h5>
+                    <p class="card-text">{{ t('Map SMS subjects, link staff accounts, review held snapshots, manage trusted SMS keys and test windows, and read the sign-in audit and alerts.') }}</p>
+                    <a href="{{ url_for('sms_admin.index') }}" class="btn btn-danger btn-sm">
+                        <i class="bi bi-arrow-right"></i> {{ t('SMS sign-in') }}
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-danger">
+                <div class="card-body">
                     <h5 class="card-title"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</h5>
                     <p class="card-text">{{ t('Browse, upload, download, rename, and delete files in the source directory.') }}</p>
                     <a href="{{ url_for('admin.files') }}" class="btn btn-danger btn-sm">

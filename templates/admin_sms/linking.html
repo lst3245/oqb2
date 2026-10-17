@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ t('Linking') }} - {{ t('SMS sign-in') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% with sms_tab = 'linking' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+    <p class="text-muted">{{ t('Link an SMS staff account to an existing OQB account so the teacher keeps their files and grants. Super admin and local-only accounts are never linked. Suggestions are only suggestions: check the person before linking.') }}</p>
+
+    <div class="card mb-4">
+        <div class="card-header">{{ t('Link by SMS account ID') }}</div>
+        <div class="card-body">
+            <form method="post" action="{{ url_for('sms_admin.link') }}" class="row g-2 align-items-end" id="sms-typed-link">{{ csrf_field() }}
+                <input type="hidden" name="show" value="{{ show }}">
+                <div class="col-md-4">
+                    <label class="form-label small">{{ t('Issuer') }}</label>
+                    <select name="issuer" class="form-select form-select-sm" required>
+                        {% for r in trust_rows %}<option value="{{ r.issuer }}">{{ r.issuer }}{{ ' (' ~ t('primary') ~ ')' if r.is_primary }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">{{ t('SMS sub (UUID)') }}</label>
+                    <input type="text" name="sub" class="form-control form-control-sm font-monospace" list="sms-allowed-subs" required
+                           pattern="[0-9a-fA-F-]{36}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    <datalist id="sms-allowed-subs">
+                        {% for issuer, items in allowed.items() %}{% for i in items %}<option value="{{ i.sub }}">{{ i.label or '' }} · {{ issuer }}</option>{% endfor %}{% endfor %}
+                    </datalist>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">{{ t('OQB account') }}</label>
+                    <select name="user_id" class="form-select form-select-sm" required>
+                        <option value="">…</option>
+                        {% for u in link_users %}<option value="{{ u.id }}">{{ u.username }}{{ ' (' ~ t('Disabled') ~ ')' if not u.is_active }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">{{ t('Note (optional)') }}</label>
+                    <input type="text" name="label" class="form-control form-control-sm" maxlength="80">
+                </div>
+                <div class="col-md-1"><button type="submit" class="btn btn-sm btn-primary w-100">{{ t('Link') }}</button></div>
+            </form>
+            <div class="small text-muted mt-2">{{ t('For a test issuer the sub must be on its test-account list (Trust list tab).') }}</div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center">
+        <h5 class="mb-2">{{ t('SMS roster') }}{% if primary %} <small class="text-muted">{{ primary.issuer }}</small>{% endif %}</h5>
+        <div class="btn-group btn-group-sm">
+            <a class="btn {{ 'btn-secondary' if show == 'unlinked' else 'btn-outline-secondary' }}" href="{{ url_for('sms_admin.linking', show='unlinked') }}">{{ t('Not linked') }}</a>
+            <a class="btn {{ 'btn-secondary' if show == 'all' else 'btn-outline-secondary' }}" href="{{ url_for('sms_admin.linking', show='all') }}">{{ t('All') }}</a>
+        </div>
+    </div>
+    {% if not primary %}
+    <div class="alert alert-info">{{ t('No primary issuer is configured.') }}</div>
+    {% else %}
+    <div class="table-responsive mb-4">
+    <table class="table table-sm table-bordered align-middle" id="sms-roster">
+        <thead class="table-light">
+            <tr><th>{{ t('Name') }}</th><th>{{ t('Staff code') }}</th><th>{{ t('Email') }}</th><th>{{ t('Default level') }}</th><th>{{ t('OQB account') }}</th></tr>
+        </thead>
+        <tbody>
+        {% for item in roster %}{% set r = item.row %}
+            <tr id="roster-{{ r.sub }}" class="{{ 'text-muted' if not r.active }}">
+                <td>{{ r.name or '' }}{% if r.name_zh %} <span class="small">{{ r.name_zh }}</span>{% endif %}
+                    {% if not r.active %}<span class="badge bg-secondary">{{ t('Inactive in SMS') }}</span>{% endif %}
+                    <div class="small text-muted font-monospace">{{ r.sub }}</div></td>
+                <td>{{ r.staff_code or '' }}</td>
+                <td class="small">{{ r.email or '' }}</td>
+                <td>{{ sms_level_label(r.default_level) if r.default_level else '' }}</td>
+                <td>
+                    {% if item.identity %}
+                        <i class="bi bi-link-45deg"></i> <strong>{{ item.account.username if item.account else item.identity.user_id }}</strong>
+                        <span class="small text-muted">({{ item.identity.link_method }})</span>
+                    {% elif r.active %}
+                        {% for u, score, why in item.suggestions %}
+                        <form method="post" action="{{ url_for('sms_admin.link') }}" class="d-inline">{{ csrf_field() }}
+                            <input type="hidden" name="issuer" value="{{ r.issuer }}">
+                            <input type="hidden" name="sub" value="{{ r.sub }}">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <input type="hidden" name="show" value="{{ show }}">
+                            <button type="submit" class="btn btn-sm btn-outline-success mb-1" title="{{ why }} {{ score }}"
+                                    onclick="return confirm(OQB.t('Link this SMS account to {username}?', {username: '{{ u.username|e }}'}))">
+                                <i class="bi bi-link"></i> {{ u.username }} <span class="small">{{ score }}</span></button>
+                        </form>
+                        {% else %}<span class="small text-muted">{{ t('No suggestion') }}</span>{% endfor %}
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5" class="text-muted">{{ t('Nothing to show. The roster fills from the SMS directory feed.') }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    <h5 class="mb-2">{{ t('Linked accounts') }}</h5>
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle" id="sms-links">
+        <thead class="table-light">
+            <tr><th>{{ t('OQB account') }}</th><th>{{ t('Issuer') }}</th><th>{{ t('SMS sub') }}</th><th>{{ t('Linked') }}</th><th>{{ t('Last SMS sign-in') }}</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for i in links %}{% set u = users_by_id.get(i.user_id) %}
+            <tr id="link-{{ i.id }}">
+                <td><strong>{{ u.username if u else i.user_id }}</strong>
+                    {% if u and not u.is_active %}<span class="badge bg-secondary">{{ t('Disabled') }}</span>{% endif %}
+                    {% if i.missing_since %}<span class="badge bg-warning text-dark" title="{{ i.missing_since.strftime('%Y-%m-%d') }}">{{ t('Missing from snapshot') }}</span>{% endif %}</td>
+                <td class="small">{{ i.issuer }}{% if not (primary and i.issuer == primary.issuer) %} <span class="badge bg-warning text-dark">{{ t('test') }}</span>{% endif %}</td>
+                <td class="small font-monospace">{{ i.sub }}</td>
+                <td class="small">{{ i.link_method }} · {{ i.linked_at.strftime('%Y-%m-%d') }}</td>
+                <td class="small">{{ i.last_login_at.strftime('%Y-%m-%d %H:%M') if i.last_login_at else '—' }}</td>
+                <td>
+                    <form method="post" action="{{ url_for('sms_admin.unlink') }}" class="d-inline">{{ csrf_field() }}
+                        <input type="hidden" name="issuer" value="{{ i.issuer }}">
+                        <input type="hidden" name="user_id" value="{{ i.user_id }}">
+                        <input type="hidden" name="show" value="{{ show }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                onclick="return confirm(OQB.t('Unlink this account? Its SMS levels are removed and its sessions end.'))">{{ t('Unlink') }}</button>
+                    </form>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="text-muted">{{ t('No linked accounts.') }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

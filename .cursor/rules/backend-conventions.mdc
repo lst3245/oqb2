@@ -14,8 +14,10 @@ Read `docs/core/04-backend-conventions.md`, `docs/core/02-auth-and-permissions.m
 
 ## Authz
 - Decorator order: `@bp.route` → `@login_required` → one of `@admin_required` / `@super_admin_required` / `@subject_access_required` / `@subject_admin_required`.
-- The subject decorators **pass through when no `subject_id` is found**. Routes keyed by `question_id` / `asset_id` / `file_id` must load the object and check `current_user.is_subject_admin(obj.subject_id)` (or ownership) explicitly. Pattern: `_require_md_admin(question)` in `app/admin.py`.
+- The subject decorators **fail closed**: no `subject_id` (URL, args, form, JSON) → 403; super admin passes. Routes keyed by `question_id` / `asset_id` / `file_id` must load the object and check its subject with `authz.require_subject(sid, level)` / `authz.has_level` (or ownership via `authz.owns`). Taxonomy ids: `authz.require_taxonomy(Model, ids, level)`. Pattern: `_require_md_admin(question)` in `app/admin.py`.
+- Levels come only from `app/authz.py` (`effective_levels`, cached on `g` per request); never read `user_subject_permissions` or `get_subject_roles()` for a decision. Refuse with `authz.deny()` (JSON `{success:false, error, message}` for fetch/XHR/JSON, HTML 403 otherwise) and check **before** any `subject_snapshot.capture*` and outside a broad `try/except Exception`.
 - `users.is_admin` is legacy; never read it.
+- **CSRF** (`app/csrf.py`): every POST / PUT / PATCH / DELETE is checked; state changes never go in a GET. Exemptions (`csrf.EXEMPT_ENDPOINTS`) are only the two SSO endpoints; do not add more. Sign-ins / sign-outs call `csrf.rotate()` and `web_security.start_auth` (see `sms-sso.mdc`).
 
 ## Responses
 - Use the envelope of the surrounding route family: `{'success': True/False, 'message'}` (modal/asset/My Files routes) or payload-with-2xx / `{'error': ...}`-with-4xx (data APIs). Never mix within one family.

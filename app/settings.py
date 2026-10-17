@@ -558,6 +558,60 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         min=400, max=8000,
     )),
+
+    # SMS sign-in (docs/modules/sms-sso.md). Trust anchors are not settings:
+    # they live in the trust list (super admin) or the env-only bootstrap file.
+    ('SMS_SSO_ENABLED', _spec(
+        'SMS_SSO_ENABLED', 'bool', group='SMS sign-in',
+        label='SMS sign-in',
+        help='Allow signing in from the school SMS (/sso/sms) and count SMS-sourced levels. Also needs PUBLIC_ORIGIN in .env and a pinned key for the live issuer. Off: the SMS routes answer 404 and only local grants count.',
+    )),
+    ('SMS_JIT_ENABLED', _spec(
+        'SMS_JIT_ENABLED', 'bool', group='SMS sign-in',
+        label='Create accounts for unlinked SMS staff',
+        help='When an SMS user with no linked OQB account signs in from the live SMS, create a password-less OQB account for them. Turn on only after existing teachers are linked. Never applies to the workshop SMS.',
+    )),
+    ('SMS_FEED_ENABLED', _spec(
+        'SMS_FEED_ENABLED', 'bool', group='SMS sign-in',
+        label='Accept the SMS directory feed',
+        help='Accept staff snapshots pushed by the live SMS (POST /api/sms/directory): roster, subject catalogue, level updates, deactivations. Off: the endpoint answers 404.',
+    )),
+    ('SMS_FEED_BRAKE_MIN', _spec(
+        'SMS_FEED_BRAKE_MIN', 'int', group='SMS sign-in',
+        label='Feed safety brake: minimum deactivations',
+        help='A snapshot that would deactivate more than the larger of this number and the percentage below of linked accounts is held for a super admin to approve. Default 5.',
+        min=1, max=10000,
+    )),
+    ('SMS_FEED_BRAKE_PCT', _spec(
+        'SMS_FEED_BRAKE_PCT', 'int', group='SMS sign-in',
+        label='Feed safety brake: percent of linked accounts',
+        help='Percentage of linked accounts a single snapshot may deactivate before it is held. Default 10.',
+        min=1, max=100,
+    )),
+    ('SMS_EMBED_ENABLED', _spec(
+        'SMS_EMBED_ENABLED', 'bool', group='SMS sign-in',
+        label='Allow SMS to show OQB inside its page',
+        help='Let the school SMS (and the workshop SMS while its test window is open) show OQB in a frame. Sign-in cookies then become SameSite=None; Secure; Partitioned, so OQB must be served over HTTPS. Off: no site may frame OQB.',
+    )),
+
+    # Sign-in and sessions (docs/modules/sms-sso.md, ADR-018)
+    ('CSRF_MODE', _spec(
+        'CSRF_MODE', 'string', group='Sign-in and sessions',
+        label='CSRF protection mode',
+        help='"enforce" refuses any form post or API change that lacks the page\'s security token. "report" only logs csrf_failed with the page address and lets the request through; use it for the first days of a deployment, then switch back to enforce.',
+        validator=_choice_validator('enforce', 'report'),
+    )),
+    ('PASSWORD_SESSION_LIMITS', _spec(
+        'PASSWORD_SESSION_LIMITS', 'bool', group='Sign-in and sessions',
+        label='Time limits for password sessions',
+        help='Password sign-ins without "Remember me" end after 12 hours, or after 2 hours without activity (the same limits as SMS sign-ins, which always apply). Off: they last until the browser is closed.',
+    )),
+    ('PASSWORD_REMEMBER_DAYS', _spec(
+        'PASSWORD_REMEMBER_DAYS', 'int', group='Sign-in and sessions',
+        label='Remember me (days)',
+        help='How long "Remember me" keeps an OQB password account signed in. Never offered to accounts linked to SMS. 0 hides the option. Default 30, at most 30.',
+        min=0, max=30,
+    )),
 ])
 
 

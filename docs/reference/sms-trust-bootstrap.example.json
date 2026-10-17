@@ -1,0 +1,28 @@
+{
+  "_comment": "SMS_TRUST_BOOTSTRAP_FILE format (docs/modules/sms-sso.md). Read only when OQB_ENVIRONMENT is staging, test or dev; ignored (with an alert) in production. pem_file paths are relative to this file. These are the contract-test fixture keys; never use them outside dev / CI.",
+  "issuers": [
+    {
+      "issuer": "https://sms-contract-test.invalid",
+      "enabled": true,
+      "primary": true,
+      "allow_jit": true,
+      "accepts_feed": true,
+      "level_cap": false,
+      "keys": [
+        {"kid": "sms-contract-test", "pem_file": "../../tests/fixtures/sms/keys/sms-contract-test.pub.pem"},
+        {"kid": "sms-contract-test-2", "pem_file": "../../tests/fixtures/sms/keys/sms-contract-test-2.pub.pem"}
+      ]
+    },
+    {
+      "issuer": "https://sms-contract-test-workshop.invalid",
+      "enabled": true,
+      "enabled_until": "2026-12-31T00:00:00",
+      "primary": false,
+      "level_cap": true,
+      "allowed_subs": ["8d1f7c2e-0c1a-4b7e-9000-000000000005"],
+      "keys": [
+        {"kid": "sms-contract-test-workshop", "pem_file": "../../tests/fixtures/sms/keys/sms-contract-test-workshop.pub.pem"}
+      ]
+    }
+  ]
+}

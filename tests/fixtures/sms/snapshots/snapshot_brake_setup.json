@@ -1,0 +1,261 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "aud": "oqb",
+    "exp": 1792003000,
+    "iat": 1792002400,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "55fe918e-d8fa-56eb-bd64-c55934cb4d36",
+    "nbf": 1792002400,
+    "purpose": "directory_snapshot",
+    "snapshot_id": "d462e305-2318-5ca7-b4a0-0e0335f20e74",
+    "subjects": [
+      {
+        "code": "MATH",
+        "is_active": true,
+        "name_en": "Mathematics",
+        "name_zh": "數學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+      },
+      {
+        "code": "M2",
+        "is_active": true,
+        "name_en": "Mathematics Extended Part Module 2",
+        "name_zh": "數學延伸部分單元二",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000002"
+      },
+      {
+        "code": "PHY",
+        "is_active": true,
+        "name_en": "Physics",
+        "name_zh": "物理",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003"
+      },
+      {
+        "code": "CHEM",
+        "is_active": true,
+        "name_en": "Chemistry",
+        "name_zh": "化學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004"
+      },
+      {
+        "code": "LAT",
+        "is_active": false,
+        "name_en": "Latin",
+        "name_zh": null,
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000005"
+      }
+    ],
+    "users": [
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "ctm@school.test",
+        "name": "CHAN Tai Man",
+        "name_zh": "陳大文",
+        "staff_code": "CTM",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000001",
+        "subjects": [
+          {
+            "code": "MATH",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+          },
+          {
+            "code": "PHY",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003"
+          }
+        ]
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "lsy@school.test",
+        "name": "LEE Siu Yan",
+        "name_zh": "李小欣",
+        "staff_code": "LSY",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000002",
+        "subjects": [
+          {
+            "code": "M2",
+            "level": "admin",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000002"
+          },
+          {
+            "code": "MATH",
+            "level": "admin",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+          }
+        ]
+      },
+      {
+        "active": true,
+        "default_level": "admin",
+        "email": "wkm@school.test",
+        "name": "WONG Ka Ming",
+        "name_zh": null,
+        "staff_code": "WKM",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000003",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "hpl@school.test",
+        "name": "HO Pui Ling",
+        "name_zh": "何佩玲",
+        "staff_code": "HPL",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000004",
+        "subjects": [
+          {
+            "code": "CHEM",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004"
+          }
+        ]
+      },
+      {
+        "active": true,
+        "default_level": "none",
+        "email": "tkw@school.test",
+        "name": "TSE Kwok Wai",
+        "name_zh": null,
+        "staff_code": "TKW",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000007",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "oqb-test1@school.test",
+        "name": "OQB Test 1",
+        "name_zh": null,
+        "staff_code": null,
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000005",
+        "subjects": [
+          {
+            "code": "MATH",
+            "level": "user",
+            "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001"
+          }
+        ]
+      },
+      {
+        "active": false,
+        "default_level": "none",
+        "email": "ysf@school.test",
+        "name": "YIP Sau Fong",
+        "name_zh": "葉秀芳",
+        "staff_code": "YSF",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000006",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake01@school.test",
+        "name": "BRAKE Test 01",
+        "name_zh": null,
+        "staff_code": "BR01",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000101",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake02@school.test",
+        "name": "BRAKE Test 02",
+        "name_zh": null,
+        "staff_code": "BR02",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000102",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake03@school.test",
+        "name": "BRAKE Test 03",
+        "name_zh": null,
+        "staff_code": "BR03",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000103",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake04@school.test",
+        "name": "BRAKE Test 04",
+        "name_zh": null,
+        "staff_code": "BR04",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000104",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake05@school.test",
+        "name": "BRAKE Test 05",
+        "name_zh": null,
+        "staff_code": "BR05",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000105",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake06@school.test",
+        "name": "BRAKE Test 06",
+        "name_zh": null,
+        "staff_code": "BR06",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000106",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake07@school.test",
+        "name": "BRAKE Test 07",
+        "name_zh": null,
+        "staff_code": "BR07",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000107",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake08@school.test",
+        "name": "BRAKE Test 08",
+        "name_zh": null,
+        "staff_code": "BR08",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000108",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake09@school.test",
+        "name": "BRAKE Test 09",
+        "name_zh": null,
+        "staff_code": "BR09",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000109",
+        "subjects": []
+      },
+      {
+        "active": true,
+        "default_level": "viewer",
+        "email": "brake10@school.test",
+        "name": "BRAKE Test 10",
+        "name_zh": null,
+        "staff_code": "BR10",
+        "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000110",
+        "subjects": []
+      }
+    ],
+    "ver": 1
+  }
+}

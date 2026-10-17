@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ t('SMS sign-in') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% with sms_tab = 'index' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+
+    {% if not schema_ready %}
+    <div class="alert alert-danger" id="sms-schema-not-ready">
+        <i class="bi bi-exclamation-octagon"></i> {{ t('The SMS sign-in tables are not ready, so SMS sign-in is off. Check the server log for the failed schema patch.') }}
+    </div>
+    {% else %}
+
+    {% if not break_glass %}
+    <div class="alert alert-danger" id="sms-no-break-glass">
+        <i class="bi bi-exclamation-octagon"></i> {{ t('No active super admin can sign in with a password. Set a password on a super admin (break-glass account) before relying on SMS sign-in.') }}
+    </div>
+    {% endif %}
+    {% if bootstrap %}
+    <div class="alert alert-warning" id="sms-bootstrap">
+        <i class="bi bi-exclamation-triangle"></i> {{ t('The trust list comes from the bootstrap file (SMS_TRUST_BOOTSTRAP_FILE), not from the database. Edits on the Trust list tab have no effect until it is removed.') }}
+    </div>
+    {% endif %}
+    {% for e in nonprimary_enabled %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i> {{ t('A test issuer is enabled: {issuer}. Close the test window when the test is over.', issuer=e.issuer) }}
+        <a href="{{ url_for('sms_admin.trust') }}">{{ t('Trust list') }}</a>
+    </div>
+    {% endfor %}
+    {% if alerts %}
+    <div class="alert alert-danger">
+        <i class="bi bi-bell"></i> {{ t('{n} alert(s) need review.', n=alerts) }}
+        <a href="{{ url_for('sms_admin.audit') }}">{{ t('Audit and alerts') }}</a>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">{{ t('Status') }}</div>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Allow signing in from SMS') }}
+                        <span class="badge {{ 'bg-success' if sso_enabled else 'bg-secondary' }}">{{ t('On') if sso_enabled else t('Off') }}</span></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Accept the SMS directory feed') }}
+                        <span class="badge {{ 'bg-success' if feed_enabled else 'bg-secondary' }}">{{ t('On') if feed_enabled else t('Off') }}</span></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Create accounts for unlinked SMS staff') }}
+                        <span class="badge {{ 'bg-success' if jit_enabled else 'bg-secondary' }}">{{ t('On') if jit_enabled else t('Off') }}</span></li>
+                    <li class="list-group-item d-flex justify-content-between">PUBLIC_ORIGIN
+                        <code>{{ public_origin or '—' }}</code></li>
+                    <li class="list-group-item d-flex justify-content-between">OQB_ENVIRONMENT
+                        <code>{{ environment }}</code></li>
+                    {% if schema_ready %}
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Primary issuer') }}
+                        <span>{% if primary %}<code>{{ primary.issuer }}</code> ({{ primary_keys|join(', ') or t('no key pinned') }}){% else %}<span class="badge bg-danger">{{ t('None enabled') }}</span>{% endif %}</span></li>
+                    {% endif %}
+                </ul>
+                <div class="card-footer small text-muted">{{ t('The switches are in System Settings; PUBLIC_ORIGIN is set in .env.') }}
+                    <a href="{{ url_for('admin.settings_page') }}">{{ t('System Settings') }}</a></div>
+            </div>
+        </div>
+        {% if schema_ready %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">{{ t('Directory') }}</div>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Linked accounts') }}
+                        <a href="{{ url_for('sms_admin.linking', show='all') }}">{{ linked }}</a></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Unmapped SMS subjects') }}
+                        <a href="{{ url_for('sms_admin.mapping') }}" class="{{ 'text-danger fw-bold' if unmapped }}">{{ unmapped }}</a></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Held snapshots') }}
+                        <a href="{{ url_for('sms_admin.snapshots') }}" class="{{ 'text-danger fw-bold' if held }}">{{ held }}</a></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Open alerts') }}
+                        <a href="{{ url_for('sms_admin.audit') }}" class="{{ 'text-danger fw-bold' if alerts }}">{{ alerts }}</a></li>
+                    <li class="list-group-item d-flex justify-content-between">{{ t('Last snapshot') }}
+                        <span>{% if last_snapshot %}{{ last_snapshot.received_at.strftime('%Y-%m-%d %H:%M') }} UTC · {{ last_snapshot.status }}{% else %}—{% endif %}</span></li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "sms-contract-test",
+      "n": "s2IKEtRRZymIT4hmMwo_mBDGhVDdaQ9PsL5hR1RP3ctPhgxlQ5IOIDNdpuhvrOH2OexmN0G2iwW12c2o31vVO-bPr43-8rXHv1SjjLMoGDsMoVX0j5PKROXAUs_59aOo4BKXuiARTPt5PLOqTBKSoc4mYptkSmRF7DoYwDqJybMSh9-zJDCb3Zqai7c7aNJR4fhfSX3vhFw6L63Z3r4sIa9S2a2y2BL7bw5NV4tRkh-ow1EgA2evuG6Cy82rUV4wZKbsOT2jwPHlUVdEZiLNThbeWTttXcaP3clvTQXRHzRhCcx5Cyokzz_a85qQ1xnCyBQSAb2qu-ntDFlvxdCFz9Ca_ZImn1NCrcVAM6M2EUA8bDvl6dK-KQJ17lq995zW7YpKtHF99dgrrrwa9kP7BTrXKpz844dVgZwqwTKXpQZziqUi7-OWRn7fH3jA-DCrV2EF6YdkIUlW3uYfpgaMGJtPnThbKQ1MVlOoiIeQ1fHOzhNzuv__HAJOHk7V7X73",
+      "e": "AQAB"
+    },
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "sms-contract-test-2",
+      "n": "kvK5ORFSZPeh81qNmyAEEVx0Hpu49hPatV5Fv32XOHDWGwJSdvwrYNIHaHZ0XPLAWQd4QywIjaY2x2z3iZpF44BGN9mlcPsHMo3ndysXhMo2QBFUxW80J9CwQ0JAlzBQVCKXNCWubVpQQINBWL6b_Y_o227z9CaZCEDrbH74lk9tXcWAq2rJA3kp9JkSqZj1zmeM82IXGzQGQyBHd2bmYTGw9iD5e-1oqGL2giaWDc9zDjxCTY97-iV8FcuS4qMt2df7TcvljsI6koWJ9CwtmTbpqpyo7nSKaY6_724tOT6ysM1g6nvXfd_WGNiBgm1TjaMtceHbd6TWnWMh5FT6X14ucIsGGFrv3Lwdl79MFTHKrcxABI-ymNq-nFVHU_kFPs1dpD89XjK7D4B02EDXDXR_ssmJZZ_gYkvaS9BVzysy890ZWm5STcZEPSzkv_uWgiaMjqTecJ_r4tCBYc7XZi0FKWdKsXqtPAOOjaHb2vtMyFXgjmw-FU0--h1DUpJV",
+      "e": "AQAB"
+    }
+  ]
+}

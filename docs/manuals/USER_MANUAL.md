@@ -30,7 +30,19 @@
 2. Enter your username and password
 3. Click **Login**
 
-You stay signed in on this browser for 90 days. After too many wrong passwords the page asks you to wait (about 15 minutes) before trying again.
+You stay signed in until you close the browser, for at most 12 hours, and you are signed out after 2 hours without using the Question Bank (an administrator can change these limits). On your **own** computer you can tick **Remember me for 30 days** before pressing **Login**: you then stay signed in on that browser for up to 30 days, even after closing it. Do not tick it on a shared computer. The box is not offered once your account is linked to the school SMS. After too many wrong passwords the page asks you to wait (about 15 minutes) before trying again.
+
+If a page says **"Your session has expired. Reload the page and try again."**, reload the page (or sign in again) and repeat what you were doing; this happens when a page stays open across a sign-out.
+
+**Logging out:** press **Logout (your name)** at the top right. This signs you out of the Question Bank only (not the SMS) and removes "Remember me" on that browser. A bookmarked logout link only asks you to confirm.
+
+### Signing in from the school SMS
+
+When the school has switched SMS sign-in on, you can open the Question Bank from the SMS, or press **Sign in with SMS** on the login page. Your subject access then follows your SMS role and subjects. An SMS sign-in lasts until you close the browser, for at most 12 hours, and ends after 2 hours without activity; there is no "remember me". Open the Question Bank from the SMS again to continue.
+
+The first time, OQB may not know which account is yours. It then asks you to **sign in with your OQB username and password once** and press **Link** to connect the two. If you do not have an OQB account, ask a Question Bank administrator. You can also press **Cancel** and nothing is linked. Super admin accounts cannot be linked and always sign in with their password.
+
+If the SMS sign-in fails ("Sign-in from SMS failed"), open the Question Bank from the SMS again; the link is used once and expires after about a minute.
 
 ### User Roles
 

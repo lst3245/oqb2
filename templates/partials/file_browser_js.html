@@ -607,6 +607,7 @@ function doUpload() {
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', URLS.upload);
+    xhr.setRequestHeader('X-CSRF-Token', OQB.csrfToken());
 
     xhr.upload.onprogress = function(e) {
         if (e.lengthComputable) {

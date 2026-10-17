@@ -943,6 +943,7 @@ function switchQuestionSource(source) {
     form.method = 'POST';
     form.action = window.location.pathname;
     form.style.display = 'none';
+    form.appendChild(OQB.csrfInput());
     
     ids.forEach(id => {
         const input = document.createElement('input');

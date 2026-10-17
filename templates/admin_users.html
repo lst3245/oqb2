@@ -51,10 +51,45 @@
                         {% if data.user.is_super_admin %}
                         <span class="badge super-admin-badge ms-2"><i class="bi bi-shield-check"></i> {{ t('Super Admin') }}</span>
                         {% endif %}
+                        {% for i in data.identities %}
+                        <span class="badge bg-info text-dark ms-1 sms-badge" title="{{ i.issuer }} · {{ i.sub }}"><i class="bi bi-link-45deg"></i> SMS{% if i.missing_since %} <i class="bi bi-exclamation-triangle"></i>{% endif %}</span>
+                        {% endfor %}
+                        {% if not data.user.is_active %}
+                        <span class="badge bg-secondary ms-1 disabled-badge">{{ t('Disabled by SMS') if data.user.disabled_reason == 'sms_deprovisioned' else t('Disabled') }}</span>
+                        {% endif %}
+                        {% if data.user.local_only %}
+                        <span class="badge bg-dark ms-1 local-only-badge" title="{{ t('Password sign-in only; never linked to SMS.') }}">{{ t('Local only') }}</span>
+                        {% endif %}
                     </div>
                     <div>
                         <small class="text-muted me-3">{{ t('Created: {date}', date=data.user.created_at.strftime('%Y-%m-%d')) }}</small>
                         {% if data.user.id != current_user.id %}
+                        <div class="btn-group btn-group-sm me-1">
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                <i class="bi bi-person-gear"></i> {{ t('Account') }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.revoke_sessions', user_id=data.user.id) }}', {}, OQB.t('End all sessions of this user?')); return false;"><i class="bi bi-box-arrow-right"></i> {{ t('End all sessions') }}</a></li>
+                                {% if data.user.is_active %}
+                                <li><a class="dropdown-item text-danger" href="#" onclick="accountAction('{{ url_for('account_admin.set_active', user_id=data.user.id) }}', {active: '0'}, OQB.t('Disable this account? The user is signed out and cannot sign in.')); return false;"><i class="bi bi-slash-circle"></i> {{ t('Disable account') }}</a></li>
+                                {% else %}
+                                <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_active', user_id=data.user.id) }}', {active: '1'}); return false;"><i class="bi bi-check-circle"></i> {{ t('Enable account') }}</a></li>
+                                {% endif %}
+                                {% if data.user.local_only %}
+                                <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=data.user.id) }}', {local_only: '0'}); return false;"><i class="bi bi-unlock"></i> {{ t('Allow SMS linking') }}</a></li>
+                                {% elif not data.identities %}
+                                <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=data.user.id) }}', {local_only: '1'}); return false;"><i class="bi bi-lock"></i> {{ t('Make local-only') }}</a></li>
+                                {% endif %}
+                                {% for i in data.identities %}
+                                <li><form method="post" action="{{ url_for('sms_admin.unlink') }}" class="m-0">{{ csrf_field() }}
+                                    <input type="hidden" name="issuer" value="{{ i.issuer }}">
+                                    <input type="hidden" name="user_id" value="{{ data.user.id }}">
+                                    <input type="hidden" name="next" value="users">
+                                    <button type="submit" class="dropdown-item text-danger" onclick="return confirm(OQB.t('Unlink this account? Its SMS levels are removed and its sessions end.'))"><i class="bi bi-x-octagon"></i> {{ t('Unlink from SMS') }}</button>
+                                </form></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
                         <button class="btn btn-sm btn-outline-primary" 
                                 onclick="showEditUserModal({{ data.user.id }}, '{{ data.user.username }}', {{ 'true' if data.user.is_super_admin else 'false' }})">
                             <i class="bi bi-pencil"></i> {{ t('Edit') }}
@@ -102,6 +137,15 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
+                    {% endif %}
+                    {% if data.sms_levels %}
+                    <div class="mt-3 sms-levels">
+                        <h6 class="mb-1">{{ t('SMS levels (read-only)') }}</h6>
+                        {% for issuer, code, level in data.sms_levels %}
+                        <span class="badge bg-light text-dark border me-1">{{ code if code else t('Default') }}: {{ sms_level_label(level) }}</span>
+                        {% endfor %}
+                        <div class="small text-muted mt-1">{{ t('Set in SMS. Each subject uses the higher of the local permission above and the SMS level of a mapped SMS subject.') }}</div>
                     </div>
                     {% endif %}
                 </div>
@@ -269,6 +313,22 @@ function deleteUser(userId, username) {
         }
     })
     .catch(err => alert(OQB.t('Error deleting user')));
+}
+
+function accountAction(url, fields, question) {
+    if (question && !confirm(question)) return;
+    const formData = new FormData();
+    Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+    fetch(url, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                location.reload();
+            }
+        })
+        .catch(err => alert(OQB.t('Error saving user')));
 }
 
 // ============== Permission Functions ==============
