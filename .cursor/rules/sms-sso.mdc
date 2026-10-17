@@ -1,12 +1,12 @@
 ---
 description: SMS sign-in - trust list, token verifier, /sso/sms handoff, linking, SMS levels in authz, auth audit; fail-closed invariants and test rituals
-globs: app/sso.py,app/sso_schema.py,app/sms_*.py,app/sms_feed_service.py,app/auth_audit.py,app/web_security.py,app/rate_limit.py,app/authz.py,app/auth.py,templates/sso/*.html,scripts/sms_contract_mint.py,tests/test_sms_*.py,tests/smskit.py,tests/ssocase.py,tests/fixtures/sms/**
+globs: app/sso.py,app/sso_schema.py,app/sms_*.py,app/account_admin.py,app/auth_audit.py,app/web_security.py,app/rate_limit.py,app/authz.py,app/auth.py,templates/sso/*.html,templates/admin_sms/*.html,templates/admin_users.html,scripts/sms_contract_mint.py,tests/test_sms_*.py,tests/smskit.py,tests/ssocase.py,tests/fixtures/sms/**
 alwaysApply: false
 ---
 
 # SMS sign-in (bootloader — spec in `docs/modules/sms-sso.md`, runbook `docs/manuals/SMS_SSO_DEPLOYMENT.md`)
 
-Contract: `OQB_CONTRACT_v1.2.md` + addenda 1–3. Branch `feature/sms-sso`; stages 1–4 built (incl. the feed), admin screens (5), CSRF / headers (6) pending.
+Contract: `OQB_CONTRACT_v1.2.md` + addenda 1–3. Branch `feature/sms-sso`; stages 1–5 built (incl. the feed and the `/admin/sms/*` screens), CSRF / headers (6) pending.
 
 ## Invariants
 
@@ -19,6 +19,7 @@ Contract: `OQB_CONTRACT_v1.2.md` + addenda 1–3. Branch `feature/sms-sso`; stag
 - **Session:** SMS login is `remember=False`, clears any remember cookie, sets `session['auth_method']='sms'`; a different user's session is cleared first. Link confirm needs `auth_method == 'password'`.
 - **Never** merge SMS levels into `user_subject_permissions`; they live in `user_sms_levels` and are replaced per issuer.
 - **Feed** (`sso.directory_feed` → `sms_feed_service.apply_snapshot`): 404 unless `SMS_FEED_ENABLED` (not tied to `SMS_SSO_ENABLED`); primary issuer only; one transaction under `sms_feed_state` `FOR UPDATE` (row created first, never lock a missing row); `iat` must grow, jti single-use; missing linked subs unchanged + flagged; only `sms_deprovisioned` accounts are re-enabled; the brake holds deactivations above max(MIN, PCT %) with 202. No `session` / `current_user` in that route (no cookies). Never log the body.
+- **Admin screens** (`app/sms_admin.py`, `app/account_admin.py`): every route `@login_required` + `@super_admin_required`; parse the form, call the service, commit, redirect + flash; a service error → rollback (+ `sms_trust.invalidate()` for trust edits) and flash. No business rules in the route. A new POST route must be added to `POST_ENDPOINTS` in `tests/test_sms_admin.py` and get a test.
 - SSE GETs that write are an open issue, not to be changed here.
 - Every attempt (ok or not) writes an `auth_audit_log` row; scrub tokens / secrets (`auth_audit.scrub`).
 
