@@ -252,6 +252,8 @@ Admin-only (same gate as the card Edit button). **Preview changes** POSTs `/admi
 
 `oqb_selectedQuestions`, `oqb_filterSettings`, `oqb_sortConfig`, `oqb_sortGroupOrder`, `oqb_viewSettings`, `oqb_previewLanguage` (legacy fallback), `oqb_versionPriority`, `oqb_pageSize`, `oqb_showSelectedOnly`, `oqb_showHiddenSubtopics`, `oqb_showHiddenSubchapters`, `oqb_currentPage`, `oqb_scratchSets`. Plus ad-hoc `qids_token` keys written by DB Health.
 
+`oqb_viewSettings` holds the View settings → Show Tags toggles (`level`, `qtype`, `marks`, `major-topic`, `major-subtopic`, `minor-topics`, `subtopics`, `chapter`, `subchapter`), each hiding the matching `.tag-<key>` span from `tag_badges` in `question_list.html`. Defaults in `DEFAULT_VIEW_SETTINGS`: Level, Subtopics (M2M) and Subchapter off, the rest on. A saved key wins over the default; a key missing from saved settings (added later) falls back to the default.
+
 The four show-hidden eye switches (Topics, Subtopics, Chapters, Subchapters) travel inside `oqb_filterSettings` / filter profiles as `show_hidden_topics`, `show_hidden_subtopics`, `show_hidden_chapters`, `show_hidden_subchapters`. The topic / chapter switches are restored **before** `loadSubjectData` / `loadChaptersAsync` fetch the lists (`includeHiddenParam(switchId)`); toggling one re-fetches the list keeping current ticks, so a tick on a now-hidden topic or chapter drops out.
 
 ## Settings & config keys

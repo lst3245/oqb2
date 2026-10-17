@@ -645,12 +645,16 @@
                                 <div class="dropdown-divider"></div>
                                 <div class="dropdown-header">{{ t('Show Tags') }}</div>
                                 <div class="form-check">
-                                    <input class="form-check-input view-setting" type="checkbox" id="viewLevel" value="level" checked>
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewLevel" value="level">
                                     <label class="form-check-label" for="viewLevel">{{ t('Level') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewQType" value="qtype" checked>
                                     <label class="form-check-label" for="viewQType">{{ t('Question Type') }}</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input view-setting" type="checkbox" id="viewMarks" value="marks" checked>
+                                    <label class="form-check-label" for="viewMarks">{{ t('Marks') }}</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input view-setting" type="checkbox" id="viewMajorTopic" value="major-topic" checked>
@@ -1547,8 +1551,9 @@ let filtersModified = false;
 
 // Default view settings (what tags to show)
 const DEFAULT_VIEW_SETTINGS = {
-    'level': true,
+    'level': false,
     'qtype': true,
+    'marks': true,
     'major-topic': true,
     'major-subtopic': true,
     'minor-topics': true,
@@ -1646,6 +1651,7 @@ function applyViewSettings() {
     const tagClassMap = {
         'level': 'tag-level',
         'qtype': 'tag-qtype',
+        'marks': 'tag-marks',
         'major-topic': 'tag-major-topic',
         'major-subtopic': 'tag-major-subtopic',
         'minor-topics': 'tag-minor-topics',
