@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Admin panel (bootloader — spec in `docs/modules/admin-panel.md` and `docs/modules/admin-questions.md`)
 
-`app/admin.py` is ~7.3k lines: grep `@admin_bp.route('<path>'` for the function you need; never read it whole. Routes keyed by `question_id` must check the question's subject explicitly (`_require_md_admin` pattern) — the subject decorators pass through without a `subject_id`.
+`app/admin.py` is ~7.3k lines: grep `@admin_bp.route('<path>'` for the function you need; never read it whole. Routes keyed by `question_id` / taxonomy ids must check the subject explicitly (`_require_md_admin`, `_require_subject_admin`, `_require_taxonomy_admin`) before any capture — the subject decorators refuse (403) without a `subject_id`.
 
 ## Panel invariants
 - `Subject.id` is immutable; only `name` and `name_zh` are editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → `subject_restore_points` → Subject (topics/chapters cascade). Disk is untouched.

@@ -34,7 +34,7 @@ alwaysApply: false
 - Commit uses the live Step 1 paper + Step 3 versions (persisted to meta); subject change is blocked; a plan can be imported repeatedly.
 - NumPy is optional: `refine` / `segment` / deskew / `detect_page_frame` need it; detect fails fast with one SSE error, deskew warns and skips; missing NumPy yields all-`None` frames.
 - Staging: `<SYSTEM_PATH>/.pdf_import/<token>/` (fallback `OUTPUT_PATH`), token `^[0-9a-f]{8,40}$`, purged after 6 h. Raster workers each open their own `fitz.Document`.
-- Generic (non-exam) sessions bypass the subject check and never write the DB; exam sessions are subject-admin scoped via `_pdf_load_token_meta`.
+- Every staging token is owner-bound (`meta['owner_user_id']`, checked in `_pdf_load_token_meta`; super admin passes, ownerless legacy tokens are super-admin only). Generic (non-exam) sessions skip the subject check and never write the DB; exam sessions also need admin on the subject. The legacy server-PDF picker (no `root_id`) is limited to `<subject code>/…` folders of administered subjects (`authz.pdf_source_allowed`). Cancel checks the job owner (`job_owner`).
 - Default endpoint: `PDF_IMPORT_DEFAULT_LLM` → `EXPLAIN_DEFAULT_LLM` → first vision endpoint (also for `guess-paper`).
 - Server-side PDF picker resolves `{root, rel_path}` through the user's `RootRegistry` (`_resolve_server_pdf`); `PDF_SOURCE_PATH` defaults to `SHARED_PATH`.
 

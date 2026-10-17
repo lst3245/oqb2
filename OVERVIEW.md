@@ -35,7 +35,7 @@ one or more super admins (users, subjects, settings, everything).
 - **There is one database and it is live.** No test DB exists. Never run `init_db.py`, `migrate_*.py`, `cli.py sync --no-dry-run`, or any script that writes to MariaDB unless the user explicitly asks. Starting `create_app()` itself runs idempotent `ALTER TABLE` patches against the live schema. See [`.cursor/rules/safety-ops.mdc`](.cursor/rules/safety-ops.mdc).
 - **`.env` holds real secrets** (DB password, LLM API key). Never print, copy, or commit it. `.env.example` is the documented template.
 - **Every file the app serves goes through an authenticated route**; the filesystem is never exposed directly. All path joins under a root use `app/storage.safe_join`, never `startswith`.
-- **Authorization is declared at the route edge** with the decorators in `app/utils.py` (`@admin_required`, `@super_admin_required`, `@subject_access_required`, `@subject_admin_required`); services trust their caller. See [docs/core/02-auth-and-permissions.md](docs/core/02-auth-and-permissions.md).
+- **Authorization is declared at the route edge** with the decorators in `app/utils.py` (`@admin_required`, `@super_admin_required`, `@subject_access_required`, `@subject_admin_required`, `@subject_level_required`); services trust their caller. Every level decision comes from `app/authz.py` (effective level per subject, cached per request); the subject decorators fail closed ([ADR-019](docs/decisions/ADR-019-effective-level-authz.md)). See [docs/core/02-auth-and-permissions.md](docs/core/02-auth-and-permissions.md).
 - **`app/models.py` is the schema source of truth.** Schema changes are made by editing the model *and* adding an idempotent boot patch in `app/__init__.py` (no Alembic; [ADR-002](docs/decisions/ADR-002-no-migration-framework-boot-patches.md)).
 - **Runtime tunables are read from `current_app.config[KEY]`**, never `os.getenv` or the `Config` class, because DB-backed System Settings override `.env` at runtime ([ADR-004](docs/decisions/ADR-004-db-backed-settings-with-env-bootstrap.md)).
 - **QIDs, `Subject.id`, and asset filenames are stable public identifiers** embedded in the on-disk layout under `SOURCE_PATH`; never rename them casually. Grammar in [docs/reference/filename-convention.md](docs/reference/filename-convention.md).
@@ -76,6 +76,7 @@ one or more super admins (users, subjects, settings, everything).
 | MD source format (render, editor, pandoc) | cross-cutting | `app/md_render.py` | [modules/md-format.md](docs/modules/md-format.md) |
 | System Settings | `admin_bp` `/admin/settings` | `app/settings.py` | [core/06](docs/core/06-system-settings.md) |
 | Bilingual UI + taxonomy names (English / 繁體中文: language cookies, catalogue, `name_zh`, document heading language) | cross-cutting; `i18n_bp` `/i18n/<lang>.js` | `app/i18n.py`, `app/translations/zh_Hant.json`, `static/js/i18n.js` | [modules/i18n.md](docs/modules/i18n.md) |
+| Authorization (effective level, scope helpers, download policy) + SMS sign-in (stage 1 of 6 built: account state only) | cross-cutting | `app/authz.py`, `app/files_policy.py`, `app/sso_schema.py` | [modules/sms-sso.md](docs/modules/sms-sso.md) |
 
 ## Key decisions (summaries; the why is in `docs/decisions/`)
 
@@ -98,6 +99,7 @@ one or more super admins (users, subjects, settings, everything).
 | [015](docs/decisions/ADR-015-shared-blocks.md) | Text printed between parts = shared block `Q7~c`: child of the lettered parent, parent of the parts from the anchor on; parts keep their QIDs; always a stem; no schema change |
 | [016](docs/decisions/ADR-016-single-subject-question-management.md) | Question Management is scoped to one subject (no "All" option); list APIs require `subject`; bulk routes refuse ids outside `subject_id`; tree list paged by root; one bulk panel with typed-subject confirms |
 | [017](docs/decisions/ADR-017-bilingual-ui-and-taxonomy.md) | Bilingual UI = in-house JSON catalogue keyed by English text (`t()` / `OQB.t()`) + per-device cookies `oqb_lang`, `oqb_tax_lang` and `oqb_paper_lang` (default version order only); taxonomy keeps `name` (English) and adds optional `name_zh`; documents use a Generate-page heading language (`auto` follows the top version); matching accepts either language |
+| [019](docs/decisions/ADR-019-effective-level-authz.md) | One pure effective-level function (`app/authz.py`: max of local grant, SMS default level, mapped SMS subject levels, issuer cap) cached per request decides every subject permission; subject decorators fail closed; object routes check the object's subject before capture |
 
 ## Documentation map
 

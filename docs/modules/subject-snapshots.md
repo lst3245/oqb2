@@ -97,7 +97,7 @@ None. Limits are module constants in `app/subject_snapshot.py`: `KEEP_PER_SUBJEC
 
 ## Permissions
 
-Subject admins (and super admins) of the point's subject. The page lists only `get_user_admin_subjects()`; capture uses `@subject_admin_required` with the id in the URL; `point_id` routes check `current_user.is_subject_admin(point.subject_id)` explicitly because the subject decorators pass through without a `subject_id`. See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
+Subject admins (and super admins) of the point's subject. The page lists only `get_user_admin_subjects()`; capture uses `@subject_admin_required` with the id in the URL; `point_id` routes check `current_user.is_subject_admin(point.subject_id)` explicitly because the subject decorators refuse (403) without a `subject_id`. Taxonomy writes check the subject (`_require_subject_admin` / `_require_taxonomy_admin`) **before** `capture*`, so a refused request leaves no restore point. See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md).
 
 ## Background work / SSE / threads
 

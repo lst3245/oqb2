@@ -23,7 +23,7 @@ Then code. Do not scan the whole repo when the orientation files already say whe
 
 - **One live MariaDB, no test DB.** `create_app()` runs schema patches against it. Never run `init_db.py`, `migrate_*.py`, `cli.py sync --no-dry-run`, or one-off root scripts unless the user explicitly asks. See `safety-ops.mdc`.
 - **`.env` contains real secrets.** Never print, copy, or commit it. `.env.example` is the template.
-- **Authz at the route edge** with `@login_required` + a decorator from `app/utils.py`; when a route targets a question/asset rather than a subject, check the object's subject explicitly (the subject decorators pass through when no `subject_id` is found).
+- **Authz at the route edge** with `@login_required` + a decorator from `app/utils.py`; levels come only from `app/authz.py` (effective level, cached per request). When a route targets a question/asset/file rather than a subject, check the object's subject explicitly with `authz.require_subject` / `authz.has_level` (the subject decorators refuse with 403 when no `subject_id` is found).
 - **Files only via `storage.safe_join` and authenticated routes.** Never `startswith`, never static-serve a data root.
 - **Tunables via `current_app.config[KEY]`** — DB-backed System Settings override `.env` at runtime.
 - **Schema change = model edit + idempotent boot patch in `app/__init__.py` + `docs/reference/schema-history.md`.** No Alembic.

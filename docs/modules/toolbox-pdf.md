@@ -180,6 +180,8 @@ Dependencies: `pypdf>=4.0` (vector export; degrades to raster if absent), `rapid
 - Hub `GET /admin/toolbox/`: `@login_required` only. The template hides the PDF Tool card unless `is_super_admin or has_any_admin_access()`.
 - Every `/pdf` and `/pdf/*` route: `@login_required @admin_required` (any subject admin or super admin).
 - Server file access is further scoped by `RootRegistry(current_user)` (`_resolve_root_base`): unreadable roots → "You do not have access to that location."; read-only roots on save → "That location is read-only."
+- Legacy picks without `root_id` (under `PDF_SOURCE_PATH`) are limited to `<subject code>/…` folders of subjects the user administers (`authz.pdf_source_allowed`); the bare root (mkdir / save there) is super admin only.
+- Sessions, export jobs and LLM-detect jobs are **owner-bound**: `session.json` stores `owner_user_id`, and every token route (`_load_session` / `_require_owner`), session list / delete / clear-all, export stream / download and `llm-detect-cancel` refuse another user's item (super admin passes; ownerless sessions from before 2026-10-18 are super admin only).
 - Sessions are global (not per-user): any admin can list/restore/delete any token.
 
 ## Background work / SSE / threads

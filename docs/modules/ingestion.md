@@ -126,7 +126,7 @@ Reference: [../core/06-system-settings.md](../core/06-system-settings.md).
 
 ## Permissions
 
-See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). All routes `@admin_required`. Library scan requires the target subject in `get_user_admin_subjects()`. Folder import filters proposals (analyze), items (prepare) and jobs (apply — re-checked when the token is consumed) to admin subjects; server-folder access is additionally limited by the user-scope `RootRegistry`. The CLI has no auth and operates on everything under `SOURCE_PATH`.
+See [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md). All routes `@admin_required`. Library scan requires the target subject in `get_user_admin_subjects()`. Folder import filters proposals (analyze), items (prepare) and jobs (apply — re-checked when the token is consumed) to admin subjects; server-folder access is additionally limited by the user-scope `RootRegistry`. Uploaded folders (`/admin/import/upload`) record their owner (`smart_import.upload_owner`); analyze / prepare and `/admin/import/uploaded-file` refuse another user's upload ("This uploaded folder belongs to another user."; super admin passes). Plan tokens for apply are not owner-bound — apply re-checks every job's subject. The CLI has no auth and operates on everything under `SOURCE_PATH`.
 
 ## Background work / SSE / threads
 
