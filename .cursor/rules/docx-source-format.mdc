@@ -15,6 +15,8 @@ alwaysApply: false
 - `_INFLIGHT` is cleared in `finally`; `_RETRY_COOLDOWN_S = 5`; `force_rerender` bypasses the cooldown. Poller: 60 × 3 s. Thumbnail endpoint keeps `Cache-Control: private, no-cache, must-revalidate`.
 - Thumbnail settings (`DOC_THUMBNAIL_WIDTH`, `THUMBNAIL_*`) apply to new renders only → Health → Force Re-render All.
 - `batch_image_gen` (DOC/MD → IMG) uses one `word_session` per run and whole-slot `replace_img_assets`.
+- Horizontal crop for every image render goes through `_compute_crop_box`: text area (`THUMBNAIL_TEXT_AREA_CROP`, default on; margins from `export_to_pdf`'s returned page setup via `_text_area_px`) wins over symmetric, which wins over tight. Keep width uniform per page setup; never crop narrower than the text area.
+- Image renders prepare the DOCX with `strip_docx_header_footer_refs` (keeps page size / margins). `sanitize_docx_for_insertion` is for **merges only** — using it for a render reflows onto Word's default page.
 
 ## Gotchas
 - `WORD_COM_TIMEOUT` exists in config/settings but is **not enforced**; there is no per-job watchdog today. Do not document one as if it existed; add it if a job hangs matter.

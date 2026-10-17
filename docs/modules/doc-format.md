@@ -6,7 +6,7 @@
 
 | File | Role |
 |---|---|
-| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `export_to_pdf`, `render_first_page_png`, `sanitize_docx_for_insertion`, `strip_docx_header_footer_refs`, `_compute_crop_box`, `_content_bbox`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
+| `app/word_com.py` | Word COM engine: `IS_AVAILABLE`, `WordComUnavailable`, `_WORD_COM_LOCK`, `word_session`, `merge_doc_into_master`/`_insert_one`, `export_to_pdf` (returns `_read_page_setup`), `render_first_page_png`, `sanitize_docx_for_insertion`, `strip_docx_header_footer_refs`, `_text_area_px`, `_compute_crop_box`, `_content_bbox`, `_save_cropped_png`, `_kill_word_processes_started_after`. |
 | `app/doc_thumbnails.py` | Thumbnail lifecycle: `thumbnail_path`/`thumbnail_exists`/`delete_thumbnail`, `render_doc_thumbnail_sync`, `schedule_thumbnail`, `ensure_thumbnail` (lazy + cooldown), `force_rerender`, slot hooks `on_doc_asset_created`/`on_img_asset_created`/`on_doc_asset_deleted`/`on_img_asset_deleted`. |
 | `app/generator.py` | DOC branch of `add_question_content_to_doc` (marker paragraphs + `doc_insertions`), `_run_word_postprocess_single`/`_run_word_postprocess_split`, lazy PDF: `_pdf_sibling_filename`, `_build_pdf_from_docx`, `_build_pdf_zip_from_docx_zip`, route `download_pdf`. `get_viewer_asset` attaches `thumbnail_url` for DOC. |
 | `app/batch_image_gen.py` | Batch "Generate IMG from DOC/MD": `render_doc_to_pages`, `render_md_to_pages`, `stitch_vertically`, `replace_img_assets`; reuses the thumbnail crop/transparency primitives. |
@@ -19,7 +19,7 @@
 | `templates/viewer.html` | `loadAsset`/`loadAnswerAsset` show DOC thumbnails (no rerender button; does not extend `base.html`). |
 | `templates/admin_questions/ops/img.html`, `_js_ops.html` (`AQ_OPS.img`) | Generate IMG form in the Question Management bulk panel (SSE `/admin/questions/batch-generate-images`). DOC single-slot upload cards live in the shared Edit modal (`partials/edit_question_modal_js.html`). |
 | `templates/admin_health.html` | "DOC Asset Thumbnails" card: Backfill Missing / Force Re-render All / Delete All. |
-| `tests/test_doc_thumbnails.py` | Pure crop-box / footer-island bbox / `strip_docx_header_footer_refs` (no `create_app()`, no Word). |
+| `tests/test_doc_thumbnails.py` | Pure crop-box (incl. text-area mode) / `_text_area_px` / footer-island bbox / `strip_docx_header_footer_refs` (no `create_app()`, no Word). |
 
 ## Tables
 
@@ -61,7 +61,7 @@ Generation routes (`POST /generate/create`, `/generate/status/<id>`, `/generate/
 4. `merge_doc_into_master` opens the master (`ReadOnly=False`), and for each marker `_insert_one`: `Find` the marker text (MatchCase, no wrap) → `Expand(wdParagraph)` → `Select` → `Delete` → sanitise the source to a temp copy → `Selection.InsertFile(FileName=..., ConfirmConversions=False, Link=False, Attachment=False)`. Missing source / sanitise failure / InsertFile failure each leave a bracketed placeholder line (`[DOC source missing: …]`, `[Error preparing …]`, `[Error inserting …]`) and continue. Finally `doc.Save()` and `Close(SaveChanges=0)`.
 5. Split jobs: `_run_word_postprocess_split(app, merge_jobs, tmpdir, output_format)` performs N merges inside ONE `word_session` (much faster than one Word per group).
 6. Lazy PDF: `_pdf_sibling_filename` maps `*.docx` → `*.pdf`, `*.zip` → `*.pdf.zip`, anything else → `None` (UI hides the PDF button). `_build_pdf_zip_from_docx_zip` extracts, converts each `.docx` inside a single `word_session`, copies non-docx entries through, and re-zips. Deleting a My Files row removes both the source and the cached sibling.
-7. `export_to_pdf` opens `ReadOnly=True` and calls `ExportAsFixedFormat(ExportFormat=wdExportFormatPDF(17), OptimizeFor=Print, Range=AllDocument, Item=DocumentContent, IncludeDocProps=False, KeepIRM=True, CreateBookmarks=None, DocStructureTags=True, BitmapMissingFonts=True, UseISO19005_1=False)`.
+7. `export_to_pdf` opens `ReadOnly=True` and calls `ExportAsFixedFormat(ExportFormat=wdExportFormatPDF(17), OptimizeFor=Print, Range=AllDocument, Item=DocumentContent, IncludeDocProps=False, KeepIRM=True, CreateBookmarks=None, DocStructureTags=True, BitmapMissingFonts=True, UseISO19005_1=False)`. It returns `_read_page_setup(doc)` — section 1's `{page_width, left, right, mirror}` in points (left gutter folded into `left`), or `None` — which the image renders use for the text-area crop; PDF callers ignore it.
 
 For answer modes, spacing, split ZIP grouping, styles and the generation options JSON see `generator.md`.
 
@@ -97,13 +97,18 @@ Preview path → ensure_thumbnail(asset_id):
 
 1. Pixmap → PIL RGB.
 2. Content mask (`_content_bbox`): `ImageChops.subtract(ref, ImageChops.darker(img, ref))` against a flat reference at `THUMBNAIL_WHITENESS_THRESHOLD` (default 250); antialiased grey still counts as content. An isolated ink run in the last 12% of the page that is ≤80 px / 4% of page tall and separated from the body by ≥120 px / 8% of page (a PAGE-field glyph) is dropped before `getbbox()`. Shared with `batch_image_gen._pdf_to_cropped_images`.
-3. Crop via `_compute_crop_box(img_size, bbox, pad, symmetric_horizontal)`: vertical always tight + `pad` (`THUMBNAIL_BOTTOM_PADDING_PX`, default 24, applied on all four sides); horizontal tight + pad, OR when `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` is on, both sides cropped by `min(left_white, right_white) - pad` so content keeps its proportional position on the A4 page (short centred equations do not blow up ~2.7× at uniform card width). Shared with `batch_image_gen._pdf_to_cropped_images`.
+3. Crop via `_compute_crop_box(img_size, bbox, pad, symmetric_horizontal, text_area)`: vertical always tight + `pad` (`THUMBNAIL_BOTTOM_PADDING_PX`, default 24, applied on all four sides). Horizontal, first match wins:
+   - **Text area** (`THUMBNAIL_TEXT_AREA_CROP`, default on, and Word reported a page setup): `_text_area_px` maps the margins onto the render (`x0 = left/page_width × img_w`, `x1 = img_w − right/page_width × img_w`; mirrored margins swap on even pages; `None` when the PDF page width differs from section 1's by > 1 pt). Crop = `[min(x0, ink_left) − pad, max(x1, ink_right) + pad]`, so every render of one page setup has the **same width** (ECON A4 / 13 mm at 1000 px → 876 + 2 × pad) and only ink in a margin widens it.
+   - **Symmetric** (`THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP`): both sides cropped by `min(left_white, right_white) - pad` so content keeps its proportional position on the page.
+   - **Tight**: ink bbox + pad. Width follows each question's longest line, which is why short questions looked enlarged at uniform card width before the text-area mode.
+
+   Shared with `batch_image_gen._pdf_to_cropped_images`.
 4. Entirely white page → 400×200 px blank crop so the resolver never loops waiting for "real" content.
 5. `THUMBNAIL_TRANSPARENT` on → RGBA with `alpha = 255 − luminance` (`ImageOps.invert` of the L channel): white → transparent, grey → partial, black → opaque. `optimize=` is skipped for RGBA (slow on large PNGs).
 6. Atomic write: `<png>.tmp` then `os.replace`; readers never see a partial file.
 7. Any exception → fall back to the raw un-cropped pixmap (`logger.exception`), so a thumbnail always lands.
 
-`render_first_page_png(..., transparent=, whiteness_threshold=, bottom_padding_px=, symmetric_horizontal_crop=)` accepts overrides; `None` values resolve from `current_app.config` via `_resolve_thumb_tunables` (module literals when no app context, e.g. unit tests).
+`render_first_page_png(..., transparent=, whiteness_threshold=, bottom_padding_px=, symmetric_horizontal_crop=, text_area_crop=)` accepts overrides; `None` values resolve from `current_app.config` via `_resolve_thumb_tunables` (module literals when no app context, e.g. unit tests).
 
 ### Frontend polling / rerender (`base.html`)
 
@@ -119,9 +124,11 @@ Use **Backfill Missing** (`force=0`) after upgrading to a build with thumbnails 
 ### Batch IMG generation (DOC/MD → IMG)
 
 ```
-DOC → sanitize_docx_for_insertion → Word.ExportAsFixedFormat → PDF → PyMuPDF N pages → crop + transparency → stitch (or N parts) → replace IMG asset(s)
-MD  → md_to_docx_via_pandoc (app/generator.py) → same Word path
+DOC → strip_docx_header_footer_refs → Word.ExportAsFixedFormat (+ page setup) → PDF → PyMuPDF N pages → crop + transparency → stitch (or N parts) → replace IMG asset(s)
+MD  → md_to_docx_via_pandoc (app/generator.py) → same Word path (page setup of the pandoc docx)
 ```
+
+Batch renders keep the source's own page size and margins (only header / footer refs go), exactly like thumbnails, so lines wrap as authored and the text-area crop matches the thumbnail. Before 2026-10-17 they used `sanitize_docx_for_insertion`, which dropped `<w:sectPr>` and reflowed onto Word's default page; IMGs generated before then may wrap differently from their DOCX — regenerate with **Replace existing IMG**. `render_doc_to_pages` / `render_md_to_pages` take `text_area_crop` (default True).
 
 Replacement is atomic: temp files → delete old IMG rows + files → rename temps → insert rows + commit → `on_img_asset_created` clears the now-eclipsed DOC thumbnail. See `admin-panel.md` for the SSE parameters.
 
@@ -142,7 +149,8 @@ See `../core/06-system-settings.md`. Paths stay `.env`-only.
 | `THUMBNAIL_TRANSPARENT` | System Settings (Thumbnails) | off | Luminance alpha mask. |
 | `THUMBNAIL_WHITENESS_THRESHOLD` | System Settings (Thumbnails) | 250 (0–255) | Pixels brighter than this are background. |
 | `THUMBNAIL_BOTTOM_PADDING_PX` | System Settings (Thumbnails) | 24 (0–500) | Padding kept around content (all sides). |
-| `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | System Settings (Thumbnails) | off | Crop both sides by the smaller white margin. |
+| `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | System Settings (Thumbnails) | off | Crop both sides by the smaller white margin (only when the text-area crop is off or unavailable). |
+| `THUMBNAIL_TEXT_AREA_CROP` | System Settings (Thumbnails) | on | Horizontal crop = page text area (page width − Word margins) + pad, widened for ink in a margin. Wins over symmetric. Also used by Generate IMG / AI render paths. |
 | `BATCH_IMG_DEFAULT_WIDTH`, `BATCH_IMG_DEFAULT_STITCH` | System Settings (Batch IMG) | — | Defaults for the Generate IMG modal. |
 
 External dependencies (see `../core/01-runtime-and-ops.md`): Microsoft Word (with MathType compatibility), `pywin32` (Windows-only marker in `requirements.txt`), PyMuPDF, optional `psutil` for precise WINWORD.EXE cleanup.
@@ -174,12 +182,13 @@ External dependencies (see `../core/01-runtime-and-ops.md`): Microsoft Word (wit
 8. `word_com.IS_AVAILABLE` is the single source of truth; the DOC generation branch, the scheduler, `_run_word_postprocess_*`, and `/generate/pdf` all gate on it.
 9. Import `word_com` at module scope in files that use it (e.g. `app/admin.py`) — endpoint-level `IS_AVAILABLE` guards run before SSE generator closures.
 10. Carry `question_id` AND `asset_id` through the rerender flow (`data-doc-pending-question-id`); the button hides if either is missing.
-11. Sources may carry their own page setup — `sanitize_docx_for_insertion` exists precisely so the master layout wins.
+11. Sources may carry their own page setup — `sanitize_docx_for_insertion` exists precisely so the master layout wins **in merges**. Image renders (thumbnail, Generate IMG, AI render) must use `strip_docx_header_footer_refs` instead: they need the source's margins for line wrapping and the text-area crop.
 12. Thumbnail renders are not invalidated by config/code changes; use Force Re-render All after changing width or crop settings. After a crop-logic fix, delete only the cached PNGs you need to refresh — `ensure_thumbnail` will not rebuild a file that is already on disk.
 13. `WORD_COM_TIMEOUT` is advisory only; a hung Word call is bounded only by other callers' `WORD_COM_LOCK_TIMEOUT` waits and the Quit/taskkill fallback on session exit.
 14. Without psutil the fallback `taskkill` kills every Word instance on the machine.
 15. Generation never produces PDF; anything that reads `output_format == 'PDF'` at create time is dead code kept for compatibility with saved presets (ignored on load).
 16. Extracted DOCX files may inherit a PAGE footer from the compiled source book. Thumbnail export must run `strip_docx_header_footer_refs` before Word; otherwise that glyph pins the whitespace crop to a full A4 page. Do not strip the source files themselves.
+17. Text-area crop uses **section 1** only. A later section with a different page width falls back to the ink crop for its pages (`_text_area_px` → `None`); a different-margin section of the same width is cropped with section 1's margins (ink outside still widens the box, so nothing is clipped).
 
 ## Related
 

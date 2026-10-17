@@ -9,8 +9,12 @@ from PIL import Image
 from app.word_com import (
     _compute_crop_box,
     _content_bbox,
+    _text_area_px,
     strip_docx_header_footer_refs,
 )
+
+# A4 with 13 mm side margins, in points (Word PageSetup units).
+_A4_13MM = {'page_width': 595.3, 'left': 36.85, 'right': 36.85, 'mirror': False}
 
 
 class ComputeCropBoxTests(unittest.TestCase):
@@ -30,6 +34,39 @@ class ComputeCropBoxTests(unittest.TestCase):
         box = _compute_crop_box((200, 100), (80, 10, 180, 50), pad=8,
                                 symmetric_horizontal=True)
         self.assertEqual(box, (12, 2, 188, 58))
+
+    def test_text_area_width_independent_of_content(self):
+        area = (62, 938)
+        short = _compute_crop_box((1000, 1400), (62, 40, 400, 90), pad=24,
+                                  symmetric_horizontal=False, text_area=area)
+        wide = _compute_crop_box((1000, 1400), (62, 40, 930, 900), pad=24,
+                                 symmetric_horizontal=True, text_area=area)
+        self.assertEqual(short, (38, 16, 962, 114))
+        self.assertEqual(short[2] - short[0], wide[2] - wide[0])
+
+    def test_text_area_widens_for_ink_in_margin(self):
+        box = _compute_crop_box((1000, 1400), (20, 40, 990, 90), pad=24,
+                                symmetric_horizontal=False, text_area=(62, 938))
+        self.assertEqual((box[0], box[2]), (0, 1000))
+
+
+class TextAreaPxTests(unittest.TestCase):
+    def test_a4_13mm_margins(self):
+        x0, x1 = _text_area_px(1000, _A4_13MM, 0, 595.3)
+        self.assertEqual((x0, x1), (62, 938))
+
+    def test_none_without_page_setup(self):
+        self.assertIsNone(_text_area_px(1000, None))
+        self.assertIsNone(_text_area_px(1000, {'page_width': 0, 'left': 1, 'right': 1}))
+        self.assertIsNone(_text_area_px(1000, {'page_width': 100, 'left': 60, 'right': 50}))
+
+    def test_other_page_width_falls_back(self):
+        self.assertIsNone(_text_area_px(1000, _A4_13MM, 0, 842.0))
+
+    def test_mirror_margins_swap_on_even_pages(self):
+        ps = {'page_width': 600.0, 'left': 90.0, 'right': 30.0, 'mirror': True}
+        self.assertEqual(_text_area_px(600, ps, 0), (90, 570))
+        self.assertEqual(_text_area_px(600, ps, 1), (30, 510))
 
 
 class ContentBboxTests(unittest.TestCase):

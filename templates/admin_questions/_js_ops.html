@@ -112,6 +112,7 @@ function opLoadImgDefaults() {
             document.getElementById('opImgWidth').value = v('BATCH_IMG_DEFAULT_WIDTH') || v('DOC_THUMBNAIL_WIDTH') || '';
             document.getElementById('opImgTransparent').checked = !!v('THUMBNAIL_TRANSPARENT');
             document.getElementById('opImgSymmetric').checked = !!v('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP');
+            document.getElementById('opImgTextArea').checked = v('THUMBNAIL_TEXT_AREA_CROP') !== false;
             const stitch = v('BATCH_IMG_DEFAULT_STITCH');
             document.getElementById(stitch === false ? 'opImgStitch0' : 'opImgStitch1').checked = true;
         })
@@ -272,7 +273,7 @@ const AQ_OPS = {
             types: opVals('.op-img-type'), versions: opVals('.op-img-version'), sources: opVals('.op-img-src'),
             stitch: (document.querySelector('input[name="opImgStitch"]:checked') || {}).value || '1',
             overwrite: opOn('opImgOverwrite'), width: document.getElementById('opImgWidth').value.trim(),
-            transparent: opOn('opImgTransparent'), symmetric: opOn('opImgSymmetric'),
+            transparent: opOn('opImgTransparent'), symmetric: opOn('opImgSymmetric'), textArea: opOn('opImgTextArea'),
         }),
         validate: p => [!p.types.length && OQB.t('Pick at least one asset type.'), !p.versions.length && OQB.t('Pick at least one version.'),
                         !p.sources.length && OQB.t('Pick at least one source format.')].filter(Boolean),
@@ -285,7 +286,8 @@ const AQ_OPS = {
             url: () => AQ.cfg.urls.img,
             params: p => {
                 const o = { types: p.types.join(','), versions: p.versions.join(','), sources: p.sources.join(','), stitch: p.stitch,
-                            overwrite: p.overwrite ? '1' : '0', transparent: p.transparent ? '1' : '0', symmetric_horizontal: p.symmetric ? '1' : '0' };
+                            overwrite: p.overwrite ? '1' : '0', transparent: p.transparent ? '1' : '0', symmetric_horizontal: p.symmetric ? '1' : '0',
+                            text_area: p.textArea ? '1' : '0' };
                 if (p.width) o.width = p.width;
                 return o;
             },

@@ -42,7 +42,8 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | Thumbnails | `THUMBNAIL_TRANSPARENT` | bool | False | white → alpha |
 | Thumbnails | `THUMBNAIL_WHITENESS_THRESHOLD` | int 0–255 | 250 | background cutoff |
 | Thumbnails | `THUMBNAIL_BOTTOM_PADDING_PX` | int | 24 | padding kept on every side after auto-crop |
-| Thumbnails | `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | bool | False | cap L/R crop at `min(left, right)` to keep A4-relative position |
+| Thumbnails | `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP` | bool | False | cap L/R crop at `min(left, right)` to keep A4-relative position (used only when the text-area crop is off / unavailable) |
+| Thumbnails | `THUMBNAIL_TEXT_AREA_CROP` | bool | True | L/R crop = page text area (page width − Word-reported margins) + padding, widened for ink in a margin; uniform width per page setup. Thumbnails, Generate IMG, AI renders |
 | Batch IMG Generation | `BATCH_IMG_DEFAULT_WIDTH` | int px | 1500 | pre-fill for bulk DOC/MD → IMG |
 | Batch IMG Generation | `BATCH_IMG_DEFAULT_STITCH` | bool | True | stitch multi-page sources |
 | AI Tools | `AI_TOOLS_ENABLED` | bool | True | master switch (also gates Explain) |

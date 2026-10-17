@@ -123,6 +123,7 @@ class Config:
     THUMBNAIL_WHITENESS_THRESHOLD = int(os.getenv('THUMBNAIL_WHITENESS_THRESHOLD', '250'))
     THUMBNAIL_BOTTOM_PADDING_PX = int(os.getenv('THUMBNAIL_BOTTOM_PADDING_PX', '24'))
     THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP = os.getenv('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    THUMBNAIL_TEXT_AREA_CROP = os.getenv('THUMBNAIL_TEXT_AREA_CROP', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
     # Batch IMG generation defaults — runtime-tunable via System Settings.
     BATCH_IMG_DEFAULT_WIDTH = int(os.getenv('BATCH_IMG_DEFAULT_WIDTH', '1500'))

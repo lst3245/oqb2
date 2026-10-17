@@ -71,6 +71,12 @@
                 <label class="form-check-label" for="opImgSymmetric">{{ t('Symmetric side crop') }}</label>
             </div>
         </div>
+        <div class="col-sm-4">
+            <div class="form-check form-switch" title="{{ t('Keep the full width between the page margins so every image from the same page setup has the same width') }}">
+                <input class="form-check-input" type="checkbox" id="opImgTextArea" checked>
+                <label class="form-check-label" for="opImgTextArea">{{ t('Crop to page text area') }}</label>
+            </div>
+        </div>
     </div>
     <div class="form-text">{{ t('Defaults come from System Settings when you can read them. Word renders one slot at a time.') }}</div>
 </div>

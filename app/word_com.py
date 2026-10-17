@@ -64,6 +64,7 @@ _wdExportCreateNoBookmarks = 0
 _wdExportFromTo = 3
 _wdDoNotSaveChanges = 0
 _wdAlertsNone = 0
+_wdGutterPosLeft = 0
 
 
 # Module-level lock — exactly one Word session at a time per process.
@@ -358,10 +359,43 @@ def _insert_one(doc, word_app, marker: str, src_path: str, tmpdir: str) -> None:
         selection.TypeParagraph()
 
 
-def export_to_pdf(word_app, docx_path: str, pdf_path: str) -> None:
+def _read_page_setup(doc) -> dict | None:
+    """
+    First section's page width and side margins in points, as Word laid
+    the document out: ``{'page_width', 'left', 'right', 'mirror'}``. A
+    left gutter is folded into ``left``. Returns None when Word reports
+    nothing usable (callers then fall back to the ink-based crop).
+    """
+    try:
+        ps = doc.Sections(1).PageSetup
+        page_width = float(ps.PageWidth)
+        left = float(ps.LeftMargin)
+        right = float(ps.RightMargin)
+        try:
+            if int(ps.GutterPos) == _wdGutterPosLeft:
+                left += float(ps.Gutter or 0)
+        except Exception:
+            pass
+        try:
+            mirror = bool(ps.MirrorMargins)
+        except Exception:
+            mirror = False
+    except Exception as e:
+        logger.warning('Could not read Word page setup: %s', e)
+        return None
+    if page_width <= 0 or left < 0 or right < 0 or left + right >= page_width:
+        return None
+    return {'page_width': page_width, 'left': left, 'right': right, 'mirror': mirror}
+
+
+def export_to_pdf(word_app, docx_path: str, pdf_path: str) -> dict | None:
     """
     Open `docx_path` in Word and export it to `pdf_path` as PDF using
     ExportAsFixedFormat. Native equations / MathType / fonts are preserved.
+
+    Returns the first section's page geometry (`_read_page_setup`) so image
+    renders can crop to the page text area; callers that only want the PDF
+    ignore it.
     """
     _require_available()
     abs_docx = os.path.abspath(docx_path)
@@ -374,6 +408,7 @@ def export_to_pdf(word_app, docx_path: str, pdf_path: str) -> None:
         AddToRecentFiles=False,
     )
     try:
+        page_setup = _read_page_setup(doc)
         doc.ExportAsFixedFormat(
             OutputFileName=abs_pdf,
             ExportFormat=_wdExportFormatPDF,
@@ -393,6 +428,35 @@ def export_to_pdf(word_app, docx_path: str, pdf_path: str) -> None:
             doc.Close(SaveChanges=_wdDoNotSaveChanges)
         except Exception:
             pass
+    return page_setup
+
+
+def _text_area_px(img_w: int, page_setup: dict | None, page_index: int = 0,
+                  page_width_pt: float | None = None):
+    """
+    ``(x0, x1)`` pixel columns of the page text area (page width minus the
+    left / right margins) on a render `img_w` px wide, or None.
+
+    Mirrored margins swap left / right on even pages. When the PDF page is
+    not the width Word reported for section 1 (a later section with another
+    page size), returns None so that page keeps the ink-based crop.
+    """
+    if not page_setup or img_w <= 0:
+        return None
+    try:
+        pw = float(page_setup['page_width'])
+        left = float(page_setup['left'])
+        right = float(page_setup['right'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if pw <= 0 or left < 0 or right < 0 or left + right >= pw:
+        return None
+    if page_width_pt is not None and abs(float(page_width_pt) - pw) > 1.0:
+        return None
+    if page_setup.get('mirror') and page_index % 2 == 1:
+        left, right = right, left
+    scale = img_w / pw
+    return (int(round(left * scale)), int(round(img_w - right * scale)))
 
 
 def render_first_page_png(word_app, docx_path: str, png_path: str,
@@ -400,7 +464,8 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
                           transparent: bool | None = None,
                           whiteness_threshold: int | None = None,
                           bottom_padding_px: int | None = None,
-                          symmetric_horizontal_crop: bool | None = None) -> None:
+                          symmetric_horizontal_crop: bool | None = None,
+                          text_area_crop: bool | None = None) -> None:
     """
     Render the first page of `docx_path` to `png_path` (PNG).
 
@@ -431,6 +496,12 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
             — short questions keep enough whitespace so they render at the
             same text scale as full-width questions when displayed at a
             uniform card width. Read from `THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP`.
+      * `text_area_crop` (bool, default True)
+            When True, the horizontal crop is the page text area (page
+            width minus the margins Word reports) + padding, widened only
+            when ink runs into a margin. Every render of the same page
+            setup gets the same width. Wins over `symmetric_horizontal_crop`.
+            Read from `THUMBNAIL_TEXT_AREA_CROP`.
     """
     _require_available()
 
@@ -441,9 +512,9 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
 
     # Resolve tunables from app.config when not supplied explicitly.
     (transparent, whiteness_threshold, bottom_padding_px,
-     symmetric_horizontal_crop) = _resolve_thumb_tunables(
+     symmetric_horizontal_crop, text_area_crop) = _resolve_thumb_tunables(
         transparent, whiteness_threshold, bottom_padding_px,
-        symmetric_horizontal_crop,
+        symmetric_horizontal_crop, text_area_crop,
     )
 
     with tempfile.TemporaryDirectory(prefix='oqb_doc_thumb_') as tmpdir:
@@ -458,7 +529,7 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
             )
             export_src = docx_path
         tmp_pdf = os.path.join(tmpdir, 'page.pdf')
-        export_to_pdf(word_app, export_src, tmp_pdf)
+        page_setup = export_to_pdf(word_app, export_src, tmp_pdf)
 
         if not os.path.exists(tmp_pdf):
             raise RuntimeError(f'Word produced no PDF for {docx_path}')
@@ -474,24 +545,27 @@ def render_first_page_png(word_app, docx_path: str, png_path: str,
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
             os.makedirs(os.path.dirname(png_path), exist_ok=True)
+            text_area = (_text_area_px(pix.width, page_setup, 0, page.rect.width)
+                         if text_area_crop else None)
 
             # Auto-crop trailing whitespace: most question DOCX files only
             # use a fraction of the A4 page, so the rendered first page has
             # a large blank tail. Crop to the actual content height (keeping
-            # full width so cards line up uniformly).
+            # the page text-area width so cards line up uniformly).
             _save_cropped_png(
                 pix, png_path,
                 bottom_padding_px=bottom_padding_px,
                 whiteness_threshold=whiteness_threshold,
                 transparent=transparent,
                 symmetric_horizontal_crop=symmetric_horizontal_crop,
+                text_area=text_area,
             )
         finally:
             pdf.close()
 
 
 def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px,
-                            symmetric_horizontal_crop=None):
+                            symmetric_horizontal_crop=None, text_area_crop=None):
     """Pull defaults from `current_app.config` when a tunable is None.
 
     Falls back to module-level literals when no Flask app context is
@@ -510,16 +584,23 @@ def _resolve_thumb_tunables(transparent, whiteness_threshold, bottom_padding_px,
         bottom_padding_px = int(cfg.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
     if symmetric_horizontal_crop is None:
         symmetric_horizontal_crop = bool(cfg.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
-    return transparent, whiteness_threshold, bottom_padding_px, symmetric_horizontal_crop
+    if text_area_crop is None:
+        text_area_crop = bool(cfg.get('THUMBNAIL_TEXT_AREA_CROP', True))
+    return (transparent, whiteness_threshold, bottom_padding_px,
+            symmetric_horizontal_crop, text_area_crop)
 
 
-def _compute_crop_box(img_size, bbox, pad: int, symmetric_horizontal: bool):
+def _compute_crop_box(img_size, bbox, pad: int, symmetric_horizontal: bool,
+                      text_area=None):
     """
     Compute the (left, top, right, bottom) crop box from a content bbox.
 
     Behaviour:
       * Vertical: always tight to bbox, expanded by `pad` on top and bottom,
         clamped to image bounds.
+      * Horizontal (text-area mode, `text_area=(x0, x1)` given): the page
+        text area expanded by `pad`, widened to the bbox when ink runs into
+        a margin. Wins over `symmetric_horizontal`.
       * Horizontal (default): same — tight to bbox, expanded by `pad`.
       * Horizontal (symmetric mode): crop the SAME amount from both sides,
         set by `min(left_white_margin, right_white_margin) - pad`. The
@@ -543,12 +624,16 @@ def _compute_crop_box(img_size, bbox, pad: int, symmetric_horizontal: bool):
         bbox: content bounding box `(left, top, right, bottom)`.
         pad: padding (px) added around the content on each side.
         symmetric_horizontal: enable the symmetric horizontal crop.
+        text_area: optional `(x0, x1)` text-area columns (`_text_area_px`).
     """
     img_w, img_h = img_size
     left, top, right, bottom = bbox
     pad = max(0, int(pad))
 
-    if symmetric_horizontal:
+    if text_area is not None:
+        crop_left = max(0, min(int(text_area[0]), left) - pad)
+        crop_right = min(img_w, max(int(text_area[1]), right) + pad)
+    elif symmetric_horizontal:
         left_white = left
         right_white = max(0, img_w - right)
         # Crop the SMALLER of the two margins from BOTH sides, minus `pad`
@@ -658,7 +743,8 @@ def _drop_isolated_bottom_mark(darkness, bbox):
 def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
                       whiteness_threshold: int = 250,
                       transparent: bool = False,
-                      symmetric_horizontal_crop: bool = False) -> None:
+                      symmetric_horizontal_crop: bool = False,
+                      text_area=None) -> None:
     """
     Save a PyMuPDF Pixmap to `png_path` after cropping whitespace on every
     side.
@@ -677,6 +763,9 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
         consistent text scale across thumbnails when they're displayed at
         a uniform width (e.g. dashboard cards). When False, both sides are
         cropped tight to the content bounding box.
+      * When `text_area` (`(x0, x1)` from `_text_area_px`) is given, the
+        horizontal crop is that text area + padding instead (see
+        `_compute_crop_box`).
       * Optionally apply a luminance-based alpha mask so the white page
         background becomes transparent. Antialiased grey text edges
         receive partial alpha for clean rendering against any backdrop.
@@ -707,6 +796,7 @@ def _save_cropped_png(pix, png_path: str, bottom_padding_px: int = 24,
             crop_box = _compute_crop_box(
                 img_size=img.size, bbox=bbox, pad=pad,
                 symmetric_horizontal=symmetric_horizontal_crop,
+                text_area=text_area,
             )
             cropped = img.crop(crop_box)
 

@@ -238,6 +238,7 @@ def default_render_opts(config):
         'whiteness': int(config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250)),
         'padding': int(config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24)),
         'symmetric': bool(config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False)),
+        'text_area': bool(config.get('THUMBNAIL_TEXT_AREA_CROP', True)),
         'lock_timeout': float(config.get('WORD_COM_LOCK_TIMEOUT', 600)),
     }
 
@@ -266,7 +267,8 @@ def _render_source_to_pages(src_asset, source_path, render_opts, word):
               transparent=render_opts.get('transparent', False),
               whiteness_threshold=render_opts.get('whiteness', 250),
               bottom_padding_px=render_opts.get('padding', 24),
-              symmetric_horizontal_crop=render_opts.get('symmetric', False))
+              symmetric_horizontal_crop=render_opts.get('symmetric', False),
+              text_area_crop=render_opts.get('text_area', True))
     if src_asset.file_format == 'DOC':
         return batch_image_gen.render_doc_to_pages(app_word, abs_path, **kw)
     return batch_image_gen.render_md_to_pages(app_word, abs_path, **kw)

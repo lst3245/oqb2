@@ -6717,6 +6717,7 @@ def batch_generate_images():
     transparent_raw = request.args.get('transparent')
     width_raw = request.args.get('width')
     symmetric_raw = request.args.get('symmetric_horizontal')
+    text_area_raw = request.args.get('text_area')
 
     # Permission filter: scope question_ids to those the caller can admin.
     admin_subject_ids = [s.id for s in get_user_admin_subjects()]
@@ -6746,6 +6747,10 @@ def batch_generate_images():
             symmetric = (
                 bool(int(symmetric_raw)) if symmetric_raw in ('0', '1') else
                 bool(app.config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
+            )
+            text_area = (
+                bool(int(text_area_raw)) if text_area_raw in ('0', '1') else
+                bool(app.config.get('THUMBNAIL_TEXT_AREA_CROP', True))
             )
             whiteness = int(app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
             padding = int(app.config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
@@ -6807,11 +6812,13 @@ def batch_generate_images():
                                 pages = batch_image_gen.render_doc_to_pages(
                                     word_app, src_abs, width, transparent,
                                     whiteness, padding, symmetric,
+                                    text_area_crop=text_area,
                                 )
                             else:  # MD
                                 pages = batch_image_gen.render_md_to_pages(
                                     word_app, src_abs, width, transparent,
                                     whiteness, padding, symmetric,
+                                    text_area_crop=text_area,
                                 )
                         except Exception as e:
                             failed += 1
@@ -7813,16 +7820,19 @@ def generate_img_slot(question_id):
     whiteness = int(current_app.config.get('THUMBNAIL_WHITENESS_THRESHOLD', 250))
     padding = int(current_app.config.get('THUMBNAIL_BOTTOM_PADDING_PX', 24))
     symmetric = bool(current_app.config.get('THUMBNAIL_SYMMETRIC_HORIZONTAL_CROP', False))
+    text_area = bool(current_app.config.get('THUMBNAIL_TEXT_AREA_CROP', True))
     lock_timeout = float(current_app.config.get('WORD_COM_LOCK_TIMEOUT', 600))
 
     try:
         with word_com.word_session(lock_timeout=lock_timeout) as word_app:
             if src_asset.file_format == 'DOC':
                 pages = batch_image_gen.render_doc_to_pages(
-                    word_app, src_abs, width, transparent, whiteness, padding, symmetric)
+                    word_app, src_abs, width, transparent, whiteness, padding, symmetric,
+                    text_area_crop=text_area)
             else:
                 pages = batch_image_gen.render_md_to_pages(
-                    word_app, src_abs, width, transparent, whiteness, padding, symmetric)
+                    word_app, src_abs, width, transparent, whiteness, padding, symmetric,
+                    text_area_crop=text_area)
     except Exception as e:
         current_app.logger.exception('generate_img_slot render failed for q%s %s/%s', question_id, version, asset_type)
         return jsonify({'error': _t('Render failed: {e}', e=e)}), 502

@@ -249,6 +249,18 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
             "displayed in a card."
         ),
     )),
+    ('THUMBNAIL_TEXT_AREA_CROP', _spec(
+        'THUMBNAIL_TEXT_AREA_CROP', 'bool', group='Thumbnails',
+        label='Crop to page text area',
+        help=(
+            "When ON (default), DOC / MD renders keep the full width between "
+            "the page margins (page width minus the left and right margins "
+            "Word reports) plus the padding, so every image from the same "
+            "page setup has the same width and text scale. The crop widens "
+            "only when content runs into a margin. Wins over symmetric "
+            "cropping. When OFF, the symmetric / tight crop applies."
+        ),
+    )),
 
     # Batch image generation
     ('BATCH_IMG_DEFAULT_WIDTH', _spec(
