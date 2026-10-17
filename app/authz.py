@@ -13,15 +13,22 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping
 
-from flask import abort, g, has_app_context, has_request_context, jsonify, request
+import logging
+
+from flask import abort, current_app, g, has_app_context, has_request_context, jsonify, request
 from flask_login import current_user
 
+from app import sms_levels
+
+log = logging.getLogger(__name__)
+
+# OQB level names (``user_subject_permissions.role``, ``user_sms_levels.level``).
 LEVEL_RANK = {'none': 0, 'viewer': 1, 'user': 2, 'admin': 3}
 RANK_LEVEL = {1: 'viewer', 2: 'user', 3: 'admin'}
 
-# Non-primary issuers: default_level at most viewer, subject levels at most user.
-CAP_DEFAULT = LEVEL_RANK['viewer']
-CAP_SUBJECT = LEVEL_RANK['user']
+# Non-primary issuers (the cap itself is defined in app/sms_levels.py).
+CAP_DEFAULT = LEVEL_RANK[sms_levels.oqb_cap('default')]
+CAP_SUBJECT = LEVEL_RANK[sms_levels.oqb_cap('subject')]
 
 _CACHE_ATTR = '_oqb_authz_levels'
 
@@ -72,10 +79,44 @@ def compute_levels(*, local: Mapping[str, str],
     return {sid: r for sid, r in out.items() if r > 0}
 
 
+def sms_levels_count() -> bool:
+    """SMS-sourced levels count only once the schema is in place and SMS
+    sign-in is switched on (a pilot feed must not change anyone's access)."""
+    if not has_app_context():
+        return False
+    cfg = current_app.config
+    return bool(cfg.get('SMS_SCHEMA_READY') and cfg.get('SMS_SSO_ENABLED'))
+
+
 def _sms_inputs(user) -> dict:
-    """SMS-sourced inputs for ``compute_levels``. Empty until the SMS level
-    store exists (stage 2 of docs/modules/sms-sso.md)."""
-    return {}
+    """SMS-sourced inputs for ``compute_levels`` (``user_sms_levels`` rows,
+    the trust list's issuer caps and the confirmed subject map). Any failure
+    leaves the user with local grants only."""
+    if not sms_levels_count():
+        return {}
+    try:
+        from app import db, sms_clock, sms_trust
+        from app.models import SmsSubjectMap, Subject, UserSmsLevel
+        rows = (db.session.query(UserSmsLevel.issuer, UserSmsLevel.sms_subject_uuid,
+                                 UserSmsLevel.level)
+                .filter(UserSmsLevel.user_id == user.id).all())
+        if not rows:
+            return {}
+        defaults = [(iss, level) for iss, uid, level in rows if not uid]
+        subjects = [(iss, uid, level) for iss, uid, level in rows if uid]
+        mapping: dict[str, list[str]] = {}
+        if subjects:
+            uuids = {uid for _, uid, _ in subjects}
+            for uid, sid in (db.session.query(SmsSubjectMap.sms_uuid, SmsSubjectMap.oqb_subject_id)
+                             .filter(SmsSubjectMap.sms_uuid.in_(uuids))):
+                mapping.setdefault(uid, []).append(sid)
+        all_subjects = [sid for (sid,) in db.session.query(Subject.id)] if defaults else []
+        caps = sms_trust.load_trust_list().issuer_caps(sms_clock.now())
+        return {'sms_defaults': defaults, 'sms_subjects': subjects, 'mapping': mapping,
+                'all_subjects': all_subjects, 'issuer_caps': caps}
+    except Exception as exc:
+        log.error('authz: SMS levels unavailable (%s); local grants only', exc.__class__.__name__)
+        return {}
 
 
 def _load_levels(user) -> dict[str, str]:

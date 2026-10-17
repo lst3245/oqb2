@@ -1,0 +1,33 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "viewer",
+    "email": "hpl@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "4b3dca05-d391-5487-b4be-0274d954f76b",
+    "name": "HO Pui Ling",
+    "name_zh": "何佩玲",
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "HPL",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000004",
+    "subjects": [
+      {
+        "code": "CHEM",
+        "level": "user",
+        "name_en": "Chemistry",
+        "name_zh": "化學",
+        "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004"
+      }
+    ],
+    "ver": 1
+  }
+}

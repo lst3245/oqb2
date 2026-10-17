@@ -47,6 +47,28 @@ class Config:
         else tuple(p.strip() for p in os.getenv('TRUSTED_PROXIES', '').split(',') if p.strip())
     )
     
+    # ---- SMS sign-in (docs/modules/sms-sso.md, docs/core/06) -------------
+    # Env-only. production / staging / test / dev; anything else = production.
+    # Contract-test issuers (*.invalid) are only ever trusted outside production.
+    OQB_ENVIRONMENT = os.getenv('OQB_ENVIRONMENT', 'production').strip().lower()
+    # JSON trust list replacing the DB list; honoured only outside production.
+    SMS_TRUST_BOOTSTRAP_FILE = os.getenv('SMS_TRUST_BOOTSTRAP_FILE', '').strip()
+    # Public origin users reach OQB at (scheme://host[:port]); the SSO token
+    # POST requires Origin == this. Empty = SMS sign-in off.
+    PUBLIC_ORIGIN = os.getenv('PUBLIC_ORIGIN', '').strip()
+    # Reverse-proxy hops to trust for X-Forwarded-For/Proto/Host/Port (ProxyFix).
+    PROXY_FIX_HOPS = int(os.getenv('PROXY_FIX_HOPS', '0') or 0)
+    # [tunable] Master switch for /sso/* and SMS-sourced levels.
+    SMS_SSO_ENABLED = os.getenv('SMS_SSO_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Create accounts for unlinked SMS staff (primary issuer only).
+    SMS_JIT_ENABLED = os.getenv('SMS_JIT_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Accept directory snapshots on POST /api/sms/directory.
+    SMS_FEED_ENABLED = os.getenv('SMS_FEED_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Safety brake: hold a snapshot that would deactivate more than
+    # max(BRAKE_MIN, ceil(BRAKE_PCT% of linked users)).
+    SMS_FEED_BRAKE_MIN = int(os.getenv('SMS_FEED_BRAKE_MIN', '5'))
+    SMS_FEED_BRAKE_PCT = int(os.getenv('SMS_FEED_BRAKE_PCT', '10'))
+
     # Database settings
     DB_HOST = os.getenv('DB_HOST', 'localhost')
     DB_USER = os.getenv('DB_USER', 'root')

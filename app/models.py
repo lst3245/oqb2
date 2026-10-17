@@ -823,3 +823,267 @@ class SubjectRestorePoint(db.Model):
 
     def __repr__(self):
         return f'<SubjectRestorePoint #{self.id} {self.subject_id} {self.action}>'
+
+
+# ---------------------------------------------------------------------------
+# SMS sign-in (docs/modules/sms-sso.md). Created by app/sso_schema.py. InnoDB
+# and utf8mb4_unicode_ci are pinned: the live server has MyISAM defaults on
+# some tables, and FKs need the collation of users.id / subjects.id. Indexed
+# strings stay <= 191 chars (767-byte key limit on COMPACT rows).
+# ---------------------------------------------------------------------------
+
+_SSO_TABLE = {'mysql_engine': 'InnoDB', 'mysql_charset': 'utf8mb4',
+              'mysql_collate': 'utf8mb4_unicode_ci'}
+_LONG_TEXT = db.Text().with_variant(MEDIUMTEXT(), 'mysql', 'mariadb')
+
+
+class ExternalIdentity(db.Model):
+    """A link between an SMS identity ``(issuer, sub)`` and one OQB user."""
+    __tablename__ = 'external_identities'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    link_method = db.Column(db.String(8), nullable=False)  # self | admin | jit
+    linked_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    linked_by_user_id = db.Column(db.Integer, nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    last_seen_snapshot_at = db.Column(db.DateTime, nullable=True)
+    # Set when a snapshot no longer lists this sub (flag for admin review).
+    missing_since = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'sub', name='uq_extid_issuer_sub'),
+        db.UniqueConstraint('issuer', 'user_id', name='uq_extid_issuer_user'),
+        _SSO_TABLE,
+    )
+
+
+class UserSmsLevel(db.Model):
+    """SMS-sourced levels, replaced per user per issuer on every handoff and
+    snapshot. ``level`` holds the OQB level name (app/sms_levels.py converts).
+    ``sms_subject_uuid == ''`` is the row holding ``default_level``."""
+    __tablename__ = 'user_sms_levels'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                        nullable=False)
+    issuer = db.Column(db.String(191), nullable=False)
+    sms_subject_uuid = db.Column(db.String(64), nullable=False, default='', server_default='')
+    sms_subject_code = db.Column(db.String(32), nullable=True)
+    level = db.Column(db.String(10), nullable=False)
+    source = db.Column(db.String(10), nullable=False)  # handoff | snapshot
+    synced_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'issuer', 'sms_subject_uuid', name='uq_sms_level'),
+        db.Index('ix_sms_level_uuid', 'sms_subject_uuid'),
+        _SSO_TABLE,
+    )
+
+
+class SmsSubjectMap(db.Model):
+    """Admin-confirmed mapping: one SMS subject uuid -> many OQB subjects."""
+    __tablename__ = 'sms_subject_map'
+
+    id = db.Column(db.Integer, primary_key=True)
+    sms_uuid = db.Column(db.String(64), nullable=False)
+    oqb_subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id', ondelete='CASCADE'),
+                               nullable=False)
+    confirmed_by_user_id = db.Column(db.Integer, nullable=True)
+    confirmed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('sms_uuid', 'oqb_subject_id', name='uq_sms_map'),
+        db.Index('ix_sms_map_subject', 'oqb_subject_id'),
+        _SSO_TABLE,
+    )
+
+
+class SmsSubjectCatalogue(db.Model):
+    """SMS subjects seen in snapshots (full catalogue) or tokens."""
+    __tablename__ = 'sms_subject_catalogue'
+
+    sms_uuid = db.Column(db.String(64), primary_key=True)
+    code = db.Column(db.String(32), nullable=False)
+    name_en = db.Column(db.String(200), nullable=False, default='')
+    name_zh = db.Column(db.String(200), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    seen_in = db.Column(db.String(10), nullable=False)  # snapshot | token
+    issuer = db.Column(db.String(191), nullable=False)
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsRoster(db.Model):
+    """The latest snapshot's users (for admin linking). Never authorises."""
+    __tablename__ = 'sms_roster'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    email = db.Column(db.String(254), nullable=True)
+    name = db.Column(db.String(200), nullable=True)
+    name_zh = db.Column(db.String(200), nullable=True)
+    staff_code = db.Column(db.String(32), nullable=True)
+    default_level = db.Column(db.String(10), nullable=True)
+    subjects_json = db.Column(db.Text, nullable=True)
+    snapshot_id = db.Column(db.String(64), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'sub', name='uq_sms_roster'),
+        _SSO_TABLE,
+    )
+
+
+class SmsFeedState(db.Model):
+    """Last applied snapshot per issuer; read FOR UPDATE to serialise pushes."""
+    __tablename__ = 'sms_feed_state'
+
+    issuer = db.Column(db.String(191), primary_key=True)
+    last_iat = db.Column(db.BigInteger, nullable=False, default=0, server_default='0')
+    last_snapshot_id = db.Column(db.String(64), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsSnapshot(db.Model):
+    """One received snapshot (applied / held / approved / discarded / superseded)."""
+    __tablename__ = 'sms_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    snapshot_id = db.Column(db.String(64), nullable=False)
+    jti = db.Column(db.String(64), nullable=False)
+    iat = db.Column(db.BigInteger, nullable=False)
+    received_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    status = db.Column(db.String(12), nullable=False)
+    counts_json = db.Column(db.Text, nullable=True)
+    # Held deactivations: subs the brake stopped (approve applies them).
+    held_subs_json = db.Column(_LONG_TEXT, nullable=True)
+    unmapped_json = db.Column(db.Text, nullable=True)
+    decided_by_user_id = db.Column(db.Integer, nullable=True)
+    decided_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_sms_snapshot_issuer_iat', 'issuer', 'iat'),
+        _SSO_TABLE,
+    )
+
+
+class SsoUsedJti(db.Model):
+    """Single-use token ids, shared by every process (unique key = replay guard)."""
+    __tablename__ = 'sso_used_jti'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    jti = db.Column(db.String(64), nullable=False)
+    purpose = db.Column(db.String(24), nullable=False)
+    exp = db.Column(db.BigInteger, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer', 'jti', name='uq_jti'),
+        db.Index('ix_jti_used_at', 'used_at'),
+        _SSO_TABLE,
+    )
+
+
+class SsoPendingLink(db.Model):
+    """Verified claims of an unlinked handoff, kept <= 10 minutes and bound to
+    the browser session by a nonce (only its sha256 is stored)."""
+    __tablename__ = 'sso_pending_links'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nonce_hash = db.Column(db.String(64), nullable=False, unique=True)
+    issuer = db.Column(db.String(191), nullable=False)
+    sub = db.Column(db.String(64), nullable=False)
+    claims_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsTrustIssuer(db.Model):
+    """Trust-list entry. Normalised on load by app/sms_trust.py."""
+    __tablename__ = 'sms_trust_issuers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer = db.Column(db.String(191), nullable=False, unique=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    enabled_until = db.Column(db.DateTime, nullable=True)
+    is_primary = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    allow_jit = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    accepts_feed = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    allowed_subs_json = db.Column(db.Text, nullable=True)
+    level_cap = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    jwks_url = db.Column(db.String(500), nullable=True)
+    jwks_auto = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    jwks_seen_kids_json = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_by_user_id = db.Column(db.Integer, nullable=True)
+
+    keys = db.relationship('SmsTrustKey', backref='issuer_entry', lazy='select',
+                           cascade='all, delete-orphan', passive_deletes=True)
+
+    __table_args__ = (_SSO_TABLE,)
+
+
+class SmsTrustKey(db.Model):
+    """A pinned RSA public key (>= 2048 bits) for one issuer."""
+    __tablename__ = 'sms_trust_keys'
+
+    id = db.Column(db.Integer, primary_key=True)
+    issuer_id = db.Column(db.Integer, db.ForeignKey('sms_trust_issuers.id', ondelete='CASCADE'),
+                          nullable=False)
+    kid = db.Column(db.String(64), nullable=False)
+    public_pem = db.Column(db.Text, nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=False)  # sha256(DER SPKI), hex
+    pinned_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    pinned_by_user_id = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('issuer_id', 'kid', name='uq_trust_key'),
+        _SSO_TABLE,
+    )
+
+
+class AuthAuditLog(db.Model):
+    """Sign-in, linking, feed and trust events. Never stores a token."""
+    __tablename__ = 'auth_audit_log'
+
+    id = db.Column(db.BigInteger().with_variant(db.Integer, 'sqlite'), primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    event = db.Column(db.String(40), nullable=False, index=True)
+    outcome = db.Column(db.String(8), nullable=False)  # ok | fail | info
+    reason = db.Column(db.String(32), nullable=True)
+    issuer = db.Column(db.String(191), nullable=True)
+    sub = db.Column(db.String(64), nullable=True)
+    user_id = db.Column(db.Integer, nullable=True)  # no FK: rows outlive users
+    actor_user_id = db.Column(db.Integer, nullable=True)
+    ip = db.Column(db.String(45), nullable=True)
+    detail = db.Column(db.Text, nullable=True)
+    is_alert = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    acknowledged_by = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_audit_alert', 'is_alert', 'acknowledged_at'),
+        _SSO_TABLE,
+    )
+
+
+SSO_MODELS = (
+    SmsTrustIssuer, SmsTrustKey, ExternalIdentity, UserSmsLevel, SmsSubjectMap,
+    SmsSubjectCatalogue, SmsRoster, SmsFeedState, SmsSnapshot, SsoUsedJti,
+    SsoPendingLink, AuthAuditLog,
+)

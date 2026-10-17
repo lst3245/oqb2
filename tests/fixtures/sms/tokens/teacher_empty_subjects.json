@@ -1,0 +1,25 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "viewer",
+    "email": "ctm@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "fef8c8ec-e03a-589a-aaa2-772ca7757140",
+    "name": "CHAN Tai Man",
+    "name_zh": "陳大文",
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "CTM",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000001",
+    "subjects": [],
+    "ver": 1
+  }
+}

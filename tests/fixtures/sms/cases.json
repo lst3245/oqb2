@@ -1,0 +1,510 @@
+{
+  "reference_now": 1792000000,
+  "trust": {
+    "primary": {
+      "issuer": "https://sms-contract-test.invalid",
+      "primary": true,
+      "allow_jit": true,
+      "accepts_feed": true,
+      "keys": {
+        "sms-contract-test": "keys/sms-contract-test.pub.pem",
+        "sms-contract-test-2": "keys/sms-contract-test-2.pub.pem"
+      },
+      "sha256": {
+        "sms-contract-test": "d55fdcc6d464cccf0ea0fdae47244f72ea5a4b556df6022b9949d029c30a414e",
+        "sms-contract-test-2": "9ff0f4f1bbed4e65661a3137e65fc7937816c9a7cb33f6633f81c9a509c40d4a"
+      }
+    },
+    "secondary": {
+      "issuer": "https://sms-contract-test-workshop.invalid",
+      "primary": false,
+      "allow_jit": false,
+      "accepts_feed": false,
+      "level_cap": true,
+      "allowed_subs": [
+        "8d1f7c2e-0c1a-4b7e-9000-000000000005"
+      ],
+      "keys": {
+        "sms-contract-test-workshop": "keys/sms-contract-test-workshop.pub.pem"
+      },
+      "sha256": {
+        "sms-contract-test-workshop": "dcf5c8aff87b76752c3627f991edca2f0a325e42040d5f37218b22d46e785546"
+      }
+    }
+  },
+  "people": {
+    "teacher": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000001",
+      "email": "ctm@school.test",
+      "name": "CHAN Tai Man",
+      "name_zh": "陳大文",
+      "staff_code": "CTM"
+    },
+    "panel_admin": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000002",
+      "email": "lsy@school.test",
+      "name": "LEE Siu Yan",
+      "name_zh": "李小欣",
+      "staff_code": "LSY"
+    },
+    "school_admin": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000003",
+      "email": "wkm@school.test",
+      "name": "WONG Ka Ming",
+      "name_zh": null,
+      "staff_code": "WKM"
+    },
+    "unlinked": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000004",
+      "email": "hpl@school.test",
+      "name": "HO Pui Ling",
+      "name_zh": "何佩玲",
+      "staff_code": "HPL"
+    },
+    "test_account": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000005",
+      "email": "oqb-test1@school.test",
+      "name": "OQB Test 1",
+      "name_zh": null,
+      "staff_code": null
+    },
+    "leaver": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000006",
+      "email": "ysf@school.test",
+      "name": "YIP Sau Fong",
+      "name_zh": "葉秀芳",
+      "staff_code": "YSF"
+    },
+    "access_only": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000007",
+      "email": "tkw@school.test",
+      "name": "TSE Kwok Wai",
+      "name_zh": null,
+      "staff_code": "TKW"
+    },
+    "brake_01": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000101",
+      "email": "brake01@school.test",
+      "name": "BRAKE Test 01",
+      "name_zh": null,
+      "staff_code": "BR01"
+    },
+    "brake_02": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000102",
+      "email": "brake02@school.test",
+      "name": "BRAKE Test 02",
+      "name_zh": null,
+      "staff_code": "BR02"
+    },
+    "brake_03": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000103",
+      "email": "brake03@school.test",
+      "name": "BRAKE Test 03",
+      "name_zh": null,
+      "staff_code": "BR03"
+    },
+    "brake_04": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000104",
+      "email": "brake04@school.test",
+      "name": "BRAKE Test 04",
+      "name_zh": null,
+      "staff_code": "BR04"
+    },
+    "brake_05": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000105",
+      "email": "brake05@school.test",
+      "name": "BRAKE Test 05",
+      "name_zh": null,
+      "staff_code": "BR05"
+    },
+    "brake_06": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000106",
+      "email": "brake06@school.test",
+      "name": "BRAKE Test 06",
+      "name_zh": null,
+      "staff_code": "BR06"
+    },
+    "brake_07": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000107",
+      "email": "brake07@school.test",
+      "name": "BRAKE Test 07",
+      "name_zh": null,
+      "staff_code": "BR07"
+    },
+    "brake_08": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000108",
+      "email": "brake08@school.test",
+      "name": "BRAKE Test 08",
+      "name_zh": null,
+      "staff_code": "BR08"
+    },
+    "brake_09": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000109",
+      "email": "brake09@school.test",
+      "name": "BRAKE Test 09",
+      "name_zh": null,
+      "staff_code": "BR09"
+    },
+    "brake_10": {
+      "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000110",
+      "email": "brake10@school.test",
+      "name": "BRAKE Test 10",
+      "name_zh": null,
+      "staff_code": "BR10"
+    }
+  },
+  "subjects": {
+    "MATH": {
+      "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000001",
+      "code": "MATH",
+      "name_en": "Mathematics",
+      "name_zh": "數學",
+      "is_active": true
+    },
+    "M2": {
+      "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000002",
+      "code": "M2",
+      "name_en": "Mathematics Extended Part Module 2",
+      "name_zh": "數學延伸部分單元二",
+      "is_active": true
+    },
+    "PHY": {
+      "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000003",
+      "code": "PHY",
+      "name_en": "Physics",
+      "name_zh": "物理",
+      "is_active": true
+    },
+    "CHEM": {
+      "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000004",
+      "code": "CHEM",
+      "name_en": "Chemistry",
+      "name_zh": "化學",
+      "is_active": true
+    },
+    "LAT": {
+      "uuid": "5a0e0001-3c2b-4d6e-8f10-000000000005",
+      "code": "LAT",
+      "name_en": "Latin",
+      "name_zh": null,
+      "is_active": false
+    }
+  },
+  "tokens": [
+    {
+      "name": "teacher_viewer_user",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        1,
+        3,
+        10,
+        14
+      ],
+      "note": "Linked teacher: viewer everywhere, user on MATH and PHY. Submit twice for the replay test.",
+      "file": "tokens/teacher_viewer_user.jwt"
+    },
+    {
+      "name": "teacher_math_only",
+      "verify_at": 1792000015,
+      "expect": "accept",
+      "acceptance_tests": [
+        5
+      ],
+      "note": "Later token for the same teacher: PHY is gone (local grants survive).",
+      "file": "tokens/teacher_math_only.jwt"
+    },
+    {
+      "name": "teacher_empty_subjects",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        2
+      ],
+      "note": "Viewer on everything, nothing editable.",
+      "file": "tokens/teacher_empty_subjects.jwt"
+    },
+    {
+      "name": "access_only_none",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        2
+      ],
+      "note": "May sign in, but default_level none and no subjects: no SMS-derived access.",
+      "file": "tokens/access_only_none.jwt"
+    },
+    {
+      "name": "panel_admin",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        4
+      ],
+      "note": "Panel-scoped Question Bank Admin: admin on the panel's subjects only.",
+      "file": "tokens/panel_admin.jwt"
+    },
+    {
+      "name": "school_admin",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        4
+      ],
+      "note": "Whole-school admin: admin on every subject, never OQB super admin.",
+      "file": "tokens/school_admin.jwt"
+    },
+    {
+      "name": "unlinked_teacher",
+      "verify_at": 1792000005,
+      "expect": "not_linked",
+      "acceptance_tests": [
+        6,
+        9
+      ],
+      "note": "Unlinked sub: link prompt with JIT off; creates a user with JIT on.",
+      "file": "tokens/unlinked_teacher.jwt"
+    },
+    {
+      "name": "teacher_rotated_kid",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        14
+      ],
+      "note": "Signed with the second primary key (rotation); reject once unpinned.",
+      "file": "tokens/teacher_rotated_kid.jwt"
+    },
+    {
+      "name": "expired_31s",
+      "verify_at": 1792000005,
+      "expect": "expired",
+      "acceptance_tests": [
+        11
+      ],
+      "note": "exp is 31 s before verify_at.",
+      "file": "tokens/expired_31s.jwt"
+    },
+    {
+      "name": "expired_20s",
+      "verify_at": 1792000005,
+      "expect": "accept",
+      "acceptance_tests": [
+        11
+      ],
+      "note": "exp is 20 s before verify_at: inside the 30 s skew.",
+      "file": "tokens/expired_20s.jwt"
+    },
+    {
+      "name": "nbf_60s_ahead",
+      "verify_at": 1792000000,
+      "expect": "not_yet_valid",
+      "acceptance_tests": [
+        11
+      ],
+      "note": "iat = nbf = verify_at + 60.",
+      "file": "tokens/nbf_60s_ahead.jwt"
+    },
+    {
+      "name": "lifetime_300s",
+      "verify_at": 1792000005,
+      "expect": "bad_lifetime",
+      "acceptance_tests": [
+        11
+      ],
+      "note": "exp - iat = 300 (> 120).",
+      "file": "tokens/lifetime_300s.jwt"
+    },
+    {
+      "name": "alg_none",
+      "verify_at": 1792000005,
+      "expect": "bad_alg",
+      "acceptance_tests": [
+        12
+      ],
+      "note": "Unsigned token.",
+      "file": "tokens/alg_none.jwt"
+    },
+    {
+      "name": "hs256_with_public_key",
+      "verify_at": 1792000005,
+      "expect": "bad_alg",
+      "acceptance_tests": [
+        12
+      ],
+      "note": "HMAC keyed with the pinned public PEM.",
+      "file": "tokens/hs256_with_public_key.jwt"
+    },
+    {
+      "name": "tampered_payload",
+      "verify_at": 1792000005,
+      "expect": "bad_signature",
+      "acceptance_tests": [
+        12
+      ],
+      "note": "Valid signature over different claims (default_level changed).",
+      "file": "tokens/tampered_payload.jwt"
+    },
+    {
+      "name": "unknown_kid",
+      "verify_at": 1792000005,
+      "expect": "unknown_kid",
+      "acceptance_tests": [
+        12
+      ],
+      "note": "kid sms-contract-test-unknown is in no trust entry and no JWKS.",
+      "file": "tokens/unknown_kid.jwt"
+    },
+    {
+      "name": "wrong_aud_jupas",
+      "verify_at": 1792000005,
+      "expect": "bad_aud",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "aud is jupas.",
+      "file": "tokens/wrong_aud_jupas.jwt"
+    },
+    {
+      "name": "missing_purpose",
+      "verify_at": 1792000005,
+      "expect": "bad_purpose_or_ver",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "No purpose claim.",
+      "file": "tokens/missing_purpose.jwt"
+    },
+    {
+      "name": "ver_2",
+      "verify_at": 1792000005,
+      "expect": "bad_purpose_or_ver",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "ver is 2.",
+      "file": "tokens/ver_2.jwt"
+    },
+    {
+      "name": "unknown_issuer",
+      "verify_at": 1792000005,
+      "expect": "unknown_issuer",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "iss has no trust entry (signed with a pinned key, still refused).",
+      "file": "tokens/unknown_issuer.jwt"
+    },
+    {
+      "name": "admin_with_subjects",
+      "verify_at": 1792000005,
+      "expect": "malformed",
+      "acceptance_tests": [],
+      "note": "default_level admin requires an empty subjects list.",
+      "file": "tokens/admin_with_subjects.jwt"
+    },
+    {
+      "name": "secondary_test_account_admin",
+      "verify_at": 1792000005,
+      "expect": "accept_capped",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "Non-primary issuer, allowed test sub: accept with level cap (default viewer, max user). With the secondary entry disabled: issuer_disabled.",
+      "file": "tokens/secondary_test_account_admin.jwt"
+    },
+    {
+      "name": "secondary_teacher_not_allowed",
+      "verify_at": 1792000005,
+      "expect": "sub_not_allowed",
+      "acceptance_tests": [
+        13
+      ],
+      "note": "Non-primary issuer, real teacher's sub not in allowed_subs.",
+      "file": "tokens/secondary_teacher_not_allowed.jwt"
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "snapshot_baseline",
+      "verify_at": 1792000005,
+      "expect": "200 applied",
+      "acceptance_tests": [
+        17,
+        8
+      ],
+      "note": "Roster + catalogue (LAT inactive). Link teacher / panel_admin / school_admin first.",
+      "file": "snapshots/snapshot_baseline.jwt"
+    },
+    {
+      "name": "snapshot_older_iat",
+      "verify_at": 1792000005,
+      "expect": "409 stale",
+      "acceptance_tests": [
+        19
+      ],
+      "note": "Apply after snapshot_baseline: older iat.",
+      "file": "snapshots/snapshot_older_iat.jwt"
+    },
+    {
+      "name": "snapshot_deprovision_teacher",
+      "verify_at": 1792000605,
+      "expect": "200 applied",
+      "acceptance_tests": [
+        18
+      ],
+      "note": "Teacher active=false: disable (sms_deprovisioned), drop SMS levels, bump session version.",
+      "file": "snapshots/snapshot_deprovision_teacher.jwt"
+    },
+    {
+      "name": "snapshot_reactivate_teacher",
+      "verify_at": 1792001205,
+      "expect": "200 applied",
+      "acceptance_tests": [
+        18
+      ],
+      "note": "Teacher active again: re-enable only if disabled as sms_deprovisioned.",
+      "file": "snapshots/snapshot_reactivate_teacher.jwt"
+    },
+    {
+      "name": "snapshot_missing_panel_admin",
+      "verify_at": 1792001805,
+      "expect": "200 applied",
+      "acceptance_tests": [
+        20
+      ],
+      "note": "Linked panel_admin absent: unchanged and flagged for review.",
+      "file": "snapshots/snapshot_missing_panel_admin.jwt"
+    },
+    {
+      "name": "snapshot_brake_setup",
+      "verify_at": 1792002405,
+      "expect": "200 applied",
+      "acceptance_tests": [
+        19
+      ],
+      "note": "Adds brake_01..10 (link them all before applying).",
+      "file": "snapshots/snapshot_brake_setup.jwt"
+    },
+    {
+      "name": "snapshot_brake_trip",
+      "verify_at": 1792003005,
+      "expect": "202 held",
+      "acceptance_tests": [
+        19
+      ],
+      "note": "Deactivates 10 linked users (> max(5, 10%)): hold, deactivate nothing.",
+      "file": "snapshots/snapshot_brake_trip.jwt"
+    },
+    {
+      "name": "snapshot_secondary_issuer",
+      "verify_at": 1792000005,
+      "expect": "403 rejected",
+      "acceptance_tests": [
+        19
+      ],
+      "note": "Feed from a non-primary issuer is refused.",
+      "file": "snapshots/snapshot_secondary_issuer.jwt"
+    }
+  ]
+}

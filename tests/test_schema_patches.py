@@ -61,6 +61,20 @@ class SchemaPatchTests(unittest.TestCase):
         self.assertTrue(patch_users(self.engine, LOG, table=PROBE))
         self.assertTrue({n for n, _ in USER_COLUMNS} <= self._columns())
 
+    def test_sso_tables_created_twice_innodb_utf8mb4(self):
+        from app.models import SSO_MODELS
+        from app.sso_schema import create_sso_tables
+        self.assertTrue(create_sso_tables(self.engine, LOG))
+        self.assertTrue(create_sso_tables(self.engine, LOG))
+        names = [m.__tablename__ for m in SSO_MODELS]
+        with self.engine.connect() as conn:
+            rows = conn.execute(text(
+                'SELECT table_name, engine, table_collation FROM information_schema.tables '
+                'WHERE table_schema = DATABASE()')).all()
+        found = {r[0]: (r[1], r[2]) for r in rows}
+        for name in names:
+            self.assertEqual(found.get(name), ('InnoDB', 'utf8mb4_unicode_ci'), name)
+
     def test_missing_table_reports_not_ready(self):
         from app.sso_schema import patch_users
         self.assertFalse(patch_users(self.engine, LOG, table='sso_probe_absent'))

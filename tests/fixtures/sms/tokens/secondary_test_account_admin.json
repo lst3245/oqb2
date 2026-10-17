@@ -1,0 +1,25 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test-workshop",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "admin",
+    "email": "oqb-test1@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test-workshop.invalid",
+    "jti": "f69e7602-5e47-5bd9-96ae-718a0053084d",
+    "name": "OQB Test 1",
+    "name_zh": null,
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": null,
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000005",
+    "subjects": [],
+    "ver": 1
+  }
+}

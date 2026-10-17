@@ -69,7 +69,24 @@ def patch_users(engine, logger, table: str = 'users') -> bool:
         return False
 
 
+def create_sso_tables(engine, logger) -> bool:
+    """``CREATE TABLE IF NOT EXISTS`` for every SMS sign-in table, in FK order
+    (``SSO_MODELS``). Each table has its own try so one failure does not hide
+    the rest; any failure keeps SMS sign-in off."""
+    from app.models import SSO_MODELS
+    ok = True
+    for model in SSO_MODELS:
+        try:
+            model.__table__.create(engine, checkfirst=True)
+        except Exception:
+            logger.exception('sso_schema: creating %s failed', model.__tablename__)
+            ok = False
+    return ok
+
+
 def apply_sso_patches(engine, logger=None) -> bool:
     """True when every SSO-related patch is in place."""
     logger = logger or logging.getLogger(__name__)
-    return patch_users(engine, logger)
+    users_ok = patch_users(engine, logger)
+    tables_ok = create_sso_tables(engine, logger)
+    return users_ok and tables_ok

@@ -558,6 +558,36 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         ),
         min=400, max=8000,
     )),
+
+    # SMS sign-in (docs/modules/sms-sso.md). Trust anchors are not settings:
+    # they live in the trust list (super admin) or the env-only bootstrap file.
+    ('SMS_SSO_ENABLED', _spec(
+        'SMS_SSO_ENABLED', 'bool', group='SMS sign-in',
+        label='SMS sign-in',
+        help='Allow signing in from the school SMS (/sso/sms) and count SMS-sourced levels. Also needs PUBLIC_ORIGIN in .env and a pinned key for the live issuer. Off: the SMS routes answer 404 and only local grants count.',
+    )),
+    ('SMS_JIT_ENABLED', _spec(
+        'SMS_JIT_ENABLED', 'bool', group='SMS sign-in',
+        label='Create accounts for unlinked SMS staff',
+        help='When an SMS user with no linked OQB account signs in from the live SMS, create a password-less OQB account for them. Turn on only after existing teachers are linked. Never applies to the workshop SMS.',
+    )),
+    ('SMS_FEED_ENABLED', _spec(
+        'SMS_FEED_ENABLED', 'bool', group='SMS sign-in',
+        label='Accept the SMS directory feed',
+        help='Accept staff snapshots pushed by the live SMS (POST /api/sms/directory): roster, subject catalogue, level updates, deactivations. Off: the endpoint answers 404.',
+    )),
+    ('SMS_FEED_BRAKE_MIN', _spec(
+        'SMS_FEED_BRAKE_MIN', 'int', group='SMS sign-in',
+        label='Feed safety brake: minimum deactivations',
+        help='A snapshot that would deactivate more than the larger of this number and the percentage below of linked accounts is held for a super admin to approve. Default 5.',
+        min=1, max=10000,
+    )),
+    ('SMS_FEED_BRAKE_PCT', _spec(
+        'SMS_FEED_BRAKE_PCT', 'int', group='SMS sign-in',
+        label='Feed safety brake: percent of linked accounts',
+        help='Percentage of linked accounts a single snapshot may deactivate before it is held. Default 10.',
+        min=1, max=100,
+    )),
 ])
 
 

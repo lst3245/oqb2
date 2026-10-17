@@ -85,16 +85,8 @@ class FreshGClient(FlaskClient):
         return super().open(*args, **kwargs)
 
 
-class FreshGClient(FlaskClient):
-    """The test keeps an app context pushed, and Flask reuses it for each
-    request, so ``g`` (Flask-Login's user, the authz level cache) would leak
-    between requests. Clear it first, as a real server would."""
-
-    def open(self, *args, **kwargs):
-        if has_app_context():
-            for key in list(vars(g)):
-                delattr(g, key)
-        return super().open(*args, **kwargs)
+def _no_network(url, timeout):
+    raise OSError(f'tests never fetch JWKS ({url})')
 
 
 def get_app():
@@ -102,10 +94,10 @@ def get_app():
     if _APP is not None:
         return _APP
     rebuild_schema()
-    from app import create_app, db
+    from app import create_app, db, sms_trust
+    sms_trust.JWKS.fetcher = _no_network
     app = create_app()
     app.config.update(TESTING=True)
-    app.test_client_class = FreshGClient
     app.test_client_class = FreshGClient
     with app.app_context():
         assert_test_db(db.engine)
@@ -123,15 +115,22 @@ class DbTestCase(unittest.TestCase):
         cls.app = get_app()
 
     def setUp(self):
+        from app import sms_trust
+        self._config = dict(self.app.config)
         self.ctx = self.app.app_context()
         self.ctx.push()
         self.reset()
+        sms_trust.invalidate()
+        sms_trust.JWKS.clear()
         self.client = self.app.test_client()
 
     def tearDown(self):
-        from app import db
+        from app import db, sms_trust
         db.session.remove()
         self.ctx.pop()
+        self.app.config.clear()
+        self.app.config.update(self._config)
+        sms_trust.invalidate()
 
     # ------------------------------------------------------------ seed
     def reset(self, attempts=3):

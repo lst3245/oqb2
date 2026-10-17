@@ -1,0 +1,25 @@
+{
+  "header": {
+    "alg": "RS256",
+    "kid": "sms-contract-test",
+    "typ": "JWT"
+  },
+  "claims": {
+    "academic_year": "2026-2027",
+    "aud": "oqb",
+    "default_level": "admin",
+    "email": "wkm@school.test",
+    "exp": 1792000060,
+    "iat": 1792000000,
+    "iss": "https://sms-contract-test.invalid",
+    "jti": "3b4c5364-1e84-56ab-9933-a5111e3a0e9e",
+    "name": "WONG Ka Ming",
+    "name_zh": null,
+    "nbf": 1792000000,
+    "purpose": "app_handoff",
+    "staff_code": "WKM",
+    "sub": "8d1f7c2e-0c1a-4b7e-9000-000000000003",
+    "subjects": [],
+    "ver": 1
+  }
+}

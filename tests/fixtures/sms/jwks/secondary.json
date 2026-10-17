@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "sms-contract-test-workshop",
+      "n": "rY8avZqUlffPy85zC49H28iLt-cyq8LBR7QrT9gDDgPgO7pXXWkoSjB0j8xbigXTYA_pOigj04oR0J2sUHkZfB2O_b-ftqQWWoBUn4rk-jHU9kd3tbvZgpMbpOiCSsXO1bXeXdQ4h96DWeCeptgSxu1bX2qzzrzIYWzXzaDdZs1lpce0Fii9YEfJLQI_pto8XDmFH4phKi3Z9pW1UungV1gOxk1uCiWR7t8HSk0WaYZ-aLl2cUYTyQghJt2ULEa1nGMEgAgjVi_IN7kUiQrMrDYZAW-Ot7-U0E_R1dVKh5mefAgEMK9HkZKz6hKJE3uCP4iM0WnuH0bEcWwa4hNubM09C18KF-m7FFqZUo1uAcP6dyqYv2uneiTwvn72LLUXQUW3qg851Cp79z1GirELfNEmc9VuCRiK3WaQN4CHvD-e3AWnhNkLJdqxt1GX77PW_8ZB0sNIksYWHR55uu_azGwPIjQfcFFA4fkFXCvr8GBoxxHRQtKPtg9lwsz4Pabl",
+      "e": "AQAB"
+    }
+  ]
+}
