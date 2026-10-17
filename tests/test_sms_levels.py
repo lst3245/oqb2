@@ -8,7 +8,8 @@ from app import sms_levels
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Modules that must take level names from app/sms_levels.py.
 SCANNED = ('app/sms_verify.py', 'app/sms_trust.py', 'app/auth_audit.py', 'app/sso.py',
-           'app/sms_sso_service.py', 'app/sms_linking.py', 'app/sms_feed_service.py')
+           'app/sms_sso_service.py', 'app/sms_linking.py', 'app/sms_feed_service.py',
+           'app/sms_admin.py', 'app/account_admin.py')
 LITERAL = re.compile(r"""['"](none|viewer|user|admin)['"]""")
 CSP_KEYWORD = re.compile(r"""(-src|-ancestors|-action) 'none'""")
 NOT_A_LEVEL = '# not a level'

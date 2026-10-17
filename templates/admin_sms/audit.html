@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ t('Audit and alerts') }} - {{ t('SMS sign-in') }}{% endblock %}
+
+{% macro audit_row(r, ack=False) %}
+<tr id="audit-{{ r.id }}" class="{{ 'table-danger' if r.is_alert and not r.acknowledged_at }}">
+    <td class="small text-nowrap">{{ r.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    <td><code>{{ r.event }}</code>{% if r.is_alert %} <i class="bi bi-bell-fill text-danger"></i>{% endif %}</td>
+    <td><span class="badge {{ 'bg-success' if r.outcome == 'ok' else ('bg-danger' if r.outcome == 'fail' else 'bg-secondary') }}">{{ r.outcome }}</span></td>
+    <td class="small">{{ r.reason or '' }}</td>
+    <td class="small text-break">{{ r.issuer or '' }}{% if r.sub %}<div class="font-monospace">{{ r.sub }}</div>{% endif %}</td>
+    <td class="small">{{ names.get(r.user_id, r.user_id) if r.user_id else '' }}</td>
+    <td class="small">{{ names.get(r.actor_user_id, r.actor_user_id) if r.actor_user_id else '' }}</td>
+    <td class="small">{{ r.ip or '' }}</td>
+    <td class="small text-break" style="max-width: 280px;">{{ (r.detail or '')|truncate(200) }}</td>
+    <td>{% if ack %}
+        <form method="post" action="{{ url_for('sms_admin.audit_ack', row_id=r.id) }}">
+            <button type="submit" class="btn btn-sm btn-outline-success">{{ t('Acknowledge') }}</button>
+        </form>
+        {% elif r.acknowledged_at %}<span class="small text-muted" title="{{ r.acknowledged_at.strftime('%Y-%m-%d %H:%M') }}"><i class="bi bi-check2"></i> {{ names.get(r.acknowledged_by, '') }}</span>{% endif %}</td>
+</tr>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid mt-4 px-4">
+    {% with sms_tab = 'audit' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+    <p class="text-muted">{{ t('Every SMS sign-in, link, feed push and trust change is recorded here. Alerts (sign-ins from a test issuer, held snapshots, new JWKS keys, ignored bootstrap files) stay highlighted until a super admin acknowledges them. Times are UTC.') }}</p>
+
+    {% if open_rows %}
+    <div class="card border-danger mb-4" id="sms-open-alerts">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-bell"></i> {{ t('Open alerts') }}</span>
+            <form method="post" action="{{ url_for('sms_admin.audit_ack_all') }}">
+                <button type="submit" class="btn btn-sm btn-outline-success">{{ t('Acknowledge all') }}</button>
+            </form>
+        </div>
+        <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle">
+            <tbody>{% for r in open_rows %}{{ audit_row(r, ack=True) }}{% endfor %}</tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="get" class="row g-2 align-items-end mb-2">
+        <div class="col-auto">
+            <select name="event" class="form-select form-select-sm">
+                <option value="">{{ t('All events') }}</option>
+                {% for e in events %}<option value="{{ e }}" {{ 'selected' if e == event }}>{{ e }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="col-auto form-check ms-2">
+            <input class="form-check-input" type="checkbox" name="alerts" value="1" id="alerts-only" {{ 'checked' if alerts_only }}>
+            <label class="form-check-label" for="alerts-only">{{ t('Alerts only') }}</label>
+        </div>
+        <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">{{ t('Filter') }}</button></div>
+        <div class="col-auto small text-muted">{{ t('{n} row(s)', n=total) }}</div>
+    </form>
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle" id="sms-audit">
+        <thead class="table-light">
+            <tr><th>{{ t('Time') }}</th><th>{{ t('Event') }}</th><th>{{ t('Outcome') }}</th><th>{{ t('Reason') }}</th><th>{{ t('Issuer') }}</th><th>{{ t('User') }}</th><th>{{ t('By') }}</th><th>IP</th><th>{{ t('Detail') }}</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}{{ audit_row(r) }}{% else %}<tr><td colspan="10" class="text-muted">{{ t('No rows.') }}</td></tr>{% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if pages > 1 %}
+    <nav><ul class="pagination pagination-sm">
+        {% if page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('sms_admin.audit', event=event or None, alerts='1' if alerts_only else None, page=page-1) }}">&laquo;</a></li>{% endif %}
+        <li class="page-item disabled"><span class="page-link">{{ page }} / {{ pages }}</span></li>
+        {% if page < pages %}<li class="page-item"><a class="page-link" href="{{ url_for('sms_admin.audit', event=event or None, alerts='1' if alerts_only else None, page=page+1) }}">&raquo;</a></li>{% endif %}
+    </ul></nav>
+    {% endif %}
+</div>
+{% endblock %}

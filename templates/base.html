@@ -505,9 +505,11 @@
                             </ul>
                         </li>
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
+                        {% set _sms_alerts = sms_alert_count() if current_user.is_super_admin else 0 %}
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                                 <i class="bi bi-gear"></i> {{ t('Admin') }}
+                                {% if _sms_alerts %}<span class="badge rounded-pill bg-danger" id="nav-sms-alerts" title="{{ t('SMS sign-in alerts') }}">{{ _sms_alerts }}</span>{% endif %}
                             </a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('admin.index') }}"><i class="bi bi-speedometer2"></i> {{ t('Admin Panel') }}</a></li>
@@ -525,6 +527,7 @@
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> {{ t('Manage Subjects') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> {{ t('Manage Users') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('sms_admin.index') }}"><i class="bi bi-box-arrow-in-right"></i> {{ t('SMS sign-in') }}{% if _sms_alerts %} <span class="badge rounded-pill bg-danger">{{ _sms_alerts }}</span>{% endif %}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> {{ t('Database Health') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.settings_page') }}"><i class="bi bi-sliders"></i> {{ t('System Settings') }}</a></li>

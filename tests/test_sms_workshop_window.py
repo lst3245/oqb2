@@ -169,7 +169,7 @@ class TestWorkshopWindow(WindowCase):
         self.assertEqual([r.reason for r in self.audit('test_window')], ['close', 'open', 'close'])
 
     def test_6_more_than_seven_days_is_refused(self):
-        # The trust admin route (stage 5) calls these services; the refusal lives here.
+        # Service level; test_sms_admin.TrustRouteTests checks the same refusal through the route.
         from app import sms_clock, sms_trust
         spec = smskit.cases()['trust']['secondary']
         with self.assertRaises(sms_trust.TrustEditError):

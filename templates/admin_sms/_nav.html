@@ -1,0 +1,15 @@
+<div class="d-flex justify-content-between align-items-center mb-1">
+    <h2 class="mb-0"><i class="bi bi-box-arrow-in-right"></i> {{ t('SMS sign-in') }}</h2>
+    <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
+    </a>
+</div>
+{% set _alerts = sms_alert_count() %}
+<ul class="nav nav-tabs mt-3 mb-3">
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'index' }}" href="{{ url_for('sms_admin.index') }}">{{ t('Overview') }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'mapping' }}" href="{{ url_for('sms_admin.mapping') }}">{{ t('Subject mapping') }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'linking' }}" href="{{ url_for('sms_admin.linking') }}">{{ t('Linking') }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'snapshots' }}" href="{{ url_for('sms_admin.snapshots') }}">{{ t('Snapshots') }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'trust' }}" href="{{ url_for('sms_admin.trust') }}">{{ t('Trust list') }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if sms_tab == 'audit' }}" href="{{ url_for('sms_admin.audit') }}">{{ t('Audit and alerts') }}{% if _alerts %} <span class="badge rounded-pill bg-danger">{{ _alerts }}</span>{% endif %}</a></li>
+</ul>

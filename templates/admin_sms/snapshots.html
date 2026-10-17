@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ t('Snapshots') }} - {{ t('SMS sign-in') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% with sms_tab = 'snapshots' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+    <p class="text-muted">{{ t('The SMS pushes a staff snapshot to OQB. When one would disable more accounts than the safety brake allows, those accounts stay active and the snapshot waits here. Everything else in it is already applied.') }}</p>
+
+    {% for h in held %}{% set r = h.row %}
+    <div class="card border-danger mb-4" id="held-{{ r.id }}">
+        <div class="card-header bg-danger-subtle">
+            <i class="bi bi-pause-circle"></i> {{ t('Held snapshot') }} <code>{{ r.snapshot_id }}</code>
+            · {{ r.received_at.strftime('%Y-%m-%d %H:%M') }} UTC
+            · {{ t('{n} account(s) would be disabled', n=h.people|length) }}
+        </div>
+        <div class="card-body">
+            <table class="table table-sm mb-3">
+                <thead><tr><th>{{ t('OQB account') }}</th><th>{{ t('Name') }}</th><th>{{ t('Staff code') }}</th><th>{{ t('SMS sub') }}</th></tr></thead>
+                <tbody>
+                {% for p in h.people %}
+                    <tr><td>{{ p.account.username if p.account else '—' }}</td>
+                        <td>{{ p.roster.name if p.roster else '' }}</td>
+                        <td>{{ p.roster.staff_code if p.roster else '' }}</td>
+                        <td class="small font-monospace">{{ p.sub }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <form method="post" action="{{ url_for('sms_admin.snapshot_approve', snapshot_id=r.id) }}" class="d-inline">
+                <button type="submit" class="btn btn-danger btn-sm"
+                        onclick="return confirm(OQB.t('Disable these accounts now?'))"><i class="bi bi-check2"></i> {{ t('Approve: disable these accounts') }}</button>
+            </form>
+            <form method="post" action="{{ url_for('sms_admin.snapshot_discard', snapshot_id=r.id) }}" class="d-inline">
+                <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i> {{ t('Discard: keep them active') }}</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+
+    <h5>{{ t('Recent snapshots') }}</h5>
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle" id="sms-snapshots">
+        <thead class="table-light">
+            <tr><th>{{ t('Received') }}</th><th>{{ t('Snapshot') }}</th><th>{{ t('Status') }}</th><th>{{ t('Linked') }}</th><th>{{ t('Disabled') }}</th><th>{{ t('Reactivated') }}</th><th>{{ t('Missing') }}</th><th>{{ t('Unmapped subjects') }}</th></tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}{% set c = counts[r.id] %}
+            <tr>
+                <td class="small">{{ r.received_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="small font-monospace">{{ r.snapshot_id }}</td>
+                <td><span class="badge {{ 'bg-danger' if r.status == 'held' else 'bg-secondary' }}">{{ r.status }}</span></td>
+                <td>{{ c.get('linked', '') }}</td>
+                <td>{{ c.get('deactivated', '') }}</td>
+                <td>{{ c.get('reactivated', '') }}</td>
+                <td>{{ c.get('missing', '') }}</td>
+                <td>{% if unmapped[r.id] %}<a href="{{ url_for('sms_admin.mapping') }}">{{ unmapped[r.id] }}</a>{% else %}0{% endif %}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="8" class="text-muted">{{ t('No snapshots received yet.') }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

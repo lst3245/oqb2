@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}{{ t('Trust list') }} - {{ t('SMS sign-in') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% with sms_tab = 'trust' %}{% include 'admin_sms/_nav.html' %}{% endwith %}
+    <p class="text-muted">{{ t('OQB accepts SMS sign-ins only from an enabled issuer, signed with a key pinned here. Pin a key only after comparing its fingerprint with the one the SMS team sent you by another channel. A test issuer is enabled for at most {days} days, for its listed test accounts only, and never grants admin.', days=max_days) }}</p>
+    {% if bootstrap %}
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> {{ t('The trust list comes from the bootstrap file (SMS_TRUST_BOOTSTRAP_FILE), not from the database. Edits on the Trust list tab have no effect until it is removed.') }}</div>
+    {% endif %}
+    <div class="small text-muted mb-3">{{ t('Published fingerprints:') }}
+        <code>{{ live_kid }}</code> <code class="user-select-all">{{ live_fp }}</code> ·
+        <code>{{ workshop_kid }}</code> <code class="user-select-all">{{ workshop_fp }}</code></div>
+
+    {% for row in rows %}{% set subs = allowed[row.issuer] %}
+    <div class="card mb-4 {{ 'border-primary' if row.is_primary else 'border-warning' }}" id="trust-{{ row.id }}">
+        <div class="card-header d-flex flex-wrap gap-2 align-items-center">
+            <strong class="font-monospace">{{ row.issuer }}</strong>
+            {% if row.is_primary %}<span class="badge bg-primary">{{ t('primary') }}</span>{% else %}<span class="badge bg-warning text-dark">{{ t('test') }}</span>{% endif %}
+            {% if active[row.issuer] %}<span class="badge bg-success">{{ t('Active') }}</span>
+            {% elif row.enabled %}<span class="badge bg-danger">{{ t('Expired') }}</span>
+            {% else %}<span class="badge bg-secondary">{{ t('Disabled') }}</span>{% endif %}
+            {% if row.enabled_until %}<span class="small">{{ t('until {until} UTC', until=row.enabled_until.strftime('%Y-%m-%d %H:%M')) }}</span>{% endif %}
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <h6>{{ t('Pinned keys') }}</h6>
+                    <table class="table table-sm">
+                        <tbody>
+                        {% for k in row.keys %}
+                            <tr><td><code>{{ k.kid }}</code></td>
+                                <td class="small font-monospace text-break">{{ k.fingerprint }}</td>
+                                <td class="small">{{ k.pinned_at.strftime('%Y-%m-%d') }}</td>
+                                <td><form method="post" action="{{ url_for('sms_admin.trust_unpin', issuer_id=row.id) }}">
+                                    <input type="hidden" name="kid" value="{{ k.kid }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm(OQB.t('Unpin this key? Sign-ins signed with it stop working at once.'))">{{ t('Unpin') }}</button>
+                                </form></td></tr>
+                        {% else %}<tr><td class="text-muted">{{ t('No key pinned.') }}</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                    {% if row.jwks_seen_kids_json and row.jwks_seen_kids_json != '[]' %}
+                    <div class="small text-muted mb-2">{{ t('Key IDs seen in the JWKS:') }} <code>{{ row.jwks_seen_kids_json }}</code></div>
+                    {% endif %}
+                    <details>
+                        <summary class="small">{{ t('Pin a key') }}</summary>
+                        <form method="post" action="{{ url_for('sms_admin.trust_pin', issuer_id=row.id) }}" class="mt-2">
+                            <input type="text" name="kid" class="form-control form-control-sm mb-1" placeholder="kid" required maxlength="64">
+                            <textarea name="pem" class="form-control form-control-sm font-monospace mb-1" rows="4" placeholder="-----BEGIN PUBLIC KEY-----" required></textarea>
+                            <input type="text" name="fingerprint" class="form-control form-control-sm font-monospace mb-1" required
+                                   placeholder="{{ t('SHA-256 fingerprint, typed from the second channel') }}">
+                            <button type="submit" class="btn btn-sm btn-primary">{{ t('Pin key') }}</button>
+                        </form>
+                    </details>
+                </div>
+                <div class="col-lg-6">
+                    <h6>{{ t('Settings') }}</h6>
+                    <form method="post" action="{{ url_for('sms_admin.trust_edit', issuer_id=row.id) }}">
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="en-{{ row.id }}" {{ 'checked' if row.enabled }}>
+                            <label class="form-check-label" for="en-{{ row.id }}">{{ t('Enabled') }}</label></div>
+                        <div class="input-group input-group-sm my-1">
+                            <span class="input-group-text">{{ t('Enabled for (days from now)') }}</span>
+                            <input type="number" name="enabled_days" class="form-control" min="0.01" step="any"
+                                   {% if not row.is_primary %}max="{{ max_days }}"{% endif %} placeholder="{{ t('keep') }}">
+                        </div>
+                        {% if row.enabled_until %}
+                        <div class="form-check small"><input class="form-check-input" type="checkbox" name="clear_until" value="1" id="cu-{{ row.id }}">
+                            <label class="form-check-label" for="cu-{{ row.id }}">{{ t('No end date') }}</label></div>
+                        {% endif %}
+                        {% if row.is_primary %}
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="accepts_feed" value="1" id="af-{{ row.id }}" {{ 'checked' if row.accepts_feed }}>
+                            <label class="form-check-label" for="af-{{ row.id }}">{{ t('Accepts the directory feed') }}</label></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="allow_jit" value="1" id="aj-{{ row.id }}" {{ 'checked' if row.allow_jit }}>
+                            <label class="form-check-label" for="aj-{{ row.id }}">{{ t('May create accounts on first sign-in') }}</label></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="level_cap" value="1" id="lc-{{ row.id }}" {{ 'checked' if row.level_cap }}>
+                            <label class="form-check-label" for="lc-{{ row.id }}">{{ t('Cap SMS levels at User') }}</label></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="jwks_auto" value="1" id="ja-{{ row.id }}" {{ 'checked' if row.jwks_auto }}>
+                            <label class="form-check-label" for="ja-{{ row.id }}">{{ t('Trust new keys from the JWKS automatically (not recommended)') }}</label></div>
+                        {% else %}
+                        <label class="form-label small mt-1">{{ t('Test accounts: one per line, sub then an optional label') }}</label>
+                        <textarea name="allowed_subs" class="form-control form-control-sm font-monospace" rows="3">{% for i in subs %}{{ i.sub }}{{ ' ' ~ i.label if i.label }}
+{% endfor %}</textarea>
+                        {% endif %}
+                        <input type="url" name="jwks_url" class="form-control form-control-sm my-1" value="{{ row.jwks_url or '' }}" placeholder="{{ t('JWKS URL (optional)') }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">{{ t('Save settings') }}</button>
+                    </form>
+                </div>
+            </div>
+
+            {% if not row.is_primary %}
+            <hr>
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <h6><i class="bi bi-door-open"></i> {{ t('Open test window') }}</h6>
+                    <form method="post" action="{{ url_for('sms_admin.trust_window_open', issuer_id=row.id) }}" id="window-open-{{ row.id }}">
+                        <div class="row g-1 mb-1">
+                            <div class="col-4"><input type="text" name="kid" class="form-control form-control-sm" placeholder="kid" required
+                                   value="{{ workshop_kid if row.keys|length == 0 else row.keys[0].kid }}"></div>
+                            <div class="col-8"><input type="text" name="fingerprint" class="form-control form-control-sm font-monospace" required
+                                   placeholder="{{ t('SHA-256 fingerprint, typed from the second channel') }}"></div>
+                        </div>
+                        <textarea name="pem" class="form-control form-control-sm font-monospace mb-1" rows="3"
+                                  placeholder="{{ t('Public key PEM (not needed when the kid is already pinned)') }}"></textarea>
+                        <textarea name="allowed_subs" class="form-control form-control-sm font-monospace mb-1" rows="3" required
+                                  placeholder="{{ t('Test accounts: one per line, sub then an optional label') }}">{% for i in subs %}{{ i.sub }}{{ ' ' ~ i.label if i.label }}
+{% endfor %}</textarea>
+                        <div class="input-group input-group-sm mb-1">
+                            <span class="input-group-text">{{ t('Open for (days)') }}</span>
+                            <input type="number" name="enabled_days" class="form-control" min="0.01" step="any" max="{{ max_days }}" value="1" required>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-warning">{{ t('Open test window') }}</button>
+                    </form>
+                </div>
+                <div class="col-lg-6">
+                    <h6><i class="bi bi-door-closed"></i> {{ t('Close test window') }}</h6>
+                    <form method="post" action="{{ url_for('sms_admin.trust_window_close', issuer_id=row.id) }}" id="window-close-{{ row.id }}">
+                        <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="disable_accounts" value="1" id="da-{{ row.id }}" checked>
+                            <label class="form-check-label small" for="da-{{ row.id }}">{{ t('Also unlink and disable the {n} linked account(s)', n=linked[row.issuer]|length) }}</label></div>
+                        <button type="submit" class="btn btn-sm btn-danger"
+                                onclick="return confirm(OQB.t('Close the test window? The issuer is disabled and its keys are unpinned.'))">{{ t('Close test window') }}</button>
+                    </form>
+                    <h6 class="mt-3">{{ t('Linked test accounts') }}</h6>
+                    <table class="table table-sm">
+                        <tbody>
+                        {% for identity, u in linked[row.issuer] %}
+                            <tr><td>{{ u.username }}{% if not u.is_active %} <span class="badge bg-secondary">{{ t('Disabled') }}</span>{% endif %}</td>
+                                <td class="small font-monospace">{{ identity.sub }}</td>
+                                <td class="small">{% for i in subs if i.sub == identity.sub %}{{ i.label or '' }}{% endfor %}</td>
+                                <td><form method="post" action="{{ url_for('sms_admin.unlink') }}">
+                                    <input type="hidden" name="issuer" value="{{ row.issuer }}">
+                                    <input type="hidden" name="user_id" value="{{ u.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">{{ t('Unlink') }}</button>
+                                </form></td></tr>
+                        {% else %}<tr><td class="text-muted small">{{ t('No linked accounts.') }}</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                    {% if linked[row.issuer] %}
+                    <form method="post" action="{{ url_for('sms_admin.trust_disable_linked', issuer_id=row.id) }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                onclick="return confirm(OQB.t('Unlink and disable every account linked to this issuer?'))">{{ t('Unlink and disable all') }}</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">{{ t('The trust list is empty.') }}</div>
+    {% endfor %}
+</div>
+{% endblock %}

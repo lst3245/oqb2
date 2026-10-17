@@ -4017,7 +4017,15 @@ def users():
             'user': user,
             'permissions': permissions
         })
-    
+
+    sms_ids, sms_lv = {}, {}
+    if current_app.config.get('SMS_SCHEMA_READY'):
+        from app import sms_admin
+        sms_ids, sms_lv = sms_admin.identities_by_user(), sms_admin.sms_levels_by_user()
+    for data in users_data:
+        data['identities'] = sms_ids.get(data['user'].id, [])
+        data['sms_levels'] = sms_lv.get(data['user'].id, [])
+
     return render_template('admin_users.html', 
                            users_data=users_data, 
                            subjects=all_subjects)

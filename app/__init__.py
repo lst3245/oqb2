@@ -65,6 +65,8 @@ def create_app():
     from app.restore_points import restore_points_bp
     from app.i18n import i18n_bp, template_globals as _i18n_globals
     from app.sso import sso_bp
+    from app.sms_admin import sms_admin_bp
+    from app.account_admin import account_admin_bp
     from app import web_security
 
     web_security.init_app(app)
@@ -72,6 +74,8 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(sms_admin_bp)
+    app.register_blueprint(account_admin_bp)
     app.register_blueprint(generator_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(toolbox_bp)
