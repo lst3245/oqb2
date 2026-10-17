@@ -94,6 +94,7 @@
             <img src="{{ url_for('dashboard.get_asset_preview', asset_id=asset_id) }}"
                  class="question-image"
                  style="display:block; margin-bottom:2px;"
+                 loading="lazy" decoding="async"
                  data-fallback-label="{{ t('No Preview') }}"
                  onerror="this.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; width=&quot;200&quot; height=&quot;100&quot;><rect fill=&quot;#ddd&quot; width=&quot;200&quot; height=&quot;100&quot;/><text x=&quot;50%&quot; y=&quot;50%&quot; dominant-baseline=&quot;middle&quot; text-anchor=&quot;middle&quot; fill=&quot;#999&quot;>'+this.dataset.fallbackLabel+'</text></svg>')">
             {% endfor %}

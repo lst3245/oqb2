@@ -26,6 +26,7 @@ alwaysApply: false
 - Routes: `POST /dashboard/filter` (HTMX partial), `/dashboard/api/*` lookups, `/dashboard/api/sort-groups`, previews `/dashboard/api/question/<id>/preview/<type>`, `/dashboard/api/question/<id>/explain[/endpoints]`.
 
 ## Gotchas
+- **No per-card queries:** `_dashboard_card` reads only `_prefetch_card_assets` / `_prefetch_card_tags` data for the page's card ids. A new card field needing the DB extends a prefetch. Verify with a query count (was 1,415 → 39 for ICT CQ).
 - Server ints vs client string ids — coerce at the boundary.
 - Selections may contain ids of deleted questions; every consumer tolerates that.
 - **Reset keeps the current subject.** `resetFilters` does not set `#subjectSelect` to `DEFAULT_SUBJECT` (`MATC`). It persists via `saveStateToStorage()` after the form is cleared. `MATC` is the first-visit fallback when `oqb_filterSettings` is missing.

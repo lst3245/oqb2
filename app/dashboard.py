@@ -4,6 +4,7 @@ Dashboard routes for question browsing and filtering
 from flask import Blueprint, render_template, request, jsonify, session, current_app, send_file, abort, url_for, Response
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, case
+from sqlalchemy.orm import selectinload
 from app import db
 from app.models import Question, QuestionAsset, Topic, Subtopic, Subject, Chapter, Subchapter
 from app.utils import (natural_sort, apply_multi_sort, get_user_accessible_subjects,
@@ -205,17 +206,58 @@ def _build_filtered_query(params):
 _PREVIEW_FORMAT_RANK = {'IMG': 0, 'MD': 1, 'DOC': 2}
 
 
-def _dashboard_card(q, version_order, *, role='leaf'):
-    """Card payload for the dashboard list (leaf or stem header)."""
-    que_assets = QuestionAsset.query.filter_by(
-        question_id=q.id,
-        asset_type='QUE'
-    ).filter(
-        QuestionAsset.version.in_(VERSIONS)
-    ).order_by(
-        version_order,
-        QuestionAsset.part_number
+_CARD_ASSET_TYPES = ('QUE', 'ANS', 'SOL', 'WHOLE')
+
+
+def _prefetch_card_assets(question_ids):
+    """``{question_id: [QuestionAsset]}`` for every asset type a card reads,
+    in one query for the whole page."""
+    by_question = {}
+    if not question_ids:
+        return by_question
+    rows = QuestionAsset.query.filter(
+        QuestionAsset.question_id.in_(list(question_ids)),
+        QuestionAsset.asset_type.in_(_CARD_ASSET_TYPES),
     ).all()
+    for a in rows:
+        by_question.setdefault(a.question_id, []).append(a)
+    return by_question
+
+
+def _prefetch_card_tags(question_ids):
+    """Load the tag relationships of the page's questions in a few queries
+    (fills the already-loaded rows in the session) instead of one lazy load
+    per card."""
+    if not question_ids:
+        return
+    Question.query.options(
+        selectinload(Question.minor_topics),
+        selectinload(Question.subtopics),
+        selectinload(Question.major_topic),
+        selectinload(Question.major_subtopic),
+        selectinload(Question.chapter),
+        selectinload(Question.subchapter),
+        # Stem headers sum their parts' marks (whole_marks walks children).
+        selectinload(Question.children).selectinload(Question.children),
+    ).filter(Question.id.in_(list(question_ids))).all()
+
+
+def _ranked_assets(assets, asset_type, version_rank, file_format=None):
+    """Assets of one type in VERSIONS, by version priority then part number
+    (NULL part first, as MariaDB orders it)."""
+    out = [a for a in assets
+           if a.asset_type == asset_type and a.version in VERSIONS
+           and (file_format is None or a.file_format == file_format)]
+    out.sort(key=lambda a: (version_rank.get(a.version, len(version_rank)),
+                            a.part_number is not None, a.part_number or 0, a.id))
+    return out
+
+
+def _dashboard_card(q, version_rank, assets_by_question, *, role='leaf'):
+    """Card payload for the dashboard list (leaf or stem header).
+    ``assets_by_question`` comes from ``_prefetch_card_assets``."""
+    assets = assets_by_question.get(q.id, [])
+    que_assets = _ranked_assets(assets, 'QUE', version_rank)
 
     que_asset_ids = []
     preview_mode = None
@@ -250,23 +292,15 @@ def _dashboard_card(q, version_order, *, role='leaf'):
             else:
                 preview_mode = 'download'
 
-    has_ans = QuestionAsset.query.filter_by(
-        question_id=q.id, asset_type='ANS'
-    ).first() is not None
-    has_sol = QuestionAsset.query.filter_by(
-        question_id=q.id, asset_type='SOL'
-    ).first() is not None
+    has_ans = any(a.asset_type == 'ANS' for a in assets)
+    has_sol = any(a.asset_type == 'SOL' for a in assets)
 
     # Root-only WHOLE archive (unsplit original kept by PDF import / Split /
     # Combine). Surfaced on the group header as a view-only toggle; it is never
     # used by papers, Present slides, Explain or auto-tag.
     whole_asset_ids: list = []
     if role == 'stem':
-        whole_assets = QuestionAsset.query.filter_by(
-            question_id=q.id, asset_type='WHOLE', file_format='IMG'
-        ).filter(
-            QuestionAsset.version.in_(VERSIONS)
-        ).order_by(version_order, QuestionAsset.part_number).all()
+        whole_assets = _ranked_assets(assets, 'WHOLE', version_rank, file_format='IMG')
         if whole_assets:
             best = whole_assets[0].version
             whole_asset_ids = [a.id for a in whole_assets if a.version == best]
@@ -478,13 +512,20 @@ def filter_questions():
     total_pages = (total + per_page - 1) // per_page
     
     # Prepare question data with assets
-    # Build version ordering from the priority list (highest priority first).
-    version_order = case(
-        *[(QuestionAsset.version == v, i) for i, v in enumerate(version_priority)],
-        else_=len(version_priority),
-    )
+    # Version rank from the priority list (highest priority first).
+    version_rank = {v: i for i, v in enumerate(version_priority)}
 
     groups_raw = group_for_dashboard(page_items)
+
+    # Every card on this page is a page item or one of its ancestors (stem
+    # headers, shared intros). Load their assets and tags up front.
+    card_ids = set()
+    for q in page_items:
+        card_ids.add(q.id)
+        card_ids.update(getattr(a, 'id', None) for a in hier_ancestors(q))
+    card_ids.discard(None)
+    assets_by_question = _prefetch_card_assets(card_ids)
+    _prefetch_card_tags(card_ids)
 
     # Stem / substem checkboxes are aggregates over their descendant leaves in
     # the *whole* result set (not just this page), so ticking Q1 selects every
@@ -509,7 +550,7 @@ def filter_questions():
     for g in groups_raw:
         stem_card = None
         if g['stem'] is not None:
-            stem_card = _dashboard_card(g['stem'], version_order, role='stem')
+            stem_card = _dashboard_card(g['stem'], version_rank, assets_by_question, role='stem')
             stem_card['child_count'] = len(g['leaves'])
             stem_card['is_stem'] = True
             stem_card['depth'] = 0
@@ -522,14 +563,14 @@ def filter_questions():
         seen_substems = set()
         root_id = getattr(g['stem'], 'id', None)
         for q in g['leaves']:
-            card = _dashboard_card(q, version_order, role='leaf')
+            card = _dashboard_card(q, version_rank, assets_by_question, role='leaf')
             stem_obj = g['stem']
             if stem_obj is None:
                 r = hier_root(q)
                 if is_stem(r) and getattr(r, 'id', None) != q.id:
                     stem_obj = r
             if stem_obj is not None and getattr(stem_obj, 'id', None) != q.id:
-                src = stem_card or _dashboard_card(stem_obj, version_order, role='stem')
+                src = stem_card or _dashboard_card(stem_obj, version_rank, assets_by_question, role='stem')
                 card['stem_qid'] = src['qid']
                 card['stem_preview'] = {
                     'id': src['id'],
@@ -556,7 +597,7 @@ def filter_questions():
                     if aid in seen_substems:
                         continue
                     seen_substems.add(aid)
-                    sub = _dashboard_card(anc, version_order, role='stem')
+                    sub = _dashboard_card(anc, version_rank, assets_by_question, role='stem')
                     sub['is_stem'] = True
                     sub['depth'] = depth_i + (1 if is_block(anc) else 0)
                     sub['child_count'] = len(hier_children(anc))

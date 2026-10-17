@@ -602,10 +602,18 @@ def apply_multi_sort(items, sort_config, group_order=None):
         
         return keys
     
+    key_cache = {}
+
+    def cached_key(item):
+        k = key_cache.get(id(item))
+        if k is None:
+            k = key_cache[id(item)] = make_sort_key(item)
+        return k
+
     def compare_items(a, b):
         """Compare two items based on multi-level sort"""
-        keys_a = make_sort_key(a)
-        keys_b = make_sort_key(b)
+        keys_a = cached_key(a)
+        keys_b = cached_key(b)
         
         for (val_a, desc_a), (val_b, desc_b) in zip(keys_a, keys_b):
             # Handle None values

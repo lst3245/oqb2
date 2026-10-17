@@ -2582,11 +2582,22 @@ function oqbZoomQuestion(btn) {
             img.style.width = '';
             img.style.maxWidth = '100%';
             if (nw) { ratios.push([img, nw]); widest = Math.max(widest, nw); }
+            else {
+                // Lazy crop not loaded on the page yet: load it now, then rescale.
+                img.loading = 'eager';
+                img.addEventListener('load', () => {
+                    if (!_qsheetImageReady(img)) return;
+                    ratios.push([img, img.naturalWidth]);
+                    widest = Math.max(widest, img.naturalWidth);
+                    fitRatios();
+                }, { once: true });
+            }
         });
         pieces.push(clone);
     });
     if (!pieces.length) return;
-    ratios.forEach(([img, nw]) => { img.style.width = (nw / widest * 100).toFixed(3) + '%'; });
+    const fitRatios = () => ratios.forEach(([img, nw]) => { img.style.width = (nw / widest * 100).toFixed(3) + '%'; });
+    fitRatios();
 
     let title = btn.dataset.zoomCaption || '';
     if (isWhole && papers.some(p => p.closest('.qsheet-stem-row'))) title = OQB.t('{caption} · whole question archive', {caption: title});

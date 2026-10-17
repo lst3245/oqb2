@@ -287,6 +287,7 @@ Runtime-tunable keys hot-reload from System Settings: [../core/06-system-setting
 
 ## Gotchas
 
+0. **No per-card queries.** `filter_questions` collects every card id on the page (page items + their ancestors), then `_prefetch_card_assets` (one `question_assets` query for QUE / ANS / SOL / WHOLE) and `_prefetch_card_tags` (selectinload of tags + two levels of children for stem marks). `_dashboard_card` only reads that data; ordering mirrors the old SQL (version rank, then `part_number`, NULL first). A new card field that needs the DB goes into a prefetch, not into the card. `apply_multi_sort` caches one key per row. ICT CQ (20 questions, 231 rows, ~3k-row result) went from 3.4 s / 1,415 statements to ~0.85 s / 39. QUE crops use `loading="lazy"`; the whole-sheet Enlarge loads unloaded crops itself and rescales on load.
 1. **`qids` > `ids` > `qid_search`**, and the first two null every other filter variable. Do not add a filter block before this cascade.
 2. **Never prune `selectedQuestions` on an HTMX swap.** The `htmx:afterSwap` handler on `#questionList` may only run `applyViewSettings`, `initializeSelectionState`, `applyShowSelectedOnly` and the layout-only `oqbFitSheetImages`. `initializeSelectionState()` must set `cb.checked = isSelected` in both branches.
 3. **Subject change is the only flow allowed to clear selection implicitly**; use `suppressSelectionClearOnSubjectChange` when you need to switch subject and keep a seeded selection.
