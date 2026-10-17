@@ -5,7 +5,7 @@ One method per case, ``test_case_<name>``, generated from cases.json so the
 names are stable and ``pytest -v`` reports every case. Each docstring names
 the contract section 15 acceptance tests the case covers. Route-level runs
 of the same cases (``POST /sso/sms``, ``POST /api/sms/directory``) live in
-test_sms_routes_fixtures.py / test_sms_feed.py.
+test_sms_routes_fixtures.py and test_sms_feed.py.
 """
 import unittest
 

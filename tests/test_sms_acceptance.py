@@ -1,8 +1,9 @@
 """Contract v1.2 section 15 acceptance tests AT01-AT16 and AT21 through the
 real routes (``POST /sso/sms`` etc.) against oqb_sso_test, with the clock
-frozen to each fixture's ``verify_at``. AT17-AT20 (feed) and AT22 (session
-limits) arrive with stages 4 and 6; AT03's mapping removal and AT08's admin
-linking go through the service / DB until the stage 5 admin screens exist.
+frozen to each fixture's ``verify_at``. AT17-AT20 (feed) are in
+test_sms_feed.py; AT22 (session limits) arrives with stage 6. AT03's mapping
+removal and AT08's admin linking go through the service / DB until the
+stage 5 admin screens exist.
 """
 import html.parser
 import json

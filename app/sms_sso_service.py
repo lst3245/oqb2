@@ -360,8 +360,9 @@ _last_purge = {'at': 0.0}
 
 
 def purge(now: int | None = None) -> int:
-    """Drop jti rows older than a day (and past ``exp + 30``) and dead pending
-    links. Commits."""
+    """Drop jti rows older than a day (and past ``exp + 30``), dead pending
+    links and old decided snapshot records. Commits."""
+    from app import sms_feed_service
     now = sms_clock.now() if now is None else now
     cutoff = sms_clock.to_datetime(now - JTI_KEEP_SECONDS)
     n = (SsoUsedJti.query.filter(SsoUsedJti.used_at < cutoff, SsoUsedJti.exp + 30 < now)
@@ -369,6 +370,7 @@ def purge(now: int | None = None) -> int:
     n += (SsoPendingLink.query.filter(db.or_(SsoPendingLink.expires_at < sms_clock.to_datetime(now),
                                              SsoPendingLink.consumed_at.isnot(None)))
           .delete(synchronize_session=False))
+    n += sms_feed_service.purge_snapshots(now)
     db.session.commit()
     return n
 

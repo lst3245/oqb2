@@ -3,7 +3,7 @@
 ``verify_at``: accepted cases sign in, ``not_linked`` shows the link prompt,
 every refusal answers 401 with the failure page and audits its reason code.
 Method names are stable: ``test_case_<name>``. Snapshot cases go through
-``POST /api/sms/directory`` once the feed exists (stage 4)."""
+``POST /api/sms/directory`` in test_sms_feed.py."""
 import unittest
 
 import smskit

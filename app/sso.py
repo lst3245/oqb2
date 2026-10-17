@@ -8,8 +8,14 @@ The POST checks Origin == PUBLIC_ORIGIN, rate-limits per IP, verifies the
 token and runs the handoff transaction, then answers ``{"next": <fixed path>}``
 which the page allowlists. The token is never logged or stored.
 
-Every route answers 404 unless ``SMS_SSO_ENABLED`` and ``PUBLIC_ORIGIN`` are
-set, and 503 when the SSO schema patches failed (fail closed).
+Every ``/sso/*`` route answers 404 unless ``SMS_SSO_ENABLED`` and
+``PUBLIC_ORIGIN`` are set, and 503 when the SSO schema patches failed (fail
+closed).
+
+``POST /api/sms/directory`` (section 10) is gated by ``SMS_FEED_ENABLED``
+alone, so the roster can arrive before sign-in is switched on. It is
+authenticated by the snapshot's signature (no cookies, no session), and the
+body is never logged.
 """
 from __future__ import annotations
 
@@ -22,8 +28,8 @@ from flask import (Blueprint, abort, current_app, flash, jsonify, make_response,
                    render_template, request, session, url_for)
 from flask_login import current_user, login_user, logout_user
 
-from app import (auth_audit, db, sms_clock, sms_linking, sms_sso_service as service, sms_trust,
-                 sms_verify, web_security)
+from app import (auth_audit, db, sms_clock, sms_feed_service, sms_linking,
+                 sms_sso_service as service, sms_trust, sms_verify, web_security)
 from app.auth import SSO_LINK_KEY
 from app.i18n import t as _t
 from app.models import User
@@ -45,6 +51,11 @@ FORM_KEY = 'sso_link_form'  # interim per-link form token (global CSRF arrives i
 AUTH_METHOD_KEY = 'auth_method'
 
 _limiter = RateLimiter(RATE_LIMIT, RATE_WINDOW_SECONDS)
+
+FEED_RATE_LIMIT = 30
+FEED_RATE_WINDOW_SECONDS = 600
+FEED_CONTENT_TYPE = 'application/jwt'
+_feed_limiter = RateLimiter(FEED_RATE_LIMIT, FEED_RATE_WINDOW_SECONDS)
 
 FAILED_MESSAGE = ("Sign-in from SMS didn't work. Please open the Question Bank from SMS again, "
                   "or sign in with your OQB password.")
@@ -274,6 +285,52 @@ def link_cancel():
     service.cancel_pending(session.get(SSO_LINK_KEY))
     _drop_pending()
     return redirect(url_for('auth.index'))
+
+
+# ---------------------------------------------------------------- directory feed
+
+def _feed_answer(status: int, body: dict):
+    resp = make_response(jsonify(body), status)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _feed_reject(reason: str, ip, status: int | None = None):
+    auth_audit.record_now(auth_audit.FEED_SNAPSHOT, 'fail', reason, ip=ip)
+    return _feed_answer(status or sms_verify.feed_status(reason),
+                        {'status': 'rejected', 'reason': reason})
+
+
+@sso_bp.route('/api/sms/directory', methods=['POST'])
+def directory_feed():
+    cfg = current_app.config
+    if not cfg.get('SMS_FEED_ENABLED'):
+        abort(404)
+    if not cfg.get('SMS_SCHEMA_READY'):
+        return _feed_answer(503, {'status': 'unavailable'})
+    ip = web_security.client_ip(request)
+    if _feed_limiter.hit(ip or '-'):
+        return _feed_reject('rate_limited', ip, 429)
+    if request.mimetype != FEED_CONTENT_TYPE:
+        return _feed_reject('malformed', ip)
+    length = request.content_length
+    if length is None or length > sms_verify.MAX_SNAPSHOT_BYTES:
+        return _feed_reject('malformed', ip)
+    body = request.get_data(cache=False)
+    try:
+        snap = sms_verify.verify_snapshot(body, sms_trust.load_trust_list(), sms_clock.now(),
+                                          key_resolver=sms_trust.key_resolver)
+    except sms_verify.VerifyError as exc:
+        return _feed_reject(exc.reason, ip)
+    except Exception as exc:
+        log.error('sms feed: verification error (%s)', exc.__class__.__name__)
+        return _feed_reject('server_error', ip, 500)
+    del body
+    result = sms_feed_service.apply_snapshot(
+        snap, brake_min=int(cfg.get('SMS_FEED_BRAKE_MIN') or 5),
+        brake_pct=int(cfg.get('SMS_FEED_BRAKE_PCT') or 10), ip=ip)
+    service.maybe_purge()
+    return _feed_answer(result.status, result.body)
 
 
 def _refusal_message(reason) -> str:
